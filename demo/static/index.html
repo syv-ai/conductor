@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FlowEngine Playground</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #242836;
+    --border: #2e3348;
+    --text: #e1e4ed;
+    --text-dim: #8b8fa3;
+    --accent: #6366f1;
+    --accent-dim: #4f46e5;
+    --green: #22c55e;
+    --red: #ef4444;
+    --orange: #f59e0b;
+    --blue: #3b82f6;
+    --control: #a855f7;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; }
+
+  .layout { display: grid; grid-template-columns: 240px 1fr 320px; grid-template-rows: 48px 1fr; height: 100vh; }
+  .header { grid-column: 1 / -1; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 16px; }
+  .header h1 { font-size: 15px; font-weight: 600; letter-spacing: -0.3px; }
+  .header-actions { display: flex; gap: 8px; }
+
+  .btn { padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.15s; }
+  .btn:hover { background: var(--border); }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: white; }
+  .btn-primary:hover { background: var(--accent-dim); }
+  .btn-danger { background: var(--red); border-color: var(--red); color: white; }
+  .btn-danger:hover { opacity: 0.85; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* Palette */
+  .palette { background: var(--surface); border-right: 1px solid var(--border); padding: 12px; overflow-y: auto; }
+  .palette h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim); margin: 12px 0 6px; }
+  .palette h3:first-child { margin-top: 0; }
+  .palette-node { padding: 8px 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 4px; cursor: grab; font-size: 13px; transition: border-color 0.15s; }
+  .palette-node:hover { border-color: var(--accent); }
+  .palette-node .desc { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+  .palette-node.control { border-left: 3px solid var(--control); }
+
+  /* Canvas */
+  .canvas-wrap { position: relative; overflow: hidden; background: var(--bg); }
+  .canvas { position: absolute; top: 0; left: 0; width: 4000px; height: 4000px; }
+  .canvas-grid { width: 100%; height: 100%; background-image: radial-gradient(circle, var(--border) 1px, transparent 1px); background-size: 20px 20px; }
+
+  /* Nodes on canvas */
+  .flow-node { position: absolute; min-width: 200px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); z-index: 2; }
+  .flow-node.selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(99,102,241,0.3); }
+  .flow-node.running { border-color: var(--orange); box-shadow: 0 0 0 2px rgba(245,158,11,0.3); }
+  .flow-node.completed { border-color: var(--green); }
+  .flow-node.error { border-color: var(--red); }
+  .flow-node.skipped { opacity: 0.5; }
+
+  .node-header { padding: 8px 10px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; cursor: grab; border-radius: 8px 8px 0 0; }
+  .node-header.control { background: rgba(168,85,247,0.1); }
+  .node-title { font-size: 13px; font-weight: 600; }
+  .node-type { font-size: 10px; color: var(--text-dim); }
+  .node-delete { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 16px; padding: 0 2px; }
+  .node-delete:hover { color: var(--red); }
+
+  .node-body { padding: 8px 10px; }
+  .node-field { margin-bottom: 6px; }
+  .node-field label { display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 2px; }
+  .node-field input, .node-field select, .node-field textarea {
+    width: 100%; padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--text); font-size: 12px; font-family: inherit;
+  }
+  .node-field textarea { resize: vertical; min-height: 40px; }
+  .node-field input:focus, .node-field select:focus, .node-field textarea:focus { outline: none; border-color: var(--accent); }
+
+  /* Handles (connection ports) */
+  .handle-row { display: flex; align-items: center; padding: 3px 0; position: relative; }
+  .handle-row.input { padding-left: 16px; }
+  .handle-row.output { padding-right: 16px; justify-content: flex-end; }
+  .handle { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); border: 2px solid var(--surface); position: absolute; cursor: crosshair; z-index: 3; }
+  .handle.input { left: -5px; }
+  .handle.output { right: -5px; }
+  .handle:hover { transform: scale(1.3); }
+  .handle-label { font-size: 11px; color: var(--text-dim); }
+
+  .node-field.with-handle { position: relative; padding-left: 10px; }
+  .node-field.with-handle > .handle.input { left: -5px; top: 50%; transform: translateY(-50%); }
+  .node-field input.connected, .node-field select.connected, .node-field textarea.connected {
+    opacity: 0.4; border-style: dashed;
+  }
+  .conn-badge { font-size: 9px; background: var(--accent); color: white; padding: 1px 5px; border-radius: 3px; font-weight: 500; vertical-align: middle; }
+  .range-row { display: flex; gap: 6px; align-items: center; }
+  .range-row input[type="range"] { flex: 1; }
+  .range-number { width: 60px !important; flex: none; text-align: center; }
+
+  .node-outputs { padding: 4px 10px; border-top: 1px solid var(--border); }
+
+  /* SVG edges */
+  .edges-svg { position: absolute; top: 0; left: 0; width: 4000px; height: 4000px; z-index: 1; pointer-events: none; }
+  .edge-path { stroke: var(--accent); stroke-width: 2; fill: none; opacity: 0.6; }
+  .edge-path.active { stroke: var(--green); opacity: 1; stroke-width: 2.5; }
+  .edge-path.temp { stroke: var(--text-dim); stroke-dasharray: 6 4; opacity: 0.5; }
+
+  /* Results panel */
+  .results { background: var(--surface); border-left: 1px solid var(--border); display: flex; flex-direction: column; }
+  .results-header { padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; }
+  .results-body { flex: 1; overflow-y: auto; padding: 8px; }
+  .event-item { padding: 6px 8px; margin-bottom: 4px; border-radius: 4px; font-size: 12px; font-family: 'SF Mono', 'Fira Code', monospace; }
+  .event-item.node_start { background: rgba(59,130,246,0.1); border-left: 3px solid var(--blue); }
+  .event-item.node_complete { background: rgba(34,197,94,0.1); border-left: 3px solid var(--green); }
+  .event-item.node_error { background: rgba(239,68,68,0.1); border-left: 3px solid var(--red); }
+  .event-item.node_skipped { background: rgba(139,143,163,0.1); border-left: 3px solid var(--text-dim); }
+  .event-item.node_progress { background: rgba(245,158,11,0.1); border-left: 3px solid var(--orange); }
+  .event-item.flow_complete { background: rgba(34,197,94,0.15); border-left: 3px solid var(--green); font-weight: 600; }
+  .event-item.flow_error { background: rgba(239,68,68,0.15); border-left: 3px solid var(--red); font-weight: 600; }
+  .event-item.flow_timeout { background: rgba(245,158,11,0.15); border-left: 3px solid var(--orange); font-weight: 600; }
+  .event-label { font-weight: 600; display: inline-block; margin-right: 6px; }
+  .event-detail { color: var(--text-dim); word-break: break-all; }
+  .result-value { margin-top: 4px; padding: 4px 6px; background: var(--bg); border-radius: 3px; white-space: pre-wrap; max-height: 120px; overflow-y: auto; }
+
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+  .status-dot.idle { background: var(--text-dim); }
+  .status-dot.running { background: var(--orange); animation: pulse 1s infinite; }
+  .status-dot.done { background: var(--green); }
+  .status-dot.error { background: var(--red); }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  .empty-state { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-dim); font-size: 13px; text-align: center; padding: 20px; }
+</style>
+</head>
+<body>
+
+<div class="layout">
+  <div class="header">
+    <h1>FlowEngine Playground</h1>
+    <div class="header-actions">
+      <button class="btn" onclick="loadExample()">Load Example</button>
+      <button class="btn btn-danger" onclick="clearCanvas()">Clear</button>
+      <button class="btn btn-primary" id="runBtn" onclick="runFlow()">Run Flow</button>
+    </div>
+  </div>
+
+  <div class="palette" id="palette">
+    <div class="empty-state">Loading nodes...</div>
+  </div>
+
+  <div class="canvas-wrap" id="canvasWrap">
+    <div class="canvas" id="canvas">
+      <div class="canvas-grid"></div>
+      <svg class="edges-svg" id="edgesSvg"></svg>
+    </div>
+  </div>
+
+  <div class="results">
+    <div class="results-header">
+      <span><span class="status-dot idle" id="statusDot"></span>Events</span>
+      <button class="btn" onclick="clearEvents()" style="padding:3px 8px;font-size:11px">Clear</button>
+    </div>
+    <div class="results-body" id="eventsPanel">
+      <div class="empty-state">Run a flow to see events</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// =========================================================================
+// State
+// =========================================================================
+let nodeTypes = {};
+let flowNodes = {};   // id -> { id, type, x, y, data }
+let flowEdges = {};   // id -> { id, source, target, source_handle, target_handle }
+let nextNodeId = 1;
+let nextEdgeId = 1;
+let selectedNode = null;
+let dragging = null;  // { nodeId, offsetX, offsetY }
+let connecting = null; // { nodeId, handle, type:'output'|'input' }
+let panOffset = { x: 0, y: 0 };
+let isPanning = false;
+let panStart = null;
+
+const canvas = document.getElementById('canvas');
+const canvasWrap = document.getElementById('canvasWrap');
+const edgesSvg = document.getElementById('edgesSvg');
+const eventsPanel = document.getElementById('eventsPanel');
+
+// =========================================================================
+// Init
+// =========================================================================
+async function init() {
+  const res = await fetch('/api/nodes');
+  const nodes = await res.json();
+  nodeTypes = {};
+  nodes.forEach(n => { nodeTypes[n.id] = n; });
+  renderPalette(nodes);
+  setupCanvasEvents();
+}
+
+function renderPalette(nodes) {
+  const palette = document.getElementById('palette');
+  const io = nodes.filter(n => n.category !== 'control');
+  const ctrl = nodes.filter(n => n.category === 'control');
+
+  let html = '<h3>IO Nodes</h3>';
+  io.forEach(n => {
+    html += `<div class="palette-node" draggable="true" data-type="${n.id}"
+                  ondragstart="onPaletteDrag(event,'${n.id}')">
+      <div>${n.name}</div>
+      <div class="desc">${n.description}</div>
+    </div>`;
+  });
+  html += '<h3>Control Nodes</h3>';
+  ctrl.forEach(n => {
+    html += `<div class="palette-node control" draggable="true" data-type="${n.id}"
+                  ondragstart="onPaletteDrag(event,'${n.id}')">
+      <div>${n.name}</div>
+      <div class="desc">${n.description}</div>
+    </div>`;
+  });
+  palette.innerHTML = html;
+}
+
+// =========================================================================
+// Canvas events
+// =========================================================================
+function setupCanvasEvents() {
+  canvasWrap.addEventListener('dragover', e => e.preventDefault());
+  canvasWrap.addEventListener('drop', onCanvasDrop);
+  canvasWrap.addEventListener('mousedown', onCanvasMouseDown);
+  window.addEventListener('mousemove', onMouseMove);
+  window.addEventListener('mouseup', onMouseUp);
+}
+
+function onPaletteDrag(e, typeId) {
+  e.dataTransfer.setData('nodeType', typeId);
+}
+
+function onCanvasDrop(e) {
+  e.preventDefault();
+  const typeId = e.dataTransfer.getData('nodeType');
+  if (!typeId) return;
+  const rect = canvasWrap.getBoundingClientRect();
+  const x = e.clientX - rect.left - panOffset.x;
+  const y = e.clientY - rect.top - panOffset.y;
+  addNode(typeId, x, y);
+}
+
+function onCanvasMouseDown(e) {
+  if (e.target.classList.contains('canvas-grid') || e.target === canvasWrap) {
+    if (selectedNode) { deselectNode(); }
+    isPanning = true;
+    panStart = { x: e.clientX - panOffset.x, y: e.clientY - panOffset.y };
+  }
+}
+
+function onMouseMove(e) {
+  if (isPanning && panStart) {
+    panOffset.x = e.clientX - panStart.x;
+    panOffset.y = e.clientY - panStart.y;
+    canvas.style.transform = `translate(${panOffset.x}px, ${panOffset.y}px)`;
+  }
+  if (dragging) {
+    const rect = canvasWrap.getBoundingClientRect();
+    const x = e.clientX - rect.left - panOffset.x - dragging.offsetX;
+    const y = e.clientY - rect.top - panOffset.y - dragging.offsetY;
+    flowNodes[dragging.nodeId].x = x;
+    flowNodes[dragging.nodeId].y = y;
+    const el = document.getElementById(`node-${dragging.nodeId}`);
+    if (el) { el.style.left = x + 'px'; el.style.top = y + 'px'; }
+    renderEdges();
+  }
+  if (connecting) {
+    renderEdges(e);
+  }
+}
+
+function onMouseUp(e) {
+  isPanning = false;
+  panStart = null;
+  if (dragging) { dragging = null; }
+  if (connecting) {
+    // Check if we dropped on a handle
+    const target = e.target.closest('.handle');
+    if (target && target.dataset.nodeId !== connecting.nodeId) {
+      const isInput = target.classList.contains('input');
+      if ((connecting.type === 'output' && isInput) || (connecting.type === 'input' && !isInput)) {
+        const src = connecting.type === 'output' ? connecting : { nodeId: target.dataset.nodeId, handle: target.dataset.handle };
+        const tgt = connecting.type === 'output' ? { nodeId: target.dataset.nodeId, handle: target.dataset.handle } : connecting;
+        addEdge(src.nodeId, tgt.nodeId, src.handle, tgt.handle);
+      }
+    }
+    connecting = null;
+    renderEdges();
+  }
+}
+
+// =========================================================================
+// Node management
+// =========================================================================
+function addNode(typeId, x, y) {
+  const nt = nodeTypes[typeId];
+  if (!nt) return;
+  const id = `n${nextNodeId++}`;
+  const data = {};
+  nt.inputs.forEach(inp => {
+    if (inp.default !== null && inp.default !== undefined) {
+      data[inp.name] = inp.default;
+    }
+  });
+  flowNodes[id] = { id, type: typeId, x, y, data };
+  renderNode(id);
+  selectNode(id);
+}
+
+function renderNode(id) {
+  const node = flowNodes[id];
+  const nt = nodeTypes[node.type];
+  if (!nt) return;
+
+  // Remove existing
+  const existing = document.getElementById(`node-${id}`);
+  if (existing) existing.remove();
+
+  const el = document.createElement('div');
+  el.className = 'flow-node';
+  el.id = `node-${id}`;
+  el.style.left = node.x + 'px';
+  el.style.top = node.y + 'px';
+  if (selectedNode === id) el.classList.add('selected');
+
+  const isControl = nt.category === 'control';
+
+  // Header
+  let html = `<div class="node-header ${isControl ? 'control' : ''}"
+                   onmousedown="startDrag(event,'${id}')">
+    <div>
+      <div class="node-title">${nt.name}</div>
+      <div class="node-type">${id} &middot; ${nt.id}</div>
+    </div>
+    <button class="node-delete" onclick="deleteNode('${id}')">&times;</button>
+  </div>`;
+
+  // Inputs: each gets a handle (unless disable_handle) AND an inline editor
+  if (nt.inputs.length) {
+    html += '<div class="node-body">';
+    nt.inputs.forEach(inp => {
+      const val = node.data[inp.name] ?? inp.default ?? '';
+      const connected = isInputConnected(id, inp.name);
+      const hasHandle = !inp.disable_handle;
+
+      html += `<div class="node-field ${hasHandle ? 'with-handle' : ''}">`;
+
+      // Connection handle on the left side
+      if (hasHandle) {
+        html += `<div class="handle input" data-node-id="${id}" data-handle="${inp.name}"
+                      onmousedown="startConnect(event,'${id}','${inp.name}','input')"></div>`;
+      }
+
+      // Inline editor (dimmed when an edge is connected — edge overrides static value)
+      if (inp.widget === 'dropdown') {
+        const choices = inp.choices || [];
+        html += `<label>${inp.label}</label>
+          <select ${connected ? 'class="connected"' : ''} onchange="updateNodeData('${id}','${inp.name}',this.value)">
+            ${choices.map(c => `<option value="${c}" ${c === val ? 'selected' : ''}>${c}</option>`).join('')}
+          </select>`;
+      } else if (inp.widget === 'textarea') {
+        html += `<label>${inp.label}${connected ? ' <span class="conn-badge">connected</span>' : ''}</label>
+          <textarea rows="${inp.rows || 3}" ${connected ? 'class="connected"' : ''}
+                    onchange="updateNodeData('${id}','${inp.name}',this.value)">${val}</textarea>`;
+      } else if (inp.widget === 'range') {
+        html += `<label>${inp.label}${connected ? ' <span class="conn-badge">connected</span>' : ''}</label>
+          <div class="range-row">
+            <input type="range" min="${inp.min_val ?? 0}" max="${inp.max_val ?? 100}" step="${inp.step ?? 1}"
+                   value="${val}" ${connected ? 'class="connected"' : ''}
+                   oninput="updateNodeData('${id}','${inp.name}',parseFloat(this.value));this.nextElementSibling.value=this.value">
+            <input type="number" class="range-number" min="${inp.min_val ?? ''}" max="${inp.max_val ?? ''}" step="${inp.step ?? 1}"
+                   value="${val}" ${connected ? 'class="connected"' : ''}
+                   oninput="updateNodeData('${id}','${inp.name}',parseFloat(this.value));this.previousElementSibling.value=this.value">
+          </div>`;
+      } else if (inp.widget === 'checkbox') {
+        html += `<label>
+          <input type="checkbox" ${val ? 'checked' : ''} ${connected ? 'class="connected"' : ''}
+                 onchange="updateNodeData('${id}','${inp.name}',this.checked)"> ${inp.label}
+          </label>`;
+      } else if (inp.widget === 'connection-list') {
+        html += `<label>${inp.label}${connected ? ' <span class="conn-badge">connected</span>' : ''}</label>`;
+      } else {
+        html += `<label>${inp.label}${connected ? ' <span class="conn-badge">connected</span>' : ''}</label>
+          <input type="text" value="${escHtml(String(val))}" ${connected ? 'class="connected"' : ''}
+                 onchange="updateNodeData('${id}','${inp.name}',this.value)">`;
+      }
+
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
+  // Outputs (handles)
+  if (nt.outputs.length) {
+    html += '<div class="node-outputs">';
+    nt.outputs.forEach(out => {
+      html += `<div class="handle-row output">
+        <span class="handle-label">${out.label}</span>
+        <div class="handle output" data-node-id="${id}" data-handle="${out.name}"
+             onmousedown="startConnect(event,'${id}','${out.name}','output')"></div>
+      </div>`;
+    });
+    html += '</div>';
+  }
+
+  el.innerHTML = html;
+  el.addEventListener('mousedown', (e) => {
+    if (!e.target.closest('.node-delete') && !e.target.closest('.handle')) {
+      selectNode(id);
+    }
+  });
+  canvas.appendChild(el);
+}
+
+function deleteNode(id) {
+  // Find nodes that need re-rendering (targets of removed edges)
+  const affectedNodes = new Set();
+  Object.keys(flowEdges).forEach(eid => {
+    const e = flowEdges[eid];
+    if (e.source === id || e.target === id) {
+      if (e.target !== id) affectedNodes.add(e.target);
+      delete flowEdges[eid];
+    }
+  });
+  delete flowNodes[id];
+  const el = document.getElementById(`node-${id}`);
+  if (el) el.remove();
+  if (selectedNode === id) selectedNode = null;
+  affectedNodes.forEach(nid => { if (flowNodes[nid]) renderNode(nid); });
+  renderEdges();
+}
+
+function selectNode(id) {
+  if (selectedNode) deselectNode();
+  selectedNode = id;
+  const el = document.getElementById(`node-${id}`);
+  if (el) el.classList.add('selected');
+}
+
+function deselectNode() {
+  if (selectedNode) {
+    const el = document.getElementById(`node-${selectedNode}`);
+    if (el) el.classList.remove('selected');
+  }
+  selectedNode = null;
+}
+
+function updateNodeData(nodeId, field, value) {
+  if (flowNodes[nodeId]) {
+    flowNodes[nodeId].data[field] = value;
+  }
+}
+
+// =========================================================================
+// Dragging
+// =========================================================================
+function startDrag(e, nodeId) {
+  e.stopPropagation();
+  const el = document.getElementById(`node-${nodeId}`);
+  const rect = el.getBoundingClientRect();
+  dragging = {
+    nodeId,
+    offsetX: e.clientX - rect.left,
+    offsetY: e.clientY - rect.top,
+  };
+}
+
+// =========================================================================
+// Connecting
+// =========================================================================
+function startConnect(e, nodeId, handle, type) {
+  e.stopPropagation();
+  e.preventDefault();
+  connecting = { nodeId, handle, type };
+}
+
+function isInputConnected(nodeId, handleName) {
+  return Object.values(flowEdges).some(e => e.target === nodeId && e.target_handle === handleName);
+}
+
+function addEdge(sourceId, targetId, sourceHandle, targetHandle) {
+  // Prevent duplicate edges
+  const exists = Object.values(flowEdges).some(e =>
+    e.source === sourceId && e.target === targetId &&
+    e.source_handle === sourceHandle && e.target_handle === targetHandle
+  );
+  if (exists) return;
+
+  const id = `e${nextEdgeId++}`;
+  flowEdges[id] = { id, source: sourceId, target: targetId, source_handle: sourceHandle, target_handle: targetHandle };
+  // Re-render target node to show "connected" state
+  renderNode(targetId);
+  renderEdges();
+}
+
+// =========================================================================
+// Edge rendering
+// =========================================================================
+function getHandlePos(nodeId, handleName, type) {
+  const nodeEl = document.getElementById(`node-${nodeId}`);
+  if (!nodeEl) return null;
+  const handles = nodeEl.querySelectorAll(`.handle.${type}[data-handle="${handleName}"]`);
+  if (!handles.length) return null;
+  const h = handles[0];
+  const hRect = h.getBoundingClientRect();
+  const cRect = canvasWrap.getBoundingClientRect();
+  return {
+    x: hRect.left + hRect.width / 2 - cRect.left - panOffset.x,
+    y: hRect.top + hRect.height / 2 - cRect.top - panOffset.y,
+  };
+}
+
+function renderEdges(mouseEvent) {
+  let svg = '';
+
+  Object.values(flowEdges).forEach(edge => {
+    const from = getHandlePos(edge.source, edge.source_handle, 'output');
+    const to = getHandlePos(edge.target, edge.target_handle, 'input');
+    if (from && to) {
+      const dx = Math.abs(to.x - from.x) * 0.5;
+      svg += `<path class="edge-path" d="M${from.x},${from.y} C${from.x + dx},${from.y} ${to.x - dx},${to.y} ${to.x},${to.y}"/>`;
+    }
+  });
+
+  // Temp edge while connecting
+  if (connecting && mouseEvent) {
+    const type = connecting.type === 'output' ? 'output' : 'input';
+    const from = getHandlePos(connecting.nodeId, connecting.handle, type);
+    if (from) {
+      const cRect = canvasWrap.getBoundingClientRect();
+      const mx = mouseEvent.clientX - cRect.left - panOffset.x;
+      const my = mouseEvent.clientY - cRect.top - panOffset.y;
+      const dx = Math.abs(mx - from.x) * 0.5;
+      if (connecting.type === 'output') {
+        svg += `<path class="edge-path temp" d="M${from.x},${from.y} C${from.x + dx},${from.y} ${mx - dx},${my} ${mx},${my}"/>`;
+      } else {
+        svg += `<path class="edge-path temp" d="M${mx},${my} C${mx + dx},${my} ${from.x - dx},${from.y} ${from.x},${from.y}"/>`;
+      }
+    }
+  }
+
+  edgesSvg.innerHTML = svg;
+}
+
+// =========================================================================
+// Execution
+// =========================================================================
+async function runFlow() {
+  const nodes = Object.values(flowNodes).map(n => ({
+    id: n.id, type: n.type, data: n.data,
+  }));
+  const edges = Object.values(flowEdges).map(e => ({
+    id: e.id, source: e.source, target: e.target,
+    source_handle: e.source_handle, target_handle: e.target_handle,
+  }));
+
+  if (!nodes.length) return;
+
+  // Reset node states
+  document.querySelectorAll('.flow-node').forEach(el => {
+    el.classList.remove('running', 'completed', 'error', 'skipped');
+  });
+
+  clearEvents();
+  setStatus('running');
+  document.getElementById('runBtn').disabled = true;
+
+  try {
+    const res = await fetch('/api/execute-stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nodes, edges }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      addEvent('flow_error', { error: err.detail || JSON.stringify(err) });
+      setStatus('error');
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const event = JSON.parse(line.slice(6));
+            handleEvent(event);
+          } catch (e) {}
+        }
+      }
+    }
+  } catch (err) {
+    addEvent('flow_error', { error: err.message });
+    setStatus('error');
+  } finally {
+    document.getElementById('runBtn').disabled = false;
+  }
+}
+
+function handleEvent(event) {
+  const nodeEl = event.node_id ? document.getElementById(`node-${event.node_id}`) : null;
+
+  switch (event.type) {
+    case 'node_start':
+      if (nodeEl) { nodeEl.classList.add('running'); }
+      addEvent('node_start', { label: event.node_id });
+      break;
+    case 'node_complete':
+      if (nodeEl) { nodeEl.classList.remove('running'); nodeEl.classList.add('completed'); }
+      addEvent('node_complete', { label: event.node_id, result: event.result });
+      break;
+    case 'node_error':
+      if (nodeEl) { nodeEl.classList.remove('running'); nodeEl.classList.add('error'); }
+      addEvent('node_error', { label: event.node_id, error: event.error });
+      break;
+    case 'node_skipped':
+      if (nodeEl) { nodeEl.classList.add('skipped'); }
+      addEvent('node_skipped', { label: event.node_id });
+      break;
+    case 'node_progress':
+      addEvent('node_progress', { label: `${event.node_id}: ${event.current}/${event.total}` });
+      break;
+    case 'flow_complete':
+      setStatus('done');
+      addEvent('flow_complete', { result: event.results });
+      break;
+    case 'flow_error':
+      setStatus('error');
+      addEvent('flow_error', { error: event.error });
+      break;
+    case 'flow_timeout':
+      setStatus('error');
+      addEvent('flow_timeout', { label: `Timed out after ${event.elapsed_seconds?.toFixed(1)}s` });
+      break;
+  }
+}
+
+// =========================================================================
+// Events panel
+// =========================================================================
+function addEvent(type, { label, result, error } = {}) {
+  const div = document.createElement('div');
+  div.className = `event-item ${type}`;
+
+  let html = `<span class="event-label">${type}</span>`;
+  if (label) html += `<span class="event-detail">${label}</span>`;
+  if (error) html += `<div class="result-value" style="color:var(--red)">${escHtml(String(error))}</div>`;
+  if (result !== undefined) {
+    const text = typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result);
+    html += `<div class="result-value">${escHtml(text)}</div>`;
+  }
+
+  div.innerHTML = html;
+  eventsPanel.appendChild(div);
+  eventsPanel.scrollTop = eventsPanel.scrollHeight;
+}
+
+function clearEvents() {
+  eventsPanel.innerHTML = '';
+  setStatus('idle');
+}
+
+function setStatus(s) {
+  const dot = document.getElementById('statusDot');
+  dot.className = `status-dot ${s}`;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// =========================================================================
+// Clear & Example
+// =========================================================================
+function clearCanvas() {
+  flowNodes = {};
+  flowEdges = {};
+  selectedNode = null;
+  document.querySelectorAll('.flow-node').forEach(el => el.remove());
+  renderEdges();
+  clearEvents();
+}
+
+function loadExample() {
+  clearCanvas();
+
+  // Text -> Uppercase -> Template
+  addNode('text@1', 60, 60);
+  const textId = Object.keys(flowNodes).pop();
+  flowNodes[textId].data.text = 'hello world';
+  renderNode(textId);
+
+  addNode('uppercase@1', 60, 280);
+  const upperId = Object.keys(flowNodes).pop();
+
+  addNode('template@1', 340, 280);
+  const tplId = Object.keys(flowNodes).pop();
+  flowNodes[tplId].data.template = 'The uppercase text is: {input}';
+  renderNode(tplId);
+
+  // Number nodes -> Math
+  addNode('number@1', 340, 60);
+  const num1Id = Object.keys(flowNodes).pop();
+  flowNodes[num1Id].data.value = 7;
+  renderNode(num1Id);
+
+  addNode('number@1', 560, 60);
+  const num2Id = Object.keys(flowNodes).pop();
+  flowNodes[num2Id].data.value = 6;
+  renderNode(num2Id);
+
+  addNode('math@1', 560, 280);
+  const mathId = Object.keys(flowNodes).pop();
+  flowNodes[mathId].data.operation = 'Multiply';
+  renderNode(mathId);
+
+  // Connect
+  addEdge(textId, upperId, 'result', 'text');
+  addEdge(upperId, tplId, 'result', 'input');
+  addEdge(num1Id, mathId, 'result', 'a');
+  addEdge(num2Id, mathId, 'result', 'b');
+
+  renderEdges();
+}
+
+// =========================================================================
+// Boot
+// =========================================================================
+init();
+</script>
+</body>
+</html>

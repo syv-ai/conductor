@@ -1,0 +1,159 @@
+# FlowEngine
+
+> Compile-then-execute DAG engine for building visual workflow systems.
+
+FlowEngine is a Python library for building DAG-based workflow/agent execution systems. It provides node registration, graph compilation with type checking, streaming execution, human-in-the-loop checkpointing, and frontend UI metadata generation — all from plain Python functions with type annotations.
+
+## Quick Start
+
+```python
+from typing import Annotated
+from flowengine import NodeRegistry, GraphNode, GraphEdge, compile
+from flowengine.execution.engine import execute_sync
+from flowengine.widgets import Text, Output
+
+registry = NodeRegistry()
+
+@registry.node("echo", version=1, name="Echo", description="Returns input")
+def echo(text: Annotated[str, Text(label="Input")]) -> Annotated[str, Output(label="Output")]:
+    return text
+
+compiled = compile(
+    nodes=[GraphNode("n1", "echo@1", {"text": "hello"})],
+    edges=[],
+    registry=registry,
+)
+results = execute_sync(compiled)
+# results["n1"]["result"] == "hello"
+```
+
+## Core Concepts
+
+### Registration
+Nodes are plain Python functions decorated with `@registry.node()`. Type hints with `Annotated[T, Widget]` are the single source of truth for:
+- Backend execution and input validation (auto-generated Pydantic model)
+- Frontend UI rendering (widget type, label, choices, constraints)
+- Compile-time type checking (type_str on inputs/outputs)
+
+Nodes are versioned as `base_id@version` (e.g., `echo@2`). Old versions are deprecated but keep working.
+
+Class-based nodes use `BaseNode` ABC with `registry.register_class()` for complex nodes needing state.
+
+### Compilation
+`compile(nodes, edges, registry)` validates everything before execution:
+- Node types exist, edges reference real nodes, no cycles
+- Type compatibility on every edge (warnings or strict errors)
+- Compound node regions discovered (for-each loops)
+Returns an immutable `CompiledGraph`.
+
+### Execution
+`execute(compiled)` is an async generator yielding events: `node_start`, `node_complete`, `node_skipped`, `node_error`, `node_progress`, `flow_complete`, `flow_error`, `flow_timeout`, `flow_paused`, `flow_cancelled`.
+
+`execute_sync(compiled)` is a blocking wrapper. Both support timeout, caching, and cancellation.
+
+### Data Flow
+- **Edges**: Primary data flow. `InputResolver` extracts source outputs by handle name, overlays onto static node data.
+- **FlowStore**: Side-channel key-value cache. Function nodes declare `store: FlowStore` parameter for auto-injection.
+- **SKIPPED sentinel**: Conditional branching. If all inputs to a node are SKIPPED, it's skipped too.
+- **ConnectionList**: Widget for N-input aggregation. Resolver builds labeled dict from all connected sources.
+
+### Human-in-the-Loop
+Nodes raise `HumanInputRequired(prompt, schema)` to pause execution. Engine checkpoints state (JSON-serializable `FlowCheckpoint`), yields `flow_paused` event. Resume with `resume(compiled, checkpoint, response)`. FlowStore survives the cycle. Multiple sequential pauses supported.
+
+Sync: `execute_sync` raises `FlowPausedException(checkpoint)`, resume with `resume_sync(compiled, checkpoint, response)`.
+
+### Compound Nodes
+For control flow patterns (for-each, future try-catch) that manage a region of sub-nodes. `CompoundNodeType` protocol: `discover()` finds regions, `factory()` creates executor. Body nodes are managed by the compound node, skipped by the main loop.
+
+### Type Checking
+Compile-time validation of edge type compatibility:
+- Exact match, numeric interchangeability (int↔float), string coercion
+- list[T] accepts T (auto-wrap), ConnectionList accepts anything
+- Default: warnings on `compiled.type_warnings`. With `strict_types=True`: raises `CompilationError`.
+
+### Extension Points
+- **Custom widgets**: Subclass `Widget` ABC
+- **Custom types**: `NewType("MyType", str)` → surfaces as `"mytype"` in schema
+- **Extension resolver**: Protocol for host-app node types the registry doesn't know
+- **Compound node types**: New control flow without modifying the engine
+- **Auto-discovery**: `registry.discover("package.name")` imports all modules
+
+## API Reference
+
+### flowengine (top-level)
+- `NodeRegistry` — Node registration and lookup
+- `GraphNode(id, type, data)` — Node in the graph
+- `GraphEdge(id, source, target, source_handle, target_handle)` — Edge connecting nodes
+- `compile(nodes, edges, registry, *, compound_types, extension_resolver, strict_types)` → `CompiledGraph`
+
+### flowengine.execution.engine
+- `execute(compiled, *, timeout_seconds, context, cache)` → `AsyncGenerator[ExecutionEvent]`
+- `execute_sync(compiled, **kwargs)` → `dict[str, Any]`
+- `resume(compiled, checkpoint, response, *, timeout_seconds, context)` → `AsyncGenerator[ExecutionEvent]`
+- `resume_sync(compiled, checkpoint, response, **kwargs)` → `dict[str, Any]`
+- `collect(events)` → `dict[str, Any]` (consumes async generator)
+
+### flowengine.widgets
+- `Widget` (ABC), `Text`, `Textarea`, `Dropdown`, `DependentDropdown`, `Range`, `Checkbox`, `FileUpload`, `ConnectionList`, `Output`
+
+### flowengine.types
+- `WidgetType`, `ResultFormat`, `NodeCategory` (enums)
+- `Base64Str`, `Date`, `NamedFile`, `MultiNamedFile` (custom type aliases)
+- `RESULT_KEY = "result"`, `OUTPUT_PREFIX = "output_"`
+
+### flowengine.errors
+- `CompilationError`, `CycleDetectionError`, `InputResolutionError`
+- `NodeValidationException`, `NodeExecutionException`, `FlowExecutionException`
+- `HumanInputRequired(prompt, *, schema)`, `FlowPausedException(checkpoint)`
+
+### flowengine.node
+- `BaseNode` (ABC) — `node_id`, `node_name`, `node_description`, `node_category`, `execute(req) → Any`
+
+### flowengine.execution.store
+- `FlowStore` — `set(key, value)`, `get(key, default)`, `has(key)`, `keys()`, `clear()`
+
+### flowengine.execution.request
+- `NodeExecRequest(node_id, node_type, inputs, data, state)` — DTO passed to every node
+
+### flowengine.execution.checkpoint
+- `FlowCheckpoint` — `to_dict()`, `from_dict(data)` (JSON-serializable)
+
+### flowengine.compound.for_each
+- `FOR_EACH` — CompoundNodeType constant, pass to `compile(compound_types=[FOR_EACH])`
+
+### flowengine.registry.schema
+- `serialize_registry(registry)` → `list[dict]` (frontend JSON)
+
+### flowengine.registry.discovery
+- `discover_nodes(package_name, registry)` → `int` (count of nodes registered)
+
+## Widgets Reference
+
+| Widget | Type | Key Options |
+|--------|------|-------------|
+| Text | text | min_length, max_length, pattern |
+| Textarea | textarea | rows, min_length, max_length |
+| Dropdown | dropdown | choices |
+| DependentDropdown | dependent-dropdown | depends_on, choices_map |
+| Range | range | min_val, max_val, step |
+| Checkbox | checkbox | — |
+| FileUpload | file | accept, max_size_mb, multiple |
+| ConnectionList | connection-list | — |
+| Output | output | download, filename |
+
+## Result Formats
+
+Single output: `{"result": value}`
+Multi output (tuple return): `{"output_1": v1, "output_2": v2, ...}`
+Dict output: `{"result": dict, **dict}` (keys spread for sub-output access)
+
+## Project Structure
+
+```
+packages/flowengine/src/flowengine/
+├── types.py, widgets.py, metadata.py, validation.py, errors.py, node.py, _sentinel.py
+├── registry/        — NodeRegistry, NodeDefinition, discovery, schema
+├── graph/           — GraphNode/Edge, topology, compiler, regions, type_check
+├── execution/       — engine, state, store, request, resolver, results, events, skip, checkpoint
+└── compound/        — protocol, for_each
+```
