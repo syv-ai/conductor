@@ -1,0 +1,1468 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        
+        
+        
+        <link rel="shortcut icon" href="../img/favicon.ico">
+        <title>FlowEngine — Design Specification - My Docs</title>
+        <link href="../css/bootstrap.min.css" rel="stylesheet">
+        <link href="../css/fontawesome.min.css" rel="stylesheet">
+        <link href="../css/brands.min.css" rel="stylesheet">
+        <link href="../css/solid.min.css" rel="stylesheet">
+        <link href="../css/v4-font-face.min.css" rel="stylesheet">
+        <link href="../css/base.css" rel="stylesheet">
+        <link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" >
+        <link id="hljs-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github-dark.min.css" disabled>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+        <script>hljs.highlightAll();</script> 
+    </head>
+
+    <body>
+        <div class="navbar fixed-top navbar-expand-lg navbar-dark bg-primary">
+            <div class="container">
+                <a class="navbar-brand" href="..">My Docs</a>
+                <!-- Expander button -->
+                <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar-collapse" aria-controls="navbar-collapse" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+
+                <!-- Expanded navigation -->
+                <div id="navbar-collapse" class="navbar-collapse collapse">
+                        <!-- Main navigation -->
+                        <ul class="nav navbar-nav">
+                            <li class="nav-item">
+                                <a href=".." class="nav-link">Welcome to MkDocs</a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="./" class="nav-link active" aria-current="page">FlowEngine — Design Specification</a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="../graph-processing-framework-research/" class="nav-link">Graph Processing Framework Research</a>
+                            </li>
+                        </ul>
+
+                    <ul class="nav navbar-nav ms-md-auto">
+                        <li class="nav-item">
+                            <a href="#" class="nav-link" data-bs-toggle="modal" data-bs-target="#mkdocs_search_modal">
+                                <i class="fa fa-search"></i> Search
+                            </a>
+                        </li>
+                            <li class="nav-item">
+                                <a rel="prev" href=".." class="nav-link">
+                                    <i class="fa fa-arrow-left"></i> Previous
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a rel="next" href="../graph-processing-framework-research/" class="nav-link">
+                                    Next <i class="fa fa-arrow-right"></i>
+                                </a>
+                            </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="row">
+                    <div class="col-md-3"><div class="navbar-expand-md bs-sidebar hidden-print affix" role="complementary">
+    <div class="navbar-header">
+        <button type="button" class="navbar-toggler collapsed" data-bs-toggle="collapse" data-bs-target="#toc-collapse" title="Table of Contents">
+            <span class="fa fa-angle-down"></span>
+        </button>
+    </div>
+
+    
+    <div id="toc-collapse" class="navbar-collapse collapse card bg-body-tertiary">
+        <ul class="nav flex-column">
+            
+            <li class="nav-item" data-bs-level="1"><a href="#flowengine-design-specification" class="nav-link">FlowEngine — Design Specification</a>
+              <ul class="nav flex-column">
+            <li class="nav-item" data-bs-level="2"><a href="#table-of-contents" class="nav-link">Table of Contents</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#1-problem-statement" class="nav-link">1. Problem Statement</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#2-design-principles" class="nav-link">2. Design Principles</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#3-architecture-overview" class="nav-link">3. Architecture Overview</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#4-package-structure" class="nav-link">4. Package Structure</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#5-layer-1-types-widgets-and-metadata" class="nav-link">5. Layer 1: Types, Widgets, and Metadata</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#6-layer-2-node-registry" class="nav-link">6. Layer 2: Node Registry</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#7-layer-3-graph-compilation" class="nav-link">7. Layer 3: Graph Compilation</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#8-layer-4-execution-engine" class="nav-link">8. Layer 4: Execution Engine</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#9-layer-5-compound-nodes" class="nav-link">9. Layer 5: Compound Nodes</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#10-host-application-integration" class="nav-link">10. Host Application Integration</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#11-migration-path" class="nav-link">11. Migration Path</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#12-appendix-research-summary" class="nav-link">12. Appendix: Research Summary</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+              </ul>
+            </li>
+        </ul>
+    </div>
+</div></div>
+                    <div class="col-md-9" role="main">
+
+<h1 id="flowengine-design-specification">FlowEngine — Design Specification</h1>
+<p><strong>Status:</strong> Proposal
+<strong>Authors:</strong> Rasmus Krebs, Claude (AI assistant)
+<strong>Date:</strong> 2026-04-01
+<strong>Depends on:</strong> <a href="../graph-processing-framework-research/">Graph Processing Framework Research</a></p>
+<hr />
+<h2 id="table-of-contents">Table of Contents</h2>
+<ol>
+<li><a href="#1-problem-statement">Problem Statement</a></li>
+<li><a href="#2-design-principles">Design Principles</a></li>
+<li><a href="#3-architecture-overview">Architecture Overview</a></li>
+<li><a href="#4-package-structure">Package Structure</a></li>
+<li><a href="#5-layer-1-types-widgets-and-metadata">Layer 1: Types, Widgets, and Metadata</a></li>
+<li><a href="#6-layer-2-node-registry">Layer 2: Node Registry</a></li>
+<li><a href="#7-layer-3-graph-compilation">Layer 3: Graph Compilation</a></li>
+<li><a href="#8-layer-4-execution-engine">Layer 4: Execution Engine</a></li>
+<li><a href="#9-layer-5-compound-nodes">Layer 5: Compound Nodes</a></li>
+<li><a href="#10-host-application-integration">Host Application Integration</a></li>
+<li><a href="#11-migration-path">Migration Path</a></li>
+<li><a href="#12-appendix-research-summary">Appendix: Research Summary</a></li>
+</ol>
+<hr />
+<h2 id="1-problem-statement">1. Problem Statement</h2>
+<h3 id="current-state">Current State</h3>
+<p>The AKA Flows executor (<code>backend/app/services/flows/execution/executor.py</code>) is ~1,000 lines and growing. It has two core problems:</p>
+<ol>
+<li>
+<p><strong>The executor knows too much.</strong> It special-cases for-each loop regions, app node sub-flows, and skip propagation inline. Every new control-flow pattern (while-loop, try/catch, parallel-split) requires modifying the executor loop itself. This makes the executor fragile and hard to contribute to.</p>
+</li>
+<li>
+<p><strong>Two duplicated execution paths.</strong> <code>_execute_flow_impl</code> (sync) and <code>_execute_flow_streaming_impl</code> (async) duplicate the same logic with minor variations for event emission. Bug fixes must be applied in both places.</p>
+</li>
+</ol>
+<p>Additionally, the execution engine is tightly coupled to AKA Flows' domain (user IDs, RBAC, app nodes), making it impossible to extract and reuse in other projects.</p>
+<h3 id="what-works-well">What Works Well</h3>
+<p>The <strong>node registration system</strong> is excellent and must be preserved exactly:</p>
+<ul>
+<li><code>@register_node</code> decorator converts plain Python functions into executable, validated, UI-renderable nodes.</li>
+<li><code>Annotated[T, widgets.Widget(...)]</code> type hints are the single source of truth for backend logic, Pydantic validation, AND frontend widget rendering.</li>
+<li>The registry serializes to JSON, which the frontend reads to render node palettes, input forms, and output handles — making it trivial to add new nodes.</li>
+<li>Node functions remain plain, testable Python with no framework coupling.</li>
+</ul>
+<p>This pattern is the crown jewel and the primary reason the framework is worth extracting.</p>
+<h3 id="goals">Goals</h3>
+<ol>
+<li>Extract a standalone, reusable graph execution library with zero application-specific dependencies.</li>
+<li>Preserve the <code>@register_node</code> + <code>Annotated</code> + widgets pattern exactly as-is.</li>
+<li>Eliminate the sync/streaming code duplication.</li>
+<li>Make control-flow extensible without modifying the executor.</li>
+<li>Establish a uniform execution contract (single DTO) for all node types.</li>
+</ol>
+<h3 id="non-goals">Non-Goals</h3>
+<ul>
+<li>Distributed execution (single-process is sufficient for our scale).</li>
+<li>BSP/superstep execution model (topological ordering is simpler and sufficient for narrow DAGs).</li>
+<li>Shared-state model (edge-based data flow matches the visual wire-drawing paradigm).</li>
+<li>Cycle support (region-based loops cover current needs; true cycles add complexity without clear demand).</li>
+</ul>
+<hr />
+<h2 id="2-design-principles">2. Design Principles</h2>
+<h3 id="21-the-registry-is-the-api">2.1 The Registry Is the API</h3>
+<p>A Python function with type hints and widget annotations is the single source of truth for:
+- Backend execution logic
+- Input validation rules (via auto-generated Pydantic model)
+- Frontend UI rendering (via JSON-serialized registry)</p>
+<p>No configuration files, no separate schema definitions, no manual sync between backend and frontend.</p>
+<h3 id="22-edge-based-data-flow">2.2 Edge-Based Data Flow</h3>
+<p>Data moves along explicit connections between node output handles and input handles. This matches the ReactFlow visual programming model where users draw wires between ports. Contrast with LangGraph's shared-state model, which doesn't map to a visual wire metaphor.</p>
+<h3 id="23-compile-then-execute">2.3 Compile Then Execute</h3>
+<p>Graph construction and execution are separate phases (adopted from Beam, LangGraph, Ray). The <code>compile()</code> step validates structure, discovers compound regions, and produces an immutable execution plan. All structural errors surface before any node runs.</p>
+<h3 id="24-uniform-execution-contract">2.4 Uniform Execution Contract</h3>
+<p>Every node — simple, compound, or extension — receives the same <code>NodeExecRequest</code> DTO. The executor dispatches without type-checking node kinds. New control-flow patterns are compound nodes, not executor modifications.</p>
+<h3 id="25-one-execution-path">2.5 One Execution Path</h3>
+<p>Streaming (async generator yielding events) is the only execution path. Synchronous execution is a thin wrapper that collects events. This eliminates the current ~500 lines of duplication.</p>
+<h3 id="26-host-agnostic-core">2.6 Host-Agnostic Core</h3>
+<p>The engine has no opinions about authentication, persistence, web frameworks, or application-specific node types. The host application integrates via:
+- An <code>ExtensionResolver</code> protocol for custom node types (e.g., app nodes / sub-flows)
+- An opaque <code>context: dict[str, Any]</code> on the run state for host-specific data</p>
+<hr />
+<h2 id="3-architecture-overview">3. Architecture Overview</h2>
+<pre><code>┌─────────────────────────────────────────────────────────────────────┐
+│                       HOST APPLICATION                              │
+│                    (AKA Flows, or any other)                        │
+│                                                                     │
+│  ┌─────────────┐  ┌──────────────────┐  ┌────────────────────────┐ │
+│  │ Web routes   │  │ App node resolver│  │ Node function files    │ │
+│  │ (FastAPI)    │  │ (ExtensionRes.)  │  │ (@registry.node)       │ │
+│  └──────┬───── ┘  └────────┬─────────┘  └────────┬───────────────┘ │
+└─────────┼──────────────────┼─────────────────────┼─────────────────┘
+          │                  │                     │
+          ▼                  ▼                     ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                        FLOWENGINE LIBRARY                           │
+│                                                                     │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │  LAYER 2: REGISTRY                                           │   │
+│  │  NodeRegistry · @node decorator · to_json() serialization    │   │
+│  │  ┌────────────────────────────────────────────────────────┐  │   │
+│  │  │  LAYER 1: TYPES + WIDGETS + METADATA                   │  │   │
+│  │  │  WidgetType · ResultFormat · widgets.* · InputMetadata  │  │   │
+│  │  │  OutputMetadata · Pydantic validation model generation  │  │   │
+│  │  └────────────────────────────────────────────────────────┘  │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  ┌───────────────────┐    ┌─────────────────────────────────────┐   │
+│  │  LAYER 3: GRAPH   │    │  LAYER 4: EXECUTION ENGINE          │   │
+│  │  GraphNode/Edge   │───▶│  compile() → CompiledGraph          │   │
+│  │  Topological sort │    │  execute() → AsyncGenerator[Event]  │   │
+│  │  Region discovery │    │  FlowRunState · NodeExecRequest     │   │
+│  └───────────────────┘    │  InputResolver · EventSink          │   │
+│                           └──────────────┬──────────────────────┘   │
+│                                          │                          │
+│  ┌───────────────────────────────────────┴──────────────────────┐   │
+│  │  LAYER 5: COMPOUND NODES                                     │   │
+│  │  CompoundNodeType protocol · ForEachNode · (future: TryCatch)│   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+</code></pre>
+<hr />
+<h2 id="4-package-structure">4. Package Structure</h2>
+<pre><code>flowengine/
+├── __init__.py                    # Public API surface
+│
+├── types.py                       # Core enums, type aliases, custom types
+├── widgets.py                     # Widget functions (Annotated metadata)
+├── metadata.py                    # Frozen dataclasses: InputMetadata, OutputMetadata, NodeMetadata
+├── validation.py                  # Pydantic model generation from function signatures
+├── errors.py                      # Exception hierarchy
+│
+├── registry/
+│   ├── __init__.py                # NodeRegistry class, @node decorator
+│   ├── definition.py              # NodeDefinition frozen dataclass
+│   └── schema.py                  # JSON serialization for frontend consumption
+│
+├── graph/
+│   ├── __init__.py
+│   ├── model.py                   # GraphNode, GraphEdge (the wire format)
+│   ├── compiler.py                # compile() → CompiledGraph
+│   ├── topology.py                # Topological sort, cycle detection
+│   └── regions.py                 # Region discovery for compound nodes
+│
+├── execution/
+│   ├── __init__.py
+│   ├── engine.py                  # execute() async generator + _dispatch_node
+│   ├── state.py                   # FlowRunState (shared mutable run state)
+│   ├── request.py                 # NodeExecRequest DTO
+│   ├── resolver.py                # Input resolution from edges + static data
+│   ├── results.py                 # normalize_result, extract_output, filter_skipped
+│   ├── events.py                  # Event TypedDicts + thread-safe EventSink
+│   └── skip.py                    # SKIPPED sentinel + should_skip_node logic
+│
+└── compound/
+    ├── __init__.py
+    ├── protocol.py                # CompoundNodeType, Region, NodeExecutor protocol
+    └── for_each.py                # ForEachNode implementation
+</code></pre>
+<p><strong>Dependency rule:</strong> No module in <code>flowengine</code> imports from the host application. No FastAPI, SQLModel, or app-specific imports.</p>
+<hr />
+<h2 id="5-layer-1-types-widgets-and-metadata">5. Layer 1: Types, Widgets, and Metadata</h2>
+<p>These modules are carried over from the current codebase with minimal changes. They are already clean, framework-agnostic, and well-designed.</p>
+<h3 id="51-types-typespy">5.1 Types (<code>types.py</code>)</h3>
+<pre><code class="language-python">class WidgetType(str, Enum):
+    &quot;&quot;&quot;All widget types for node parameters. Maps 1:1 to frontend components.&quot;&quot;&quot;
+    TEXT = &quot;text&quot;
+    TEXTAREA = &quot;textarea&quot;
+    DROPDOWN = &quot;dropdown&quot;
+    DEPENDENT_DROPDOWN = &quot;dependent-dropdown&quot;
+    RANGE = &quot;range&quot;
+    CHECKBOX = &quot;checkbox&quot;
+    FILE = &quot;file&quot;
+    SCHEMA_BUILDER = &quot;schema-builder&quot;
+    DATEPICKER = &quot;datepicker&quot;
+    NUMBER = &quot;number&quot;
+    SWITCH = &quot;switch&quot;
+    CONNECTION_LIST = &quot;connection-list&quot;
+    TEMPLATE_TEXTAREA = &quot;template-textarea&quot;
+    IF_ELSE_BUILDER = &quot;if-else-builder&quot;
+    MULTISELECT = &quot;multiselect&quot;
+    ENTITY_DROPDOWN = &quot;entity-dropdown&quot;
+    TABLE_INPUT = &quot;table-input&quot;
+    COLUMN_SELECT = &quot;column-select&quot;
+    OUTPUT = &quot;output&quot;
+
+class ResultFormat(str, Enum):
+    &quot;&quot;&quot;How node results are wrapped in the container format.&quot;&quot;&quot;
+    SINGLE = &quot;single&quot;       # {result: value}
+    MULTI = &quot;multi&quot;         # {output_1: v1, output_2: v2}
+    DICT_SPREAD = &quot;dict&quot;    # {result: dict, **dict}
+
+RESULT_KEY = &quot;result&quot;
+OUTPUT_PREFIX = &quot;output_&quot;
+NodeResult = dict[str, Any]
+</code></pre>
+<p>Custom type aliases (<code>Base64Str</code>, <code>Date</code>, <code>Table</code>, etc.) and type label mappings are unchanged.</p>
+<h3 id="52-widgets-widgetspy">5.2 Widgets (<code>widgets.py</code>)</h3>
+<p>Widget functions return Pydantic <code>Field</code> objects with <code>json_schema_extra</code> metadata. The pattern is identical to today:</p>
+<pre><code class="language-python">def Text(label: str, description: str, disable_handle: bool = False, **kwargs) -&gt; Any:
+    json_schema_extra = {&quot;widget&quot;: WidgetType.TEXT.value, &quot;label&quot;: label, ...}
+    return Field(description=description, json_schema_extra=json_schema_extra, **kwargs)
+
+def ConnectionList(label: str, description: str, **kwargs) -&gt; Any: ...
+def Dropdown(label: str, description: str, choices: list[str], **kwargs) -&gt; Any: ...
+def Output(label: str, description: str | None = None, download: bool = False) -&gt; dict: ...
+# ... all existing widgets carry over unchanged
+</code></pre>
+<p><strong>Extensibility:</strong> Host applications can define additional widget functions following the same pattern. The frontend must have a corresponding component for any new widget type.</p>
+<h3 id="53-metadata-metadatapy">5.3 Metadata (<code>metadata.py</code>)</h3>
+<p>Frozen dataclasses computed once at registration time:</p>
+<pre><code class="language-python">@dataclass(frozen=True)
+class InputMetadata:
+    name: str               # Parameter name (matches function signature)
+    type_str: str           # &quot;str&quot;, &quot;int&quot;, &quot;list[str]&quot;
+    type_label: str         # &quot;Tekst&quot;, &quot;Heltal&quot;, &quot;Liste af Tekst&quot;
+    label: str              # Display label from widget
+    description: str | None
+    widget: WidgetType
+    default: Any
+    optional: bool
+    expects_list: bool           # Pre-computed for multi-edge handling
+    uses_connection_list: bool   # Pre-computed for input resolution
+    disable_handle: bool
+    widget_config: dict[str, Any]
+
+@dataclass(frozen=True)
+class OutputMetadata:
+    name: str               # &quot;result&quot; or &quot;output_N&quot;
+    type_str: str
+    type_label: str
+    label: str
+    description: str | None
+    optional: bool
+    download: bool
+    filename: str | None
+
+@dataclass(frozen=True)
+class NodeMetadata:
+    id: str
+    name: str
+    description: str
+    tags: tuple[str, ...]
+    inputs: tuple[InputMetadata, ...]
+    outputs: tuple[OutputMetadata, ...]
+    result_format: ResultFormat
+    validation_model: type | None    # Pydantic model for input validation
+    width: int | None
+</code></pre>
+<h3 id="54-validation-validationpy">5.4 Validation (<code>validation.py</code>)</h3>
+<p><code>create_validation_model(func)</code> generates a Pydantic model from a function signature. <code>_extract_type_string(annotation)</code> converts Python type annotations to JSON-serializable strings for the frontend. Both are unchanged.</p>
+<hr />
+<h2 id="6-layer-2-node-registry">6. Layer 2: Node Registry</h2>
+<h3 id="61-nodedefinition">6.1 NodeDefinition</h3>
+<pre><code class="language-python">@dataclass(frozen=True)
+class NodeDefinition:
+    id: str                                     # &quot;echo@2&quot; (full versioned ID)
+    base_id: str                                # &quot;echo&quot;
+    version: int                                # 2
+    name: str                                   # Display name for UI
+    description: str
+    tags: tuple[str, ...]
+    inputs: tuple[InputMetadata, ...]           # Pre-computed at registration
+    outputs: tuple[OutputMetadata, ...]         # Pre-computed at registration
+    result_format: ResultFormat
+    validation_model: type[BaseModel] | None    # Pydantic model for input validation
+    func: Callable[..., Any] | None             # The RAW function (not wrapped)
+    width: int | None
+    docs: str | None                            # Markdown documentation
+</code></pre>
+<h3 id="62-noderegistry">6.2 NodeRegistry</h3>
+<pre><code class="language-python">class NodeRegistry:
+    &quot;&quot;&quot;Versioned registry. Nodes identified as base_id@version.&quot;&quot;&quot;
+
+    def node(
+        self,
+        base_id: str,
+        *,
+        version: int = 1,
+        name: str,
+        description: str,
+        tags: list[str] | None = None,
+        width: int | None = None,
+        docs: str | None = None,
+    ) -&gt; Callable:
+        &quot;&quot;&quot;Decorator to register a function as a node.&quot;&quot;&quot;
+        ...
+
+    def get(self, full_id: str) -&gt; NodeDefinition | None: ...
+    def get_latest(self, base_id: str) -&gt; NodeDefinition | None: ...
+    def is_deprecated(self, full_id: str) -&gt; bool: ...
+    def all(self) -&gt; list[NodeDefinition]: ...
+    def all_current(self) -&gt; list[NodeDefinition]: ...
+
+    def to_json(self) -&gt; list[dict[str, Any]]:
+        &quot;&quot;&quot;Serialize all current nodes for frontend consumption.&quot;&quot;&quot;
+        ...
+</code></pre>
+<h3 id="63-key-change-raw-function-storage">6.3 Key Change: Raw Function Storage</h3>
+<p><strong>Current behavior:</strong> The <code>@register_node</code> decorator wraps the function in a validation + exception-catching closure. The wrapper is stored in the registry and called at execution time.</p>
+<p><strong>New behavior:</strong> The decorator stores the <strong>raw function</strong> on <code>NodeDefinition.func</code>. Validation and exception wrapping move to the execution engine's <code>_dispatch_node()</code>. This means:</p>
+<ul>
+<li>Node functions remain plain, testable Python: <code>assert greeting("World", False) == "Hello World"</code></li>
+<li>No hidden wrapper in the call stack during debugging.</li>
+<li>Validation is still performed (using the pre-built Pydantic model), just at a different layer.</li>
+</ul>
+<h3 id="64-frontend-serialization-schemapy">6.4 Frontend Serialization (<code>schema.py</code>)</h3>
+<p>Replaces the current <code>introspection.py</code>. Produces the same JSON structure the frontend already consumes:</p>
+<pre><code class="language-python">def serialize_node_definition(nd: NodeDefinition, registry: NodeRegistry) -&gt; dict:
+    &quot;&quot;&quot;Convert a NodeDefinition to the frontend JSON schema.
+
+    Output matches the current NodePublic Pydantic model structure.
+    &quot;&quot;&quot;
+    return {
+        &quot;id&quot;: nd.id,
+        &quot;base_id&quot;: nd.base_id,
+        &quot;version&quot;: nd.version,
+        &quot;name&quot;: nd.name,
+        &quot;description&quot;: nd.description,
+        &quot;tags&quot;: list(nd.tags),
+        &quot;inputs&quot;: [_serialize_input(inp) for inp in nd.inputs],
+        &quot;outputs&quot;: [_serialize_output(out) for out in nd.outputs],
+        &quot;width&quot;: nd.width,
+        &quot;deprecated&quot;: registry.is_deprecated(nd.id),
+        &quot;latest_version&quot;: (registry.get_latest(nd.base_id) or nd).version,
+        &quot;docs&quot;: nd.docs,
+    }
+
+def _serialize_input(inp: InputMetadata) -&gt; dict:
+    &quot;&quot;&quot;Serialize an input parameter with full widget configuration.&quot;&quot;&quot;
+    data = {
+        &quot;name&quot;: inp.name,
+        &quot;type&quot;: inp.type_str,
+        &quot;type_label&quot;: inp.type_label,
+        &quot;label&quot;: inp.label,
+        &quot;description&quot;: inp.description,
+        &quot;widget&quot;: inp.widget.value,
+        &quot;default&quot;: inp.default,
+        &quot;optional&quot;: inp.optional,
+        &quot;disable_handle&quot;: inp.disable_handle,
+    }
+    data.update(inp.widget_config)  # Merge choices, range_min, etc.
+    return data
+</code></pre>
+<hr />
+<h2 id="7-layer-3-graph-compilation">7. Layer 3: Graph Compilation</h2>
+<h3 id="71-graph-model-wire-format">7.1 Graph Model (Wire Format)</h3>
+<p>These are the structures sent by the frontend (matching ReactFlow's data model):</p>
+<pre><code class="language-python">@dataclass(frozen=True)
+class GraphNode:
+    id: str                          # Unique instance ID (UUID from ReactFlow)
+    type: str                        # Registry type (&quot;echo@2&quot;) or extension type (&quot;app:uuid@1&quot;)
+    data: dict[str, Any] | None      # Static configuration from UI widgets
+
+@dataclass(frozen=True)
+class GraphEdge:
+    id: str
+    source: str                      # Source node instance ID
+    target: str                      # Target node instance ID
+    source_handle: str | None        # Output handle (&quot;result&quot;, &quot;output_1&quot;)
+    target_handle: str | None        # Input handle (&quot;text&quot;, &quot;items&quot;)
+</code></pre>
+<h3 id="72-compiledgraph">7.2 CompiledGraph</h3>
+<pre><code class="language-python">@dataclass(frozen=True)
+class CompiledGraph:
+    &quot;&quot;&quot;Immutable, validated, ready-to-execute graph.&quot;&quot;&quot;
+
+    execution_order: tuple[str, ...]
+    edge_map: dict[tuple[str, str], tuple[tuple[str, str], ...]]  # (target, handle) → sources
+    node_map: dict[str, GraphNode]
+    compound_nodes: dict[str, NodeExecutor]       # start_id → executor instance
+    managed_ids: frozenset[str]                    # Body/end nodes managed by compound nodes
+    registry: NodeRegistry
+    extension_resolver: ExtensionResolver | None
+</code></pre>
+<h3 id="73-the-compile-function">7.3 The <code>compile()</code> Function</h3>
+<pre><code class="language-python">def compile(
+    nodes: list[GraphNode],
+    edges: list[GraphEdge],
+    registry: NodeRegistry,
+    compound_types: list[CompoundNodeType] | None = None,
+    extension_resolver: ExtensionResolver | None = None,
+) -&gt; CompiledGraph:
+    &quot;&quot;&quot;Validate and compile a graph into an immutable execution plan.
+
+    Steps:
+        1. Validate all node types exist in registry or extension resolver.
+        2. Validate all edge endpoints reference existing nodes.
+        3. Topological sort (raises CycleDetectionError on cycles).
+        4. For each registered CompoundNodeType, run its discover() function
+           to find regions and instantiate compound node executors.
+        5. Freeze everything into a CompiledGraph.
+
+    Raises:
+        CompilationError: On any structural validation failure.
+    &quot;&quot;&quot;
+</code></pre>
+<p>This replaces the validation + setup code currently duplicated at the top of both <code>_execute_flow_impl</code> and <code>_execute_flow_streaming_impl</code>.</p>
+<h3 id="74-extension-resolver-protocol">7.4 Extension Resolver Protocol</h3>
+<p>The hook for host-app-specific node types:</p>
+<pre><code class="language-python">class ExtensionResolver(Protocol):
+    &quot;&quot;&quot;Implemented by host applications for custom node types.&quot;&quot;&quot;
+
+    def is_known_type(self, node_type: str) -&gt; bool:
+        &quot;&quot;&quot;Return True if this resolver handles the given node type.&quot;&quot;&quot;
+        ...
+
+    def create_executor(self, node_type: str) -&gt; NodeExecutor:
+        &quot;&quot;&quot;Create an executor instance for the given node type.&quot;&quot;&quot;
+        ...
+</code></pre>
+<hr />
+<h2 id="8-layer-4-execution-engine">8. Layer 4: Execution Engine</h2>
+<h3 id="81-nodeexecrequest-the-universal-dto">8.1 NodeExecRequest (The Universal DTO)</h3>
+<pre><code class="language-python">@dataclass(frozen=True)
+class NodeExecRequest:
+    &quot;&quot;&quot;Passed to every node execution — simple, compound, or extension.&quot;&quot;&quot;
+
+    node_id: str                     # Instance ID (UUID from frontend)
+    node_type: str                   # Registry type (&quot;echo@2&quot;)
+    inputs: dict[str, Any]           # Resolved inputs (edges + static data)
+    data: dict[str, Any]             # Raw node.data from UI configuration
+    state: FlowRunState              # Shared mutable run state
+</code></pre>
+<h3 id="82-nodeexecutor-protocol">8.2 NodeExecutor Protocol</h3>
+<pre><code class="language-python">class NodeExecutor(Protocol):
+    &quot;&quot;&quot;The contract every executable unit implements.&quot;&quot;&quot;
+
+    def execute(self, req: NodeExecRequest) -&gt; Any:
+        &quot;&quot;&quot;Execute the node and return a raw result (not yet normalized).&quot;&quot;&quot;
+        ...
+</code></pre>
+<h3 id="83-flowrunstate">8.3 FlowRunState</h3>
+<pre><code class="language-python">@dataclass
+class FlowRunState:
+    &quot;&quot;&quot;Mutable state for a single flow execution run.&quot;&quot;&quot;
+
+    # Graph structure (immutable references)
+    compiled: CompiledGraph
+    resolver: InputResolver
+
+    # Mutable execution state
+    results: dict[str, NodeResult]
+
+    # Event emission
+    _event_sink: EventSink
+
+    # Control
+    _cancelled: threading.Event
+    _started_at: float
+    _timeout_seconds: int
+
+    # Host-app context (opaque to the engine)
+    context: dict[str, Any]
+
+    def emit(self, event: ExecutionEvent) -&gt; None:
+        &quot;&quot;&quot;Thread-safe event emission. Used by compound nodes.&quot;&quot;&quot;
+        self._event_sink.push(event)
+
+    def is_cancelled(self) -&gt; bool: ...
+    def is_timed_out(self) -&gt; bool: ...
+    def remaining_seconds(self) -&gt; float | None: ...
+
+    def execute_subgraph(
+        self,
+        node_ids: list[str],
+        overlay: dict[str, NodeResult] | None = None,
+    ) -&gt; dict[str, NodeResult]:
+        &quot;&quot;&quot;Execute a subset of nodes with result isolation.
+
+        Creates a snapshot of parent results, applies overlay, executes
+        the given nodes in order, and returns the local results dict.
+        The parent results are NOT modified.
+
+        This is the method compound nodes call to run their body.
+        &quot;&quot;&quot;
+        ...
+</code></pre>
+<p><strong>Why <code>context: dict[str, Any]</code> instead of typed fields?</strong></p>
+<p>The current <code>ExecutionContext</code> has AKA-Flows-specific fields: <code>user_id</code>, <code>flow_id</code>, <code>parent_app_ids</code>, <code>app_node_cache</code>, <code>user_team_ids</code>, <code>user_role</code>. These are meaningless to other projects using the engine. By making context opaque, the engine stays host-agnostic while the host app stores whatever it needs.</p>
+<h3 id="84-event-types">8.4 Event Types</h3>
+<pre><code class="language-python"># All events are TypedDicts for zero-overhead serialization.
+
+class NodeStartEvent(TypedDict):
+    type: Literal[&quot;node_start&quot;]
+    node_id: str
+
+class NodeCompleteEvent(TypedDict, total=False):
+    type: Literal[&quot;node_complete&quot;]
+    node_id: str
+    result: Any
+    cached: bool
+
+class NodeSkippedEvent(TypedDict):
+    type: Literal[&quot;node_skipped&quot;]
+    node_id: str
+
+class NodeErrorEvent(TypedDict):
+    type: Literal[&quot;node_error&quot;]
+    node_id: str
+    error: str
+    is_validation: bool
+
+class NodeProgressEvent(TypedDict):
+    type: Literal[&quot;node_progress&quot;]
+    node_id: str
+    current: int
+    total: int
+
+class FlowCompleteEvent(TypedDict):
+    type: Literal[&quot;flow_complete&quot;]
+    results: dict[str, Any]
+
+class FlowErrorEvent(TypedDict):
+    type: Literal[&quot;flow_error&quot;]
+    error: str
+    is_validation: bool
+
+class FlowCancelledEvent(TypedDict):
+    type: Literal[&quot;flow_cancelled&quot;]
+    completed_nodes: list[str]
+
+class FlowTimeoutEvent(TypedDict):
+    type: Literal[&quot;flow_timeout&quot;]
+    completed_nodes: list[str]
+    elapsed_seconds: float
+    timeout_seconds: int
+
+ExecutionEvent = (
+    NodeStartEvent | NodeCompleteEvent | NodeSkippedEvent | NodeErrorEvent
+    | NodeProgressEvent | FlowCompleteEvent | FlowErrorEvent
+    | FlowCancelledEvent | FlowTimeoutEvent
+)
+</code></pre>
+<h3 id="85-eventsink">8.5 EventSink</h3>
+<p>Thread-safe bridge between sync compound node execution and the async generator:</p>
+<pre><code class="language-python">class EventSink:
+    &quot;&quot;&quot;Compound nodes push events here; the engine drains them.&quot;&quot;&quot;
+
+    def __init__(self):
+        self._queue: deque[ExecutionEvent] = deque()
+        self._lock: threading.Lock = threading.Lock()
+
+    def push(self, event: ExecutionEvent) -&gt; None:
+        with self._lock:
+            self._queue.append(event)
+
+    def pop(self) -&gt; ExecutionEvent | None:
+        with self._lock:
+            return self._queue.popleft() if self._queue else None
+</code></pre>
+<h3 id="86-the-executor">8.6 The Executor</h3>
+<p>The complete engine — one async generator, one dispatch function:</p>
+<pre><code class="language-python">async def execute(
+    compiled: CompiledGraph,
+    *,
+    timeout_seconds: int = 300,
+    context: dict[str, Any] | None = None,
+    cache: dict[str, Any] | None = None,
+) -&gt; AsyncGenerator[ExecutionEvent, None]:
+    &quot;&quot;&quot;Execute a compiled graph, yielding streaming events.
+
+    This is the ONLY execution entry point.
+    &quot;&quot;&quot;
+    sink = EventSink()
+    state = FlowRunState(
+        compiled=compiled,
+        resolver=InputResolver(compiled.registry),
+        results={},
+        _event_sink=sink,
+        _cancelled=threading.Event(),
+        _started_at=time.monotonic(),
+        _timeout_seconds=timeout_seconds,
+        context=context or {},
+    )
+
+    cache = cache or {}
+    completed: list[str] = []
+
+    for node_id in compiled.execution_order:
+        # Skip nodes managed by compound nodes (loop body/end)
+        if node_id in compiled.managed_ids:
+            continue
+
+        # Control checks
+        if state.is_cancelled():
+            yield FlowCancelledEvent(...)
+            return
+        if state.is_timed_out():
+            yield FlowTimeoutEvent(...)
+            return
+
+        node = compiled.node_map[node_id]
+
+        # Skip propagation
+        if should_skip_node(node, compiled.edge_map, state.results):
+            state.results[node_id] = SKIPPED
+            yield NodeSkippedEvent(type=&quot;node_skipped&quot;, node_id=node_id)
+            completed.append(node_id)
+            continue
+
+        yield NodeStartEvent(type=&quot;node_start&quot;, node_id=node_id)
+        await asyncio.sleep(0)
+
+        # Cache hit
+        if node_id in cache:
+            state.results[node_id] = cache[node_id]
+            yield NodeCompleteEvent(..., cached=True)
+            completed.append(node_id)
+            continue
+
+        # Resolve inputs
+        try:
+            inputs = state.resolver.resolve(
+                node, compiled.edge_map, state.results, compiled.node_map
+            )
+        except InputResolutionError as e:
+            yield NodeErrorEvent(...)
+            yield FlowErrorEvent(...)
+            return
+
+        # Build DTO
+        req = NodeExecRequest(
+            node_id=node_id,
+            node_type=node.type,
+            inputs=inputs,
+            data=node.data or {},
+            state=state,
+        )
+
+        # Execute in thread pool
+        try:
+            loop = asyncio.get_running_loop()
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                future = loop.run_in_executor(pool, _dispatch_node, req, compiled)
+                remaining = state.remaining_seconds()
+                result = await asyncio.wait_for(
+                    future,
+                    timeout=max(0.1, remaining) if remaining is not None else None,
+                )
+
+            result = normalize_result(result)
+            state.results[node_id] = result
+            completed.append(node_id)
+            yield NodeCompleteEvent(
+                type=&quot;node_complete&quot;, node_id=node_id,
+                result=filter_skipped(result),
+            )
+        except asyncio.TimeoutError:
+            yield FlowTimeoutEvent(...)
+            return
+        except NodeValidationException as e:
+            yield NodeErrorEvent(..., is_validation=True)
+            yield FlowErrorEvent(..., is_validation=True)
+            return
+        except NodeExecutionException as e:
+            yield NodeErrorEvent(..., is_validation=False)
+            yield FlowErrorEvent(..., is_validation=False)
+            return
+
+        # Drain events emitted by compound nodes
+        while event := sink.pop():
+            yield event
+
+    yield FlowCompleteEvent(
+        type=&quot;flow_complete&quot;,
+        results=filter_all_skipped(state.results),
+    )
+</code></pre>
+<h3 id="87-node-dispatch">8.7 Node Dispatch</h3>
+<pre><code class="language-python">def _dispatch_node(req: NodeExecRequest, compiled: CompiledGraph) -&gt; Any:
+    &quot;&quot;&quot;Route execution to the right handler. Three-way lookup, no special cases.&quot;&quot;&quot;
+
+    # 1. Compound node (for-each, future try-catch, etc.)
+    if req.node_id in compiled.compound_nodes:
+        return compiled.compound_nodes[req.node_id].execute(req)
+
+    # 2. Extension node (app nodes, host-specific)
+    ext = compiled.extension_resolver
+    if ext and ext.is_known_type(req.node_type):
+        return ext.create_executor(req.node_type).execute(req)
+
+    # 3. Registry node — validate + call
+    node_def = compiled.registry.get(req.node_type)
+    if not node_def or not node_def.func:
+        raise NodeExecutionException(f&quot;Node type '{req.node_type}' not found&quot;)
+
+    if node_def.validation_model:
+        try:
+            validated = node_def.validation_model(**req.inputs)
+            inputs = validated.model_dump()
+        except ValidationError as e:
+            raise NodeValidationException(
+                format_validation_error(e, node_def)
+            ) from e
+    else:
+        inputs = req.inputs
+
+    try:
+        return node_def.func(**inputs)
+    except (NodeValidationException, NodeExecutionException):
+        raise
+    except Exception as e:
+        raise NodeExecutionException(
+            f&quot;Execution failed for {req.node_type}: {type(e).__name__}: {e}&quot;
+        ) from e
+</code></pre>
+<h3 id="88-sync-convenience-wrappers">8.8 Sync Convenience Wrappers</h3>
+<pre><code class="language-python">async def collect(events: AsyncGenerator[ExecutionEvent, None]) -&gt; dict[str, Any]:
+    &quot;&quot;&quot;Consume all events, return final results. Raises on error/cancel/timeout.&quot;&quot;&quot;
+    results = {}
+    async for event in events:
+        if event[&quot;type&quot;] == &quot;flow_complete&quot;:
+            results = event[&quot;results&quot;]
+        elif event[&quot;type&quot;] in (&quot;flow_error&quot;, &quot;flow_cancelled&quot;, &quot;flow_timeout&quot;):
+            raise FlowExecutionException(event.get(&quot;error&quot;, &quot;Flow did not complete&quot;))
+    return results
+
+def execute_sync(compiled: CompiledGraph, **kwargs) -&gt; dict[str, Any]:
+    &quot;&quot;&quot;Blocking entry point. Runs the async engine and collects results.&quot;&quot;&quot;
+    return asyncio.run(collect(execute(compiled, **kwargs)))
+</code></pre>
+<hr />
+<h2 id="9-layer-5-compound-nodes">9. Layer 5: Compound Nodes</h2>
+<h3 id="91-compoundnodetype-protocol">9.1 CompoundNodeType Protocol</h3>
+<pre><code class="language-python">@dataclass(frozen=True)
+class Region:
+    &quot;&quot;&quot;A group of related nodes managed by a compound node.&quot;&quot;&quot;
+    start_id: str
+    end_id: str
+    body_ids: frozenset[str]
+
+    @property
+    def all_ids(self) -&gt; frozenset[str]:
+        return self.body_ids | {self.start_id, self.end_id}
+
+@dataclass(frozen=True)
+class CompoundNodeType:
+    &quot;&quot;&quot;Registration for a compound node type.
+
+    The compiler calls discover() to find regions in the graph,
+    then calls factory() to create an executor for each region.
+    &quot;&quot;&quot;
+    start_type_prefix: str                          # e.g., &quot;for-each-start&quot;
+    end_type_prefix: str                            # e.g., &quot;for-each-end&quot;
+    discover: Callable[
+        [list[GraphNode], list[GraphEdge]],
+        list[Region],
+    ]
+    factory: Callable[
+        [Region, tuple[str, ...]],                  # (region, execution_order)
+        NodeExecutor,
+    ]
+</code></pre>
+<h3 id="92-foreachnode">9.2 ForEachNode</h3>
+<pre><code class="language-python">class ForEachNode:
+    &quot;&quot;&quot;Compound node for for-each loop iteration.&quot;&quot;&quot;
+
+    def __init__(self, region: Region, execution_order: tuple[str, ...]):
+        self.region = region
+        self.body_order = [nid for nid in execution_order if nid in region.body_ids]
+
+    def execute(self, req: NodeExecRequest) -&gt; Any:
+        items = prepare_loop_items(req.inputs.get(&quot;items&quot;, []))
+        items = items[:MAX_ITERATIONS]
+        parallel = req.inputs.get(&quot;execution_mode&quot;, &quot;Sekventiel&quot;) == &quot;Parallel&quot;
+        state = req.state
+
+        state.emit(NodeStartEvent(type=&quot;node_start&quot;, node_id=self.region.end_id))
+
+        def run_one(item: Any, idx: int) -&gt; Any:
+            overlay = {self.region.start_id: normalize_result((item, idx + 1))}
+            local = state.execute_subgraph(self.body_order, overlay=overlay)
+            return resolve_end_inputs(local, self.region.end_id, state)
+
+        if parallel:
+            with ThreadPoolExecutor(max_workers=min(len(items), 8)) as pool:
+                collected = list(pool.map(
+                    lambda pair: run_one(pair[1], pair[0]),
+                    enumerate(items),
+                ))
+            state.emit(NodeProgressEvent(
+                type=&quot;node_progress&quot;, node_id=self.region.end_id,
+                current=len(items), total=len(items),
+            ))
+        else:
+            collected = []
+            for idx, item in enumerate(items):
+                if state.is_cancelled():
+                    break
+                collected.append(run_one(item, idx))
+                state.emit(NodeProgressEvent(
+                    type=&quot;node_progress&quot;, node_id=self.region.end_id,
+                    current=idx + 1, total=len(items),
+                ))
+
+        end_result = normalize_result(collect_loop_results(collected))
+        state.results[self.region.end_id] = end_result
+        state.emit(NodeCompleteEvent(
+            type=&quot;node_complete&quot;, node_id=self.region.end_id,
+            result=filter_skipped(end_result),
+        ))
+
+        return items  # Start node's own result
+
+
+# Registration constant:
+FOR_EACH = CompoundNodeType(
+    start_type_prefix=&quot;for-each-start&quot;,
+    end_type_prefix=&quot;for-each-end&quot;,
+    discover=discover_for_each_regions,
+    factory=lambda region, order: ForEachNode(region, order),
+)
+</code></pre>
+<h3 id="93-adding-new-compound-nodes">9.3 Adding New Compound Nodes</h3>
+<p>Adding a new control-flow pattern requires <strong>zero changes</strong> to the engine. Example: a hypothetical try/catch node:</p>
+<pre><code class="language-python">class TryCatchNode:
+    def __init__(self, region: TryCatchRegion, execution_order):
+        self.region = region
+        self.try_body = [nid for nid in execution_order if nid in region.try_ids]
+        self.catch_body = [nid for nid in execution_order if nid in region.catch_ids]
+
+    def execute(self, req: NodeExecRequest) -&gt; Any:
+        try:
+            results = req.state.execute_subgraph(self.try_body)
+            return results.get(self.try_body[-1])
+        except (NodeExecutionException, NodeValidationException) as e:
+            overlay = {&quot;__error__&quot;: normalize_result(str(e))}
+            results = req.state.execute_subgraph(self.catch_body, overlay=overlay)
+            return results.get(self.catch_body[-1])
+
+TRY_CATCH = CompoundNodeType(
+    start_type_prefix=&quot;try&quot;,
+    end_type_prefix=&quot;catch-end&quot;,
+    discover=discover_try_catch_regions,
+    factory=lambda region, order: TryCatchNode(region, order),
+)
+</code></pre>
+<p>The host application registers it alongside <code>FOR_EACH</code>:</p>
+<pre><code class="language-python">compiled = compile(
+    nodes=nodes,
+    edges=edges,
+    registry=registry,
+    compound_types=[FOR_EACH, TRY_CATCH],
+)
+</code></pre>
+<hr />
+<h2 id="10-host-application-integration">10. Host Application Integration</h2>
+<h3 id="101-aka-flows-integration-example">10.1 AKA Flows Integration Example</h3>
+<pre><code class="language-python"># backend/app/services/flows/engine.py
+
+from flowengine import NodeRegistry, compile, execute
+from flowengine.compound.for_each import FOR_EACH
+
+# --- Registry (replaces current global NODE_REGISTRY) ---
+registry = NodeRegistry()
+
+# --- Node registration (unchanged pattern) ---
+@registry.node(&quot;greeting&quot;, version=1, name=&quot;Hilsen&quot;, description=&quot;Returnerer en hilsen&quot;)
+def greeting(
+    name: Annotated[str, widgets.Text(label=&quot;Navn&quot;, description=&quot;Navn&quot;)],
+    formal: Annotated[bool, widgets.Checkbox(label=&quot;Formel&quot;)] = False,
+) -&gt; Annotated[str, widgets.Output(label=&quot;Hilsen&quot;)]:
+    return f&quot;Kære {name}&quot; if formal else f&quot;Hej {name}&quot;
+
+
+# --- Extension resolver for app nodes ---
+class AppNodeResolver:
+    def __init__(self, app_cache: dict[str, AppNodeData]):
+        self.app_cache = app_cache
+
+    def is_known_type(self, node_type: str) -&gt; bool:
+        return node_type.startswith(&quot;app:&quot;)
+
+    def create_executor(self, node_type: str) -&gt; NodeExecutor:
+        return AppNodeExecutor(node_type, self.app_cache)
+
+class AppNodeExecutor:
+    def __init__(self, node_type: str, cache: dict):
+        self.node_type = node_type
+        self.cache = cache
+
+    def execute(self, req: NodeExecRequest) -&gt; Any:
+        # Access host-specific context
+        ctx = req.state.context
+        parent_ids = ctx.get(&quot;parent_app_ids&quot;, [])
+        # ... recursion detection, RBAC, sub-flow execution via execute_sync
+</code></pre>
+<h3 id="102-route-handler">10.2 Route Handler</h3>
+<pre><code class="language-python">@router.post(&quot;/flows/{flow_id}/execute&quot;)
+async def execute_flow(flow_id: UUID, request: FlowExecuteRequest, user: User):
+    # Pre-load app nodes (host-specific)
+    app_cache = await preload_app_nodes(request.nodes, user)
+
+    # Compile (validation happens here, before execution)
+    compiled = compile(
+        nodes=[GraphNode(id=n.id, type=n.type, data=n.data) for n in request.nodes],
+        edges=[GraphEdge(...) for e in request.edges],
+        registry=registry,
+        compound_types=[FOR_EACH],
+        extension_resolver=AppNodeResolver(app_cache),
+    )
+
+    # Execute with streaming
+    async def event_stream():
+        async for event in execute(
+            compiled,
+            timeout_seconds=300,
+            context={
+                &quot;user_id&quot;: user.id,
+                &quot;flow_id&quot;: flow_id,
+                &quot;parent_app_ids&quot;: [],
+                &quot;app_node_cache&quot;: app_cache,
+                &quot;user_team_ids&quot;: user.team_ids,
+                &quot;user_role&quot;: user.role,
+            },
+            cache=request.cache,
+        ):
+            yield f&quot;data: {json.dumps(event)}\n\n&quot;
+
+    return StreamingResponse(event_stream(), media_type=&quot;text/event-stream&quot;)
+</code></pre>
+<h3 id="103-frontend-node-registry-endpoint">10.3 Frontend Node Registry Endpoint</h3>
+<pre><code class="language-python">@router.get(&quot;/nodes&quot;)
+def get_node_types():
+    &quot;&quot;&quot;Serve the full registry as JSON for the frontend.&quot;&quot;&quot;
+    return registry.to_json()
+</code></pre>
+<p>The frontend consumes this unchanged — the JSON structure is identical to today's <code>NodePublic</code> format.</p>
+<h3 id="104-responsibility-boundary">10.4 Responsibility Boundary</h3>
+<table>
+<thead>
+<tr>
+<th>Concern</th>
+<th>FlowEngine</th>
+<th>Host Application</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Node registration</td>
+<td><code>@registry.node()</code> decorator</td>
+<td>Defines all node functions</td>
+</tr>
+<tr>
+<td>Widget system</td>
+<td><code>widgets.py</code> (Text, Dropdown, etc.)</td>
+<td>Can define additional widget types</td>
+</tr>
+<tr>
+<td>Type validation</td>
+<td>Pydantic model from signature</td>
+<td>N/A (automatic)</td>
+</tr>
+<tr>
+<td>Graph compilation</td>
+<td><code>compile()</code></td>
+<td>Calls it, provides extension resolver</td>
+</tr>
+<tr>
+<td>Topological sort</td>
+<td>Built-in</td>
+<td>N/A</td>
+</tr>
+<tr>
+<td>Region discovery</td>
+<td>Framework for compound types</td>
+<td>Registers compound types</td>
+</tr>
+<tr>
+<td>Execution loop</td>
+<td><code>execute()</code> async generator</td>
+<td>Wraps in SSE/WebSocket endpoint</td>
+</tr>
+<tr>
+<td>Input resolution</td>
+<td><code>InputResolver</code></td>
+<td>N/A</td>
+</tr>
+<tr>
+<td>Result normalization</td>
+<td><code>normalize_result()</code></td>
+<td>N/A</td>
+</tr>
+<tr>
+<td>Skip propagation</td>
+<td><code>SKIPPED</code> sentinel</td>
+<td>N/A</td>
+</tr>
+<tr>
+<td>Event streaming</td>
+<td><code>EventSink</code> + event types</td>
+<td>Consumes events for transport</td>
+</tr>
+<tr>
+<td>Timeout/cancellation</td>
+<td>Built-in</td>
+<td>Sets limits, triggers cancel</td>
+</tr>
+<tr>
+<td>Extension nodes</td>
+<td><code>ExtensionResolver</code> protocol</td>
+<td>Implements for app nodes, sub-flows</td>
+</tr>
+<tr>
+<td>Registry JSON</td>
+<td><code>registry.to_json()</code></td>
+<td>Serves via API endpoint</td>
+</tr>
+<tr>
+<td>Auth/RBAC</td>
+<td>N/A (not its concern)</td>
+<td>Enforced before calling engine</td>
+</tr>
+<tr>
+<td>Persistence</td>
+<td>N/A</td>
+<td>Database, caching, etc.</td>
+</tr>
+<tr>
+<td>Error message i18n</td>
+<td>English error messages</td>
+<td>Host translates or wraps</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="11-migration-path">11. Migration Path</h2>
+<h3 id="111-file-level-mapping">11.1 File-Level Mapping</h3>
+<table>
+<thead>
+<tr>
+<th>Current (AKA Flows)</th>
+<th>New (FlowEngine)</th>
+<th>Change Level</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>services/flows/types.py</code></td>
+<td><code>flowengine/types.py</code></td>
+<td>Copy, remove app-specific types</td>
+</tr>
+<tr>
+<td><code>services/flows/widgets.py</code></td>
+<td><code>flowengine/widgets.py</code></td>
+<td>Copy unchanged</td>
+</tr>
+<tr>
+<td><code>services/flows/metadata.py</code></td>
+<td><code>flowengine/metadata.py</code></td>
+<td>Copy unchanged</td>
+</tr>
+<tr>
+<td><code>services/flows/validation.py</code></td>
+<td><code>flowengine/validation.py</code></td>
+<td>Copy unchanged</td>
+</tr>
+<tr>
+<td><code>services/flows/registry.py</code></td>
+<td><code>flowengine/registry/__init__.py</code></td>
+<td>Refactor: split class, remove legacy dicts</td>
+</tr>
+<tr>
+<td><code>services/flows/introspection.py</code></td>
+<td><code>flowengine/registry/schema.py</code></td>
+<td>Refactor: work from NodeDefinition</td>
+</tr>
+<tr>
+<td><code>execution/executor.py</code> (1015 lines)</td>
+<td><code>flowengine/execution/engine.py</code> (~150 lines)</td>
+<td>Rewrite</td>
+</tr>
+<tr>
+<td><code>execution/context.py</code></td>
+<td><code>flowengine/execution/state.py</code></td>
+<td>Replace with FlowRunState</td>
+</tr>
+<tr>
+<td><code>execution/graph.py</code></td>
+<td><code>flowengine/graph/topology.py</code> + <code>regions.py</code></td>
+<td>Split</td>
+</tr>
+<tr>
+<td><code>execution/inputs.py</code></td>
+<td><code>flowengine/execution/resolver.py</code></td>
+<td>Copy, adjust imports</td>
+</tr>
+<tr>
+<td><code>execution/results.py</code></td>
+<td><code>flowengine/execution/results.py</code></td>
+<td>Copy unchanged</td>
+</tr>
+<tr>
+<td><code>execution/app_node.py</code></td>
+<td>Host app's <code>AppNodeResolver</code></td>
+<td>Host-side code</td>
+</tr>
+<tr>
+<td><code>nodes/loop.py</code> (prepare/collect)</td>
+<td><code>flowengine/compound/for_each.py</code></td>
+<td>Move helpers</td>
+</tr>
+<tr>
+<td><code>nodes/control.py</code> (if_else)</td>
+<td>Stays a simple registered node</td>
+<td>No change</td>
+</tr>
+<tr>
+<td><code>nodes/*.py</code> (all others)</td>
+<td>Host app's node definitions</td>
+<td>Change decorator import only</td>
+</tr>
+</tbody>
+</table>
+<h3 id="112-migration-steps">11.2 Migration Steps</h3>
+<p><strong>Phase 1: Extract the library</strong></p>
+<ol>
+<li>Create <code>flowengine/</code> package with the structure above.</li>
+<li>Copy types, widgets, metadata, validation unchanged.</li>
+<li>Refactor registry (split <code>NodeDefinition</code> out, remove legacy dicts, raw function storage).</li>
+<li>Implement <code>compile()</code> from existing validation logic.</li>
+<li>Implement <code>execute()</code> as the single streaming path.</li>
+<li>Implement <code>ForEachNode</code> compound node from existing <code>_execute_for_each_region</code> logic.</li>
+<li>Port input resolution and result normalization.</li>
+</ol>
+<p><strong>Phase 2: Integrate into AKA Flows</strong></p>
+<ol>
+<li>Create <code>AppNodeResolver</code> implementing <code>ExtensionResolver</code>.</li>
+<li>Update route handlers to use <code>compile()</code> + <code>execute()</code>.</li>
+<li>Update node files to import from <code>flowengine</code> instead of <code>app.services.flows</code>.</li>
+<li>Update frontend node registry endpoint to use <code>registry.to_json()</code>.</li>
+</ol>
+<p><strong>Phase 3: Clean up</strong></p>
+<ol>
+<li>Remove old <code>execution/executor.py</code>, <code>execution/context.py</code>.</li>
+<li>Remove legacy <code>NODE_REGISTRY</code> and <code>NODE_METADATA_REGISTRY</code> dicts.</li>
+<li>Remove <code>introspection.py</code> (replaced by <code>schema.py</code>).</li>
+</ol>
+<h3 id="113-risk-mitigation">11.3 Risk Mitigation</h3>
+<ul>
+<li><strong>Existing node functions require zero changes</strong> to their logic. Only the decorator import path changes.</li>
+<li><strong>Frontend receives identical JSON</strong> — <code>registry.to_json()</code> produces the same structure as the current <code>NodePublic</code> model.</li>
+<li><strong>Tests can run against both implementations</strong> during migration by routing through a compatibility shim.</li>
+<li><strong>App node behavior is preserved</strong> — the <code>AppNodeResolver</code> encapsulates the same <code>execute_app_node</code> logic.</li>
+</ul>
+<hr />
+<h2 id="12-appendix-research-summary">12. Appendix: Research Summary</h2>
+<p>The <a href="../graph-processing-framework-research/">Graph Processing Framework Research</a> evaluated five frameworks. This section summarizes which patterns were adopted and which were explicitly rejected.</p>
+<h3 id="adopted-patterns">Adopted Patterns</h3>
+<table>
+<thead>
+<tr>
+<th>Pattern</th>
+<th>Source</th>
+<th>How Applied</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Two-phase construction/execution</td>
+<td>Beam, LangGraph, Ray</td>
+<td><code>compile()</code> → <code>execute()</code> separation</td>
+</tr>
+<tr>
+<td>Nodes as plain functions</td>
+<td>LangGraph, Ray</td>
+<td><code>@registry.node()</code> stores raw functions</td>
+</tr>
+<tr>
+<td>Decorator-based registration</td>
+<td>Ray</td>
+<td>Already in place, preserved</td>
+</tr>
+<tr>
+<td>Compile-time validation</td>
+<td>Beam, LangGraph</td>
+<td>All structural errors caught in <code>compile()</code></td>
+</tr>
+<tr>
+<td>Conditional edges (SKIPPED)</td>
+<td>LangGraph</td>
+<td>Existing pattern preserved via skip propagation</td>
+</tr>
+</tbody>
+</table>
+<h3 id="explicitly-rejected-patterns">Explicitly Rejected Patterns</h3>
+<table>
+<thead>
+<tr>
+<th>Pattern</th>
+<th>Source</th>
+<th>Reason</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>BSP/superstep execution</td>
+<td>Pregel, LangGraph</td>
+<td>Most flows are narrow and deep; superstep barriers add latency for the common case (linear chains) while only helping the rare case (wide parallelism)</td>
+</tr>
+<tr>
+<td>Shared state with reducers</td>
+<td>LangGraph</td>
+<td>Edge-based data flow matches the visual wire-drawing metaphor. Shared state creates a mismatch between what users see (wires) and how it executes (global dict)</td>
+</tr>
+<tr>
+<td>Transactional rollback</td>
+<td>LangGraph</td>
+<td>Nodes have side effects (API calls, emails). You cannot roll back a sent email. Transactional semantics only protect state, not external effects</td>
+</tr>
+<tr>
+<td>Operator chaining/fusion</td>
+<td>Flink</td>
+<td>Premature optimization. Flows have 5–30 nodes processing one request. Scheduling overhead is negligible</td>
+</tr>
+<tr>
+<td>True cycle support</td>
+<td>LangGraph</td>
+<td>Region-based loops (for-each) cover current needs. True cycles require convergence detection and add complexity without demonstrated demand</td>
+</tr>
+</tbody>
+</table>
+<h3 id="deferred-patterns">Deferred Patterns</h3>
+<table>
+<thead>
+<tr>
+<th>Pattern</th>
+<th>Source</th>
+<th>When to Revisit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Checkpointing/resume</td>
+<td>LangGraph, Pregel, Flink</td>
+<td>When there is demand for pause/resume, human-in-the-loop, or long-running flows that survive process restarts</td>
+</tr>
+<tr>
+<td>Error routing</td>
+<td>Beam</td>
+<td>When there is demand for flows that continue past failures and collect errors for review. Requires frontend UI for error channels</td>
+</tr>
+<tr>
+<td>State backends</td>
+<td>Flink</td>
+<td>When flows outgrow in-memory state (unlikely at current scale)</td>
+</tr>
+</tbody>
+</table></div>
+            </div>
+        </div>
+
+        <footer class="col-md-12">
+            <hr>
+            <p>Documentation built with <a href="https://www.mkdocs.org/">MkDocs</a>.</p>
+        </footer>
+        <script src="../js/bootstrap.bundle.min.js"></script>
+        <script>
+            var base_url = "..",
+                shortcuts = {"help": 191, "next": 78, "previous": 80, "search": 83};
+        </script>
+        <script src="../js/base.js"></script>
+        <script src="../search/main.js"></script>
+
+        <div class="modal" id="mkdocs_search_modal" tabindex="-1" role="dialog" aria-labelledby="searchModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="searchModalLabel">Search</h4>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>From here you can search these documents. Enter your search terms below.</p>
+                <form>
+                    <div class="form-group">
+                        <input type="search" class="form-control" placeholder="Search..." id="mkdocs-search-query" title="Type search term here">
+                    </div>
+                </form>
+                <div id="mkdocs-search-results" data-no-results-text="No results found"></div>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div><div class="modal" id="mkdocs_keyboard_modal" tabindex="-1" role="dialog" aria-labelledby="keyboardModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="keyboardModalLabel">Keyboard Shortcuts</h4>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th style="width: 20%;">Keys</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="help shortcut"><kbd>?</kbd></td>
+                    <td>Open this help</td>
+                  </tr>
+                  <tr>
+                    <td class="next shortcut"><kbd>n</kbd></td>
+                    <td>Next page</td>
+                  </tr>
+                  <tr>
+                    <td class="prev shortcut"><kbd>p</kbd></td>
+                    <td>Previous page</td>
+                  </tr>
+                  <tr>
+                    <td class="search shortcut"><kbd>s</kbd></td>
+                    <td>Search</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div>
+
+    </body>
+</html>
