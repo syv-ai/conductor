@@ -20,6 +20,7 @@ Built to be the shared core behind visual flow builders — define nodes once, g
 - **Retry** — per-node `max_retries`/`retry_delay` with exponential backoff, or a global `RetryConfig`
 - **Structured error hierarchy** — `NodeValidationError`, `NodeExecutionError`, `NodeConnectionError`, `NodeTimeoutError`, and more, all carrying `node_id`/`node_type` context
 - **Streaming execution** — async generator yields events (node_start, node_complete, node_retry, flow_complete, etc.)
+- **Shared references** — per-instance produce/consume bindings let any node feed any other without drawing an edge — including across for-each region boundaries
 - **Conditional branching** — SKIPPED sentinel propagates through inactive branches
 - **For-each loops** — compound node regions with sequential or parallel execution
 - **Human-in-the-loop** — `HumanInputRequired` pauses to a JSON-serializable checkpoint; resume later
@@ -143,9 +144,11 @@ conductor/
 │           │   ├── discovery.py    # Auto-discovery via importlib
 │           │   └── schema.py       # JSON serialization for frontends
 │           ├── graph/
-│           │   ├── model.py        # GraphNode, GraphEdge
+│           │   ├── model.py        # GraphNode (with produces/consumes), GraphEdge
 │           │   ├── topology.py     # Topological sort, cycle detection
 │           │   ├── compiler.py     # compile() -> CompiledGraph
+│           │   ├── type_check.py   # Edge + consume type compatibility
+│           │   ├── shared_refs.py  # produce/consume validation, consume_map build
 │           │   └── regions.py      # Compound node region discovery
 │           ├── execution/
 │           │   ├── engine.py       # execute(), execute_sync(), eager scheduler, retry loop
@@ -161,10 +164,10 @@ conductor/
 │           └── compound/
 │               ├── protocol.py     # CompoundNodeType, Region
 │               └── for_each.py     # ForEachNode + FOR_EACH constant
-├── examples/                       # Usage examples (6 examples)
+├── examples/                       # Usage notebooks (7 examples)
 ├── demo/                           # Interactive playground (FastAPI + browser UI)
-├── tests/                          # pytest test suite (131 tests)
-└── docs/                           # Design spec, llms.txt, MkDocs site
+├── tests/                          # pytest test suite (160 tests)
+└── docs/                           # Design specs, llms.txt, MkDocs site
 ```
 
 ## Concepts
@@ -259,6 +262,42 @@ class AppNodeResolver:
 
 compiled = compile(nodes, edges, registry, extension_resolver=AppNodeResolver())
 ```
+
+### Shared references
+
+An alternative to explicit edges for two cases they handle awkwardly: **fan-out** (one producer feeding many consumers) and **cross-region binding** (feeding a value into a for-each body from outside the loop). Every shared reference is opt-in per node *instance*; no changes to the node function are required.
+
+A producer marks an output as shared. Any other node — anywhere in the graph, including inside a for-each body — can bind one of its inputs to that output. Reference identity is `(producer_node_id, output_handle)`; the label is for UI only.
+
+```python
+compiled = compile(
+    nodes=[
+        GraphNode("mapper", "build-map@1", {"seed": "x"},
+                  produces={"result": "pseudonym map"}),
+        GraphNode("redactor", "redact@1", {"text": "Alice met Bob."},
+                  consumes={"mapping": ("mapper", "result")}),
+    ],
+    edges=[],           # no edge needed
+    registry=registry,
+)
+results = execute_sync(compiled)
+print(results["redactor"]["result"])   # "P001-x met P002-x."
+```
+
+**Inside a for-each loop** a consumer reads the same producer value on every iteration (broadcast, not per-iteration). This is how you inject a system prompt defined once at the top of a flow into an LLM node inside a loop over 1,000 records.
+
+Validated at compile time: the producer must declare the handle in `produces`, the consumer's input handle must exist, an input cannot be both a consume target and the target of an explicit edge, and cycles through consume bindings are caught alongside edge cycles. Type checking uses the same rules as edges.
+
+In v1, **producers must be top-level** (cannot sit inside a for-each or other compound region). Consumers can be anywhere.
+
+Resolver precedence, first match wins:
+
+1. Explicit edge targeting the input
+2. Consume binding (shared reference)
+3. Static data on the node (`GraphNode.data`)
+4. Widget default (Pydantic)
+
+Full design and rules: [`docs/shared-references.md`](docs/shared-references.md). Walkthrough: `examples/07_shared_references.ipynb`.
 
 ### Eager parallel execution
 

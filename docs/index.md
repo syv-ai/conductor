@@ -10,6 +10,7 @@ A reusable, host-agnostic graph execution engine for building DAG-based workflow
 
 - **Eager parallel scheduling** — independent branches in a DAG run concurrently with no configuration.
 - **Node-level and global retry** — exponential backoff with a clean `node_retry` event on every attempt.
+- **Shared references (produce / consume)** — per-instance bindings that replace fan-out edges and cross for-each boundaries.
 - **Structured error hierarchy** — `NodeValidationError`, `NodeExecutionError`, `NodeConnectionError`, `NodeTimeoutError`, and more, all carrying `node_id` / `node_type` context.
 - **Human-in-the-loop** — pause on `HumanInputRequired`, checkpoint to JSON, resume later.
 - **Widget-annotated registration** — one `Annotated[T, Widget]` drives validation, execution, and frontend rendering.
@@ -68,6 +69,29 @@ execute_sync(compiled, retry=RetryConfig(max_retries=2, delay=1.0, backoff_facto
 - Retried: `NodeExecutionError`, `NodeConnectionError`
 - Never retried: `NodeValidationError`, `HumanInputRequired`
 - Each attempt emits a `node_retry` event: `{attempt, max_retries, error, delay}`
+
+## Shared references (produce / consume)
+
+An alternative to drawn edges for fan-out and cross-region wiring. Declared per-instance on `GraphNode`; validated at compile time; participates in scheduling, cycle detection, and type checking identically to edges.
+
+```python
+compiled = compile(
+    nodes=[
+        GraphNode("mapper", "build-map@1", {"seed": "x"},
+                  produces={"result": "pseudonym map"}),
+        GraphNode("redactor", "redact@1", {"text": "Alice met Bob."},
+                  consumes={"mapping": ("mapper", "result")}),
+    ],
+    edges=[],     # no edge needed
+    registry=registry,
+)
+```
+
+Reference identity is `(producer_node_id, output_handle)`; the label is UI-only so renames never break subscribers. A consumer inside a for-each body reads the same producer value on every iteration (broadcast, not per-iteration) — this is the idiomatic way to inject a system prompt or a pseudonymisation map into every loop step.
+
+v1 constraint: producers must be top-level; consumers can be anywhere.
+
+Full rules and error cases: [`shared-references.md`](./shared-references.md).
 
 ## Error hierarchy
 

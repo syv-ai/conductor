@@ -2,7 +2,7 @@
 
 > Compile-then-execute DAG engine for building visual workflow systems.
 
-Conductor is a Python library for building DAG-based workflow/agent execution systems. It provides node registration, graph compilation with type checking, streaming execution, human-in-the-loop checkpointing, and frontend UI metadata generation — all from plain Python functions with type annotations.
+Conductor is a Python library for building DAG-based workflow/agent execution systems. It provides node registration, graph compilation with type checking, eager parallel streaming execution with retry, shared references across region boundaries, human-in-the-loop checkpointing, and frontend UI metadata generation — all from plain Python functions with type annotations.
 
 ## Quick Start
 
@@ -41,10 +41,11 @@ Class-based nodes use `BaseNode` ABC with `registry.register_class()` for comple
 
 ### Compilation
 `compile(nodes, edges, registry)` validates everything before execution:
-- Node types exist, edges reference real nodes, no cycles
-- Type compatibility on every edge (warnings or strict errors)
+- Node types exist, edges reference real nodes, no cycles (cycles through shared references are also detected)
+- Type compatibility on every edge AND every consume binding (warnings or strict errors)
 - Compound node regions discovered (for-each loops)
-Returns an immutable `CompiledGraph`.
+- Shared-reference produce/consume declarations validated (§ below)
+Returns an immutable `CompiledGraph` with `execution_order`, `edge_map`, `consume_map`, `managed_to_region_start`, `compound_nodes`, `managed_ids`, and `type_warnings`.
 
 ### Execution
 `execute(compiled)` is an async generator yielding events: `node_start`, `node_complete`, `node_skipped`, `node_error`, `node_retry`, `node_progress`, `flow_complete`, `flow_error`, `flow_timeout`, `flow_paused`, `flow_cancelled`.
@@ -75,10 +76,52 @@ execute_sync(compiled, retry=RetryConfig(max_retries=2, delay=1.0, backoff_facto
 - Each retry emits a `node_retry` event with `{attempt, max_retries, error, delay}`.
 
 ### Data Flow
-- **Edges**: Primary data flow. `InputResolver` extracts source outputs by handle name, overlays onto static node data.
-- **FlowStore**: Side-channel key-value cache. Function nodes declare `store: FlowStore` parameter for auto-injection.
-- **SKIPPED sentinel**: Conditional branching. If all inputs to a node are SKIPPED, it's skipped too.
+Resolver precedence, first match wins:
+1. **Edge** targeting the input
+2. **Consume binding** (shared reference) — see below
+3. **Static data** on `GraphNode.data`
+4. **Widget default** (Pydantic)
+
+- **Edges**: Primary data flow. `InputResolver` extracts source outputs by handle name.
+- **Shared references**: Declarative fan-out / cross-region wires. See "Shared References" below.
+- **FlowStore**: Side-channel key-value cache. Function nodes declare `store: FlowStore` parameter for auto-injection. Not part of the DAG; use sparingly.
+- **SKIPPED sentinel**: Conditional branching. If all inputs (edges + consumes) to a node are SKIPPED, it's skipped too.
 - **ConnectionList**: Widget for N-input aggregation. Resolver builds labeled dict from all connected sources.
+
+### Shared References (produce / consume)
+
+An alternative to drawn edges for fan-out and cross-region binding. Per-instance opt-in on `GraphNode`:
+
+```python
+GraphNode(
+    "mapper", "build-map@1", {"seed": "x"},
+    produces={"result": "pseudonym map"},     # output handle → display label
+)
+
+GraphNode(
+    "redactor", "redact@1", {"text": "Alice met Bob."},
+    consumes={"mapping": ("mapper", "result")},  # input → (producer_id, output_handle)
+)
+```
+
+No `GraphEdge` needed between them. Reference identity is `(producer_node_id, output_handle)`; labels are UI-only so renames don't break subscribers.
+
+Compile-time rules:
+- Producer's output handle must exist on its node type
+- Producer must be top-level in v1 (not inside any compound region)
+- Consumer's producer must exist and must declare the handle in `produces`
+- Consumer's input handle must exist on the consumer's node type
+- The same input handle cannot be both a consume target and an edge target
+- Cycles through shared references are detected the same as edge cycles
+
+Runtime:
+- Consumes participate in scheduling (the scheduler waits for producers)
+- For consumers inside compound regions, the dependency is redirected onto the region's start node via `managed_to_region_start`, so the whole region waits for top-level producers
+- Broadcast semantics: the same producer value is read on every iteration of a for-each body
+- Values survive checkpoint/resume (they live in `state.results`)
+- Duplicate display labels emit a non-fatal `TypeWarning` with `code="shared-label-collision"`
+
+Full spec: `docs/shared-references.md`. Example: `examples/07_shared_references.ipynb`.
 
 ### Human-in-the-Loop
 Nodes raise `HumanInputRequired(prompt, schema)` to pause execution. Engine checkpoints state (JSON-serializable `FlowCheckpoint`), yields `flow_paused` event. Resume with `resume(compiled, checkpoint, response)`. FlowStore survives the cycle. Multiple sequential pauses supported.
@@ -105,9 +148,19 @@ Compile-time validation of edge type compatibility:
 
 ### conductor (top-level)
 - `NodeRegistry` — Node registration and lookup
-- `GraphNode(id, type, data)` — Node in the graph
+- `GraphNode(id, type, data, produces=None, consumes=None)` — Node in the graph.
+  - `produces: dict[str, str] | None` — output handle → display label (marks that output as shareable)
+  - `consumes: dict[str, tuple[str, str]] | None` — input handle → `(producer_node_id, output_handle)`
 - `GraphEdge(id, source, target, source_handle, target_handle)` — Edge connecting nodes
 - `compile(nodes, edges, registry, *, compound_types, extension_resolver, strict_types)` → `CompiledGraph`
+
+`CompiledGraph` fields:
+- `execution_order: tuple[str, ...]`
+- `edge_map: dict[(target_id, target_handle), list[(source_id, source_handle)]]`
+- `consume_map: dict[(target_id, target_handle), (source_id, source_handle)]`
+- `managed_to_region_start: dict[str, str]` — managed node id → region start id
+- `node_map`, `compound_nodes`, `managed_ids`, `registry`, `extension_resolver`
+- `type_warnings: tuple[TypeWarning, ...]` — each has a `code` field (`"type-mismatch"`, `"shared-label-collision"`, ...)
 
 ### conductor.execution.engine
 - `execute(compiled, *, timeout_seconds, context, cache, retry)` → `AsyncGenerator[ExecutionEvent]`
@@ -157,6 +210,14 @@ Legacy aliases still exported: `NodeValidationException`, `NodeExecutionExceptio
 ### conductor.execution.checkpoint
 - `FlowCheckpoint` — `to_dict()`, `from_dict(data)` (JSON-serializable)
 
+### conductor.graph.shared_refs
+Internal module called from `compile()`. Validates produce/consume decorations and builds the `consume_map`. Exports `ConsumeMap = dict[tuple[str, str], tuple[str, str]]` type alias and `validate_and_build_consume_map()`.
+
+### conductor.graph.type_check
+- `TypeWarning(edge_id, source_node, source_output, source_type, target_node, target_input, target_type, message, code="type-mismatch")` — frozen dataclass
+- `check_edge_types(edges, node_map, registry)` → `list[TypeWarning]`
+- `check_consume_types(consume_map, node_map, registry)` → `list[TypeWarning]`
+
 ### conductor.compound.for_each
 - `FOR_EACH` — CompoundNodeType constant, pass to `compile(compound_types=[FOR_EACH])`
 
@@ -192,7 +253,26 @@ Dict output: `{"result": dict, **dict}` (keys spread for sub-output access)
 packages/conductor/src/conductor/
 ├── types.py, widgets.py, metadata.py, validation.py, errors.py, node.py, _sentinel.py
 ├── registry/        — NodeRegistry, NodeDefinition, discovery, schema
-├── graph/           — GraphNode/Edge, topology, compiler, regions, type_check
+├── graph/           — GraphNode/Edge, topology, compiler, regions, type_check, shared_refs
 ├── execution/       — engine (eager+parallel), retry, state, store, request, resolver, results, events, skip, checkpoint
 └── compound/        — protocol, for_each
 ```
+
+## Feature Map (finding the right thing)
+
+| You want... | Use |
+|---|---|
+| A node to read the output of another node | `GraphEdge` |
+| One node's output to feed many downstream nodes, no visible wires | `produces` on the source, `consumes` on each target |
+| A constant or top-level value to be available inside a for-each body on every iteration | `produces` on the top-level node, `consumes` on the body node |
+| Ambient per-run scratch data not tied to the DAG | `FlowStore` via `store: FlowStore` param |
+| Automatic retry on transient errors | `max_retries` / `retry_delay` on the node, or global `RetryConfig` |
+| Pause for human approval | Raise `HumanInputRequired`, persist `checkpoint` dict, later `resume()` |
+| A region that runs per item | `for-each-start` / `for-each-end` nodes + `compile(compound_types=[FOR_EACH])` |
+| Route around a branch based on a condition | Return `SKIPPED` sentinel on the inactive output |
+| Custom node types the core doesn't know about | `ExtensionResolver` protocol |
+
+## Design Docs
+
+- `docs/shared-references.md` — v1 design spec for produce/consume
+- `docs/conductor-design.md` — original library design document
