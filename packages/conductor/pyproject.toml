@@ -11,3 +11,10 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/conductor"]
+
+# Ship docs/llms.txt inside the wheel as conductor/about/llms.txt so that
+# `python -m conductor.about` works for downstream projects that don't have
+# the repo. The in-repo copy remains the source of truth; editable installs
+# fall back to discovering it via a parent-directory walk.
+[tool.hatch.build.targets.wheel.force-include]
+"../../docs/llms.txt" = "conductor/about/llms.txt"

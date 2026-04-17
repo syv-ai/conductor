@@ -18,8 +18,9 @@ conductor/
 │       ├── registry/           # NodeRegistry, @node decorator, auto-discovery, JSON schema
 │       ├── graph/              # GraphNode/Edge, topology, compiler, regions, type_check, shared_refs
 │       ├── execution/          # Engine (eager+parallel), retry, state, resolver, events, store, checkpoint
-│       └── compound/           # CompoundNodeType protocol, ForEachNode
-├── tests/test_core/            # 160 tests across 14 files
+│       ├── compound/           # CompoundNodeType protocol, ForEachNode
+│       └── about/              # Runnable library context: `python -m conductor.about`
+├── tests/test_core/            # 171 tests across 15 files
 ├── demo/                       # FastAPI playground with browser UI
 │   ├── app.py                  # FastAPI endpoints (GET /api/nodes, POST /api/execute-stream)
 │   ├── nodes.py                # 10 demo nodes (text, number, math, summarizer, loop, etc.)
@@ -48,7 +49,10 @@ conductor/
 uv sync                           # Install all deps
 uv sync --group demo              # Install with demo deps (FastAPI)
 uv run pre-commit install         # Activate the nbstripout hook on your clone
-uv run pytest tests/ -v           # Run all 160 tests
+uv run pytest tests/ -v           # Run all 171 tests
+uv run python -m conductor.about  # Print the full library reference (llms.txt)
+uv run python -m conductor.about sections   # List reference sections
+uv run python -m conductor.about retry      # Print one section
 uv run pytest tests/test_core/test_shared_references.py -v  # Run specific file
 uv run uvicorn demo.app:app --port 8765 --reload    # Start demo UI
 uv run jupyter lab examples/                         # Open the example notebooks
@@ -223,4 +227,4 @@ compiled = compile(
 - Shared references are per-instance; the same node *type* can be shared in one flow and not in another
 - Notebook outputs are stripped on commit by `nbstripout` — run cells locally to see values
 - `docs/shared-references.md` is the authoritative v1 design spec for produce/consume
-- `docs/llms.txt` provides importable AI context for other projects using this library
+- `docs/llms.txt` provides importable AI context for other projects using this library — the wheel ships it at `conductor.about.llms.txt` so `python -m conductor.about` works from any installed environment

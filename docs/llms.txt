@@ -276,3 +276,21 @@ packages/conductor/src/conductor/
 
 - `docs/shared-references.md` — v1 design spec for produce/consume
 - `docs/conductor-design.md` — original library design document
+
+## CLI Reference (this document)
+
+This text is available at runtime from any environment with `conductor` installed:
+
+```bash
+python -m conductor.about                 # full text (this file)
+python -m conductor.about sections        # list section slugs
+python -m conductor.about shared          # print a section by slug (prefix/substring match)
+```
+
+Or programmatically:
+
+```python
+from conductor.about import get_content, list_sections, get_section
+```
+
+The wheel bundles this file as `conductor/about/llms.txt`, so downstream projects that `pip install conductor` can read the reference without cloning the repository.

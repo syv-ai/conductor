@@ -491,6 +491,16 @@ The repo includes an `docs/llms.txt` file — a comprehensive AI-readable refere
 See /path/to/conductor/docs/llms.txt for Conductor API reference.
 ```
 
+The same text ships inside the installable wheel, so any project that depends on `conductor` can pull it at runtime with no repo access:
+
+```bash
+python -m conductor.about                 # full reference
+python -m conductor.about sections        # list section slugs
+python -m conductor.about shared          # just the shared-references section (prefix match)
+```
+
+Useful when an agent in a downstream project needs to learn the library without you having to paste docs into its context.
+
 ### Documentation
 
 For full documentation, we recommend [MkDocs Material](https://squidfunk.github.io/mkdocs-material/). To set it up:
