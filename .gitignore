@@ -37,6 +37,10 @@ htmlcov/
 # Docs build
 site/
 
+# Notebooks
+*.ipynb
+.ipynb_checkpoints/
+
 # Misc
 *.log
 .env
