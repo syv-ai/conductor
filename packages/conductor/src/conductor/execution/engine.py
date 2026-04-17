@@ -298,7 +298,7 @@ async def _execute_node_async(
     sink = state._event_sink
 
     # Skip propagation
-    if should_skip_node(node, compiled.edge_map, state.results):
+    if should_skip_node(node, compiled.edge_map, state.results, compiled.consume_map):
         state.results[node_id] = SKIPPED
         await event_queue.put(NodeSkippedEvent(type="node_skipped", node_id=node_id))
         await event_queue.put(_NodeDone(node_id=node_id))
@@ -308,7 +308,8 @@ async def _execute_node_async(
 
     # Resolve inputs
     inputs = state.resolver.resolve(
-        node, compiled.edge_map, state.results, compiled.node_map
+        node, compiled.edge_map, state.results, compiled.node_map,
+        compiled.consume_map,
     )
 
     # Determine retry config: node-level overrides global
@@ -340,7 +341,8 @@ async def _execute_node_async(
 
             # Re-resolve inputs in case upstream changed (unlikely but safe)
             inputs = state.resolver.resolve(
-                node, compiled.edge_map, state.results, compiled.node_map
+                node, compiled.edge_map, state.results, compiled.node_map,
+                compiled.consume_map,
             )
 
         try:
@@ -590,7 +592,11 @@ def _build_state(
 def _build_dep_graph(
     compiled: CompiledGraph,
 ) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
-    """Build deps (node -> deps) and dependents (node -> nodes that depend on it)."""
+    """Build deps (node -> deps) and dependents (node -> nodes that depend on it).
+
+    Includes both explicit edges and shared-reference consume bindings — the
+    scheduler treats them identically.
+    """
     deps: dict[str, set[str]] = defaultdict(set)
     dependents: dict[str, set[str]] = defaultdict(set)
 
@@ -598,6 +604,15 @@ def _build_dep_graph(
         for source_id, _source_handle in sources:
             deps[target_id].add(source_id)
             dependents[source_id].add(target_id)
+
+    # Consume dependencies: if the consumer is managed by a compound region,
+    # redirect the dependency to the region's start node (the schedulable
+    # representative). Otherwise record as-is.
+    managed_to_start = compiled.managed_to_region_start
+    for (target_id, _target_handle), (source_id, _source_handle) in compiled.consume_map.items():
+        effective_target = managed_to_start.get(target_id, target_id)
+        deps[effective_target].add(source_id)
+        dependents[source_id].add(effective_target)
 
     return dict(deps), dict(dependents)
 

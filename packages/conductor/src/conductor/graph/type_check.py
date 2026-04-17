@@ -20,7 +20,12 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class TypeWarning:
-    """A type incompatibility found during compilation."""
+    """A warning or diagnostic surfaced by compilation.
+
+    Originally exclusive to edge type-mismatches; now also used for shared
+    reference issues. The `code` field discriminates. Existing warnings default
+    to ``"type-mismatch"`` for backward compatibility.
+    """
 
     edge_id: str
     source_node: str
@@ -30,6 +35,7 @@ class TypeWarning:
     target_input: str
     target_type: str
     message: str
+    code: str = "type-mismatch"
 
 
 # Types that Pydantic can coerce between freely
@@ -87,6 +93,55 @@ def check_edge_types(
                     f"Type mismatch: '{source_def.name}' outputs {source_output.type_str} "
                     f"on '{source_output.label}', but '{target_def.name}' expects "
                     f"{target_input.type_str} on '{target_input.label}'"
+                ),
+            ))
+
+    return warnings
+
+
+def check_consume_types(
+    consume_map: dict[tuple[str, str], tuple[str, str]],
+    node_map: dict[str, GraphNode],
+    registry: "NodeRegistry",
+) -> list[TypeWarning]:
+    """Type-check every consume binding. Same rules as ``check_edge_types``.
+
+    Warnings from this function are distinguishable from edge warnings by the
+    synthetic ``edge_id`` of the form ``__consume_<target>_<handle>`` and by
+    the inclusion of the consumer's input handle name in the message (so a
+    simple substring match against the handle name succeeds).
+    """
+    warnings: list[TypeWarning] = []
+
+    for (target_id, target_handle), (source_id, source_handle) in consume_map.items():
+        source_node = node_map.get(source_id)
+        target_node = node_map.get(target_id)
+        if not source_node or not target_node:
+            continue
+
+        source_def = registry.get(source_node.type)
+        target_def = registry.get(target_node.type)
+        if not source_def or not target_def:
+            continue
+
+        source_output = _find_output(source_def, source_handle or "result")
+        target_input = _find_input(target_def, target_handle or "")
+        if not source_output or not target_input:
+            continue
+
+        if not _types_compatible(source_output.type_str, target_input.type_str, target_input):
+            warnings.append(TypeWarning(
+                edge_id=f"__consume_{target_id}_{target_handle}",
+                source_node=source_id,
+                source_output=source_output.name,
+                source_type=source_output.type_str,
+                target_node=target_id,
+                target_input=target_input.name,
+                target_type=target_input.type_str,
+                message=(
+                    f"Type mismatch on consume '{target_id}.{target_handle}': "
+                    f"shared reference '{source_id}.{source_output.name}' provides "
+                    f"{source_output.type_str}, but input expects {target_input.type_str}"
                 ),
             ))
 

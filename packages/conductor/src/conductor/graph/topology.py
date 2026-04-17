@@ -6,36 +6,43 @@ from conductor.errors import CycleDetectionError
 from conductor.graph.model import GraphEdge, GraphNode
 
 
-def topological_sort(nodes: list[GraphNode], edges: list[GraphEdge]) -> list[str]:
-    """Topologically sort nodes based on edge dependencies.
+def topological_sort(
+    nodes: list[GraphNode],
+    edges: list[GraphEdge],
+    *,
+    extra_dependencies: list[tuple[str, str]] | None = None,
+) -> list[str]:
+    """Topologically sort nodes based on edge (and optional extra) dependencies.
 
     Uses Kahn's algorithm. Returns node IDs in execution order.
     Raises CycleDetectionError if the graph contains cycles.
+
+    ``extra_dependencies`` is a list of ``(source, target)`` pairs representing
+    dependencies that are not explicit edges — shared reference consume
+    bindings are the primary use. They participate in in-degree counting and
+    cycle detection identically to drawn edges.
     """
     node_ids = {n.id for n in nodes}
 
-    # Build in-degree map and adjacency
+    seen_pairs: set[tuple[str, str]] = set()
     in_degree: dict[str, int] = {nid: 0 for nid in node_ids}
     dependents: dict[str, list[str]] = defaultdict(list)
 
-    for edge in edges:
-        if edge.target in node_ids and edge.source in node_ids:
-            in_degree[edge.target] += 1
-            dependents[edge.source].append(edge.target)
-
-    # Deduplicate edges per (source, target) pair for in-degree counting
-    # We need to recount because multiple edges between same pair shouldn't
-    # increase in-degree multiple times for topological sort purposes
-    seen_pairs: set[tuple[str, str]] = set()
-    in_degree = {nid: 0 for nid in node_ids}
-    dependents = defaultdict(list)
+    def _add(source: str, target: str) -> None:
+        if source not in node_ids or target not in node_ids:
+            return
+        pair = (source, target)
+        if pair in seen_pairs:
+            return
+        seen_pairs.add(pair)
+        in_degree[target] += 1
+        dependents[source].append(target)
 
     for edge in edges:
-        pair = (edge.source, edge.target)
-        if pair not in seen_pairs and edge.source in node_ids and edge.target in node_ids:
-            seen_pairs.add(pair)
-            in_degree[edge.target] += 1
-            dependents[edge.source].append(edge.target)
+        _add(edge.source, edge.target)
+
+    for source, target in extra_dependencies or []:
+        _add(source, target)
 
     queue = deque(nid for nid, deg in in_degree.items() if deg == 0)
     result: list[str] = []

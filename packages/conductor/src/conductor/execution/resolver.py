@@ -24,9 +24,34 @@ class InputResolver:
         edge_map: dict[tuple[str, str], list[tuple[str, str]]],
         results: dict[str, NodeResult],
         node_map: dict[str, GraphNode],
+        consume_map: dict[tuple[str, str], tuple[str, str]] | None = None,
     ) -> dict[str, Any]:
-        """Resolve all inputs for a node."""
+        """Resolve all inputs for a node.
+
+        Precedence (first match wins):
+            1. Explicit edges targeting this input
+            2. Shared-reference consume bindings (``consume_map``)
+            3. Static data on the node
+            4. Widget default (not materialized here; handled by Pydantic)
+        """
         inputs: dict[str, Any] = dict(node.data or {})
+
+        # (2) Consume bindings overlay static data before edges take over. A
+        #     compile-time check guarantees no input handle has both an edge
+        #     and a consume binding, so ordering relative to the edge loop is
+        #     only about the static-data case.
+        if consume_map:
+            for (target_id, target_handle), (source_id, source_handle) in consume_map.items():
+                if target_id != node.id:
+                    continue
+                source_result = results.get(source_id)
+                if source_result is None:
+                    continue
+                if is_skipped(source_result):
+                    inputs[target_handle] = source_result  # SKIPPED sentinel
+                    continue
+                value = extract_output(source_result, source_handle)
+                inputs[target_handle] = value
 
         for (target_id, target_handle), sources in edge_map.items():
             if target_id != node.id:

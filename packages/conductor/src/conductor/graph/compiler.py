@@ -7,8 +7,9 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from conductor.errors import CompilationError
 from conductor.graph.model import GraphEdge, GraphNode
+from conductor.graph.shared_refs import validate_and_build_consume_map
 from conductor.graph.topology import build_edge_map, topological_sort
-from conductor.graph.type_check import TypeWarning, check_edge_types
+from conductor.graph.type_check import TypeWarning, check_consume_types, check_edge_types
 
 if TYPE_CHECKING:
     from conductor.registry import NodeRegistry
@@ -33,6 +34,10 @@ class CompiledGraph:
     compound_nodes: dict[str, Any] = field(default_factory=dict)
     managed_ids: frozenset[str] = field(default_factory=frozenset)
     type_warnings: tuple[TypeWarning, ...] = field(default_factory=tuple)
+    # (target_id, target_handle) -> (producer_id, output_handle)
+    consume_map: dict[tuple[str, str], tuple[str, str]] = field(default_factory=dict)
+    # managed_node_id -> its region's start_id (for scheduling redirection)
+    managed_to_region_start: dict[str, str] = field(default_factory=dict)
 
 
 def compile(
@@ -72,13 +77,8 @@ def compile(
                 f"Edge '{edge.id}' references non-existent target node: '{edge.target}'"
             )
 
-    # 3. Topological sort (raises CycleDetectionError on cycles)
-    order = topological_sort(nodes, edges)
-
-    # 4. Build edge map
-    edge_map = build_edge_map(edges)
-
-    # 5. Compound node discovery
+    # 3. Discover compound regions first, so shared-ref validation can know
+    #    which nodes are inside them (producers inside regions are rejected).
     compound_nodes: dict[str, Any] = {}
     managed_ids: set[str] = set()
 
@@ -86,19 +86,55 @@ def compile(
         from conductor.graph.regions import discover_regions
 
         for ct, region in discover_regions(nodes, edges, compound_types):
-            executor = ct.factory(region, tuple(order))
-            compound_nodes[region.start_id] = executor
-            # Body and end nodes are managed by the compound node
+            # We don't have the topological order yet — pass an empty tuple;
+            # the factory re-derives ordering from body_ids as needed.
+            compound_nodes[region.start_id] = ct  # placeholder; rebuilt below
             managed_ids.update(region.body_ids)
             managed_ids.add(region.end_id)
 
-    # 6. Type-check edges
-    type_warnings = check_edge_types(edges, node_map, registry)
+    # 4. Validate shared references (produce/consume), build consume map
+    consume_map, shared_warnings = validate_and_build_consume_map(
+        nodes, edges, node_map, frozenset(managed_ids), registry,
+    )
 
-    if strict_types and type_warnings:
-        messages = [w.message for w in type_warnings]
+    # 5. Topological sort — edges + consume dependencies participate equally
+    extra_deps = [
+        (producer_id, target_id)
+        for (target_id, _), (producer_id, _) in consume_map.items()
+    ]
+    order = topological_sort(nodes, edges, extra_dependencies=extra_deps)
+
+    # 6. Build edge map
+    edge_map = build_edge_map(edges)
+
+    # 7. Now that we have the topological order, rebuild the compound node
+    #    executors with the proper order (matching pre-refactor behavior) and
+    #    build the managed-node → region-start lookup used for scheduling.
+    compound_nodes = {}
+    managed_to_region_start: dict[str, str] = {}
+    if compound_types:
+        from conductor.graph.regions import discover_regions
+
+        for ct, region in discover_regions(nodes, edges, compound_types):
+            executor = ct.factory(region, tuple(order))
+            compound_nodes[region.start_id] = executor
+            for body_id in region.body_ids:
+                managed_to_region_start[body_id] = region.start_id
+            managed_to_region_start[region.end_id] = region.start_id
+
+    # 8. Type-check edges and consume bindings
+    edge_warnings = check_edge_types(edges, node_map, registry)
+    consume_warnings = check_consume_types(consume_map, node_map, registry)
+    type_warnings = [*edge_warnings, *consume_warnings, *shared_warnings]
+
+    # Strict mode promotes only real mismatches (not informational warnings
+    # like label collisions) to an error.
+    strict_fatal = [w for w in type_warnings if w.code == "type-mismatch"]
+    if strict_types and strict_fatal:
+        messages = [w.message for w in strict_fatal]
         raise CompilationError(
-            f"Type errors in {len(type_warnings)} edge(s):\n" + "\n".join(f"  - {m}" for m in messages)
+            f"Type errors in {len(strict_fatal)} connection(s):\n"
+            + "\n".join(f"  - {m}" for m in messages)
         )
 
     return CompiledGraph(
@@ -110,4 +146,6 @@ def compile(
         compound_nodes=compound_nodes,
         managed_ids=frozenset(managed_ids),
         type_warnings=tuple(type_warnings),
+        consume_map=consume_map,
+        managed_to_region_start=managed_to_region_start,
     )

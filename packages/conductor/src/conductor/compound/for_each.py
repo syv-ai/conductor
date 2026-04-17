@@ -107,13 +107,16 @@ def _execute_subgraph(
     for node_id in node_ids:
         node = compiled.node_map[node_id]
 
-        if should_skip_node(node, compiled.edge_map, local_results):
+        if should_skip_node(
+            node, compiled.edge_map, local_results, compiled.consume_map,
+        ):
             from conductor._sentinel import SKIPPED
             local_results[node_id] = SKIPPED
             continue
 
         inputs = state.resolver.resolve(
-            node, compiled.edge_map, local_results, compiled.node_map
+            node, compiled.edge_map, local_results, compiled.node_map,
+            compiled.consume_map,
         )
 
         result = _dispatch_node(

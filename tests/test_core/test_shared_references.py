@@ -24,11 +24,6 @@ from conductor.errors import FlowPausedException, HumanInputRequired
 from conductor.types import NodeCategory
 from conductor.widgets import ConnectionList, Output, Text, Textarea
 
-# Feature not yet implemented — remove this line once shared references ship.
-pytestmark = pytest.mark.skip(
-    reason="Shared references — pending implementation per docs/shared-references.md"
-)
-
 
 # =============================================================================
 # Fixtures / helpers
