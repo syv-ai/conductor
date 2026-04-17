@@ -247,15 +247,65 @@ Single output: `{"result": value}`
 Multi output (tuple return): `{"output_1": v1, "output_2": v2, ...}`
 Dict output: `{"result": dict, **dict}` (keys spread for sub-output access)
 
+## Workspace Packages
+
+Three workspace packages ship today:
+
+1. **`conductor`** — the core engine. All compile/execute/registry/widget types.
+2. **`conductor-nodes`** — reusable standard-library nodes.
+3. **`conductor-providers`** — framework adapters; ships a React provider today.
+
+### conductor-nodes
+
+```python
+from conductor import NodeRegistry
+from conductor_nodes import register_all, text, math
+
+reg = NodeRegistry()
+register_all(reg)                                   # all categories
+register_all(reg, categories=["text", "math"])      # subset
+text.register(reg)                                  # single module
+```
+
+Categories: `text`, `math`, `logic`, `loop`, `json`, `regex`. Node IDs are
+category-prefixed (`text-uppercase`, `math-add`, etc.) to avoid collisions
+with host-app node IDs. The for-each markers (`for-each-start`,
+`for-each-end`) are unprefixed because the `FOR_EACH` compound discovers
+them by base_id prefix.
+
+### conductor-providers
+
+```python
+from conductor_providers import react
+
+palette = react.palette_from_registry(registry)    # sidebar JSON
+flow    = react.graph_to_react(nodes, edges)       # conductor → ReactFlow
+nodes2, edges2 = react.react_to_graph(flow)        # ReactFlow → conductor
+positions = react.topological_positions(nodes, edges)
+```
+
+Wire format: conductor's `produces` / `consumes` ride on each ReactFlow
+node's `data` payload. Tuples become lists in JSON and are restored when
+parsed. Unknown keys are ignored — hosts can decorate safely. New
+providers live in sibling subpackages (`conductor_providers.svelte`, …);
+there is no abstract base class, each provider shapes itself to its
+framework.
+
 ## Project Structure
 
 ```
-packages/conductor/src/conductor/
-├── types.py, widgets.py, metadata.py, validation.py, errors.py, node.py, _sentinel.py
-├── registry/        — NodeRegistry, NodeDefinition, discovery, schema
-├── graph/           — GraphNode/Edge, topology, compiler, regions, type_check, shared_refs
-├── execution/       — engine (eager+parallel), retry, state, store, request, resolver, results, events, skip, checkpoint
-└── compound/        — protocol, for_each
+packages/
+├── conductor/src/conductor/
+│   ├── types.py, widgets.py, metadata.py, validation.py, errors.py, node.py, _sentinel.py
+│   ├── registry/        — NodeRegistry, NodeDefinition, discovery, schema
+│   ├── graph/           — GraphNode/Edge, topology, compiler, regions, type_check, shared_refs
+│   ├── execution/       — engine (eager+parallel), retry, state, store, request, resolver, results, events, skip, checkpoint
+│   ├── compound/        — protocol, for_each
+│   └── about/           — runnable library reference (python -m conductor.about)
+├── conductor-nodes/src/conductor_nodes/
+│   └── text, math, logic, loop, json_ops, regex_ops
+└── conductor-providers/src/conductor_providers/
+    └── react/            — graph, schema, layout
 ```
 
 ## Feature Map (finding the right thing)
@@ -271,6 +321,10 @@ packages/conductor/src/conductor/
 | A region that runs per item | `for-each-start` / `for-each-end` nodes + `compile(compound_types=[FOR_EACH])` |
 | Route around a branch based on a condition | Return `SKIPPED` sentinel on the inactive output |
 | Custom node types the core doesn't know about | `ExtensionResolver` protocol |
+| Common node implementations (text, math, etc.) | `conductor-nodes` package |
+| Serialize a graph for a ReactFlow frontend | `conductor_providers.react.graph_to_react` |
+| Parse ReactFlow JSON back into conductor | `conductor_providers.react.react_to_graph` |
+| Build a sidebar palette from the registry | `conductor_providers.react.palette_from_registry` |
 
 ## Design Docs
 

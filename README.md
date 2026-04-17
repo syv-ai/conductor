@@ -29,6 +29,8 @@ Built to be the shared core behind visual flow builders — define nodes once, g
 - **Auto-discovery** — scan a package to register all `@node`-decorated functions
 - **Extension resolver** — protocol for host-app-specific node types (sub-flows, etc.)
 - **Zero app dependencies** — no FastAPI, no database, no auth in the core
+- **Standard node library** — `conductor-nodes` ships text, math, logic, json, regex, and canonical for-each markers
+- **Framework adapters** — `conductor-providers.react` translates conductor graphs to/from ReactFlow JSON; more providers can live alongside
 
 ## Quick start
 
@@ -164,9 +166,14 @@ conductor/
 │           └── compound/
 │               ├── protocol.py     # CompoundNodeType, Region
 │               └── for_each.py     # ForEachNode + FOR_EACH constant
+├── packages/
+│   ├── conductor/                  # Core library
+│   ├── conductor-nodes/            # Standard node library (text, math, logic, json, regex, loop)
+│   └── conductor-providers/        # Framework adapters — react today, more later
 ├── examples/                       # Usage notebooks (7 examples)
 ├── demo/                           # Interactive playground (FastAPI + browser UI)
-├── tests/                          # pytest test suite (160 tests)
+├── tests/                          # pytest test suite (235 tests across core, nodes, providers)
+├── .github/workflows/              # ci.yml (PR lint + test), docs-audit.yml (weekly)
 └── docs/                           # Design specs, llms.txt, MkDocs site
 ```
 
@@ -517,6 +524,56 @@ uv add --group docs mkdocs-material mkdocstrings[python]
 uv run mkdocs serve  # Local preview at http://localhost:8000
 uv run mkdocs gh-deploy  # Deploy to GitHub Pages
 ```
+
+## Standard node library (`conductor-nodes`)
+
+A workspace sibling to `conductor` that ships common nodes so downstream flows don't have to re-author them. Pick categories you want:
+
+```python
+from conductor import NodeRegistry
+from conductor_nodes import register_all, text, math
+
+reg = NodeRegistry()
+register_all(reg)                                   # everything
+register_all(reg, categories=["text", "math"])      # a subset
+# or per-module:
+text.register(reg)
+math.register(reg)
+```
+
+Categories and highlights:
+
+| Module | Node IDs |
+|---|---|
+| `text` | `text-uppercase`, `text-lowercase`, `text-trim`, `text-length`, `text-concat`, `text-replace`, `text-contains`, `text-split`, `text-join`, `text-reverse` |
+| `math` | `math-add`, `math-subtract`, `math-multiply`, `math-divide`, `math-modulo`, `math-round`, `math-min`, `math-max`, `math-abs` |
+| `logic` | `logic-if-empty`, `logic-if-equals`, `logic-not` (branch via SKIPPED sentinel) |
+| `loop` | `for-each-start`, `for-each-end` — canonical markers for the `FOR_EACH` compound |
+| `json_ops` | `json-parse`, `json-stringify`, `json-get` (dotted path) |
+| `regex_ops` | `regex-match`, `regex-replace`, `regex-extract` |
+
+Node IDs are category-prefixed to avoid colliding with application-level IDs. Registering twice with the same ID raises — pick one source.
+
+## Frontend providers (`conductor-providers`)
+
+Framework adapters. Each provider is a subpackage translating between conductor's Python objects and the framework's wire format. The initial provider is `conductor_providers.react`:
+
+```python
+from conductor_providers import react
+
+# Registry → node palette JSON for a sidebar
+palette = react.palette_from_registry(registry)
+
+# GraphNode/GraphEdge → ReactFlow JSON (positions auto-assigned if omitted)
+flow_json = react.graph_to_react(nodes, edges)
+
+# ReactFlow JSON → GraphNode/GraphEdge (tuples restored from JSON lists)
+nodes2, edges2 = react.react_to_graph(flow_json)
+```
+
+Shared references survive the round-trip: `produces` and `consumes` ride on each node's `data` payload and come back as the same dicts. Unknown keys in the wire format are ignored, so hosts can decorate without breaking compatibility.
+
+New providers (Svelte, Vue, Gradio, …) go in sibling subpackages under `conductor_providers.` — no abstract base class to satisfy; each provider picks the shape that matches its framework.
 
 ## Examples
 

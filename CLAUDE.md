@@ -20,20 +20,29 @@ conductor/
 │       ├── execution/          # Engine (eager+parallel), retry, state, resolver, events, store, checkpoint
 │       ├── compound/           # CompoundNodeType protocol, ForEachNode
 │       └── about/              # Runnable library context: `python -m conductor.about`
-├── tests/test_core/            # 171 tests across 15 files
+├── packages/conductor-nodes/   # Reusable node library (text, math, logic, loop, json, regex)
+│   └── src/conductor_nodes/    # Each module exposes register(reg); top-level register_all()
+├── packages/conductor-providers/ # Framework adapters — react subpackage ships today
+│   └── src/conductor_providers/
+│       └── react/              # graph_to_react / react_to_graph / palette_from_registry
+├── tests/test_core/            # 171 tests for conductor core
+├── tests/test_nodes/           # 46 tests for conductor-nodes
+├── tests/test_providers/       # 18 tests for conductor-providers (React round-trips)
 ├── demo/                       # FastAPI playground with browser UI
 │   ├── app.py                  # FastAPI endpoints (GET /api/nodes, POST /api/execute-stream)
 │   ├── nodes.py                # 10 demo nodes (text, number, math, summarizer, loop, etc.)
 │   └── static/index.html       # Single-page flow builder UI
 ├── examples/                   # 7 Jupyter notebooks (nodes, flows, store, control flow, discovery, HITL, shared refs)
 ├── docs/                       # Design specs, llms.txt, MkDocs site, logo
+├── .github/workflows/          # ci.yml (ruff + pytest on PR), docs-audit.yml (weekly)
 └── .pre-commit-config.yaml     # nbstripout on *.ipynb
 ```
 
-## Planned packages (not yet built)
+## Workspace packages
 
-- `conductor-nodes` — Reusable node library (text, math, json, regex, conditional, loop markers)
-- `conductor-react` — ReactFlow bridge (JSON conversion, frontend schema generation)
+- **`conductor`** — core engine (compile, execute, registry, widgets, errors, compound nodes, shared refs).
+- **`conductor-nodes`** — standard-library nodes. Each category module (`text`, `math`, `logic`, `loop`, `json_ops`, `regex_ops`) exposes `register(registry)`; top-level `register_all(registry, categories=...)` registers everything (or a filtered subset). Node IDs are category-prefixed (`text-uppercase`, `math-add`, …) except the for-each markers which match the `FOR_EACH` compound's discovery prefix.
+- **`conductor-providers`** — framework adapters. Ships `conductor_providers.react` today with `graph_to_react` / `react_to_graph` / `palette_from_registry`. New providers (Svelte, Vue, etc.) go in sibling subpackages — no abstract base class to satisfy, each provider shapes itself to its framework.
 
 ## Tech stack
 
@@ -42,6 +51,7 @@ conductor/
 - pytest + pytest-asyncio for tests
 - FastAPI + uvicorn for demo app
 - pre-commit + nbstripout for clean notebook diffs
+- ruff for linting (config in root pyproject.toml, `uvx ruff check .`); PR-triggered CI in `.github/workflows/ci.yml`
 
 ## Key commands
 
@@ -49,7 +59,8 @@ conductor/
 uv sync                           # Install all deps
 uv sync --group demo              # Install with demo deps (FastAPI)
 uv run pre-commit install         # Activate the nbstripout hook on your clone
-uv run pytest tests/ -v           # Run all 171 tests
+uv run pytest tests/ -v           # Run all 235 tests (core + nodes + providers)
+uvx ruff check .                  # Lint (what CI runs on PRs)
 uv run python -m conductor.about  # Print the full library reference (llms.txt)
 uv run python -m conductor.about sections   # List reference sections
 uv run python -m conductor.about retry      # Print one section
