@@ -42,6 +42,7 @@ Built to be the shared core behind visual flow builders — define nodes once, g
 git clone <repo-url> conductor
 cd conductor
 uv sync
+uv run pre-commit install   # strip notebook outputs on commit
 ```
 
 ### Run tests

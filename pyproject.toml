@@ -20,6 +20,7 @@ dev = [
     "ipykernel>=7.2.0",
     "nbconvert>=7.17.1",
     "jupyter>=1.1.1",
+    "pre-commit>=4.5.1",
 ]
 demo = ["fastapi>=0.115", "uvicorn[standard]>=0.34", "conductor"]
 docs = [
