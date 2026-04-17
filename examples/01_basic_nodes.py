@@ -6,8 +6,8 @@ single and multi-output nodes, and optional parameters.
 
 from typing import Annotated
 
-from flowengine import NodeRegistry
-from flowengine.widgets import (
+from conductor import NodeRegistry
+from conductor.widgets import (
     Checkbox,
     Dropdown,
     Output,

@@ -7,12 +7,12 @@ the FlowStore for cross-node data sharing outside of edges.
 
 from typing import Annotated, Any
 
-from flowengine import GraphEdge, GraphNode, NodeRegistry, compile
-from flowengine.execution.engine import execute_sync
-from flowengine.execution.request import NodeExecRequest
-from flowengine.execution.store import FlowStore
-from flowengine.node import BaseNode
-from flowengine.widgets import Output, Text
+from conductor import GraphEdge, GraphNode, NodeRegistry, compile
+from conductor.execution.engine import execute_sync
+from conductor.execution.request import NodeExecRequest
+from conductor.execution.store import FlowStore
+from conductor.node import BaseNode
+from conductor.widgets import Output, Text
 
 registry = NodeRegistry()
 

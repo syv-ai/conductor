@@ -4,12 +4,12 @@ from typing import Annotated, Any
 
 import pytest
 
-from flowengine.registry import NodeRegistry
-from flowengine.registry.schema import serialize_registry
-from flowengine.graph.model import GraphNode, GraphEdge
-from flowengine.graph.compiler import compile
-from flowengine.execution.engine import execute_sync
-from flowengine.widgets import Text, Output
+from conductor.registry import NodeRegistry
+from conductor.registry.schema import serialize_registry
+from conductor.graph.model import GraphNode, GraphEdge
+from conductor.graph.compiler import compile
+from conductor.execution.engine import execute_sync
+from conductor.widgets import Text, Output
 
 
 # ---------------------------------------------------------------------------
@@ -23,17 +23,17 @@ class TestAutoDiscovery:
 
         # Create a registry and stash it where the temp module can find it
         reg = NodeRegistry()
-        import flowengine
-        flowengine._test_discovery_registry = reg  # type: ignore[attr-defined]
+        import conductor
+        conductor._test_discovery_registry = reg  # type: ignore[attr-defined]
 
         pkg_dir = tmp_path / "fake_nodes"
         pkg_dir.mkdir()
         (pkg_dir / "__init__.py").write_text("")
         (pkg_dir / "text_nodes.py").write_text(
             "from typing import Annotated\n"
-            "from flowengine.widgets import Text, Output\n"
-            "import flowengine\n"
-            "registry = flowengine._test_discovery_registry\n"
+            "from conductor.widgets import Text, Output\n"
+            "import conductor\n"
+            "registry = conductor._test_discovery_registry\n"
             "\n"
             "@registry.node('discovered-echo', version=1, name='Echo', description='Discovered')\n"
             "def echo(text: Annotated[str, Text(label='In')]) -> Annotated[str, Output(label='Out')]:\n"
@@ -51,7 +51,7 @@ class TestAutoDiscovery:
                 del sys.modules["fake_nodes"]
             if "fake_nodes.text_nodes" in sys.modules:
                 del sys.modules["fake_nodes.text_nodes"]
-            delattr(flowengine, "_test_discovery_registry")
+            delattr(conductor, "_test_discovery_registry")
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +137,7 @@ class TestSchemaSerialisation:
 class TestExtensionResolver:
     def test_extension_node_dispatched(self, registry):
         """Nodes with types not in the registry can be handled by an extension."""
-        from flowengine.execution.request import NodeExecRequest
+        from conductor.execution.request import NodeExecRequest
 
         @registry.node("echo", version=1, name="Echo", description="Echo")
         def echo(text: Annotated[str, Text(label="In")]) -> Annotated[str, Output(label="Out")]:

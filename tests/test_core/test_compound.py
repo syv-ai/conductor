@@ -4,11 +4,11 @@ from typing import Annotated
 
 import pytest
 
-from flowengine.graph.model import GraphNode, GraphEdge
-from flowengine.graph.compiler import compile
-from flowengine.execution.engine import execute, execute_sync, collect
-from flowengine.compound.for_each import FOR_EACH
-from flowengine.widgets import Text, Output, ConnectionList
+from conductor.graph.model import GraphNode, GraphEdge
+from conductor.graph.compiler import compile
+from conductor.execution.engine import execute, execute_sync, collect
+from conductor.compound.for_each import FOR_EACH
+from conductor.widgets import Text, Output, ConnectionList
 
 
 @pytest.fixture

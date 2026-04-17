@@ -5,8 +5,8 @@ from typing import Annotated
 import pytest
 from pydantic import ValidationError
 
-from flowengine.validation import create_validation_model
-from flowengine.widgets import Text, Dropdown
+from conductor.validation import create_validation_model
+from conductor.widgets import Text, Dropdown
 
 
 class TestValidationModelGeneration:

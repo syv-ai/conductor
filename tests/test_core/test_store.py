@@ -4,11 +4,11 @@ from typing import Annotated
 
 import pytest
 
-from flowengine.execution.store import FlowStore
-from flowengine.graph.model import GraphNode, GraphEdge
-from flowengine.graph.compiler import compile
-from flowengine.execution.engine import execute_sync
-from flowengine.widgets import Text, Output
+from conductor.execution.store import FlowStore
+from conductor.graph.model import GraphNode, GraphEdge
+from conductor.graph.compiler import compile
+from conductor.execution.engine import execute_sync
+from conductor.widgets import Text, Output
 
 
 class TestFlowStore:

@@ -1,6 +1,6 @@
 """Phase 1: Core types, enums, and sentinels."""
 
-from flowengine.types import WidgetType, ResultFormat, NodeCategory
+from conductor.types import WidgetType, ResultFormat, NodeCategory
 
 
 class TestWidgetType:
@@ -33,12 +33,12 @@ class TestNodeCategory:
 
 class TestSentinel:
     def test_skipped_is_singleton(self):
-        from flowengine._sentinel import SKIPPED
+        from conductor._sentinel import SKIPPED
 
         assert SKIPPED is SKIPPED
         assert repr(SKIPPED) == "SKIPPED"
 
     def test_skipped_is_falsy(self):
-        from flowengine._sentinel import SKIPPED
+        from conductor._sentinel import SKIPPED
 
         assert not SKIPPED

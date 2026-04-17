@@ -4,14 +4,14 @@ from typing import Annotated, Any
 
 import pytest
 
-from flowengine import GraphEdge, GraphNode, NodeRegistry, compile
-from flowengine.errors import FlowPausedException, HumanInputRequired
-from flowengine.execution.checkpoint import FlowCheckpoint
-from flowengine.execution.engine import execute, execute_sync, resume, resume_sync, collect
-from flowengine.execution.store import FlowStore
-from flowengine.node import BaseNode
-from flowengine.execution.request import NodeExecRequest
-from flowengine.widgets import Text, Output
+from conductor import GraphEdge, GraphNode, NodeRegistry, compile
+from conductor.errors import FlowPausedException, HumanInputRequired
+from conductor.execution.checkpoint import FlowCheckpoint
+from conductor.execution.engine import execute, execute_sync, resume, resume_sync, collect
+from conductor.execution.store import FlowStore
+from conductor.node import BaseNode
+from conductor.execution.request import NodeExecRequest
+from conductor.widgets import Text, Output
 
 
 @pytest.fixture

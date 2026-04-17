@@ -4,13 +4,13 @@ from typing import Annotated, Any
 
 import pytest
 
-from flowengine.node import BaseNode
-from flowengine.types import NodeCategory
-from flowengine.execution.request import NodeExecRequest
-from flowengine.graph.model import GraphNode, GraphEdge
-from flowengine.graph.compiler import compile
-from flowengine.execution.engine import execute_sync
-from flowengine.widgets import Text, Output
+from conductor.node import BaseNode
+from conductor.types import NodeCategory
+from conductor.execution.request import NodeExecRequest
+from conductor.graph.model import GraphNode, GraphEdge
+from conductor.graph.compiler import compile
+from conductor.execution.engine import execute_sync
+from conductor.widgets import Text, Output
 
 
 class TestBaseNodeABC:

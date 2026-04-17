@@ -6,12 +6,12 @@ and CompoundNodeType for for-each loop iteration.
 
 from typing import Annotated
 
-from flowengine import GraphEdge, GraphNode, NodeRegistry, compile
-from flowengine._sentinel import SKIPPED
-from flowengine.compound.for_each import FOR_EACH
-from flowengine.execution.engine import execute_sync
-from flowengine.types import NodeCategory
-from flowengine.widgets import ConnectionList, Dropdown, Output, Text
+from conductor import GraphEdge, GraphNode, NodeRegistry, compile
+from conductor._sentinel import SKIPPED
+from conductor.compound.for_each import FOR_EACH
+from conductor.execution.engine import execute_sync
+from conductor.types import NodeCategory
+from conductor.widgets import ConnectionList, Dropdown, Output, Text
 
 registry = NodeRegistry()
 

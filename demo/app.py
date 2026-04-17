@@ -8,15 +8,15 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from flowengine.compound.for_each import FOR_EACH
-from flowengine.graph.compiler import compile
-from flowengine.graph.model import GraphEdge, GraphNode
-from flowengine.execution.engine import execute, execute_sync
-from flowengine.registry.schema import serialize_registry
+from conductor.compound.for_each import FOR_EACH
+from conductor.graph.compiler import compile
+from conductor.graph.model import GraphEdge, GraphNode
+from conductor.execution.engine import execute, execute_sync
+from conductor.registry.schema import serialize_registry
 
 from demo.nodes import registry
 
-app = FastAPI(title="FlowEngine Playground")
+app = FastAPI(title="Conductor Playground")
 app.mount("/static", StaticFiles(directory="demo/static"), name="static")
 
 

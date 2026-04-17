@@ -2,9 +2,9 @@
 
 from typing import Annotated
 
-from flowengine.registry import NodeRegistry
-from flowengine.types import NodeCategory
-from flowengine.widgets import (
+from conductor.registry import NodeRegistry
+from conductor.types import NodeCategory
+from conductor.widgets import (
     Checkbox,
     ConnectionList,
     Dropdown,
@@ -179,7 +179,7 @@ def conditional_node(
     Annotated[str, Output(label="True")],
     Annotated[str, Output(label="False")],
 ]:
-    from flowengine._sentinel import SKIPPED
+    from conductor._sentinel import SKIPPED
 
     match condition:
         case "Is not empty":

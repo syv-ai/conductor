@@ -2,10 +2,10 @@
 
 import pytest
 
-from flowengine.graph.model import GraphNode, GraphEdge
-from flowengine.graph.topology import topological_sort
-from flowengine.graph.compiler import compile
-from flowengine.errors import CycleDetectionError, CompilationError
+from conductor.graph.model import GraphNode, GraphEdge
+from conductor.graph.topology import topological_sort
+from conductor.graph.compiler import compile
+from conductor.errors import CycleDetectionError, CompilationError
 
 
 class TestGraphModel:
@@ -91,7 +91,7 @@ class TestTopologicalSort:
 class TestCompile:
     def test_compile_returns_compiled_graph(self, registry):
         from typing import Annotated
-        from flowengine.widgets import Text, Output
+        from conductor.widgets import Text, Output
 
         @registry.node("echo", version=1, name="Echo", description="Echo")
         def echo(text: Annotated[str, Text(label="In")]) -> Annotated[str, Output(label="Out")]:
@@ -116,7 +116,7 @@ class TestCompile:
 
     def test_compile_invalid_edge_raises(self, registry):
         from typing import Annotated
-        from flowengine.widgets import Text, Output
+        from conductor.widgets import Text, Output
 
         @registry.node("echo", version=1, name="Echo", description="Echo")
         def echo(text: Annotated[str, Text(label="In")]) -> Annotated[str, Output(label="Out")]:
@@ -130,7 +130,7 @@ class TestCompile:
 
     def test_compile_cycle_raises(self, registry):
         from typing import Annotated
-        from flowengine.widgets import Text, Output
+        from conductor.widgets import Text, Output
 
         @registry.node("echo", version=1, name="Echo", description="Echo")
         def echo(text: Annotated[str, Text(label="In")]) -> Annotated[str, Output(label="Out")]:

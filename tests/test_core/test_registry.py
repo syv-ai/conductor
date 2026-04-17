@@ -4,9 +4,9 @@ from typing import Annotated
 
 import pytest
 
-from flowengine.registry import NodeRegistry
-from flowengine.registry.definition import NodeDefinition
-from flowengine.widgets import Text, Output
+from conductor.registry import NodeRegistry
+from conductor.registry.definition import NodeDefinition
+from conductor.widgets import Text, Output
 
 
 @pytest.fixture

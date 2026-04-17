@@ -6,9 +6,9 @@ package, and how to serialize the registry to JSON for a frontend.
 
 from typing import Annotated
 
-from flowengine import NodeRegistry
-from flowengine.registry.schema import serialize_registry
-from flowengine.widgets import Output, Text
+from conductor import NodeRegistry
+from conductor.registry.schema import serialize_registry
+from conductor.widgets import Output, Text
 
 # ---------------------------------------------------------------------------
 # Option A: Manual registration (what you've seen in other examples)

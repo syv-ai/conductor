@@ -7,9 +7,9 @@ and run it both synchronously and with streaming events.
 import asyncio
 from typing import Annotated
 
-from flowengine import GraphEdge, GraphNode, NodeRegistry, compile
-from flowengine.execution.engine import collect, execute, execute_sync
-from flowengine.widgets import Output, Text, Textarea
+from conductor import GraphEdge, GraphNode, NodeRegistry, compile
+from conductor.execution.engine import collect, execute, execute_sync
+from conductor.widgets import Output, Text, Textarea
 
 # ---------------------------------------------------------------------------
 # Register some nodes

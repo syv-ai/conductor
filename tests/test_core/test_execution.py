@@ -4,17 +4,17 @@ from typing import Annotated
 
 import pytest
 
-from flowengine.graph.model import GraphNode, GraphEdge
-from flowengine.graph.compiler import compile
-from flowengine.execution.engine import execute, execute_sync, collect
-from flowengine.execution.events import (
+from conductor.graph.model import GraphNode, GraphEdge
+from conductor.graph.compiler import compile
+from conductor.execution.engine import execute, execute_sync, collect
+from conductor.execution.events import (
     NodeStartEvent,
     NodeCompleteEvent,
     FlowCompleteEvent,
 )
-from flowengine.execution.results import normalize_result
-from flowengine.widgets import Text, Output
-from flowengine.errors import FlowExecutionException
+from conductor.execution.results import normalize_result
+from conductor.widgets import Text, Output
+from conductor.errors import FlowExecutionException
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +264,7 @@ class TestTimeout:
 class TestSkipPropagation:
     async def test_skipped_input_skips_downstream(self, registry):
         """If all inputs to a node are SKIPPED, the node itself is skipped."""
-        from flowengine._sentinel import SKIPPED
+        from conductor._sentinel import SKIPPED
 
         @registry.node("passthrough", version=1, name="Pass", description="Passes through")
         def passthrough(

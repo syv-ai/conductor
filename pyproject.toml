@@ -1,5 +1,5 @@
 [project]
-name = "flow-engine"
+name = "conductor-workspace"
 version = "0.1.0"
 description = "Reusable graph execution engine for DAG-based workflows"
 readme = "README.md"
@@ -10,8 +10,17 @@ dependencies = []
 members = ["packages/*"]
 
 [tool.uv.sources]
-flowengine = { workspace = true }
+conductor = { workspace = true }
 
 [dependency-groups]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.25", "flowengine"]
-demo = ["fastapi>=0.115", "uvicorn[standard]>=0.34", "flowengine"]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.25",
+    "conductor",
+    "ipykernel>=7.2.0",
+]
+demo = ["fastapi>=0.115", "uvicorn[standard]>=0.34", "conductor"]
+docs = [
+    "mkdocs-material>=9.7.6",
+    "mkdocstrings[python]>=1.0.4",
+]

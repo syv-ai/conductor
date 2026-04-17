@@ -8,10 +8,10 @@ and how to resume from the checkpoint with the human's response.
 import json
 from typing import Annotated
 
-from flowengine import GraphEdge, GraphNode, NodeRegistry, compile
-from flowengine.errors import FlowPausedException, HumanInputRequired
-from flowengine.execution.engine import execute_sync, resume_sync
-from flowengine.widgets import Output, Text, Textarea
+from conductor import GraphEdge, GraphNode, NodeRegistry, compile
+from conductor.errors import FlowPausedException, HumanInputRequired
+from conductor.execution.engine import execute_sync, resume_sync
+from conductor.widgets import Output, Text, Textarea
 
 registry = NodeRegistry()
 

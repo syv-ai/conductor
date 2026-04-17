@@ -2,7 +2,7 @@
 
 from typing import Annotated, get_type_hints, get_args
 
-from flowengine.widgets import (
+from conductor.widgets import (
     Widget,
     Text,
     Textarea,
@@ -13,7 +13,7 @@ from flowengine.widgets import (
     Output,
     ConnectionList,
 )
-from flowengine.types import WidgetType
+from conductor.types import WidgetType
 
 
 class TestWidgetABC:

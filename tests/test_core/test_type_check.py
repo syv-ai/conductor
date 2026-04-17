@@ -4,10 +4,10 @@ from typing import Annotated
 
 import pytest
 
-from flowengine import GraphEdge, GraphNode, NodeRegistry, compile
-from flowengine.errors import CompilationError
-from flowengine.types import NodeCategory
-from flowengine.widgets import Checkbox, ConnectionList, Dropdown, Output, Range, Text, Textarea
+from conductor import GraphEdge, GraphNode, NodeRegistry, compile
+from conductor.errors import CompilationError
+from conductor.types import NodeCategory
+from conductor.widgets import Checkbox, ConnectionList, Dropdown, Output, Range, Text, Textarea
 
 
 @pytest.fixture
