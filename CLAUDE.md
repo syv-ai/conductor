@@ -109,6 +109,8 @@ When a parameter has no widget on its `Annotated[...]`, the registry infers one 
 
 `List` is the user-authored array widget (each item uses `item_widget`). `ConnectionList` is the multi-edge aggregator — they are not interchangeable.
 
+Full guide for users and contributors: [`docs/widgets.md`](docs/widgets.md) (catalog, defaults, and how to add a new widget). Demo notebook: [`examples/08_widgets.ipynb`](examples/08_widgets.ipynb).
+
 ### Compile-time type checking
 
 Every edge AND every consume binding is validated: source output type vs target input type. Rules: exact match, numeric interchangeability (int↔float), string coercion (anything→str), list auto-wrap (T→list[T]), ConnectionList accepts all. Default: warnings on `compiled.type_warnings`. With `strict_types=True`: raises `CompilationError` (only for real mismatches; informational warnings like duplicate labels are not fatal).

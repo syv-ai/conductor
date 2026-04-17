@@ -502,6 +502,8 @@ When a parameter has no `Annotated[T, Widget(...)]` (or has `Annotated[T, ...]` 
 
 Explicit `Annotated[T, Widget(...)]` always wins. So `def f(x: int)` gets `Number`, but `def f(x: Annotated[int, Range(min_val=0, max_val=100)])` still gets `Range`. Use defaults for plain "just a field"; annotate when you want constraints, a different widget, or a human-friendly label.
 
+**Full widget guide:** [`docs/widgets.md`](docs/widgets.md) — catalog, the default dispatch, and a four-step recipe for adding a new widget. Hands-on tour: [`examples/08_widgets.ipynb`](examples/08_widgets.ipynb).
+
 ## Execution events
 
 The `execute()` async generator yields these events:
@@ -621,6 +623,7 @@ The examples are Jupyter notebooks under `examples/` — open them in VS Code, J
 | `05_auto_discovery.ipynb` | Package scanning, JSON schema for frontends |
 | `06_human_in_the_loop.ipynb` | Pause, checkpoint, resume |
 | `07_shared_references.ipynb` | Producers, consumers, fan-out, broadcast into loop bodies |
+| `08_widgets.ipynb` | Type defaults, every widget, inspecting the schema, writing a custom widget |
 
 ```bash
 uv sync                       # includes the ipykernel used by the notebooks

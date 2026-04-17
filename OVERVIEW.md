@@ -11,6 +11,8 @@ Three uv-workspace packages ship today:
 | **`conductor-nodes`** | Standard-library nodes — `text`, `math`, `logic`, `loop` markers, `json`, `regex`. |
 | **`conductor-providers`** | Framework adapters. `conductor_providers.react` round-trips graphs through ReactFlow JSON today; more providers live in sibling subpackages. |
 
+271 tests, ruff-clean, CI on every PR.
+
 ## Design principle — one annotation, three consumers
 
 A node is a plain Python function with `Annotated[T, Widget]` parameters:
@@ -26,6 +28,14 @@ def uppercase(
 That single annotation drives three things: **backend execution** (the function runs as-is), **input validation** (a Pydantic model is generated from the signature), and **frontend rendering** (widget type + label + choices serialize to JSON for the UI). No parallel schemas, no framework coupling, no sync points to forget.
 
 Nodes are versioned as `base_id@version`. Registering `echo@2` never overwrites `echo@1`, so existing flows keep working across library evolution. Class-based nodes (`BaseNode` subclasses) exist for the rare cases needing direct run-state access; 95% are plain functions.
+
+## Widgets — one class per UI control, inferred for common types
+
+Every `WidgetType` enum value has a concrete Python class (`Text`, `Textarea`, `Number`, `Range`, `Dropdown`, `Multiselect`, `Checkbox`, `Switch`, `DatePicker`, `FileUpload`, `List`, `SchemaBuilder`, `CodeEditor`, `TemplateTextarea`, `DependentDropdown`, `EntityDropdown`, `IfElseBuilder`, `ConnectionList`, `Output`), so a generic frontend can render any registered node by reading the registry — no bespoke backend code per widget.
+
+When a parameter has no widget on its annotation, the registry infers a sensible default from the Python type: `str → Text`, `int → Number(integer_only=True)`, `float → Number`, `bool → Checkbox`, `Date → DatePicker`, `list[T] → List(item_widget=default(T))`, `dict → SchemaBuilder`. Explicit `Annotated[T, Widget(...)]` always wins. So `def f(x: int)` is enough for the common case; annotate when you want constraints, a different widget, or a prettier label.
+
+Full catalog + recipe for adding new widgets: [`docs/widgets.md`](docs/widgets.md). Hands-on tour: [`examples/08_widgets.ipynb`](examples/08_widgets.ipynb).
 
 ## Three phases: register → compile → execute
 
