@@ -19,6 +19,26 @@ from conductor.validation import _extract_type_string, _is_injectable, create_va
 from conductor.widgets import Output, Widget
 
 
+def _duplicate_registration_message(base_id: str, version: int) -> str:
+    """Error text for a duplicate `@registry.node` / `register_class` call.
+
+    Optimized for the two cases that actually happen in practice: the caller
+    is trying to ship a new version and forgot to bump the number, or they
+    re-ran a notebook cell that already registered once.
+    """
+    next_version = version + 1
+    return (
+        f"Node '{base_id}@{version}' is already registered on this registry.\n"
+        f"  - To register a new version, bump the `version` argument, e.g. "
+        f"`@registry.node(\"{base_id}\", version={next_version}, ...)`.\n"
+        f"  - If you're re-running a notebook cell, create a fresh "
+        f"`NodeRegistry()` (or restart the kernel) so registrations start "
+        f"from an empty state.\n"
+        f"  - If you meant to replace the existing version, pick a different "
+        f"base_id — conductor never silently overwrites a registered node."
+    )
+
+
 class NodeRegistry:
     """Versioned node registry. Nodes identified as base_id@version."""
 
@@ -49,7 +69,7 @@ class NodeRegistry:
         def decorator(func: Callable) -> Callable:
             full_id = f"{base_id}@{version}"
             if full_id in self._nodes:
-                raise ValueError(f"Node '{full_id}' is already registered")
+                raise ValueError(_duplicate_registration_message(base_id, version))
 
             inputs, outputs, result_format = _introspect_function(func)
             validation_model = create_validation_model(func)
@@ -91,7 +111,7 @@ class NodeRegistry:
         ver = version or getattr(node_cls, "node_version", 1)
         full_id = f"{base_id}@{ver}"
         if full_id in self._nodes:
-            raise ValueError(f"Node '{full_id}' is already registered")
+            raise ValueError(_duplicate_registration_message(base_id, ver))
 
         category = getattr(node_cls, "node_category", NodeCategory.IO)
         tags = getattr(node_cls, "node_tags", ())

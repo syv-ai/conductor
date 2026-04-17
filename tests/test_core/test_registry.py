@@ -68,6 +68,26 @@ class TestNodeRegistration:
             def second(x: Annotated[str, Text(label="X")]) -> Annotated[str, Output(label="Y")]:
                 return x
 
+    def test_duplicate_error_suggests_bumping_version_and_fresh_registry(self, registry):
+        """The error message must steer users toward the two common fixes
+        (bumping the version, or creating a new registry in a notebook)."""
+        @registry.node("dup2", version=3, name="Dup", description="First")
+        def first(x: Annotated[str, Text(label="X")]) -> Annotated[str, Output(label="Y")]:
+            return x
+
+        with pytest.raises(ValueError) as excinfo:
+
+            @registry.node("dup2", version=3, name="Dup", description="Second")
+            def second(x: Annotated[str, Text(label="X")]) -> Annotated[str, Output(label="Y")]:
+                return x
+
+        message = str(excinfo.value)
+        # Names the specific duplicate so the reader knows which node to look at.
+        assert "dup2@3" in message
+        # Mentions the two actionable fixes — bumping version + fresh registry.
+        assert "version=4" in message            # next version suggestion
+        assert "NodeRegistry()" in message       # notebook fix hint
+
 
 class TestNodeLookup:
     def test_get_by_full_id(self, populated_registry):
