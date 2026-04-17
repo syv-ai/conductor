@@ -474,6 +474,7 @@ The examples are Jupyter notebooks under `examples/` — open them in VS Code, J
 | `04_control_flow.ipynb` | Conditionals (SKIPPED), for-each loops |
 | `05_auto_discovery.ipynb` | Package scanning, JSON schema for frontends |
 | `06_human_in_the_loop.ipynb` | Pause, checkpoint, resume |
+| `07_shared_references.ipynb` | Producers, consumers, fan-out, broadcast into loop bodies |
 
 ```bash
 uv sync                       # includes the ipykernel used by the notebooks
