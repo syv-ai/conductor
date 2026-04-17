@@ -1,0 +1,13 @@
+[project]
+name = "conductor-providers"
+version = "0.1.0"
+description = "Frontend/framework adapters for the conductor DAG engine. Ships a React (ReactFlow) provider; more providers can live alongside."
+requires-python = ">=3.12"
+dependencies = ["conductor"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/conductor_providers"]
