@@ -208,6 +208,17 @@ def my_node(
     return text.upper()
 ```
 
+### Composing registries
+```python
+# Pull pre-built nodes into your own registry
+mine = NodeRegistry()
+# ... register your own nodes ...
+mine.merge(conductor_nodes.get_default_registry())
+
+# Chainable; conflict policies: "raise" (default), "skip", "error-summary"
+mine.merge(other_registry, on_conflict="skip")
+```
+
 ### Building and running a flow
 ```python
 compiled = compile(

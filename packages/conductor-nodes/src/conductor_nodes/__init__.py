@@ -61,4 +61,32 @@ def register_all(registry: "NodeRegistry", *, categories: list[str] | None = Non
         CATEGORIES[name].register(registry)   # type: ignore[attr-defined]
 
 
-__all__ = ["CATEGORIES", "register_all", "text", "math", "logic", "loop", "json_ops", "regex_ops"]
+def get_default_registry(*, categories: list[str] | None = None) -> "NodeRegistry":
+    """Return a fresh ``NodeRegistry`` pre-populated with standard-library nodes.
+
+    Useful when you want to compose with your own registry via
+    ``my_reg.merge(get_default_registry())``. A new registry is built on
+    every call — no hidden shared state, mutating the result is safe.
+
+    Args:
+        categories: Optional subset of category names (same list as
+            ``register_all``). ``None`` means all categories.
+    """
+    from conductor import NodeRegistry
+
+    reg = NodeRegistry()
+    register_all(reg, categories=categories)
+    return reg
+
+
+__all__ = [
+    "CATEGORIES",
+    "register_all",
+    "get_default_registry",
+    "text",
+    "math",
+    "logic",
+    "loop",
+    "json_ops",
+    "regex_ops",
+]

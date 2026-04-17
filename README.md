@@ -576,6 +576,17 @@ text.register(reg)
 math.register(reg)
 ```
 
+Alternatively, grab a pre-populated registry and merge it into yours — useful when composing multiple sources:
+
+```python
+from conductor_nodes import get_default_registry
+
+mine = NodeRegistry()
+# ... register your own nodes ...
+mine.merge(get_default_registry())              # raises on full-id collisions
+mine.merge(other_registry, on_conflict="skip")  # or tolerate existing wins
+```
+
 Categories and highlights:
 
 | Module | Node IDs |

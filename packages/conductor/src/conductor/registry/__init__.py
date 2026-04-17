@@ -194,6 +194,77 @@ class NodeRegistry:
         self._by_base_id.setdefault(base_id, []).append(node_def)
 
     # ------------------------------------------------------------------
+    # Composition
+    # ------------------------------------------------------------------
+
+    def merge(
+        self,
+        other: "NodeRegistry",
+        *,
+        on_conflict: str = "raise",
+    ) -> "NodeRegistry":
+        """Copy every node from ``other`` into this registry.
+
+        Versions coexist naturally: if self has ``foo@1`` and other has
+        ``foo@2``, the merged registry carries both. A *conflict* is the
+        same ``base_id@version`` appearing on both sides.
+
+        Args:
+            other: Source registry. Not modified.
+            on_conflict: What to do when a full id (``base_id@version``) is
+                present on both registries:
+
+                - ``"raise"`` (default) — raise ``ValueError`` on the first
+                  conflict with actionable guidance.
+                - ``"skip"`` — keep the existing node, ignore the incoming one.
+                - ``"error-summary"`` — collect every conflict, then raise
+                  one ``ValueError`` listing them all. Useful for surfacing
+                  the full collision set in one pass.
+
+        Returns:
+            ``self``, so calls can chain: ``reg.merge(a).merge(b)``.
+        """
+        if on_conflict not in ("raise", "skip", "error-summary"):
+            raise ValueError(
+                f"Unknown on_conflict mode: {on_conflict!r}. "
+                f"Choose one of 'raise', 'skip', 'error-summary'."
+            )
+
+        conflicts: list[str] = []
+        for full_id, node_def in other._nodes.items():
+            if full_id in self._nodes:
+                if on_conflict == "raise":
+                    raise ValueError(
+                        f"Registry merge conflict: '{full_id}' is registered "
+                        f"on both registries.\n"
+                        f"  - Pass `on_conflict='skip'` to keep the existing "
+                        f"node and ignore the incoming one.\n"
+                        f"  - Pass `on_conflict='error-summary'` to collect "
+                        f"every conflict and raise once at the end.\n"
+                        f"  - If you meant to add a new version of the same "
+                        f"node, bump `version` on one side before merging."
+                    )
+                if on_conflict == "skip":
+                    continue
+                # error-summary — record and keep going
+                conflicts.append(full_id)
+                continue
+
+            self._nodes[full_id] = node_def
+            self._by_base_id.setdefault(node_def.base_id, []).append(node_def)
+
+        if conflicts:
+            joined = "\n".join(f"  - {cid}" for cid in conflicts)
+            raise ValueError(
+                f"Registry merge had {len(conflicts)} conflict(s):\n"
+                f"{joined}\n"
+                f"Pass `on_conflict='skip'` to accept existing versions, or "
+                f"bump `version` on one side to avoid the collision."
+            )
+
+        return self
+
+    # ------------------------------------------------------------------
     # Lookup
     # ------------------------------------------------------------------
 

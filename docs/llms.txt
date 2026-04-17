@@ -147,7 +147,12 @@ Compile-time validation of edge type compatibility:
 ## API Reference
 
 ### conductor (top-level)
-- `NodeRegistry` — Node registration and lookup
+- `NodeRegistry` — Node registration and lookup. Key methods: `node(...)`
+  decorator, `register_class(cls)`, `get(full_id)`, `get_latest(base_id)`,
+  `is_deprecated(full_id)`, `all()`, `all_current()`, `contains(full_id)`,
+  `discover(package_name)`, and
+  **`merge(other, on_conflict="raise"|"skip"|"error-summary")`** for composing
+  registries. Returns self for chaining.
 - `GraphNode(id, type, data, produces=None, consumes=None)` — Node in the graph.
   - `produces: dict[str, str] | None` — output handle → display label (marks that output as shareable)
   - `consumes: dict[str, tuple[str, str]] | None` — input handle → `(producer_node_id, output_handle)`
@@ -305,6 +310,14 @@ reg = NodeRegistry()
 register_all(reg)                                   # all categories
 register_all(reg, categories=["text", "math"])      # subset
 text.register(reg)                                  # single module
+```
+
+Alternate composition path — grab a pre-populated registry and merge:
+
+```python
+from conductor_nodes import get_default_registry
+mine.merge(get_default_registry())                  # raises on conflicts
+mine.merge(other, on_conflict="skip")               # tolerate existing
 ```
 
 Categories: `text`, `math`, `logic`, `loop`, `json`, `regex`. Node IDs are
