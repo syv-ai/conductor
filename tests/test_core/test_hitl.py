@@ -3,15 +3,14 @@
 from typing import Annotated, Any
 
 import pytest
-
 from conductor import GraphEdge, GraphNode, NodeRegistry, compile
 from conductor.errors import FlowPausedException, HumanInputRequired
 from conductor.execution.checkpoint import FlowCheckpoint
-from conductor.execution.engine import execute, execute_sync, resume, resume_sync, collect
+from conductor.execution.engine import execute, execute_sync, resume, resume_sync
+from conductor.execution.request import NodeExecRequest
 from conductor.execution.store import FlowStore
 from conductor.node import BaseNode
-from conductor.execution.request import NodeExecRequest
-from conductor.widgets import Text, Output
+from conductor.widgets import Output, Text
 
 
 @pytest.fixture

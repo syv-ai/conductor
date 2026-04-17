@@ -9,8 +9,8 @@ from typing import Annotated, Any, get_args, get_origin, get_type_hints
 from conductor.metadata import InputMetadata, OutputMetadata
 from conductor.registry.definition import NodeDefinition
 from conductor.types import (
-    RESULT_KEY,
     OUTPUT_PREFIX,
+    RESULT_KEY,
     NodeCategory,
     ResultFormat,
     WidgetType,

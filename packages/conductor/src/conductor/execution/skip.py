@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from conductor._sentinel import SKIPPED, is_skipped
+from conductor._sentinel import is_skipped
 from conductor.execution.results import extract_output
 from conductor.graph.model import GraphNode
 

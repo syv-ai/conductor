@@ -8,9 +8,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from conductor.execution.events import EventSink, ExecutionEvent
+from conductor.execution.resolver import InputResolver
 from conductor.execution.store import FlowStore
 from conductor.graph.compiler import CompiledGraph
-from conductor.execution.resolver import InputResolver
 from conductor.types import NodeResult
 
 

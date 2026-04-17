@@ -1,19 +1,19 @@
 """Phase 1: Widget ABC and concrete widget classes."""
 
-from typing import Annotated, get_type_hints, get_args
+from typing import Annotated, get_args
 
+from conductor.types import WidgetType
 from conductor.widgets import (
-    Widget,
-    Text,
-    Textarea,
-    Dropdown,
-    Range,
     Checkbox,
+    ConnectionList,
+    Dropdown,
     FileUpload,
     Output,
-    ConnectionList,
+    Range,
+    Text,
+    Textarea,
+    Widget,
 )
-from conductor.types import WidgetType
 
 
 class TestWidgetABC:

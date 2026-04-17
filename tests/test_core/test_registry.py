@@ -3,10 +3,8 @@
 from typing import Annotated
 
 import pytest
-
 from conductor.registry import NodeRegistry
-from conductor.registry.definition import NodeDefinition
-from conductor.widgets import Text, Output
+from conductor.widgets import Output, Text
 
 
 @pytest.fixture

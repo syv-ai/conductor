@@ -14,16 +14,18 @@ from __future__ import annotations
 from typing import Annotated
 
 import pytest
-
 from conductor import GraphEdge, GraphNode, NodeRegistry, compile
 from conductor._sentinel import SKIPPED
 from conductor.compound.for_each import FOR_EACH
-from conductor.errors import CompilationError, CycleDetectionError
-from conductor.execution.engine import collect, execute, execute_sync, resume_sync
-from conductor.errors import FlowPausedException, HumanInputRequired
+from conductor.errors import (
+    CompilationError,
+    CycleDetectionError,
+    FlowPausedException,
+    HumanInputRequired,
+)
+from conductor.execution.engine import execute_sync, resume_sync
 from conductor.types import NodeCategory
 from conductor.widgets import ConnectionList, Output, Text, Textarea
-
 
 # =============================================================================
 # Fixtures / helpers

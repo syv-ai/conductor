@@ -12,6 +12,17 @@ members = ["packages/*"]
 [tool.uv.sources]
 conductor = { workspace = true }
 
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["examples/*.ipynb", "node.ipynb"]
+
+[tool.ruff.lint]
+# Conservative baseline: pyflakes + pycodestyle + isort. Expand later if desired.
+select = ["E", "F", "I", "W"]
+# E501 (line-too-long) is noisy for prose-ish docstrings and long strings.
+ignore = ["E501"]
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",

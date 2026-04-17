@@ -2,13 +2,11 @@
 
 from typing import Annotated
 
-import pytest
-
-from conductor.execution.store import FlowStore
-from conductor.graph.model import GraphNode, GraphEdge
-from conductor.graph.compiler import compile
 from conductor.execution.engine import execute_sync
-from conductor.widgets import Text, Output
+from conductor.execution.store import FlowStore
+from conductor.graph.compiler import compile
+from conductor.graph.model import GraphEdge, GraphNode
+from conductor.widgets import Output, Text
 
 
 class TestFlowStore:

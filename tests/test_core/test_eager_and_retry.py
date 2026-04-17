@@ -4,13 +4,11 @@ import time
 from typing import Annotated
 
 import pytest
-
 from conductor import GraphEdge, GraphNode, NodeRegistry, compile
 from conductor.errors import FlowExecutionException
 from conductor.execution.engine import execute, execute_sync
 from conductor.execution.retry import RetryConfig
 from conductor.widgets import Output, Text
-
 
 # ---------------------------------------------------------------------------
 # Eager scheduling: independent branches run concurrently

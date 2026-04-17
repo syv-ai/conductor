@@ -6,7 +6,6 @@ import sys
 
 from conductor.about import get_content, get_section, list_sections
 
-
 _USAGE = """\
 Usage: python -m conductor.about [section]
 

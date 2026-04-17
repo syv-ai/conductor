@@ -3,16 +3,15 @@
 import json
 from typing import Any
 
+from conductor.compound.for_each import FOR_EACH
+from conductor.execution.engine import execute, execute_sync
+from conductor.graph.compiler import compile
+from conductor.graph.model import GraphEdge, GraphNode
+from conductor.registry.schema import serialize_registry
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-
-from conductor.compound.for_each import FOR_EACH
-from conductor.graph.compiler import compile
-from conductor.graph.model import GraphEdge, GraphNode
-from conductor.execution.engine import execute, execute_sync
-from conductor.registry.schema import serialize_registry
 
 from demo.nodes import registry
 

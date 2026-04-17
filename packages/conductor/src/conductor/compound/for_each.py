@@ -25,7 +25,6 @@ class ForEachNode:
         self.body_order = [nid for nid in execution_order if nid in region.body_ids]
 
     def execute(self, req: Any) -> Any:
-        from conductor.execution.resolver import InputResolver
 
         items = _prepare_items(req.inputs.get("items", []))
         items = items[:MAX_ITERATIONS]
@@ -134,9 +133,8 @@ def _resolve_end_inputs(
 ) -> Any:
     """Resolve the end node's inputs and return the collected value."""
     compiled = state.compiled
-    end_node = compiled.node_map[end_id]
 
-    for (target_id, target_handle), sources in compiled.edge_map.items():
+    for (target_id, _target_handle), sources in compiled.edge_map.items():
         if target_id != end_id:
             continue
         for source_id, source_handle in sources:

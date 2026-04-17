@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from conductor.types import ResultFormat, WidgetType
+from conductor.types import WidgetType
 
 
 @dataclass(frozen=True)

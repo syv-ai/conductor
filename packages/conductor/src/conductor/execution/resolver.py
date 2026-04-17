@@ -8,7 +8,6 @@ from conductor.graph.model import GraphNode
 from conductor.registry import NodeRegistry
 from conductor.types import NodeResult
 
-
 MULTI_VALUE_SEPARATOR = "\n\n"
 
 

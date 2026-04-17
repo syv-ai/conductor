@@ -2,15 +2,12 @@
 
 from typing import Annotated, Any
 
-import pytest
-
+from conductor.execution.engine import execute_sync
+from conductor.graph.compiler import compile
+from conductor.graph.model import GraphEdge, GraphNode
 from conductor.registry import NodeRegistry
 from conductor.registry.schema import serialize_registry
-from conductor.graph.model import GraphNode, GraphEdge
-from conductor.graph.compiler import compile
-from conductor.execution.engine import execute_sync
-from conductor.widgets import Text, Output
-
+from conductor.widgets import Output, Text
 
 # ---------------------------------------------------------------------------
 # Auto-discovery

@@ -30,7 +30,6 @@ def discover_for_each_regions(
     for edge in edges:
         forward[edge.source].append(edge.target)
 
-    node_type_map = {n.id: n.type for n in nodes}
     start_ids = [n.id for n in nodes if n.type.startswith("for-each-start")]
     end_ids = {n.id for n in nodes if n.type.startswith("for-each-end")}
     matched_ends: set[str] = set()

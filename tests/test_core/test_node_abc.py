@@ -3,14 +3,13 @@
 from typing import Annotated, Any
 
 import pytest
-
+from conductor.execution.engine import execute_sync
+from conductor.execution.request import NodeExecRequest
+from conductor.graph.compiler import compile
+from conductor.graph.model import GraphEdge, GraphNode
 from conductor.node import BaseNode
 from conductor.types import NodeCategory
-from conductor.execution.request import NodeExecRequest
-from conductor.graph.model import GraphNode, GraphEdge
-from conductor.graph.compiler import compile
-from conductor.execution.engine import execute_sync
-from conductor.widgets import Text, Output
+from conductor.widgets import Output, Text
 
 
 class TestBaseNodeABC:

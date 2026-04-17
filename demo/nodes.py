@@ -5,7 +5,6 @@ from typing import Annotated
 from conductor.registry import NodeRegistry
 from conductor.types import NodeCategory
 from conductor.widgets import (
-    Checkbox,
     ConnectionList,
     Dropdown,
     Output,

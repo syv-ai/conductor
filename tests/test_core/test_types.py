@@ -1,6 +1,6 @@
 """Phase 1: Core types, enums, and sentinels."""
 
-from conductor.types import WidgetType, ResultFormat, NodeCategory
+from conductor.types import NodeCategory, ResultFormat, WidgetType
 
 
 class TestWidgetType:

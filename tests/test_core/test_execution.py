@@ -3,19 +3,12 @@
 from typing import Annotated
 
 import pytest
-
-from conductor.graph.model import GraphNode, GraphEdge
-from conductor.graph.compiler import compile
-from conductor.execution.engine import execute, execute_sync, collect
-from conductor.execution.events import (
-    NodeStartEvent,
-    NodeCompleteEvent,
-    FlowCompleteEvent,
-)
-from conductor.execution.results import normalize_result
-from conductor.widgets import Text, Output
 from conductor.errors import FlowExecutionException
-
+from conductor.execution.engine import collect, execute, execute_sync
+from conductor.execution.results import normalize_result
+from conductor.graph.compiler import compile
+from conductor.graph.model import GraphEdge, GraphNode
+from conductor.widgets import Output, Text
 
 # ---------------------------------------------------------------------------
 # Fixtures: register nodes for test use

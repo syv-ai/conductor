@@ -3,12 +3,11 @@
 from typing import Annotated
 
 import pytest
-
-from conductor.graph.model import GraphNode, GraphEdge
-from conductor.graph.compiler import compile
-from conductor.execution.engine import execute, execute_sync, collect
 from conductor.compound.for_each import FOR_EACH
-from conductor.widgets import Text, Output, ConnectionList
+from conductor.execution.engine import execute, execute_sync
+from conductor.graph.compiler import compile
+from conductor.graph.model import GraphEdge, GraphNode
+from conductor.widgets import ConnectionList, Output, Text
 
 
 @pytest.fixture
