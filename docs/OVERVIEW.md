@@ -35,7 +35,7 @@ Every `WidgetType` enum value has a concrete Python class (`Text`, `Textarea`, `
 
 When a parameter has no widget on its annotation, the registry infers a sensible default from the Python type: `str → Text`, `int → Number(integer_only=True)`, `float → Number`, `bool → Checkbox`, `Date → DatePicker`, `list[T] → List(item_widget=default(T))`, `dict → SchemaBuilder`. Explicit `Annotated[T, Widget(...)]` always wins. So `def f(x: int)` is enough for the common case; annotate when you want constraints, a different widget, or a prettier label.
 
-Full catalog + recipe for adding new widgets: [`docs/widgets.md`](docs/widgets.md). Hands-on tour: [`examples/08_widgets.ipynb`](examples/08_widgets.ipynb).
+Full catalog + recipe for adding new widgets: [`widgets.md`](widgets.md). Hands-on tour: [`examples/08_widgets.ipynb`](examples/08_widgets.ipynb).
 
 ## Three phases: register → compile → execute
 
@@ -83,7 +83,7 @@ GraphNode("redactor", "redact@1",    ..., consumes={"mapping": ("mapper", "resul
 
 Reference identity is `(producer_id, output_handle)`; the label is UI-only so renames never break subscribers. Validated at compile time (cycles, type compatibility, no collision with explicit edges, single producer per reference). Consumers inside a for-each body see the same producer value on every iteration — broadcast, not per-iteration.
 
-v1 constraint: producers must be top-level (not inside a compound region). Consumers can be anywhere. Full spec: [`docs/shared-references.md`](docs/shared-references.md).
+v1 constraint: producers must be top-level (not inside a compound region). Consumers can be anywhere. Full spec: [`shared-references.md`](shared-references.md).
 
 ## Standard nodes + frontend providers
 
@@ -124,7 +124,7 @@ Same text programmatically: `from conductor.about import get_content, get_sectio
 
 - **Tests first for non-trivial features.** The shared-references feature landed as a design doc + skipped spec tests first, then implementation removed the skip marker. This is the pattern for any future v2 change.
 - **CI runs ruff + pytest on every PR** (`.github/workflows/ci.yml`). Locally: `uvx ruff check .` and `uv run pytest tests/`.
-- **Docs drift is actively audited.** `/docs-audit` Claude Code slash command runs on-demand after feature sessions; a weekly CI audit opens a PR as a safety net. `CLAUDE.md` and `docs/llms.txt` should always match the shipped surface.
+- **Docs drift is actively audited.** `/docs-audit` Claude Code slash command runs on-demand after feature sessions; a weekly CI audit opens a PR as a safety net. `CLAUDE.md` and `llms.txt` should always match the shipped surface.
 - **Notebook outputs are stripped on commit** by the `nbstripout` pre-commit hook; readers run cells locally to see values.
 - **Duplicate node registration is a clear error**, not a silent overwrite — the message tells you to bump `version`, create a fresh registry (for notebooks), or pick a different `base_id`.
 
@@ -132,7 +132,7 @@ Same text programmatically: `from conductor.about import get_content, get_sectio
 
 - [`README.md`](README.md) — install, quickstart, usage recipes
 - [`CLAUDE.md`](CLAUDE.md) — architecture + conventions (primary context for agent sessions)
-- [`docs/llms.txt`](docs/llms.txt) — full API reference (also shipped inside the wheel)
-- [`docs/shared-references.md`](docs/shared-references.md) — v1 design spec for produce/consume
-- [`docs/conductor-design.md`](docs/conductor-design.md) — original library design document
+- [`llms.txt`](llms.txt) — full API reference (also shipped inside the wheel)
+- [`shared-references.md`](shared-references.md) — v1 design spec for produce/consume
+- [`conductor-design.md`](conductor-design.md) — original library design document
 - [`examples/*.ipynb`](examples/) — 7 tutorial notebooks covering the whole surface
