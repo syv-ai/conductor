@@ -11,6 +11,8 @@
 
 Built to be the shared core behind visual flow builders — define nodes once, get backend execution, input validation, and frontend UI metadata for free.
 
+> Need a short tour to share with a colleague? See [`OVERVIEW.md`](OVERVIEW.md) for a one-page architecture summary.
+
 ## Features
 
 - **Decorator-based node registration** — `@registry.node()` turns any function into a validated, UI-renderable node
