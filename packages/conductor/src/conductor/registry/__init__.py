@@ -16,7 +16,65 @@ from conductor.types import (
     WidgetType,
 )
 from conductor.validation import _extract_type_string, _is_injectable, create_validation_model
-from conductor.widgets import Output, Widget
+from conductor.widgets import (
+    Checkbox,
+    DatePicker,
+    FileUpload,
+    List,
+    Number,
+    Output,
+    SchemaBuilder,
+    Text,
+    Widget,
+)
+
+
+def _default_widget(base_type: Any, param_name: str) -> Widget | None:
+    """Return a default widget for a given Python type, or ``None`` if the
+    type is something we don't have a sensible default for.
+
+    Rules:
+        str           -> Text
+        int / float   -> Number (with integer_only for int)
+        bool          -> Checkbox
+        Date (alias)  -> DatePicker
+        Base64Str, NamedFile, MultiNamedFile (aliases) -> FileUpload
+        list[T]       -> List (item widget inferred from T)
+        dict, dict[str, Any] -> SchemaBuilder
+        Any other     -> None (caller falls back to no widget)
+
+    Explicit ``Annotated[T, Widget(...)]`` on a parameter always wins — this
+    function is only consulted when no ``Widget`` instance was found.
+    """
+    origin = get_origin(base_type)
+
+    # list[T]
+    if origin is list or base_type is list:
+        inner_args = get_args(base_type)
+        inner_widget = _default_widget(inner_args[0], param_name) if inner_args else None
+        return List(label=param_name, item_widget=inner_widget)
+
+    # dict[...]
+    if origin is dict or base_type is dict:
+        return SchemaBuilder(label=param_name)
+
+    if base_type is str:
+        return Text(label=param_name)
+    if base_type is int:
+        return Number(label=param_name, integer_only=True)
+    if base_type is float:
+        return Number(label=param_name)
+    if base_type is bool:
+        return Checkbox(label=param_name)
+
+    # Custom type aliases surface via the normalized type_str
+    type_str = _extract_type_string(base_type).lower()
+    if type_str == "date":
+        return DatePicker(label=param_name)
+    if type_str in ("base64str", "namedfile", "multinamedfile"):
+        return FileUpload(label=param_name)
+
+    return None
 
 
 def _duplicate_registration_message(base_id: str, version: int) -> str:
@@ -229,6 +287,11 @@ def _extract_inputs(
 
         type_str = _extract_type_string(base_type)
         expects_list = type_str.startswith("list[")
+
+        # If the user didn't annotate a widget, fall back to a sensible
+        # default based on the parameter's type. Explicit widgets still win.
+        if widget_instance is None:
+            widget_instance = _default_widget(base_type, param_name)
 
         if widget_instance:
             wt = widget_instance.widget_type

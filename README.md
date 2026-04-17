@@ -458,18 +458,49 @@ Built-in types: `Base64Str`, `Date`, `NamedFile`, `MultiNamedFile`. Host apps ca
 
 ## Widgets
 
-Widgets define how inputs render in the frontend and what validation to apply:
+Widgets define how inputs render in the frontend and what validation to apply. Every `WidgetType` enum value has a concrete Python class so a generic frontend can render by reading the registry — no bespoke backend code per widget.
 
-| Widget | Description | Key options |
-|--------|-------------|-------------|
-| `Text` | Single-line text | `min_length`, `max_length`, `pattern` |
-| `Textarea` | Multi-line text | `rows`, `min_length`, `max_length` |
-| `Dropdown` | Select from choices | `choices` |
+| Widget | Best for | Key options |
+|--------|----------|-------------|
+| `Text` | Single-line string | `min_length`, `max_length`, `pattern` |
+| `Textarea` | Multi-line string | `rows`, `min_length`, `max_length` |
+| `TemplateTextarea` | String with interpolation hints | `variables`, `rows` |
+| `CodeEditor` | Code blob with syntax highlighting | `language`, `min_length`, `max_length` |
+| `Dropdown` | Pick one from a fixed set | `choices` |
+| `DependentDropdown` | Choices depend on another field | `depends_on`, `choices_map` |
+| `Multiselect` | Pick many from a fixed set | `choices`, `min_selected`, `max_selected` |
+| `EntityDropdown` | Host-loaded async choices | `entity_kind`, `multiple` |
+| `Number` | Free numeric input | `min_val`, `max_val`, `step`, `integer_only` |
 | `Range` | Numeric slider | `min_val`, `max_val`, `step` |
-| `Checkbox` | Boolean toggle | |
-| `FileUpload` | File upload | `accept`, `max_size_mb`, `multiple` |
-| `ConnectionList` | Multiple connections | |
-| `Output` | Return value marker | `download`, `filename` |
+| `Checkbox` | Boolean toggle | — |
+| `Switch` | Boolean toggle (sibling of Checkbox) | — |
+| `DatePicker` | ISO date input | `min_date`, `max_date` |
+| `FileUpload` | Base64 file | `accept`, `max_size_mb`, `multiple` |
+| `List` | User-authored array | `item_widget`, `min_items`, `max_items` |
+| `SchemaBuilder` | Structured dict / object editor | `schema`, `allow_additional` |
+| `IfElseBuilder` | Conditional expression editor | `variables` |
+| `ConnectionList` | Aggregates N upstream edges into a labeled dict | — |
+| `Output` | Return-value marker | `download`, `filename` |
+
+### Widgets for common types — the default mapping
+
+When a parameter has no `Annotated[T, Widget(...)]` (or has `Annotated[T, ...]` without a widget instance), the registry infers a sensible default widget from the type:
+
+| Python type | Default widget |
+|---|---|
+| `str` | `Text` |
+| `int` | `Number(integer_only=True)` |
+| `float` | `Number` |
+| `bool` | `Checkbox` |
+| `Date` | `DatePicker` |
+| `Base64Str`, `NamedFile`, `MultiNamedFile` | `FileUpload` |
+| `list[str]` | `List(item_widget=Text())` |
+| `list[int]` | `List(item_widget=Number(integer_only=True))` |
+| `list[T]` (bare or other) | `List` (no `item_widget`) |
+| `dict`, `dict[str, T]` | `SchemaBuilder` |
+| anything else | no widget (rare — annotate one explicitly) |
+
+Explicit `Annotated[T, Widget(...)]` always wins. So `def f(x: int)` gets `Number`, but `def f(x: Annotated[int, Range(min_val=0, max_val=100)])` still gets `Range`. Use defaults for plain "just a field"; annotate when you want constraints, a different widget, or a human-friendly label.
 
 ## Execution events
 

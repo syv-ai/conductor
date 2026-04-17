@@ -174,7 +174,17 @@ Compile-time validation of edge type compatibility:
 - `NO_RETRY` — sentinel (max_retries=0)
 
 ### conductor.widgets
-- `Widget` (ABC), `Text`, `Textarea`, `Dropdown`, `DependentDropdown`, `Range`, `Checkbox`, `FileUpload`, `ConnectionList`, `Output`
+Concrete `Widget` subclasses, one per `WidgetType` enum value. The frontend renders any registered node by reading the registry — no custom backend code per widget.
+
+- `Widget` — abstract base; every subclass has a `to_schema()` producing a JSON dict
+- **Text-ish:** `Text`, `Textarea`, `TemplateTextarea(variables)`, `CodeEditor(language)`
+- **Choice-ish:** `Dropdown(choices)`, `DependentDropdown(depends_on, choices_map)`, `Multiselect(choices, min_selected, max_selected)`, `EntityDropdown(entity_kind, multiple)`
+- **Numeric:** `Number(min_val, max_val, step, integer_only)`, `Range(min_val, max_val, step)`
+- **Boolean:** `Checkbox`, `Switch`
+- **Date:** `DatePicker(min_date, max_date)`
+- **File:** `FileUpload(accept, max_size_mb, multiple)`
+- **Structured:** `List(item_widget, min_items, max_items)`, `SchemaBuilder(schema, allow_additional)`, `IfElseBuilder(variables)`
+- **Special:** `ConnectionList` (aggregates N upstream edges into a dict), `Output(download, filename)`
 
 ### conductor.types
 - `WidgetType`, `ResultFormat`, `NodeCategory` (enums)
@@ -229,17 +239,47 @@ Internal module called from `compile()`. Validates produce/consume decorations a
 
 ## Widgets Reference
 
-| Widget | Type | Key Options |
-|--------|------|-------------|
+| Widget | WidgetType | Key Options |
+|--------|------------|-------------|
 | Text | text | min_length, max_length, pattern |
 | Textarea | textarea | rows, min_length, max_length |
+| TemplateTextarea | template-textarea | rows, variables |
+| CodeEditor | code-editor | language, min_length, max_length |
 | Dropdown | dropdown | choices |
 | DependentDropdown | dependent-dropdown | depends_on, choices_map |
+| Multiselect | multiselect | choices, min_selected, max_selected |
+| EntityDropdown | entity-dropdown | entity_kind, multiple |
+| Number | number | min_val, max_val, step, integer_only |
 | Range | range | min_val, max_val, step |
 | Checkbox | checkbox | — |
+| Switch | switch | — |
+| DatePicker | datepicker | min_date, max_date |
 | FileUpload | file | accept, max_size_mb, multiple |
+| List | list | item_widget, min_items, max_items |
+| SchemaBuilder | schema-builder | schema, allow_additional |
+| IfElseBuilder | if-else-builder | variables |
 | ConnectionList | connection-list | — |
 | Output | output | download, filename |
+
+## Type → Default Widget
+
+When a parameter has no `Widget` on its `Annotated[...]` (or no `Annotated` at all), the registry infers one from the Python type:
+
+| Python type | Default widget |
+|---|---|
+| `str` | `Text(label=param_name)` |
+| `int` | `Number(integer_only=True)` |
+| `float` | `Number` |
+| `bool` | `Checkbox` |
+| `Date` | `DatePicker` |
+| `Base64Str`, `NamedFile`, `MultiNamedFile` | `FileUpload` |
+| `list[str]` | `List(item_widget=Text())` |
+| `list[int]` | `List(item_widget=Number(integer_only=True))` |
+| `list[T]` (bare or other T) | `List` (no `item_widget`) |
+| `dict`, `dict[str, Any]` | `SchemaBuilder` |
+| anything else | no widget (rare — annotate explicitly) |
+
+Explicit `Annotated[T, Widget(...)]` always wins.
 
 ## Result Formats
 
@@ -325,6 +365,9 @@ packages/
 | Serialize a graph for a ReactFlow frontend | `conductor_providers.react.graph_to_react` |
 | Parse ReactFlow JSON back into conductor | `conductor_providers.react.react_to_graph` |
 | Build a sidebar palette from the registry | `conductor_providers.react.palette_from_registry` |
+| Get a sensible widget without writing Annotated | Just use the type hint — registry picks a default |
+| User-authored array input | `Annotated[list[T], List(item_widget=...)]` |
+| Aggregate N upstream edges as one input | `Annotated[..., ConnectionList(...)]` |
 
 ## Design Docs
 

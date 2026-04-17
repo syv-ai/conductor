@@ -1,11 +1,4 @@
-<p align="center">
-  <img src="logo-white-background.png" alt="Conductor logo" width="110">
-</p>
-
 # Conductor — architecture at a glance
-
-A one-page summary of what this repository is, how it thinks, and what's shipped. Meant for colleagues who need the mental model in five minutes without digging into the full docs.
-
 ## What it is
 
 Conductor is a Python library for building DAG-based workflow and agent execution systems. Any tool where users wire nodes together — visually in a flow builder, programmatically in a script — can sit on top of it. The core is host-agnostic: no FastAPI, no database, no auth. Only hard dependency is pydantic.
@@ -13,12 +6,10 @@ Conductor is a Python library for building DAG-based workflow and agent executio
 Three uv-workspace packages ship today:
 
 | Package | What it is |
-|---|---|
+|---------|------------|
 | **`conductor`** | The engine: registry, compile, execute, widgets, errors, compound regions, shared references. |
 | **`conductor-nodes`** | Standard-library nodes — `text`, `math`, `logic`, `loop` markers, `json`, `regex`. |
 | **`conductor-providers`** | Framework adapters. `conductor_providers.react` round-trips graphs through ReactFlow JSON today; more providers live in sibling subpackages. |
-
-236 tests, ruff-clean, CI on every PR.
 
 ## Design principle — one annotation, three consumers
 

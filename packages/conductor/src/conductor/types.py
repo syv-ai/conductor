@@ -19,6 +19,7 @@ class WidgetType(str, Enum):
     NUMBER = "number"
     SWITCH = "switch"
     CONNECTION_LIST = "connection-list"
+    LIST = "list"
     TEMPLATE_TEXTAREA = "template-textarea"
     IF_ELSE_BUILDER = "if-else-builder"
     MULTISELECT = "multiselect"

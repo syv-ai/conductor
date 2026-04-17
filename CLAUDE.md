@@ -101,6 +101,14 @@ Two additional concepts:
 - **SKIPPED sentinel** propagates through conditional branches.
 - **ExtensionResolver** protocol lets host apps handle custom node types.
 
+### Widgets and type → widget defaults
+
+Every `WidgetType` enum value in `types.py` has a concrete Python class in `widgets.py`, so a generic frontend can render any widget by reading the registry. The set: `Text`, `Textarea`, `TemplateTextarea`, `CodeEditor`, `Dropdown`, `DependentDropdown`, `Multiselect`, `EntityDropdown`, `Number`, `Range`, `Checkbox`, `Switch`, `DatePicker`, `FileUpload`, `List`, `SchemaBuilder`, `IfElseBuilder`, `ConnectionList`, `Output`.
+
+When a parameter has no widget on its `Annotated[...]`, the registry infers one from the Python type (`str→Text`, `int→Number(integer_only=True)`, `float→Number`, `bool→Checkbox`, `Date→DatePicker`, `list[T]→List(item_widget=default(T))`, `dict→SchemaBuilder`, `Base64Str/NamedFile→FileUpload`). Explicit `Annotated[T, Widget(...)]` always wins. This means `def f(x: str)` is now legal and gets a Text input; constraint-free fields don't need ceremony, but you always can opt in to full widget control.
+
+`List` is the user-authored array widget (each item uses `item_widget`). `ConnectionList` is the multi-edge aggregator — they are not interchangeable.
+
 ### Compile-time type checking
 
 Every edge AND every consume binding is validated: source output type vs target input type. Rules: exact match, numeric interchangeability (int↔float), string coercion (anything→str), list auto-wrap (T→list[T]), ConnectionList accepts all. Default: warnings on `compiled.type_warnings`. With `strict_types=True`: raises `CompilationError` (only for real mismatches; informational warnings like duplicate labels are not fatal).
