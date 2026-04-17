@@ -501,6 +501,13 @@ python -m conductor.about shared          # just the shared-references section (
 
 Useful when an agent in a downstream project needs to learn the library without you having to paste docs into its context.
 
+### Keeping docs in sync
+
+Two channels guard against doc drift:
+
+- **`/docs-audit` Claude Code slash command** — run it at the end of a session that added public API or changed default behavior. It diffs the last N commits against `CLAUDE.md`, `README.md`, `docs/llms.txt`, `docs/shared-references.md`, and `docs/index.md`, and applies edits in place. Does not commit; you review the diff.
+- **Weekly CI audit** — `.github/workflows/docs-audit.yml` runs the same audit every Monday and opens a PR if anything drifted. Requires `ANTHROPIC_API_KEY` as a repo secret.
+
 ### Documentation
 
 For full documentation, we recommend [MkDocs Material](https://squidfunk.github.io/mkdocs-material/). To set it up:

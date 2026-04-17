@@ -58,6 +58,8 @@ uv run uvicorn demo.app:app --port 8765 --reload    # Start demo UI
 uv run jupyter lab examples/                         # Open the example notebooks
 ```
 
+Slash command: `/docs-audit` — runs a docs review against the last N commits and edits the user-facing docs in place (no commits). Expected hygiene after feature-bearing sessions. See also `.github/workflows/docs-audit.yml` for the weekly CI safety net.
+
 ## Architecture
 
 Three-phase: `register → compile → execute`.
@@ -161,6 +163,19 @@ See `examples/07_shared_references.ipynb` for a walkthrough.
 - Built-in: `Base64Str`, `Date`, `NamedFile`, `MultiNamedFile`.
 - Host apps define their own — runtime base type, distinct schema string.
 
+### Documentation maintenance
+
+Docs drift is a real failure mode for this project — the whole point of `CLAUDE.md`, `docs/llms.txt`, and `docs/shared-references.md` is that future agent sessions can land with full context. That only works if the docs stay in sync with the code.
+
+Two channels exist for keeping them aligned:
+
+1. **On-demand: `/docs-audit` slash command** (`.claude/commands/docs-audit.md`). Run it at the end of any session that touched public API, added a feature, or changed default behavior. It reads the last N commits (default 10; pass a number or `since-release`), compares against the docs, and edits them in place. It does **not** commit — the user reviews via `git diff` and decides. This is the primary channel.
+2. **Weekly safety net: `.github/workflows/docs-audit.yml`**. Every Monday (and on manual `workflow_dispatch`), CI runs the same audit over the last 14 days of commits and opens a PR if anything is out of sync. Needs `ANTHROPIC_API_KEY` as a repo secret. Close the PR without merging if the suggestions are wrong.
+
+**Running `/docs-audit` is expected hygiene at the end of any feature-bearing session** — the CI workflow is a catcher of last resort, not a substitute. If you add a public API, a field on `GraphNode` / `CompiledGraph`, a new error type, a new event, or a new notebook, run the audit.
+
+When the audit flags a discrepancy it can't resolve (commit says X, code does Y), trust the code and surface the discrepancy in the summary — don't write docs for things that don't exist.
+
 ## Patterns
 
 ### Registering a node
@@ -228,3 +243,4 @@ compiled = compile(
 - Notebook outputs are stripped on commit by `nbstripout` — run cells locally to see values
 - `docs/shared-references.md` is the authoritative v1 design spec for produce/consume
 - `docs/llms.txt` provides importable AI context for other projects using this library — the wheel ships it at `conductor.about.llms.txt` so `python -m conductor.about` works from any installed environment
+- After any session that adds or changes public surface area, run `/docs-audit` to keep `CLAUDE.md`, `README.md`, `docs/llms.txt`, `docs/shared-references.md`, and `docs/index.md` in sync; weekly CI catches what the slash command misses
