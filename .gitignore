@@ -40,6 +40,8 @@ site/
 # Notebooks
 *.ipynb
 .ipynb_checkpoints/
+# ...but keep the tutorial notebooks in examples/
+!examples/*.ipynb
 
 # Misc
 *.log

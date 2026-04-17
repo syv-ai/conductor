@@ -89,4 +89,4 @@ Raise `NodeConnectionError` from your node code to mark a transient failure as r
 
 - [`llms.txt`](./llms.txt) — importable AI context for the whole library.
 - [`conductor-design.md`](./conductor-design.md) — full design specification.
-- Examples in [`examples/`](https://github.com/syvai/conductor/tree/main/examples) cover nodes, flows, store, control flow, discovery, and HITL.
+- Jupyter notebooks in [`examples/`](https://github.com/syvai/conductor/tree/main/examples) cover nodes, flows, store, control flow, discovery, and HITL.

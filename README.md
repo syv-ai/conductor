@@ -456,18 +456,23 @@ uv run mkdocs gh-deploy  # Deploy to GitHub Pages
 
 ## Examples
 
-| Example | What it covers |
-|---------|---------------|
-| `01_basic_nodes.py` | Widgets, multi-output, optional params |
-| `02_build_and_run_flow.py` | Graph building, sync + streaming execution |
-| `03_class_nodes_and_store.py` | BaseNode ABC, FlowStore injection |
-| `04_control_flow.py` | Conditionals (SKIPPED), for-each loops |
-| `05_auto_discovery.py` | Package scanning, JSON schema for frontends |
-| `06_human_in_the_loop.py` | Pause, checkpoint, resume |
+The examples are Jupyter notebooks under `examples/` — open them in VS Code, JupyterLab, or any notebook UI and run the cells interactively.
+
+| Notebook | What it covers |
+|----------|---------------|
+| `01_basic_nodes.ipynb` | Widgets, multi-output, optional params |
+| `02_build_and_run_flow.ipynb` | Graph building, collecting results, streaming |
+| `03_class_nodes_and_store.ipynb` | BaseNode ABC, FlowStore injection |
+| `04_control_flow.ipynb` | Conditionals (SKIPPED), for-each loops |
+| `05_auto_discovery.ipynb` | Package scanning, JSON schema for frontends |
+| `06_human_in_the_loop.ipynb` | Pause, checkpoint, resume |
 
 ```bash
-uv run python examples/02_build_and_run_flow.py
+uv sync                       # includes the ipykernel used by the notebooks
+uv run jupyter lab examples/  # or open the .ipynb files in VS Code
 ```
+
+The notebooks use `await collect(execute(compiled))` because the kernel already owns an event loop. From a plain `.py` script, use `execute_sync(compiled)` instead.
 
 ## License
 

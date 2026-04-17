@@ -24,7 +24,7 @@ conductor/
 │   ├── app.py                  # FastAPI endpoints (GET /api/nodes, POST /api/execute-stream)
 │   ├── nodes.py                # 10 demo nodes (text, number, math, summarizer, loop, etc.)
 │   └── static/index.html       # Single-page flow builder UI
-├── examples/                   # 6 usage examples (nodes, flows, store, control flow, discovery, HITL)
+├── examples/                   # 6 Jupyter notebooks (nodes, flows, store, control flow, discovery, HITL)
 └── docs/                       # Design spec, llms.txt, MkDocs site
 ```
 
@@ -48,7 +48,7 @@ uv sync --group demo              # Install with demo deps (FastAPI)
 uv run pytest tests/ -v           # Run all 131 tests
 uv run pytest tests/test_core/test_execution.py -v  # Run specific file
 uv run uvicorn demo.app:app --port 8765 --reload    # Start demo UI
-uv run python examples/02_build_and_run_flow.py     # Run an example
+uv run jupyter lab examples/                         # Open the example notebooks
 ```
 
 ## Architecture
