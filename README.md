@@ -1,6 +1,13 @@
-# Conductor
+<p align="center">
+  <img src="logo-white-background.png" alt="Conductor logo" width="140">
+</p>
 
-A reusable, host-agnostic graph execution engine for building DAG-based workflow systems. Register nodes as plain Python functions with type annotations, compile them into a validated execution plan, and run them with streaming events.
+<h1 align="center">Conductor</h1>
+
+<p align="center">
+  A reusable, host-agnostic graph execution engine for building DAG-based workflow systems. Register nodes as plain Python functions with type annotations, compile them into a validated execution plan, and run them with streaming events.
+</p>
+
 
 Built to be the shared core behind visual flow builders — define nodes once, get backend execution, input validation, and frontend UI metadata for free.
 
