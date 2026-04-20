@@ -58,12 +58,20 @@ uv run pytest tests/ -v
 
 ### Run the demo playground
 
+The demo is split into a FastAPI backend and a Next.js frontend — run them in two terminals.
+
 ```bash
+# terminal 1 — backend (FastAPI, port 8765)
 uv sync --group demo
 uv run uvicorn demo.app:app --port 8765 --reload
+
+# terminal 2 — frontend (Next.js 15 + shadcn + @xyflow/react, port 3000)
+cd demo/web
+npm install
+npm run dev
 ```
 
-Open http://localhost:8765 — drag nodes onto the canvas, connect them, and click "Run Flow" to see streaming execution.
+Open http://localhost:3000 — drag nodes onto the canvas, connect them, and hit "Run". The frontend proxies `/api/*` to the backend via `next.config.ts`.
 
 ## Usage
 
