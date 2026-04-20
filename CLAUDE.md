@@ -28,10 +28,10 @@ conductor/
 ├── tests/test_core/            # 171 tests for conductor core
 ├── tests/test_nodes/           # 46 tests for conductor-nodes
 ├── tests/test_providers/       # 18 tests for conductor-providers (React round-trips)
-├── demo/                       # FastAPI playground with browser UI
-│   ├── app.py                  # FastAPI endpoints (GET /api/nodes, POST /api/execute-stream)
-│   ├── nodes.py                # 10 demo nodes (text, number, math, summarizer, loop, etc.)
-│   └── static/index.html       # Single-page flow builder UI
+├── demo/                       # Playground — FastAPI backend + Next.js frontend
+│   ├── app.py                  # FastAPI endpoints (GET /api/nodes, POST /api/execute, /api/execute-stream) with CORS
+│   ├── nodes.py                # Demo nodes: text, uppercase, template, combine, regex, make-list, number, math, if-else, for-each start/end
+│   └── web/                    # Next.js 15 + shadcn + Tailwind v4 + @xyflow/react flow builder (independent of aka frontend)
 ├── examples/                   # 7 Jupyter notebooks (nodes, flows, store, control flow, discovery, HITL, shared refs)
 ├── docs/                       # Design specs, MkDocs site, logo (llms.txt lives inside the package)
 ├── .github/workflows/          # ci.yml (ruff + pytest on PR), docs-audit.yml (weekly)
@@ -65,7 +65,8 @@ uv run python -m conductor.about  # Print the full library reference (llms.txt)
 uv run python -m conductor.about sections   # List reference sections
 uv run python -m conductor.about retry      # Print one section
 uv run pytest tests/test_core/test_shared_references.py -v  # Run specific file
-uv run uvicorn demo.app:app --port 8765 --reload    # Start demo UI
+uv run uvicorn demo.app:app --port 8765 --reload    # Start demo backend (FastAPI)
+cd demo/web && npm install && npm run dev           # Start demo frontend (Next.js on :3000)
 uv run jupyter lab examples/                         # Open the example notebooks
 ```
 
