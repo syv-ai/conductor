@@ -132,7 +132,7 @@ Same text programmatically: `from conductor.about import get_content, get_sectio
 
 - [`README.md`](README.md) — install, quickstart, usage recipes
 - [`CLAUDE.md`](CLAUDE.md) — architecture + conventions (primary context for agent sessions)
-- [`llms.txt`](llms.txt) — full API reference (also shipped inside the wheel)
+- [`packages/conductor/src/conductor/about/llms.txt`](../packages/conductor/src/conductor/about/llms.txt) — full API reference; shipped inside the wheel, accessible via `python -m conductor.about`
 - [`shared-references.md`](shared-references.md) — v1 design spec for produce/consume
 - [`conductor-design.md`](conductor-design.md) — original library design document
 - [`examples/*.ipynb`](examples/) — 7 tutorial notebooks covering the whole surface

@@ -66,7 +66,7 @@ jobs:
           Then read and compare against these docs:
               CLAUDE.md
               README.md
-              docs/llms.txt
+              packages/conductor/src/conductor/about/llms.txt
               docs/shared-references.md
               docs/index.md
 
@@ -86,7 +86,8 @@ jobs:
           prose. Prefer tightening existing wording over new sections.
 
           Constraints:
-            - Only edit CLAUDE.md, README.md, docs/llms.txt,
+            - Only edit CLAUDE.md, README.md,
+              packages/conductor/src/conductor/about/llms.txt,
               docs/shared-references.md, docs/index.md. No code, tests,
               examples, or demo.
             - Do not run `git commit` or `git push`; the workflow handles

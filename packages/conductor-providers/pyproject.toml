@@ -1,9 +1,22 @@
 [project]
 name = "conductor-providers"
 version = "0.1.0"
-description = "Frontend/framework adapters for the conductor DAG engine. Ships a React (ReactFlow) provider; more providers can live alongside."
+description = "Framework adapters for conductor. Ships a React (ReactFlow) provider with graph_to_react / react_to_graph / palette_from_registry; sibling subpackages can add Vue, Svelte, etc."
 requires-python = ">=3.12"
+authors = [{ name = "Syvai", email = "billy@syv.ai" }]
+license = { text = "Proprietary" }
+classifiers = [
+    "Private :: Do Not Upload",
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Typing :: Typed",
+]
 dependencies = ["conductor"]
+
+[project.urls]
+Repository = "https://github.com/syvai/conductor"
 
 [build-system]
 requires = ["hatchling"]

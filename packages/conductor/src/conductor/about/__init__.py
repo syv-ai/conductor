@@ -10,41 +10,27 @@ Usage (programmatic):
 
     from conductor.about import get_content, list_sections, get_section
 
-The text served is the same ``docs/llms.txt`` that the repository ships.
-There is one source of truth; this module just exposes it from inside the
-installed wheel so downstream projects don't need repo access.
+The text served is ``conductor/about/llms.txt`` — the canonical reference
+text shipped inside the package. Downstream projects get it for free via
+pip/uv install without needing repo access.
 """
 
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
 
 def _load_text() -> str:
-    """Read the packaged ``llms.txt``; fall back to the repo copy in dev."""
-    # 1. Packaged resource (wheel install, or if force-include is in place)
-    try:
-        from importlib.resources import files
+    """Read the packaged ``llms.txt``."""
+    from importlib.resources import files
 
-        resource = files("conductor.about").joinpath("llms.txt")
-        if resource.is_file():
-            return resource.read_text(encoding="utf-8")
-    except (ModuleNotFoundError, FileNotFoundError, AttributeError):
-        pass
-
-    # 2. Editable install in the conductor repo — walk up for docs/llms.txt
-    here = Path(__file__).resolve()
-    for parent in here.parents:
-        candidate = parent / "docs" / "llms.txt"
-        if candidate.is_file():
-            return candidate.read_text(encoding="utf-8")
+    resource = files("conductor.about").joinpath("llms.txt")
+    if resource.is_file():
+        return resource.read_text(encoding="utf-8")
 
     raise RuntimeError(
-        "conductor.about could not locate llms.txt. If you installed via "
-        "pip/uv, this indicates the wheel was built without the reference "
-        "text; please re-install. If you are working in the repository, "
-        "ensure docs/llms.txt exists."
+        "conductor.about could not locate llms.txt inside the package. "
+        "This indicates a broken install; please reinstall conductor."
     )
 
 

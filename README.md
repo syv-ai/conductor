@@ -176,7 +176,7 @@ conductor/
 ├── demo/                           # Interactive playground (FastAPI + browser UI)
 ├── tests/                          # pytest test suite (235 tests across core, nodes, providers)
 ├── .github/workflows/              # ci.yml (PR lint + test), docs-audit.yml (weekly)
-└── docs/                           # Design specs, llms.txt, MkDocs site
+└── docs/                           # Design specs + MkDocs site (llms.txt ships inside the package)
 ```
 
 ## Concepts
@@ -526,14 +526,7 @@ The `execute()` async generator yields these events:
 
 ### AI context (llms.txt)
 
-The repo includes an `docs/llms.txt` file — a comprehensive AI-readable reference for the entire library. Import it as context when using Conductor in other projects with AI assistants:
-
-```
-# In another project's CLAUDE.md or AI context:
-See /path/to/conductor/docs/llms.txt for Conductor API reference.
-```
-
-The same text ships inside the installable wheel, so any project that depends on `conductor` can pull it at runtime with no repo access:
+The canonical AI-readable library reference lives inside the package at `packages/conductor/src/conductor/about/llms.txt`. It ships as package data in the wheel, so any project that depends on `conductor` can pull it at runtime with no repo access — preferred for downstream projects:
 
 ```bash
 python -m conductor.about                 # full reference
@@ -547,7 +540,7 @@ Useful when an agent in a downstream project needs to learn the library without 
 
 Two channels guard against doc drift:
 
-- **`/docs-audit` Claude Code slash command** — run it at the end of a session that added public API or changed default behavior. It diffs the last N commits against `CLAUDE.md`, `README.md`, `docs/llms.txt`, `docs/shared-references.md`, and `docs/index.md`, and applies edits in place. Does not commit; you review the diff.
+- **`/docs-audit` Claude Code slash command** — run it at the end of a session that added public API or changed default behavior. It diffs the last N commits against `CLAUDE.md`, `README.md`, `packages/conductor/src/conductor/about/llms.txt`, `docs/shared-references.md`, and `docs/index.md`, and applies edits in place. Does not commit; you review the diff.
 - **Weekly CI audit** — `.github/workflows/docs-audit.yml` runs the same audit every Monday and opens a PR if anything drifted. Requires `ANTHROPIC_API_KEY` as a repo secret.
 
 ### Documentation

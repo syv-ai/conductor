@@ -23,16 +23,16 @@ Look at the last **10** commits by default. If the user passed a number as the a
 3. **Read every user-facing doc:**
    - `CLAUDE.md`
    - `README.md`
-   - `docs/llms.txt`
+   - `packages/conductor/src/conductor/about/llms.txt`
    - `docs/shared-references.md`
    - `docs/index.md`
 
 4. **Cross-reference.** For each relevant commit, ask:
    - Does the feature appear in the "Features" / "Highlights" lists?
-   - Is the new API surface present in the API reference sections of `docs/llms.txt`?
+   - Is the new API surface present in the API reference sections of `packages/conductor/src/conductor/about/llms.txt`?
    - Are data-model changes (new `GraphNode` fields, new `CompiledGraph` fields, new error types, new events) reflected?
    - Have any cited counts drifted? (run `uv run pytest tests/ --collect-only -q 2>&1 | tail -1` for the authoritative test count, and `ls examples/*.ipynb | wc -l` for the notebook count)
-   - Does the `## Feature Map` table in `docs/llms.txt` cover the new capability?
+   - Does the `## Feature Map` table in `packages/conductor/src/conductor/about/llms.txt` cover the new capability?
    - For changes that altered default behavior, does the design spec for that feature (e.g. `docs/shared-references.md` for shared references) still describe the current behavior?
 
 5. **Apply edits in place** to the files listed in step 3. Keep edits minimal and factual — describe what *exists now*, don't editorialize or add marketing language. Prefer tightening existing wording over adding new sections; add a new section only if a significant feature is missing entirely.
@@ -41,7 +41,7 @@ Look at the last **10** commits by default. If the user passed a number as the a
 
 ## Constraints
 
-- **Touch only these files:** `CLAUDE.md`, `README.md`, `docs/llms.txt`, `docs/shared-references.md`, `docs/index.md`. Do not edit code, tests, examples, or the demo.
+- **Touch only these files:** `CLAUDE.md`, `README.md`, `packages/conductor/src/conductor/about/llms.txt`, `docs/shared-references.md`, `docs/index.md`. Do not edit code, tests, examples, or the demo.
 - If a commit message describes a feature that isn't actually in the code (wrong message), trust the code and mention the discrepancy in your summary — don't write docs for things that don't exist.
 - If the audit would require changes to a design doc (§ of `docs/shared-references.md`, etc.) that has ongoing implications, flag it in the summary instead of silently rewriting — the user may want to discuss before the spec is mutated.
 - If the pre-commit hook is active and you somehow reach for `git commit`, abort. This command is read-heavy and edit-heavy, but never committal.
@@ -53,7 +53,7 @@ At the end, print a summary like:
 ```
 Changes applied:
 - CLAUDE.md: bumped test count 160 → 171 (commit abc123 added about module tests)
-- docs/llms.txt: added conductor.graph.shared_refs to API reference
+- packages/conductor/src/conductor/about/llms.txt: added conductor.graph.shared_refs to API reference
 - README.md: no changes
 
 Flagged but not changed:

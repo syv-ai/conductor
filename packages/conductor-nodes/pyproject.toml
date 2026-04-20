@@ -1,9 +1,22 @@
 [project]
 name = "conductor-nodes"
 version = "0.1.0"
-description = "Reusable node library for the conductor DAG engine — text, math, logic, JSON, regex, and loop markers"
+description = "Standard-library nodes for conductor — text, math, logic, JSON, regex, and loop markers. Categories opt-in via register_all(registry, categories=[...])."
 requires-python = ">=3.12"
+authors = [{ name = "Syvai", email = "billy@syv.ai" }]
+license = { text = "Proprietary" }
+classifiers = [
+    "Private :: Do Not Upload",
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Typing :: Typed",
+]
 dependencies = ["conductor", "pydantic>=2.0"]
+
+[project.urls]
+Repository = "https://github.com/syvai/conductor"
 
 [build-system]
 requires = ["hatchling"]

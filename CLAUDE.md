@@ -33,7 +33,7 @@ conductor/
 │   ├── nodes.py                # 10 demo nodes (text, number, math, summarizer, loop, etc.)
 │   └── static/index.html       # Single-page flow builder UI
 ├── examples/                   # 7 Jupyter notebooks (nodes, flows, store, control flow, discovery, HITL, shared refs)
-├── docs/                       # Design specs, llms.txt, MkDocs site, logo
+├── docs/                       # Design specs, MkDocs site, logo (llms.txt lives inside the package)
 ├── .github/workflows/          # ci.yml (ruff + pytest on PR), docs-audit.yml (weekly)
 └── .pre-commit-config.yaml     # nbstripout on *.ipynb
 ```
@@ -186,7 +186,7 @@ See `examples/07_shared_references.ipynb` for a walkthrough.
 
 ### Documentation maintenance
 
-Docs drift is a real failure mode for this project — the whole point of `CLAUDE.md`, `docs/llms.txt`, and `docs/shared-references.md` is that future agent sessions can land with full context. That only works if the docs stay in sync with the code.
+Docs drift is a real failure mode for this project — the whole point of `CLAUDE.md`, `packages/conductor/src/conductor/about/llms.txt`, and `docs/shared-references.md` is that future agent sessions can land with full context. That only works if the docs stay in sync with the code.
 
 Two channels exist for keeping them aligned:
 
@@ -274,5 +274,5 @@ compiled = compile(
 - Shared references are per-instance; the same node *type* can be shared in one flow and not in another
 - Notebook outputs are stripped on commit by `nbstripout` — run cells locally to see values
 - `docs/shared-references.md` is the authoritative v1 design spec for produce/consume
-- `docs/llms.txt` provides importable AI context for other projects using this library — the wheel ships it at `conductor.about.llms.txt` so `python -m conductor.about` works from any installed environment
-- After any session that adds or changes public surface area, run `/docs-audit` to keep `CLAUDE.md`, `README.md`, `docs/llms.txt`, `docs/shared-references.md`, and `docs/index.md` in sync; weekly CI catches what the slash command misses
+- `packages/conductor/src/conductor/about/llms.txt` is the canonical AI context file; because it lives inside the package, installing the wheel is enough for `python -m conductor.about` to work
+- After any session that adds or changes public surface area, run `/docs-audit` to keep `CLAUDE.md`, `README.md`, `packages/conductor/src/conductor/about/llms.txt`, `docs/shared-references.md`, and `docs/index.md` in sync; weekly CI catches what the slash command misses
