@@ -15,6 +15,11 @@ classifiers = [
 ]
 dependencies = ["conductor"]
 
+[project.optional-dependencies]
+# `conductor_providers.fastapi` — HTTP transport adapter. Optional because
+# frontend-only consumers (e.g. conductor_providers.react) don't need fastapi.
+fastapi = ["fastapi>=0.100", "pydantic>=2.0"]
+
 [project.urls]
 Repository = "https://github.com/syvai/conductor"
 
