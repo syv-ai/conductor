@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Annotated
 
-from conductor.widgets import Checkbox, Output, Text, Textarea
+from conductor.widgets import Checkbox, Output, Text, Textarea, List as ListWidget
 
 if TYPE_CHECKING:
     from conductor import NodeRegistry
@@ -78,7 +78,7 @@ def register(registry: "NodeRegistry") -> None:
         description="Joins a list of strings with a separator",
     )
     def join(
-        parts: Annotated[list[str], Text(label="Parts")],
+        parts: Annotated[list[str], ListWidget(label="Parts", item_widget=Text(label="Part"))],
         separator: Annotated[str, Text(label="Separator")] = ", ",
     ) -> Annotated[str, Output(label="Joined")]:
         return separator.join(str(p) for p in parts)
