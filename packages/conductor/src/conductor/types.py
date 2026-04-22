@@ -3,6 +3,12 @@
 from enum import Enum
 from typing import Any, NewType, TypeAlias, TypedDict
 
+# `NodeCategory` lives in its own module so it can carry registration
+# decorators without creating a circular import with `conductor.registry`.
+# Re-exported here to keep the historical `from conductor.types import
+# NodeCategory` import path working.
+from conductor.category import NodeCategory  # noqa: F401  (re-export)
+
 
 class WidgetType(str, Enum):
     """All widget types for node parameters. Maps 1:1 to frontend components."""
@@ -34,13 +40,6 @@ class ResultFormat(str, Enum):
     SINGLE = "single"
     MULTI = "multi"
     DICT_SPREAD = "dict"
-
-
-class NodeCategory(str, Enum):
-    """Node category — metadata for frontend styling and palette grouping."""
-
-    IO = "io"
-    CONTROL = "control"
 
 
 RESULT_KEY: str = "result"

@@ -197,6 +197,25 @@ class NodeRegistry:
     # Composition
     # ------------------------------------------------------------------
 
+    def include(self, category: NodeCategory) -> None:
+        """Apply every ``@category.node(...)`` decorated function to this registry.
+
+        The idiomatic way for node-author packages to expose their nodes
+        without forcing a ``register(registry)`` wrapper: declare a module-
+        level ``NodeCategory`` instance, decorate each function with
+        ``@category.node(...)``, then let the host do
+        ``registry.include(category)``.
+
+        The category is auto-assigned to each registered node, so nodes from
+        the same file always group together in the palette.
+
+        Args:
+            category: A ``NodeCategory`` whose ``.node(...)`` decorator was
+                used at import time to collect pending registrations.
+        """
+        for base_id, kwargs, func in category.nodes:
+            self.node(base_id, **kwargs)(func)
+
     def merge(
         self,
         other: "NodeRegistry",
