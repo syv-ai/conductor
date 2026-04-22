@@ -58,13 +58,22 @@ async def execute(
     context: dict[str, Any] | None = None,
     cache: dict[str, Any] | None = None,
     retry: RetryConfig | None = None,
+    store_data: dict[str, Any] | None = None,
 ) -> AsyncGenerator[ExecutionEvent, None]:
     """Execute a compiled graph with eager parallel scheduling.
 
     Nodes start as soon as all their dependencies are done — independent
     branches run concurrently. Retry is configurable per-node or globally.
+
+    ``store_data`` pre-seeds the ``FlowStore`` before the first node runs.
+    Useful for hosts that inject per-request context (user, session,
+    tenant id, …) via the ``store: FlowStore`` parameter on node
+    functions. Separate from ``context`` which is kept for checkpoint
+    serialization metadata.
     """
     state = _build_state(compiled, timeout_seconds, context)
+    if store_data:
+        state.store = FlowStore(dict(store_data))
     async for event in _run_eager(state, cache=cache or {}, retry=retry or NO_RETRY):
         yield event
 
