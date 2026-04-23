@@ -27,6 +27,9 @@ def conductor_router(
     dependencies: Sequence[Any] | None = None,
     compound_types: list[type] | None = None,
     context_factory: Callable[[Request], dict[str, Any]] | None = None,
+    entity_resolver: (
+        Callable[[str, Request], list[dict[str, Any]]] | None
+    ) = None,
     strict_types: bool = False,
 ) -> APIRouter:
     """Build a FastAPI ``APIRouter`` serving conductor's standard endpoints.
@@ -51,6 +54,11 @@ def conductor_router(
             ``/execute-stream``. Receives the FastAPI ``Request`` and returns
             a dict that seeds the node ``FlowStore``. Node functions declaring
             ``store: FlowStore`` see the seeded keys.
+        entity_resolver: Optional hook backing the ``EntityDropdown`` widget.
+            Receives the entity kind (e.g. ``"document"``) and the FastAPI
+            ``Request``; returns a list of ``{"id": ..., "label": ...}``
+            dicts the frontend renders as choices. If unset, the mounted
+            ``GET {prefix}/entities/{kind}`` route returns 501.
         strict_types: Passed through to ``compile()``. When True, type
             warnings become ``CompilationError``s on ``/execute`` and
             ``/execute-stream`` (``/compile`` always returns warnings as soft).
@@ -104,6 +112,28 @@ def conductor_router(
                 yield sse_frame(event)
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+    @router.get("/entities/{kind}")
+    def list_entities(kind: str, request: Request) -> list[dict[str, Any]]:
+        """Return candidate entities of ``kind`` for the current request.
+
+        Backs the ``EntityDropdown`` widget in conductor-aware frontends.
+        Hosts provide the list via the ``entity_resolver`` hook; the
+        exact shape of each entry is host-defined, but the frontend
+        convention is ``{"id": "...", "label": "..."}``.
+        """
+        if entity_resolver is None:
+            from fastapi import HTTPException
+
+            raise HTTPException(
+                status_code=501,
+                detail=(
+                    "No entity_resolver configured. Pass one to "
+                    "conductor_router(entity_resolver=...) to enable "
+                    f"/entities/{kind} lookups."
+                ),
+            )
+        return entity_resolver(kind, request)
 
     @router.post("/compile")
     def compile_flow(req: ExecuteRequest) -> CompileResult:
