@@ -204,3 +204,88 @@ def test_map_literal() -> None:
 def test_nested_access() -> None:
     ctx = {"u": {"roles": ["admin", "user"]}}
     assert evaluate("u.roles[0]", ctx) == "admin"
+
+
+# ---------------------------------------------------------------------------
+# Sandbox — attribute access must not leak arbitrary Python methods/attrs
+# ---------------------------------------------------------------------------
+
+
+def test_sandbox_blocks_method_call_on_context_object() -> None:
+    """Putting a real object in context must not let expressions invoke its methods."""
+
+    class Service:
+        def __init__(self) -> None:
+            self.called = False
+
+        def delete(self) -> str:
+            self.called = True
+            return "deleted"
+
+    svc = Service()
+    with pytest.raises(ExpressionRuntimeError):
+        evaluate("svc.delete()", {"svc": svc})
+    assert svc.called is False
+
+
+def test_sandbox_blocks_attribute_access_on_context_object() -> None:
+    class Obj:
+        public = "secret"
+
+    with pytest.raises(ExpressionRuntimeError):
+        evaluate("o.public", {"o": Obj()})
+
+
+def test_sandbox_blocks_dunder_escape_on_string() -> None:
+    # Even primitives should not leak Python attributes.
+    with pytest.raises(ExpressionRuntimeError):
+        evaluate('"x".__class__', {})
+
+
+def test_pydantic_model_field_access_allowed() -> None:
+    from pydantic import BaseModel
+
+    class User(BaseModel):
+        name: str
+        age: int
+
+    ctx = {"u": User(name="Alice", age=30)}
+    assert evaluate("u.name", ctx) == "Alice"
+    assert evaluate("u.age > 18", ctx) is True
+
+
+def test_pydantic_model_method_call_blocked() -> None:
+    from pydantic import BaseModel
+
+    class User(BaseModel):
+        name: str
+
+    with pytest.raises(ExpressionRuntimeError):
+        # model_dump is a real method, but not a declared field.
+        evaluate("u.model_dump()", {"u": User(name="Alice")})
+
+
+def test_dataclass_field_access_allowed() -> None:
+    from dataclasses import dataclass
+
+    @dataclass
+    class Point:
+        x: int
+        y: int
+
+    ctx = {"p": Point(x=3, y=4)}
+    assert evaluate("p.x + p.y", ctx) == 7
+
+
+def test_dataclass_method_call_blocked() -> None:
+    from dataclasses import dataclass
+
+    @dataclass
+    class Thing:
+        label: str
+
+        def danger(self) -> str:
+            return "pwned"
+
+    with pytest.raises(ExpressionRuntimeError):
+        evaluate("t.danger()", {"t": Thing(label="x")})

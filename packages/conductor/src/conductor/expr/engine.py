@@ -40,9 +40,12 @@ Special convenience: ``$`` is the root context, so ``$.foo.bar`` works too.
 
 from __future__ import annotations
 
+import dataclasses
 import re
 from dataclasses import dataclass
 from typing import Any
+
+from pydantic import BaseModel
 
 
 class ExpressionError(Exception):
@@ -433,15 +436,32 @@ def _resolve_ident(name: str, ctx: dict[str, Any]) -> Any:
 
 
 def _attr(target: Any, name: str) -> Any:
+    # Sandbox: never expose arbitrary Python attributes. Only dicts and
+    # explicitly-typed value shapes (pydantic models, dataclasses) can yield
+    # attribute values; methods are routed through the _METHODS allowlist
+    # by the caller, not reachable here.
     if target is None:
         raise ExpressionRuntimeError(f"Cannot access '.{name}' on null")
     if isinstance(target, dict):
         if name in target:
             return target[name]
         raise ExpressionRuntimeError(f"Key {name!r} missing on map")
-    if hasattr(target, name) and not name.startswith("_"):
-        return getattr(target, name)
-    raise ExpressionRuntimeError(f"No attribute {name!r} on {type(target).__name__}")
+    if isinstance(target, BaseModel):
+        if name in type(target).model_fields:
+            return getattr(target, name)
+        raise ExpressionRuntimeError(
+            f"No field {name!r} on {type(target).__name__}"
+        )
+    if dataclasses.is_dataclass(target) and not isinstance(target, type):
+        field_names = {f.name for f in dataclasses.fields(target)}
+        if name in field_names:
+            return getattr(target, name)
+        raise ExpressionRuntimeError(
+            f"No field {name!r} on {type(target).__name__}"
+        )
+    raise ExpressionRuntimeError(
+        f"Cannot access '.{name}' on value of type {type(target).__name__}"
+    )
 
 
 def _index(target: Any, key: Any) -> Any:
@@ -561,9 +581,9 @@ def _eval_call(node: _Call, ctx: dict[str, Any]) -> Any:
                 f"Method '{target_val.name}' failed: {e}"
             ) from e
 
-    if callable(target_val):
-        return target_val(*[_eval(a, ctx) for a in node.args])
-
+    # No arbitrary-callable fallback: exposing Python callables would let a
+    # flow author invoke any method on any object placed in the expression
+    # context. All legitimate calls go through _BUILTIN_FUNCS or _METHODS.
     raise ExpressionRuntimeError(f"Value {target_val!r} is not callable")
 
 
