@@ -28,7 +28,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from conductor_nodes import json_ops, logic, loop, math, regex_ops, text
+from conductor_nodes import (
+    decision,
+    json_ops,
+    logic,
+    loop,
+    math,
+    regex_ops,
+    signal,
+    subprocess,
+    text,
+    while_loop,
+)
 
 if TYPE_CHECKING:
     from conductor import NodeRegistry
@@ -41,6 +52,10 @@ CATEGORIES: dict[str, object] = {
     "loop": loop,
     "json": json_ops,
     "regex": regex_ops,
+    "decision": decision,
+    "while": while_loop,
+    "subprocess": subprocess,
+    "signal": signal,
 }
 
 
@@ -89,4 +104,8 @@ __all__ = [
     "loop",
     "json_ops",
     "regex_ops",
+    "decision",
+    "while_loop",
+    "subprocess",
+    "signal",
 ]

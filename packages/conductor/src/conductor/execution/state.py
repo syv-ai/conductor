@@ -27,6 +27,18 @@ class FlowRunState:
     _started_at: float = field(default_factory=time.monotonic)
     _timeout_seconds: int = 300
     context: dict[str, Any] = field(default_factory=dict)
+    # Edge IDs that have been marked skipped at runtime — used by decision
+    # nodes to turn off non-taken branches.
+    skipped_edges: set[str] = field(default_factory=set)
+    # Nodes that have completed, in order; used for the saga compensation
+    # cascade (reverse topological walk over completed nodes).
+    completed_order: list[str] = field(default_factory=list)
+    # Idempotency key (after CEL evaluation) keyed by node id. Surfaced on
+    # node_start events and injected into node functions.
+    idempotency_keys: dict[str, str] = field(default_factory=dict)
+    # Signal registry — node_id -> signal name + correlation expression +
+    # timeout deadline. Populated when the flow pauses on a signal node.
+    pending_signals: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def emit(self, event: ExecutionEvent) -> None:
         self._event_sink.push(event)

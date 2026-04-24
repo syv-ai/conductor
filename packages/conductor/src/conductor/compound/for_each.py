@@ -108,6 +108,7 @@ def _execute_subgraph(
 
         if should_skip_node(
             node, compiled.edge_map, local_results, compiled.consume_map,
+            state.skipped_edges, compiled.incoming_map,
         ):
             from conductor._sentinel import SKIPPED
             local_results[node_id] = SKIPPED
@@ -115,7 +116,7 @@ def _execute_subgraph(
 
         inputs = state.resolver.resolve(
             node, compiled.edge_map, local_results, compiled.node_map,
-            compiled.consume_map,
+            compiled.consume_map, state.skipped_edges, compiled.incoming_map,
         )
 
         result = _dispatch_node(
@@ -134,13 +135,10 @@ def _resolve_end_inputs(
     """Resolve the end node's inputs and return the collected value."""
     compiled = state.compiled
 
-    for (target_id, _target_handle), sources in compiled.edge_map.items():
-        if target_id != end_id:
-            continue
-        for source_id, source_handle in sources:
-            source_result = local_results.get(source_id)
-            if source_result is not None:
-                return extract_output(source_result, source_handle)
+    for _target_handle, source_id, source_handle, _edge_id in compiled.incoming_map.get(end_id, ()):
+        source_result = local_results.get(source_id)
+        if source_result is not None:
+            return extract_output(source_result, source_handle)
 
     return None
 

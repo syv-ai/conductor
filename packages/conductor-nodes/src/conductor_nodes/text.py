@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Annotated
 
-from conductor.widgets import Checkbox, Output, Text, Textarea, List as ListWidget
+from conductor.widgets import Checkbox, Output, Text, Textarea
+from conductor.widgets import List as ListWidget
 
 if TYPE_CHECKING:
     from conductor import NodeRegistry

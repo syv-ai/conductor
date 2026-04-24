@@ -31,3 +31,7 @@ class FlowStore:
 
     def clear(self) -> None:
         self._data.clear()
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a shallow copy of the store's data. Safe to pass to CEL."""
+        return dict(self._data)

@@ -50,6 +50,9 @@ class NodeCategory:
     # Built-in well-known categories. Initialized below the class body.
     IO: "NodeCategory"
     CONTROL: "NodeCategory"
+    DECISION: "NodeCategory"
+    HUMAN: "NodeCategory"
+    EVENT: "NodeCategory"
 
     __slots__ = ("id", "label", "description", "_pending")
 
@@ -112,6 +115,12 @@ class NodeCategory:
         retry_delay: float = 1.0,
         width: int | None = None,
         docs: str | None = None,
+        actor: Any = None,
+        timeout: Any = None,
+        idempotency_key: str | None = None,
+        uses: list[str] | None = None,
+        is_decision: bool = False,
+        is_signal: bool = False,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """Decorator that stashes a pending node registration on this category.
 
@@ -129,6 +138,12 @@ class NodeCategory:
             "retry_delay": retry_delay,
             "width": width,
             "docs": docs,
+            "actor": actor,
+            "timeout": timeout,
+            "idempotency_key": idempotency_key,
+            "uses": uses,
+            "is_decision": is_decision,
+            "is_signal": is_signal,
         }
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -149,3 +164,6 @@ class NodeCategory:
 # ----------------------------------------------------------------------
 NodeCategory.IO = NodeCategory("io", label="I/O")
 NodeCategory.CONTROL = NodeCategory("control", label="Control")
+NodeCategory.DECISION = NodeCategory("decision", label="Decision")
+NodeCategory.HUMAN = NodeCategory("human", label="Human")
+NodeCategory.EVENT = NodeCategory("event", label="Event")

@@ -129,7 +129,64 @@ Nodes raise `HumanInputRequired(prompt, schema)` to pause execution. Engine chec
 Sync: `execute_sync` raises `FlowPausedException(checkpoint)`, resume with `resume_sync(compiled, checkpoint, response)`.
 
 ### Compound Nodes
-For control flow patterns (for-each, future try-catch) that manage a region of sub-nodes. `CompoundNodeType` protocol: `discover()` finds regions, `factory()` creates executor. Body nodes are managed by the compound node, skipped by the main loop.
+For control flow patterns (for-each, while, subprocess) that manage a region of sub-nodes. `CompoundNodeType` protocol: `discover()` finds regions, `factory()` creates executor. Body nodes are managed by the compound node, skipped by the main loop.
+
+Built-in compound types:
+- `FOR_EACH` — iterate a collection. Markers: `for-each-start` / `for-each-end`.
+- `WHILE` — iterate on a CEL condition, with `max_iterations` safety cap. Markers: `while-start` / `while-end`. Raises `LoopRunawayError` on cap.
+- `SUBPROCESS` — call another flow by `(flow_id, version)`. Single-node region (start == end). Register target flows in a `SubprocessRegistry` and pass to `compile(subprocess_registry=...)`. Bubbles inner errors as `SubprocessFailedError`; runtime recursion depth cap.
+
+### Decision Nodes + Edge Guards
+A decision node (`is_decision=True` on the registration) branches by evaluating CEL expressions on its outgoing edges.
+
+```python
+@registry.node("decision", version=1, name="Decision", description="...",
+               is_decision=True)
+def decision(value): return value
+
+GraphEdge("e1", "d", "branch-a", "result", None, when="amount > 1000", priority=10),
+GraphEdge("e2", "d", "branch-b", "result", None),  # else
+```
+
+Compile-time: exactly one edge without `when` (else), at least one guarded. Invalid CEL = `CompilationError`. Runtime: first matching guard (in priority-desc order) wins; every other outgoing edge is added to `state.skipped_edges` so its target is skipped via normal SKIPPED propagation.
+
+### CEL Expressions
+Sandboxed expression language used by edge guards, loop conditions, idempotency keys, signal correlation, and subprocess input mapping. Module: `conductor.expr`.
+
+- Literals: int, float, string (`'x'` or `"x"`), `true`/`false`/`null`/`None`, lists `[1,2]`, maps `{"k": 1}`.
+- Operators: `+ - * / %`, `== != < <= > >=`, `&& ||` (also `and or not`), `! -`, `in`, ternary `? :`.
+- Identifiers: dotted (`invoice.amount`), indexed (`a[0]`, `m["k"]`), `$` root alias.
+- Built-in functions: `size`, `has`, `contains`, `startsWith`, `endsWith`, `matches`, `lower`, `upper`, `string`, `int`, `double`, `bool`, `exists`, `min`, `max`, `abs`. Also `.contains()`, `.startsWith()`, etc. as method calls.
+
+### Actor Metadata
+Declarative "who performs this step" on node registration:
+```python
+@registry.node("approve", ..., actor={"kind": "human", "role": "manager"})
+```
+Kinds: `system`, `human`, `agent`, `external_service`. Surfaces on `NodeDefinition.actor` and the registry JSON schema. Pure metadata — engine is indifferent.
+
+### Per-Node Timeout and Idempotency Key
+```python
+@registry.node("charge", ..., timeout=30, idempotency_key='"ch-" + string(amount)')
+def charge(amount, idempotency_key=None): ...
+```
+- `timeout` accepts seconds (float), ISO 8601 (`PT30S`), or shorthand (`30s`, `250ms`, `5m`).
+- `idempotency_key` is a CEL expression evaluated against the node's inputs. Surfaced on `node_start` events and injected into the function when it declares an `idempotency_key` parameter. Stable across retries.
+
+### Compensation / Saga
+Per-node `compensation:` field pointing at another node. When a flow fails, the engine walks `state.completed_order` in reverse and dispatches each completed node's compensation. Compensation nodes receive `(target_node_id, original_inputs, original_output)`. Events: `compensation_start`, `compensation_complete`, `compensation_failed`. Best-effort — one failure doesn't abort the cascade. Per-node `on_error:` policy: `fail` (default), `continue` (treat failure as null result), `compensate` (trigger cascade immediately).
+
+### Flow-Level Metadata (dependencies, triggers)
+`Flow` dataclass wraps nodes/edges with optional metadata:
+- `dependencies: tuple[FlowDependency, ...]` — external systems the flow touches. Nodes' `uses=[...]` list must reference declared dep ids (compile-time check).
+- `triggers: tuple[FlowTrigger, ...]` — declarative trigger config (manual/schedule/event/webhook). Conductor stores; the host wires external machinery.
+- `on_error_default` — flow-level default for node `on_error`.
+
+### Signals / External Events
+`signal-wait` / `signal-timer` nodes raise `SignalRequired(name, correlation=..., timeout_seconds=...)` to pause the flow. Engine checkpoints `(signal_name, correlation, signal_timeout_seconds)` and yields `signal_waiting` + `flow_paused` events. Host resumes with `resume_sync(compiled, checkpoint, payload)`.
+
+### YAML / JSON Flow Format
+`conductor.flow_format` module converts `Flow` ↔ YAML/JSON. `load_flow(dict)`, `yaml_to_flow(str)`, `load_flow_from_path(path)`, `flow_to_yaml(flow)`, `flow_to_dict(flow)`, `dump_flow(flow, path)`. Requires PyYAML at call time (optional extra: `conductor[yaml]`).
 
 ### Type Checking
 Compile-time validation of edge type compatibility:

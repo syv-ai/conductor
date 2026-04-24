@@ -192,6 +192,77 @@ class FlowPausedError(ConductorError):
 
 
 # =============================================================================
+# Signal / external event waits
+# =============================================================================
+
+
+class SignalRequired(ConductorError):
+    """Raised by a signal node to pause execution until an external event arrives.
+
+    Attributes:
+        signal_name: The name of the signal to wait for.
+        correlation: Optional CEL expression string that the host uses to
+            match incoming signals against this waiting flow.
+        timeout_seconds: Optional wall-clock timeout after which the flow
+            should follow its ``on_timeout`` path.
+    """
+
+    def __init__(
+        self,
+        signal_name: str,
+        *,
+        correlation: str | None = None,
+        timeout_seconds: float | None = None,
+        node_id: str | None = None,
+    ):
+        self.signal_name = signal_name
+        self.correlation = correlation
+        self.timeout_seconds = timeout_seconds
+        self.node_id = node_id
+        super().__init__(f"Waiting for signal {signal_name!r}")
+
+
+# =============================================================================
+# Loop / subprocess errors
+# =============================================================================
+
+
+class LoopRunawayError(ConductorError):
+    """Raised when a ``while`` compound exceeds its ``max_iterations`` cap."""
+
+    def __init__(self, node_id: str, iterations: int, cap: int):
+        self.node_id = node_id
+        self.iterations = iterations
+        self.cap = cap
+        super().__init__(
+            f"While loop on '{node_id}' exceeded max_iterations={cap} "
+            f"(ran {iterations} iterations)"
+        )
+
+
+class SubprocessFailedError(NodeError):
+    """A sub-flow failed while executing inside a caller.
+
+    Carries the inner node id so error messages remain useful across
+    subprocess boundaries.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        node_id: str | None = None,
+        node_type: str | None = None,
+        inner_node_id: str | None = None,
+        original: Exception | None = None,
+    ):
+        self.inner_node_id = inner_node_id
+        super().__init__(
+            message, node_id=node_id, node_type=node_type, original=original,
+        )
+
+
+# =============================================================================
 # Backward compatibility aliases
 # =============================================================================
 

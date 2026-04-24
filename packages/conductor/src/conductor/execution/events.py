@@ -5,9 +5,10 @@ from collections import deque
 from typing import Any, Literal, TypedDict
 
 
-class NodeStartEvent(TypedDict):
+class NodeStartEvent(TypedDict, total=False):
     type: Literal["node_start"]
     node_id: str
+    idempotency_key: str
 
 
 class NodeCompleteEvent(TypedDict, total=False):
@@ -22,11 +23,12 @@ class NodeSkippedEvent(TypedDict):
     node_id: str
 
 
-class NodeErrorEvent(TypedDict):
+class NodeErrorEvent(TypedDict, total=False):
     type: Literal["node_error"]
     node_id: str
     error: str
     is_validation: bool
+    is_timeout: bool
 
 
 class NodeProgressEvent(TypedDict):
@@ -59,7 +61,7 @@ class FlowTimeoutEvent(TypedDict):
     timeout_seconds: int
 
 
-class FlowPausedEvent(TypedDict):
+class FlowPausedEvent(TypedDict, total=False):
     type: Literal["flow_paused"]
     node_id: str
     prompt: str
@@ -76,6 +78,35 @@ class NodeRetryEvent(TypedDict):
     delay: float
 
 
+class CompensationStartEvent(TypedDict):
+    type: Literal["compensation_start"]
+    node_id: str
+    compensation_node_id: str
+
+
+class CompensationCompleteEvent(TypedDict):
+    type: Literal["compensation_complete"]
+    node_id: str
+    compensation_node_id: str
+    result: Any
+
+
+class CompensationFailedEvent(TypedDict):
+    type: Literal["compensation_failed"]
+    node_id: str
+    compensation_node_id: str
+    error: str
+
+
+class SignalWaitingEvent(TypedDict, total=False):
+    type: Literal["signal_waiting"]
+    node_id: str
+    signal_name: str
+    correlation: str | None
+    timeout_seconds: float | None
+    checkpoint: dict
+
+
 ExecutionEvent = (
     NodeStartEvent
     | NodeCompleteEvent
@@ -88,6 +119,10 @@ ExecutionEvent = (
     | FlowTimeoutEvent
     | FlowPausedEvent
     | NodeRetryEvent
+    | CompensationStartEvent
+    | CompensationCompleteEvent
+    | CompensationFailedEvent
+    | SignalWaitingEvent
 )
 
 

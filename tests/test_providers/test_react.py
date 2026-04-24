@@ -260,3 +260,60 @@ class TestEndToEnd:
         compiled = compile(nodes=back_nodes, edges=back_edges, registry=registry)
         results = execute_sync(compiled)
         assert results["cons"]["result"] == "val!"
+
+
+class TestProcessStandardFields:
+    """``when`` / ``priority`` / ``compensation`` / ``on_error`` round-trip."""
+
+    def test_edge_when_and_priority_preserved(self):
+        edge = GraphEdge(
+            "e1", "a", "b", "result", "text",
+            when="amount > 100", priority=5,
+        )
+        nodes = [GraphNode("a", "build-pair@1", None),
+                 GraphNode("b", "text-uppercase@1", {})]
+        wire = react.graph_to_react(nodes, [edge])
+        back_nodes, back_edges = react.react_to_graph(
+            json.loads(json.dumps(wire))
+        )
+        assert back_edges[0].when == "amount > 100"
+        assert back_edges[0].priority == 5
+
+    def test_compensation_and_on_error_preserved(self):
+        nodes = [
+            GraphNode("n1", "text-uppercase@1", {"text": "x"},
+                      compensation="undo",
+                      on_error="compensate"),
+            GraphNode("undo", "text-uppercase@1", {"text": "u"}),
+        ]
+        wire = react.graph_to_react(nodes, [])
+        back_nodes, _ = react.react_to_graph(json.loads(json.dumps(wire)))
+        n1 = next(n for n in back_nodes if n.id == "n1")
+        assert n1.compensation == "undo"
+        assert n1.on_error == "compensate"
+
+    def test_registry_schema_surfaces_actor_and_uses(self):
+        from conductor.registry.schema import serialize_registry
+        from conductor.types import NodeCategory
+
+        reg = NodeRegistry()
+
+        @reg.node(
+            "approve", version=1, name="Approve", description="x",
+            actor={"kind": "human", "role": "finance"},
+            uses=["stripe"],
+            is_decision=True,
+            timeout=10.0,
+            idempotency_key='"op-" + string(id)',
+            category=NodeCategory.DECISION,
+        )
+        def approve(id: Annotated[int, Output(label="id")] = 1) -> Annotated[str, Output(label="r")]:
+            return "ok"
+
+        schema = serialize_registry(reg)
+        entry = schema[0]
+        assert entry["actor"] == {"kind": "human", "role": "finance"}
+        assert entry["uses"] == ["stripe"]
+        assert entry["is_decision"] is True
+        assert entry["timeout_seconds"] == 10.0
+        assert entry["idempotency_key"] == '"op-" + string(id)'

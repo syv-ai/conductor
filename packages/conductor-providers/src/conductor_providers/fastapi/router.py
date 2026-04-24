@@ -5,14 +5,13 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
-from fastapi.responses import StreamingResponse
-
 from conductor import NodeRegistry
 from conductor.errors import CompilationError
 from conductor.execution.engine import execute, execute_sync
 from conductor.graph.compiler import compile as compile_graph
 from conductor.registry.schema import serialize_registry
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import StreamingResponse
 
 from conductor_providers.fastapi.compile import CompileResult, CompileWarning
 from conductor_providers.fastapi.models import ExecuteRequest
