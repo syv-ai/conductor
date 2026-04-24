@@ -153,6 +153,63 @@ def test_on_error_continue_skips_compensation() -> None:
     assert "charge" in log
 
 
+def test_cascade_continues_when_a_compensation_fails() -> None:
+    """A compensation that itself raises must not abort the cascade.
+
+    The cascade is documented as best-effort: failing compensations should
+    emit a `compensation_failed` event but subsequent compensations still run.
+    """
+    log: list[str] = []
+    reg = _registry(log)
+
+    @reg.node("bad_refund", version=1, name="Bad Refund", description="x")
+    def bad_refund(
+        target_node_id: str = None,
+        original_inputs: dict = None,
+        original_output: dict = None,
+    ) -> Annotated[str, Output(label="r")]:
+        log.append(f"bad_refund:{target_node_id}")
+        raise NodeExecutionError("refund gateway down", node_id="bad_refund")
+
+    compiled = compile(
+        nodes=[
+            # n1 completes, its compensation (bad) will fail.
+            GraphNode("n1", "charge@1", {}, compensation="bad"),
+            GraphNode("bad", "bad_refund@1", {}),
+            # n2 completes, its compensation (good) must still run.
+            GraphNode("n2", "charge@1", {}, compensation="good"),
+            GraphNode("good", "refund@1", {}),
+            # n3 fails, triggering the cascade. Cascade runs in reverse
+            # completed order, so n2's compensation runs, then n1's.
+            GraphNode("n3", "save_fail@1", {}),
+        ],
+        edges=[
+            GraphEdge("e1", "n1", "n2", "result", "_"),
+            GraphEdge("e2", "n2", "n3", "result", "_"),
+        ],
+        registry=reg,
+    )
+
+    async def go():
+        evs = []
+        try:
+            async for ev in execute(compiled):
+                evs.append(ev)
+        except Exception:
+            pass
+        return evs
+
+    evs = asyncio.run(go())
+    kinds = [e["type"] for e in evs]
+
+    # The failing compensation must emit compensation_failed but not halt the cascade.
+    assert "compensation_failed" in kinds
+    # The good compensation still ran after the bad one failed.
+    assert "refund:n2" in log
+    # Both compensation attempts happened.
+    assert "bad_refund:n1" in log
+
+
 def test_cascade_events_emitted() -> None:
     log: list[str] = []
     reg = _registry(log)

@@ -194,3 +194,33 @@ def test_priority_orders_guards() -> None:
     assert r["b"] == {"result": "B"}
     assert "a" not in r
     assert "c" not in r
+
+
+def test_equal_priority_guards_first_declared_wins() -> None:
+    """When two guards with equal priority both evaluate true, the one declared
+    first in the edges list wins. This pins down current behavior — the compiler
+    does not warn or reject ambiguous guards, and Python's stable sort preserves
+    declaration order.
+    """
+    reg = _registry()
+    compiled = compile(
+        nodes=[
+            GraphNode("d", "decision@1", {"value": 100}),
+            GraphNode("a", "echo@1", {"text": "A"}),
+            GraphNode("b", "echo@1", {"text": "B"}),
+            GraphNode("c", "echo@1", {"text": "C"}),
+        ],
+        edges=[
+            # Both guards true, same priority. e1 comes first → takes "a".
+            GraphEdge("e1", "d", "a", "result", None,
+                      when="result > 10", priority=5),
+            GraphEdge("e2", "d", "b", "result", None,
+                      when="result > 50", priority=5),
+            GraphEdge("e3", "d", "c", "result", None),
+        ],
+        registry=reg,
+    )
+    r = execute_sync(compiled)
+    assert r["a"] == {"result": "A"}
+    assert "b" not in r
+    assert "c" not in r

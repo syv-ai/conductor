@@ -277,6 +277,36 @@ def test_sandbox_blocks_dunder_escape_on_string() -> None:
         evaluate('"x".__class__', {})
 
 
+def test_sandbox_blocks_mro_escape() -> None:
+    """Classic Python sandbox escape — reaching .__class__ then .mro()."""
+
+    class Obj:
+        pass
+
+    with pytest.raises(ExpressionRuntimeError):
+        evaluate("o.__class__", {"o": Obj()})
+    with pytest.raises(ExpressionRuntimeError):
+        evaluate("o.__class__.mro()", {"o": Obj()})
+
+
+def test_sandbox_blocks_class_in_context() -> None:
+    """Putting a class (not an instance) in context must not expose its methods."""
+
+    class Dangerous:
+        @classmethod
+        def do_it(cls) -> str:
+            return "pwned"
+
+    with pytest.raises(ExpressionRuntimeError):
+        evaluate("cls.do_it()", {"cls": Dangerous})
+
+
+def test_sandbox_blocks_list_method_call() -> None:
+    """Lists are traversable by index but their methods must not be callable."""
+    with pytest.raises(ExpressionRuntimeError):
+        evaluate("xs.append(4)", {"xs": [1, 2, 3]})
+
+
 def test_pydantic_model_field_access_allowed() -> None:
     from pydantic import BaseModel
 
