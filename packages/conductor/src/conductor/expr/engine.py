@@ -473,13 +473,45 @@ def _index(target: Any, key: Any) -> Any:
         raise ExpressionRuntimeError(f"Index error: {e}") from e
 
 
+# Caps for the `matches` builtin/method to limit ReDoS blast radius.
+# A crafted pattern like `(a+)+$` against a moderately long string can hang
+# the scheduler thread; we can't cheaply bound regex execution time in the
+# stdlib, so we bound the inputs instead. Hosts that need unbounded regex
+# should pre-validate or swap in re2.
+_MAX_REGEX_PATTERN_LEN = 256
+_MAX_REGEX_INPUT_LEN = 64 * 1024
+
+
+def _safe_fullmatch(pattern: str, text: str) -> bool:
+    if not isinstance(pattern, str):
+        raise ExpressionTypeError(
+            f"matches() pattern must be string, got {type(pattern).__name__}"
+        )
+    if not isinstance(text, str):
+        raise ExpressionTypeError(
+            f"matches() target must be string, got {type(text).__name__}"
+        )
+    if len(pattern) > _MAX_REGEX_PATTERN_LEN:
+        raise ExpressionRuntimeError(
+            f"matches() pattern exceeds {_MAX_REGEX_PATTERN_LEN} chars"
+        )
+    if len(text) > _MAX_REGEX_INPUT_LEN:
+        raise ExpressionRuntimeError(
+            f"matches() input exceeds {_MAX_REGEX_INPUT_LEN} chars"
+        )
+    try:
+        return re.fullmatch(pattern, text) is not None
+    except re.error as e:
+        raise ExpressionRuntimeError(f"Invalid regex {pattern!r}: {e}") from e
+
+
 _BUILTIN_FUNCS = {
     "size": lambda x: len(x),
     "has": lambda m, k: (k in m) if isinstance(m, dict) else (k in m),
     "contains": lambda s, sub: sub in s,
     "startsWith": lambda s, p: s.startswith(p),
     "endsWith": lambda s, p: s.endswith(p),
-    "matches": lambda s, p: re.fullmatch(p, s) is not None,
+    "matches": _safe_fullmatch,
     "lower": lambda s: s.lower(),
     "upper": lambda s: s.upper(),
     "string": lambda x: str(x),
@@ -497,7 +529,7 @@ _METHODS = {
     "contains": lambda self, sub: sub in self,
     "startsWith": lambda self, p: self.startswith(p),
     "endsWith": lambda self, p: self.endswith(p),
-    "matches": lambda self, p: re.fullmatch(p, self) is not None,
+    "matches": lambda self, p: _safe_fullmatch(p, self),
     "lower": lambda self: self.lower() if isinstance(self, str) else self,
     "upper": lambda self: self.upper() if isinstance(self, str) else self,
     "size": lambda self: len(self),
@@ -629,13 +661,17 @@ def _eval_binary(node: _Binary, ctx: dict[str, Any]) -> Any:
     if node.op == "*":
         return left * right
     if node.op == "/":
-        if isinstance(left, int) and isinstance(right, int):
-            # Integer division if both integers (matches CEL semantics)
-            if right == 0:
-                raise ExpressionRuntimeError("Division by zero")
-            return left // right if (left % right == 0) else left / right
         if right == 0:
             raise ExpressionRuntimeError("Division by zero")
+        # CEL: int/int yields int, truncated toward zero (not floored).
+        # Python's `//` floors, which differs for mixed-sign operands:
+        # CEL says `-5 / 2 == -2` but `-5 // 2 == -3`. Use divmod + adjust.
+        if isinstance(left, int) and isinstance(right, int) \
+                and not isinstance(left, bool) and not isinstance(right, bool):
+            q, r = divmod(left, right)
+            if r != 0 and (left < 0) != (right < 0):
+                q += 1
+            return q
         return left / right
     if node.op == "%":
         return left % right

@@ -44,6 +44,18 @@ def test_arithmetic_precedence() -> None:
     assert evaluate("10 % 3", {}) == 1
 
 
+def test_int_division_truncates_toward_zero() -> None:
+    """CEL: int/int → int, truncated toward zero (not Python's floor)."""
+    assert evaluate("5 / 2", {}) == 2
+    assert evaluate("-5 / 2", {}) == -2  # not -3 (floor)
+    assert evaluate("5 / -2", {}) == -2
+    assert evaluate("-5 / -2", {}) == 2
+    assert evaluate("6 / 2", {}) == 3
+    # Mixed int/float stays float.
+    assert evaluate("5 / 2.0", {}) == 2.5
+    assert evaluate("5.0 / 2", {}) == 2.5
+
+
 def test_unary() -> None:
     assert evaluate("-5", {}) == -5
     assert evaluate("!true", {}) is False
@@ -204,6 +216,29 @@ def test_map_literal() -> None:
 def test_nested_access() -> None:
     ctx = {"u": {"roles": ["admin", "user"]}}
     assert evaluate("u.roles[0]", ctx) == "admin"
+
+
+# ---------------------------------------------------------------------------
+# matches() — ReDoS mitigation via length caps
+# ---------------------------------------------------------------------------
+
+
+def test_matches_rejects_oversized_pattern() -> None:
+    long_pattern = "a" * 300
+    with pytest.raises(ExpressionRuntimeError, match="pattern exceeds"):
+        evaluate(f'"abc".matches("{long_pattern}")', {})
+
+
+def test_matches_rejects_oversized_input() -> None:
+    # Pattern is fine, but the subject string is too long.
+    huge = "a" * (64 * 1024 + 1)
+    with pytest.raises(ExpressionRuntimeError, match="input exceeds"):
+        evaluate("s.matches(\"a*\")", {"s": huge})
+
+
+def test_matches_rejects_invalid_regex() -> None:
+    with pytest.raises(ExpressionRuntimeError, match="Invalid regex"):
+        evaluate('"abc".matches("[unclosed")', {})
 
 
 # ---------------------------------------------------------------------------
