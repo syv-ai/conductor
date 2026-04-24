@@ -14,9 +14,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
-
 from conductor.graph.model import GraphEdge, GraphNode
+from pydantic import BaseModel, ConfigDict
 
 
 class NodeInput(BaseModel):
@@ -31,6 +30,9 @@ class NodeInput(BaseModel):
     # JSON has no tuples — inbound consumes use ``[producer_id, output_handle]``
     # lists; we normalize to tuples when converting to ``GraphNode``.
     consumes: dict[str, tuple[str, str]] | None = None
+    # Process-standard additions
+    compensation: str | None = None
+    on_error: str | None = None
 
 
 class EdgeInput(BaseModel):
@@ -43,6 +45,9 @@ class EdgeInput(BaseModel):
     target: str
     source_handle: str | None = None
     target_handle: str | None = None
+    # Decision-node guards
+    when: str | None = None
+    priority: int = 0
 
 
 class ExecuteRequest(BaseModel):
@@ -71,6 +76,8 @@ class ExecuteRequest(BaseModel):
                     if n.consumes
                     else None
                 ),
+                compensation=n.compensation,
+                on_error=n.on_error,
             )
             for n in self.nodes
         ]
@@ -81,6 +88,8 @@ class ExecuteRequest(BaseModel):
                 target=e.target,
                 source_handle=e.source_handle,
                 target_handle=e.target_handle,
+                when=e.when,
+                priority=e.priority,
             )
             for e in self.edges
         ]

@@ -30,9 +30,19 @@ Built to be the shared core behind visual flow builders — define nodes once, g
 - **FlowStore** — side-channel key-value cache for cross-node data sharing
 - **Auto-discovery** — scan a package to register all `@node`-decorated functions
 - **Extension resolver** — protocol for host-app-specific node types (sub-flows, etc.)
+- **Decision nodes + edge guards** — first-class branching driven by CEL expressions on outgoing edges
+- **CEL expression language** — sandboxed mini-evaluator (`conductor.expr`) for guards, loop conditions, idempotency keys, signal correlation
+- **Actor metadata** — declare who performs each step (system/human/agent/external_service) for auditability and rendering
+- **Top-level flow metadata** — `dependencies`, `triggers`, and `on_error_default` on `Flow` objects for portable process definitions
+- **Per-node timeout and idempotency key** — `timeout=` wraps execution with `asyncio.wait_for`; `idempotency_key=` evaluates a CEL expression once and injects a stable key across retries
+- **While / until compound** — condition-based loops with `max_iterations` safety; raises `LoopRunawayError` on cap
+- **Subprocess compound** — call another flow by id+version, with a `SubprocessRegistry` and runtime depth cap
+- **Compensation / saga** — per-node `compensation=` cascades on failure in reverse topological order
+- **Signal / event nodes** — `SignalRequired` pauses on a named event with optional correlation and timeout, mirroring HITL
+- **YAML / JSON flow format** — `conductor.flow_format` round-trips `Flow` ↔ YAML/JSON/dict
 - **Zero app dependencies** — no FastAPI, no database, no auth in the core
-- **Standard node library** — `conductor-nodes` ships text, math, logic, json, regex, and canonical for-each markers
-- **Framework adapters** — `conductor-providers.react` translates conductor graphs to/from ReactFlow JSON; more providers can live alongside
+- **Standard node library** — `conductor-nodes` ships text, math, logic, json, regex, decision, while, subprocess, signal, and canonical for-each markers
+- **Framework adapters** — `conductor-providers.react` translates conductor graphs to/from ReactFlow JSON; `conductor-providers.fastapi` mounts an `/execute`, `/execute-stream`, `/compile`, `/nodes` API
 
 ## Quick start
 
@@ -440,6 +450,79 @@ Key features:
 - A flow can pause multiple times (sequential approval gates)
 - Works with both streaming (`flow_paused` event) and sync (`FlowPausedException`) APIs
 - Both function-based and class-based nodes can raise `HumanInputRequired`
+
+### Process-standard features
+
+Conductor ships a full set of process-orchestration primitives designed for
+portable "process-as-code":
+
+**Decision nodes + edge guards** — first-class branching driven by CEL
+expressions on outgoing edges. Compile-time validation: exactly one else
+edge, ≥1 guarded edge. Priority-ordered evaluation; non-taken edges are
+marked skipped so the SKIPPED sentinel propagates through normally.
+
+```python
+@registry.node("decision", ..., is_decision=True)
+def decision(value): return value
+
+GraphEdge("e1", "d", "high", "result", None, when="amount > 1000", priority=10),
+GraphEdge("e2", "d", "low",  "result", None),  # else
+```
+
+**CEL expression language** — sandboxed mini-evaluator (`conductor.expr`)
+for guards, loop conditions, idempotency keys, signal correlation, and
+subprocess input mapping. Literals, arithmetic/comparison/logical ops,
+ternary, `in`, dotted/indexed identifiers, `$` root, built-in functions
+(`size`, `has`, `contains`, `startsWith`, `matches`, `string`/`int`/`double`,
+etc.).
+
+**Actor metadata** — `@registry.node(actor={"kind": "human", "role": "manager"})`.
+Kinds: `system`, `human`, `agent`, `external_service`. Pure metadata;
+surfaces in the registry JSON schema for UI rendering and audit trails.
+
+**Per-node timeout and idempotency key** — `timeout=0.2` (seconds) or
+`timeout="PT30S"` (ISO 8601) wraps execution with `asyncio.wait_for`.
+`idempotency_key='"charge-" + string(amount)'` evaluates a CEL expression
+against the node's inputs, surfaces the result on `node_start`, and
+injects it into the function if it declares an `idempotency_key`
+parameter. Stable across retries.
+
+**While / until compound region** — CEL-driven loops, with a
+`max_iterations` safety cap that raises `LoopRunawayError`. Register the
+`while-start` / `while-end` markers and pass `compound_types=[WHILE]` to
+`compile()`. `negate=True` turns while into until.
+
+**Subprocess compound** — call another flow by `(flow_id, version)`.
+Register target flows in a `SubprocessRegistry` and pass it to
+`compile(subprocess_registry=...)`. Runtime depth cap catches recursion;
+errors bubble as `SubprocessFailedError`.
+
+**Compensation / saga** — per-node `compensation=` points at another
+node. On flow failure the engine walks completed nodes in reverse and
+dispatches each one's compensation with
+`(target_node_id, original_inputs, original_output)`. Events:
+`compensation_start/_complete/_failed`. Per-node `on_error` policy
+(`fail` / `continue` / `compensate`) controls triggering.
+
+**Signal / event nodes** — nodes raise
+`SignalRequired(name, correlation=..., timeout_seconds=...)` to pause on
+an external event, mirroring HITL. Host uses
+`FlowCheckpoint.matches_signal(name, payload)` to route incoming
+signals; correlation is evaluated as CEL on the host side.
+
+**Flow-level metadata** — `Flow(dependencies=..., triggers=...,
+on_error_default=...)`. Node `uses=[...]` lists are validated against
+`dependencies`; `triggers` are stored for hosts to wire external
+machinery (cron, webhook, queue consumer).
+
+**YAML / JSON flow format** — `conductor.flow_format` round-trips `Flow`
+↔ YAML/JSON/dict. `load_flow(dict)`, `yaml_to_flow(str)`,
+`load_flow_from_path(path)`, `flow_to_yaml(flow)`. Optional PyYAML
+dependency (`conductor[yaml]`).
+
+See [`spec.md`](spec.md) for the design motivation and
+[`PROGRESS.md`](PROGRESS.md) for the full feature-by-feature implementation
+log.
 
 ### Custom data types
 

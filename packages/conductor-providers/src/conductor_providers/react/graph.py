@@ -39,6 +39,10 @@ def graph_to_react(
             # Tuples become lists in JSON; consumers of this output must
             # call react_to_graph to get the tuples back.
             data["consumes"] = {k: list(v) for k, v in n.consumes.items()}
+        if n.compensation:
+            data["compensation"] = n.compensation
+        if n.on_error:
+            data["on_error"] = n.on_error
 
         rf_nodes.append({
             "id": n.id,
@@ -49,13 +53,19 @@ def graph_to_react(
 
     rf_edges: list[dict[str, Any]] = []
     for e in edges:
-        rf_edges.append({
+        payload: dict[str, Any] = {
             "id": e.id,
             "source": e.source,
             "target": e.target,
             "sourceHandle": e.source_handle,
             "targetHandle": e.target_handle,
-        })
+        }
+        # Only emit when/priority when they carry information.
+        if e.when:
+            payload["data"] = {"when": e.when, "priority": e.priority}
+        elif e.priority:
+            payload["data"] = {"priority": e.priority}
+        rf_edges.append(payload)
 
     return {"nodes": rf_nodes, "edges": rf_edges}
 
@@ -89,11 +99,14 @@ def react_to_graph(
                 data=static_data,
                 produces=dict(produces) if produces else None,
                 consumes=consumes,
+                compensation=payload.get("compensation"),
+                on_error=payload.get("on_error"),
             )
         )
 
     edges_out: list[GraphEdge] = []
     for raw in flow.get("edges", []):
+        edata = raw.get("data") or {}
         edges_out.append(
             GraphEdge(
                 id=raw["id"],
@@ -101,6 +114,8 @@ def react_to_graph(
                 target=raw["target"],
                 source_handle=raw.get("sourceHandle"),
                 target_handle=raw.get("targetHandle"),
+                when=edata.get("when"),
+                priority=int(edata.get("priority", 0)),
             )
         )
 

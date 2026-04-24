@@ -16,7 +16,7 @@ def serialize_registry(registry: NodeRegistry) -> list[dict[str, Any]]:
 
 def _serialize_node(nd: NodeDefinition, registry: NodeRegistry) -> dict[str, Any]:
     latest = registry.get_latest(nd.base_id)
-    return {
+    out: dict[str, Any] = {
         "id": nd.id,
         "base_id": nd.base_id,
         "version": nd.version,
@@ -31,6 +31,20 @@ def _serialize_node(nd: NodeDefinition, registry: NodeRegistry) -> dict[str, Any
         "latest_version": latest.version if latest else nd.version,
         "docs": nd.docs,
     }
+    # Process-standard metadata (only emit when set to keep the payload small).
+    if nd.actor is not None:
+        out["actor"] = nd.actor.to_dict()
+    if nd.timeout_seconds is not None:
+        out["timeout_seconds"] = nd.timeout_seconds
+    if nd.idempotency_key:
+        out["idempotency_key"] = nd.idempotency_key
+    if nd.uses:
+        out["uses"] = list(nd.uses)
+    if nd.is_decision:
+        out["is_decision"] = True
+    if nd.is_signal:
+        out["is_signal"] = True
+    return out
 
 
 def _serialize_input(inp: Any) -> dict[str, Any]:

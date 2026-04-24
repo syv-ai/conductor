@@ -64,11 +64,34 @@ def topological_sort(
 
 def build_edge_map(
     edges: list[GraphEdge],
-) -> dict[tuple[str, str], list[tuple[str, str]]]:
-    """Build (target_id, target_handle) -> [(source_id, source_handle), ...] map."""
-    edge_map: dict[tuple[str, str], list[tuple[str, str]]] = defaultdict(list)
+) -> dict[tuple[str, str], list[tuple[str, str, str]]]:
+    """Build ``(target_id, target_handle) -> [(source_id, source_handle, edge_id), ...]``.
+
+    The edge id is included so downstream machinery (decision-node skip
+    propagation, error reporting) can refer back to the original edge.
+    """
+    edge_map: dict[tuple[str, str], list[tuple[str, str, str]]] = defaultdict(list)
     for edge in edges:
         key = (edge.target, edge.target_handle or "")
-        value = (edge.source, edge.source_handle or "result")
+        value = (edge.source, edge.source_handle or "result", edge.id)
         edge_map[key].append(value)
     return dict(edge_map)
+
+
+def build_incoming_map(
+    edges: list[GraphEdge],
+) -> dict[str, list[tuple[str, str, str, str]]]:
+    """Build ``target_id -> [(target_handle, source_id, source_handle, edge_id), ...]``.
+
+    Speeds up ``should_skip_node`` and ``InputResolver.resolve`` which
+    otherwise have to iterate the whole edge_map per node.
+    """
+    incoming: dict[str, list[tuple[str, str, str, str]]] = defaultdict(list)
+    for edge in edges:
+        incoming[edge.target].append((
+            edge.target_handle or "",
+            edge.source,
+            edge.source_handle or "result",
+            edge.id,
+        ))
+    return dict(incoming)

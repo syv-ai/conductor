@@ -18,16 +18,19 @@ conductor/
 │       ├── registry/           # NodeRegistry, @node decorator, auto-discovery, JSON schema
 │       ├── graph/              # GraphNode/Edge, topology, compiler, regions, type_check, shared_refs
 │       ├── execution/          # Engine (eager+parallel), retry, state, resolver, events, store, checkpoint
-│       ├── compound/           # CompoundNodeType protocol, ForEachNode
+│       ├── compound/           # CompoundNodeType protocol, ForEachNode, WhileNode, SubprocessNode
+│       ├── expr/               # Sandboxed CEL-compatible expression evaluator
+│       ├── flow_format/        # YAML / JSON flow file format (Flow ↔ dict)
 │       └── about/              # Runnable library context: `python -m conductor.about`
-├── packages/conductor-nodes/   # Reusable node library (text, math, logic, loop, json, regex)
+├── packages/conductor-nodes/   # Reusable node library (text, math, logic, loop, json, regex, decision, while_loop, subprocess, signal)
 │   └── src/conductor_nodes/    # Each module exposes register(reg); top-level register_all()
-├── packages/conductor-providers/ # Framework adapters — react subpackage ships today
+├── packages/conductor-providers/ # Framework adapters — react + fastapi subpackages ship today
 │   └── src/conductor_providers/
-│       └── react/              # graph_to_react / react_to_graph / palette_from_registry
-├── tests/test_core/            # 171 tests for conductor core
-├── tests/test_nodes/           # 46 tests for conductor-nodes
-├── tests/test_providers/       # 18 tests for conductor-providers (React round-trips)
+│       ├── react/              # graph_to_react / react_to_graph / palette_from_registry
+│       └── fastapi/            # conductor_router factory (/execute, /execute-stream, /compile, /nodes)
+├── tests/test_core/            # 200+ tests for conductor core (CEL, decision, while, subprocess, signal, compensation, timeout/idempotency, flow format, integration, …)
+├── tests/test_nodes/           # conductor-nodes tests
+├── tests/test_providers/       # conductor-providers tests (React + FastAPI)
 ├── demo/                       # Playground — FastAPI backend + Next.js frontend
 │   ├── app.py                  # FastAPI endpoints (GET /api/nodes, POST /api/execute, /api/execute-stream) with CORS
 │   ├── nodes.py                # Demo nodes: text, uppercase, template, combine, regex, make-list, number, math, if-else, for-each start/end
@@ -40,7 +43,7 @@ conductor/
 
 ## Workspace packages
 
-- **`conductor`** — core engine (compile, execute, registry, widgets, errors, compound nodes, shared refs).
+- **`conductor`** — core engine (compile, execute, registry, widgets, errors, compound nodes, shared refs). Also ships CEL (`conductor.expr`), process-standard primitives (`Flow`, `FlowDependency`, `FlowTrigger`, `Actor`, decision-node guards, compensation, signals), and a YAML flow format (`conductor.flow_format`).
 - **`conductor-nodes`** — standard-library nodes. Each category module (`text`, `math`, `logic`, `loop`, `json_ops`, `regex_ops`) exposes `register(registry)`; top-level `register_all(registry, categories=...)` registers everything (or a filtered subset). Node IDs are category-prefixed (`text-uppercase`, `math-add`, …) except the for-each markers which match the `FOR_EACH` compound's discovery prefix.
 - **`conductor-providers`** — framework adapters. Ships `conductor_providers.react` today with `graph_to_react` / `react_to_graph` / `palette_from_registry`. New providers (Svelte, Vue, etc.) go in sibling subpackages — no abstract base class to satisfy, each provider shapes itself to its framework.
 
@@ -149,9 +152,12 @@ All exceptions inherit from `ConductorError` (see `errors.py`):
   - `NodeExecutionError` (node function raised)
   - `NodeTimeoutError`
   - `NodeConnectionError` (raise from node code for transient network/API failures)
+  - `SubprocessFailedError` (wraps a sub-flow failure)
 - `InputResolutionError` — could not resolve inputs from edges
 - `FlowExecutionError` — raised by `execute_sync` when flow fails
 - `HumanInputRequired` / `FlowPausedError` — HITL signal + sync-mode counterpart
+- `SignalRequired` — raised by signal/event nodes to pause on an external event
+- `LoopRunawayError` — raised by `while` compound when `max_iterations` is exceeded
 
 Legacy aliases (`NodeValidationException`, `NodeExecutionException`, `FlowExecutionException`, `FlowPausedException`) still work but map to the new `*Error` names.
 
@@ -170,6 +176,109 @@ A first-class alternative to explicit edges for the "fan-out" and "cross-region"
 - Producers inside compound regions are rejected in v1 (semantics TBD).
 
 See `examples/07_shared_references.ipynb` for a walkthrough.
+
+### Process-standard features
+
+Conductor ships a full process-standard surface (see `spec.md` for the
+design rationale). Each is additive to the core DAG engine:
+
+#### Decision nodes + edge guards
+
+A decision node (register with `is_decision=True`) branches by CEL
+expressions on its outgoing edges:
+
+```python
+GraphEdge("e1", "d", "high", "result", None, when="amount > 1000", priority=10),
+GraphEdge("e2", "d", "low",  "result", None),  # else fallback
+```
+
+Compile-time: exactly one else edge (no `when`) and ≥1 guarded edge.
+Runtime: the first matching guard (priority-desc) wins; every other
+outgoing edge is marked in `state.skipped_edges`, which the resolver
+and skip checker honor.
+
+#### CEL expressions (`conductor.expr`)
+
+Self-contained, sandboxed CEL-compatible evaluator used by:
+edge guards, `while` conditions, `idempotency_key`, signal
+correlation, subprocess input mapping. Literals, arithmetic /
+comparison / logical ops, ternary, `in`, dotted/indexed identifiers,
+`$` root, and a built-in function library (`size`, `has`,
+`contains`, `startsWith`, `endsWith`, `matches`, `string`/`int`/`double`/`bool`,
+`exists`, `min`/`max`/`abs`, `lower`/`upper`).
+
+#### Actor metadata
+
+`@registry.node(actor=...)` accepts a bare string (`"human"`), a dict
+(`{"kind": "human", "role": "finance_manager"}`), or an `Actor`. Kinds:
+`system`, `human`, `agent`, `external_service`. Surfaced in the
+registry JSON schema; the engine is indifferent.
+
+#### Per-node timeout and idempotency key
+
+* `timeout=` — seconds (float), ISO 8601 (`"PT30S"`), or shorthand
+  (`"30s"`, `"250ms"`). Wraps execution with `asyncio.wait_for` and
+  raises `NodeTimeoutError` (retryable) on expiry. Distinguished from
+  flow-wide timeout.
+* `idempotency_key=` — CEL expression evaluated once per node run.
+  The resulting string is surfaced on the `node_start` event and
+  injected into the function when it declares an `idempotency_key`
+  parameter. Stable across retries.
+
+#### While / until compound region
+
+Type markers `while-start` / `while-end`, discovered by the `WHILE`
+compound type. CEL `condition` evaluated each iteration with
+`iteration` (count, 1-based after first) and `last` (body's last
+return value) in scope. `max_iterations` safety cap raises
+`LoopRunawayError`. `negate=True` turns while into until.
+
+#### Subprocess compound
+
+`subprocess-call` node references another flow by `(flow_id, version)`.
+Register flows in a `SubprocessRegistry` and pass to
+`compile(subprocess_registry=...)`. Runtime depth cap catches
+infinite recursion. Errors bubble as `SubprocessFailedError`. Input
+mapping via the `inputs:` dict (static values or `$`-prefixed CEL).
+
+#### Compensation / saga
+
+Per-node `compensation=` field points at another node. When the flow
+fails, the engine walks `state.completed_order` in reverse and
+dispatches each completed node's compensation, giving it
+`(target_node_id, original_inputs, original_output)`. Events:
+`compensation_start`, `compensation_complete`, `compensation_failed`.
+Best-effort — one failure doesn't abort the cascade. Per-node
+`on_error` policy (`fail` default, `continue`, `compensate`) controls
+the triggering semantics.
+
+#### Signal / event nodes
+
+Nodes raise `SignalRequired(name, correlation=..., timeout_seconds=...)`
+to pause the flow. Engine checkpoints `(signal_name, correlation,
+signal_timeout_seconds)` and yields `signal_waiting` + `flow_paused`
+events. Resume with `resume_sync(compiled, checkpoint, payload)`.
+Hosts use `FlowCheckpoint.matches_signal(name, payload)` to route
+incoming events — it evaluates the CEL correlation on the host side.
+
+#### Flow-level metadata
+
+`Flow` dataclass wraps nodes/edges with:
+
+* `dependencies: tuple[FlowDependency, ...]` — external systems. Node
+  `uses=[...]` lists must reference declared dep ids (compile-time
+  check).
+* `triggers: tuple[FlowTrigger, ...]` — manual/schedule/event/webhook
+  config. Engine stores; host wires.
+* `on_error_default` — flow-level default for node `on_error`.
+
+#### YAML / JSON flow format (`conductor.flow_format`)
+
+Round-trip `Flow` ↔ dict via `load_flow` / `flow_to_dict`, and
+YAML/JSON files via `yaml_to_flow` / `flow_to_yaml` /
+`load_flow_from_path` / `dump_flow`. Defaults (`version=1`,
+`on_error_default="fail"`) are omitted on output. Requires PyYAML
+(optional extra: `conductor[yaml]`).
 
 ### Human-in-the-loop
 

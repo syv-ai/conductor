@@ -16,6 +16,9 @@ classifiers = [
 ]
 dependencies = ["pydantic>=2.0"]
 
+[project.optional-dependencies]
+yaml = ["pyyaml>=6.0"]
+
 [project.urls]
 Repository = "https://github.com/syvai/conductor"
 
