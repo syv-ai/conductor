@@ -116,6 +116,47 @@ def test_while_runaway_raises() -> None:
     ).lower() or "exceeded" in str(exc_info.value)
 
 
+def test_while_bad_condition_is_node_execution_error() -> None:
+    """Runtime condition failures must raise NodeExecutionError, not CompilationError.
+
+    CompilationError at runtime would falsely imply the graph itself is broken,
+    misleading hosts/UIs. A bad expression at execute time is a node error.
+    """
+    from conductor.compound.protocol import Region
+    from conductor.compound.while_loop import WhileNode
+    from conductor.errors import NodeExecutionError
+    from conductor.execution.request import NodeExecRequest
+
+    region = Region(start_id="w_start", end_id="w_end", body_ids=frozenset())
+    node = WhileNode(region, execution_order=())
+
+    # Parse-time failure: malformed CEL.
+    req = NodeExecRequest(
+        node_id="w_start",
+        node_type="while-start@1",
+        inputs={"condition": "not a valid ))) expression"},
+        data={},
+        state=None,  # never reached — error raised before state is touched
+    )
+    with pytest.raises(NodeExecutionError) as exc_info:
+        node.execute(req)
+    assert exc_info.value.node_id == "w_start"
+    assert exc_info.value.node_type == "while-start@1"
+    assert "Invalid while-start condition" in str(exc_info.value)
+
+    # Missing condition entirely.
+    req_missing = NodeExecRequest(
+        node_id="w_start",
+        node_type="while-start@1",
+        inputs={},
+        data={},
+        state=None,
+    )
+    with pytest.raises(NodeExecutionError) as exc_info:
+        node.execute(req_missing)
+    assert "no `condition`" in str(exc_info.value)
+
+
 def test_until_negates_condition() -> None:
     """`negate=True` flips while's semantics to until."""
     reg = _registry()

@@ -24,7 +24,7 @@ from collections import defaultdict, deque
 from typing import Any
 
 from conductor.compound.protocol import CompoundNodeType, Region
-from conductor.errors import CompilationError, LoopRunawayError
+from conductor.errors import CompilationError, LoopRunawayError, NodeExecutionError
 from conductor.execution.events import (
     NodeCompleteEvent,
     NodeProgressEvent,
@@ -52,15 +52,20 @@ class WhileNode:
     def execute(self, req: Any) -> Any:
         condition_src = req.inputs.get("condition") or req.data.get("condition")
         if not condition_src:
-            raise CompilationError(
+            raise NodeExecutionError(
                 f"While-start node '{self.region.start_id}' has no `condition` "
-                f"— add a CEL expression to its `condition` input."
+                f"— add a CEL expression to its `condition` input.",
+                node_id=req.node_id,
+                node_type=req.node_type,
             )
         try:
             expr = parse_expr(condition_src)
         except ExpressionError as e:
-            raise CompilationError(
-                f"Invalid while-start condition {condition_src!r}: {e}"
+            raise NodeExecutionError(
+                f"Invalid while-start condition {condition_src!r}: {e}",
+                node_id=req.node_id,
+                node_type=req.node_type,
+                original=e,
             ) from e
 
         max_iter = int(req.inputs.get("max_iterations", DEFAULT_MAX_ITERATIONS))
@@ -91,9 +96,12 @@ class WhileNode:
             try:
                 predicate = bool(expr.evaluate(ctx))
             except ExpressionError as e:
-                raise CompilationError(
+                raise NodeExecutionError(
                     f"While condition {condition_src!r} failed at iteration "
-                    f"{iteration}: {e}"
+                    f"{iteration}: {e}",
+                    node_id=req.node_id,
+                    node_type=req.node_type,
+                    original=e,
                 ) from e
 
             if negate:
