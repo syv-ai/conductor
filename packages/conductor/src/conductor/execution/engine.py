@@ -852,7 +852,8 @@ def _dispatch_node(
             inputs = validated.model_dump()
         except ValidationError as e:
             raise NodeValidationError(
-                str(e), node_id=node_id, node_type=node_type, original=e,
+                _format_validation_error(e, node_def),
+                node_id=node_id, node_type=node_type, original=e,
             ) from e
 
     inputs = _inject_store(node_def.func, inputs, state)
@@ -868,6 +869,70 @@ def _dispatch_node(
             f"Execution failed for {node_type}: {type(e).__name__}: {e}",
             node_id=node_id, node_type=node_type, original=e,
         ) from e
+
+
+def _format_validation_error(e: Any, node_def: Any) -> str:
+    """Collapse a pydantic ``ValidationError`` into a one-line-per-field
+    summary suitable for end-user surfaces.
+
+    Pydantic's default ``str(e)`` enumerates every union arm × every nested
+    field, producing 7+ lines for a single bad input — unreadable in a
+    UI toast. This helper:
+
+      * deduplicates by field path (after stripping union-arm segments
+        like ``"list[union[float,int]]"`` from ``loc``),
+      * picks the most specific message per field (prefers
+        ``"Field required"`` and ``"Input should be ..."`` over generic
+        ``"Input should be a valid …"`` from union fan-out),
+      * resolves field ids to their declared ``label`` when available.
+
+    Hosts that want structured access can still read ``e.original`` (the
+    pydantic ``ValidationError``) off the raised ``NodeValidationError``.
+    """
+    # Discriminate pydantic union-arm tags from real path segments. Arm
+    # tags are produced by pydantic's smart union mode and look like
+    # ``"int"``, ``"float"``, ``"list[union[...]]"``, ``"dict[...,...]"``.
+    def _is_union_arm(seg: Any) -> bool:
+        if not isinstance(seg, str):
+            return False
+        if seg.startswith(("list[", "dict[", "tuple[", "union[")):
+            return True
+        return seg in {
+            "int", "float", "str", "bool", "bytes",
+            "nonetype", "none", "any",
+        }
+
+    # Build a {field_label: message} map preserving insertion order.
+    seen: dict[str, str] = {}
+    label_by_name = {inp.name: (inp.label or inp.name) for inp in node_def.inputs}
+
+    for err in e.errors():
+        loc = [seg for seg in err.get("loc", ()) if not _is_union_arm(seg)]
+        if not loc:
+            continue
+        root = loc[0]
+        label = label_by_name.get(root, str(root))
+        sub_path = ".".join(str(s) for s in loc[1:])
+        key = f"{label}.{sub_path}" if sub_path else label
+
+        msg = str(err.get("msg", ""))
+        # Strip pydantic's "Value error, " prefix from validator-raised errors.
+        if msg.startswith("Value error, "):
+            msg = msg[len("Value error, ") :]
+
+        if key in seen:
+            # Prefer "Field required" / non-generic messages when collapsing.
+            current = seen[key]
+            if current.startswith("Input should be a valid"):
+                seen[key] = msg
+            continue
+        seen[key] = msg
+
+    if not seen:
+        return str(e)
+
+    parts = [f"'{k}': {v}" for k, v in seen.items()]
+    return "Invalid inputs — " + "; ".join(parts)
 
 
 def _inject_store(func: Any, inputs: dict[str, Any], state: FlowRunState) -> dict[str, Any]:

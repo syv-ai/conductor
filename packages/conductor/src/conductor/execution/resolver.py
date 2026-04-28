@@ -128,7 +128,7 @@ class InputResolver:
     ) -> tuple[list[Any], list[str]]:
         """Collect values and human-readable labels from sources."""
         values: list[Any] = []
-        labels: list[str] = []
+        labels: list[tuple[str, str]] = []
         for source_id, source_handle, _edge_id in sources:
             source_result = results.get(source_id)
             if source_result is None or is_skipped(source_result):
@@ -138,13 +138,37 @@ class InputResolver:
                 continue
             values.append(value)
             source_node = node_map.get(source_id)
+            # Prefer host-supplied display hints (covers user renames in the
+            # UI); fall back to the registry's default name + raw handle id.
+            node_label_hint: str | None = None
+            output_label_hint: str | None = None
             if source_node:
-                node_def = self._registry.get(source_node.type)
-                label = node_def.name if node_def else source_id
+                node_label_hint = source_node.node_label
+                if source_node.output_labels:
+                    output_label_hint = source_node.output_labels.get(
+                        source_handle
+                    )
+                if not node_label_hint:
+                    node_def = self._registry.get(source_node.type)
+                    node_label_hint = node_def.name if node_def else source_id
             else:
-                label = source_id
-            labels.append(f"{label} ({source_handle})")
-        return values, labels
+                node_label_hint = source_id
+            output_label_hint = output_label_hint or source_handle
+            # Two-pass label assignment: keep node + output for now,
+            # decide the final shape once we've seen them all.
+            labels.append((node_label_hint, output_label_hint))
+
+        # Collision-aware finalization: an output label that's unique
+        # within this aggregator is used bare; collisions fall back to
+        # "Nodename (outputLabel)" to disambiguate.
+        out_counts: dict[str, int] = {}
+        for _, out_lbl in labels:
+            out_counts[out_lbl] = out_counts.get(out_lbl, 0) + 1
+        finalized = [
+            f"{node_lbl} ({out_lbl})" if out_counts[out_lbl] > 1 else out_lbl
+            for node_lbl, out_lbl in labels
+        ]
+        return values, finalized
 
     def _param_info(self, node_type: str, param_name: str) -> tuple[bool, bool]:
         """Return ``(uses_connection_list, expects_list)`` for ``param_name``."""

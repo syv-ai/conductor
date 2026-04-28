@@ -33,6 +33,11 @@ class GraphNode:
     consumes: dict[str, tuple[str, str]] | None = None
     compensation: str | None = None
     on_error: str | None = None
+    # Optional, host-defined display hints. Pure UX — the engine consults
+    # them only when building human-readable labels (e.g. ConnectionList
+    # aggregator keys); execution is unaffected when absent.
+    node_label: str | None = None
+    output_labels: dict[str, str] | None = None
 
 
 @dataclass(frozen=True)

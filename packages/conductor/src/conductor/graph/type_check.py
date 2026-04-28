@@ -153,6 +153,18 @@ def _types_compatible(source_type: str, target_type: str, target_input: InputMet
     s = source_type.lower().strip()
     t = target_type.lower().strip()
 
+    # Union types on either side: any overlap is compatible. Splitting on
+    # top-level `|` (bracket-depth-aware) so `list[float | int] | int` is
+    # parsed as two alternatives, not three.
+    s_alts = _split_union(s)
+    t_alts = _split_union(t)
+    if len(s_alts) > 1 or len(t_alts) > 1:
+        for sa in s_alts:
+            for ta in t_alts:
+                if _types_compatible(sa, ta, target_input):
+                    return True
+        return False
+
     # Exact match
     if s == t:
         return True
@@ -200,6 +212,27 @@ def _types_compatible(source_type: str, target_type: str, target_input: InputMet
         return _types_compatible(s, t.replace(" | none", "").strip(), target_input)
 
     return False
+
+
+def _split_union(t: str) -> list[str]:
+    """Split a type string on `|` at bracket depth 0.
+
+    Returns a single-element list when no top-level union is present, so
+    callers can treat the result uniformly.
+    """
+    parts: list[str] = []
+    depth = 0
+    start = 0
+    for i, c in enumerate(t):
+        if c in "[(":
+            depth += 1
+        elif c in "])":
+            depth -= 1
+        elif c == "|" and depth == 0:
+            parts.append(t[start:i].strip())
+            start = i + 1
+    parts.append(t[start:].strip())
+    return [p for p in parts if p]
 
 
 def _find_output(node_def: "NodeDefinition", handle: str) -> OutputMetadata | None:

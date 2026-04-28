@@ -33,11 +33,18 @@ def _extract_type_string(annotation: Any) -> str:
             return str(annotation.__name__).lower()
         return str(annotation).lower()
 
-    # Optional / Union — extract first non-None type
+    # Optional / Union — emit "a | b | c" for the non-None alternatives.
+    # Single-arg unions (`Optional[T]`) collapse to T; multi-arg unions
+    # (`A | B`) preserve every alternative so downstream consumers can do
+    # union-aware compatibility checks.
     args = get_args(annotation)
     non_none = [a for a in args if a is not type(None)]
     if hasattr(origin, "__name__") and "Union" in str(origin):
-        return _extract_type_string(non_none[0]) if non_none else "any"
+        if not non_none:
+            return "any"
+        if len(non_none) == 1:
+            return _extract_type_string(non_none[0])
+        return " | ".join(_extract_type_string(a) for a in non_none)
 
     origin_name = (
         str(origin.__name__).lower()
