@@ -2,7 +2,8 @@ name: Publish
 
 # Triggered on tag push (e.g. ``git tag v0.1.0 && git push --tags``).
 # Builds all three packages (``syv-conductor``, ``syv-conductor-nodes``,
-# ``syv-conductor-providers``) and uploads them to PyPI.
+# ``syv-conductor-providers``) into a single ``dist/`` and uploads them
+# to PyPI.
 #
 # Auth: ``PYPI_API_TOKEN`` repo secret. Use a project-scoped token from
 # https://pypi.org/manage/account/token/ — limit it to the three packages
@@ -19,14 +20,9 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  publish:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        package:
-          - conductor
-          - conductor-nodes
-          - conductor-providers
+    environment: pypi
     steps:
       - uses: actions/checkout@v4
 
@@ -37,33 +33,25 @@ jobs:
       # Hatchling reads LICENSE from the project root (the dir holding
       # pyproject.toml). Stage the repo-level LICENSE into each package
       # so every wheel ships its own copy.
-      - name: Stage LICENSE
-        run: cp LICENSE packages/${{ matrix.package }}/LICENSE
+      - name: Stage LICENSE into each package
+        run: |
+          for pkg in conductor conductor-nodes conductor-providers; do
+            cp LICENSE "packages/$pkg/LICENSE"
+          done
 
-      - name: Build wheels + sdist
-        working-directory: packages/${{ matrix.package }}
-        run: uv build
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: dist-${{ matrix.package }}
-          path: packages/${{ matrix.package }}/dist/
-
-  publish:
-    needs: build
-    runs-on: ubuntu-latest
-    environment: pypi
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: dist-merged
-          pattern: dist-*
-          merge-multiple: true
+      # Build straight into a shared ``dist/`` so the publish step has
+      # a single, predictable directory to upload.
+      - name: Build wheels + sdists
+        run: |
+          mkdir -p dist
+          for pkg in conductor conductor-nodes conductor-providers; do
+            uv build "packages/$pkg" --out-dir dist
+          done
+          ls -la dist
 
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          packages-dir: dist-merged/
+          packages-dir: dist
           password: ${{ secrets.PYPI_API_TOKEN }}
-          # Skip already-uploaded versions instead of failing the run —
-          # makes re-running a tag idempotent.
+          # Idempotent on re-runs of the same tag.
           skip-existing: true
