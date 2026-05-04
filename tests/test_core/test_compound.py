@@ -156,3 +156,45 @@ class TestForEachEmpty:
         end_result = results["end"]["result"]
         assert isinstance(end_result, list)
         assert len(end_result) == 0
+
+
+class TestForEachDownstreamNode:
+    """Regression: a node consuming for-each-end via an edge must wait for
+    the region to finish. Previously the dep graph treated the end node
+    (which is in `managed_ids` and thus not schedulable) as having no
+    schedulable predecessor, so the downstream node fired with in_degree=0
+    and raced the region — frequently observing an empty/missing input.
+    """
+
+    def test_node_after_end_sees_collected_results(self, loop_registry):
+        @loop_registry.node(
+            "tally", version=1, name="Tally",
+            description="Count items collected by the for-each",
+        )
+        def tally(
+            items: Annotated[list[str], Text(label="Items")],
+        ) -> Annotated[int, Output(label="Count")]:
+            return len(items)
+
+        nodes = [
+            GraphNode("start", "for-each-start@1", {
+                "items": ["a", "b", "c", "d"],
+                "execution_mode": "Parallel",
+            }),
+            GraphNode("body", "upper@1", None),
+            GraphNode("end", "for-each-end@1", None),
+            GraphNode("after", "tally@1", None),
+        ]
+        edges = [
+            GraphEdge("e1", "start", "body", "output_1", "text"),
+            GraphEdge("e2", "body", "end", "result", "item"),
+            GraphEdge("e3", "end", "after", "result", "items"),
+        ]
+
+        compiled = compile(
+            nodes=nodes, edges=edges,
+            registry=loop_registry, compound_types=[FOR_EACH],
+        )
+        results = execute_sync(compiled)
+
+        assert results["after"]["result"] == 4

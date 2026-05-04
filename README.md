@@ -735,6 +735,8 @@ The examples are Jupyter notebooks under `examples/` — open them in VS Code, J
 | `06_human_in_the_loop.ipynb` | Pause, checkpoint, resume |
 | `07_shared_references.ipynb` | Producers, consumers, fan-out, broadcast into loop bodies |
 | `08_widgets.ipynb` | Type defaults, every widget, inspecting the schema, writing a custom widget |
+| `09_case_study_miljorapport.ipynb` | Real-world process modeled in Conductor: parallel external fetches via for-each, per-chapter generate→evaluate→revise→ground sub-pipeline (SKIPPED-sentinel branching), full report assembly with shared references, HITL dataset-mapping review |
+| `10_case_study_kk_afgorelse.ipynb` | Copenhagen Municipality decision drafts: parallel OCR fan-out, sequential checkpoint chain via FlowStore, decision-edge-guards routing to 5 draft variants, human-in-the-loop approval gate |
 
 ```bash
 uv sync                       # includes the ipykernel used by the notebooks
