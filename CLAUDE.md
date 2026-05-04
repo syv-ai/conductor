@@ -35,7 +35,7 @@ conductor/
 │   ├── app.py                  # FastAPI endpoints (GET /api/nodes, POST /api/execute, /api/execute-stream) with CORS
 │   ├── nodes.py                # Demo nodes: text, uppercase, template, combine, regex, make-list, number, math, if-else, for-each start/end
 │   └── web/                    # Next.js 15 + shadcn + Tailwind v4 + @xyflow/react flow builder (independent of aka frontend)
-├── examples/                   # 7 Jupyter notebooks (nodes, flows, store, control flow, discovery, HITL, shared refs)
+├── examples/                   # 10 Jupyter notebooks (nodes, flows, store, control flow, discovery, HITL, shared refs, widgets, miljørapport + KK afgørelse case studies)
 ├── docs/                       # Design specs, MkDocs site, logo (llms.txt lives inside the package)
 ├── .github/workflows/          # ci.yml (ruff + pytest on PR), docs-audit.yml (weekly)
 └── .pre-commit-config.yaml     # nbstripout on *.ipynb
