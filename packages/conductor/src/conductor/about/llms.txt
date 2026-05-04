@@ -154,7 +154,7 @@ Compile-time: exactly one edge without `when` (else), at least one guarded. Inva
 Sandboxed expression language used by edge guards, loop conditions, idempotency keys, signal correlation, and subprocess input mapping. Module: `conductor.expr`.
 
 - Literals: int, float, string (`'x'` or `"x"`), `true`/`false`/`null`/`None`, lists `[1,2]`, maps `{"k": 1}`.
-- Operators: `+ - * / %`, `== != < <= > >=`, `&& ||` (also `and or not`), `! -`, `in`, ternary `? :`.
+- Operators: `+ - * / %`, `== != < <= > >=`, `&& ||` (also `and or not`), `! -`, `in`, ternary `? :`. `int / int` returns an int truncated toward zero (CEL spec); mixed `int/float` returns float.
 - Identifiers: dotted (`invoice.amount`), indexed (`a[0]`, `m["k"]`), `$` root alias.
 - Built-in functions: `size`, `has`, `contains`, `startsWith`, `endsWith`, `matches`, `lower`, `upper`, `string`, `int`, `double`, `bool`, `exists`, `min`, `max`, `abs`. Also `.contains()`, `.startsWith()`, etc. as method calls.
 
@@ -192,6 +192,7 @@ Per-node `compensation:` field pointing at another node. When a flow fails, the 
 Compile-time validation of edge type compatibility:
 - Exact match, numeric interchangeability (int↔float), string coercion
 - list[T] accepts T (auto-wrap), ConnectionList accepts anything
+- Union types (`str | int`) are compared alternative-by-alternative on either side; any matching pair passes
 - Default: warnings on `compiled.type_warnings`. With `strict_types=True`: raises `CompilationError`.
 
 ### Extension Points
@@ -210,9 +211,11 @@ Compile-time validation of edge type compatibility:
   `discover(package_name)`, and
   **`merge(other, on_conflict="raise"|"skip"|"error-summary")`** for composing
   registries. Returns self for chaining.
-- `GraphNode(id, type, data, produces=None, consumes=None)` — Node in the graph.
+- `GraphNode(id, type, data, produces=None, consumes=None, node_label=None, output_labels=None)` — Node in the graph.
   - `produces: dict[str, str] | None` — output handle → display label (marks that output as shareable)
   - `consumes: dict[str, tuple[str, str]] | None` — input handle → `(producer_node_id, output_handle)`
+  - `node_label: str | None` — host-supplied display name (UI only)
+  - `output_labels: dict[str, str] | None` — host-supplied per-output display names (UI only); flow into `ConnectionList` aggregator key generation
 - `GraphEdge(id, source, target, source_handle, target_handle)` — Edge connecting nodes
 - `compile(nodes, edges, registry, *, compound_types, extension_resolver, strict_types)` → `CompiledGraph`
 
@@ -259,7 +262,7 @@ Hierarchy (all inherit from `ConductorError`):
   - `CycleDetectionError`
   - `TypeCheckError`
 - `NodeError(message, *, node_id, node_type, original)` — carries node context
-  - `NodeValidationError` — pydantic validation failure, **never retried**
+  - `NodeValidationError` — pydantic validation failure, **never retried**. Renders a one-line-per-field summary; the original pydantic `ValidationError` is preserved on `.original` for hosts that want structured access.
   - `NodeExecutionError` — node function raised, retried if configured
   - `NodeTimeoutError`
   - `NodeConnectionError` — raise from node code for transient network/API failures (retried)
@@ -351,11 +354,11 @@ Dict output: `{"result": dict, **dict}` (keys spread for sub-output access)
 
 ## Workspace Packages
 
-Three workspace packages ship today:
+Three workspace packages ship today. PyPI distribution names are prefixed with `syv-` (Apache-2.0); Python import paths are unchanged.
 
-1. **`conductor`** — the core engine. All compile/execute/registry/widget types.
-2. **`conductor-nodes`** — reusable standard-library nodes.
-3. **`conductor-providers`** — framework adapters; ships a React provider today.
+1. **`conductor`** (dist: `syv-conductor`) — the core engine. All compile/execute/registry/widget types. Optional extra: `syv-conductor[yaml]` for the YAML/JSON flow format.
+2. **`conductor-nodes`** (dist: `syv-conductor-nodes`) — reusable standard-library nodes.
+3. **`conductor-providers`** (dist: `syv-conductor-providers`) — framework adapters; ships React and FastAPI providers today.
 
 ### conductor-nodes
 
@@ -394,11 +397,20 @@ nodes2, edges2 = react.react_to_graph(flow)        # ReactFlow → conductor
 positions = react.topological_positions(nodes, edges)
 ```
 
-Wire format: conductor's `produces` / `consumes` ride on each ReactFlow
-node's `data` payload. Tuples become lists in JSON and are restored when
-parsed. Unknown keys are ignored — hosts can decorate safely. New
-providers live in sibling subpackages (`conductor_providers.svelte`, …);
-there is no abstract base class, each provider shapes itself to its
+Wire format: conductor's `produces` / `consumes` (and `node_label` /
+`output_labels`) ride on each ReactFlow node's `data` payload. Tuples
+become lists in JSON and are restored when parsed. Unknown keys are
+ignored — hosts can decorate safely.
+
+The FastAPI provider (`conductor_providers.fastapi`) exposes a
+`conductor_router(...)` `APIRouter` factory mounting `/execute`,
+`/execute-stream`, `/compile`, `/nodes`, and `/entities/{kind}`. Pydantic
+request models mirror conductor's `GraphNode` / `GraphEdge`, including
+`produces`, `consumes`, `node_label`, and `output_labels`. Pass an
+`entity_resolver` callable to back `EntityDropdown` widgets.
+
+New providers live in sibling subpackages (`conductor_providers.svelte`,
+…); there is no abstract base class, each provider shapes itself to its
 framework.
 
 ## Project Structure
@@ -461,4 +473,4 @@ Or programmatically:
 from conductor.about import get_content, list_sections, get_section
 ```
 
-The wheel bundles this file as `conductor/about/llms.txt`, so downstream projects that `pip install conductor` can read the reference without cloning the repository.
+The wheel bundles this file as `conductor/about/llms.txt`, so downstream projects that `pip install syv-conductor` can read the reference without cloning the repository.

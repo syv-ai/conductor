@@ -17,6 +17,9 @@ Built to be the shared core behind visual flow builders — define nodes once, g
 
 - **Decorator-based node registration** — `@registry.node()` turns any function into a validated, UI-renderable node
 - **Widget annotations** — `Annotated[str, Text(label="Input")]` is the single source of truth for validation, execution, and frontend rendering
+- **Union-aware type checking** — `str | int` on either side of an edge is checked alternative-by-alternative; any matching pair passes
+- **Display hints** — optional `node_label` / `output_labels` on `GraphNode` (mirrored on the FastAPI provider) feed ConnectionList aggregation and host UIs without affecting execution
+- **Friendly validation errors** — `NodeValidationError` renders one line per failed field; the original pydantic exception stays on `.original`
 - **Compile-then-execute** — structural errors caught before any node runs
 - **Eager parallel scheduling** — nodes start as soon as their dependencies finish; independent branches run concurrently
 - **Retry** — per-node `max_retries`/`retry_delay` with exponential backoff, or a global `RetryConfig`
@@ -52,6 +55,19 @@ Built to be the shared core behind visual flow builders — define nodes once, g
 - [uv](https://docs.astral.sh/uv/) package manager
 
 ### Install
+
+From PyPI (Apache-2.0):
+
+```bash
+pip install syv-conductor                # core engine — import as `conductor`
+pip install syv-conductor-nodes          # standard node library — import as `conductor_nodes`
+pip install syv-conductor-providers      # framework adapters — import as `conductor_providers`
+pip install "syv-conductor[yaml]"        # optional: YAML/JSON flow format
+```
+
+The PyPI distribution names are prefixed with `syv-`; Python imports are unchanged.
+
+For local development (uv workspace):
 
 ```bash
 git clone <repo-url> conductor
@@ -151,7 +167,7 @@ async for event in execute(compiled):
 conductor/
 ├── packages/
 │   └── conductor/                 # Core library
-│       ├── pyproject.toml          # pip install conductor
+│       ├── pyproject.toml          # pip install syv-conductor
 │       └── src/conductor/
 │           ├── types.py            # Enums: WidgetType, ResultFormat, NodeCategory
 │           ├── widgets.py          # Widget ABC + Text, Dropdown, Range, Output, etc.
@@ -192,7 +208,7 @@ conductor/
 │   └── conductor-providers/        # Framework adapters — react today, more later
 ├── examples/                       # Usage notebooks (7 examples)
 ├── demo/                           # Interactive playground (FastAPI + browser UI)
-├── tests/                          # pytest test suite (235 tests across core, nodes, providers)
+├── tests/                          # pytest test suite (430 tests across core, nodes, providers)
 ├── .github/workflows/              # ci.yml (PR lint + test), docs-audit.yml (weekly)
 └── docs/                           # Design specs + MkDocs site (llms.txt ships inside the package)
 ```
@@ -646,7 +662,7 @@ uv run mkdocs gh-deploy  # Deploy to GitHub Pages
 
 ## Standard node library (`conductor-nodes`)
 
-A workspace sibling to `conductor` that ships common nodes so downstream flows don't have to re-author them. Pick categories you want:
+A workspace sibling to `conductor` that ships common nodes so downstream flows don't have to re-author them. Distributed on PyPI as `syv-conductor-nodes`; the Python import path is `conductor_nodes`. Pick categories you want:
 
 ```python
 from conductor import NodeRegistry
@@ -686,7 +702,7 @@ Node IDs are category-prefixed to avoid colliding with application-level IDs. Re
 
 ## Frontend providers (`conductor-providers`)
 
-Framework adapters. Each provider is a subpackage translating between conductor's Python objects and the framework's wire format. The initial provider is `conductor_providers.react`:
+Framework adapters. Each provider is a subpackage translating between conductor's Python objects and the framework's wire format. Distributed on PyPI as `syv-conductor-providers`; the Python import path is `conductor_providers`. The initial provider is `conductor_providers.react`:
 
 ```python
 from conductor_providers import react
@@ -729,4 +745,4 @@ The notebooks use `await collect(execute(compiled))` because the kernel already 
 
 ## License
 
-TBD
+Apache-2.0. See [`LICENSE`](LICENSE) at the repo root; each PyPI wheel ships the same license file.

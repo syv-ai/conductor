@@ -28,7 +28,7 @@ conductor/
 │   └── src/conductor_providers/
 │       ├── react/              # graph_to_react / react_to_graph / palette_from_registry
 │       └── fastapi/            # conductor_router factory (/execute, /execute-stream, /compile, /nodes)
-├── tests/test_core/            # 200+ tests for conductor core (CEL, decision, while, subprocess, signal, compensation, timeout/idempotency, flow format, integration, …)
+├── tests/test_core/            # 363 tests for conductor core (CEL, decision, while, subprocess, signal, compensation, timeout/idempotency, flow format, integration, …)
 ├── tests/test_nodes/           # conductor-nodes tests
 ├── tests/test_providers/       # conductor-providers tests (React + FastAPI)
 ├── demo/                       # Playground — FastAPI backend + Next.js frontend
@@ -43,9 +43,13 @@ conductor/
 
 ## Workspace packages
 
-- **`conductor`** — core engine (compile, execute, registry, widgets, errors, compound nodes, shared refs). Also ships CEL (`conductor.expr`), process-standard primitives (`Flow`, `FlowDependency`, `FlowTrigger`, `Actor`, decision-node guards, compensation, signals), and a YAML flow format (`conductor.flow_format`).
-- **`conductor-nodes`** — standard-library nodes. Each category module (`text`, `math`, `logic`, `loop`, `json_ops`, `regex_ops`) exposes `register(registry)`; top-level `register_all(registry, categories=...)` registers everything (or a filtered subset). Node IDs are category-prefixed (`text-uppercase`, `math-add`, …) except the for-each markers which match the `FOR_EACH` compound's discovery prefix.
-- **`conductor-providers`** — framework adapters. Ships `conductor_providers.react` today with `graph_to_react` / `react_to_graph` / `palette_from_registry`. New providers (Svelte, Vue, etc.) go in sibling subpackages — no abstract base class to satisfy, each provider shapes itself to its framework.
+PyPI distribution names are `syv-conductor`, `syv-conductor-nodes`, `syv-conductor-providers` (Apache-2.0). The Python import paths (`conductor`, `conductor_nodes`, `conductor_providers`) are unchanged.
+
+- **`conductor`** (dist: `syv-conductor`) — core engine (compile, execute, registry, widgets, errors, compound nodes, shared refs). Also ships CEL (`conductor.expr`), process-standard primitives (`Flow`, `FlowDependency`, `FlowTrigger`, `Actor`, decision-node guards, compensation, signals), and a YAML flow format (`conductor.flow_format`).
+- **`conductor-nodes`** (dist: `syv-conductor-nodes`) — standard-library nodes. Each category module (`text`, `math`, `logic`, `loop`, `json_ops`, `regex_ops`) exposes `register(registry)`; top-level `register_all(registry, categories=...)` registers everything (or a filtered subset). Node IDs are category-prefixed (`text-uppercase`, `math-add`, …) except the for-each markers which match the `FOR_EACH` compound's discovery prefix.
+- **`conductor-providers`** (dist: `syv-conductor-providers`) — framework adapters. Ships `conductor_providers.react` today with `graph_to_react` / `react_to_graph` / `palette_from_registry`. New providers (Svelte, Vue, etc.) go in sibling subpackages — no abstract base class to satisfy, each provider shapes itself to its framework.
+
+Tag-driven publishing: pushing a `v*` tag fires `.github/workflows/publish.yml`, which builds wheels + sdists and uploads all three to PyPI (`PYPI_API_TOKEN`, idempotent via `skip-existing`).
 
 ## Tech stack
 
@@ -62,7 +66,7 @@ conductor/
 uv sync                           # Install all deps
 uv sync --group demo              # Install with demo deps (FastAPI)
 uv run pre-commit install         # Activate the nbstripout hook on your clone
-uv run pytest tests/ -v           # Run all 235 tests (core + nodes + providers)
+uv run pytest tests/ -v           # Run all 430 tests (core + nodes + providers)
 uvx ruff check .                  # Lint (what CI runs on PRs)
 uv run python -m conductor.about  # Print the full library reference (llms.txt)
 uv run python -m conductor.about sections   # List reference sections
@@ -101,7 +105,8 @@ Three ways for a node to receive a value, ordered by resolver precedence (first 
 Two additional concepts:
 
 - **FlowStore** — imperative side-channel key/value cache (`store: FlowStore` auto-injected). Useful for per-run scratch data; not part of the DAG.
-- **ConnectionList** widget aggregates N edges into a labeled `dict[str, value]`.
+- **ConnectionList** widget aggregates N edges into a labeled `dict[str, value]`. Keys come from `output_labels[handle]` (host-supplied display hint) when unique across the inputs, escalating to `"node_label (output)"` only on collisions; falls back to producer node id + handle otherwise.
+- **Display hints** — optional `node_label: str | None` and `output_labels: dict[str, str] | None` on `GraphNode` (mirrored on the FastAPI provider's `NodeInput`). Pure UX; consumed by ConnectionList aggregation and host UIs.
 - **SKIPPED sentinel** propagates through conditional branches.
 - **ExtensionResolver** protocol lets host apps handle custom node types.
 
@@ -117,7 +122,7 @@ Full guide for users and contributors: [`docs/widgets.md`](docs/widgets.md) (cat
 
 ### Compile-time type checking
 
-Every edge AND every consume binding is validated: source output type vs target input type. Rules: exact match, numeric interchangeability (int↔float), string coercion (anything→str), list auto-wrap (T→list[T]), ConnectionList accepts all. Default: warnings on `compiled.type_warnings`. With `strict_types=True`: raises `CompilationError` (only for real mismatches; informational warnings like duplicate labels are not fatal).
+Every edge AND every consume binding is validated: source output type vs target input type. Rules: exact match, numeric interchangeability (int↔float), string coercion (anything→str), list auto-wrap (T→list[T]), ConnectionList accepts all. Union types (`str | int`) are compared alternative-by-alternative on either side — a match in any pair passes. Default: warnings on `compiled.type_warnings`. With `strict_types=True`: raises `CompilationError` (only for real mismatches; informational warnings like duplicate labels are not fatal).
 
 ### Eager parallel execution
 
@@ -148,7 +153,7 @@ All exceptions inherit from `ConductorError` (see `errors.py`):
 - `CompilationError` — graph structure invalid
   - `CycleDetectionError`, `TypeCheckError`
 - `NodeError` — carries `node_id`, `node_type`, `original`
-  - `NodeValidationError` (pydantic failure, never retried)
+  - `NodeValidationError` (pydantic failure, never retried; renders a one-line-per-field summary, with the original pydantic exception preserved on `.original` for hosts that want structured access)
   - `NodeExecutionError` (node function raised)
   - `NodeTimeoutError`
   - `NodeConnectionError` (raise from node code for transient network/API failures)
