@@ -29,6 +29,7 @@ def conductor_router(
     entity_resolver: (
         Callable[[str, Request], list[dict[str, Any]]] | None
     ) = None,
+    extension_resolver: Any | None = None,
     strict_types: bool = False,
 ) -> APIRouter:
     """Build a FastAPI ``APIRouter`` serving conductor's standard endpoints.
@@ -86,6 +87,7 @@ def conductor_router(
             edges=edges,
             registry=registry,
             compound_types=compound_types,
+            extension_resolver=extension_resolver,
             strict_types=strict_types,
         )
         results = execute_sync(compiled, store_data=_store_data(request))
@@ -102,6 +104,7 @@ def conductor_router(
             edges=edges,
             registry=registry,
             compound_types=compound_types,
+            extension_resolver=extension_resolver,
             strict_types=strict_types,
         )
         store_data = _store_data(request)
@@ -148,6 +151,7 @@ def conductor_router(
                 edges=edges,
                 registry=registry,
                 compound_types=compound_types,
+                extension_resolver=extension_resolver,
                 strict_types=False,  # /compile always surfaces warnings as soft
             )
         except CompilationError as e:
