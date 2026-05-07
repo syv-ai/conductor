@@ -58,10 +58,23 @@ def register(registry: "NodeRegistry") -> None:
 
     @registry.node(
         "for-each-end", version=1, name="For Each (End)",
-        description="Collects loop body results into a list",
+        description="Collects loop body results into one list per wired input.",
         category=NodeCategory.CONTROL,
     )
     def for_each_end(
-        item: Annotated[object, Text(label="Item")],
-    ) -> Annotated[list, Output(label="Collected")]:
+        # input_1 = ``item`` — handle name kept verbatim for backward
+        # compat with flows that wired ``for-each-end.item`` already.
+        item: Annotated[object | None, Text(label="Item")] = None,
+        # input_2..input_4 — additional collection slots for body
+        # outputs that should each fan out into their own ``list``.
+        # Hidden by the frontend until used.
+        item_2: Annotated[object | None, Text(label="Item-2")] = None,
+        item_3: Annotated[object | None, Text(label="Item-3")] = None,
+        item_4: Annotated[object | None, Text(label="Item-4")] = None,
+    ) -> tuple[
+        Annotated[list, Output(label="Collected")],
+        Annotated[list, Output(label="Collected-2")],
+        Annotated[list, Output(label="Collected-3")],
+        Annotated[list, Output(label="Collected-4")],
+    ]:
         raise NotImplementedError("Handled by the FOR_EACH compound node")

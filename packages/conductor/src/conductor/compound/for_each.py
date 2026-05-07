@@ -52,7 +52,9 @@ class ForEachNode:
             return _resolve_end_inputs(local, self.region.end_id, state)
 
         if not items:
-            end_result = normalize_result([])
+            empty = ([], [], [], [])
+            end_result = normalize_result(empty)
+            end_result["result"] = []
             state.results[self.region.end_id] = end_result
             state.emit(NodeCompleteEvent(
                 type="node_complete", node_id=self.region.end_id,
@@ -81,7 +83,20 @@ class ForEachNode:
                     current=idx + 1, total=len(items),
                 ))
 
-        end_result = normalize_result(collected)
+        # ``collected`` is a list of per-iteration 4-tuples (one per
+        # for-each-end slot). Transpose into per-slot lists so the end
+        # node's outputs map ``(Collected, Collected-2, Collected-3,
+        # Collected-4)``. ``None`` entries (unwired slots) are kept as-is
+        # — frontend hides those output rows when the slot isn't wired.
+        per_slot: tuple[list[Any], list[Any], list[Any], list[Any]] = ([], [], [], [])
+        for tup in collected:
+            for idx in range(4):
+                per_slot[idx].append(tup[idx] if idx < len(tup) else None)
+        end_result = normalize_result(per_slot)
+        # Backward-compat alias: ``result`` maps to slot 0 so callers
+        # that still read ``results[end]["result"]`` (single-output
+        # flows) keep working without changes.
+        end_result["result"] = per_slot[0]
         state.results[self.region.end_id] = end_result
         state.emit(NodeCompleteEvent(
             type="node_complete", node_id=self.region.end_id,
@@ -181,20 +196,34 @@ def _execute_subgraph(
     return local_results
 
 
+END_SLOT_HANDLES = ("item", "item_2", "item_3", "item_4")
+
+
 def _resolve_end_inputs(
     local_results: dict[str, Any],
     end_id: str,
     state: Any,
-) -> Any:
-    """Resolve the end node's inputs and return the collected value."""
+) -> tuple[Any, Any, Any, Any]:
+    """Resolve all wired end-inputs into a per-slot tuple.
+
+    Each iteration of the loop body emits one value per wired end
+    input. Returns a 4-tuple aligned with the for-each-end schema:
+    ``(item, item_2, item_3, item_4)``. Unwired slots are ``None``;
+    the aggregation pass at the top of ``execute`` filters them out so
+    no useless ``[None, None, ...]`` lists end up on the canvas.
+    """
     compiled = state.compiled
+    per_slot: dict[str, Any] = {}
 
-    for _target_handle, source_id, source_handle, _edge_id in compiled.incoming_map.get(end_id, ()):
+    for target_handle, source_id, source_handle, _edge_id in compiled.incoming_map.get(end_id, ()):
+        if target_handle not in END_SLOT_HANDLES:
+            continue
         source_result = local_results.get(source_id)
-        if source_result is not None:
-            return extract_output(source_result, source_handle)
+        if source_result is None:
+            continue
+        per_slot[target_handle] = extract_output(source_result, source_handle)
 
-    return None
+    return tuple(per_slot.get(h) for h in END_SLOT_HANDLES)
 
 
 FOR_EACH = CompoundNodeType(
