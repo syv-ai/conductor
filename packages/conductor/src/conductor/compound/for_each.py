@@ -26,16 +26,28 @@ class ForEachNode:
 
     def execute(self, req: Any) -> Any:
 
-        items = _prepare_items(req.inputs.get("items", []))
+        # Parallel-zip aggregation: when ``items`` has N sources wired
+        # (a dict from the ConnectionList resolver), each iteration
+        # yields a tuple ``(elem_0, elem_1, …, elem_{N-1})``. Single
+        # source falls back to the legacy 1-tuple shape so per-iteration
+        # work that wired ``output_1`` keeps working unchanged.
+        raw = req.inputs.get("items", [])
+        items = _prepare_items_zip(raw)
         items = items[:MAX_ITERATIONS]
         parallel = req.inputs.get("execution_mode", "Sequential") == "Parallel"
         state = req.state
 
         state.emit(NodeStartEvent(type="node_start", node_id=self.region.end_id))
 
-        def run_one(item: Any, idx: int) -> Any:
-            # Create overlay: start node produces (item, index)
-            overlay = {self.region.start_id: normalize_result((item, idx + 1))}
+        def run_one(item: tuple, idx: int) -> Any:
+            # Pad the per-iteration tuple to the start node's full
+            # output schema: (output_1=Item, output_2=Index,
+            # output_3=Item-2, output_4=Item-3, output_5=Item-4).
+            # Sources beyond 4 are dropped — the schema caps Item slots
+            # at 4 today; bump ``loop.py`` if you need more.
+            padded = list(item) + [None] * (4 - len(item))
+            overlay_value = (padded[0], idx + 1, padded[1], padded[2], padded[3])
+            overlay = {self.region.start_id: normalize_result(overlay_value)}
             local = _execute_subgraph(state, self.body_order, overlay)
             return _resolve_end_inputs(local, self.region.end_id, state)
 
@@ -88,6 +100,48 @@ def _prepare_items(raw: Any) -> list[Any]:
     if isinstance(raw, dict):
         return list(raw.values())
     return [raw]
+
+
+def _prepare_items_zip(raw: Any) -> list[tuple]:
+    """Normalize ``items`` for parallel-zip iteration.
+
+    Returns a list of tuples — each tuple is one iteration's per-source
+    elements. Iteration count = ``min(len(s) for s in sources)`` when
+    multi-source; longer sources are truncated so every iteration has a
+    value at every position. Single-source falls back to 1-tuples.
+
+    Shapes accepted:
+
+    * ``dict`` (the ConnectionList resolver's output): keys are source
+      labels, values are the source-side values. >1 key triggers
+      parallel-zip; 1 key collapses to single-source.
+    * ``list``: single-source fast path — wrap each element in a
+      1-tuple.
+    * ``str``: split by newline (legacy convenience), 1-tuple per line.
+    * scalar: single 1-tuple containing the scalar.
+    """
+    if isinstance(raw, dict):
+        if len(raw) == 0:
+            return []
+        sources = list(raw.values())
+        if len(sources) == 1:
+            return [(item,) for item in _prepare_items(sources[0])]
+        # All sources should be iterable; coerce non-list scalars to
+        # single-element lists so parallel-zip still has something at
+        # position 0 (later iterations skip that source).
+        coerced: list[list[Any]] = []
+        for src in sources:
+            if isinstance(src, list):
+                coerced.append(src)
+            elif isinstance(src, str):
+                coerced.append(
+                    [line.strip() for line in src.split("\n") if line.strip()]
+                )
+            else:
+                coerced.append([src])
+        min_len = min(len(s) for s in coerced)
+        return [tuple(s[i] for s in coerced) for i in range(min_len)]
+    return [(item,) for item in _prepare_items(raw)]
 
 
 def _execute_subgraph(

@@ -41,8 +41,18 @@ def register(registry: "NodeRegistry") -> None:
             Dropdown(label="Execution", choices=["Sequential", "Parallel"]),
         ] = "Sequential",
     ) -> tuple[
+        # output_1 = Item from source 0 (the only Item with one source wired,
+        # the first source's element under parallel-zip with multiple sources).
         Annotated[object, Output(label="Item")],
+        # output_2 = Index — kept here for backward compat with single-source
+        # flows that wired ``output_2`` expecting the iteration index.
         Annotated[int, Output(label="Index")],
+        # output_3..output_5 = additional Item slots, one per extra source
+        # in parallel-zip mode. Hidden by the frontend until the
+        # corresponding source is wired into ``items``.
+        Annotated[object, Output(label="Item-2")],
+        Annotated[object, Output(label="Item-3")],
+        Annotated[object, Output(label="Item-4")],
     ]:
         raise NotImplementedError("Handled by the FOR_EACH compound node")
 
