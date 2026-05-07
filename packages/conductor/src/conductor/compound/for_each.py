@@ -177,7 +177,6 @@ def _execute_subgraph(
 ) -> dict[str, Any]:
     """Execute a subset of nodes with result isolation."""
     from conductor.execution.engine import _dispatch_node
-    from conductor.execution.results import normalize_result
     from conductor.execution.skip import should_skip_node
 
     local_results = {**state.results, **overlay}
