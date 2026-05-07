@@ -87,3 +87,11 @@ class NodeDefinition:
     uses: tuple[str, ...] = field(default_factory=tuple)
     is_decision: bool = False
     is_signal: bool = False
+    # Compound markers (for-each-start/end, etc.) accept arbitrary
+    # input/output handle names beyond what the function signature
+    # declares. The declared inputs/outputs are templates the host can
+    # use as a starting point; the compiler skips strict handle
+    # validation for these nodes and their validation model accepts
+    # extra fields. Dynamic-shape behavior (parallel-zip, fan-out) is
+    # supplied by the compound runtime that owns the marker.
+    dynamic_handles: bool = False

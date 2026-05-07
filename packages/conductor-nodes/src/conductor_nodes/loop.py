@@ -13,6 +13,14 @@ To use the markers you must pass the ``FOR_EACH`` compound type to
 
     loop.register(registry)
     compiled = compile(nodes, edges, registry, compound_types=[FOR_EACH])
+
+Both markers register with ``dynamic_handles=True``: the declared
+parameters are templates the host UI can use as starting points, but
+the actual input/output handle set is unbounded — wire as many sources
+into ``items`` and as many body→end edges as you need. The FOR_EACH
+compound parallel-zips all wired ``items`` sources into per-iteration
+tuples and transposes per-iteration end inputs into per-slot output
+lists.
 """
 
 from __future__ import annotations
@@ -33,6 +41,7 @@ def register(registry: "NodeRegistry") -> None:
         "for-each-start", version=1, name="For Each (Start)",
         description="Iterates over a list of items. Must be paired with for-each-end.",
         category=NodeCategory.CONTROL,
+        dynamic_handles=True,
     )
     def for_each_start(
         items: Annotated[list, ConnectionList(label="Items")],
@@ -41,18 +50,12 @@ def register(registry: "NodeRegistry") -> None:
             Dropdown(label="Execution", choices=["Sequential", "Parallel"]),
         ] = "Sequential",
     ) -> tuple[
-        # output_1 = Item from source 0 (the only Item with one source wired,
-        # the first source's element under parallel-zip with multiple sources).
+        # Template outputs. The compound runtime emits ``output_1`` =
+        # primary Item, ``output_2`` = Index, ``output_3..N`` = Item-2..N
+        # for every additional source wired into ``items``. Hosts render
+        # the dynamic Item-N handles based on the live edge count.
         Annotated[object, Output(label="Item")],
-        # output_2 = Index — kept here for backward compat with single-source
-        # flows that wired ``output_2`` expecting the iteration index.
         Annotated[int, Output(label="Index")],
-        # output_3..output_5 = additional Item slots, one per extra source
-        # in parallel-zip mode. Hidden by the frontend until the
-        # corresponding source is wired into ``items``.
-        Annotated[object, Output(label="Item-2")],
-        Annotated[object, Output(label="Item-3")],
-        Annotated[object, Output(label="Item-4")],
     ]:
         raise NotImplementedError("Handled by the FOR_EACH compound node")
 
@@ -60,21 +63,13 @@ def register(registry: "NodeRegistry") -> None:
         "for-each-end", version=1, name="For Each (End)",
         description="Collects loop body results into one list per wired input.",
         category=NodeCategory.CONTROL,
+        dynamic_handles=True,
     )
     def for_each_end(
-        # input_1 = ``item`` — handle name kept verbatim for backward
-        # compat with flows that wired ``for-each-end.item`` already.
+        # Template input. Wire as many body→end edges as you need —
+        # the compound runtime gathers every wired ``target_handle``
+        # at runtime, transposes per-iteration tuples into per-slot
+        # lists, and emits ``output_1..output_N`` accordingly.
         item: Annotated[object | None, Text(label="Item")] = None,
-        # input_2..input_4 — additional collection slots for body
-        # outputs that should each fan out into their own ``list``.
-        # Hidden by the frontend until used.
-        item_2: Annotated[object | None, Text(label="Item-2")] = None,
-        item_3: Annotated[object | None, Text(label="Item-3")] = None,
-        item_4: Annotated[object | None, Text(label="Item-4")] = None,
-    ) -> tuple[
-        Annotated[list, Output(label="Collected")],
-        Annotated[list, Output(label="Collected-2")],
-        Annotated[list, Output(label="Collected-3")],
-        Annotated[list, Output(label="Collected-4")],
-    ]:
+    ) -> Annotated[list, Output(label="Collected")]:
         raise NotImplementedError("Handled by the FOR_EACH compound node")

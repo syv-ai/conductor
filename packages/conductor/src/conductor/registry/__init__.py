@@ -187,6 +187,7 @@ class NodeRegistry:
         uses: list[str] | None = None,
         is_decision: bool = False,
         is_signal: bool = False,
+        dynamic_handles: bool = False,
     ) -> Callable:
         """Decorator to register a function as a node.
 
@@ -216,7 +217,9 @@ class NodeRegistry:
                 raise ValueError(_duplicate_registration_message(base_id, version))
 
             inputs, outputs, result_format = _introspect_function(func)
-            validation_model = create_validation_model(func)
+            validation_model = create_validation_model(
+                func, allow_extra=dynamic_handles
+            )
 
             node_def = NodeDefinition(
                 id=full_id,
@@ -241,6 +244,7 @@ class NodeRegistry:
                 uses=tuple(uses or []),
                 is_decision=is_decision,
                 is_signal=is_signal,
+                dynamic_handles=dynamic_handles,
             )
 
             self._nodes[full_id] = node_def

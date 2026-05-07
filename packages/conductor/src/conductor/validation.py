@@ -80,8 +80,19 @@ def _is_injectable(annotation: Any) -> bool:
     return False
 
 
-def create_validation_model(func: Callable[..., Any]) -> type[BaseModel]:
-    """Create a Pydantic model from a function signature for input validation."""
+def create_validation_model(
+    func: Callable[..., Any],
+    *,
+    allow_extra: bool = False,
+) -> type[BaseModel]:
+    """Create a Pydantic model from a function signature for input validation.
+
+    When ``allow_extra=True`` the model accepts arbitrary additional
+    fields beyond what the signature declares — used for compound
+    markers (``for-each-start`` / ``for-each-end``) whose declared
+    inputs are templates and whose actual handle set is determined by
+    wired edges at runtime.
+    """
     sig = inspect.signature(func)
     type_hints = get_type_hints(func, include_extras=True)
 
@@ -129,4 +140,12 @@ def create_validation_model(func: Callable[..., Any]) -> type[BaseModel]:
             fields[param_name] = (annotation, default)
 
     model_name = f"{func.__name__}_ValidationModel"
+    if allow_extra:
+        from pydantic import ConfigDict
+
+        return create_model(  # type: ignore[call-overload]
+            model_name,
+            __config__=ConfigDict(extra="allow"),
+            **fields,
+        )
     return create_model(model_name, **fields)  # type: ignore[call-overload]

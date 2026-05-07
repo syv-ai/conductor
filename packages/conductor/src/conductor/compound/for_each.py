@@ -1,4 +1,13 @@
-"""ForEachNode compound node implementation."""
+"""ForEachNode compound node implementation.
+
+Supports unbounded parallel-zip iteration: any number of sources wired
+into ``for-each-start.items`` are zipped element-wise into per-iteration
+tuples, and any number of body→end edges are transposed into per-slot
+``Collected`` lists. Both markers register with ``dynamic_handles=True``,
+which lifts the strict-handle requirement so the start can emit
+``output_3, output_4, output_5, …`` and the end can accept
+``item_2, item_3, item_4, …`` without changing the registered schema.
+"""
 
 from __future__ import annotations
 
@@ -16,6 +25,13 @@ from conductor.graph.regions import discover_for_each_regions
 
 MAX_ITERATIONS = 1000
 
+# Stable handle ordering. The start emits ``output_1`` (Item-1) +
+# ``output_2`` (Index) first to keep backward compat with single-source
+# flows; additional Item slots fan out at ``output_3``, ``output_4``, …
+START_PRIMARY_ITEM = "output_1"
+START_INDEX = "output_2"
+END_PRIMARY_INPUT = "item"
+
 
 class ForEachNode:
     """Compound node for for-each loop iteration."""
@@ -25,36 +41,47 @@ class ForEachNode:
         self.body_order = [nid for nid in execution_order if nid in region.body_ids]
 
     def execute(self, req: Any) -> Any:
-
-        # Parallel-zip aggregation: when ``items`` has N sources wired
-        # (a dict from the ConnectionList resolver), each iteration
-        # yields a tuple ``(elem_0, elem_1, …, elem_{N-1})``. Single
-        # source falls back to the legacy 1-tuple shape so per-iteration
-        # work that wired ``output_1`` keeps working unchanged.
+        # Parallel-zip aggregation. The ``items`` ConnectionList resolver
+        # delivers a dict {label: source_value}; each source contributes
+        # one position to the per-iteration tuple.
         raw = req.inputs.get("items", [])
         items = _prepare_items_zip(raw)
         items = items[:MAX_ITERATIONS]
         parallel = req.inputs.get("execution_mode", "Sequential") == "Parallel"
         state = req.state
 
+        # Discover the dynamic shape of the end node from the compiled
+        # incoming-edge map. ``end_input_handles`` preserves the order
+        # in which the user wired body→end edges so the per-slot
+        # ``Collected`` outputs come out in a deterministic order.
+        end_input_handles = _discover_end_input_handles(
+            state.compiled, self.region.end_id
+        )
+
         state.emit(NodeStartEvent(type="node_start", node_id=self.region.end_id))
 
-        def run_one(item: tuple, idx: int) -> Any:
-            # Pad the per-iteration tuple to the start node's full
-            # output schema: (output_1=Item, output_2=Index,
-            # output_3=Item-2, output_4=Item-3, output_5=Item-4).
-            # Sources beyond 4 are dropped — the schema caps Item slots
-            # at 4 today; bump ``loop.py`` if you need more.
-            padded = list(item) + [None] * (4 - len(item))
-            overlay_value = (padded[0], idx + 1, padded[1], padded[2], padded[3])
-            overlay = {self.region.start_id: normalize_result(overlay_value)}
+        def run_one(item: tuple, idx: int) -> tuple:
+            # Start node's per-iteration overlay:
+            #   output_1 = Item-1  (first wired source's element)
+            #   output_2 = Index   (1-based)
+            #   output_3 = Item-2  (second wired source's element)
+            #   output_4 = Item-3
+            #   …
+            # Build the dict directly so we can place ``output_2`` (Index)
+            # between Item-1 and the rest without juggling tuple positions.
+            start_result: dict[str, Any] = {
+                START_PRIMARY_ITEM: item[0] if len(item) > 0 else None,
+                START_INDEX: idx + 1,
+            }
+            for slot_idx in range(1, len(item)):
+                start_result[f"output_{slot_idx + 2}"] = item[slot_idx]
+
+            overlay = {self.region.start_id: start_result}
             local = _execute_subgraph(state, self.body_order, overlay)
-            return _resolve_end_inputs(local, self.region.end_id, state)
+            return _resolve_end_inputs(local, end_input_handles, self.region.end_id, state)
 
         if not items:
-            empty = ([], [], [], [])
-            end_result = normalize_result(empty)
-            end_result["result"] = []
+            end_result = _build_end_result([], end_input_handles)
             state.results[self.region.end_id] = end_result
             state.emit(NodeCompleteEvent(
                 type="node_complete", node_id=self.region.end_id,
@@ -83,20 +110,7 @@ class ForEachNode:
                     current=idx + 1, total=len(items),
                 ))
 
-        # ``collected`` is a list of per-iteration 4-tuples (one per
-        # for-each-end slot). Transpose into per-slot lists so the end
-        # node's outputs map ``(Collected, Collected-2, Collected-3,
-        # Collected-4)``. ``None`` entries (unwired slots) are kept as-is
-        # — frontend hides those output rows when the slot isn't wired.
-        per_slot: tuple[list[Any], list[Any], list[Any], list[Any]] = ([], [], [], [])
-        for tup in collected:
-            for idx in range(4):
-                per_slot[idx].append(tup[idx] if idx < len(tup) else None)
-        end_result = normalize_result(per_slot)
-        # Backward-compat alias: ``result`` maps to slot 0 so callers
-        # that still read ``results[end]["result"]`` (single-output
-        # flows) keep working without changes.
-        end_result["result"] = per_slot[0]
+        end_result = _build_end_result(collected, end_input_handles)
         state.results[self.region.end_id] = end_result
         state.emit(NodeCompleteEvent(
             type="node_complete", node_id=self.region.end_id,
@@ -141,9 +155,6 @@ def _prepare_items_zip(raw: Any) -> list[tuple]:
         sources = list(raw.values())
         if len(sources) == 1:
             return [(item,) for item in _prepare_items(sources[0])]
-        # All sources should be iterable; coerce non-list scalars to
-        # single-element lists so parallel-zip still has something at
-        # position 0 (later iterations skip that source).
         coerced: list[list[Any]] = []
         for src in sources:
             if isinstance(src, list):
@@ -196,34 +207,69 @@ def _execute_subgraph(
     return local_results
 
 
-END_SLOT_HANDLES = ("item", "item_2", "item_3", "item_4")
+def _discover_end_input_handles(compiled: Any, end_id: str) -> tuple[str, ...]:
+    """Extract the wired end-input handle names in stable order.
+
+    The primary ``item`` handle always sits at position 0 even when
+    unwired — it's the schema-declared entrypoint. Additional wired
+    handles (``item_2, item_3, …`` or any other names the host emits)
+    follow in the order they were registered in the compiled graph.
+    """
+    seen: set[str] = set()
+    ordered: list[str] = [END_PRIMARY_INPUT]
+    seen.add(END_PRIMARY_INPUT)
+
+    for target_handle, _source_id, _source_handle, _edge_id in compiled.incoming_map.get(end_id, ()):
+        if target_handle in seen:
+            continue
+        seen.add(target_handle)
+        ordered.append(target_handle)
+
+    return tuple(ordered)
 
 
 def _resolve_end_inputs(
     local_results: dict[str, Any],
+    end_input_handles: tuple[str, ...],
     end_id: str,
     state: Any,
-) -> tuple[Any, Any, Any, Any]:
-    """Resolve all wired end-inputs into a per-slot tuple.
-
-    Each iteration of the loop body emits one value per wired end
-    input. Returns a 4-tuple aligned with the for-each-end schema:
-    ``(item, item_2, item_3, item_4)``. Unwired slots are ``None``;
-    the aggregation pass at the top of ``execute`` filters them out so
-    no useless ``[None, None, ...]`` lists end up on the canvas.
-    """
+) -> tuple[Any, ...]:
+    """Resolve every wired end-input into a per-slot tuple, in stable order."""
     compiled = state.compiled
     per_slot: dict[str, Any] = {}
 
     for target_handle, source_id, source_handle, _edge_id in compiled.incoming_map.get(end_id, ()):
-        if target_handle not in END_SLOT_HANDLES:
-            continue
         source_result = local_results.get(source_id)
         if source_result is None:
             continue
         per_slot[target_handle] = extract_output(source_result, source_handle)
 
-    return tuple(per_slot.get(h) for h in END_SLOT_HANDLES)
+    return tuple(per_slot.get(h) for h in end_input_handles)
+
+
+def _build_end_result(
+    collected: list[tuple],
+    end_input_handles: tuple[str, ...],
+) -> dict[str, Any]:
+    """Transpose per-iteration tuples into per-slot output lists.
+
+    Maps slot-i (in ``end_input_handles`` order) to ``output_{i+1}`` so
+    ``output_1`` is the legacy ``Collected``, ``output_2`` is the
+    second-wired-input's collected list, etc. Also writes a
+    ``result`` alias pointing at slot 0 so callers reading
+    ``results[end_id]["result"]`` keep working.
+    """
+    n = max(1, len(end_input_handles))
+    per_slot: list[list[Any]] = [[] for _ in range(n)]
+    for tup in collected:
+        for idx in range(n):
+            per_slot[idx].append(tup[idx] if idx < len(tup) else None)
+
+    result: dict[str, Any] = {}
+    for idx, slot_values in enumerate(per_slot):
+        result[f"output_{idx + 1}"] = slot_values
+    result["result"] = per_slot[0]
+    return result
 
 
 FOR_EACH = CompoundNodeType(
