@@ -155,3 +155,64 @@ class TestConnectionInputMetadata:
 
         schema = Textarea(label="Body").to_schema()
         assert "connection_input" not in schema
+
+
+class TestTabularWidgets:
+    """Skeleton tabular-data widgets — to_schema() round-trip + key fields.
+
+    Mirrors the EntityDropdown / IfElseBuilder pattern: declared metadata
+    only, no Python-side execution semantics. The host owns rendering.
+    """
+
+    def test_table_source_widget(self):
+        from conductor.widgets import TableSource
+
+        schema = TableSource(label="Data source").to_schema()
+        assert schema["widget"] == WidgetType.TABLE_SOURCE.value
+        assert schema["label"] == "Data source"
+
+    def test_condition_builder_widget(self):
+        from conductor.widgets import ConditionBuilder
+
+        schema = ConditionBuilder(label="Filter").to_schema()
+        assert schema["widget"] == WidgetType.CONDITION_BUILDER.value
+        assert schema["label"] == "Filter"
+
+    def test_tags_widget(self):
+        from conductor.widgets import Tags
+
+        schema = Tags(label="Categories").to_schema()
+        assert schema["widget"] == WidgetType.TAGS.value
+        assert schema["label"] == "Categories"
+
+    def test_column_select_widget(self):
+        from conductor.widgets import ColumnSelect
+
+        schema = ColumnSelect(label="Column", depends_on="data").to_schema()
+        assert schema["widget"] == WidgetType.COLUMN_SELECT.value
+        assert schema["depends_on"] == "data"
+
+    def test_table_input_widget(self):
+        from conductor.widgets import TableInput
+
+        schema = TableInput(label="Rows").to_schema()
+        assert schema["widget"] == WidgetType.TABLE_INPUT.value
+        # Defaults round-trip into the schema.
+        assert schema["min_rows"] == 1
+        assert schema["min_columns"] == 1
+
+    def test_table_input_custom_minimums(self):
+        from conductor.widgets import TableInput
+
+        schema = TableInput(label="Rows", min_rows=3, min_columns=2).to_schema()
+        assert schema["min_rows"] == 3
+        assert schema["min_columns"] == 2
+
+    def test_table_source_connection_input_serializes(self):
+        """``connection_input`` is inherited and serialises uniformly across
+        the new tabular widgets — host frontends use it to decide which
+        input's edges drive autocomplete / source resolution."""
+        from conductor.widgets import TableSource
+
+        schema = TableSource(label="Data", connection_input="data").to_schema()
+        assert schema["connection_input"] == "data"

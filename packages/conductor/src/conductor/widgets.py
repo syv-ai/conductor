@@ -470,3 +470,90 @@ class IfElseBuilder(Widget):
         schema = super().to_schema()
         schema["variables"] = self.variables
         return schema
+
+
+# ---------------------------------------------------------------------------
+# Tabular-data widgets — composite UI primitives shared across nodes that
+# operate on table-shaped data. Like ``EntityDropdown`` and
+# ``IfElseBuilder``, these are skeleton widgets: declared metadata only,
+# with no Python-side execution semantics. The host application owns the
+# concrete renderer and the persisted value shape.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class TableSource(Widget):
+    """Composite tri-mode source picker for tabular data.
+
+    Hosts typically render upload / library / manual modes and collapse
+    to an upstream-source display when an edge is wired. Mode resolution
+    is host-side; this widget declares no widget-specific config.
+    """
+
+    @property
+    def widget_type(self) -> WidgetType:
+        return WidgetType.TABLE_SOURCE
+
+
+@dataclass
+class ConditionBuilder(Widget):
+    """Structured ``column / operator / value`` filter editor.
+
+    Rows are evaluated left-to-right with logic chips between them.
+    ``connection_input`` (inherited) declares which input's incoming
+    edges feed the column / variable autocomplete.
+    """
+
+    disable_handle: bool = True
+
+    @property
+    def widget_type(self) -> WidgetType:
+        return WidgetType.CONDITION_BUILDER
+
+
+@dataclass
+class Tags(Widget):
+    """Chip-list input. The persisted value is ``list[str]``."""
+
+    @property
+    def widget_type(self) -> WidgetType:
+        return WidgetType.TAGS
+
+
+@dataclass
+class ColumnSelect(Widget):
+    """Dropdown whose choices come from a sibling input's column headers.
+
+    ``depends_on`` names the input on the same node whose data shape
+    drives the column choices.
+    """
+
+    disable_handle: bool = True
+    depends_on: str = ""
+
+    @property
+    def widget_type(self) -> WidgetType:
+        return WidgetType.COLUMN_SELECT
+
+    def to_schema(self) -> dict[str, Any]:
+        schema = super().to_schema()
+        schema["depends_on"] = self.depends_on
+        return schema
+
+
+@dataclass
+class TableInput(Widget):
+    """Inline spreadsheet editor. Value is ``{columns: [...], rows: [...]}``."""
+
+    min_rows: int = 1
+    min_columns: int = 1
+
+    @property
+    def widget_type(self) -> WidgetType:
+        return WidgetType.TABLE_INPUT
+
+    def to_schema(self) -> dict[str, Any]:
+        schema = super().to_schema()
+        schema["min_rows"] = self.min_rows
+        schema["min_columns"] = self.min_columns
+        return schema

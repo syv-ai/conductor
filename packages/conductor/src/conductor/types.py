@@ -32,6 +32,11 @@ class WidgetType(str, Enum):
     ENTITY_DROPDOWN = "entity-dropdown"
     CODE_EDITOR = "code-editor"
     OUTPUT = "output"
+    TABLE_SOURCE = "table-source"
+    CONDITION_BUILDER = "condition-builder"
+    TAGS = "tags"
+    COLUMN_SELECT = "column-select"
+    TABLE_INPUT = "table-input"
 
 
 class ResultFormat(str, Enum):
