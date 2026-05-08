@@ -95,3 +95,9 @@ class NodeDefinition:
     # extra fields. Dynamic-shape behavior (parallel-zip, fan-out) is
     # supplied by the compound runtime that owns the marker.
     dynamic_handles: bool = False
+    # Optional hook that re-derives output metadata from instance ``data``
+    # and resolved upstream outputs at compile time. Signature:
+    # ``(ComputeOutputsContext) -> list[OutputMetadata]``. ``None`` means
+    # use the statically declared ``outputs`` unchanged. See
+    # ``conductor.registry.dynamic_outputs`` for the context types.
+    compute_outputs: Callable[..., Any] | None = None

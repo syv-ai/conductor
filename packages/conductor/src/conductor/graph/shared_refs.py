@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from conductor.errors import CompilationError
 from conductor.graph.model import GraphEdge, GraphNode
 from conductor.graph.type_check import TypeWarning
+from conductor.metadata import OutputMetadata
 
 if TYPE_CHECKING:
     from conductor.registry import NodeRegistry
@@ -27,16 +28,22 @@ def validate_and_build_consume_map(
     node_map: dict[str, GraphNode],
     managed_ids: frozenset[str],
     registry: "NodeRegistry",
+    node_outputs: dict[str, tuple[OutputMetadata, ...]] | None = None,
 ) -> tuple[ConsumeMap, list[TypeWarning]]:
     """Validate produces/consumes decorations and return the consume map.
 
     Raises ``CompilationError`` on structural violations (§6.1, §6.2 of the
     design). Returns a list of non-fatal warnings (e.g. duplicate producer
     labels) alongside the map.
+
+    ``node_outputs`` is the post-``compute_outputs`` map from the compiler.
+    When provided, producer-handle existence is checked against the
+    resolved outputs in preference to the static schema, so a hook that
+    introduces ``output_3`` enables ``produces={"output_3": "..."}``.
     """
     warnings: list[TypeWarning] = []
 
-    _validate_producers(nodes, managed_ids, registry, warnings)
+    _validate_producers(nodes, managed_ids, registry, warnings, node_outputs)
     consume_map = _validate_consumers_and_build_map(nodes, edges, node_map, registry)
     return consume_map, warnings
 
@@ -51,6 +58,7 @@ def _validate_producers(
     managed_ids: frozenset[str],
     registry: "NodeRegistry",
     warnings: list[TypeWarning],
+    node_outputs: dict[str, tuple[OutputMetadata, ...]] | None = None,
 ) -> None:
     label_to_producers: dict[str, list[tuple[str, str]]] = {}
 
@@ -68,10 +76,26 @@ def _validate_producers(
 
         node_def = registry.get(node.type)
 
+        # When this node owns a ``compute_outputs`` hook and we don't yet
+        # have the resolved map, defer handle-existence to the second pass
+        # — the hook may legitimately introduce the handle being published.
+        defer_handle_check = (
+            node_outputs is None
+            and node_def is not None
+            and getattr(node_def, "compute_outputs", None) is not None
+        )
+
         for output_handle, label in node.produces.items():
             # §6.1.2 — output handle must exist on the node type
-            if node_def is not None:
-                known_outputs = {o.name for o in node_def.outputs}
+            if node_def is not None and not defer_handle_check:
+                # Prefer resolved (post-compute_outputs) handles when
+                # available so dynamic outputs participate in shared-ref
+                # validation without a separate code path.
+                resolved = (
+                    node_outputs.get(node.id) if node_outputs is not None else None
+                )
+                pool = resolved if resolved is not None else node_def.outputs
+                known_outputs = {o.name for o in pool}
                 if output_handle not in known_outputs:
                     raise CompilationError(
                         f"Node '{node.id}' produces unknown handle "

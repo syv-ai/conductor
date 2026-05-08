@@ -188,6 +188,7 @@ class NodeRegistry:
         is_decision: bool = False,
         is_signal: bool = False,
         dynamic_handles: bool = False,
+        compute_outputs: Callable | None = None,
     ) -> Callable:
         """Decorator to register a function as a node.
 
@@ -245,6 +246,7 @@ class NodeRegistry:
                 is_decision=is_decision,
                 is_signal=is_signal,
                 dynamic_handles=dynamic_handles,
+                compute_outputs=compute_outputs,
             )
 
             self._nodes[full_id] = node_def
@@ -275,6 +277,11 @@ class NodeRegistry:
         uses = tuple(getattr(node_cls, "node_uses", ()) or ())
         is_decision = bool(getattr(node_cls, "node_is_decision", False))
         is_signal = bool(getattr(node_cls, "node_is_signal", False))
+        compute_outputs = getattr(node_cls, "compute_outputs", None)
+        # Reject bound-method shapes — class authors should wrap with
+        # ``staticmethod`` so the hook gets called as a plain function.
+        if compute_outputs is not None and not callable(compute_outputs):
+            compute_outputs = None
 
         node_def = NodeDefinition(
             id=full_id,
@@ -296,6 +303,7 @@ class NodeRegistry:
             uses=uses,
             is_decision=is_decision,
             is_signal=is_signal,
+            compute_outputs=compute_outputs,
         )
 
         self._nodes[full_id] = node_def

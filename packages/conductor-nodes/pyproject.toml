@@ -1,6 +1,6 @@
 [project]
 name = "syv-conductor-nodes"
-version = "0.1.5"
+version = "0.1.6"
 description = "Standard-library nodes for conductor — text, math, logic, JSON, regex, and loop markers. Categories opt-in via register_all(registry, categories=[...])."
 requires-python = ">=3.12"
 authors = [{ name = "Syvai", email = "billy@syv.ai" }]

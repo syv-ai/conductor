@@ -50,6 +50,7 @@ def check_edge_types(
     edges: list[GraphEdge],
     node_map: dict[str, GraphNode],
     registry: "NodeRegistry",
+    node_outputs: dict[str, tuple[OutputMetadata, ...]] | None = None,
 ) -> list[TypeWarning]:
     """Check all edges for type compatibility. Returns warnings (not errors).
 
@@ -75,7 +76,12 @@ def check_edge_types(
         if not source_def or not target_def:
             continue  # Extension nodes — can't type-check
 
-        source_output = _find_output(source_def, edge.source_handle or "result")
+        resolved_for_source = (
+            node_outputs.get(edge.source) if node_outputs is not None else None
+        )
+        source_output = _find_output(
+            source_def, edge.source_handle or "result", resolved=resolved_for_source,
+        )
         target_input = _find_input(target_def, edge.target_handle or "")
         if not source_output or not target_input:
             continue  # Handle not found — might be dynamic
@@ -103,6 +109,7 @@ def check_consume_types(
     consume_map: dict[tuple[str, str], tuple[str, str]],
     node_map: dict[str, GraphNode],
     registry: "NodeRegistry",
+    node_outputs: dict[str, tuple[OutputMetadata, ...]] | None = None,
 ) -> list[TypeWarning]:
     """Type-check every consume binding. Same rules as ``check_edge_types``.
 
@@ -124,7 +131,12 @@ def check_consume_types(
         if not source_def or not target_def:
             continue
 
-        source_output = _find_output(source_def, source_handle or "result")
+        resolved_for_source = (
+            node_outputs.get(source_id) if node_outputs is not None else None
+        )
+        source_output = _find_output(
+            source_def, source_handle or "result", resolved=resolved_for_source,
+        )
         target_input = _find_input(target_def, target_handle or "")
         if not source_output or not target_input:
             continue
@@ -235,8 +247,21 @@ def _split_union(t: str) -> list[str]:
     return [p for p in parts if p]
 
 
-def _find_output(node_def: "NodeDefinition", handle: str) -> OutputMetadata | None:
-    for out in node_def.outputs:
+def _find_output(
+    node_def: "NodeDefinition",
+    handle: str,
+    *,
+    resolved: tuple[OutputMetadata, ...] | None = None,
+) -> OutputMetadata | None:
+    """Look up an output by handle, preferring the resolved (post-hook) tuple.
+
+    When ``resolved`` is provided it shadows ``node_def.outputs`` — that's
+    how a node with a ``compute_outputs`` hook surfaces to type-checking
+    callers. Falling back to the static ``node_def.outputs`` keeps the
+    common case (no hook) free of overhead.
+    """
+    pool = resolved if resolved is not None else node_def.outputs
+    for out in pool:
         if out.name == handle:
             return out
     return None

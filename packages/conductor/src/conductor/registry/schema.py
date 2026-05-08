@@ -44,6 +44,11 @@ def _serialize_node(nd: NodeDefinition, registry: NodeRegistry) -> dict[str, Any
         out["is_decision"] = True
     if nd.is_signal:
         out["is_signal"] = True
+    # Surface the presence of a ``compute_outputs`` hook so frontends
+    # know to call back to the host for the resolved schema rather than
+    # treating the static ``outputs`` array as authoritative.
+    if getattr(nd, "compute_outputs", None) is not None:
+        out["has_dynamic_outputs"] = True
     return out
 
 

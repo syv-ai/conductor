@@ -1,6 +1,6 @@
 [project]
 name = "syv-conductor"
-version = "0.1.5"
+version = "0.1.6"
 description = "Reusable DAG execution engine — node registration, graph compilation, eager parallel streaming execution, retry, shared references, and human-in-the-loop checkpointing."
 requires-python = ">=3.12"
 authors = [{ name = "Syvai", email = "billy@syv.ai" }]
@@ -19,11 +19,11 @@ dependencies = ["pydantic>=2.0"]
 yaml = ["pyyaml>=6.0"]
 # Sibling-package extras — published in lockstep from this monorepo, so
 # pinned `==` to the matching version to prevent resolver skew.
-nodes = ["syv-conductor-nodes==0.1.5"]
-providers = ["syv-conductor-providers==0.1.5"]
+nodes = ["syv-conductor-nodes==0.1.6"]
+providers = ["syv-conductor-providers==0.1.6"]
 all = [
-    "syv-conductor-nodes==0.1.5",
-    "syv-conductor-providers[fastapi]==0.1.5",
+    "syv-conductor-nodes==0.1.6",
+    "syv-conductor-providers[fastapi]==0.1.6",
 ]
 
 [project.urls]

@@ -8,10 +8,12 @@ from typing import TYPE_CHECKING, Any, Protocol
 from conductor.errors import CompilationError
 from conductor.expr import ExpressionError
 from conductor.expr import parse as parse_expr
+from conductor.graph.dynamic_outputs import resolve_node_outputs
 from conductor.graph.model import Flow, FlowDependency, GraphEdge, GraphNode
 from conductor.graph.shared_refs import validate_and_build_consume_map
 from conductor.graph.topology import build_edge_map, build_incoming_map, topological_sort
 from conductor.graph.type_check import TypeWarning, check_consume_types, check_edge_types
+from conductor.metadata import OutputMetadata
 
 if TYPE_CHECKING:
     from conductor.registry import NodeRegistry
@@ -72,6 +74,13 @@ class CompiledGraph:
     # target_id -> [(target_handle, source_id, source_handle, edge_id), ...]
     # Inverted edge view — faster than scanning edge_map per node.
     incoming_map: dict[str, list[tuple[str, str, str, str]]] = field(default_factory=dict)
+    # Resolved outputs per node id — populated for every node in
+    # ``execution_order``. For nodes without a ``compute_outputs`` hook
+    # this is a copy of ``NodeDefinition.outputs``; for hook-driven nodes
+    # it carries the dynamically derived shape. Extension nodes have an
+    # empty tuple. Type-checking, shared-ref validation, and compound
+    # runtimes consult this in preference to the static schema.
+    node_outputs: dict[str, tuple[OutputMetadata, ...]] = field(default_factory=dict)
 
 
 def compile(
@@ -168,6 +177,40 @@ def compile(
     edge_map = build_edge_map(edges)
     incoming_map = build_incoming_map(edges)
 
+    # 8b. Resolve dynamic outputs in topological order. Each node sees its
+    #     producers' already-resolved shapes (which may themselves be hook-
+    #     driven). Nodes without a hook get a verbatim copy of their static
+    #     ``NodeDefinition.outputs``. Extension nodes resolve to ``()``.
+    node_outputs: dict[str, tuple[OutputMetadata, ...]] = {}
+    for node_id in order:
+        node = node_map[node_id]
+        node_def = registry.get(node.type)
+        node_outputs[node_id] = resolve_node_outputs(
+            node=node,
+            node_def=node_def,
+            incoming_edges=incoming_map.get(node_id, []),
+            resolved_outputs=node_outputs,
+            node_map=node_map,
+            registry=registry,
+        )
+
+    # 8c. Re-validate producer handles against resolved outputs — a
+    #     ``compute_outputs`` hook may legitimately introduce a handle that
+    #     a node then publishes via ``produces``. The first pass above
+    #     ran without resolved outputs; we keep the structural errors it
+    #     surfaced (managed-region rejection, structural integrity) and now
+    #     supplement with handle-existence checks against the post-hook map.
+    _, resolved_warnings = validate_and_build_consume_map(
+        nodes, edges, node_map, frozenset(managed_ids), registry,
+        node_outputs=node_outputs,
+    )
+    # Replace the placeholder warnings collected pre-resolution. Both
+    # passes produce the same label-collision set, so dedup by message.
+    seen_msgs = {w.message for w in shared_warnings}
+    for w in resolved_warnings:
+        if w.message not in seen_msgs:
+            shared_warnings.append(w)
+
     # 9. Now that we have the topological order, rebuild the compound node
     #    executors with the proper order (matching pre-refactor behavior) and
     #    build the managed-node → region-start lookup used for scheduling.
@@ -187,9 +230,10 @@ def compile(
             if region.end_id != region.start_id:
                 managed_to_region_start[region.end_id] = region.start_id
 
-    # 10. Type-check edges and consume bindings
-    edge_warnings = check_edge_types(edges, node_map, registry)
-    consume_warnings = check_consume_types(consume_map, node_map, registry)
+    # 10. Type-check edges and consume bindings — using resolved outputs so
+    #     hook-driven type strings participate in compatibility analysis.
+    edge_warnings = check_edge_types(edges, node_map, registry, node_outputs)
+    consume_warnings = check_consume_types(consume_map, node_map, registry, node_outputs)
     type_warnings = [*edge_warnings, *consume_warnings, *shared_warnings]
 
     # 11. Validate and pre-parse decision guards (and edge ``when`` in general)
@@ -233,6 +277,7 @@ def compile(
         compiled_expressions=compiled_expressions,
         compensation_node_ids=compensation_node_ids,
         incoming_map=incoming_map,
+        node_outputs=node_outputs,
     )
 
 
