@@ -13,7 +13,7 @@ unchanged.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from conductor.errors import CompilationError
 from conductor.metadata import OutputMetadata
@@ -104,11 +104,29 @@ def resolve_node_outputs(
             source_output=match,
         ))
 
+    raw_data = dict(node.data or {})
+
+    # Run the node's validation model if it has one. Hooks for nodes with
+    # non-trivial widget config (SchemaBuilder, ConnectionList) often want
+    # the coerced shape rather than the raw payload, and re-implementing
+    # the coercion in every hook is plumbing debt. ``validated_data`` may
+    # be ``None`` when the node has no model or when validation fails —
+    # the latter is expected during in-progress editing where ``data`` is
+    # incomplete. Failures must not crash the resolver.
+    validated_data: dict[str, Any] | None = None
+    validation_model = getattr(node_def, "validation_model", None)
+    if validation_model is not None:
+        try:
+            validated_data = validation_model(**raw_data).model_dump()
+        except Exception:  # noqa: BLE001 — validation failures are expected
+            validated_data = None
+
     ctx = ComputeOutputsContext(
-        data=dict(node.data or {}),
+        data=raw_data,
         incoming=tuple(bindings),
         node_id=node.id,
         defaults=static_outputs,
+        validated_data=validated_data,
     )
 
     try:

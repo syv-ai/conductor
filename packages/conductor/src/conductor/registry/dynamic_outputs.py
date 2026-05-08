@@ -52,12 +52,25 @@ class ComputeOutputsContext:
         defaults: The static outputs declared on the registered
             ``NodeDefinition``. Hooks may return these unchanged when no
             dynamic shape applies.
+        validated_data: The node's ``data`` payload run through the
+            registered ``validation_model`` and re-serialized via
+            ``model_dump()``. Hooks for nodes whose widget config is
+            non-trivial (SchemaBuilder, ConnectionList) can read coerced
+            values without re-implementing the coercion the engine
+            already performs at execute time.
+
+            ``None`` when the node has no ``validation_model`` (extension
+            nodes) or when validation fails — the latter is expected
+            during in-progress editing where ``data`` may be incomplete.
+            Hooks must defensively handle ``None`` and fall back to
+            ``data`` if they need a value.
     """
 
     data: dict[str, Any]
     incoming: tuple[IncomingBinding, ...]
     node_id: str
     defaults: tuple[OutputMetadata, ...]
+    validated_data: dict[str, Any] | None = None
 
 
 ComputeOutputsFn = Callable[[ComputeOutputsContext], list[OutputMetadata]]
@@ -67,3 +80,24 @@ Must return a ``list[OutputMetadata]``. The resolver validates uniqueness of
 output names and (when ``dynamic_handles=False`` on the node definition)
 that all statically declared output names are still present.
 """
+
+
+def strip_sub_output_prefix(name: str) -> str:
+    """Drop the leading ``output_N.`` (or single-segment) prefix from a
+    derived sub-output handle name.
+
+    Useful for ``compute_outputs`` hooks that read
+    :attr:`IncomingBinding.source_output` whose ``name`` may carry a
+    parent-prefix when the upstream emits a sub-output handle (e.g. a
+    SchemaBuilder spread, a tabular split). Hooks typically only care
+    about the path *within* the parent handle.
+
+    Examples:
+        ``"result.foo.bar"`` → ``"foo.bar"``
+        ``"output_3.col"`` → ``"col"``
+        ``"plain"`` → ``"plain"``
+        ``""`` → ``""``
+    """
+    if "." in name:
+        return name.split(".", 1)[1]
+    return name
