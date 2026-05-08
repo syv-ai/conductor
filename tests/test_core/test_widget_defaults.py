@@ -142,7 +142,9 @@ class TestEntityDropdownWidget:
     def test_entity_kind_surface(self):
         s = EntityDropdown(label="user", entity_kind="user", multiple=True).to_schema()
         assert s["widget"] == WidgetType.ENTITY_DROPDOWN.value
-        assert s["entity_kind"] == "user"
+        # Schema key is ``entity_type`` (host-frontend contract); the
+        # Python attribute is still ``entity_kind``.
+        assert s["entity_type"] == "user"
         assert s["multiple"] is True
 
 

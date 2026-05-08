@@ -62,7 +62,14 @@ class NodeError(ConductorError):
         node_id: Instance ID of the node that failed (e.g., "n3").
         node_type: Registry type of the node (e.g., "llm-chat@2").
         original: The original exception that caused this error, if any.
+        retryable: Whether the engine should retry the node when this
+            error is raised. Defaults to ``True``; subclasses for fatal
+            errors (e.g. :class:`NodeValidationError`) override to
+            ``False``. Concrete instances may override this on
+            construction for one-off cases.
     """
+
+    retryable: bool = True
 
     def __init__(
         self,
@@ -83,6 +90,8 @@ class NodeValidationError(NodeError):
 
     Not retried — the inputs themselves are wrong, retrying won't help.
     """
+
+    retryable: bool = False
 
 
 class NodeExecutionError(NodeError):

@@ -583,6 +583,23 @@ async def _execute_node_async(
             return
 
         except (NodeExecutionError, NodeConnectionError, NodeTimeoutError) as e:
+            # Respect the per-error retryable classification (see
+            # ``errors.py``). Subclasses can opt out of retry by setting
+            # ``retryable = False`` on the class, and individual
+            # instances may pass ``retryable=False`` to override on a
+            # case-by-case basis. Anything fatal short-circuits out of
+            # the retry loop without consuming an attempt.
+            if not getattr(e, "retryable", True):
+                await event_queue.put(_NodeDone(
+                    node_id=node_id,
+                    error=True,
+                    error_event=NodeErrorEvent(
+                        type="node_error", node_id=node_id,
+                        error=str(e),
+                        is_validation=isinstance(e, NodeValidationError),
+                    ),
+                ))
+                return
             last_error = e
             attempt += 1
             if attempt > max_retries:

@@ -38,6 +38,23 @@ class NodeProgressEvent(TypedDict):
     total: int
 
 
+class RuntimeWarningEvent(TypedDict, total=False):
+    """Non-fatal runtime warning surfaced by the engine or a compound node.
+
+    Currently emitted by the for-each compound when multiple wired source
+    lists differ in length and the loop truncates to ``min(len)``. The
+    ``payload`` field carries warning-specific structured data (e.g. the
+    per-source lengths and the truncation point). ``warning`` is a stable
+    short identifier callers can switch on.
+    """
+
+    type: Literal["runtime_warning"]
+    node_id: str
+    warning: str
+    message: str
+    payload: dict[str, Any]
+
+
 class FlowCompleteEvent(TypedDict):
     type: Literal["flow_complete"]
     results: dict[str, Any]
@@ -113,6 +130,7 @@ ExecutionEvent = (
     | NodeSkippedEvent
     | NodeErrorEvent
     | NodeProgressEvent
+    | RuntimeWarningEvent
     | FlowCompleteEvent
     | FlowErrorEvent
     | FlowCancelledEvent

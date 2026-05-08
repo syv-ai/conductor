@@ -7,6 +7,16 @@ tuples, and any number of body→end edges are transposed into per-slot
 which lifts the strict-handle requirement so the start can emit
 ``output_3, output_4, output_5, …`` and the end can accept
 ``item_2, item_3, item_4, …`` without changing the registered schema.
+
+Multi-source truncation
+-----------------------
+
+When more than one list is wired into ``items``, iteration count is the
+shortest source's length. If any source is longer than ``min_len``, the
+compound emits a :class:`~conductor.execution.events.RuntimeWarningEvent`
+with ``warning="for_each_zip_truncation"`` before iteration begins. The
+``payload`` carries the per-source lengths plus ``min_len`` so callers
+can flag data-shape bugs without sifting through node logs.
 """
 
 from __future__ import annotations
@@ -19,11 +29,20 @@ from conductor.execution.events import (
     NodeCompleteEvent,
     NodeProgressEvent,
     NodeStartEvent,
+    RuntimeWarningEvent,
 )
 from conductor.execution.results import extract_output, filter_skipped, normalize_result
 from conductor.graph.regions import discover_for_each_regions
 
 MAX_ITERATIONS = 1000
+
+# Hard cap on nested-for-each depth. Mirrors
+# ``compound/subprocess.py:_MAX_SUBPROCESS_DEPTH`` so a pathological
+# flow with self-referential or deeply-nested loops can't run away with
+# the engine. Depth is tracked on the per-flow ``state.context`` so
+# concurrent flows don't share the counter.
+_MAX_FOR_EACH_DEPTH = 16
+_FOR_EACH_DEPTH_KEY = "_for_each_depth"
 
 # Stable handle ordering. The start emits ``output_1`` (Item-1) +
 # ``output_2`` (Index) first to keep backward compat with single-source
@@ -41,14 +60,63 @@ class ForEachNode:
         self.body_order = [nid for nid in execution_order if nid in region.body_ids]
 
     def execute(self, req: Any) -> Any:
+        state = req.state
+
+        # Nested-for-each depth cap. Mirrors the subprocess depth check
+        # (compound/subprocess.py) so a pathological flow with self-
+        # referential or deeply-nested for-each regions can't run away
+        # with the engine. The counter lives on ``state.context`` so
+        # concurrent flows don't share it; a try/finally below restores
+        # the previous depth even when iteration raises.
+        prev_depth = state.context.get(_FOR_EACH_DEPTH_KEY, 0)
+        depth = prev_depth + 1
+        if depth > _MAX_FOR_EACH_DEPTH:
+            from conductor.errors import NodeExecutionError
+            raise NodeExecutionError(
+                f"For-each recursion depth exceeded "
+                f"({depth}>{_MAX_FOR_EACH_DEPTH}) at node "
+                f"'{self.region.start_id}'",
+                node_id=self.region.start_id,
+                node_type="for-each-start",
+            )
+        state.context[_FOR_EACH_DEPTH_KEY] = depth
+        try:
+            return self._execute_inner(req)
+        finally:
+            if prev_depth == 0:
+                state.context.pop(_FOR_EACH_DEPTH_KEY, None)
+            else:
+                state.context[_FOR_EACH_DEPTH_KEY] = prev_depth
+
+    def _execute_inner(self, req: Any) -> Any:
         # Parallel-zip aggregation. The ``items`` ConnectionList resolver
         # delivers a dict {label: source_value}; each source contributes
         # one position to the per-iteration tuple.
         raw = req.inputs.get("items", [])
-        items = _prepare_items_zip(raw)
+        items, truncation = _prepare_items_zip(raw)
         items = items[:MAX_ITERATIONS]
         parallel = req.inputs.get("execution_mode", "Sequential") == "Parallel"
         state = req.state
+
+        # Surface multi-source-zip truncation as a non-fatal runtime
+        # warning so hosts can flag data-shape bugs (e.g. one source is
+        # secretly empty) without scraping node logs.
+        if truncation is not None:
+            source_lengths, min_len = truncation
+            state.emit(RuntimeWarningEvent(
+                type="runtime_warning",
+                node_id=self.region.start_id,
+                warning="for_each_zip_truncation",
+                message=(
+                    f"for-each '{self.region.start_id}' truncated to "
+                    f"min_len={min_len} from sources "
+                    f"{source_lengths}"
+                ),
+                payload={
+                    "source_lengths": source_lengths,
+                    "min_len": min_len,
+                },
+            ))
 
         # Discover the dynamic shape of the end node from the compiled
         # incoming-edge map. ``end_input_handles`` preserves the order
@@ -56,6 +124,9 @@ class ForEachNode:
         # ``Collected`` outputs come out in a deterministic order.
         end_input_handles = _discover_end_input_handles(
             state.compiled, self.region.end_id
+        )
+        end_output_names = _discover_end_output_names(
+            state.compiled, self.region.end_id, end_input_handles,
         )
 
         state.emit(NodeStartEvent(type="node_start", node_id=self.region.end_id))
@@ -81,7 +152,7 @@ class ForEachNode:
             return _resolve_end_inputs(local, end_input_handles, self.region.end_id, state)
 
         if not items:
-            end_result = _build_end_result([], end_input_handles)
+            end_result = _build_end_result([], end_input_handles, end_output_names)
             state.results[self.region.end_id] = end_result
             state.emit(NodeCompleteEvent(
                 type="node_complete", node_id=self.region.end_id,
@@ -110,7 +181,7 @@ class ForEachNode:
                     current=idx + 1, total=len(items),
                 ))
 
-        end_result = _build_end_result(collected, end_input_handles)
+        end_result = _build_end_result(collected, end_input_handles, end_output_names)
         state.results[self.region.end_id] = end_result
         state.emit(NodeCompleteEvent(
             type="node_complete", node_id=self.region.end_id,
@@ -131,13 +202,22 @@ def _prepare_items(raw: Any) -> list[Any]:
     return [raw]
 
 
-def _prepare_items_zip(raw: Any) -> list[tuple]:
+def _prepare_items_zip(
+    raw: Any,
+) -> tuple[list[tuple], tuple[dict[str, int], int] | None]:
     """Normalize ``items`` for parallel-zip iteration.
 
-    Returns a list of tuples — each tuple is one iteration's per-source
-    elements. Iteration count = ``min(len(s) for s in sources)`` when
-    multi-source; longer sources are truncated so every iteration has a
-    value at every position. Single-source falls back to 1-tuples.
+    Returns ``(items, truncation)``. ``items`` is a list of tuples — each
+    tuple is one iteration's per-source elements. Iteration count =
+    ``min(len(s) for s in sources)`` when multi-source; longer sources
+    are truncated so every iteration has a value at every position.
+    Single-source falls back to 1-tuples.
+
+    ``truncation`` is ``None`` if no truncation occurred (single-source
+    or all sources of equal length). Otherwise it is a tuple
+    ``(source_lengths, min_len)`` where ``source_lengths`` maps the
+    per-source label to its original length. The caller uses this to
+    emit a runtime-warning event before iteration starts.
 
     Shapes accepted:
 
@@ -151,10 +231,11 @@ def _prepare_items_zip(raw: Any) -> list[tuple]:
     """
     if isinstance(raw, dict):
         if len(raw) == 0:
-            return []
+            return [], None
+        labels = list(raw.keys())
         sources = list(raw.values())
         if len(sources) == 1:
-            return [(item,) for item in _prepare_items(sources[0])]
+            return [(item,) for item in _prepare_items(sources[0])], None
         coerced: list[list[Any]] = []
         for src in sources:
             if isinstance(src, list):
@@ -165,9 +246,19 @@ def _prepare_items_zip(raw: Any) -> list[tuple]:
                 )
             else:
                 coerced.append([src])
-        min_len = min(len(s) for s in coerced)
-        return [tuple(s[i] for s in coerced) for i in range(min_len)]
-    return [(item,) for item in _prepare_items(raw)]
+        lengths = [len(s) for s in coerced]
+        min_len = min(lengths)
+        truncation: tuple[dict[str, int], int] | None = None
+        if any(length > min_len for length in lengths):
+            truncation = (
+                {label: length for label, length in zip(labels, lengths, strict=False)},
+                min_len,
+            )
+        return (
+            [tuple(s[i] for s in coerced) for i in range(min_len)],
+            truncation,
+        )
+    return [(item,) for item in _prepare_items(raw)], None
 
 
 def _execute_subgraph(
@@ -246,27 +337,80 @@ def _resolve_end_inputs(
     return tuple(per_slot.get(h) for h in end_input_handles)
 
 
+def _discover_end_output_names(
+    compiled: Any,
+    end_id: str,
+    end_input_handles: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Resolve the per-slot output handle names emitted by the for-each-end.
+
+    Compile-time ``compute_outputs`` may rename slots (``"items"``,
+    ``"summaries"``, …) instead of the default ``output_{idx+1}``. When
+    ``state.compiled.node_outputs`` carries an entry for the end node we
+    use those names — skipping the synthetic ``"result"`` alias if
+    present — so iteration matches the schema the palette advertised.
+
+    Falls back to ``output_{idx+1}`` for every slot when the node has no
+    resolved entry (the legacy default). Resolved-but-shorter sequences
+    are padded with the legacy default for the missing tail.
+    """
+    n = max(1, len(end_input_handles))
+    legacy = tuple(f"output_{idx + 1}" for idx in range(n))
+
+    resolved_map = getattr(compiled, "node_outputs", None) or {}
+    resolved = resolved_map.get(end_id)
+    if not resolved:
+        return legacy
+
+    # Drop the synthetic ``"result"`` alias if a hook included it; the
+    # alias is always written separately by ``_build_end_result``.
+    resolved_names = tuple(o.name for o in resolved if o.name != "result")
+    if not resolved_names:
+        return legacy
+    if len(resolved_names) >= n:
+        return resolved_names[:n]
+    return resolved_names + legacy[len(resolved_names):]
+
+
 def _build_end_result(
     collected: list[tuple],
     end_input_handles: tuple[str, ...],
+    end_output_names: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     """Transpose per-iteration tuples into per-slot output lists.
 
-    Maps slot-i (in ``end_input_handles`` order) to ``output_{i+1}`` so
-    ``output_1`` is the legacy ``Collected``, ``output_2`` is the
-    second-wired-input's collected list, etc. Also writes a
-    ``result`` alias pointing at slot 0 so callers reading
-    ``results[end_id]["result"]`` keep working.
+    Maps slot-i (in ``end_input_handles`` order) to the resolved output
+    name from ``end_output_names`` if provided, otherwise to the legacy
+    ``output_{idx+1}``. Always writes a ``result`` alias pointing at slot
+    0 so callers reading ``results[end_id]["result"]`` keep working.
+
+    Iterations whose body terminated in a skipped branch (e.g. an
+    if-else inside the loop) contribute ``SKIPPED`` for the slot — those
+    are filtered out so collected lists match the behaviour of multi-edge
+    aggregation in :mod:`conductor.execution.resolver` (which already
+    drops SKIPPED). This keeps the shape of the collected list aligned
+    with what callers expect when conditional logic lives inside a
+    for-each body.
     """
+    from conductor._sentinel import is_skipped
+
     n = max(1, len(end_input_handles))
     per_slot: list[list[Any]] = [[] for _ in range(n)]
     for tup in collected:
         for idx in range(n):
-            per_slot[idx].append(tup[idx] if idx < len(tup) else None)
+            value = tup[idx] if idx < len(tup) else None
+            if is_skipped(value):
+                continue
+            per_slot[idx].append(value)
+
+    if end_output_names is None or len(end_output_names) < n:
+        names = tuple(f"output_{idx + 1}" for idx in range(n))
+    else:
+        names = end_output_names[:n]
 
     result: dict[str, Any] = {}
     for idx, slot_values in enumerate(per_slot):
-        result[f"output_{idx + 1}"] = slot_values
+        result[names[idx]] = slot_values
     result["result"] = per_slot[0]
     return result
 

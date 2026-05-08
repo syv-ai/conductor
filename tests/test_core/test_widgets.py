@@ -101,3 +101,57 @@ class TestWidgetInAnnotated:
         hint = Annotated[str, Output(label="Result")]
         args = get_args(hint)
         assert isinstance(args[1], Output)
+
+
+class TestSchemaKeyAlignment:
+    """Schema keys must align with the host frontend contract.
+
+    The Python attribute names stay stable for in-Python ergonomics, but
+    the serialised dict keys are the host-facing contract — they must
+    match what the AKA frontend reads. Drift here costs an adapter on
+    every payload boundary forever.
+    """
+
+    def test_range_emits_range_min_and_range_max_keys(self):
+        from conductor.widgets import Range
+
+        schema = Range(label="Temperature", min_val=0.0, max_val=2.0, step=0.1).to_schema()
+        assert schema["range_min"] == 0.0
+        assert schema["range_max"] == 2.0
+        # Legacy keys must NOT leak into the schema.
+        assert "min_val" not in schema
+        assert "max_val" not in schema
+
+    def test_entity_dropdown_emits_entity_type_key(self):
+        from conductor.widgets import EntityDropdown
+
+        schema = EntityDropdown(
+            label="User", entity_kind="user", multiple=False,
+        ).to_schema()
+        assert schema["entity_type"] == "user"
+        # Legacy key must NOT leak into the schema.
+        assert "entity_kind" not in schema
+
+
+class TestConnectionInputMetadata:
+    """``connection_input`` is a base-class field exposed in the schema.
+
+    Widgets that drive variable autocomplete (TemplateTextarea, the
+    future IfElseBuilder) declare which other input on the same node
+    feeds them via this field. Without it, AKA's frontend has to guess.
+    """
+
+    def test_connection_input_serialized(self):
+        from conductor.widgets import Textarea
+
+        schema = Textarea(
+            label="Body", connection_input="inputs",
+        ).to_schema()
+        assert schema["connection_input"] == "inputs"
+
+    def test_connection_input_omitted_when_unset(self):
+        """The default ``None`` is not serialised — keeps payloads tidy."""
+        from conductor.widgets import Textarea
+
+        schema = Textarea(label="Body").to_schema()
+        assert "connection_input" not in schema

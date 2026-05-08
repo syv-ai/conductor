@@ -13,6 +13,11 @@ class Widget(ABC):
 
     Widgets define how node parameters are rendered in the frontend UI
     and provide validation constraints for Pydantic.
+
+    ``connection_input`` names another input on the same node whose
+    incoming edges should be scanned for variables this widget can
+    reference. ``TemplateTextarea`` and the future ``IfElseBuilder``
+    use it to declare which other input drives variable autocomplete.
     """
 
     label: str
@@ -20,6 +25,7 @@ class Widget(ABC):
     disable_handle: bool = False
     hidden_when: dict[str, list[str]] | None = None
     advanced: bool = False
+    connection_input: str | None = None
 
     @property
     def widget_type(self) -> WidgetType:
@@ -38,6 +44,8 @@ class Widget(ABC):
             schema["hidden_when"] = self.hidden_when
         if self.advanced:
             schema["advanced"] = True
+        if self.connection_input is not None:
+            schema["connection_input"] = self.connection_input
         return schema
 
 
@@ -124,7 +132,13 @@ class DependentDropdown(Widget):
 
 @dataclass
 class Range(Widget):
-    """Numeric slider / range input."""
+    """Numeric slider / range input.
+
+    The Python attributes are ``min_val`` / ``max_val`` for parity with
+    :class:`Number`, but the serialised schema uses ``range_min`` /
+    ``range_max`` so frontends can distinguish slider bounds from a
+    free-input numeric field's bounds without sniffing the widget type.
+    """
 
     disable_handle: bool = True
     min_val: float | None = None
@@ -138,9 +152,9 @@ class Range(Widget):
     def to_schema(self) -> dict[str, Any]:
         schema = super().to_schema()
         if self.min_val is not None:
-            schema["min_val"] = self.min_val
+            schema["range_min"] = self.min_val
         if self.max_val is not None:
-            schema["max_val"] = self.max_val
+            schema["range_max"] = self.max_val
         if self.step is not None:
             schema["step"] = self.step
         return schema
@@ -417,6 +431,9 @@ class EntityDropdown(Widget):
     (``"user"``, ``"project"``, …). The mapping from entity_kind to a
     concrete data source is host-application concern — this widget only
     declares the intent.
+
+    The Python attribute is ``entity_kind`` but the serialised schema
+    key is ``entity_type`` for parity with the AKA frontend contract.
     """
 
     disable_handle: bool = True
@@ -429,7 +446,7 @@ class EntityDropdown(Widget):
 
     def to_schema(self) -> dict[str, Any]:
         schema = super().to_schema()
-        schema["entity_kind"] = self.entity_kind
+        schema["entity_type"] = self.entity_kind
         schema["multiple"] = self.multiple
         return schema
 
