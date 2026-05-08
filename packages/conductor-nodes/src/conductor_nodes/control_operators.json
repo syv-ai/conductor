@@ -1,0 +1,134 @@
+[
+  {
+    "id": "equals",
+    "label": "er lig med",
+    "type_category": "tekst",
+    "arity": 2
+  },
+  {
+    "id": "not_equals",
+    "label": "er ikke lig med",
+    "type_category": "tekst",
+    "arity": 2
+  },
+  {
+    "id": "contains",
+    "label": "indeholder",
+    "type_category": "tekst",
+    "arity": 2
+  },
+  {
+    "id": "not_contains",
+    "label": "indeholder ikke",
+    "type_category": "tekst",
+    "arity": 2
+  },
+  {
+    "id": "is_empty",
+    "label": "er tom",
+    "type_category": "tekst",
+    "arity": 1
+  },
+  {
+    "id": "is_not_empty",
+    "label": "er ikke tom",
+    "type_category": "tekst",
+    "arity": 1
+  },
+  {
+    "id": "starts_with",
+    "label": "starter med",
+    "type_category": "tekst",
+    "arity": 2
+  },
+  {
+    "id": "ends_with",
+    "label": "slutter med",
+    "type_category": "tekst",
+    "arity": 2
+  },
+  {
+    "id": "num_equals",
+    "label": "er lig med (tal)",
+    "type_category": "tal",
+    "arity": 2
+  },
+  {
+    "id": "num_not_equals",
+    "label": "er ikke lig med (tal)",
+    "type_category": "tal",
+    "arity": 2
+  },
+  {
+    "id": "gt",
+    "label": "er større end",
+    "type_category": "tal",
+    "arity": 2
+  },
+  {
+    "id": "lt",
+    "label": "er mindre end",
+    "type_category": "tal",
+    "arity": 2
+  },
+  {
+    "id": "gte",
+    "label": "er større end eller lig",
+    "type_category": "tal",
+    "arity": 2
+  },
+  {
+    "id": "lte",
+    "label": "er mindre end eller lig",
+    "type_category": "tal",
+    "arity": 2
+  },
+  {
+    "id": "is_true",
+    "label": "er sand",
+    "type_category": "boolean",
+    "arity": 1
+  },
+  {
+    "id": "is_false",
+    "label": "er falsk",
+    "type_category": "boolean",
+    "arity": 1
+  },
+  {
+    "id": "has_key",
+    "label": "indeholder nøgle",
+    "type_category": "json",
+    "arity": 2
+  },
+  {
+    "id": "not_has_key",
+    "label": "indeholder ikke nøgle",
+    "type_category": "json",
+    "arity": 2
+  },
+  {
+    "id": "is_empty_object",
+    "label": "er tom objekt",
+    "type_category": "json",
+    "arity": 1
+  },
+  {
+    "id": "is_not_empty_object",
+    "label": "er ikke tom objekt",
+    "type_category": "json",
+    "arity": 1
+  },
+  {
+    "id": "value_equals",
+    "label": "værdi er lig med",
+    "type_category": "json",
+    "arity": 2
+  },
+  {
+    "id": "value_contains",
+    "label": "værdi indeholder",
+    "type_category": "json",
+    "arity": 2
+  }
+]
