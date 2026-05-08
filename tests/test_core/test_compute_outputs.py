@@ -15,7 +15,6 @@ from conductor.registry.dynamic_outputs import (
 from conductor.registry.schema import serialize_registry
 from conductor.widgets import Output, Text
 
-
 # ---------------------------------------------------------------------------
 # Basic single-node hook
 # ---------------------------------------------------------------------------

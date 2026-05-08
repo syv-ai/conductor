@@ -20,7 +20,6 @@ from conductor_nodes.control_operators import (
     evaluate,
 )
 
-
 # ---------------------------------------------------------------------------
 # Per-operator truth table — one happy-path row + at least one negative row
 # per operator. ``b`` is ``None`` for unary operators.

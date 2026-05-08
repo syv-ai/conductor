@@ -12,7 +12,7 @@ declares ``max_retries`` greater than zero.
 from typing import Annotated
 
 import pytest
-from conductor import GraphEdge, GraphNode, NodeRegistry, compile
+from conductor import GraphNode, NodeRegistry, compile
 from conductor.errors import (
     FlowExecutionError,
     NodeExecutionError,

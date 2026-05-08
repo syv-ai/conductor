@@ -28,7 +28,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
-
 # =============================================================================
 # Type conversion helpers (mirror legacy backend/app/services/flows/nodes/control.py)
 # =============================================================================

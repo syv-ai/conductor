@@ -25,7 +25,6 @@ from conductor.registry.dynamic_outputs import (
 )
 from conductor.widgets import Output, Text
 
-
 # ---------------------------------------------------------------------------
 # Issue 1 — NodeCategory.node() forwards compute_outputs / dynamic_handles
 # ---------------------------------------------------------------------------
