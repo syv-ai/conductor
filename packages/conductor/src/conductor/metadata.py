@@ -5,6 +5,11 @@ from typing import Any
 
 from conductor.types import WidgetType
 
+__all__ = [
+    "InputMetadata",
+    "OutputMetadata",
+]
+
 
 @dataclass(frozen=True)
 class InputMetadata:

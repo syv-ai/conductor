@@ -50,6 +50,14 @@ from conductor.execution.store import FlowStore
 from conductor.expr import ExpressionError
 from conductor.graph.compiler import CompiledGraph
 
+__all__ = [
+    "execute",
+    "execute_sync",
+    "resume",
+    "resume_sync",
+    "collect",
+]
+
 # Internal sentinel pushed into the event queue when all work is done
 _DONE = object()
 _FATAL = object()

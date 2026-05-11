@@ -4,6 +4,32 @@ import threading
 from collections import deque
 from typing import Any, Literal, TypedDict
 
+__all__ = [
+    "ExecutionEvent",
+    "EventSink",
+    # Per-node lifecycle
+    "NodeStartEvent",
+    "NodeCompleteEvent",
+    "NodeSkippedEvent",
+    "NodeErrorEvent",
+    "NodeProgressEvent",
+    "NodeRetryEvent",
+    # Flow lifecycle
+    "FlowCompleteEvent",
+    "FlowErrorEvent",
+    "FlowCancelledEvent",
+    "FlowTimeoutEvent",
+    "FlowPausedEvent",
+    # Runtime warnings
+    "RuntimeWarningEvent",
+    # Compensation / saga
+    "CompensationStartEvent",
+    "CompensationCompleteEvent",
+    "CompensationFailedEvent",
+    # Signals
+    "SignalWaitingEvent",
+]
+
 
 class NodeStartEvent(TypedDict, total=False):
     type: Literal["node_start"]

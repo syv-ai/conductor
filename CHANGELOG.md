@@ -1,0 +1,208 @@
+# Changelog
+
+All notable changes to this project are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and from `1.0.0` onward this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+See the "Stability and versioning" section in [`README.md`](README.md) for the
+public-API guarantees that take effect at `1.0.0`.
+
+This file covers the three workspace packages — `syv-conductor`,
+`syv-conductor-nodes`, and `syv-conductor-providers` — which are released in
+lockstep from this monorepo.
+
+## [Unreleased]
+
+### Future deprecation candidates
+
+These shapes are part of the `1.0.0` public surface and are not deprecated, but
+they are likely targets for a future major bump:
+
+- `conductor.errors` legacy exception aliases — `NodeValidationException`,
+  `NodeExecutionException`, `FlowExecutionException`, `FlowPausedException`.
+  These are kept as aliases of the `*Error` names for back-compat.
+- `result` key duplication in `normalize_result` for dict returns
+  (`{result: dict, **dict}`) — surface area that exists for back-compat with
+  early node authors.
+- Cross-package `==` pin in `syv-conductor[all]` — could relax to
+  `~=` once the providers/nodes packages stabilize independently.
+
+## [1.0.0]
+
+First stable release. The public surface (everything listed in each module's
+`__all__`) is now committed: it will not break without a major version bump.
+
+### Added
+
+- Stability and versioning policy in `README.md`. Semver applies from `1.0.0`
+  onward; deprecations stay live for at least one minor release with a
+  `DeprecationWarning`; only `__all__`-exported names are public.
+- Explicit `__all__` lists on the conductor public modules: top-level
+  `conductor.__init__`, `widgets`, `metadata`, `types`, `errors`,
+  `registry/__init__`, `registry/dynamic_outputs`, `graph/compiler`,
+  `compound/__init__`, `compound/protocol`, `execution/engine`,
+  `execution/events`, `execution/results`, `execution/state`.
+- `CHANGELOG.md` documenting the `0.1.0` → `1.0.0` history.
+- Stress-test suite under `tests/test_stress/` (`pytest -m slow`) covering
+  large-graph compilation and engine throughput; gated behind the new
+  `slow` pytest marker so the default test run stays fast.
+
+### Changed
+
+- Versions of `syv-conductor`, `syv-conductor-nodes`, and
+  `syv-conductor-providers` bumped from `0.1.7` to `1.0.0`.
+- Cross-package pins in `syv-conductor[nodes]`, `[providers]`, and `[all]`
+  extras updated to `==1.0.0`.
+
+### Fixed
+
+- Type-compatibility: `object` is now treated as a universal-accept type
+  in `graph/type_check.py`, matching its Python-level semantics. Generic
+  compound passthroughs (notably `for-each-end`'s `Item` input) declare
+  `object`; before this fix a concrete source type like `namedfile`
+  failed strict compile with a "Type mismatch" error.
+
+## [0.1.7] — A9 widget primitives + A10 ergonomics
+
+### Added
+
+- **Tabular-data widget primitives** (`feat(widgets)`): `TableSource`,
+  `ConditionBuilder`, `Tags`, `ColumnSelect`, `TableInput` widgets and the
+  matching `WidgetType` enum values. These are skeleton widgets for the host
+  to render; conductor declares them but assigns no execution semantics.
+- **`compute_outputs` ergonomics** (`feat(registry)`):
+  - `NodeCategory.node(...)` now forwards `compute_outputs=` like
+    `@registry.node(...)` does, so categorized nodes can declare dynamic
+    output shapes without dropping back to the raw registry decorator.
+  - `strip_sub_output_prefix` promoted to a public helper on
+    `conductor.registry.dynamic_outputs` for hooks that read sub-output
+    handle names.
+  - `ComputeOutputsContext.validated_data` exposes the node's `data` payload
+    after running through the registered Pydantic validation model. Hooks
+    for nodes with `SchemaBuilder` / `ConnectionList` widgets can now read
+    coerced values without re-implementing the engine's coercion.
+
+### Chore
+
+- Ruff style pass over the touched files.
+
+## [0.1.6] — A1 `compute_outputs` hook + A2–A7 fixes + D1-PR1 operator catalog
+
+### Added
+
+- **Dynamic outputs hook** (`feat(registry)`): `NodeDefinition.compute_outputs`
+  callable runs at compile time, in topological order, to re-derive a node's
+  output schema from its `data` and resolved upstream `OutputMetadata`.
+  Companion module `conductor.registry.dynamic_outputs` defines
+  `IncomingBinding`, `ComputeOutputsContext`, `ComputeOutputsFn`. Existing
+  static-shape nodes are unaffected — a `None` hook means "use declared
+  outputs verbatim".
+- **`conductor-nodes` if-else operator catalog** (`feat(conductor-nodes)`,
+  D1-PR1): full set of comparison / membership / regex operators wired into
+  the if-else nodes for parity with the AKA host.
+
+### Fixed
+
+- **AKA migration parity** (`fix`, A2–A7): SKIPPED filter behavior, zip
+  truncation runtime warning event, retry classification refinements,
+  widget keys aligned with the frontend contract, `connection_input`
+  promoted to the `Widget` base class, and a nested-loop depth cap to
+  prevent runaway recursion in subprocess + for-each compositions.
+
+## [0.1.5] — multi-output collection on for-each-end
+
+### Added
+
+- **For-each fan-out** (`feat(for-each)`): per-slot Collected lists on
+  `for-each-end`, so a body that emits multiple outputs per iteration
+  produces parallel collected lists at the end node.
+- **Unlimited compound-node IO** (`feat`): removed the historical input/output
+  count limits on loop nodes; for-each / while can now carry as many handles
+  as the host wires.
+
+### Fixed
+
+- Lint pass over the touched modules.
+
+## [0.1.4] — providers extras pin
+
+### Fixed
+
+- **Providers `[all]` extra pin** (`chore(release)`): correct
+  `syv-conductor-providers` pin in the `syv-conductor[all]` extra so a
+  bare `pip install syv-conductor[all]` resolves cleanly.
+
+## [0.1.3] — parallel-zip multi-source for-each
+
+### Added
+
+- **Parallel-zip for-each** (`feat(for-each)`): `for-each-start` accepts
+  multiple wired source lists and exposes per-source `Item` outputs. Each
+  iteration receives one element from each list; the loop length is the
+  shortest source (truncation is signalled via a runtime warning event in
+  `0.1.6`).
+
+## [0.1.2] — dependency extras
+
+### Added
+
+- **Optional dependency extras** (`feat`): `syv-conductor[yaml]` for the
+  YAML/JSON flow format, `syv-conductor[nodes]`, `[providers]`, and `[all]`
+  bundles — pinned `==` to the matching workspace version to prevent
+  resolver skew.
+
+## [0.1.1] — extension resolver wiring
+
+### Added
+
+- **Extension resolver forwarding** (`feat(providers)`):
+  `conductor_providers.fastapi.conductor_router(...)` now accepts and
+  forwards an `extension_resolver` so host-app-specific node types
+  (sub-flows, etc.) participate in compile / execute on the HTTP surface.
+
+## [0.1.0] — initial public release
+
+First publish to PyPI as three workspace packages.
+
+### Added
+
+- **Core engine** (`syv-conductor`): decorator-based node registration,
+  union-aware type checking, eager parallel scheduling, retry with
+  exponential backoff, structured error hierarchy with `node_id` /
+  `node_type` context, streaming execution events, shared references
+  (produce / consume across edges), conditional branching via the
+  `SKIPPED` sentinel, for-each / while / subprocess compounds,
+  human-in-the-loop via `HumanInputRequired` + checkpoints, `BaseNode`
+  ABC for stateful nodes, `FlowStore` side-channel cache, package
+  auto-discovery, extension resolver protocol for host-app node types,
+  decision nodes with CEL-guarded edges, sandboxed CEL expression engine
+  (`conductor.expr`), actor metadata, top-level `Flow` metadata
+  (`dependencies`, `triggers`, `on_error_default`), per-node `timeout=`
+  + `idempotency_key=`, while-loop runaway protection, subprocess depth
+  cap, compensation / saga cascade, signal nodes via `SignalRequired`,
+  YAML / JSON flow format under `[yaml]`.
+- **Standard node library** (`syv-conductor-nodes`): text, math, logic,
+  json, regex, decision, while, subprocess, signal, and canonical
+  for-each markers. Categories opt-in via
+  `register_all(registry, categories=[...])`.
+- **Framework adapters** (`syv-conductor-providers`):
+  - `conductor_providers.react` — `graph_to_react` /
+    `react_to_graph` / `palette_from_registry` for ReactFlow JSON.
+  - `conductor_providers.fastapi` — `conductor_router(...)` factory
+    exposing `/execute`, `/execute-stream`, `/compile`, `/nodes`,
+    `/entities/{kind}` with optional `entity_resolver` and (from
+    `0.1.1`) `extension_resolver` hooks.
+- **Packaging**: PyPI distribution names prefixed with `syv-`; Python
+  imports unchanged (`conductor`, `conductor_nodes`, `conductor_providers`).
+  License: Apache-2.0. Each wheel ships `LICENSE`.
+
+[Unreleased]: https://github.com/syvai/conductor/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/syvai/conductor/compare/v0.1.7...v1.0.0
+[0.1.7]: https://github.com/syvai/conductor/compare/v0.1.6...v0.1.7
+[0.1.6]: https://github.com/syvai/conductor/compare/v0.1.5...v0.1.6
+[0.1.5]: https://github.com/syvai/conductor/compare/v0.1.4...v0.1.5
+[0.1.4]: https://github.com/syvai/conductor/compare/v0.1.3...v0.1.4
+[0.1.3]: https://github.com/syvai/conductor/compare/v0.1.2...v0.1.3
+[0.1.2]: https://github.com/syvai/conductor/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/syvai/conductor/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/syvai/conductor/releases/tag/v0.1.0

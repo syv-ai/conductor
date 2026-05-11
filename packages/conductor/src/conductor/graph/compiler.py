@@ -18,6 +18,13 @@ from conductor.metadata import OutputMetadata
 if TYPE_CHECKING:
     from conductor.registry import NodeRegistry
 
+__all__ = [
+    "compile",
+    "CompiledGraph",
+    "ExtensionResolver",
+    "DecisionGuard",
+]
+
 
 class ExtensionResolver(Protocol):
     """Implemented by host applications for custom node types."""

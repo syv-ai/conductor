@@ -743,6 +743,64 @@ uv run jupyter lab examples/  # or open the .ipynb files in VS Code
 
 The notebooks use `await collect(execute(compiled))` because the kernel already owns an event loop. From a plain `.py` script, use `execute_sync(compiled)` instead.
 
+## Stability and versioning
+
+From `1.0.0` onward, conductor follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+This is the contract host applications can rely on:
+
+**Public API.** A name is part of the public API if and only if it is listed
+in a module's `__all__`, or it is documented in this README / `docs/`.
+Anything else — private helpers, `_`-prefixed names, modules not re-exported
+from a public surface — is internal and may change in any release without
+warning. The audited public surface lives in:
+
+- Top-level: `conductor.__init__`
+- Widgets / metadata / types: `conductor.widgets`, `conductor.metadata`,
+  `conductor.types`
+- Errors: `conductor.errors`
+- Registry: `conductor.registry` (`NodeRegistry`, `NodeDefinition`, `Actor`)
+  and `conductor.registry.dynamic_outputs` (`ComputeOutputsContext`,
+  `IncomingBinding`, `ComputeOutputsFn`, `strip_sub_output_prefix`)
+- Graph: `conductor.graph.compiler` (`compile`, `CompiledGraph`,
+  `ExtensionResolver`, `DecisionGuard`)
+- Compound nodes: `conductor.compound` (`ForEachNode`, `WhileNode`,
+  `SubprocessNode`, the matching `*_TYPE` constants, plus `Region`,
+  `NodeExecutor`, `CompoundNodeType`)
+- Execution: `conductor.execution.engine` (`execute`, `execute_sync`,
+  `resume`, `resume_sync`, `collect`), `conductor.execution.events`
+  (the `*Event` `TypedDict`s, `ExecutionEvent`, `EventSink`),
+  `conductor.execution.results` (`normalize_result`, `extract_output`,
+  `filter_skipped`, `filter_all_skipped`), `conductor.execution.state`
+  (`FlowRunState`)
+
+**Compatibility guarantees from `1.0.0`.**
+
+- *No breaking changes without a major bump.* If a `1.x` release removes
+  a public name, changes a public signature in a way that breaks callers,
+  or alters documented behavior, the version that ships that change is
+  `2.0.0` (or later).
+- *Deprecation policy.* When a public name is scheduled for removal it
+  stays live for **at least one minor release** after deprecation, with a
+  `DeprecationWarning` raised at import or call time. The `CHANGELOG.md`
+  entry that introduces the deprecation lists the target removal version.
+- *Internal modules are fair game.* `conductor.expr.engine`,
+  `conductor.execution.resolver`, `conductor.graph.topology`,
+  `conductor.graph.regions`, `conductor.graph.shared_refs`,
+  `conductor.graph.type_check`, `conductor.graph.dynamic_outputs`,
+  `conductor.validation`, `conductor._sentinel`, and any other module
+  not on the list above are internal. They may be renamed, restructured,
+  or removed in any release.
+- *The three workspace packages release in lockstep.*
+  `syv-conductor`, `syv-conductor-nodes`, `syv-conductor-providers`
+  share a single version. The `syv-conductor[nodes]` / `[providers]` /
+  `[all]` extras pin sibling packages with `==` to prevent resolver skew.
+
+**Pre-1.0 (`0.x`) iteration.** The `0.1.x` series was iterated freely
+without semver guarantees; consumers were advised to pin exact versions
+(`==0.1.6`, etc.). The `CHANGELOG.md` carries the full `0.1.0 → 0.1.7`
+history and flags any wart that is a candidate for a future major bump
+under "Future deprecation candidates".
+
 ## License
 
 Apache-2.0. See [`LICENSE`](LICENSE) at the repo root; each PyPI wheel ships the same license file.

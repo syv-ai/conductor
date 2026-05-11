@@ -6,6 +6,37 @@ from typing import Any
 
 from conductor.types import WidgetType
 
+__all__ = [
+    "Widget",
+    "WidgetType",
+    # Core single-value widgets
+    "Text",
+    "Textarea",
+    "Dropdown",
+    "DependentDropdown",
+    "Range",
+    "Checkbox",
+    "FileUpload",
+    "ConnectionList",
+    "Output",
+    "Number",
+    "Switch",
+    "DatePicker",
+    "Multiselect",
+    "List",
+    "SchemaBuilder",
+    "CodeEditor",
+    "TemplateTextarea",
+    "EntityDropdown",
+    "IfElseBuilder",
+    # Tabular-data primitives
+    "TableSource",
+    "ConditionBuilder",
+    "Tags",
+    "ColumnSelect",
+    "TableInput",
+]
+
 
 @dataclass
 class Widget(ABC):

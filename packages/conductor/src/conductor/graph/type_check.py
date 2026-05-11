@@ -42,8 +42,11 @@ class TypeWarning:
 _NUMERIC_TYPES = frozenset({"int", "float", "number"})
 _STRING_COERCIBLE = frozenset({"str", "int", "float", "number", "bool", "date", "base64str"})
 
-# Universal types that accept anything
-_ANY_TYPES = frozenset({"any", "str"})
+# Universal types that accept anything. ``object`` is Python's base
+# type, which by definition is compatible with every concrete value;
+# generic compound passthroughs (e.g. ``for-each-end``'s ``Item``
+# input) declare it to keep their schema type-agnostic.
+_ANY_TYPES = frozenset({"any", "object", "str"})
 
 
 def check_edge_types(

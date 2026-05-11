@@ -13,6 +13,8 @@ from conductor.execution.store import FlowStore
 from conductor.graph.compiler import CompiledGraph
 from conductor.types import NodeResult
 
+__all__ = ["FlowRunState"]
+
 
 @dataclass
 class FlowRunState:

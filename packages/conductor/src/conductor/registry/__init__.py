@@ -28,6 +28,12 @@ from conductor.widgets import (
     Widget,
 )
 
+__all__ = [
+    "NodeRegistry",
+    "NodeDefinition",
+    "Actor",
+]
+
 
 def _default_widget(base_type: Any, param_name: str) -> Widget | None:
     """Return a default widget for a given Python type, or ``None`` if the
