@@ -49,7 +49,17 @@ _FOR_EACH_DEPTH_KEY = "_for_each_depth"
 # flows; additional Item slots fan out at ``output_3``, ``output_4``, …
 START_PRIMARY_ITEM = "output_1"
 START_INDEX = "output_2"
-END_PRIMARY_INPUT = "item"
+# Primary input target handle on the for-each-end. Edges wired into the
+# end node should target this handle; each (source_id, source_handle)
+# pair becomes one collected-output slot, in edge order. The handle is
+# a ConnectionList so multiple sources can stack onto it cleanly.
+END_PRIMARY_INPUT = "items"
+# Legacy target handles still accepted for backward compatibility — pre-
+# ConnectionList for-each-end schemas exposed one handle per wired
+# source (``item``, ``item_2``, ``item_3``, …). Edges that target any
+# of these (or any handle starting with ``item``) are remapped onto the
+# new model so old saved flows keep loading.
+_LEGACY_END_HANDLE_PREFIX = "item"
 
 
 class ForEachNode:
@@ -119,14 +129,14 @@ class ForEachNode:
             ))
 
         # Discover the dynamic shape of the end node from the compiled
-        # incoming-edge map. ``end_input_handles`` preserves the order
+        # incoming-edge map. ``end_slots`` preserves the order
         # in which the user wired body→end edges so the per-slot
         # ``Collected`` outputs come out in a deterministic order.
-        end_input_handles = _discover_end_input_handles(
+        end_slots = _discover_end_slots(
             state.compiled, self.region.end_id
         )
         end_output_names = _discover_end_output_names(
-            state.compiled, self.region.end_id, end_input_handles,
+            state.compiled, self.region.end_id, end_slots,
         )
 
         state.emit(NodeStartEvent(type="node_start", node_id=self.region.end_id))
@@ -149,10 +159,10 @@ class ForEachNode:
 
             overlay = {self.region.start_id: start_result}
             local = _execute_subgraph(state, self.body_order, overlay)
-            return _resolve_end_inputs(local, end_input_handles, self.region.end_id, state)
+            return _resolve_end_inputs(local, end_slots, self.region.end_id, state)
 
         if not items:
-            end_result = _build_end_result([], end_input_handles, end_output_names)
+            end_result = _build_end_result([], end_slots, end_output_names)
             state.results[self.region.end_id] = end_result
             state.emit(NodeCompleteEvent(
                 type="node_complete", node_id=self.region.end_id,
@@ -181,7 +191,7 @@ class ForEachNode:
                     current=idx + 1, total=len(items),
                 ))
 
-        end_result = _build_end_result(collected, end_input_handles, end_output_names)
+        end_result = _build_end_result(collected, end_slots, end_output_names)
         state.results[self.region.end_id] = end_result
         state.emit(NodeCompleteEvent(
             type="node_complete", node_id=self.region.end_id,
@@ -297,50 +307,72 @@ def _execute_subgraph(
     return local_results
 
 
-def _discover_end_input_handles(compiled: Any, end_id: str) -> tuple[str, ...]:
-    """Extract the wired end-input handle names in stable order.
+EndSlotKey = tuple[str, str]  # (source_id, source_handle)
 
-    The primary ``item`` handle always sits at position 0 even when
-    unwired — it's the schema-declared entrypoint. Additional wired
-    handles (``item_2, item_3, …`` or any other names the host emits)
-    follow in the order they were registered in the compiled graph.
+
+def _is_end_input_edge(target_handle: str) -> bool:
+    """True for edges that should land on the for-each-end's collection.
+
+    Accepts the new ``items`` ConnectionList target as well as the
+    legacy per-source handles (``item``, ``item_2``, …) so old saved
+    flows compile without a host-side migration step.
     """
-    seen: set[str] = set()
-    ordered: list[str] = [END_PRIMARY_INPUT]
-    seen.add(END_PRIMARY_INPUT)
+    if target_handle == END_PRIMARY_INPUT:
+        return True
+    return target_handle.startswith(_LEGACY_END_HANDLE_PREFIX)
 
-    for target_handle, _source_id, _source_handle, _edge_id in compiled.incoming_map.get(end_id, ()):
-        if target_handle in seen:
+
+def _discover_end_slots(compiled: Any, end_id: str) -> tuple[EndSlotKey, ...]:
+    """Extract one slot per wired ``(source_id, source_handle)``.
+
+    Slot order matches the order edges appear in ``incoming_map`` — i.e.
+    the order the host saved them. Each wired source contributes one
+    collected-output position regardless of which target handle it used
+    (``items`` going forward, legacy ``item``/``item_N`` for old flows).
+    Sources targeting a non-end-collection handle (e.g. a future
+    secondary control input) are ignored here.
+    """
+    seen: set[EndSlotKey] = set()
+    ordered: list[EndSlotKey] = []
+    for target_handle, source_id, source_handle, _edge_id in compiled.incoming_map.get(end_id, ()):
+        if not _is_end_input_edge(target_handle):
             continue
-        seen.add(target_handle)
-        ordered.append(target_handle)
-
+        key: EndSlotKey = (source_id, source_handle)
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(key)
     return tuple(ordered)
 
 
 def _resolve_end_inputs(
     local_results: dict[str, Any],
-    end_input_handles: tuple[str, ...],
+    end_slots: tuple[EndSlotKey, ...],
     end_id: str,
     state: Any,
 ) -> tuple[Any, ...]:
-    """Resolve every wired end-input into a per-slot tuple, in stable order."""
-    compiled = state.compiled
-    per_slot: dict[str, Any] = {}
+    """Resolve every wired end-input into a per-slot tuple, in stable order.
 
-    for target_handle, source_id, source_handle, _edge_id in compiled.incoming_map.get(end_id, ()):
+    Slot identity is the upstream ``(source_id, source_handle)`` pair —
+    so a body node with two outputs both wired into the end produces
+    two collected lists, and two different body nodes wired through
+    the same ``items`` handle also produce two collected lists.
+    """
+    per_slot: dict[EndSlotKey, Any] = {}
+    for (source_id, source_handle) in end_slots:
         source_result = local_results.get(source_id)
         if source_result is None:
             continue
-        per_slot[target_handle] = extract_output(source_result, source_handle)
-
-    return tuple(per_slot.get(h) for h in end_input_handles)
+        per_slot[(source_id, source_handle)] = extract_output(
+            source_result, source_handle,
+        )
+    return tuple(per_slot.get(slot) for slot in end_slots)
 
 
 def _discover_end_output_names(
     compiled: Any,
     end_id: str,
-    end_input_handles: tuple[str, ...],
+    end_slots: tuple[EndSlotKey, ...],
 ) -> tuple[str, ...]:
     """Resolve the per-slot output handle names emitted by the for-each-end.
 
@@ -354,7 +386,7 @@ def _discover_end_output_names(
     resolved entry (the legacy default). Resolved-but-shorter sequences
     are padded with the legacy default for the missing tail.
     """
-    n = max(1, len(end_input_handles))
+    n = max(1, len(end_slots))
     legacy = tuple(f"output_{idx + 1}" for idx in range(n))
 
     resolved_map = getattr(compiled, "node_outputs", None) or {}
@@ -374,12 +406,12 @@ def _discover_end_output_names(
 
 def _build_end_result(
     collected: list[tuple],
-    end_input_handles: tuple[str, ...],
+    end_slots: tuple[EndSlotKey, ...],
     end_output_names: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     """Transpose per-iteration tuples into per-slot output lists.
 
-    Maps slot-i (in ``end_input_handles`` order) to the resolved output
+    Maps slot-i (in ``end_slots`` order) to the resolved output
     name from ``end_output_names`` if provided, otherwise to the legacy
     ``output_{idx+1}``. Always writes a ``result`` alias pointing at slot
     0 so callers reading ``results[end_id]["result"]`` keep working.
@@ -394,7 +426,7 @@ def _build_end_result(
     """
     from conductor._sentinel import is_skipped
 
-    n = max(1, len(end_input_handles))
+    n = max(1, len(end_slots))
     per_slot: list[list[Any]] = [[] for _ in range(n)]
     for tup in collected:
         for idx in range(n):

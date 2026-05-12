@@ -28,7 +28,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Annotated
 
 from conductor.types import NodeCategory
-from conductor.widgets import ConnectionList, Dropdown, Output, Text
+from conductor.widgets import ConnectionList, Dropdown, Output
 
 if TYPE_CHECKING:
     from conductor import NodeRegistry
@@ -61,15 +61,19 @@ def register(registry: "NodeRegistry") -> None:
 
     @registry.node(
         "for-each-end", version=1, name="For Each (End)",
-        description="Collects loop body results into one list per wired input.",
+        description="Collects loop body results into one list per wired source.",
         category=NodeCategory.CONTROL,
         dynamic_handles=True,
     )
     def for_each_end(
-        # Template input. Wire as many body→end edges as you need —
-        # the compound runtime gathers every wired ``target_handle``
-        # at runtime, transposes per-iteration tuples into per-slot
-        # lists, and emits ``output_1..output_N`` accordingly.
-        item: Annotated[object | None, Text(label="Item")] = None,
+        # Single ConnectionList input. Wire as many body→end edges as
+        # you need; each ``(source, source_handle)`` pair becomes one
+        # collected-output slot. The compound runtime transposes per-
+        # iteration tuples into per-slot lists and emits
+        # ``output_1..output_N`` accordingly. Legacy per-source target
+        # handles (``item``, ``item_2``, …) are still accepted for
+        # backward compatibility with flows saved before the
+        # ConnectionList switch.
+        items: Annotated[dict, ConnectionList(label="Items")] = None,
     ) -> Annotated[list, Output(label="Collected")]:
         raise NotImplementedError("Handled by the FOR_EACH compound node")
