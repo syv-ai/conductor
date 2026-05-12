@@ -1053,20 +1053,38 @@ def _build_state(
 def _build_dep_graph(
     compiled: CompiledGraph,
 ) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
-    """Build deps (node -> deps) and dependents (node -> nodes that depend on it)."""
+    """Build deps (node -> deps) and dependents (node -> nodes that depend on it).
+
+    Edges pointing at or originating from managed nodes (compound region
+    body / end gates) are remapped to the region's start node — only the
+    start is schedulable, so an unmapped reference would drop the
+    dependency entirely and let the downstream node fire before the
+    compound has run.
+    """
     deps: dict[str, set[str]] = defaultdict(set)
     dependents: dict[str, set[str]] = defaultdict(set)
+    managed_to_start = compiled.managed_to_region_start
 
     for target_id, entries in compiled.incoming_map.items():
+        effective_target = managed_to_start.get(target_id, target_id)
         for _target_handle, source_id, _source_handle, _edge_id in entries:
-            deps[target_id].add(source_id)
-            dependents[source_id].add(target_id)
+            effective_source = managed_to_start.get(source_id, source_id)
+            if effective_source == effective_target:
+                # Edges that live entirely inside the compound (body→body,
+                # body→end) collapse to a self-loop after remap; the
+                # compound executor handles internal scheduling, so we
+                # skip them here.
+                continue
+            deps[effective_target].add(effective_source)
+            dependents[effective_source].add(effective_target)
 
-    managed_to_start = compiled.managed_to_region_start
     for (target_id, _target_handle), (source_id, _source_handle) in compiled.consume_map.items():
         effective_target = managed_to_start.get(target_id, target_id)
-        deps[effective_target].add(source_id)
-        dependents[source_id].add(effective_target)
+        effective_source = managed_to_start.get(source_id, source_id)
+        if effective_source == effective_target:
+            continue
+        deps[effective_target].add(effective_source)
+        dependents[effective_source].add(effective_target)
 
     return dict(deps), dict(dependents)
 

@@ -134,6 +134,62 @@ class TestForEachEvents:
 
 
 class TestForEachEmpty:
+    def test_downstream_of_for_each_end_depends_on_region_start(
+        self, loop_registry,
+    ):
+        """Regression: a node connected to ``for-each-end`` must list the
+        for-each region's *start* as its dependency in the scheduler's
+        dep graph, not the end gate itself.
+
+        ``for-each-end`` is a managed (compound-internal) node, so the
+        scheduler removes it from the ``schedulable`` set. Without
+        managed-source remapping in ``_build_dep_graph``, the
+        dependency from the downstream node to ``for-each-end``
+        evaporates — the downstream's in-degree falls to 0 and it
+        fires immediately at flow-start, before the loop has produced
+        anything. (The bug surfaces probabilistically at runtime
+        depending on thread-pool ordering; this test pins the dep
+        graph shape directly so the fix can't silently regress.)
+        """
+        from conductor.execution.engine import _build_dep_graph
+
+        @loop_registry.node(
+            "consume-list", version=1, name="Consume",
+            description="Read the collected list and report its length.",
+        )
+        def consume_list(
+            items: Annotated[list[str], Text(label="Items")],
+        ) -> Annotated[int, Output(label="Count")]:
+            return len(items)
+
+        nodes = [
+            GraphNode("start", "for-each-start@1", {"items": ["a", "b", "c"]}),
+            GraphNode("body", "upper@1", None),
+            GraphNode("end", "for-each-end@1", None),
+            GraphNode("after", "consume-list@1", None),
+        ]
+        edges = [
+            GraphEdge("e1", "start", "body", "output_1", "text"),
+            GraphEdge("e2", "body", "end", "result", "item"),
+            GraphEdge("e3", "end", "after", "result", "items"),
+        ]
+
+        compiled = compile(
+            nodes=nodes,
+            edges=edges,
+            registry=loop_registry,
+            compound_types=[FOR_EACH],
+        )
+
+        deps, _dependents = _build_dep_graph(compiled)
+        # ``after`` depends on the compound's start (the only schedulable
+        # node in the for-each region), not on the end gate which is
+        # managed and never enters the ready queue.
+        assert deps.get("after") == {"start"}
+        # And the dependents map flows back the same way.
+        _deps, dependents = _build_dep_graph(compiled)
+        assert "after" in dependents.get("start", set())
+
     def test_empty_items_produces_empty_result(self, loop_registry):
         nodes = [
             GraphNode("start", "for-each-start@1", {"items": []}),
