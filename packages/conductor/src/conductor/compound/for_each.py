@@ -28,6 +28,7 @@ from conductor.compound.protocol import CompoundNodeType, Region
 from conductor.execution.events import (
     NodeCompleteEvent,
     NodeProgressEvent,
+    NodeSkippedEvent,
     NodeStartEvent,
     RuntimeWarningEvent,
 )
@@ -276,8 +277,17 @@ def _execute_subgraph(
     node_ids: list[str],
     overlay: dict[str, Any],
 ) -> dict[str, Any]:
-    """Execute a subset of nodes with result isolation."""
+    """Execute a subset of nodes with result isolation.
+
+    Emits per-body-node ``node_start`` / ``node_complete`` /
+    ``node_skipped`` events so hosts can paint body-node status the
+    same way they do for top-level nodes. Events fire on every
+    iteration — the host typically projects the latest one onto the
+    node's state, so the visual ends up showing ``completed`` after
+    the final iteration without any per-iteration buffering.
+    """
     from conductor.execution.engine import _dispatch_node
+    from conductor.execution.results import filter_skipped
     from conductor.execution.skip import should_skip_node
 
     local_results = {**state.results, **overlay}
@@ -292,6 +302,7 @@ def _execute_subgraph(
         ):
             from conductor._sentinel import SKIPPED
             local_results[node_id] = SKIPPED
+            state.emit(NodeSkippedEvent(type="node_skipped", node_id=node_id))
             continue
 
         inputs = state.resolver.resolve(
@@ -299,10 +310,16 @@ def _execute_subgraph(
             compiled.consume_map, state.skipped_edges, compiled.incoming_map,
         )
 
+        state.emit(NodeStartEvent(type="node_start", node_id=node_id))
         result = _dispatch_node(
             node.type, node_id, inputs, node.data or {}, state, compiled
         )
-        local_results[node_id] = normalize_result(result)
+        normalized = normalize_result(result)
+        local_results[node_id] = normalized
+        state.emit(NodeCompleteEvent(
+            type="node_complete", node_id=node_id,
+            result=filter_skipped(normalized) if isinstance(normalized, dict) else normalized,
+        ))
 
     return local_results
 
