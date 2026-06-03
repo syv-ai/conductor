@@ -27,6 +27,25 @@ they are likely targets for a future major bump:
 - Cross-package `==` pin in `syv-conductor[all]` — could relax to
   `~=` once the providers/nodes packages stabilize independently.
 
+## [1.2.0]
+
+### Changed
+
+- **DAG-scheduled for-each body** (`feat(for-each)`): the loop body no
+  longer runs strictly sequentially. `_execute_subgraph` now groups body
+  nodes into dependency levels (`_body_levels`) and runs each level
+  concurrently — independent body nodes execute in parallel, dependent
+  ones stay ordered, mirroring the top-level eager scheduler. A single
+  `BoundedSemaphore(_BODY_CONCURRENCY=8)` shared by every iteration caps
+  total body-node executions in flight across the whole loop, so a
+  Parallel loop over a multi-node body can't multiply into a storm of
+  concurrent calls. A linear body collapses to single-node levels and runs
+  inline, identical to the previous path.
+- Versions of `syv-conductor`, `syv-conductor-nodes`, and
+  `syv-conductor-providers` bumped from `1.1.0` to `1.2.0`.
+- Cross-package pins in `syv-conductor[nodes]`, `[providers]`, and `[all]`
+  extras updated to `==1.2.0`.
+
 ## [1.1.0]
 
 ### Fixed
@@ -224,7 +243,8 @@ First publish to PyPI as three workspace packages.
   imports unchanged (`conductor`, `conductor_nodes`, `conductor_providers`).
   License: Apache-2.0. Each wheel ships `LICENSE`.
 
-[Unreleased]: https://github.com/syvai/conductor/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/syvai/conductor/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/syvai/conductor/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/syvai/conductor/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/syvai/conductor/compare/v0.1.7...v1.0.0
 [0.1.7]: https://github.com/syvai/conductor/compare/v0.1.6...v0.1.7
