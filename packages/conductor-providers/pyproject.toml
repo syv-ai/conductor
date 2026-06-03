@@ -1,6 +1,6 @@
 [project]
 name = "syv-conductor-providers"
-version = "1.0.1"
+version = "1.1.0"
 description = "Framework adapters for conductor. Ships a React (ReactFlow) provider with graph_to_react / react_to_graph / palette_from_registry; sibling subpackages can add Vue, Svelte, etc."
 requires-python = ">=3.12"
 authors = [{ name = "Syvai", email = "billy@syv.ai" }]
