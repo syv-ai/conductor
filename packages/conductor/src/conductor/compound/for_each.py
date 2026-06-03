@@ -21,6 +21,7 @@ can flag data-shape bugs without sifting through node logs.
 
 from __future__ import annotations
 
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
@@ -36,6 +37,14 @@ from conductor.execution.results import extract_output, filter_skipped, normaliz
 from conductor.graph.regions import discover_for_each_regions
 
 MAX_ITERATIONS = 1000
+
+# Global cap on body-node executions in flight at once across an entire
+# loop run. Independent body nodes within an iteration run concurrently
+# (DAG-aware, like the top-level graph), but a single semaphore shared by
+# every iteration bounds the total — so a Parallel loop (8 items) over a
+# multi-node body can't multiply into a connection-storm of concurrent
+# LLM calls. Matches the item-level worker cap.
+_BODY_CONCURRENCY = 8
 
 # Hard cap on nested-for-each depth. Mirrors
 # ``compound/subprocess.py:_MAX_SUBPROCESS_DEPTH`` so a pathological
@@ -142,6 +151,10 @@ class ForEachNode:
 
         state.emit(NodeStartEvent(type="node_start", node_id=self.region.end_id))
 
+        # One semaphore shared by every iteration caps total body-node
+        # concurrency across the whole loop (see _BODY_CONCURRENCY).
+        body_semaphore = threading.BoundedSemaphore(_BODY_CONCURRENCY)
+
         def run_one(item: tuple, idx: int) -> tuple:
             # Start node's per-iteration overlay:
             #   output_1 = Item-1  (first wired source's element)
@@ -159,7 +172,9 @@ class ForEachNode:
                 start_result[f"output_{slot_idx + 2}"] = item[slot_idx]
 
             overlay = {self.region.start_id: start_result}
-            local = _execute_subgraph(state, self.body_order, overlay)
+            local = _execute_subgraph(
+                state, self.body_order, overlay, body_semaphore
+            )
             return _resolve_end_inputs(local, end_slots, self.region.end_id, state)
 
         if not items:
@@ -283,54 +298,147 @@ def _prepare_items_zip(
     return [(item,) for item in _prepare_items(raw)], None
 
 
-def _execute_subgraph(
-    state: Any,
-    node_ids: list[str],
-    overlay: dict[str, Any],
-) -> dict[str, Any]:
-    """Execute a subset of nodes with result isolation.
+def _body_levels(compiled: Any, node_ids: list[str]) -> list[list[str]]:
+    """Group body nodes into dependency levels (topological layers).
 
-    Emits per-body-node ``node_start`` / ``node_complete`` /
-    ``node_skipped`` events so hosts can paint body-node status the
-    same way they do for top-level nodes. Events fire on every
-    iteration — the host typically projects the latest one onto the
-    node's state, so the visual ends up showing ``completed`` after
-    the final iteration without any per-iteration buffering.
+    Level 0 holds body nodes with no body-internal dependency; level *k*
+    holds nodes whose body deps are all in earlier levels. Nodes in the
+    same level are mutually independent and safe to run concurrently;
+    levels run in order so a node never starts before its dependencies
+    have produced results. Only body->body edges constrain ordering —
+    deps pointing outside the body (e.g. the for-each-start overlay) are
+    already present in ``local_results``. Order within a level follows
+    ``node_ids`` (topological) for deterministic event ordering.
     """
+    body_set = set(node_ids)
+    deps: dict[str, set[str]] = {nid: set() for nid in node_ids}
+    for nid in node_ids:
+        for _th, src, _sh, _eid in compiled.incoming_map.get(nid, []):
+            if src in body_set and src != nid:
+                deps[nid].add(src)
+    # Shared-reference (consume) edges are dependencies too.
+    for (tid, _th), (src, _sh) in compiled.consume_map.items():
+        if tid in body_set and src in body_set and src != tid:
+            deps[tid].add(src)
+
+    order_index = {nid: i for i, nid in enumerate(node_ids)}
+    done: set[str] = set()
+    remaining = list(node_ids)
+    levels: list[list[str]] = []
+    while remaining:
+        ready = [nid for nid in remaining if deps[nid] <= done]
+        if not ready:
+            # Defensive: a cycle shouldn't survive compilation, but never
+            # hang — drain the rest sequentially in topological order.
+            levels.extend(
+                [nid] for nid in sorted(remaining, key=lambda n: order_index[n])
+            )
+            break
+        ready.sort(key=lambda nid: order_index[nid])
+        levels.append(ready)
+        done.update(ready)
+        remaining = [nid for nid in remaining if nid not in done]
+    return levels
+
+
+def _run_body_node(
+    node_id: str,
+    state: Any,
+    compiled: Any,
+    local_results: dict[str, Any],
+    lock: threading.Lock,
+    semaphore: threading.Semaphore | None,
+) -> None:
+    """Resolve, skip-check, and dispatch a single body node.
+
+    Safe to call from multiple threads for distinct nodes in the same
+    level: reads take a snapshot of ``local_results`` under ``lock`` (so a
+    sibling's write can't mutate the dict mid-resolve), the actual
+    dispatch is gated by the shared ``semaphore``, and the result is
+    written back under the lock.
+    """
+    from conductor._sentinel import SKIPPED
     from conductor.execution.engine import _dispatch_node
     from conductor.execution.results import filter_skipped
     from conductor.execution.skip import should_skip_node
 
-    local_results = {**state.results, **overlay}
-    compiled = state.compiled
+    node = compiled.node_map[node_id]
 
-    for node_id in node_ids:
-        node = compiled.node_map[node_id]
+    with lock:
+        snapshot = dict(local_results)
 
-        if should_skip_node(
-            node, compiled.edge_map, local_results, compiled.consume_map,
-            state.skipped_edges, compiled.incoming_map,
-        ):
-            from conductor._sentinel import SKIPPED
+    if should_skip_node(
+        node, compiled.edge_map, snapshot, compiled.consume_map,
+        state.skipped_edges, compiled.incoming_map,
+    ):
+        with lock:
             local_results[node_id] = SKIPPED
-            state.emit(NodeSkippedEvent(type="node_skipped", node_id=node_id))
-            continue
+        state.emit(NodeSkippedEvent(type="node_skipped", node_id=node_id))
+        return
 
-        inputs = state.resolver.resolve(
-            node, compiled.edge_map, local_results, compiled.node_map,
-            compiled.consume_map, state.skipped_edges, compiled.incoming_map,
-        )
+    inputs = state.resolver.resolve(
+        node, compiled.edge_map, snapshot, compiled.node_map,
+        compiled.consume_map, state.skipped_edges, compiled.incoming_map,
+    )
 
-        state.emit(NodeStartEvent(type="node_start", node_id=node_id))
+    state.emit(NodeStartEvent(type="node_start", node_id=node_id))
+    if semaphore is not None:
+        with semaphore:
+            result = _dispatch_node(
+                node.type, node_id, inputs, node.data or {}, state, compiled
+            )
+    else:
         result = _dispatch_node(
             node.type, node_id, inputs, node.data or {}, state, compiled
         )
-        normalized = normalize_result(result)
+    normalized = normalize_result(result)
+    with lock:
         local_results[node_id] = normalized
-        state.emit(NodeCompleteEvent(
-            type="node_complete", node_id=node_id,
-            result=filter_skipped(normalized) if isinstance(normalized, dict) else normalized,
-        ))
+    state.emit(NodeCompleteEvent(
+        type="node_complete", node_id=node_id,
+        result=filter_skipped(normalized) if isinstance(normalized, dict) else normalized,
+    ))
+
+
+def _execute_subgraph(
+    state: Any,
+    node_ids: list[str],
+    overlay: dict[str, Any],
+    semaphore: threading.Semaphore | None = None,
+) -> dict[str, Any]:
+    """Execute a loop body with result isolation and DAG-aware concurrency.
+
+    Body nodes are grouped into dependency levels (see ``_body_levels``):
+    mutually-independent nodes in a level run concurrently — bounded by
+    ``semaphore``, a cap shared across the whole loop so parallel
+    iterations don't multiply into a connection-storm — while dependent
+    nodes still run in order. A linear body collapses to single-node
+    levels and runs inline, identical to the old sequential path.
+
+    Emits per-body-node ``node_start`` / ``node_complete`` /
+    ``node_skipped`` events so hosts can paint body-node status the same
+    way they do for top-level nodes.
+    """
+    local_results = {**state.results, **overlay}
+    compiled = state.compiled
+    lock = threading.Lock()
+
+    for level in _body_levels(compiled, node_ids):
+        if len(level) == 1:
+            _run_body_node(
+                level[0], state, compiled, local_results, lock, semaphore
+            )
+            continue
+        with ThreadPoolExecutor(max_workers=len(level)) as pool:
+            # list() drains the iterator so the first worker exception is
+            # re-raised here — a failing body node fails the iteration,
+            # matching the sequential path.
+            list(pool.map(
+                lambda nid: _run_body_node(
+                    nid, state, compiled, local_results, lock, semaphore
+                ),
+                level,
+            ))
 
     return local_results
 

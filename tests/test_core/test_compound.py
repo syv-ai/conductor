@@ -243,6 +243,178 @@ class TestForEachEvents:
         assert set(events[-1]["results"]["end"]["result"]) == {"A", "B"}
 
 
+class TestForEachBodyConcurrency:
+    """The loop body is DAG-scheduled: independent nodes run concurrently,
+    dependent nodes stay ordered, and total concurrency is globally capped."""
+
+    async def test_independent_body_nodes_run_in_parallel(self, registry):
+        """Two body nodes that both depend only on the loop item must run
+        concurrently. Construction makes this deterministic: each waits on a
+        2-party barrier, so the loop only completes if they overlap — a
+        sequential body would block the first node forever (barrier timeout
+        -> error, no flow_complete)."""
+        import threading
+        from typing import Annotated
+
+        from conductor.widgets import ConnectionList, Output, Text
+
+        barrier = threading.Barrier(2, timeout=5.0)
+
+        @registry.node("a", version=1, name="A", description="a")
+        def a(item: Annotated[str, Text(label="i")]) -> Annotated[str, Output(label="o")]:
+            barrier.wait()
+            return item.upper()
+
+        @registry.node("b", version=1, name="B", description="b")
+        def b(item: Annotated[str, Text(label="i")]) -> Annotated[str, Output(label="o")]:
+            barrier.wait()
+            return item
+
+        @registry.node("for-each-start", version=1, name="S", description="s")
+        def fes(items: Annotated[list[str], ConnectionList(label="x")]) -> tuple[
+            Annotated[str, Output(label="Item")], Annotated[int, Output(label="Index")]
+        ]:
+            raise NotImplementedError
+
+        @registry.node("for-each-end", version=1, name="E", description="e")
+        def fee(
+            ia: Annotated[str, Text(label="ia")], ib: Annotated[str, Text(label="ib")]
+        ) -> Annotated[list[str], Output(label="c")]:
+            raise NotImplementedError
+
+        nodes = [
+            GraphNode("start", "for-each-start@1", {"items": ["x"]}),
+            GraphNode("na", "a@1", None),
+            GraphNode("nb", "b@1", None),
+            GraphNode("end", "for-each-end@1", None),
+        ]
+        edges = [
+            GraphEdge("e1", "start", "na", "output_1", "item"),
+            GraphEdge("e2", "start", "nb", "output_1", "item"),  # both on the item
+            GraphEdge("e3", "na", "end", "result", "ia"),
+            GraphEdge("e4", "nb", "end", "result", "ib"),
+        ]
+        compiled = compile(
+            nodes=nodes, edges=edges, registry=registry, compound_types=[FOR_EACH]
+        )
+        types = [e["type"] for e in [ev async for ev in execute(compiled)]]
+        assert "flow_complete" in types
+        assert "node_error" not in types
+
+    def test_dependent_body_nodes_stay_sequential(self, registry):
+        """When one body node feeds another, the consumer must run after the
+        producer — proven by the consumer receiving the producer's value."""
+        from typing import Annotated
+
+        from conductor.widgets import ConnectionList, Output, Text
+
+        @registry.node("up", version=1, name="Up", description="up")
+        def up(item: Annotated[str, Text(label="i")]) -> Annotated[str, Output(label="o")]:
+            return item.upper()
+
+        @registry.node("bang", version=1, name="Bang", description="bang")
+        def bang(x: Annotated[str, Text(label="i")]) -> Annotated[str, Output(label="o")]:
+            return f"{x}!"
+
+        @registry.node("for-each-start", version=1, name="S", description="s")
+        def fes(items: Annotated[list[str], ConnectionList(label="x")]) -> tuple[
+            Annotated[str, Output(label="Item")], Annotated[int, Output(label="Index")]
+        ]:
+            raise NotImplementedError
+
+        @registry.node("for-each-end", version=1, name="E", description="e")
+        def fee(item: Annotated[str, Text(label="item")]) -> Annotated[list[str], Output(label="c")]:
+            raise NotImplementedError
+
+        nodes = [
+            GraphNode("start", "for-each-start@1", {"items": ["x", "y"]}),
+            GraphNode("nu", "up@1", None),
+            GraphNode("nb", "bang@1", None),
+            GraphNode("end", "for-each-end@1", None),
+        ]
+        edges = [
+            GraphEdge("e1", "start", "nu", "output_1", "item"),
+            GraphEdge("e2", "nu", "nb", "result", "x"),  # bang depends on up
+            GraphEdge("e3", "nb", "end", "result", "item"),
+        ]
+        compiled = compile(
+            nodes=nodes, edges=edges, registry=registry, compound_types=[FOR_EACH]
+        )
+        results = execute_sync(compiled)
+        # "X!" / "Y!" prove up ran before bang in every iteration.
+        assert set(results["end"]["result"]) == {"X!", "Y!"}
+
+    async def test_body_concurrency_is_globally_capped(self, registry):
+        """Across all iterations of a Parallel loop, the number of body
+        nodes dispatching at once never exceeds the global cap, even though
+        items x body-nodes far exceeds it."""
+        import threading
+        import time
+        from typing import Annotated
+
+        from conductor.compound import for_each as fe
+        from conductor.widgets import ConnectionList, Output, Text
+
+        lock = threading.Lock()
+        state = {"cur": 0, "max": 0}
+
+        def tick():
+            with lock:
+                state["cur"] += 1
+                state["max"] = max(state["max"], state["cur"])
+            time.sleep(0.05)
+            with lock:
+                state["cur"] -= 1
+
+        @registry.node("a", version=1, name="A", description="a")
+        def a(item: Annotated[str, Text(label="i")]) -> Annotated[str, Output(label="o")]:
+            tick()
+            return item
+
+        @registry.node("b", version=1, name="B", description="b")
+        def b(item: Annotated[str, Text(label="i")]) -> Annotated[str, Output(label="o")]:
+            tick()
+            return item
+
+        @registry.node("for-each-start", version=1, name="S", description="s")
+        def fes(items: Annotated[list[str], ConnectionList(label="x")]) -> tuple[
+            Annotated[str, Output(label="Item")], Annotated[int, Output(label="Index")]
+        ]:
+            raise NotImplementedError
+
+        @registry.node("for-each-end", version=1, name="E", description="e")
+        def fee(
+            ia: Annotated[str, Text(label="ia")], ib: Annotated[str, Text(label="ib")]
+        ) -> Annotated[list[str], Output(label="c")]:
+            raise NotImplementedError
+
+        items = [f"i{n}" for n in range(10)]  # 10 items x 2 nodes = 20 potential
+        nodes = [
+            GraphNode("start", "for-each-start@1", {"items": items, "execution_mode": "Parallel"}),
+            GraphNode("na", "a@1", None),
+            GraphNode("nb", "b@1", None),
+            GraphNode("end", "for-each-end@1", None),
+        ]
+        edges = [
+            GraphEdge("e1", "start", "na", "output_1", "item"),
+            GraphEdge("e2", "start", "nb", "output_1", "item"),
+            GraphEdge("e3", "na", "end", "result", "ia"),
+            GraphEdge("e4", "nb", "end", "result", "ib"),
+        ]
+        compiled = compile(
+            nodes=nodes, edges=edges, registry=registry, compound_types=[FOR_EACH]
+        )
+        import asyncio
+
+        await asyncio.wait_for(
+            asyncio.to_thread(execute_sync, compiled), timeout=20.0
+        )
+        # Hard guarantee from the shared semaphore.
+        assert state["max"] <= fe._BODY_CONCURRENCY
+        # And concurrency actually happened (independent nodes ran together).
+        assert state["max"] >= 2
+
+
 class TestForEachEmpty:
     def test_downstream_of_for_each_end_depends_on_region_start(
         self, loop_registry,
