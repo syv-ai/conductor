@@ -132,6 +132,116 @@ class TestForEachEvents:
         assert "node_progress" in event_types
         assert "flow_complete" in event_types
 
+    async def test_parallel_emits_incremental_progress(self, loop_registry):
+        """Parallel mode must emit one ``node_progress`` per finished item
+        (1/N, 2/N, … N/N), not a single terminal N/N — so the host can
+        show a live counter while items complete out of order."""
+        nodes = [
+            GraphNode("start", "for-each-start@1", {
+                "items": ["a", "b", "c"],
+                "execution_mode": "Parallel",
+            }),
+            GraphNode("body", "upper@1", None),
+            GraphNode("end", "for-each-end@1", None),
+        ]
+        edges = [
+            GraphEdge("e1", "start", "body", "output_1", "text"),
+            GraphEdge("e2", "body", "end", "result", "item"),
+        ]
+        compiled = compile(
+            nodes=nodes, edges=edges, registry=loop_registry,
+            compound_types=[FOR_EACH],
+        )
+
+        currents = [
+            e["current"]
+            for e in [ev async for ev in execute(compiled)]
+            if e["type"] == "node_progress"
+        ]
+        # One event per item, counting up to the total — not a lone "3".
+        assert currents == [1, 2, 3]
+
+    async def test_progress_streams_live_not_buffered(self, registry):
+        """A running compound node's events must reach the host *during*
+        execution, not in a burst once the loop finishes.
+
+        Construction makes liveness the only way to pass: the second
+        iteration's body blocks on a gate that the consumer only opens
+        after it has *received* the first iteration's ``node_progress``.
+        Under the old buffered behaviour the host sees nothing until the
+        whole compound completes, so the gate is never opened, the body
+        raises, and ``flow_complete`` never arrives (the wait below would
+        otherwise hang — hence the hard timeout).
+        """
+        import asyncio
+        import threading
+        from typing import Annotated
+
+        from conductor.widgets import ConnectionList, Output, Text
+
+        gate = threading.Event()
+
+        @registry.node("gated", version=1, name="Gated", description="gates iter 2")
+        def gated(
+            text: Annotated[str, Text(label="Input")],
+            index: Annotated[int, Text(label="Index")],
+        ) -> Annotated[str, Output(label="Output")]:
+            if index == 2 and not gate.wait(timeout=5.0):
+                raise RuntimeError("gate never opened — progress was buffered")
+            return text.upper()
+
+        @registry.node(
+            "for-each-start", version=1, name="Start", description="loop start",
+        )
+        def for_each_start(
+            items: Annotated[list[str], ConnectionList(label="Items")],
+        ) -> tuple[
+            Annotated[str, Output(label="Item")],
+            Annotated[int, Output(label="Index")],
+        ]:
+            raise NotImplementedError("Handled by compound node")
+
+        @registry.node(
+            "for-each-end", version=1, name="End", description="loop end",
+        )
+        def for_each_end(
+            item: Annotated[str, Text(label="Item")],
+        ) -> Annotated[list[str], Output(label="Collected")]:
+            raise NotImplementedError("Handled by compound node")
+
+        nodes = [
+            GraphNode("start", "for-each-start@1", {"items": ["a", "b"]}),
+            GraphNode("body", "gated@1", None),
+            GraphNode("end", "for-each-end@1", None),
+        ]
+        edges = [
+            GraphEdge("e0", "start", "body", "output_1", "text"),   # item
+            GraphEdge("e1", "start", "body", "output_2", "index"),  # 1-based index
+            GraphEdge("e2", "body", "end", "result", "item"),
+        ]
+        compiled = compile(
+            nodes=nodes, edges=edges, registry=registry, compound_types=[FOR_EACH],
+        )
+
+        async def run() -> list:
+            collected = []
+            async for event in execute(compiled):
+                collected.append(event)
+                if event["type"] == "node_progress" and event.get("current") == 1:
+                    gate.set()  # open iter 2 only after seeing iter-1 progress live
+            return collected
+
+        events = await asyncio.wait_for(run(), timeout=10.0)
+
+        types = [e["type"] for e in events]
+        assert "flow_complete" in types
+        assert "node_error" not in types
+        # The gate was opened, which only happens if iter-1 progress arrived
+        # live (mid-run) rather than after the loop finished.
+        assert gate.is_set()
+        assert events[-1]["type"] == "flow_complete"
+        assert set(events[-1]["results"]["end"]["result"]) == {"A", "B"}
+
 
 class TestForEachEmpty:
     def test_downstream_of_for_each_end_depends_on_region_start(

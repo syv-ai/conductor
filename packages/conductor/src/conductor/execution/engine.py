@@ -62,6 +62,41 @@ __all__ = [
 _DONE = object()
 _FATAL = object()
 
+# How often a running compound node's event sink is polled so the events
+# it emits mid-execution (loop-body node_start/node_complete, for-each
+# node_progress) stream to the host live instead of arriving in a burst
+# once the whole compound finishes. Small enough to feel live, large
+# enough not to busy-spin the event loop.
+_SINK_DRAIN_INTERVAL = 0.05
+
+
+async def _drain_sink_live(
+    sink: Any, event_queue: asyncio.Queue, interval: float = _SINK_DRAIN_INTERVAL
+) -> None:
+    """Forward events from a node's sink to ``event_queue`` while it runs.
+
+    Compound nodes (for-each / while loops) emit body-node and progress
+    events to ``state._event_sink`` from a worker thread during their
+    execution. Without a concurrent drainer those events sit in the sink
+    until the compound completes and the post-dispatch tail-drain flushes
+    them — so a host sees nothing until the loop ends. This coroutine
+    runs alongside the dispatch task and pumps the sink on a short
+    interval; the caller cancels it once dispatch returns, and the
+    existing tail-drain flushes anything emitted after the final poll.
+    """
+    try:
+        while True:
+            while (evt := sink.pop()) is not None:
+                await event_queue.put(evt)
+            await asyncio.sleep(interval)
+    except asyncio.CancelledError:
+        # Final sweep so events emitted between the last poll and
+        # cancellation aren't left for the tail-drain to reorder after
+        # the parent's node_complete.
+        while (evt := sink.pop()) is not None:
+            await event_queue.put(evt)
+        raise
+
 
 # =========================================================================
 # Primary entry point
@@ -447,13 +482,31 @@ async def _execute_node_async(
         try:
             remaining = state.remaining_seconds()
             effective_timeout = _effective_timeout(remaining, node_timeout)
-            result = await asyncio.wait_for(
+            # Run dispatch and a live sink-drainer concurrently so a
+            # compound node's mid-execution events (loop-body status,
+            # for-each progress) stream to the host instead of arriving
+            # in a burst at completion. The drainer is cancelled as soon
+            # as dispatch settles (success, timeout, or error); the
+            # tail-drain below flushes any final stragglers.
+            dispatch = asyncio.ensure_future(
                 asyncio.to_thread(
                     _dispatch_node, node.type, node_id, inputs,
                     node.data or {}, state, compiled, idem_key,
-                ),
-                timeout=effective_timeout,
+                )
             )
+            drainer = asyncio.ensure_future(
+                _drain_sink_live(sink, event_queue)
+            )
+            try:
+                result = await asyncio.wait_for(
+                    dispatch, timeout=effective_timeout
+                )
+            finally:
+                drainer.cancel()
+                try:
+                    await drainer
+                except asyncio.CancelledError:
+                    pass
 
             result = normalize_result(result)
             state.results[node_id] = result

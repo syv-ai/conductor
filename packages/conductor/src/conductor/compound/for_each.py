@@ -21,7 +21,7 @@ can flag data-shape bugs without sifting through node logs.
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from conductor.compound.protocol import CompoundNodeType, Region
@@ -172,15 +172,26 @@ class ForEachNode:
             return []
 
         if parallel:
-            with ThreadPoolExecutor(max_workers=min(len(items), 8)) as pool:
-                collected = list(pool.map(
-                    lambda pair: run_one(pair[1], pair[0]),
-                    enumerate(items),
-                ))
-            state.emit(NodeProgressEvent(
-                type="node_progress", node_id=self.region.end_id,
-                current=len(items), total=len(items),
-            ))
+            # Submit + as_completed (instead of pool.map) so a progress
+            # event fires each time an item finishes — a live counter in
+            # parallel mode too. Results are slotted back by index so the
+            # collected order still matches item order regardless of which
+            # iteration finishes first.
+            collected: list[Any] = [None] * len(items)
+            total = len(items)
+            with ThreadPoolExecutor(max_workers=min(total, 8)) as pool:
+                futures = {
+                    pool.submit(run_one, item, idx): idx
+                    for idx, item in enumerate(items)
+                }
+                done = 0
+                for fut in as_completed(futures):
+                    collected[futures[fut]] = fut.result()
+                    done += 1
+                    state.emit(NodeProgressEvent(
+                        type="node_progress", node_id=self.region.end_id,
+                        current=done, total=total,
+                    ))
         else:
             collected = []
             for idx, item in enumerate(items):
