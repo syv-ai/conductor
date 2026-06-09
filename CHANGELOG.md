@@ -27,6 +27,31 @@ they are likely targets for a future major bump:
 - Cross-package `==` pin in `syv-conductor[all]` — could relax to
   `~=` once the providers/nodes packages stabilize independently.
 
+## [1.3.0]
+
+### Added
+
+- **`conductor.compute_for_each_end_outputs`** — the default `compute_outputs`
+  hook for the `for-each-end` marker, now part of the public surface (also
+  re-exported from `conductor.compound`). Hosts that re-register the loop
+  markers (e.g. to localize labels) can pass it straight through instead of
+  reimplementing the typing rule.
+
+### Changed
+
+- **Typed `for-each-end` collected outputs** (`feat(for-each)`): the stdlib
+  `for-each-end` marker now ships `compute_for_each_end_outputs` by default.
+  Each collected slot is typed `list[<inner>]` — where `<inner>` is the wired
+  source's element type, with one `list[...]` level unwrapped when the source
+  already produces a list — and labelled from the source (sub-output prefix
+  stripped). Previously the collected outputs were untyped, which silently
+  weakened compile-time type-checking of anything consuming a loop result.
+  This is additive: slot names (`output_1`, `output_2`, …), ordering, and the
+  dedup-by-`(source, handle)` rule are unchanged (the hook reuses
+  `_is_end_input_edge` and mirrors `_discover_end_slots`), so the runtime
+  contract and saved-flow wire targets are unaffected — including legacy
+  `item`/`item_N` end handles.
+
 ## [1.2.0]
 
 ### Changed
