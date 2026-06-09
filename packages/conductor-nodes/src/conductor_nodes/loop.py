@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Annotated
 
+from conductor.compound.for_each import compute_for_each_end_outputs
 from conductor.types import NodeCategory
 from conductor.widgets import ConnectionList, Dropdown, Output
 
@@ -64,6 +65,7 @@ def register(registry: "NodeRegistry") -> None:
         description="Collects loop body results into one list per wired source.",
         category=NodeCategory.CONTROL,
         dynamic_handles=True,
+        compute_outputs=compute_for_each_end_outputs,
     )
     def for_each_end(
         # Single ConnectionList input. Wire as many body→end edges as

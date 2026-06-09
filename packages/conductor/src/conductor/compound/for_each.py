@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from conductor.compound.protocol import CompoundNodeType, Region
 from conductor.execution.events import (
@@ -35,6 +35,10 @@ from conductor.execution.events import (
 )
 from conductor.execution.results import extract_output, filter_skipped, normalize_result
 from conductor.graph.regions import discover_for_each_regions
+
+if TYPE_CHECKING:
+    from conductor.metadata import OutputMetadata
+    from conductor.registry.dynamic_outputs import ComputeOutputsContext
 
 MAX_ITERATIONS = 1000
 
@@ -456,6 +460,67 @@ def _is_end_input_edge(target_handle: str) -> bool:
     if target_handle == END_PRIMARY_INPUT:
         return True
     return target_handle.startswith(_LEGACY_END_HANDLE_PREFIX)
+
+
+def compute_for_each_end_outputs(
+    ctx: "ComputeOutputsContext",
+) -> "list[OutputMetadata]":
+    """Default ``compute_outputs`` hook for ``for-each-end``.
+
+    Types each collected slot as ``list[<inner>]`` where ``<inner>`` is the
+    wired source's element type — one ``list[...]`` level unwrapped when the
+    source already produces a list (the loop body runs once per item, so a
+    body output of type ``T`` collects into ``list[T]``). Without this hook
+    the end's collected outputs are untyped, which silently weakens
+    compile-time type-checking of whatever consumes the loop result.
+
+    Slot names (``output_1``, ``output_2``, …), ordering, and the
+    dedup-by-``(source_node, source_handle)`` rule mirror
+    :func:`_discover_end_slots` exactly — and the edge filter reuses
+    :func:`_is_end_input_edge` — so the compile-time schema lines up slot
+    for slot with the runtime's per-slot transposition (including legacy
+    ``item``/``item_N`` target handles on flows saved before the
+    ConnectionList switch). Labels come from the source output with any
+    sub-output prefix stripped so hosts show clean names.
+
+    Returns ``ctx.defaults`` unchanged when nothing is wired into the end.
+    """
+    from conductor.metadata import OutputMetadata
+    from conductor.registry.dynamic_outputs import strip_sub_output_prefix
+
+    seen: set[EndSlotKey] = set()
+    bindings = []
+    for binding in ctx.incoming:
+        if not _is_end_input_edge(binding.target_handle):
+            continue
+        key: EndSlotKey = (binding.source_node_id, binding.source_handle)
+        if key in seen:
+            continue
+        seen.add(key)
+        bindings.append(binding)
+
+    if not bindings:
+        return list(ctx.defaults)
+
+    outputs: list[OutputMetadata] = []
+    for idx, binding in enumerate(bindings):
+        source_type = binding.source_output.type_str or "any"
+        if source_type.startswith("list[") and source_type.endswith("]"):
+            inner = source_type[5:-1]
+        else:
+            inner = source_type
+        source_label = binding.source_output.label or binding.source_handle
+        outputs.append(
+            OutputMetadata(
+                name=f"output_{idx + 1}",
+                type_str=f"list[{inner}]",
+                label=strip_sub_output_prefix(source_label),
+                description=binding.source_output.description,
+                download=binding.source_output.download,
+                filename=binding.source_output.filename,
+            )
+        )
+    return outputs
 
 
 def _discover_end_slots(compiled: Any, end_id: str) -> tuple[EndSlotKey, ...]:

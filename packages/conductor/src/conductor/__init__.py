@@ -6,7 +6,15 @@ internals (resolver, state, topology, etc.) stay in submodules.
 
 from conductor import errors, expr, widgets
 from conductor._sentinel import SKIPPED
-from conductor.compound import FOR_EACH, SUBPROCESS, WHILE, ForEachNode, SubprocessNode, WhileNode
+from conductor.compound import (
+    FOR_EACH,
+    SUBPROCESS,
+    WHILE,
+    ForEachNode,
+    SubprocessNode,
+    WhileNode,
+    compute_for_each_end_outputs,
+)
 from conductor.compound.subprocess import SubprocessRegistry
 from conductor.errors import (
     CompilationError,
@@ -64,6 +72,7 @@ __all__ = [
     # Compound nodes
     "ForEachNode",
     "FOR_EACH",
+    "compute_for_each_end_outputs",
     "WhileNode",
     "WHILE",
     "SubprocessNode",
