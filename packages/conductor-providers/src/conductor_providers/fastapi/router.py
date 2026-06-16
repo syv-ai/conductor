@@ -90,7 +90,9 @@ def conductor_router(
             extension_resolver=extension_resolver,
             strict_types=strict_types,
         )
-        results = execute_sync(compiled, store_data=_store_data(request))
+        results = execute_sync(
+            compiled, store_data=_store_data(request), cache=req.cache or None
+        )
         return {"results": results}
 
     @router.post("/execute-stream")
@@ -110,7 +112,9 @@ def conductor_router(
         store_data = _store_data(request)
 
         async def event_stream() -> Any:
-            async for event in execute(compiled, store_data=store_data):
+            async for event in execute(
+                compiled, store_data=store_data, cache=req.cache or None
+            ):
                 yield sse_frame(event)
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
