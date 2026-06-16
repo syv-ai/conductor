@@ -60,6 +60,11 @@ class ExecuteRequest(BaseModel):
 
     nodes: list[NodeInput]
     edges: list[EdgeInput]
+    # Optional precomputed node results, keyed by node id. Nodes listed here
+    # are seeded as already-completed (the engine emits ``node_complete`` with
+    # ``cached=True`` and skips running them), so a host can reuse outputs from
+    # a previous run instead of recomputing the whole graph. Unset = run all.
+    cache: dict[str, Any] | None = None
 
     def to_graph(self) -> tuple[list[GraphNode], list[GraphEdge]]:
         """Convert to conductor's internal ``GraphNode`` / ``GraphEdge`` types.
