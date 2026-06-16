@@ -27,6 +27,19 @@ they are likely targets for a future major bump:
 - Cross-package `==` pin in `syv-conductor[all]` — could relax to
   `~=` once the providers/nodes packages stabilize independently.
 
+## [1.4.0]
+
+### Added
+
+- **`cache` on the FastAPI provider's `/execute` and `/execute-stream`**
+  (`feat(fastapi)`): `ExecuteRequest` now accepts an optional
+  `cache: dict[str, Any]` mapping node id → precomputed result, forwarded to
+  the engine. Listed nodes are seeded as completed (the engine emits
+  `node_complete` with `cached=True`) and skipped, so a host can reuse outputs
+  from a previous run instead of recomputing the whole graph. Additive and
+  backwards-compatible: omitting `cache` is unchanged behaviour, and the engine
+  already supported the parameter — only the HTTP layer is new.
+
 ## [1.3.0]
 
 ### Added
