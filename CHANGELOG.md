@@ -27,6 +27,25 @@ they are likely targets for a future major bump:
 - Cross-package `==` pin in `syv-conductor[all]` — could relax to
   `~=` once the providers/nodes packages stabilize independently.
 
+## [1.5.0]
+
+### Added
+
+- **`HumanReview` widget — declarative per-node human-in-the-loop approval**
+  (`feat(engine)`): a new widget (`conductor.widgets.HumanReview`) that any
+  node can attach to a boolean input. It renders as an ordinary `Switch`
+  (`WidgetType.SWITCH`, so existing frontends need no new renderer) and stamps
+  `human_review: true` into the input's `widget_config`. When the resolved
+  toggle is truthy and the node produced a non-skipped value, the engine pauses
+  **after** the node computes, emitting `flow_paused` with
+  `schema={"kind": "approval", "value": <result>}`. `resume()` injects the
+  human's response as the node's result, so the node is **not** re-run — no
+  recomputation or re-billing. Resume semantics: the same value approves, a
+  different value edits, and `SKIPPED` rejects (downstream is skipped). Unlike
+  raising `HumanInputRequired`, this requires **no code in the node body** —
+  opting in is a single annotated input. Additive and backwards-compatible:
+  nodes without the widget are unaffected.
+
 ## [1.4.0]
 
 ### Added
