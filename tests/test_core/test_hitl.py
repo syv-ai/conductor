@@ -310,3 +310,118 @@ class TestMultiplePauses:
         # Resume again -> completes
         results = resume_sync(compiled, cp2, response="second_ok")
         assert results["n4"]["result"] == "second_ok"
+
+
+class TestHumanReviewToggle:
+    """The ``HumanReview`` widget pauses *after* a node computes, with no
+    code in the node body — the engine intercepts based on the toggle."""
+
+    @pytest.fixture
+    def review_registry(self):
+        from conductor.widgets import HumanReview
+
+        reg = NodeRegistry()
+
+        @reg.node("echo", version=1, name="Echo", description="Echo")
+        def echo(
+            text: Annotated[str, Text(label="In")],
+        ) -> Annotated[str, Output(label="Out")]:
+            return text
+
+        @reg.node("upper", version=1, name="Upper", description="Upper")
+        def upper(
+            text: Annotated[str, Text(label="In")],
+        ) -> Annotated[str, Output(label="Out")]:
+            return text.upper()
+
+        # A vanilla node that merely declares a review toggle it never reads.
+        @reg.node("gen", version=1, name="Gen", description="Generates text")
+        def gen(
+            text: Annotated[str, Text(label="In")],
+            human_review: Annotated[
+                bool, HumanReview(label="Review")
+            ] = False,
+        ) -> Annotated[str, Output(label="Out")]:
+            return f"generated:{text}"
+
+        return reg
+
+    def _graph(self, registry, review: bool):
+        return compile(
+            nodes=[
+                GraphNode("n1", "echo@1", {"text": "hi"}),
+                GraphNode("n2", "gen@1", {"human_review": review}),
+                GraphNode("n3", "upper@1", None),
+            ],
+            edges=[
+                GraphEdge("e1", "n1", "n2", "result", "text"),
+                GraphEdge("e2", "n2", "n3", "result", "text"),
+            ],
+            registry=registry,
+        )
+
+    async def test_toggle_off_runs_straight_through(self, review_registry):
+        compiled = self._graph(review_registry, review=False)
+        events = [e async for e in execute(compiled)]
+        types = [e["type"] for e in events]
+        assert "flow_paused" not in types
+        assert "flow_complete" in types
+        complete = next(e for e in events if e["type"] == "flow_complete")
+        assert complete["results"]["n3"]["result"] == "GENERATED:HI"
+
+    async def test_toggle_on_pauses_with_computed_value(self, review_registry):
+        compiled = self._graph(review_registry, review=True)
+        events = [e async for e in execute(compiled)]
+        types = [e["type"] for e in events]
+        assert "flow_paused" in types
+        assert "flow_complete" not in types
+        paused = next(e for e in events if e["type"] == "flow_paused")
+        assert paused["node_id"] == "n2"
+        # The freshly-computed result is offered for review, unwrapped.
+        assert paused["schema"] == {"kind": "approval", "value": "generated:hi"}
+
+    async def test_approve_injects_value_and_continues(self, review_registry):
+        compiled = self._graph(review_registry, review=True)
+        checkpoint = None
+        async for event in execute(compiled):
+            if event["type"] == "flow_paused":
+                checkpoint = event["checkpoint"]
+                break
+        assert checkpoint is not None
+        # "Approve" resumes with the same value the human saw.
+        events = [
+            e async for e in resume(compiled, checkpoint, response="generated:hi")
+        ]
+        complete = next(e for e in events if e["type"] == "flow_complete")
+        assert complete["results"]["n3"]["result"] == "GENERATED:HI"
+
+    async def test_edit_replaces_value(self, review_registry):
+        compiled = self._graph(review_registry, review=True)
+        checkpoint = None
+        async for event in execute(compiled):
+            if event["type"] == "flow_paused":
+                checkpoint = event["checkpoint"]
+                break
+        events = [
+            e async for e in resume(compiled, checkpoint, response="corrected")
+        ]
+        complete = next(e for e in events if e["type"] == "flow_complete")
+        # Downstream sees the human's edit, not the computed value.
+        assert complete["results"]["n3"]["result"] == "CORRECTED"
+
+    async def test_reject_skips_downstream(self, review_registry):
+        from conductor import SKIPPED
+
+        compiled = self._graph(review_registry, review=True)
+        checkpoint = None
+        async for event in execute(compiled):
+            if event["type"] == "flow_paused":
+                checkpoint = event["checkpoint"]
+                break
+        # "Reject" resumes the node as SKIPPED -> n3 is skipped too.
+        events = [e async for e in resume(compiled, checkpoint, response=SKIPPED)]
+        types = [e["type"] for e in events]
+        assert "flow_complete" in types
+        complete = next(e for e in events if e["type"] == "flow_complete")
+        n3 = complete["results"].get("n3", {})
+        assert n3.get("result") is SKIPPED or "n3" not in complete["results"]

@@ -21,6 +21,7 @@ __all__ = [
     "Output",
     "Number",
     "Switch",
+    "HumanReview",
     "DatePicker",
     "Multiselect",
     "List",
@@ -305,6 +306,41 @@ class Switch(Widget):
     @property
     def widget_type(self) -> WidgetType:
         return WidgetType.SWITCH
+
+
+@dataclass
+class HumanReview(Widget):
+    """Per-instance toggle that pauses the flow for human review of *this
+    node's* result.
+
+    Renders as an ordinary switch (``WidgetType.SWITCH``), so frontends need
+    no new renderer. The extra ``human_review: true`` marker it writes into
+    the parameter schema is what the engine keys on: when the resolved value
+    is truthy, the engine pauses **after** the node computes — emitting a
+    ``flow_paused`` event whose ``schema.value`` is the freshly-produced
+    result — and ``resume()`` injects the human's response as the node's
+    result (the node is not re-run). The marker also lets a frontend badge
+    the node as "needs approval". ``prompt`` is an optional message shown to
+    the reviewer.
+
+    Unlike a node raising :class:`~conductor.errors.HumanInputRequired`, this
+    needs no code in the node body: any node can opt in by declaring one
+    ``HumanReview``-annotated boolean input.
+    """
+
+    disable_handle: bool = True
+    prompt: str | None = None
+
+    @property
+    def widget_type(self) -> WidgetType:
+        return WidgetType.SWITCH
+
+    def to_schema(self) -> dict[str, Any]:
+        schema = super().to_schema()
+        schema["human_review"] = True
+        if self.prompt is not None:
+            schema["prompt"] = self.prompt
+        return schema
 
 
 @dataclass

@@ -10,7 +10,7 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Any
 
-from conductor._sentinel import SKIPPED
+from conductor._sentinel import SKIPPED, is_skipped
 from conductor.errors import (
     FlowExecutionException,
     FlowPausedException,
@@ -49,6 +49,7 @@ from conductor.execution.state import FlowRunState
 from conductor.execution.store import FlowStore
 from conductor.expr import ExpressionError
 from conductor.graph.compiler import CompiledGraph
+from conductor.types import RESULT_KEY
 
 __all__ = [
     "execute",
@@ -383,6 +384,21 @@ class _NodeDone:
     pause_event: dict | None = None
 
 
+def _human_review_input(node_def: Any) -> Any | None:
+    """Return the node's HumanReview-marked input metadata, if it has one.
+
+    A node opts into post-execution review by declaring a single boolean
+    input annotated with the ``HumanReview`` widget, which stamps
+    ``human_review: true`` into that input's ``widget_config``.
+    """
+    if node_def is None:
+        return None
+    for inp in getattr(node_def, "inputs", ()) or ():
+        if inp.widget_config.get("human_review"):
+            return inp
+    return None
+
+
 async def _execute_node_async(
     node_id: str,
     state: FlowRunState,
@@ -508,7 +524,53 @@ async def _execute_node_async(
                 except asyncio.CancelledError:
                     pass
 
+            raw_result = result
             result = normalize_result(result)
+
+            # Human-in-the-loop: if this node carries a (truthy) HumanReview
+            # toggle and actually produced a value, pause *after* computing so
+            # a person can approve / edit / reject the result before it flows
+            # on. resume() injects their response as this node's result — the
+            # node is not re-run, so nothing is recomputed or re-billed.
+            review_inp = _human_review_input(node_def)
+            if (
+                review_inp is not None
+                and not is_skipped(raw_result)
+                and bool(inputs.get(review_inp.name))
+            ):
+                review_value = filter_skipped(result)
+                if (
+                    isinstance(review_value, dict)
+                    and set(review_value) == {RESULT_KEY}
+                ):
+                    review_value = review_value[RESULT_KEY]
+                review_prompt = review_inp.widget_config.get("prompt") or ""
+                review_schema = {"kind": "approval", "value": review_value}
+                cp = FlowCheckpoint(
+                    completed_node_ids=list(state.completed_order),
+                    waiting_node_id=node_id,
+                    waiting_node_type=node.type,
+                    results=dict(state.results),
+                    store_data=state.store.to_dict(),
+                    context=dict(state.context),
+                    prompt=review_prompt,
+                    input_schema=review_schema,
+                    execution_index=-1,
+                    skipped_edges=list(state.skipped_edges),
+                )
+                await event_queue.put(_NodeDone(
+                    node_id=node_id,
+                    paused=True,
+                    pause_event=FlowPausedEvent(
+                        type="flow_paused",
+                        node_id=node_id,
+                        prompt=review_prompt,
+                        schema=review_schema,
+                        checkpoint=cp.to_dict(),
+                    ),
+                ))
+                return
+
             state.results[node_id] = result
             state.completed_order.append(node_id)
             await event_queue.put(NodeCompleteEvent(
