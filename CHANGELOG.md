@@ -27,6 +27,22 @@ they are likely targets for a future major bump:
 - Cross-package `==` pin in `syv-conductor[all]` — could relax to
   `~=` once the providers/nodes packages stabilize independently.
 
+## [1.5.1]
+
+### Fixed
+
+- **For-each loop bodies now inherit the caller's `contextvars`**
+  (`fix(engine)`): the for-each compound runs body nodes in its own
+  `ThreadPoolExecutor` — for parallel iteration, and for a sequential body
+  level with more than one independent node. `ThreadPoolExecutor` workers do
+  not inherit `contextvars`, so request-scoped state a host attaches via a
+  `ContextVar` (auth/user context, DB handles, tracing spans) was visible to
+  every node **except** those inside a loop body, and only in the threaded
+  paths. A body node reading that state would fail — but only in `Parallel`
+  mode — which a host typically surfaces as a 500. The pools now run each task
+  inside `contextvars.copy_context()`, restoring parity with the top-level
+  engine (which dispatches via `asyncio.to_thread`, copying the context).
+
 ## [1.5.0]
 
 ### Added
