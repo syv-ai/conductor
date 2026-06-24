@@ -1,5 +1,6 @@
 """Phase 3: Compound nodes — for-each loop execution."""
 
+import contextvars
 from typing import Annotated
 
 import pytest
@@ -691,3 +692,97 @@ def test_for_each_recursion_capped(loop_registry):
         )
     msg = str(exc_info.value).lower()
     assert "depth" in msg, f"expected 'depth' in error; got {exc_info.value!r}"
+
+
+# Request-scoped state hosts attach via ContextVar (auth/user context, DB
+# handles, tracing spans). The engine propagates these into node threads via
+# asyncio.to_thread; the for-each pools must do the same.
+_probe_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "for_each_test_probe", default=None
+)
+
+
+@pytest.fixture
+def ctx_loop_registry(loop_registry):
+    """``loop_registry`` plus a body node that echoes ``_probe_var`` — the
+    caller-set context. Returns the sentinel ``"MISSING"`` when the loop
+    dropped the context across the thread boundary."""
+
+    @loop_registry.node(
+        "ctx-reader", version=1, name="Ctx Reader",
+        description="Echoes a contextvar set by the caller",
+    )
+    def ctx_reader(
+        text: Annotated[str, Text(label="Input")],
+    ) -> Annotated[str, Output(label="Output")]:
+        return _probe_var.get() or "MISSING"
+
+    return loop_registry
+
+
+class TestForEachContextPropagation:
+    """A loop body must see the caller's contextvars in every execution
+    path. Regression test for context loss in the for-each thread pools:
+    body nodes ran in raw ``ThreadPoolExecutor`` workers that don't inherit
+    contextvars, so any node reading request-scoped state crashed — but only
+    inside a loop, and only in the threaded paths (Parallel iteration, or a
+    Sequential body level with >1 independent node)."""
+
+    def test_parallel_iteration_preserves_context(self, ctx_loop_registry):
+        """Parallel mode submits each iteration to a thread pool."""
+        nodes = [
+            GraphNode("start", "for-each-start@1", {
+                "items": ["a", "b", "c"], "execution_mode": "Parallel",
+            }),
+            GraphNode("body", "ctx-reader@1", None),
+            GraphNode("end", "for-each-end@1", None),
+        ]
+        edges = [
+            GraphEdge("e1", "start", "body", "output_1", "text"),
+            GraphEdge("e2", "body", "end", "result", "item"),
+        ]
+        compiled = compile(
+            nodes=nodes, edges=edges,
+            registry=ctx_loop_registry, compound_types=[FOR_EACH],
+        )
+
+        token = _probe_var.set("ctx-value")
+        try:
+            results = execute_sync(compiled)
+        finally:
+            _probe_var.reset(token)
+
+        assert results["end"]["result"] == ["ctx-value", "ctx-value", "ctx-value"]
+
+    def test_sequential_parallel_body_level_preserves_context(
+        self, ctx_loop_registry
+    ):
+        """Even in Sequential mode, a body *level* with >1 independent node
+        runs in a thread pool (``_execute_subgraph``). Two independent
+        readers fed from the start sit in the same level."""
+        nodes = [
+            GraphNode("start", "for-each-start@1", {"items": ["x"]}),
+            GraphNode("a", "ctx-reader@1", None),
+            GraphNode("b", "ctx-reader@1", None),
+            GraphNode("end", "for-each-end@1", None),
+        ]
+        edges = [
+            GraphEdge("e1", "start", "a", "output_1", "text"),
+            GraphEdge("e2", "start", "b", "output_1", "text"),
+            GraphEdge("e3", "a", "end", "result", "item"),
+            GraphEdge("e4", "b", "end", "result", "item"),
+        ]
+        compiled = compile(
+            nodes=nodes, edges=edges,
+            registry=ctx_loop_registry, compound_types=[FOR_EACH],
+        )
+
+        token = _probe_var.set("ctx-value")
+        try:
+            results = execute_sync(compiled)
+        finally:
+            _probe_var.reset(token)
+
+        # Two wired sources → two collected slots; both must echo the context.
+        assert results["end"]["output_1"] == ["ctx-value"]
+        assert results["end"]["output_2"] == ["ctx-value"]
