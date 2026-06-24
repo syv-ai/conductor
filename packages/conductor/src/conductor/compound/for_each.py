@@ -21,6 +21,7 @@ can flag data-shape bugs without sifting through node logs.
 
 from __future__ import annotations
 
+import contextvars
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Any
@@ -74,6 +75,27 @@ END_PRIMARY_INPUT = "items"
 # of these (or any handle starting with ``item``) are remapped onto the
 # new model so old saved flows keep loading.
 _LEGACY_END_HANDLE_PREFIX = "item"
+
+
+class _ContextPreservingExecutor(ThreadPoolExecutor):
+    """A ``ThreadPoolExecutor`` that runs every task inside a copy of the
+    submitting thread's :mod:`contextvars` context.
+
+    The top-level engine dispatches nodes via :func:`asyncio.to_thread`,
+    which copies the caller's context into the worker thread. The for-each
+    compound runs body nodes in its *own* thread pool, so without this the
+    request-scoped state hosts attach via ``ContextVar`` (auth/user context,
+    DB handles, tracing spans, …) would be visible to every node *except*
+    those inside a loop body — and only in the threaded paths (Parallel
+    iteration, or a Sequential body level with >1 independent node). Copying
+    the context at submit time restores parity with the engine's threading.
+
+    ``map`` is covered too: it funnels through ``submit``.
+    """
+
+    def submit(self, fn, /, *args, **kwargs):
+        ctx = contextvars.copy_context()
+        return super().submit(ctx.run, fn, *args, **kwargs)
 
 
 class ForEachNode:
@@ -198,7 +220,7 @@ class ForEachNode:
             # iteration finishes first.
             collected: list[Any] = [None] * len(items)
             total = len(items)
-            with ThreadPoolExecutor(max_workers=min(total, 8)) as pool:
+            with _ContextPreservingExecutor(max_workers=min(total, 8)) as pool:
                 futures = {
                     pool.submit(run_one, item, idx): idx
                     for idx, item in enumerate(items)
@@ -433,7 +455,7 @@ def _execute_subgraph(
                 level[0], state, compiled, local_results, lock, semaphore
             )
             continue
-        with ThreadPoolExecutor(max_workers=len(level)) as pool:
+        with _ContextPreservingExecutor(max_workers=len(level)) as pool:
             # list() drains the iterator so the first worker exception is
             # re-raised here — a failing body node fails the iteration,
             # matching the sequential path.
