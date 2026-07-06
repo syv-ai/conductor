@@ -290,3 +290,37 @@ class TestSkipPropagation:
         # n2 should be skipped because its only input is SKIPPED
         skipped_events = [e for e in events if e["type"] == "node_skipped"]
         assert any(e["node_id"] == "n2" for e in skipped_events)
+
+
+# ---------------------------------------------------------------------------
+# Regression: stray data keys must not crash the normal dispatch path.
+# The input resolver overlays a node's static ``data`` onto the resolved
+# inputs, so a saved flow can carry keys that aren't parameters of the node
+# function (host metadata, migration breadcrumbs). The compensation path
+# already filtered these; the normal dispatch path must too. See issue #7.
+# ---------------------------------------------------------------------------
+
+class TestStrayDataKeyFiltering:
+    def test_dynamic_handles_node_ignores_stray_data_key(self, registry):
+        """A dynamic_handles node (extra='allow' validation) carrying a stray
+        data key used to crash with ``got an unexpected keyword argument``."""
+
+        @registry.node(
+            "tabel", version=1, name="Tabel", description="Uppercases",
+            dynamic_handles=True,
+        )
+        def tabel(
+            text: Annotated[str, Text(label="Input")],
+        ) -> Annotated[str, Output(label="Output")]:
+            return text.upper()
+
+        compiled = compile(
+            nodes=[
+                GraphNode("n1", "tabel@1", {"text": "hi", "_migration_warnings": ["x"]}),
+            ],
+            edges=[],
+            registry=registry,
+        )
+
+        results = execute_sync(compiled)
+        assert results["n1"]["result"] == "HI"

@@ -915,11 +915,9 @@ def _invoke_node(
             f"Compensation node '{node.type}' has no callable",
             node_id=req.node_id, node_type=node.type,
         )
-    # Filter req.inputs to known params
-    sig = inspect.signature(node_def.func)
-    params = sig.parameters
-    kwargs = {k: v for k, v in req.inputs.items() if k in params}
-    if "store" in params:
+    # Filter req.inputs to known params (shared with the normal dispatch path)
+    kwargs = _filter_to_signature(node_def.func, req.inputs)
+    if "store" in inspect.signature(node_def.func).parameters:
         kwargs["store"] = state.store
     return node_def.func(**kwargs)
 
@@ -998,6 +996,7 @@ def _dispatch_node(
 
     inputs = _inject_store(node_def.func, inputs, state)
     inputs = _inject_idempotency_key(node_def.func, inputs, idempotency_key)
+    inputs = _filter_to_signature(node_def.func, inputs)
 
     try:
         return node_def.func(**inputs)
@@ -1104,6 +1103,29 @@ def _inject_idempotency_key(
     if "idempotency_key" in sig.parameters:
         inputs = {**inputs, "idempotency_key": idem_key}
     return inputs
+
+
+def _filter_to_signature(func: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Drop keys that the callable can't accept as keyword arguments.
+
+    The input resolver overlays a node's static ``data`` onto the resolved
+    inputs, so a saved flow can carry stray keys (host metadata, migration
+    breadcrumbs) that aren't parameters of the node function. Forwarding
+    those verbatim raises ``TypeError: got an unexpected keyword argument``.
+    Both the normal dispatch path and the compensation path funnel through
+    here so they behave identically.
+
+    A function that declares ``**kwargs`` (``VAR_KEYWORD``) accepts any key,
+    so nothing is filtered — this preserves ``dynamic_handles`` nodes that
+    legitimately receive extra wired handles.
+    """
+    try:
+        params = inspect.signature(func).parameters
+    except (TypeError, ValueError):
+        return kwargs
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return kwargs
+    return {k: v for k, v in kwargs.items() if k in params}
 
 
 # =========================================================================
