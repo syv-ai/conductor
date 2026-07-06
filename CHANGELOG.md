@@ -27,6 +27,16 @@ they are likely targets for a future major bump:
 - Cross-package `==` pin in `syv-conductor[all]` — could relax to
   `~=` once the providers/nodes packages stabilize independently.
 
+## [1.5.2]
+
+### Fixed
+
+- **Function-node dispatch filters resolved inputs to the node signature**
+  (`fix(engine)`): stray `data` keys that aren't node parameters no longer
+  crash a normal run with `TypeError: got an unexpected keyword argument`.
+  The dispatch path now filters like the compensation path already did;
+  functions declaring `**kwargs` are unaffected.
+
 ## [1.5.1]
 
 ### Fixed
