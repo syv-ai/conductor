@@ -11,10 +11,10 @@ if TYPE_CHECKING:
 
 def serialize_registry(registry: NodeRegistry) -> list[dict[str, Any]]:
     """Serialize all nodes to frontend JSON."""
-    return [_serialize_node(nd, registry) for nd in registry.all()]
+    return [serialize_node(nd, registry) for nd in registry.all()]
 
 
-def _serialize_node(nd: NodeDefinition, registry: NodeRegistry) -> dict[str, Any]:
+def serialize_node(nd: NodeDefinition, registry: NodeRegistry) -> dict[str, Any]:
     latest = registry.get_latest(nd.base_id)
     out: dict[str, Any] = {
         "id": nd.id,
@@ -24,8 +24,8 @@ def _serialize_node(nd: NodeDefinition, registry: NodeRegistry) -> dict[str, Any
         "description": nd.description,
         "tags": list(nd.tags),
         "category": nd.category.value if hasattr(nd.category, "value") else nd.category,
-        "inputs": [_serialize_input(inp) for inp in nd.inputs],
-        "outputs": [_serialize_output(out) for out in nd.outputs],
+        "inputs": [serialize_input(inp) for inp in nd.inputs],
+        "outputs": [serialize_output(out) for out in nd.outputs],
         "width": nd.width,
         "deprecated": latest is not None and latest.version > nd.version,
         "latest_version": latest.version if latest else nd.version,
@@ -52,7 +52,7 @@ def _serialize_node(nd: NodeDefinition, registry: NodeRegistry) -> dict[str, Any
     return out
 
 
-def _serialize_input(inp: Any) -> dict[str, Any]:
+def serialize_input(inp: Any) -> dict[str, Any]:
     data: dict[str, Any] = {
         "name": inp.name,
         "type": inp.type_str,
@@ -68,7 +68,7 @@ def _serialize_input(inp: Any) -> dict[str, Any]:
     return data
 
 
-def _serialize_output(out: Any) -> dict[str, Any]:
+def serialize_output(out: Any) -> dict[str, Any]:
     return {
         "name": out.name,
         "type": out.type_str,

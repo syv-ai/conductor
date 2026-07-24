@@ -7,6 +7,7 @@ from typing import Any
 from conductor.types import WidgetType
 
 __all__ = [
+    "WIDGET_SCHEMA_KEYS",
     "Widget",
     "WidgetType",
     # Core single-value widgets
@@ -208,7 +209,7 @@ class FileUpload(Widget):
     """File upload widget (returns base64 encoded content)."""
 
     disable_handle: bool = True
-    accept: str | None = None
+    accept: str | list[str] | None = None
     max_size_mb: float | None = None
     multiple: bool = False
 
@@ -219,7 +220,11 @@ class FileUpload(Widget):
     def to_schema(self) -> dict[str, Any]:
         schema = super().to_schema()
         if self.accept is not None:
-            schema["accept"] = self.accept
+            # Canonical wire shape: always a list of extensions. Widget
+            # authors may pass a single string for convenience.
+            schema["accept"] = (
+                [self.accept] if isinstance(self.accept, str) else list(self.accept)
+            )
         if self.max_size_mb is not None:
             schema["max_size_mb"] = self.max_size_mb
         schema["multiple"] = self.multiple
@@ -624,3 +629,50 @@ class TableInput(Widget):
         schema["min_rows"] = self.min_rows
         schema["min_columns"] = self.min_columns
         return schema
+
+
+# The complete vocabulary of widget_config keys any stdlib widget can emit
+# via ``to_schema()`` (beyond the base widget/label/description/disable_handle
+# keys the registry strips). Hosts that project the serialized registry into
+# typed port models should validate their field list against this constant;
+# ``test_widget_schema_keys_covers_every_emitted_key`` keeps it honest in
+# both directions.
+WIDGET_SCHEMA_KEYS: frozenset[str] = frozenset({
+    "accept",
+    "advanced",
+    "allow_additional",
+    "choices",
+    "choices_map",
+    "connection_input",
+    "depends_on",
+    "download",
+    "entity_type",
+    "filename",
+    "hidden_when",
+    "human_review",
+    "integer_only",
+    "item_widget",
+    "language",
+    "max_date",
+    "max_items",
+    "max_length",
+    "max_selected",
+    "max_size_mb",
+    "max_val",
+    "min_columns",
+    "min_date",
+    "min_items",
+    "min_length",
+    "min_rows",
+    "min_selected",
+    "min_val",
+    "multiple",
+    "pattern",
+    "prompt",
+    "range_max",
+    "range_min",
+    "rows",
+    "schema",
+    "step",
+    "variables",
+})

@@ -27,6 +27,24 @@ they are likely targets for a future major bump:
 - Cross-package `==` pin in `syv-conductor[all]` — could relax to
   `~=` once the providers/nodes packages stabilize independently.
 
+## [1.6.0]
+
+### Added
+
+- **Public typed registry serialization** (`feat(registry)`): `serialize_node`,
+  `serialize_input`, and `serialize_output` are now public — hosts that project
+  the serialized registry into their own typed models can call the exact
+  functions the wire uses instead of re-implementing the flattening.
+- **`conductor.widgets.WIDGET_SCHEMA_KEYS`** — the pinned vocabulary of
+  `widget_config` keys stdlib widgets can emit, for hosts to validate their
+  typed port models against (guarded by an in-repo bidirectional parity test).
+
+### Changed
+
+- **`FileUpload.accept` serializes as `list[str]`** (`feat(widgets)`): widget
+  authors may pass a single string or a list; the wire shape is now always a
+  list. Frontends that already handled both shapes are unaffected.
+
 ## [1.5.2]
 
 ### Fixed
