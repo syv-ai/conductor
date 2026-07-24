@@ -82,7 +82,7 @@ Every widget below corresponds 1:1 to a `WidgetType` enum value and has a concre
 ### Date & file
 
 - **`DatePicker`** — ISO-8601 date (`"YYYY-MM-DD"`). Options: `min_date`, `max_date`.
-- **`FileUpload`** — base64-encoded file. Options: `accept` (e.g. `".pdf,.csv"`), `max_size_mb`, `multiple`.
+- **`FileUpload`** — base64-encoded file. Options: `accept` (a list of extensions, e.g. `[".pdf", ".csv"]`; a single string is accepted and serialized as a one-element list), `max_size_mb`, `multiple`.
 
 ### Structured
 
@@ -110,7 +110,7 @@ Every widget has a `to_schema()` method that emits the JSON dict the frontend re
 }
 ```
 
-At the node level, `serialize_registry(registry)` produces the full per-node schema (inputs with their widget configs, outputs, metadata). `conductor_providers.react.palette_from_registry(registry)` wraps that for ReactFlow frontends.
+At the node level, `serialize_registry(registry)` produces the full per-node schema (inputs with their widget configs, outputs, metadata); the per-piece functions `serialize_node` / `serialize_input` / `serialize_output` are public too, so hosts projecting the registry into their own typed models can call the exact functions the wire uses. `conductor.widgets.WIDGET_SCHEMA_KEYS` is the pinned vocabulary of widget-config keys stdlib widgets can emit — validate host-side port models against it. `conductor_providers.react.palette_from_registry(registry)` wraps that for ReactFlow frontends.
 
 ## Adding a new widget
 
