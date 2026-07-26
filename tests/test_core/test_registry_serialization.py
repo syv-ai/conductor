@@ -13,18 +13,40 @@ _BASE_KEYS = {"widget", "label", "description", "disable_handle"}
 
 
 def _dummy_value(field_name: str):
-    """A plausible non-None value for an optional widget config field."""
+    """A plausible, type-correct non-None value for an optional widget config field.
+
+    The factory stuffs every optional field so ``to_schema()`` emits every key
+    it can. The values must be type-correct (not just present): the emitted
+    schema is validated against ``SerializedInput`` — the typed wire model — so
+    a str where an int belongs would be a false failure, not a real one.
+    """
     if field_name == "item_widget":
         return None  # nested Widget slot — leave unset; key emits as null anyway
-    if field_name in ("choices", "functions"):
+    if field_name in ("choices", "variables"):
         return ["x"]
     if field_name == "accept":
         return [".pdf"]
     if field_name == "choices_map":
         return {"a": ["x"]}
     if field_name == "hidden_when":
-        return {"field": "value"}
-    if field_name in ("min_val", "max_val", "step", "max_size_mb", "rows"):
+        return {"field": ["value"]}
+    if field_name == "schema":
+        return {"k": "v"}
+    if field_name in (
+        "min_length",
+        "max_length",
+        "min_items",
+        "max_items",
+        "min_selected",
+        "max_selected",
+        "min_rows",
+        "min_columns",
+        "min_val",
+        "max_val",
+        "step",
+        "max_size_mb",
+        "rows",
+    ):
         return 1
     if field_name in ("multiple", "integer_only", "human_review"):
         return True

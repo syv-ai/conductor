@@ -633,10 +633,12 @@ class TableInput(Widget):
 
 # The complete vocabulary of widget_config keys any stdlib widget can emit
 # via ``to_schema()`` (beyond the base widget/label/description/disable_handle
-# keys the registry strips). Hosts that project the serialized registry into
-# typed port models should validate their field list against this constant;
-# ``test_widget_schema_keys_covers_every_emitted_key`` keeps it honest in
-# both directions.
+# keys the registry strips). This mirrors the widget-config fields of
+# ``conductor.registry.serialized.SerializedInput`` (the two are pinned equal by
+# ``test_serialized_input_fields_pin_widget_schema_keys``); a host validating the
+# serialized registry can type against either.
+# ``test_widget_schema_keys_covers_every_emitted_key`` keeps this honest against
+# the widgets in both directions.
 WIDGET_SCHEMA_KEYS: frozenset[str] = frozenset({
     "accept",
     "advanced",

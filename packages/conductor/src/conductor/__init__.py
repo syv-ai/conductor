@@ -46,11 +46,14 @@ from conductor.graph.model import (
 from conductor.node import BaseNode
 from conductor.registry import NodeRegistry
 from conductor.registry.definition import Actor
+from conductor.registry.view import DefinitionSource, RegistryView
 from conductor.types import NodeCategory, ResultFormat, WidgetType
 
 __all__ = [
     # Registry + graph
     "NodeRegistry",
+    "RegistryView",
+    "DefinitionSource",
     "GraphNode",
     "GraphEdge",
     "Flow",

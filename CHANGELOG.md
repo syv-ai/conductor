@@ -27,6 +27,39 @@ they are likely targets for a future major bump:
 - Cross-package `==` pin in `syv-conductor[all]` — could relax to
   `~=` once the providers/nodes packages stabilize independently.
 
+## [1.7.0]
+
+### Added
+
+- **Typed serialized schema** (`conductor.registry.serialized`): `SerializedInput`
+  and `SerializedOutput` — pydantic models the serializers are guaranteed to
+  conform to — plus `serialize_input_model` / `serialize_output_model` typed
+  accessors on `conductor.registry.schema`. Hosts that want types validate the
+  wire payload into these models instead of reading loose dicts; extras are
+  allowed so a host's custom `widget_config` keys pass through rather than being
+  rejected or dropped.
+- **`RegistryView`** (`conductor.registry.view`, re-exported as
+  `conductor.RegistryView` with the `DefinitionSource` protocol): a read-only
+  overlay that serves host-supplied `NodeDefinition`s for node types not
+  statically registered. Point lookups (`get` / `contains`) resolve base-registry
+  types first, then each source in order; everything else delegates to the base
+  registry. A per-use overlay, not a mutable global hook — callers with different
+  visibility never see each other's dynamic types. Generalizes the registry
+  wrapper AKA-style hosts previously hand-rolled for extension node types.
+- **Published palette TypeScript types**
+  (`conductor_providers/react/palette.d.ts`): `PaletteNode`, `PaletteInput`,
+  `PaletteOutput` — the TS counterpart of the serialized schema, shipped in the
+  wheel. Frontends consuming the palette import these instead of hand-maintaining
+  a mirror; an in-repo test pins them to the Python `SerializedInput` /
+  `SerializedOutput` fields and the `serialize_node` key set.
+
+### Changed
+
+- `conductor.widgets.WIDGET_SCHEMA_KEYS` is now pinned equal by test to the
+  widget-config fields of `SerializedInput`, so the constant, the typed model,
+  and the widget `to_schema()` methods cannot drift from one another. The
+  constant stays exported and unchanged for hosts that read it.
+
 ## [1.6.0]
 
 ### Added

@@ -1,8 +1,18 @@
-"""JSON serialization of the registry for frontend consumption."""
+"""JSON serialization of the registry for frontend consumption.
+
+``serialize_input`` / ``serialize_output`` are the wire primitives (plain
+dicts). ``serialize_input_model`` / ``serialize_output_model`` are their typed
+counterparts: they validate the dict into the :mod:`conductor.registry.serialized`
+models, so hosts that want types get them without re-deriving the shape. The
+dict route stays the source of truth for the wire; the model route is a typed
+view guaranteed to conform (pinned by ``tests/test_core/test_serialized_schema.py``).
+"""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
+
+from conductor.registry.serialized import SerializedInput, SerializedOutput
 
 if TYPE_CHECKING:
     from conductor.registry import NodeRegistry
@@ -78,3 +88,17 @@ def serialize_output(out: Any) -> dict[str, Any]:
         "download": out.download,
         "filename": out.filename,
     }
+
+
+def serialize_input_model(inp: Any) -> SerializedInput:
+    """Serialize one input and validate it into the typed model.
+
+    The typed accessor for hosts that want :class:`SerializedInput` rather
+    than the loose dict from :func:`serialize_input`.
+    """
+    return SerializedInput.model_validate(serialize_input(inp))
+
+
+def serialize_output_model(out: Any) -> SerializedOutput:
+    """Serialize one output and validate it into the typed model."""
+    return SerializedOutput.model_validate(serialize_output(out))

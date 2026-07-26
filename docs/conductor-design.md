@@ -402,6 +402,27 @@ def _serialize_input(inp: InputMetadata) -> dict:
     return data
 ```
 
+The dict form is the wire primitive. For hosts that want types, `serialize_input_model` / `serialize_output_model` validate the same output into `SerializedInput` / `SerializedOutput` (in `registry/serialized.py`) — pydantic models whose fields are exactly the base serializer keys plus the widget-config vocabulary (`WIDGET_SCHEMA_KEYS`), pinned equal by test. They allow extras, so a host's custom widget-config keys pass through rather than being rejected or dropped.
+
+### 6.5 Dynamic Definitions via `RegistryView`
+
+The static registry knows only the types registered into it. A host that resolves node types from its own state at run time — a saved subgraph, a tenant plugin, a database-backed extension — wraps the base registry in a `RegistryView`:
+
+```python
+from conductor.registry.view import RegistryView, DefinitionSource
+
+class MySource:  # implements DefinitionSource
+    def get_definition(self, node_type: str) -> NodeDefinition | None:
+        return self._cache.get(node_type)  # host-owned lookup
+
+view = RegistryView(registry, [MySource()])
+compiled = compile(graph, registry=view)  # type-checks edges into dynamic types
+```
+
+`view.get()` / `view.contains()` resolve base-registry types first (a registered type is never shadowed by a source), then each source in order; everything else delegates to the base registry. Dynamic definitions are resolved on demand — they are **not** enumerated by `all()` and never appear in the palette.
+
+Construct a view **per compile / run** with the sources that context has admitted. It is deliberately not a mutable global hook: two callers with different visibility each hold their own view, so one caller's dynamic types never leak to another.
+
 ---
 
 ## 7. Layer 3: Graph Compilation
