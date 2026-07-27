@@ -1,5 +1,7 @@
 """Result normalization and output extraction."""
 
+from collections.abc import Iterable
+from dataclasses import dataclass
 from typing import Any
 
 from pydantic import BaseModel
@@ -12,6 +14,8 @@ __all__ = [
     "extract_output",
     "filter_skipped",
     "filter_all_skipped",
+    "OutputRef",
+    "project_outputs",
 ]
 
 
@@ -52,6 +56,63 @@ def extract_output(result: NodeResult, output_handle: str) -> Any | None:
         return result[f"{OUTPUT_PREFIX}1"]
 
     return None
+
+
+@dataclass(frozen=True)
+class OutputRef:
+    """A named projection of one graph output.
+
+    The address :func:`project_outputs` reads a value from — a producing node
+    and one of its output handles — plus the public ``name`` to expose that
+    value under.
+
+    Attributes:
+        name: Public name to expose the projected value under.
+        node_id: Id of the node that produces the value.
+        handle: The node's output handle to read. ``None`` selects the node's
+            sole result (``RESULT_KEY``, with the ``output_1`` back-compat
+            fallback :func:`extract_output` applies).
+    """
+
+    name: str
+    node_id: str
+    handle: str | None = None
+
+
+def project_outputs(
+    results: dict[str, NodeResult],
+    outputs: Iterable[OutputRef],
+) -> dict[str, Any]:
+    """Project a run's ``{node_id: NodeResult}`` into a flat ``{name: value}`` map.
+
+    The graph-level counterpart to :func:`extract_output`: for each
+    :class:`OutputRef`, read its ``(node_id, handle)`` value out of ``results``
+    and expose it under the ref's ``name``. The single way to turn a whole run's
+    per-node results into a host's declared public outputs.
+
+    Handle-membership decides presence, so a produced ``None`` is a real value
+    and survives. Omitted (never added to the output map) are: an absent node,
+    an absent handle, and a ``SKIPPED`` value — whether the whole node was
+    skipped (its result is the bare sentinel) or just this handle — so the
+    non-serializable sentinel never reaches a projected output.
+    """
+    projected: dict[str, Any] = {}
+    for ref in outputs:
+        node_result = results.get(ref.node_id)
+        if not isinstance(node_result, dict):
+            # Absent node, or the bare SKIPPED sentinel for a skipped node.
+            continue
+        handle = ref.handle if ref.handle is not None else RESULT_KEY
+        if handle in node_result:
+            value = node_result[handle]
+        elif handle == RESULT_KEY and f"{OUTPUT_PREFIX}1" in node_result:
+            value = node_result[f"{OUTPUT_PREFIX}1"]
+        else:
+            continue
+        if is_skipped(value):
+            continue
+        projected[ref.name] = value
+    return projected
 
 
 def filter_skipped(result: NodeResult) -> NodeResult:

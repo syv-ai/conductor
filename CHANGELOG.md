@@ -27,6 +27,18 @@ they are likely targets for a future major bump:
 - Cross-package `==` pin in `syv-conductor[all]` — could relax to
   `~=` once the providers/nodes packages stabilize independently.
 
+## [1.8.0]
+
+### Added
+
+- `conductor.execution.results.project_outputs(results, outputs)` and the
+  `OutputRef(name, node_id, handle)` value type — project a run's
+  `{node_id: NodeResult}` into a flat `{name: value}` map through named
+  `(node_id, handle)` refs. The graph-level counterpart to `extract_output`:
+  handle-membership decides presence (a produced `None` survives; an absent
+  node/handle or a `SKIPPED` value is omitted). `handle=None` selects the
+  node's sole result (`RESULT_KEY`, with the `output_1` back-compat fallback).
+
 ## [1.7.0]
 
 ### Added

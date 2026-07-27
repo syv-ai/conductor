@@ -770,8 +770,8 @@ warning. The audited public surface lives in:
   `resume`, `resume_sync`, `collect`), `conductor.execution.events`
   (the `*Event` `TypedDict`s, `ExecutionEvent`, `EventSink`),
   `conductor.execution.results` (`normalize_result`, `extract_output`,
-  `filter_skipped`, `filter_all_skipped`), `conductor.execution.state`
-  (`FlowRunState`)
+  `filter_skipped`, `filter_all_skipped`, `project_outputs`, `OutputRef`),
+  `conductor.execution.state` (`FlowRunState`)
 
 **Compatibility guarantees from `1.0.0`.**
 

@@ -3,9 +3,10 @@
 from typing import Annotated
 
 import pytest
+from conductor import SKIPPED
 from conductor.errors import FlowExecutionException
 from conductor.execution.engine import collect, execute, execute_sync
-from conductor.execution.results import normalize_result
+from conductor.execution.results import OutputRef, normalize_result, project_outputs
 from conductor.graph.compiler import compile
 from conductor.graph.model import GraphEdge, GraphNode
 from conductor.widgets import Output, Text
@@ -57,6 +58,54 @@ class TestNormalizeResult:
 
     def test_none_result(self):
         assert normalize_result(None) == {"result": None}
+
+
+class TestProjectOutputs:
+    def test_maps_each_handle_to_its_own_value(self):
+        results = {"n1": {"output_1": "a", "output_2": "b"}}
+        refs = [
+            OutputRef(name="first", node_id="n1", handle="output_1"),
+            OutputRef(name="second", node_id="n1", handle="output_2"),
+        ]
+        assert project_outputs(results, refs) == {"first": "a", "second": "b"}
+
+    def test_none_handle_selects_sole_result(self):
+        results = {"n1": {"result": "value"}}
+        refs = [OutputRef(name="out", node_id="n1")]
+        assert project_outputs(results, refs) == {"out": "value"}
+
+    def test_result_falls_back_to_output_1(self):
+        results = {"n1": {"output_1": 42}}
+        refs = [OutputRef(name="out", node_id="n1", handle="result")]
+        assert project_outputs(results, refs) == {"out": 42}
+
+    def test_produced_none_survives(self):
+        results = {"n1": {"result": None}}
+        refs = [OutputRef(name="out", node_id="n1", handle="result")]
+        assert project_outputs(results, refs) == {"out": None}
+
+    def test_absent_node_is_omitted(self):
+        results = {"n2": {"result": "x"}}
+        refs = [OutputRef(name="out", node_id="n1", handle="result")]
+        assert project_outputs(results, refs) == {}
+
+    def test_absent_handle_is_omitted(self):
+        results = {"n1": {"output_1": "a"}}
+        refs = [OutputRef(name="out", node_id="n1", handle="output_2")]
+        assert project_outputs(results, refs) == {}
+
+    def test_skipped_node_is_omitted(self):
+        results = {"n1": SKIPPED, "n2": {"result": "taken"}}
+        refs = [
+            OutputRef(name="skipped", node_id="n1", handle="result"),
+            OutputRef(name="taken", node_id="n2", handle="result"),
+        ]
+        assert project_outputs(results, refs) == {"taken": "taken"}
+
+    def test_skipped_handle_value_is_omitted(self):
+        results = {"n1": {"result": SKIPPED}}
+        refs = [OutputRef(name="out", node_id="n1", handle="result")]
+        assert project_outputs(results, refs) == {}
 
 
 # ---------------------------------------------------------------------------

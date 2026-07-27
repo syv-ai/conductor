@@ -174,7 +174,7 @@ conductor/
 │   ├── state.py                   # FlowRunState (shared mutable run state)
 │   ├── request.py                 # NodeExecRequest DTO
 │   ├── resolver.py                # Input resolution from edges + static data
-│   ├── results.py                 # normalize_result, extract_output, filter_skipped
+│   ├── results.py                 # normalize_result, extract_output, filter_skipped, project_outputs
 │   ├── events.py                  # Event TypedDicts + thread-safe EventSink
 │   └── skip.py                    # SKIPPED sentinel + should_skip_node logic
 │
