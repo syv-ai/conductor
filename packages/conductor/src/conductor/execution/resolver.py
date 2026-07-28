@@ -183,6 +183,35 @@ class InputResolver:
         return cache.get(param_name, (False, False))
 
 
+def finalize_connection_labels(label_hints: list[tuple[str, str]]) -> list[str]:
+    """Turn ordered ``(node_label, output_label)`` hints into a ConnectionList
+    aggregator's final input keys.
+
+    Two passes, in order:
+
+    1. **Collision-aware finalization** — an output label that's unique within
+       this aggregator is used bare; a colliding one falls back to
+       ``"NodeName (outputLabel)"`` to disambiguate.
+    2. **Deduplication** — any label still duplicated after that is suffixed
+       ``_2``, ``_3``, … .
+
+    This is the exact key sequence the resolver aggregates a ConnectionList
+    input under, exposed so a host that resolves labels *ahead* of execution
+    (e.g. rewriting stored templates to their live source labels) can reproduce
+    it without mirroring the resolver's internals. Keep it in step with the
+    finalization in ``InputResolver._collect_values_with_labels`` +
+    ``_make_labels_unique`` (``test_finalize_connection_labels`` pins the rule).
+    """
+    out_counts: dict[str, int] = {}
+    for _node_lbl, out_lbl in label_hints:
+        out_counts[out_lbl] = out_counts.get(out_lbl, 0) + 1
+    finalized = [
+        f"{node_lbl} ({out_lbl})" if out_counts[out_lbl] > 1 else out_lbl
+        for node_lbl, out_lbl in label_hints
+    ]
+    return _make_labels_unique(finalized)
+
+
 def _make_labels_unique(labels: list[str]) -> list[str]:
     """Deduplicate labels by appending _2, _3, etc."""
     seen: dict[str, int] = {}

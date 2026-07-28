@@ -27,6 +27,18 @@ they are likely targets for a future major bump:
 - Cross-package `==` pin in `syv-conductor[all]` — could relax to
   `~=` once the providers/nodes packages stabilize independently.
 
+## [1.10.0]
+
+### Added
+
+- `conductor.execution.resolver.finalize_connection_labels(label_hints)` — the
+  public form of the ConnectionList label algorithm (collision-aware
+  finalization, then `_2`/`_3` dedup). A host that resolves source labels ahead
+  of execution — e.g. rewriting stored templates to their live source labels —
+  can now reproduce the aggregator's exact input keys without mirroring the
+  resolver's private internals. Purely additive: `InputResolver` and its
+  labelling behaviour are unchanged.
+
 ## [1.9.0]
 
 ### Added
