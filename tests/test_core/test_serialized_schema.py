@@ -46,8 +46,7 @@ def test_dict_and_model_routes_are_byte_identical() -> None:
     for widget in _all_widget_instances():
         meta = _metadata_for(widget)
         assert (
-            serialize_input_model(meta).model_dump(exclude_none=True, exclude_defaults=True)
-            .keys()
+            serialize_input_model(meta).model_dump(exclude_none=True, exclude_defaults=True).keys()
             <= serialize_input(meta).keys()
         )
 
@@ -55,7 +54,9 @@ def test_dict_and_model_routes_are_byte_identical() -> None:
 def test_serialized_output_covers_output_serializer() -> None:
     from conductor.metadata import OutputMetadata
 
-    out = OutputMetadata(name="result", type_str="str", label="Resultat", download=True, filename="x.txt")
+    out = OutputMetadata(
+        name="result", type_str="str", label="Resultat", download=True, filename="x.txt"
+    )
     model = SerializedOutput.model_validate(serialize_output(out))
     assert model.download is True
     assert serialize_output_model(out) == model
@@ -76,3 +77,45 @@ def test_serialized_input_fields_pin_widget_schema_keys() -> None:
 
     model_widget_keys = frozenset(SerializedInput.model_fields) - _BASE_INPUT_KEYS
     assert model_widget_keys == WIDGET_SCHEMA_KEYS
+
+
+def test_serialize_node_model_validates_without_registry() -> None:
+    """A host can serialize an ad-hoc definition without a registry."""
+    from conductor.metadata import InputMetadata, OutputMetadata
+    from conductor.registry.definition import NodeDefinition
+    from conductor.registry.schema import serialize_node, serialize_node_model
+    from conductor.registry.serialized import SerializedNode
+    from conductor.types import NodeCategory
+
+    nd = NodeDefinition(
+        id="demo@1",
+        base_id="demo",
+        version=1,
+        name="Demo",
+        description="A demo node.",
+        tags=("Flow",),
+        category=NodeCategory("flow"),
+        inputs=(InputMetadata(name="a", type_str="str", label="A"),),
+        outputs=(OutputMetadata(name="result", type_str="str", label="R"),),
+    )
+    model = serialize_node_model(nd)
+    assert isinstance(model, SerializedNode)
+    # Registry-less: reported as the latest, non-deprecated.
+    assert model.deprecated is False
+    assert model.latest_version == 1
+    assert model.category == "flow"
+    assert model.inputs[0].name == "a"
+    # The typed accessor and the dict route agree.
+    assert model == SerializedNode.model_validate(serialize_node(nd))
+
+
+def test_input_metadata_derives_expects_list_from_type() -> None:
+    """``expects_list`` is filled from a ``list[...]`` type when not given."""
+    from conductor.metadata import InputMetadata
+
+    assert InputMetadata(name="xs", type_str="list[str]", label="Xs").expects_list is True
+    assert InputMetadata(name="x", type_str="str", label="X").expects_list is False
+    # An explicit value is never overridden.
+    assert (
+        InputMetadata(name="x", type_str="str", label="X", expects_list=True).expects_list is True
+    )

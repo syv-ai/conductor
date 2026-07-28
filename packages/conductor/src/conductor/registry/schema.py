@@ -12,7 +12,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from conductor.registry.serialized import SerializedInput, SerializedOutput
+from conductor.registry.serialized import (
+    SerializedInput,
+    SerializedNode,
+    SerializedOutput,
+)
 
 if TYPE_CHECKING:
     from conductor.registry import NodeRegistry
@@ -24,8 +28,15 @@ def serialize_registry(registry: NodeRegistry) -> list[dict[str, Any]]:
     return [serialize_node(nd, registry) for nd in registry.all()]
 
 
-def serialize_node(nd: NodeDefinition, registry: NodeRegistry) -> dict[str, Any]:
-    latest = registry.get_latest(nd.base_id)
+def serialize_node(nd: NodeDefinition, registry: NodeRegistry | None = None) -> dict[str, Any]:
+    """Serialize one node to the frontend catalog dict.
+
+    ``registry`` resolves ``deprecated`` / ``latest_version`` against the other
+    versions of the same ``base_id``. Omit it when the node isn't registered
+    (e.g. a host serializing an ad-hoc definition): the node is then reported as
+    the latest, non-deprecated.
+    """
+    latest = registry.get_latest(nd.base_id) if registry is not None else None
     out: dict[str, Any] = {
         "id": nd.id,
         "base_id": nd.base_id,
@@ -102,3 +113,15 @@ def serialize_input_model(inp: Any) -> SerializedInput:
 def serialize_output_model(out: Any) -> SerializedOutput:
     """Serialize one output and validate it into the typed model."""
     return SerializedOutput.model_validate(serialize_output(out))
+
+
+def serialize_node_model(
+    nd: NodeDefinition, registry: NodeRegistry | None = None
+) -> SerializedNode:
+    """Serialize one node and validate it into the typed model.
+
+    The typed accessor for hosts that want :class:`SerializedNode` rather than
+    the loose dict from :func:`serialize_node`. ``registry`` is optional for the
+    same reason it is there.
+    """
+    return SerializedNode.model_validate(serialize_node(nd, registry))

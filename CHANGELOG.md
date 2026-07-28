@@ -27,6 +27,29 @@ they are likely targets for a future major bump:
 - Cross-package `==` pin in `syv-conductor[all]` — could relax to
   `~=` once the providers/nodes packages stabilize independently.
 
+## [1.9.0]
+
+### Added
+
+- `conductor.registry.serialized.SerializedNode` and
+  `conductor.registry.schema.serialize_node_model(nd, registry=None)` — the
+  typed counterpart to `serialize_node`, mirroring the existing
+  `serialize_input_model` / `serialize_output_model`. A host that serializes a
+  node's catalog entry can validate it into `SerializedNode` instead of reading
+  a loose `dict[str, Any]`.
+- `serialize_node` (and `serialize_node_model`) now accept an optional
+  `registry`. Omit it to serialize an ad-hoc definition that isn't registered:
+  the node is then reported as the latest, non-deprecated version. Callers that
+  pass a registry are unaffected.
+
+### Changed
+
+- `InputMetadata` derives `expects_list` from a `list[...]` `type_str` in
+  `__post_init__` when it isn't set explicitly, so hand-built metadata matches
+  what the registration decorator derives (a `list[...]` fan-in no longer
+  silently string-joins). Metadata that already sets `expects_list` — including
+  everything the registry builds — is unchanged.
+
 ## [1.8.0]
 
 ### Added

@@ -27,6 +27,15 @@ class InputMetadata:
     disable_handle: bool = False
     widget_config: dict[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        # A ``list[...]`` input fans several upstream sources into a list. Derive
+        # ``expects_list`` from the type so metadata built by hand carries the same
+        # flag the registry derives at registration, rather than defaulting to
+        # False and silently string-joining a fan-in. Only fills the default; an
+        # explicit True is left untouched.
+        if not self.expects_list and self.type_str.startswith("list["):
+            object.__setattr__(self, "expects_list", True)
+
 
 @dataclass(frozen=True)
 class OutputMetadata:

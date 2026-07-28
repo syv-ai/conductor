@@ -25,7 +25,7 @@ from __future__ import annotations
 import warnings
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 # The non-widget-config fields of ``SerializedInput`` — the keys
 # ``serialize_input`` writes directly from the ``InputMetadata`` rather than
@@ -128,3 +128,39 @@ class SerializedOutput(BaseModel):
     optional: bool = False
     download: bool = False
     filename: str | None = None
+
+
+class SerializedNode(BaseModel):
+    """The typed shape of one node's serialized catalog entry.
+
+    The typed view of the dict :func:`conductor.registry.schema.serialize_node`
+    emits. Base keys are always present; the process-standard keys (``actor``,
+    ``timeout_seconds``, ``uses``, ``is_decision``, ``is_signal``,
+    ``has_dynamic_outputs``, …) are only emitted when set on the node, so they
+    default to ``None``. ``extra="allow"`` lets a host carry additional keys.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    base_id: str
+    version: int
+    name: str
+    description: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    category: str
+    inputs: list[SerializedInput] = Field(default_factory=list)
+    outputs: list[SerializedOutput] = Field(default_factory=list)
+    width: int | None = None
+    deprecated: bool = False
+    latest_version: int
+    docs: str | None = None
+
+    # Process-standard metadata — present only when set on the node.
+    actor: dict[str, Any] | None = None
+    timeout_seconds: float | None = None
+    idempotency_key: str | None = None
+    uses: list[str] | None = None
+    is_decision: bool | None = None
+    is_signal: bool | None = None
+    has_dynamic_outputs: bool | None = None
