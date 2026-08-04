@@ -13,9 +13,11 @@ unchanged.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any, Protocol
 
 from conductor.errors import CompilationError
+from conductor.graph.topology import build_incoming_map, topological_sort
 from conductor.metadata import OutputMetadata
 from conductor.registry.dynamic_outputs import (
     ComputeOutputsContext,
@@ -23,8 +25,18 @@ from conductor.registry.dynamic_outputs import (
 )
 
 if TYPE_CHECKING:
-    from conductor.graph.model import GraphNode
-    from conductor.registry import NodeRegistry
+    from conductor.graph.model import GraphEdge, GraphNode
+    from conductor.registry import NodeDefinition
+
+
+class _DefinitionGet(Protocol):
+    """The one lookup shape the resolution engine needs: ``get`` by type.
+
+    Structurally satisfied by ``NodeRegistry``, ``RegistryView`` and the
+    mapping adapter below — the engine neither knows nor cares which.
+    """
+
+    def get(self, node_type: str) -> "NodeDefinition | None": ...
 
 
 def resolve_node_outputs(
@@ -33,7 +45,7 @@ def resolve_node_outputs(
     incoming_edges: list[tuple[str, str, str, str]],
     resolved_outputs: dict[str, tuple[OutputMetadata, ...]],
     node_map: dict[str, "GraphNode"],
-    registry: "NodeRegistry",
+    registry: _DefinitionGet,
 ) -> tuple[OutputMetadata, ...]:
     """Resolve a node's outputs, invoking ``compute_outputs`` if present.
 
@@ -48,8 +60,9 @@ def resolve_node_outputs(
             node id. Producers are guaranteed to appear here because the
             compiler iterates topologically.
         node_map: All graph nodes by id, for source lookups.
-        registry: The active registry, for source-side ``NodeDefinition``
-            lookups when the producer has no hook.
+        registry: Any ``_DefinitionGet`` lookup (registry, view, or
+            mapping adapter), for source-side ``NodeDefinition`` lookups
+            when the producer has no hook.
 
     Returns:
         A tuple of ``OutputMetadata``. When the node has no hook this is
@@ -175,3 +188,115 @@ def resolve_node_outputs(
             )
 
     return tuple(result)
+
+
+class _MappingLookup:
+    """``_DefinitionGet`` over a host-supplied definitions mapping."""
+
+    def __init__(self, definitions: Mapping[str, "NodeDefinition | None"]) -> None:
+        self._definitions = definitions
+
+    def get(self, node_type: str) -> "NodeDefinition | None":
+        return self._definitions.get(node_type)
+
+
+def _resolve_in_order(
+    order: list[str],
+    node_map: "dict[str, GraphNode]",
+    incoming_map: dict[str, list[tuple[str, str, str, str]]],
+    lookup: _DefinitionGet,
+) -> dict[str, tuple[OutputMetadata, ...]]:
+    """The ONE resolution walk — both ``compile()`` (step 8b) and
+    :func:`resolve_graph_outputs` are callers.
+
+    ``order`` must be topological over the drawn edges; a superset
+    ordering (compile passes one that also honours consume dependencies)
+    resolves identically, because bindings are built from drawn edges
+    only — every producer a binding reads is resolved before its
+    consumer either way.
+    """
+    resolved: dict[str, tuple[OutputMetadata, ...]] = {}
+    for node_id in order:
+        node = node_map[node_id]
+        resolved[node_id] = resolve_node_outputs(
+            node=node,
+            node_def=lookup.get(node.type),
+            incoming_edges=incoming_map.get(node_id, []),
+            resolved_outputs=resolved,
+            node_map=node_map,
+            registry=lookup,
+        )
+    return resolved
+
+
+def resolve_graph_outputs(
+    nodes: "list[GraphNode]",
+    edges: "list[GraphEdge]",
+    definitions: Mapping[str, "NodeDefinition | None"],
+) -> dict[str, tuple[OutputMetadata, ...]]:
+    """Resolve every node's effective outputs in topological order.
+
+    The ahead-of-compile entry to the same engine ``compile()`` runs at
+    step 8b (:func:`_resolve_in_order` — one walk, two callers): a hook's
+    ``ctx.incoming[*].source_output`` carries the producer's post-hook
+    metadata. ``compile()`` answers *executability* (decision gates,
+    compound-region completeness, strict types); this answers the weaker
+    "what handles does each node expose right now" — well-defined on
+    graphs that are not yet executable (a draft mid-edit, an incomplete
+    loop region), which is exactly when hosts need it (schema derivation,
+    label seeding, palettes).
+
+    ``definitions`` is **required** and keyed by node *type*: the host
+    resolves each type however it wants (a plain registry lookup, or a
+    synthesized definition for an embedded sub-flow the registry doesn't
+    know). A ``None`` value means "known but definition-less" (extension
+    semantics — resolves to ``()``); a *missing key* is a host bug and
+    raises. For compile-time overlay semantics use
+    :class:`~conductor.registry.view.RegistryView`; for this API,
+    materialize the mapping from whatever registry-ish holder you have:
+    ``{n.type: view.get(n.type) for n in nodes}``.
+
+    Gates (the same structural checks ``compile()`` applies before its
+    resolution pass):
+
+    * every ``node.type`` present in ``definitions`` — else
+      ``CompilationError`` ("Unknown node type"),
+    * every edge endpoint references an existing node — else
+      ``CompilationError``,
+    * acyclic — else ``CycleDetectionError``,
+    * hook results validated by :func:`resolve_node_outputs` (non-list,
+      non-``OutputMetadata`` items, duplicate names, dropped static
+      handles without ``dynamic_handles=True``, hook exceptions) — all
+      ``CompilationError``.
+
+    On this full-graph walk every producer resolves before its consumers,
+    so the per-node engine's defensive source-side fallback never fires —
+    the mapping's ``.get`` cannot miss after the definitions gate.
+    ``produces``/``consumes`` shared-reference dependencies do not
+    participate in the ordering here — they are execution-plumbing that
+    ``compile()`` owns.
+    """
+    node_map = {n.id: n for n in nodes}
+
+    for node in nodes:
+        if node.type not in definitions:
+            raise CompilationError(f"Unknown node type: '{node.type}'")
+
+    for edge in edges:
+        if edge.source not in node_map:
+            raise CompilationError(
+                f"Edge '{edge.id}' references non-existent source node: "
+                f"'{edge.source}'"
+            )
+        if edge.target not in node_map:
+            raise CompilationError(
+                f"Edge '{edge.id}' references non-existent target node: "
+                f"'{edge.target}'"
+            )
+
+    return _resolve_in_order(
+        order=topological_sort(nodes, edges),
+        node_map=node_map,
+        incoming_map=build_incoming_map(edges),
+        lookup=_MappingLookup(definitions),
+    )

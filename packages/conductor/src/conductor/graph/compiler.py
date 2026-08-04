@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 from conductor.errors import CompilationError
 from conductor.expr import ExpressionError
 from conductor.expr import parse as parse_expr
-from conductor.graph.dynamic_outputs import resolve_node_outputs
+from conductor.graph.dynamic_outputs import _resolve_in_order
 from conductor.graph.model import Flow, FlowDependency, GraphEdge, GraphNode
 from conductor.graph.shared_refs import validate_and_build_consume_map
 from conductor.graph.topology import build_edge_map, build_incoming_map, topological_sort
@@ -188,18 +188,16 @@ def compile(
     #     producers' already-resolved shapes (which may themselves be hook-
     #     driven). Nodes without a hook get a verbatim copy of their static
     #     ``NodeDefinition.outputs``. Extension nodes resolve to ``()``.
-    node_outputs: dict[str, tuple[OutputMetadata, ...]] = {}
-    for node_id in order:
-        node = node_map[node_id]
-        node_def = registry.get(node.type)
-        node_outputs[node_id] = resolve_node_outputs(
-            node=node,
-            node_def=node_def,
-            incoming_edges=incoming_map.get(node_id, []),
-            resolved_outputs=node_outputs,
-            node_map=node_map,
-            registry=registry,
-        )
+    #     The walk is the shared ``_resolve_in_order`` engine — the public
+    #     ``resolve_graph_outputs`` is its other caller, so the two can
+    #     never diverge. ``order`` here honours consume dependencies too
+    #     (a superset constraint; resolution reads drawn edges only).
+    node_outputs = _resolve_in_order(
+        order=order,
+        node_map=node_map,
+        incoming_map=incoming_map,
+        lookup=registry,
+    )
 
     # 8c. Re-validate producer handles against resolved outputs — a
     #     ``compute_outputs`` hook may legitimately introduce a handle that
