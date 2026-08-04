@@ -754,7 +754,9 @@ Anything else — private helpers, `_`-prefixed names, modules not re-exported
 from a public surface — is internal and may change in any release without
 warning. The audited public surface lives in:
 
-- Top-level: `conductor.__init__`
+- Top-level: `conductor.__init__` (incl. `resolve_graph_outputs` — the
+  ahead-of-compile dynamic-output resolution; import it from `conductor`,
+  not from its internal home)
 - Widgets / metadata / types: `conductor.widgets`, `conductor.metadata`,
   `conductor.types`
 - Errors: `conductor.errors`
@@ -771,7 +773,8 @@ warning. The audited public surface lives in:
   (the `*Event` `TypedDict`s, `ExecutionEvent`, `EventSink`),
   `conductor.execution.results` (`normalize_result`, `extract_output`,
   `filter_skipped`, `filter_all_skipped`, `project_outputs`, `OutputRef`),
-  `conductor.execution.state` (`FlowRunState`)
+  `conductor.execution.state` (`FlowRunState`),
+  `conductor.execution.resolver` (`finalize_connection_labels`)
 
 **Compatibility guarantees from `1.0.0`.**
 
@@ -784,7 +787,7 @@ warning. The audited public surface lives in:
   `DeprecationWarning` raised at import or call time. The `CHANGELOG.md`
   entry that introduces the deprecation lists the target removal version.
 - *Internal modules are fair game.* `conductor.expr.engine`,
-  `conductor.execution.resolver`, `conductor.graph.topology`,
+  `conductor.graph.topology`,
   `conductor.graph.regions`, `conductor.graph.shared_refs`,
   `conductor.graph.type_check`, `conductor.graph.dynamic_outputs`,
   `conductor.validation`, `conductor._sentinel`, and any other module

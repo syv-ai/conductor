@@ -226,6 +226,43 @@ Compile-time validation of edge type compatibility:
 - `managed_to_region_start: dict[str, str]` — managed node id → region start id
 - `node_map`, `compound_nodes`, `managed_ids`, `registry`, `extension_resolver`
 - `type_warnings: tuple[TypeWarning, ...]` — each has a `code` field (`"type-mismatch"`, `"shared-label-collision"`, ...)
+- `node_outputs: dict[str, tuple[OutputMetadata, ...]]` — every node's resolved effective outputs (see Dynamic outputs below)
+
+### Dynamic outputs (compute_outputs)
+
+A node registered with `compute_outputs=<fn>` derives its effective output
+handles from instance state at compile time. The hook receives a
+`ComputeOutputsContext` (frozen dataclass): `data` (the node's raw payload),
+`incoming` (tuple of `IncomingBinding`: `target_handle`, `source_node_id`,
+`source_handle`, `source_output: OutputMetadata` — the producer's RESOLVED,
+post-hook metadata), `node_id`, `defaults` (the static declarations), and
+`validated_data` (payload run through the node's validation model, or None).
+It returns `list[OutputMetadata]`. `compile()` resolves hooks topologically
+and stores the result on `CompiledGraph.node_outputs`; type-checking,
+shared-ref validation and compound runtimes consult that map.
+
+`resolve_graph_outputs(nodes, edges, definitions)` is the public
+ahead-of-compile form of that pass (exported from `conductor`):
+
+    resolve_graph_outputs(
+        nodes: list[GraphNode],
+        edges: list[GraphEdge],
+        definitions: Mapping[str, NodeDefinition | None],
+    ) -> dict[str, tuple[OutputMetadata, ...]]
+
+`definitions` is required and keyed by node *type*; the host resolves each
+type itself (registry lookup, or a synthesized definition for an extension
+type such as an embedded sub-flow) — materialize it from any registry-ish
+holder: `{n.type: view.get(n.type) for n in nodes}`. For compile-time
+overlay semantics use `RegistryView` instead; this API takes a value, not
+a lookup. A `None` value means "known but definition-less" and resolves
+to `()`; a missing key raises. Gates (all
+`CompilationError`): unknown definitions key, edge endpoint referencing a
+missing node, cycle (`CycleDetectionError`), and hook-result validation
+(non-list return, non-OutputMetadata items, duplicate names, dropped static
+handles without `dynamic_handles=True`, hook exceptions — original chained
+via `__cause__`). `produces`/`consumes` dependencies do not participate in
+the ordering; they are `compile()`'s concern.
 
 ### conductor.execution.engine
 - `execute(compiled, *, timeout_seconds, context, cache, retry)` → `AsyncGenerator[ExecutionEvent]`

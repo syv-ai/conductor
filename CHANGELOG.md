@@ -27,6 +27,23 @@ they are likely targets for a future major bump:
 - Cross-package `==` pin in `syv-conductor[all]` — could relax to
   `~=` once the providers/nodes packages stabilize independently.
 
+## [1.11.0]
+
+### Added
+
+- `conductor.resolve_graph_outputs(nodes, edges, definitions)` — public
+  graph-level output resolution: the exact topological `compute_outputs`
+  pass `compile()` runs (step 8b), exposed ahead of compile so a host can
+  obtain the authoritative per-node handle set for schema derivation or
+  label seeding. Takes a required `definitions` mapping (node type →
+  `NodeDefinition | None`) instead of a registry, so hosts can inject
+  definitions for extension types (e.g. embedded sub-flows). Applies the
+  same structural gates as compile (unknown type, dangling edge, cycle,
+  hook-result validation), all raising `CompilationError`. Internally,
+  `compile()`'s own dynamic-output pass (step 8b) now routes through the
+  same shared engine, so the two entry points cannot diverge — no
+  behavior change to `compile()`.
+
 ## [1.10.0]
 
 ### Added
