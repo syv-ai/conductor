@@ -189,3 +189,51 @@ class TestMultiOutputNode:
         assert len(node.outputs) == 2
         assert node.outputs[0].label == "First half"
         assert node.outputs[1].label == "Second half"
+
+
+class TestVarArgsAreNotInputs:
+    """``**kwargs`` is a delivery mechanism, not an input handle.
+
+    A node whose handles come from ``compute_inputs`` declares ``**kwargs``
+    so the resolver's values actually reach it. Introspecting that as an
+    input named ``kwargs`` gives it a Text widget, which renders as a stray
+    field on the node, puts a phantom handle in the palette payload, and
+    trips host-side checks that every declared handle be documented.
+    """
+
+    def test_var_keyword_is_not_registered_as_an_input(self) -> None:
+        from typing import Any
+
+        reg = NodeRegistry()
+
+        @reg.node("varkw", version=1, name="VarKw", description="Dynamic")
+        def varkw(
+            text: Annotated[str, Text(label="Tekst")], **kwargs: Any
+        ) -> Annotated[str, Output(label="Ud")]:
+            return text
+
+        assert [i.name for i in reg.get("varkw@1").inputs] == ["text"]
+
+    def test_var_positional_is_not_registered_as_an_input(self) -> None:
+        from typing import Any
+
+        reg = NodeRegistry()
+
+        @reg.node("varpos", version=1, name="VarPos", description="Dynamic")
+        def varpos(
+            text: Annotated[str, Text(label="Tekst")], *args: Any
+        ) -> Annotated[str, Output(label="Ud")]:
+            return text
+
+        assert [i.name for i in reg.get("varpos@1").inputs] == ["text"]
+
+    def test_a_node_that_is_only_var_keyword_declares_no_inputs(self) -> None:
+        from typing import Any
+
+        reg = NodeRegistry()
+
+        @reg.node("allkw", version=1, name="AllKw", description="Dynamic")
+        def allkw(**kwargs: Any) -> Annotated[str, Output(label="Ud")]:
+            return "x"
+
+        assert reg.get("allkw@1").inputs == ()

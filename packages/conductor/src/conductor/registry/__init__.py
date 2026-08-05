@@ -479,6 +479,17 @@ def _extract_inputs(
         if param_name == "self":
             continue
 
+        # ``*args`` / ``**kwargs`` are how a node RECEIVES values, not values
+        # it declares. A node whose handles come from ``compute_inputs``
+        # needs ``**kwargs`` for the resolver to reach it at all; registering
+        # that as an input gives it a Text widget, which renders as a stray
+        # field on the node and puts a phantom handle in the palette.
+        if param.kind in (
+            inspect.Parameter.VAR_KEYWORD,
+            inspect.Parameter.VAR_POSITIONAL,
+        ):
+            continue
+
         annotation = type_hints.get(param_name, param.annotation)
 
         # Skip injectable types (FlowStore, etc.)

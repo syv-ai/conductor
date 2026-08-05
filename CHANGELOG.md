@@ -27,6 +27,18 @@ they are likely targets for a future major bump:
 - Cross-package `==` pin in `syv-conductor[all]` — could relax to
   `~=` once the providers/nodes packages stabilize independently.
 
+## [1.12.1]
+
+### Fixed
+
+- `**kwargs` / `*args` are no longer introspected as input handles. A node
+  whose handles come from `compute_inputs` must declare `**kwargs` for the
+  resolver's values to reach it; registering that as an input named
+  `kwargs` gave it a Text widget that rendered as a stray field on the
+  node, put a phantom handle in the palette payload, and tripped host-side
+  checks that every declared handle be documented. Delivery is unaffected —
+  `_filter_to_signature` reads the signature directly, not this metadata.
+
 ## [1.12.0]
 
 ### Added
