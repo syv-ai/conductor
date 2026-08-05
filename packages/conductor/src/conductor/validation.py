@@ -92,14 +92,28 @@ def create_validation_model(
     markers (``for-each-start`` / ``for-each-end``) whose declared
     inputs are templates and whose actual handle set is determined by
     wired edges at runtime.
+
+    A callable declaring ``**kwargs`` gets that same openness implicitly.
+    ``*args``/``**kwargs`` are how a node RECEIVES values, never values it
+    declares, so they are not fields — and because the engine assigns
+    ``validated.model_dump()`` back over the inputs, a model that dropped
+    unknown keys would discard every handle a ``compute_inputs`` hook
+    invented and run the node with nothing wired.
     """
     sig = inspect.signature(func)
     type_hints = get_type_hints(func, include_extras=True)
 
     fields: dict[str, tuple[Any, Any]] = {}
+    accepts_var_keyword = False
 
     for param_name, param in sig.parameters.items():
         if param_name == "self":
+            continue
+
+        if param.kind is inspect.Parameter.VAR_KEYWORD:
+            accepts_var_keyword = True
+            continue
+        if param.kind is inspect.Parameter.VAR_POSITIONAL:
             continue
 
         annotation = type_hints.get(param_name, param.annotation)
@@ -140,7 +154,7 @@ def create_validation_model(
             fields[param_name] = (annotation, default)
 
     model_name = f"{func.__name__}_ValidationModel"
-    if allow_extra:
+    if allow_extra or accepts_var_keyword:
         from pydantic import ConfigDict
 
         return create_model(  # type: ignore[call-overload]

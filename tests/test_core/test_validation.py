@@ -70,3 +70,59 @@ class TestValidationModelGeneration:
         model = create_validation_model(join)
         validated = model(items=["a", "b", "c"])
         assert validated.model_dump() == {"items": ["a", "b", "c"]}
+
+
+class TestVarArgsInTheValidationModel:
+    """``**kwargs`` is a delivery mechanism, not a field.
+
+    The registry stopped registering ``**kwargs`` as an INPUT in 1.12.1, but
+    the validation model is built from the signature independently. Left
+    alone it declares a required field literally named ``kwargs``, and —
+    worse — the engine assigns ``validated.model_dump()`` back over the
+    inputs, so a model that ignores extras silently drops every handle the
+    ``compute_inputs`` hook invented. The node then runs with nothing wired.
+    """
+
+    def test_var_keyword_is_not_a_field(self) -> None:
+        from typing import Any
+
+        def dynamic(
+            code: Annotated[str, Text(label="Kode")] = "", **kwargs: Any
+        ) -> str:
+            return code
+
+        model = create_validation_model(dynamic)
+        assert list(model.model_fields) == ["code"]
+
+    def test_var_positional_is_not_a_field(self) -> None:
+        from typing import Any
+
+        def dynamic(
+            code: Annotated[str, Text(label="Kode")] = "", *args: Any
+        ) -> str:
+            return code
+
+        model = create_validation_model(dynamic)
+        assert list(model.model_fields) == ["code"]
+
+    def test_hook_declared_handles_survive_model_dump(self) -> None:
+        """The whole point: a VAR_KEYWORD callable keeps its extra values."""
+        from typing import Any
+
+        def dynamic(
+            code: Annotated[str, Text(label="Kode")] = "", **kwargs: Any
+        ) -> str:
+            return code
+
+        model = create_validation_model(dynamic)
+        dumped = model(code="x", kunder={"a": 1}, graense=5).model_dump()
+        assert dumped == {"code": "x", "kunder": {"a": 1}, "graense": 5}
+
+    def test_a_callable_without_var_keyword_still_rejects_extras(self) -> None:
+        """Only VAR_KEYWORD opens the model up; everything else is unchanged."""
+
+        def fixed(text: Annotated[str, Text(label="T")]) -> str:
+            return text
+
+        model = create_validation_model(fixed)
+        assert model(text="x", stray=1).model_dump() == {"text": "x"}

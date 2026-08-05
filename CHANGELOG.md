@@ -27,6 +27,21 @@ they are likely targets for a future major bump:
 - Cross-package `==` pin in `syv-conductor[all]` — could relax to
   `~=` once the providers/nodes packages stabilize independently.
 
+## [1.12.2]
+
+### Fixed
+
+- The validation model no longer turns `**kwargs` into a required field, and
+  a callable declaring it now accepts extra keys. `1.12.1` stopped the
+  registry introspecting `**kwargs` as an input, but `create_validation_model`
+  builds from the signature independently and still declared a required field
+  named `kwargs` — so a `compute_inputs` node failed with
+  `Invalid inputs — 'kwargs': Field required` before it ever ran. Worse, the
+  model was built with pydantic's default `extra="ignore"` while the engine
+  assigns `validated.model_dump()` back over the inputs, so once that field
+  was satisfied every hook-declared handle was silently dropped and the node
+  ran with nothing wired. `*args` is skipped for the same reason.
+
 ## [1.12.1]
 
 ### Fixed
