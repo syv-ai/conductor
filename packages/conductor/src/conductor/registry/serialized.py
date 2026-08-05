@@ -164,3 +164,4 @@ class SerializedNode(BaseModel):
     is_decision: bool | None = None
     is_signal: bool | None = None
     has_dynamic_outputs: bool | None = None
+    has_dynamic_inputs: bool | None = None

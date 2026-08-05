@@ -8,12 +8,13 @@ from typing import TYPE_CHECKING, Any, Protocol
 from conductor.errors import CompilationError
 from conductor.expr import ExpressionError
 from conductor.expr import parse as parse_expr
+from conductor.graph.dynamic_inputs import resolve_node_inputs
 from conductor.graph.dynamic_outputs import _resolve_in_order
 from conductor.graph.model import Flow, FlowDependency, GraphEdge, GraphNode
 from conductor.graph.shared_refs import validate_and_build_consume_map
 from conductor.graph.topology import build_edge_map, build_incoming_map, topological_sort
 from conductor.graph.type_check import TypeWarning, check_consume_types, check_edge_types
-from conductor.metadata import OutputMetadata
+from conductor.metadata import InputMetadata, OutputMetadata
 
 if TYPE_CHECKING:
     from conductor.registry import NodeRegistry
@@ -88,6 +89,14 @@ class CompiledGraph:
     # empty tuple. Type-checking, shared-ref validation, and compound
     # runtimes consult this in preference to the static schema.
     node_outputs: dict[str, tuple[OutputMetadata, ...]] = field(default_factory=dict)
+    # Resolved inputs per node id — populated for every node. For nodes
+    # without a ``compute_inputs`` hook this is a copy of
+    # ``NodeDefinition.inputs``; for hook-driven nodes it carries the
+    # dynamically derived roster. Extension nodes have an empty tuple.
+    # Type-checking, consume validation, the input resolver and
+    # validation-error labelling consult this in preference to the static
+    # schema.
+    node_inputs: dict[str, tuple[InputMetadata, ...]] = field(default_factory=dict)
 
 
 def compile(
@@ -167,9 +176,18 @@ def compile(
             if region.end_id != region.start_id:
                 managed_ids.add(region.end_id)
 
+    # 5b. Resolve dynamic inputs. Order-free — an input roster depends on
+    #     the node's own ``data`` alone — but it must precede step 6 and
+    #     step 10, both of which validate handles against declared inputs.
+    node_inputs = {
+        node.id: resolve_node_inputs(node=node, node_def=registry.get(node.type))
+        for node in nodes
+    }
+
     # 6. Validate shared references (produce/consume), build consume map
     consume_map, shared_warnings = validate_and_build_consume_map(
         nodes, edges, node_map, frozenset(managed_ids), registry,
+        node_inputs=node_inputs,
     )
 
     # 7. Topological sort — edges + consume dependencies participate equally
@@ -208,6 +226,7 @@ def compile(
     _, resolved_warnings = validate_and_build_consume_map(
         nodes, edges, node_map, frozenset(managed_ids), registry,
         node_outputs=node_outputs,
+        node_inputs=node_inputs,
     )
     # Replace the placeholder warnings collected pre-resolution. Both
     # passes produce the same label-collision set, so dedup by message.
@@ -237,8 +256,12 @@ def compile(
 
     # 10. Type-check edges and consume bindings — using resolved outputs so
     #     hook-driven type strings participate in compatibility analysis.
-    edge_warnings = check_edge_types(edges, node_map, registry, node_outputs)
-    consume_warnings = check_consume_types(consume_map, node_map, registry, node_outputs)
+    edge_warnings = check_edge_types(
+        edges, node_map, registry, node_outputs, node_inputs=node_inputs
+    )
+    consume_warnings = check_consume_types(
+        consume_map, node_map, registry, node_outputs, node_inputs=node_inputs
+    )
     type_warnings = [*edge_warnings, *consume_warnings, *shared_warnings]
 
     # 11. Validate and pre-parse decision guards (and edge ``when`` in general)
@@ -283,6 +306,7 @@ def compile(
         compensation_node_ids=compensation_node_ids,
         incoming_map=incoming_map,
         node_outputs=node_outputs,
+        node_inputs=node_inputs,
     )
 
 

@@ -101,3 +101,11 @@ class NodeDefinition:
     # use the statically declared ``outputs`` unchanged. See
     # ``conductor.registry.dynamic_outputs`` for the context types.
     compute_outputs: Callable[..., Any] | None = None
+    # Optional hook that re-derives input metadata from instance ``data`` at
+    # compile time. Signature:
+    # ``(ComputeInputsContext) -> list[InputMetadata]``. ``None`` means use
+    # the statically declared ``inputs`` unchanged. Unlike
+    # ``compute_outputs`` it receives no upstream bindings — the target
+    # handles it declares are what a binding would be keyed by, so reading
+    # them would be circular. See ``conductor.registry.dynamic_inputs``.
+    compute_inputs: Callable[..., Any] | None = None

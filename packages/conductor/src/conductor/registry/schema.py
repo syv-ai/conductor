@@ -70,6 +70,11 @@ def serialize_node(nd: NodeDefinition, registry: NodeRegistry | None = None) -> 
     # treating the static ``outputs`` array as authoritative.
     if getattr(nd, "compute_outputs", None) is not None:
         out["has_dynamic_outputs"] = True
+    # Same contract as ``has_dynamic_outputs``: the palette's static
+    # ``inputs`` array is a template, and a frontend must ask the host for
+    # the resolved roster rather than treating it as authoritative.
+    if getattr(nd, "compute_inputs", None) is not None:
+        out["has_dynamic_inputs"] = True
     return out
 
 

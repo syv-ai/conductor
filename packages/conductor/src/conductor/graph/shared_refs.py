@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 from conductor.errors import CompilationError
 from conductor.graph.model import GraphEdge, GraphNode
 from conductor.graph.type_check import TypeWarning
-from conductor.metadata import OutputMetadata
+from conductor.metadata import InputMetadata, OutputMetadata
 
 if TYPE_CHECKING:
     from conductor.registry import NodeRegistry
@@ -29,6 +29,7 @@ def validate_and_build_consume_map(
     managed_ids: frozenset[str],
     registry: "NodeRegistry",
     node_outputs: dict[str, tuple[OutputMetadata, ...]] | None = None,
+    node_inputs: dict[str, tuple[InputMetadata, ...]] | None = None,
 ) -> tuple[ConsumeMap, list[TypeWarning]]:
     """Validate produces/consumes decorations and return the consume map.
 
@@ -44,7 +45,9 @@ def validate_and_build_consume_map(
     warnings: list[TypeWarning] = []
 
     _validate_producers(nodes, managed_ids, registry, warnings, node_outputs)
-    consume_map = _validate_consumers_and_build_map(nodes, edges, node_map, registry)
+    consume_map = _validate_consumers_and_build_map(
+        nodes, edges, node_map, registry, node_inputs=node_inputs
+    )
     return consume_map, warnings
 
 
@@ -137,6 +140,7 @@ def _validate_consumers_and_build_map(
     edges: list[GraphEdge],
     node_map: dict[str, GraphNode],
     registry: "NodeRegistry",
+    node_inputs: dict[str, tuple[InputMetadata, ...]] | None = None,
 ) -> ConsumeMap:
     # Pre-compute: which (target, handle) pairs already have an explicit edge
     edge_targets: set[tuple[str, str]] = {
@@ -173,7 +177,14 @@ def _validate_consumers_and_build_map(
 
             # §6.2.1.3 — input handle must exist on the consumer's node type
             if node_def is not None:
-                known_inputs = {i.name for i in node_def.inputs}
+                # A ``compute_inputs`` hook can legitimately declare a handle
+                # the static signature has no name for, so prefer the
+                # resolved roster when the caller has one.
+                resolved = (
+                    node_inputs.get(node.id) if node_inputs is not None else None
+                )
+                pool = resolved if resolved is not None else node_def.inputs
+                known_inputs = {i.name for i in pool}
                 if input_handle not in known_inputs:
                     raise CompilationError(
                         f"Node '{node.id}' consumes into unknown input "

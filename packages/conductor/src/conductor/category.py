@@ -123,6 +123,7 @@ class NodeCategory:
         is_signal: bool = False,
         dynamic_handles: bool = False,
         compute_outputs: Callable[..., Any] | None = None,
+        compute_inputs: Callable[..., Any] | None = None,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """Decorator that stashes a pending node registration on this category.
 
@@ -148,6 +149,7 @@ class NodeCategory:
             "is_signal": is_signal,
             "dynamic_handles": dynamic_handles,
             "compute_outputs": compute_outputs,
+            "compute_inputs": compute_inputs,
         }
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:

@@ -990,7 +990,9 @@ def _dispatch_node(
             inputs = validated.model_dump()
         except ValidationError as e:
             raise NodeValidationError(
-                _format_validation_error(e, node_def),
+                _format_validation_error(
+                    e, node_def, compiled.node_inputs.get(node_id)
+                ),
                 node_id=node_id, node_type=node_type, original=e,
             ) from e
 
@@ -1010,7 +1012,9 @@ def _dispatch_node(
         ) from e
 
 
-def _format_validation_error(e: Any, node_def: Any) -> str:
+def _format_validation_error(
+    e: Any, node_def: Any, resolved_inputs: Any = None
+) -> str:
     """Collapse a pydantic ``ValidationError`` into a one-line-per-field
     summary suitable for end-user surfaces.
 
@@ -1043,7 +1047,11 @@ def _format_validation_error(e: Any, node_def: Any) -> str:
 
     # Build a {field_label: message} map preserving insertion order.
     seen: dict[str, str] = {}
-    label_by_name = {inp.name: (inp.label or inp.name) for inp in node_def.inputs}
+    # A hook-declared handle is absent from the static schema, so its
+    # validation error would surface as a bare name. Prefer the resolved
+    # roster when the caller has one.
+    pool = resolved_inputs if resolved_inputs is not None else node_def.inputs
+    label_by_name = {inp.name: (inp.label or inp.name) for inp in pool}
 
     for err in e.errors():
         loc = [seg for seg in err.get("loc", ()) if not _is_union_arm(seg)]
@@ -1178,7 +1186,7 @@ def _build_state(
 ) -> FlowRunState:
     return FlowRunState(
         compiled=compiled,
-        resolver=InputResolver(compiled.registry),
+        resolver=InputResolver(compiled.registry, node_inputs=compiled.node_inputs),
         results={},
         _event_sink=EventSink(),
         _started_at=time.monotonic(),

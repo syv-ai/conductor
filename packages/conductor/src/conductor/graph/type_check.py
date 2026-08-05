@@ -54,6 +54,7 @@ def check_edge_types(
     node_map: dict[str, GraphNode],
     registry: "NodeRegistry",
     node_outputs: dict[str, tuple[OutputMetadata, ...]] | None = None,
+    node_inputs: dict[str, tuple[InputMetadata, ...]] | None = None,
 ) -> list[TypeWarning]:
     """Check all edges for type compatibility. Returns warnings (not errors).
 
@@ -85,7 +86,11 @@ def check_edge_types(
         source_output = _find_output(
             source_def, edge.source_handle or "result", resolved=resolved_for_source,
         )
-        target_input = _find_input(target_def, edge.target_handle or "")
+        target_input = _find_input(
+            target_def,
+            edge.target_handle or "",
+            resolved=node_inputs.get(edge.target) if node_inputs is not None else None,
+        )
         if not source_output or not target_input:
             continue  # Handle not found — might be dynamic
 
@@ -113,6 +118,7 @@ def check_consume_types(
     node_map: dict[str, GraphNode],
     registry: "NodeRegistry",
     node_outputs: dict[str, tuple[OutputMetadata, ...]] | None = None,
+    node_inputs: dict[str, tuple[InputMetadata, ...]] | None = None,
 ) -> list[TypeWarning]:
     """Type-check every consume binding. Same rules as ``check_edge_types``.
 
@@ -140,7 +146,11 @@ def check_consume_types(
         source_output = _find_output(
             source_def, source_handle or "result", resolved=resolved_for_source,
         )
-        target_input = _find_input(target_def, target_handle or "")
+        target_input = _find_input(
+            target_def,
+            target_handle or "",
+            resolved=node_inputs.get(target_id) if node_inputs is not None else None,
+        )
         if not source_output or not target_input:
             continue
 
@@ -270,8 +280,20 @@ def _find_output(
     return None
 
 
-def _find_input(node_def: "NodeDefinition", handle: str) -> InputMetadata | None:
-    for inp in node_def.inputs:
+def _find_input(
+    node_def: "NodeDefinition",
+    handle: str,
+    *,
+    resolved: tuple[InputMetadata, ...] | None = None,
+) -> InputMetadata | None:
+    """Look up an input by handle, preferring the resolved (post-hook) tuple.
+
+    Mirrors :func:`_find_output`. ``resolved`` is the node's entry in
+    ``CompiledGraph.node_inputs``; ``None`` falls back to the static schema
+    so callers that predate ``compute_inputs`` keep working.
+    """
+    pool = resolved if resolved is not None else node_def.inputs
+    for inp in pool:
         if inp.name == handle:
             return inp
     return None

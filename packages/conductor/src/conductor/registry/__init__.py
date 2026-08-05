@@ -195,6 +195,7 @@ class NodeRegistry:
         is_signal: bool = False,
         dynamic_handles: bool = False,
         compute_outputs: Callable | None = None,
+        compute_inputs: Callable | None = None,
     ) -> Callable:
         """Decorator to register a function as a node.
 
@@ -253,6 +254,7 @@ class NodeRegistry:
                 is_signal=is_signal,
                 dynamic_handles=dynamic_handles,
                 compute_outputs=compute_outputs,
+                compute_inputs=compute_inputs,
             )
 
             self._nodes[full_id] = node_def

@@ -6,6 +6,7 @@ from typing import Any
 from conductor._sentinel import is_skipped
 from conductor.execution.results import extract_output
 from conductor.graph.model import GraphNode
+from conductor.metadata import InputMetadata
 from conductor.registry import NodeRegistry
 from conductor.types import NodeResult
 
@@ -15,10 +16,19 @@ MULTI_VALUE_SEPARATOR = "\n\n"
 class InputResolver:
     """Resolves all inputs for a node from edges and static data."""
 
-    def __init__(self, registry: NodeRegistry) -> None:
+    def __init__(
+        self,
+        registry: NodeRegistry,
+        node_inputs: dict[str, tuple[InputMetadata, ...]] | None = None,
+    ) -> None:
         self._registry = registry
+        # Resolved per-instance input rosters (``CompiledGraph.node_inputs``).
+        # Only nodes with a ``compute_inputs`` hook differ from their static
+        # schema, but the map covers every node.
+        self._node_inputs = node_inputs
         # Per-node-type cache of param metadata — avoids a linear scan on
-        # every resolve.
+        # every resolve. Hook-driven nodes are cached per instance instead,
+        # since two instances of one type can declare different rosters.
         self._param_cache: dict[str, dict[str, tuple[bool, bool]]] = {}
 
     def resolve(
@@ -79,7 +89,9 @@ class InputResolver:
         for target_handle, live_sources in by_handle.items():
             if not live_sources:
                 continue
-            uses_cl, expects_list = self._param_info(node.type, target_handle)
+            uses_cl, expects_list = self._param_info(
+                node.type, target_handle, node_id=node.id
+            )
             if uses_cl:
                 values, labels = self._collect_values_with_labels(
                     live_sources, results, node_map,
@@ -170,8 +182,28 @@ class InputResolver:
         ]
         return values, finalized
 
-    def _param_info(self, node_type: str, param_name: str) -> tuple[bool, bool]:
-        """Return ``(uses_connection_list, expects_list)`` for ``param_name``."""
+    def _param_info(
+        self, node_type: str, param_name: str, *, node_id: str | None = None
+    ) -> tuple[bool, bool]:
+        """Return ``(uses_connection_list, expects_list)`` for ``param_name``.
+
+        A node whose roster came from a ``compute_inputs`` hook is
+        per-instance, so its entry is keyed by node id. Everything else stays
+        keyed by type, which is the overwhelmingly common case and keeps the
+        cache small.
+        """
+        resolved = (self._node_inputs or {}).get(node_id) if node_id else None
+        if resolved is not None:
+            key = f"{node_type}\x00{node_id}"
+            per_instance = self._param_cache.get(key)
+            if per_instance is None:
+                per_instance = {
+                    inp.name: (inp.uses_connection_list, inp.expects_list)
+                    for inp in resolved
+                }
+                self._param_cache[key] = per_instance
+            return per_instance.get(param_name, (False, False))
+
         cache = self._param_cache.get(node_type)
         if cache is None:
             node_def = self._registry.get(node_type)

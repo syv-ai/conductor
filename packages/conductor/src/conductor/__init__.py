@@ -36,6 +36,7 @@ from conductor.execution.engine import execute, execute_sync, resume, resume_syn
 from conductor.execution.retry import RetryConfig
 from conductor.execution.store import FlowStore
 from conductor.graph.compiler import CompiledGraph, compile
+from conductor.graph.dynamic_inputs import resolve_graph_inputs
 from conductor.graph.dynamic_outputs import resolve_graph_outputs
 from conductor.graph.model import (
     Flow,
@@ -64,6 +65,7 @@ __all__ = [
     "Actor",
     "compile",
     "CompiledGraph",
+    "resolve_graph_inputs",
     "resolve_graph_outputs",
     # Execution
     "execute",
