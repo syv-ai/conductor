@@ -264,6 +264,39 @@ handles without `dynamic_handles=True`, hook exceptions — original chained
 via `__cause__`). `produces`/`consumes` dependencies do not participate in
 the ordering; they are `compile()`'s concern.
 
+### Dynamic inputs (compute_inputs)
+
+A node registered with `compute_inputs=<fn>` derives its input handles from
+instance state at compile time. The hook receives a `ComputeInputsContext`
+(`data`, `node_id`, `defaults`, `validated_data`) and returns
+`list[InputMetadata]`. Same validation as `compute_outputs`: the result must
+be a list of `InputMetadata`, names must be unique, and a node without
+`dynamic_handles=True` may not drop a statically declared input.
+
+Two deliberate asymmetries with the output side. There is no `incoming` —
+an incoming binding is keyed by its target handle, which is exactly what
+this hook decides, so reading one would be circular. And there is no
+topological pass: a roster depends on the node's own `data` alone, so
+resolution is order-free and runs at compile step 5b, before shared-ref and
+edge validation.
+
+The resolved roster lands on `CompiledGraph.node_inputs` and is preferred
+over the static schema by edge type-checking, consume validation,
+`InputResolver` (which keys its param cache per instance for hook-driven
+nodes) and validation-error labelling. `serialize_node` emits
+`has_dynamic_inputs: true`, the input-side twin of `has_dynamic_outputs`.
+
+Runtime delivery needs no special support: declare `**kwargs` on the node
+function and every wired handle arrives, because `_filter_to_signature` does
+not filter a `VAR_KEYWORD` callable. Pair the hook with
+`dynamic_handles=True` so the validation model tolerates the extra keys.
+Note that `**kwargs` itself is introspected as a static input named
+`kwargs`; the hook's roster replaces it, but it is visible in the palette
+payload.
+
+`resolve_graph_inputs(nodes, definitions)` is the ahead-of-compile
+counterpart, importable from `conductor`.
+
 ### conductor.execution.engine
 - `execute(compiled, *, timeout_seconds, context, cache, retry)` → `AsyncGenerator[ExecutionEvent]`
 - `execute_sync(compiled, **kwargs)` → `dict[str, Any]`

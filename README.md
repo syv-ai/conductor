@@ -756,13 +756,16 @@ warning. The audited public surface lives in:
 
 - Top-level: `conductor.__init__` (incl. `resolve_graph_outputs` — the
   ahead-of-compile dynamic-output resolution; import it from `conductor`,
-  not from its internal home)
+  not from its internal home), `resolve_graph_inputs` (the input-side
+  counterpart, likewise imported from `conductor`)
 - Widgets / metadata / types: `conductor.widgets`, `conductor.metadata`,
   `conductor.types`
 - Errors: `conductor.errors`
-- Registry: `conductor.registry` (`NodeRegistry`, `NodeDefinition`, `Actor`)
-  and `conductor.registry.dynamic_outputs` (`ComputeOutputsContext`,
+- Registry: `conductor.registry` (`NodeRegistry`, `NodeDefinition`, `Actor`),
+  `conductor.registry.dynamic_outputs` (`ComputeOutputsContext`,
   `IncomingBinding`, `ComputeOutputsFn`, `strip_sub_output_prefix`)
+  and `conductor.registry.dynamic_inputs` (`ComputeInputsContext`,
+  `ComputeInputsFn`)
 - Graph: `conductor.graph.compiler` (`compile`, `CompiledGraph`,
   `ExtensionResolver`, `DecisionGuard`)
 - Compound nodes: `conductor.compound` (`ForEachNode`, `WhileNode`,

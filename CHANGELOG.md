@@ -27,6 +27,33 @@ they are likely targets for a future major bump:
 - Cross-package `==` pin in `syv-conductor[all]` — could relax to
   `~=` once the providers/nodes packages stabilize independently.
 
+## [1.12.0]
+
+### Added
+
+- `compute_inputs` hook — a node can derive typed input handles from its
+  instance `data`, mirroring `compute_outputs`. Accepted by both
+  `@registry.node(...)` and `@category.node(...)`. New public types
+  `ComputeInputsContext` / `ComputeInputsFn` in
+  `conductor.registry.dynamic_inputs`, and `resolve_graph_inputs` exported
+  from `conductor` as the ahead-of-compile counterpart to
+  `resolve_graph_outputs`.
+- `CompiledGraph.node_inputs` — the resolved input roster per node id,
+  populated for every node.
+- `has_dynamic_inputs` in the serialized palette payload, matching
+  `has_dynamic_outputs`.
+
+### Changed
+
+- Edge type-checking, consume validation and validation-error labelling
+  consult the resolved input roster in preference to the static schema.
+  Nodes without a hook are unaffected. Note this makes an edge into a
+  hook-declared handle *type-checked* where an unknown target handle was
+  previously skipped silently.
+- `InputResolver` accepts the resolved rosters and keys its param-info cache
+  per node instance when a node's roster came from a hook; type-keyed for
+  everything else.
+
 ## [1.11.0]
 
 ### Added
