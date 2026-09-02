@@ -253,3 +253,34 @@ def test_dtype_of_reads_the_annotation():
 def test_dtype_of_returns_None_for_a_plain_python_type():
     """AKA's catalog contract test is what turns this into an error."""
     assert dtype_of(str) is None
+
+
+def test_conductor_declares_no_domain_types_of_its_own():
+    """The ABC is conductor's, the vocabulary is the host's.
+
+    `Series` is the exception and is deliberate — a collection is structure,
+    not domain: it means the same thing in every host.
+    """
+    from conductor.dtype import registered_dtypes
+    from conductor.series import Series
+
+    shipped = {
+        d for d in registered_dtypes()
+        if d.__module__.startswith("conductor.")
+    }
+
+    assert shipped == {Series}
+
+
+def test_the_vocabulary_is_importable_from_the_root():
+    import conductor
+
+    for name in ("DType", "DTypeRef", "Single", "Series", "Index", "Ref", "Result"):
+        assert getattr(conductor, name) is not None
+
+
+def test_nothing_named_many_or_spread_is_exported():
+    import conductor
+
+    assert not hasattr(conductor, "Many")
+    assert not hasattr(conductor, "Spread")

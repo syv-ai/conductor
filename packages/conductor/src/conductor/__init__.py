@@ -50,6 +50,10 @@ from conductor.registry import NodeRegistry
 from conductor.registry.definition import Actor
 from conductor.registry.view import DefinitionSource, RegistryView
 from conductor.types import NodeCategory, ResultFormat, WidgetType
+from conductor.dtype import DType, DTypeRef, Single, dtype_of, registered_dtypes
+from conductor.ref import Ref
+from conductor.returns import Result
+from conductor.series import Index, Series
 
 __all__ = [
     # Registry + graph
@@ -85,6 +89,16 @@ __all__ = [
     "SubprocessNode",
     "SUBPROCESS",
     "SubprocessRegistry",
+    # The type vocabulary
+    "DType",
+    "DTypeRef",
+    "Single",
+    "dtype_of",
+    "registered_dtypes",
+    "Ref",
+    "Result",
+    "Index",
+    "Series",
     # Types / enums
     "ResultFormat",
     "NodeCategory",
