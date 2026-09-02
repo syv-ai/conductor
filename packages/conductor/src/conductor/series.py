@@ -110,7 +110,7 @@ class Series(DType, Sequence[T]):
     """
 
     id = "series"
-    title = "Serie"
+    title = "Series"
 
     __slots__ = ("index", "rows", "values")
 
