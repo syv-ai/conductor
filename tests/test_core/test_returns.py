@@ -28,7 +28,7 @@ def test_an_output_is_a_field_and_adds_one_contract_fact():
         f.name for f in dataclasses.fields(Field)
     } | {"choice"}
     assert output.choice is None
-    assert Output(name="if_true", dtype=Text, title="Hvis sand", choice="grene").choice == "grene"
+    assert Output(name="if_true", dtype=Text, title="If true", choice="branches").choice == "branches"
 
 
 def test_a_field_is_name_dtype_title_description():
@@ -79,7 +79,7 @@ def test_a_field_is_frozen_and_keyword_only():
 
 
 def test_the_record_is_the_schema():
-    """Dumping an Output yields the wire, with the dtype as its wire id."""
+    """Dumping an Output yields the wire, with the dtype as its description."""
     output = Output(name="result", dtype=Series[Text], title="R")
 
     assert TypeAdapter(Output).dump_python(output, mode="json") == {
@@ -137,12 +137,12 @@ def test_a_record_field_declares_its_choice():
 
     @dataclasses.dataclass(frozen=True)
     class Branches:
-        if_true: Annotated[Text, Result(title="Hvis sand", choice="grene")]
-        if_false: Annotated[Text, Result(title="Hvis falsk", choice="grene")]
+        if_true: Annotated[Text, Result(title="If true", choice="branches")]
+        if_false: Annotated[Text, Result(title="If false", choice="branches")]
 
     _, outputs = outputs_of(Branches)
 
-    assert [(o.name, o.choice) for o in outputs] == [("if_true", "grene"), ("if_false", "grene")]
+    assert [(o.name, o.choice) for o in outputs] == [("if_true", "branches"), ("if_false", "branches")]
 
 
 def test_a_pass_through_return_declares_any():

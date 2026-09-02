@@ -10,7 +10,7 @@ from pydantic import BaseModel, TypeAdapter
 class Text(DType, str):
     """A host-side type, defined here because conductor ships none.
 
-    The wire id is test-scoped: the dtype registry is process-global, and
+    The id is test-scoped: the dtype registry is process-global, and
     ``conductor_nodes.types.Text`` claims ``"text"`` when the whole suite
     runs in one process.
     """
@@ -29,7 +29,7 @@ class Colour(DType):
         self.name = name
 
 
-def test_a_dtype_declares_its_wire_id_and_its_human_title():
+def test_a_dtype_declares_its_id_and_its_title():
     assert Text.id == "dtype-test-text"
     assert Text.title == "Tekst"
 
@@ -73,9 +73,9 @@ def test_a_dtype_built_on_nothing_validates_by_instance():
     class M(BaseModel):
         colour: Colour
 
-    assert isinstance(M(colour=Colour("rød")).colour, Colour)
+    assert isinstance(M(colour=Colour("red")).colour, Colour)
     with pytest.raises(Exception):
-        M(colour="rød")
+        M(colour="red")
 
 
 def test_a_dtype_must_declare_an_id_and_a_title():
@@ -86,7 +86,7 @@ def test_a_dtype_must_declare_an_id_and_a_title():
             title = "Uden id"
 
 
-def test_two_unrelated_dtypes_cannot_share_a_wire_id():
+def test_two_unrelated_dtypes_cannot_share_an_id():
     with pytest.raises(ValueError, match="already"):
 
         class Duplicate(DType, str):
@@ -137,7 +137,7 @@ def test_a_type_refuses_nothing_whole_unless_it_says_so():
     assert Text.refuses_whole() is None and Colour.refuses_whole() is None
 
 
-def test_the_base_has_no_wire_id():
+def test_the_base_has_no_id():
     """Nothing on a wire ever carries "could not say". A pass-through
     declares ``Any``, which compile types from the wire — so the base is an
     ABC and nothing more, and a subclass that forgets its id inherits none."""
@@ -192,10 +192,9 @@ def test_any_is_the_unconstrained_marker_and_is_not_a_type():
 
 
 def test_an_any_input_dumps_as_any():
-    """The palette shows Hvis/ellers with ``value: Any`` before anything is
-    wired, and the editor's roster for an unwired placement carries it too
-    (``unbound_required``) — so the declaration has a wire form, and it
-    says "any", never a dtype id."""
+    """A palette shows an if/else node with ``value: Any`` before anything is
+    wired, so the declaration needs a JSON form — and it says "any", never
+    a dtype id."""
     from typing import Any
 
     assert description_of(Any) == {"id": "any"}
@@ -211,7 +210,7 @@ def test_single_is_a_bare_marker():
 # --- DTypeRef: how a record carries a type on the wire -----------
 
 
-def test_a_dtype_ref_dumps_as_the_wire_id():
+def test_a_dtype_ref_dumps_as_the_description():
     assert TypeAdapter(DTypeRef).dump_python(Text, mode="json") == {"id": "dtype-test-text", "accepted_as": ["dtype-test-text"]}
 
 

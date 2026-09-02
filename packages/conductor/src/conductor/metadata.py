@@ -1,11 +1,13 @@
-"""The records that say what fields a node has.
+"""The records that describe a node's fields.
 
-A node is its fields, and this file names them. ``Field`` is what the two
-sides have in common; ``Output`` adds the one fact only a produced value has.
+``Field`` is what an input and an output have in common: name, type,
+title, description. ``Output`` adds ``choice``. The input-side record,
+which also carries a widget and a default, lands with the registry that
+derives a node's interface from its ``run`` signature.
 
-``Interface.of`` writes them, reading one ``run`` signature. Compile, the
-engine and the editor read them, and nothing re-encodes them on the way out:
-these records *are* the schema a palette publishes.
+These records are their own schema: ``dtype`` is a ``DTypeRef``, so
+dumping a record through pydantic gives the type's ``describe()``, and a
+palette is simply these records dumped.
 """
 
 from dataclasses import dataclass, field
@@ -26,25 +28,15 @@ __all__ = [
 class Field:
     """One named part of a node — an input or an output.
 
-    A node consists of fields. This is what both sides have in common, and
-    it is a real parent rather than four field names written twice: a
-    ``Ref`` addresses one of these, ``Problem.field`` names one, and
-    ``GraphNode.fields`` carries a title for each.
+    ``name`` is what wires and bindings refer to (the ``field`` half of a
+    ``Ref``); ``title`` and ``description`` are for a person. ``dtype`` is
+    the declared type — a ``DType``, ``Any`` for an input that only routes
+    a value, or a plain static type for an input no cable can reach, which
+    serialises as ``null``.
 
-    Nobody constructs a bare ``Field``: what exists is an ``Input`` or an
-    ``Output``, minted by ``Interface.of`` from a ``run`` signature and by a
-    placement's roster hooks.
-
-    ``dtype`` is a ``DTypeRef``: the declared type in Python, its wire form
-    in JSON — a ``DType``'s ``describe()``, ``{"id": "any"}`` for the
-    ``Any`` input, and ``null`` for the static type of an input
-    no cable can reach, since nothing travels on it. That is what
-    makes this record its own schema — a palette is these records
-    dumped, and nothing re-encodes them.
-
-    ``kw_only`` so a subclass can add a *required* field after the defaults
-    here — ``Input.widget`` is required, and positional dataclass ordering
-    would otherwise forbid it.
+    Nobody constructs a bare ``Field``; a node has outputs and inputs.
+    Keyword-only so a subclass can add a required field after the defaults
+    here.
     """
 
     name: str
@@ -55,35 +47,20 @@ class Field:
 
 @dataclass(frozen=True, kw_only=True)
 class Output(Field):
-    """A field a value is produced on. Adds one fact to ``Field``: ``choice``.
+    """A field a node produces a value on. Adds ``choice`` to ``Field``.
 
-    Named rather than left as a bare ``Field`` because the two sides read
-    differently at every call site. A widget, a default and ``optional``
-    are not here: they are not *blank* on an output, they cannot mean
-    anything there, which is why this is a sibling of ``Input`` and
-    not the same record with nullable fields.
-
-    An output has a **handle** — the connection point an edge attaches to —
-    and no widget. A widget is a control through which a person supplies a
-    value, and nobody supplies a result.
-
-    This is the *derived record*. What an author writes is a ``Result`` on
-    the return type or on a record field, and ``outputs_of`` turns that
-    declaration into these. From there the readers are compile — condition
-    derivation reads ``choice``, the wires pass reads ``dtype`` — the editor,
-    which draws one handle per output, and ``unpack``, which splits what
-    ``run`` returned across them by name.
-
-    No ``download`` and no ``filename``: a value is downloadable
-    because of what it is, and a file carries its own name.
+    Derived by ``outputs_of`` from the ``Result`` an author wrote on
+    ``run``'s return type. It carries no widget, default or ``optional``:
+    those are facts about how a person supplies a value, and nobody
+    supplies a result. Nor ``download`` / ``filename``: whether a value can
+    be downloaded follows from its type.
     """
 
-    #: The group of exclusive alternatives this output belongs to:
-    #: outputs of one placement sharing a value are alternatives, exactly
-    #: one of which is produced — Hvis/ellers's branches. A contract fact,
-    #: read by compile's condition derivation and by the editor («disse
-    #: optræder aldrig sammen»), never by the engine, which propagates
-    #: ``SKIPPED`` without knowing why. ``None`` means unconditional.
+    #: Outputs of one node that share a ``choice`` are exclusive alternatives:
+    #: exactly one of them is produced per run (the two branches of an
+    #: if/else node). ``None`` means the output is always produced. Read by
+    #: the compiler and the editor, never by the engine, which only
+    #: propagates the skip.
     choice: str | None = None
 
 

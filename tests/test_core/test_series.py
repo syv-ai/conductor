@@ -20,10 +20,10 @@ class Num(DType, float):
 
 
 def test_a_series_reads_as_its_values():
-    s = Series[Text](Index("docs"), ["første", "anden"])
+    s = Series[Text](Index("docs"), ["first", "second"])
 
-    assert list(s) == ["første", "anden"]
-    assert s[0] == "første"
+    assert list(s) == ["first", "second"]
+    assert s[0] == "first"
     assert len(s) == 2
 
 
@@ -73,7 +73,7 @@ def test_two_series_on_one_index_share_it():
 
 
 def test_a_child_row_knows_its_parent_row():
-    """What «Fold ud» creates: three employees from two applications. The
+    """What an unfold node creates: three employees from two applications. The
     row's path says which application, and nothing else has to."""
     docs = Index("docs")
     employees = Series[Text](Index("employees", parent=docs), ["a", "b", "c"], rows=((0, 0), (0, 1), (1, 0)))
@@ -125,7 +125,7 @@ def test_a_series_into_a_scalar_input_is_judged_by_its_element():
 
 def test_a_series_of_any_is_a_reduction_typed_later():
     """``Series[Any]`` is what a reduction over whatever arrives declares —
-    «Kombinér»'s «den eneste» receives the whole series. It is a real
+    a "count" or "the only one" node receives the whole series. It is a real
     class like any parameterised series, its element is ``Any``, its wire
     form says so, and it is not in the vocabulary."""
     from typing import Any

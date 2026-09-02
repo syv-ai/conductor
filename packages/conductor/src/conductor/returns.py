@@ -1,30 +1,31 @@
-"""What a node returns.
+"""What a node returns, read off ``run``'s return annotation.
 
-The return type is the declaration: what ``run`` is annotated to
-return says what outputs the node has and how the returned value splits
-across them. There are three readings, each visible in the annotation:
+The return type *is* the output declaration. Three shapes are read::
 
-* a ``DType`` — one output, named ``result``, titled by the ``Result`` on
-  the annotation;
-* a frozen dataclass — one output per field, named by the field, each
-  field annotated ``Annotated[DType, Result(title=...)]``: a **record**,
-  and the record is the schema;
-* ``Mapping[str, Any]`` — the outputs are whatever ``compute_outputs``
-  answered for the placement, and ``run`` returns them by name.
+    def run(self, text: Text) -> Annotated[Text, Result(title="Summary")]:
+        ...   # one output, named "result"
 
-Nothing is positional and nothing is auto-named: a field's name is the
-persisted binding key and the ``Ref`` an author wires, so it is a name a
-person chose. A node whose ``run`` returns the wrong shape is broken and
-says so at the moment of disagreement.
+    @dataclass(frozen=True)
+    class Parts:
+        head: Annotated[Text, Result(title="Head")]
+        tail: Annotated[Text, Result(title="Tail")]
 
-``Result`` is what an *author writes* — a title, a description and, for
-a branch, the ``choice`` it belongs to — and an ``Output`` is what
-the node *has*. Nothing here mentions downloading: a value is
-downloadable because of what it *is*.
+    def run(self, text: Text) -> Parts:
+        ...   # one output per field: "head" and "tail"
 
-A return may declare ``Any`` in place of a ``DType``: the node routes a
-value it does not read, and its ``compute_outputs`` types the output
-from what arrives.
+    def run(self, **inputs: Single) -> Mapping[str, Any]:
+        ...   # the outputs were computed for the placement; returned by name
+
+``outputs_of`` turns the annotation into ``Output`` records and ``unpack``
+splits a returned value across those outputs by name. Nothing is
+positional and nothing is auto-named: an output's name is what other nodes
+wire to, so it is always a name the author chose. A ``run`` that returns
+the wrong shape raises at the point of disagreement.
+
+``Result`` is what the author writes — title, description and, for one of
+several exclusive branches, its ``choice`` group. ``Output`` is the record
+the node ends up with. A return may be ``Any`` in place of a ``DType``
+when the node passes a value through without reading it.
 """
 
 from __future__ import annotations
@@ -43,22 +44,18 @@ RESULT_KEY = "result"
 
 @dataclass(frozen=True)
 class Result:
-    """What does the author want said about this output?
+    """What the author says about an output: its title, description and ``choice``.
 
-    The title, the description and — for one of several exclusive
-    alternatives — the ``choice`` group it belongs to; the branches of
-    Hvis/ellers all say ``choice="grene"``.
+    Written inside ``Annotated[...]`` on ``run``'s return type or on a field
+    of the returned record. ``choice`` groups outputs that are exclusive
+    alternatives — exactly one of the group is produced per run, as with
+    the two branches of an if/else node::
 
-    An author writes one inside the ``Annotated`` on ``run``'s return type, or
-    on a field of the record it returns. It is read exactly once, by
-    ``outputs_of`` while ``Interface.of`` walks the signature, and what travels
-    from there is the ``Output`` it produced. Its opposite number on the input
-    side is the widget annotation, which carries the same field-level facts
-    for a value coming in.
+        if_true: Annotated[Text, Result(title="If true", choice="branches")]
+        if_false: Annotated[Text, Result(title="If false", choice="branches")]
 
-    Not an ``Output``: this is the authored declaration, that is the derived
-    record. Nothing here says how the value is rendered or whether it can be
-    downloaded — a value is downloadable because of what it *is*.
+    ``outputs_of`` reads it once and produces an ``Output``; the ``Result``
+    itself is not kept.
     """
 
     title: str
@@ -67,13 +64,15 @@ class Result:
 
 
 def outputs_of(return_hint: Any) -> tuple[Any, tuple[Output, ...]]:
-    """The declared return type, and the outputs it declares.
+    """Read ``run``'s return annotation: the declared type, and the outputs it declares.
 
-    The type comes back with ``Annotated`` stripped — a ``DType`` (or
-    ``Any``), a record class, or ``Mapping`` — and is what ``unpack``
-    switches on, so the two read one declaration the same way. A ``DType``
-    is tried first: a dtype may itself be a dataclass, and it is then one
-    value, not a record.
+    Returns ``(declared, outputs)``. ``declared`` is the annotation with
+    ``Annotated`` stripped — a ``DType`` or ``Any``, a record class, or
+    ``Mapping`` — and is what ``unpack`` later switches on. A ``DType``
+    return declares one output named ``"result"``; a frozen dataclass
+    declares one output per field; ``Mapping`` declares none (the
+    placement's computed outputs are used). Anything else is a
+    ``TypeError``, as is a ``DType`` or a field without a ``Result``.
     """
     declared = get_args(return_hint)[0] if get_origin(return_hint) is Annotated else return_hint
     dtype = dtype_of(declared)
@@ -102,12 +101,12 @@ def outputs_of(return_hint: Any) -> tuple[Any, tuple[Output, ...]]:
 
 
 def unpack(returns: Any, value: Any, outputs: tuple[Output, ...]) -> dict[str, Any]:
-    """Split what ``run`` returned across ``outputs``, by the declared return type.
+    """Split what ``run`` returned into ``{output name: value}``.
 
-    ``Mapping`` is the reading for every roster the signature did not
-    declare: a ``compute_outputs`` roster, and an ``Interface`` a host gave
-    by value — an embedded flow's ``run`` returns its outputs keyed by
-    address, and this splits them the same way.
+    ``returns`` is the ``declared`` half of ``outputs_of``'s answer. A
+    ``DType`` (or ``Any``) return lands on ``"result"``; a record is read
+    field by field; a ``Mapping`` must name exactly the declared outputs.
+    A value of the wrong shape is a ``ValueError``.
     """
     if returns is Any or (isinstance(returns, type) and issubclass(returns, DType)):
         return {RESULT_KEY: value}

@@ -39,10 +39,10 @@ def test_an_address_has_two_parts_because_depth_is_a_nodes_job():
     births a child index and exposes one field per part. So there is
     nothing below a field to address and no path to carry — and the field
     is simply whatever follows the first dot."""
-    assert Ref("n1", "Pris i kr.").field == "Pris i kr."
-    assert Ref("emb", "sag.value").node_id == "emb"
-    assert Ref("emb", "sag.value").field == "sag.value"
-    assert Ref("emb.sag.value") == Ref("emb", Ref("sag", "value"))
+    assert Ref("n1", "excl. VAT").field == "excl. VAT"
+    assert Ref("inner", "total.value").node_id == "inner"
+    assert Ref("inner", "total.value").field == "total.value"
+    assert Ref("inner.total.value") == Ref("inner", Ref("total", "value"))
 
 
 def test_pydantic_keeps_the_type_and_dumps_the_address():

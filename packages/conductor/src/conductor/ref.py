@@ -1,45 +1,37 @@
-"""An address: which node, which field.
+"""``Ref`` — the address of one field on one node.
 
-Everything that moves between nodes is addressed. A ``Ref`` is that
-address — one field of one node, an input or an output alike, since both
-are named slots on a node. It is what a wire carries, what a caller's
-answers are keyed by and what a flow's interface names its fields with,
-so that none of them is keyed by a **title**: a title is something a
-person wrote, it can be rewritten on a placement, and two placements can
-share one.
+Everything that moves between nodes is addressed by a ``Ref``: an edge
+says which output feeds which input, a caller's answers are keyed by the
+input they fill, a problem points at the field it is about. The address
+is ``"<node id>.<field name>"``::
 
-**The node part is a placement's ``id``, never its name.** An id is minted
-when the node is placed — the type and the first free counter, ``currency-1``
-— and nothing renames it, in the editor or anywhere else. The name a person
-reads sits beside it, as ``GraphNode.title``, and per field as
-``FieldContent.title``; an App's own name for a field is a third thing again,
-which is why an ``AppField`` carries a ``Ref`` beside its ``name`` rather than
-being keyed by it. That split is the whole reason an address is worth a type:
-names move, addresses do not. (Short ids — ``sag``, ``godkend`` — appear below
-and in tests because they read; nothing mints one.)
+    >>> Ref("summary", "text")
+    'summary.text'
+    >>> Ref("summary.text").node_id, Ref("summary.text").field
+    ('summary', 'text')
 
-**A ``Ref`` is the address, not a rendering of one.** It is a ``str``
-subclass, so the one thing a composite key is otherwise bad at — *being
-a key* — it is good at: a dict key, a JSON object key, a pydantic field
-name and a key in the editor's own maps all take it as it is. There is
-no encode step to remember, no second form to store and no second
-spelling for a frontend to agree with. ``node_id`` and ``field`` read the
-two parts back, and they are the only place in the codebase that splits
-the string.
+A ``Ref`` is a ``str`` subclass, so it works as-is wherever a string key
+does — a dict key, a JSON object key, a pydantic field name — with nothing
+to encode on the way out or decode on the way in. ``node_id`` and
+``field`` are the only place the string is split.
 
-**Two parts, because depth is a node's job.** An address never grows a
-third: a nested value travels whole, on one field, and *opening* it is
-something a node does — the node that opens it births a child index and
-exposes one field per part. So there is nothing below a field to
-address and no path to carry. What a host makes of that rule is the
-host's: AKA opens a table with «Fold ud».
+The node part is the placement's **id**, never its title. Titles are for
+people and may be edited; an id is minted when the node is placed and
+never changes. That is the reason an address deserves a type: renaming a
+node does not move anything that points at it.
 
-A field name may itself contain a dot, which is what lets a flow be a
-node: its interface names a field ``"sag.value"``, and under the
-placement that embeds it that field's address is ``"emb.sag.value"``. The
-first dot separates and the rest is the field, so composing is closed and
-nesting needs nothing new. A placement id never contains a dot —
-``GraphNode`` refuses one.
+An address has exactly two parts. A field name may itself contain a dot —
+that is how a flow embedded as a node keeps its own addresses as field
+names — but a node id never does, so the first dot always separates the
+two::
+
+    >>> Ref("inner", "total.value").field
+    'total.value'
+    >>> Ref("inner.total.value") == Ref("inner", Ref("total", "value"))
+    True
+
+There is deliberately no third part and no path syntax (``"rows.0.name"``):
+a nested value travels whole on one field, and opening it is a node's job.
 """
 
 from __future__ import annotations
@@ -53,16 +45,23 @@ __all__ = ["Ref"]
 
 
 class Ref(str):
-    """One field on one node."""
+    """The address ``"<node id>.<field name>"`` of one field on one node.
+
+    Build one from its two parts, or read one back from the string form;
+    both give the same value::
+
+        >>> Ref("summary", "text") == Ref("summary.text") == "summary.text"
+        True
+    """
 
     __slots__ = ()
 
     def __new__(cls, node_id: str, field: str | None = None) -> Ref:
-        """``Ref("sag", "value")`` composes an address; ``Ref("sag.value")`` reads one.
+        """``Ref(node_id, field)`` composes an address; ``Ref("node.field")`` reads one.
 
-        Two arities because there are two questions, not two spellings: an
-        author of an address holds the parts, a reader of one holds the
-        string. Both produce the same value, so neither is a conversion.
+        Refused: a string with no dot or an empty half (not an address), and
+        a node id containing a dot (the first dot would no longer separate
+        node from field).
         """
         if field is not None and "." in node_id:
             raise ValueError(f"placement {node_id!r} contains '.'; an address reads 'node.field'")
@@ -74,23 +73,23 @@ class Ref(str):
 
     @property
     def node_id(self) -> str:
-        """The placement. A placement id never contains a dot."""
+        """The node part — everything before the first dot."""
         return self.partition(".")[0]
 
     @property
     def field(self) -> str:
-        """The field on it — everything after the first dot, which is why an
-        embedded flow's own address survives as a field name."""
+        """The field part — everything after the first dot, dots included."""
         return self.partition(".")[2]
 
     @classmethod
     def __get_pydantic_core_schema__(
         cls, source: Any, handler: GetCoreSchemaHandler
     ) -> CoreSchema:
-        """Validate as the address, come back a ``Ref``, dump as itself.
+        """Let pydantic validate a ``Ref`` field into a ``Ref``, not a bare ``str``.
 
-        Without this pydantic hands back a bare ``str`` and every
-        ``ref.node_id`` downstream is an ``AttributeError`` — the same help
-        a ``DType`` built on a builtin needs.
+        pydantic validates a ``str`` subclass as plain ``str`` unless told
+        otherwise; this validates the string and wraps it, so
+        ``Model(ref="a.b").ref.node_id`` works and an invalid address is a
+        validation error. It dumps as the plain string.
         """
         return core_schema.no_info_after_validator_function(cls, core_schema.str_schema())

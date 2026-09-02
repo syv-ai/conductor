@@ -1,33 +1,52 @@
-"""What a value *is*, not just what Python holds it in.
+"""``DType`` — a value's type, as the flow engine sees it.
 
-A ``DType`` is a real Python type — subclass ``str``, ``float``, ``date`` or
-nothing at all — that additionally declares its wire id, its human title,
-and one question: ``accepts(source)``.
+A ``DType`` is a real Python class, usually built on a builtin::
 
-It deliberately does **not** declare a widget. ``Text`` is legitimately a
-textarea, a single-line field, a template editor or a dropdown of choices,
-so a type that named one would be guessing on behalf of every input that
-uses it. Widgets are declared per input, and an input without one is an
-error.
+    class Text(DType, str):
+        id = "text"
+        title = "Text"
 
-And it does **not** convert. A value arrives at a node as the type the wire
-carried. "May this edge connect?" is the whole of what a type is asked
-about wiring, and ``accepts`` answers it once, in the type, at compile.
+    class Number(DType, float):
+        id = "number"
+        title = "Number"
 
-What a value reads like when it becomes text for a person is the type's to
-say, once: ``as_text(value)``, default ``str``. Every user-facing rendering
-calls it, so a type whose values read differently overrides it here and
-nowhere else.
+so ``Text("hello")`` is both a ``str`` and a ``Text``, a type checker sees
+``Text`` where ``Text`` is meant, and a pydantic model with a ``Text``
+field gives back a ``Text`` (see ``__get_pydantic_core_schema__``). ``id``
+is the stable name the persisted graph and the frontend use; ``title`` is
+what a person reads.
 
-A node that does not read its value declares no type: it annotates the
-input ``Any``, compile records what actually arrives there, and the
-node's ``compute_outputs`` types its outputs from ``arriving`` — so
-``accepts`` is never asked about an unconstrained input, and nothing on
-a wire ever carries "could not say". ``Single`` is the open roster's
-spelling on ``**inputs``: every wired name an input, typed by its wire.
+A type answers one question about wiring — ``target.accepts(source)``:
+may a value of type ``source`` land on an input declared as ``target``?
+The default is ``issubclass``, so a subtype is accepted wherever its
+parent is, and a ``Series`` of something is judged by its element::
 
-Conductor defines no concrete ``DType``. What counts as a domain type is a
-domain question.
+    class Integer(Number):
+        id = "integer"
+        title = "Integer"
+
+    Number.accepts(Integer)   # True
+    Integer.accepts(Number)   # False
+    Number.accepts(Series[Number])   # True — the node then runs once per row
+
+Three things a ``DType`` deliberately does not do:
+
+* **Convert.** A value arrives at a node as the type the wire carried.
+  Where a conversion seems needed, the answer is a subtype, a node that
+  does the work, or an input declared with the widest type the node
+  handles.
+* **Pick a widget.** The same ``Text`` may be a textarea, a single line or
+  a dropdown; every input declares its own widget.
+* **Format itself beyond text.** ``as_text`` is the one rendering hook:
+  override it when a value should read differently from ``str(value)``.
+
+An input that only routes a value it never reads is annotated ``Any``
+instead of a type, and the type of what actually arrives is recorded when
+the flow is compiled. ``Single`` marks an open roster, ``**inputs: Single``:
+every wired name becomes an input of that node.
+
+Conductor defines no concrete ``DType`` except ``Series``. Which types
+exist is the host application's decision.
 """
 
 from __future__ import annotations
@@ -61,36 +80,35 @@ _BY_ID: dict[str, type["DType"]] = {}
 
 
 class DType(ABC):
-    """Base for every domain type.
+    """Base class for every type a value on a wire can have.
 
-    The base has no ``id`` and no ``title`` of its own: it is never on a
-    wire, and a subclass that forgets its id must not inherit one.
+    Subclass it together with the builtin the type is built on and declare
+    ``id`` and ``title``; the class is registered on definition. The base
+    itself has no ``id`` and is never on a wire.
     """
 
-    #: Stable id. What the persisted graph and the frontend key on.
+    #: Stable identifier, used by the persisted graph and the frontend.
     id: ClassVar[str]
-    #: Human name, in the host's language. Presentation only.
+    #: Human-readable name, in the host's language.
     title: ClassVar[str]
-    #: The element type of a collection; ``None`` for a scalar. Declared on
-    #: the base so ``accepts`` can tell a series from a scalar without
-    #: importing the module that defines the series — "a series into a
-    #: scalar input lifts" is a rule of the type system, not of ``Series``.
+    #: For a collection, the type of its elements; ``None`` for a scalar.
+    #: Declared on the base so ``accepts`` can recognise a series without
+    #: importing ``conductor.series``.
     element: ClassVar[Any] = None
-    #: May a person author a value of this type directly — type it into a
-    #: cell, a form answer, a schema field? ``False`` unless the type says
-    #: so: most types are carried on wires, not typed in. The host's
-    #: derived choice lists read this and nothing else.
+    #: May a person type a value of this type in directly (into a cell, a
+    #: form, a schema field)? ``False`` unless the type says otherwise;
+    #: most values are carried on wires rather than typed in.
     authorable: ClassVar[bool] = False
 
     @classmethod
     def refuses_whole(cls) -> tuple[str, str] | None:
-        """Why a value of this type may not be **received whole** by a node
-        that reads it — as a problem ``(code, message)`` — or ``None``, the
-        answer for nearly every type. On an ``Any`` input a value is
-        routed, not read, and nothing here is asked; on an open roster
-        the node will read it, so a type that can be *stated
-        incompletely* — a host's table whose columns nobody said — answers
-        here and compile refuses the wire on the field, naming the fix.
+        """Why a node may not receive a value of this type as a whole, if
+        there is a reason.
+
+        Returns a problem ``(code, message)``, or ``None`` — the answer for
+        nearly every type. A type that can be declared incompletely (a
+        table whose columns nobody stated) answers here, and the compiler
+        then refuses the wire with that message.
         """
         return None
 
@@ -106,57 +124,54 @@ class DType(ABC):
         if existing is not None and existing is not cls:
             if issubclass(cls, existing):
                 # A parameterisation or a narrowing, not a collision:
-                # `Series[Text]` is a subclass of `Series` and means the
-                # same wire id. The declaring type keeps the entry, so
-                # `registered_dtypes()` lists each word once.
+                # `Series[Text]` is a subclass of `Series` and shares its
+                # id. The declaring type keeps the registry entry, so
+                # `registered_dtypes()` lists each type once.
                 return
             raise ValueError(
                 f"dtype id {cls.id!r} is already declared by {existing.__name__}"
             )
         _BY_ID[cls.id] = cls
 
-    # -- the wire ------------------------------------------------------
+    # -- the description --------------------------------------------------
 
     @classmethod
     def describe(cls) -> dict[str, Any]:
-        """This type, as the frontend reads it.
+        """This type as a JSON-ready record, for the frontend.
 
-        An object rather than a string, so nothing downstream parses a type.
-        ``accepted_as`` answers the editor's one applicability question —
-        where may this value land? — as the ids of every registered type
-        whose ``accepts`` admits this one, its own among them. Derived off
-        ``accepts`` itself, one writer, so a type that widens its welcome
-        (a number admitting its whole-number kin) is captured with no
-        catalog in the browser. ``Series`` overrides the method to nest
-        its element type.
+        ``{"id": ..., "accepted_as": [...]}`` — an object rather than a
+        string, so nothing downstream parses a type. ``accepted_as`` lists
+        the ids of every registered type whose ``accepts`` admits this one
+        (its own included), which is what an editor needs to know where a
+        value may be dropped. It is derived from ``accepts``, so widening a
+        type's welcome updates it automatically. ``Series`` overrides this
+        to nest its element type.
         """
         return {"id": cls.id, "accepted_as": [d.id for d in registered_dtypes() if _admits(d, cls)]}
 
-    # -- text for a person -----------------------------------------------
+    # -- text for a person --------------------------------------------------
 
     @classmethod
     def as_text(cls, value: Any) -> str:
-        """``value``, as a person reads it.
+        """``value`` rendered as text for a person.
 
-        Every place a value becomes user-facing text renders through this,
-        so a type whose values read differently from ``str`` says so once,
-        here, and no rendering site grows its own formatting. The default
-        is ``str``: most types read as they are.
+        Every place a value becomes user-facing text goes through this, so
+        a type whose values should not read as ``str(value)`` (a date, a
+        number with a locale) overrides it once, here.
         """
         return str(value)
 
-    # -- the one question ------------------------------------------------
+    # -- the one question ---------------------------------------------------
 
     @classmethod
     def accepts(cls, source: Any) -> bool:
-        """May a value of ``source`` land on an input of this type?
+        """May a value of type ``source`` land on an input declared as this type?
 
-        The target decides, because an input is where a node states what it
-        needs. ``issubclass`` for a scalar; a series arriving here is judged
-        by its element — that it lifts the node is compile's reading of the
-        shapes, not the type's. ``Series`` overrides this for the
-        other direction. An ``Any`` input never reaches here: nothing
-        arriving on it is judged, and what arrived is recorded instead.
+        The target decides, because an input is where a node states what
+        it needs. Default: ``issubclass(source, cls)``. A ``Series`` on the
+        source side is judged by its element type — the compiler then runs
+        the node once per row. Bare ``DType`` as a target raises: it would
+        accept anything.
         """
         if cls is DType:
             raise TypeError(
@@ -167,18 +182,19 @@ class DType(ABC):
             return cls.accepts(source.element)
         return issubclass(source, cls)
 
-    # -- pydantic ---------------------------------------------------------
+    # -- pydantic ------------------------------------------------------------
 
     @classmethod
     def __get_pydantic_core_schema__(
         cls, source_type: Any, handler: "GetCoreSchemaHandler"
     ) -> core_schema.CoreSchema:
-        """Validate as the builtin this type is built on, then wrap.
+        """Make pydantic validate a ``Text`` field into a ``Text``, not a bare ``str``.
 
-        pydantic does not know a subclass of ``str``. Without this, a
-        ``Text`` field validates to a bare ``str`` and every
-        ``isinstance(value, Text)`` downstream is false. A type built on
-        nothing is validated by instance.
+        pydantic validates a subclass of ``str`` as plain ``str`` unless
+        told otherwise, which would make every ``isinstance(value, Text)``
+        downstream false. This validates as the builtin the type is built
+        on and wraps the result in the subclass. A type built on no builtin
+        is validated by ``isinstance``.
         """
         builtin = _builtin_base(cls)
         if builtin is None:
@@ -190,7 +206,12 @@ class DType(ABC):
 
 
 def _builtin_base(cls: type[DType]) -> type | None:
-    """The ``str`` / ``float`` / ``date`` a type is built on, if any."""
+    """The ``str`` / ``float`` / ``date`` a type is built on, or ``None``.
+
+    Walks the MRO and skips ``DType`` classes, ``ABC``, ``object`` and the
+    ``abc`` / ``collections.abc`` / ``typing`` helpers, so a type built on
+    an unusual base (``pathlib.Path``, ``decimal.Decimal``) still works.
+    """
     for base in cls.__mro__[1:]:
         if issubclass(base, DType) or base in (ABC, object):
             continue
@@ -201,22 +222,23 @@ def _builtin_base(cls: type[DType]) -> type | None:
 
 
 class Single:
-    """``**inputs: Single`` — an open roster.
+    """Marker for an open roster: ``def run(self, **inputs: Single)``.
 
-    The whole declaration: every wired name is an input, received as one
-    value — the *carried* shape, series and all, so a series arrives whole
-    and the loop is the node author's to write. It is spelled on
-    ``**inputs`` and nowhere else; compile makes one ``Input`` per wire,
-    typed by it. ``Interface.of`` reads it; nothing here does.
+    Every name wired into such a node becomes an input, typed by its wire,
+    and each is received as one value — a series arrives as a whole series.
+    The marker is only meaningful on ``**inputs``; the registry reads it
+    when it derives a node's interface from its signature.
     """
 
 
 def description_of(declared: Any) -> dict[str, Any] | None:
-    """A declared type's wire form: a ``DType``'s ``describe()``, an
-    unconstrained input's ``{"id": "any"}``, and ``None`` for a type
-    nothing travels on — the static type of a handle-less input. The one
-    place the three are told apart, so ``DTypeRef`` and ``Series.describe``
-    agree."""
+    """The JSON form of a declared type.
+
+    A ``DType`` gives its ``describe()``; ``Any`` (an input that routes a
+    value it does not read) gives ``{"id": "any"}``; any other type gives
+    ``None``, because no value of it travels on a wire — it is the static
+    type of an input no cable can reach.
+    """
     if declared is Any:
         return {"id": "any"}
     if isinstance(declared, type) and issubclass(declared, DType):
@@ -225,21 +247,16 @@ def description_of(declared: Any) -> dict[str, Any] | None:
 
 
 def _declared(value: Any) -> Any:
-    """The validator for a ``dtype`` slot: whatever was declared, unchanged.
+    """Validator for a ``DTypeRef`` field: keep the declared class as it is.
 
-    A record's ``dtype`` is a declaration read off a signature, never a
-    value read off the wire, so there is nothing to coerce — and ``Any``
-    is not a type pydantic could validate a class against."""
+    A record's ``dtype`` is read off a signature, never off the wire, so
+    there is nothing to coerce.
+    """
     return value
 
 
-#: How a record carries a declared type on the wire: the class — or
-#: ``Any`` — in Python, ``description_of`` in JSON, and a JSON schema
-#: a response model can publish. Two levels deep and no deeper, because
-#: ``Series[Series[...]]`` does not exist — so the schema needs no
-#: recursion. The ``null`` arm is a handle-less input's static type:
-#: nothing travels on it, so it has no wire form.
-_SCALAR_WIRE_ID: dict[str, Any] = {
+#: The JSON schema of ``describe()``'s record.
+_DESCRIPTION_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "id": {"type": "string"},
@@ -247,6 +264,12 @@ _SCALAR_WIRE_ID: dict[str, Any] = {
     },
     "required": ["id"],
 }
+
+#: The type of a record's ``dtype`` field. In Python it holds the declared
+#: class (or ``Any``); serialised it is ``description_of`` — the
+#: ``describe()`` record, ``{"id": "any"}``, or ``null`` for a static type
+#: nothing travels on. The published JSON schema is two levels deep (a
+#: series' ``of``) and no deeper, since ``Series[Series[...]]`` does not exist.
 DTypeRef = Annotated[
     Any,
     PlainValidator(_declared),
@@ -256,7 +279,7 @@ DTypeRef = Annotated[
             "anyOf": [
                 {
                     "type": "object",
-                    "properties": {**_SCALAR_WIRE_ID["properties"], "of": _SCALAR_WIRE_ID},
+                    "properties": {**_DESCRIPTION_SCHEMA["properties"], "of": _DESCRIPTION_SCHEMA},
                     "required": ["id"],
                 },
                 {"type": "null"},
@@ -267,10 +290,15 @@ DTypeRef = Annotated[
 
 
 def dtype_of(annotation: Any) -> Any:
-    """The ``DType`` — or ``Any``, the unconstrained marker — an annotation
-    declares, or ``None`` if it declares neither.
+    """The ``DType`` an annotation declares, ``Any`` if it declares that,
+    or ``None`` if it declares neither.
 
-    Unwraps ``Annotated[...]``, since a param's widget travels there.
+    ``Annotated[...]`` is unwrapped first, since an input's widget and an
+    output's ``Result`` travel there::
+
+        dtype_of(Annotated[Text, Result(title="Summary")])   # Text
+        dtype_of(Any)                                         # Any
+        dtype_of(str)                                         # None
     """
     if get_origin(annotation) is Annotated:
         annotation = get_args(annotation)[0]
@@ -282,17 +310,17 @@ def dtype_of(annotation: Any) -> Any:
 
 
 def registered_dtypes() -> tuple[type[DType], ...]:
-    """Every declared type, for a host reporting its own vocabulary — what
-    can travel on a wire, and nothing else."""
+    """Every ``DType`` declared so far — everything that can travel on a wire."""
     return tuple(_BY_ID.values())
 
 
 def _admits(target: type[DType], source: type[DType]) -> bool:
-    """``target.accepts(source)``, where the question is well-posed.
+    """``target.accepts(source)``, treating "refuses to be a target" as ``False``.
 
-    ``describe()`` asks it of every registered type; a type that refuses to
-    be a target at all — bare ``Series`` raises, by its own rule — admits
-    nothing, and that refusal is the answer, not an error here."""
+    ``describe()`` asks this of every registered type. Bare ``Series``
+    raises rather than answer, and for ``accepted_as`` that refusal simply
+    means "not here".
+    """
     try:
         return target.accepts(source)
     except TypeError:

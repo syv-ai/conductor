@@ -1,23 +1,29 @@
-"""``Series[X]`` — many values of one dtype, on an index — and the only collection.
+"""``Series[X]`` — many values of one type, on an ``Index``.
 
-A node is a scalar function. When a series reaches a scalar input, the
-node is *lifted*: it runs once per row and its outputs become series on
-the same index. When a node wants the whole series it declares
-``Series[X]`` and receives it whole — that is a reduction. The type
-says which; nothing on a wire does.
+A node is written for one value. When a series reaches an input declared
+with a scalar type, the engine runs the node once per row ("lifting") and
+its outputs become series on the same index. When a node declares
+``Series[X]`` it receives the whole series at once — a reduction. The
+declared type decides; there is no flag on the wire::
 
-The **index** is where a series' rows came from, and it is what the engine
-reasons about rather than lengths. Two series align when they share
-one. A child index, made by unfolding a ``Table`` cell, has a parent, and
-every row on it is a **path** — ``(i, j)``, the j-th child of parent row
-``i`` — so a parent-index series broadcasts down to it and a reduction on
-it collapses back up, and neither needs a table beside the index to say
-which row came from which. A series may be *sparse* — cover a subset of
-its index's rows — which is what a lifted decision produces; there
-is no ``NA``.
+    s = Series[Text](Index("docs"), ["a", "b", "c"])
+    list(s)     # ["a", "b", "c"]
+    s.rows      # ((0,), (1,), (2,))
+    s.index     # Index("docs")
 
-``Series[Series[X]]`` does not exist. Depth is a ``Table`` cell opened one
-level by a node.
+The **index** says where the rows came from, and it is what the engine
+compares — never lengths: two series may feed one node only if they share
+an index. A child index, ``Index("lines", parent=Index("docs"))``, is made
+when a node opens a nested value one level. Each row on it is a path,
+``(i, j)`` for the j-th row born under parent row ``(i,)``, so a row knows
+its parent by construction: a value on the parent index broadcasts down to
+the child, and a reduction on the child collapses back up to the parent.
+
+A series may be **sparse** — carry only some of its index's rows — which is
+what a branching node produces when it is lifted. There is no ``NA``.
+
+``Series[Series[X]]`` is refused: nesting travels as one value on one
+field and is opened one level at a time by a node.
 """
 
 from __future__ import annotations
@@ -31,16 +37,14 @@ from pydantic_core import core_schema
 
 from conductor.dtype import DType, description_of
 
-#: Ordinary generics for the container protocol — ``Series[Text]`` types its
-#: values. There is no wire-level type variable: an unconstrained input is
-#: declared ``Any`` and typed from what arrives.
+#: The element type, for the ``Sequence`` protocol: ``Series[Text]`` yields ``Text``.
 T = TypeVar("T")
 
 if TYPE_CHECKING:
     from pydantic import GetCoreSchemaHandler
 
-#: A row's address on its index: ``(i,)`` on a root, ``(i, j)`` for the j-th
-#: row under parent row ``i``. A path, so lineage is in the row itself.
+#: A row's position on its index, as a path: ``(i,)`` on a root index,
+#: ``(i, j)`` for the j-th row born under parent row ``(i,)``.
 Row = tuple[int, ...]
 
 __all__ = ["Index", "Row", "Series"]
@@ -48,29 +52,20 @@ __all__ = ["Index", "Row", "Series"]
 
 @dataclass(frozen=True, slots=True, eq=False)
 class Index:
-    """Where a series' rows come from — the identity two series align on.
+    """Where a series' rows come from — the identity two series must share to align.
 
-    A root is minted by ``Index.fresh()`` wherever many values are born with
-    no parent: a documents node's files, a gathered pile, a sheet's rows. A
-    child is minted where a node unfolds a ``Table`` cell one level. Compile
-    reads them to say which index a node is lifted on and whether two inputs
-    align; the ledger births rows on them and seals them; ``Row`` is an
-    address on one and ``Series`` carries the one its values sit on.
+    An index is an ``id`` and, for a child index, the ``parent`` it was
+    opened from. Nothing else: no length, no row table. Equality and hashing
+    use the ``id`` alone, so an index can be named at compile time, before
+    any row exists, and rows are added to it later::
 
-    Not a length and not a table of lineage beside the rows.
+        docs = Index("docs")                     # a root
+        lines = Index("lines", parent=docs)      # one level down
+        lines.depth                              # 2
+        Index.fresh()                            # a new root with a unique id
 
-    Compile compares indexes, never lengths: it knows which index a series
-    is on and never how many rows it will have. ``id`` is that identity —
-    a root is born where a series is born without a parent (a documents
-    node's files, a gathered pile, a sheet's rows), and a child is born
-    when a node unfolds a ``Table`` cell.
-
-    An index is identity and lineage and nothing else: its ``id``, and
-    the index it was unfolded from. Rows live on the series, as paths — a
-    child row ``(i, j)`` names its parent row ``(i,)`` by construction — so
-    compile can name an index before a single row exists and the
-    engine births rows on that same index. Equality and hashing
-    read the ``id`` alone; ``parent`` is carried for the hierarchy.
+    Two ``Index.fresh()`` results never align, which is the point: values
+    born separately have no rows in common.
     """
 
     id: str
@@ -85,35 +80,33 @@ class Index:
 
     @classmethod
     def fresh(cls) -> "Index":
-        """A new root. Two fresh indexes never align — correctly."""
+        """A new root index with a unique id."""
         return cls(uuid4().hex)
 
     @property
     def depth(self) -> int:
-        """How long a row's path is on this index: 1 on a root."""
+        """The length of a row path on this index: 1 on a root, 2 on its child."""
         return 1 if self.parent is None else self.parent.depth + 1
 
 
-#: One parameterised subclass per element type, built once and reused, so
-#: ``Series[Text] is Series[Text]`` and an annotation compares by identity.
+#: One subclass per element type, built once, so ``Series[Text] is Series[Text]``.
 _PARAMETERISED: dict[Any, type["Series[Any]"]] = {}
 
 
 class Series(DType, Sequence[T]):
-    """Many values of one dtype, on an index.
+    """Many values of one type on one index, read as a sequence of the values.
 
-    ``Series[Text]`` is a **real subclass**, not a ``typing`` alias. That is
-    "a ``DType`` is a real Python type" taken literally, and it is what
-    lets ``Series[Text].describe()`` see its own element: attribute access on
-    a ``_GenericAlias`` forwards to the origin, so a classmethod reading
-    ``get_args(cls)`` there gets nothing back. It also means
-    ``source.element is not None`` answers "is this a series?" without
-    unwrapping anything, which is what ``DType.accepts`` asks.
+    ``Series[Text]`` is a real subclass created on first use, not a
+    ``typing`` alias, so it can carry ``element = Text`` as a class
+    attribute: ``describe()`` can nest its element and ``DType.accepts``
+    can recognise a series by ``source.element is not None``. Declaring an
+    input as ``Series[X]`` means "give me the whole series"; the class
+    itself is never a wire type, only its parameterisations are.
 
-    A ``Series[X]`` input — a series received whole — is a reduction's
-    declaration: receive the whole series, of whatever arrives.
-    Compile types it from the wire and the roster carries the typed
-    series; the class itself is never asked ``accepts``.
+    ``rows`` may be left out on a root index, in which case the series is
+    dense: ``(0,), (1,), ...``. On a child index the rows must be given,
+    since only the node that produced them knows which parent each came
+    from. ``rows`` and ``values`` always have the same length.
     """
 
     id = "series"
@@ -187,13 +180,11 @@ class Series(DType, Sequence[T]):
 
     @classmethod
     def describe(cls) -> dict[str, Any]:
-        """Nested rather than a string like ``"series[text]"``: a string
-        would have to be parsed, and nothing downstream parses a type.
+        """``{"id": "series", "of": <the element's description>}``.
 
-        An unparameterised ``Series`` raises. A collection whose element
-        type nobody declared cannot be type-checked or rendered, so it is a
-        declaration bug and says so here rather than serialising
-        ``{"of": None}`` for a frontend to trip over.
+        Nested rather than a string such as ``"series[text]"``, so nothing
+        downstream has to parse it. Bare ``Series`` raises: a series whose
+        element type nobody declared is a declaration bug.
         """
         if cls.element is None:
             raise ValueError(
@@ -205,8 +196,12 @@ class Series(DType, Sequence[T]):
 
     @classmethod
     def accepts(cls, source: Any) -> bool:
-        """A ``Series[X]`` input takes a whole series of ``X`` — or gathers
-        scalars of ``X`` into one. Either way the element decides."""
+        """May ``source`` land on a ``Series[X]`` input?
+
+        Yes for a series of something ``X`` accepts (received whole) and
+        for a scalar ``X`` accepts (gathered into a series). Either way the
+        element type decides.
+        """
         if cls.element is None:
             raise TypeError("an input must declare Series[X], never bare Series")
         inner = source.element if source.element is not None else source
@@ -218,10 +213,11 @@ class Series(DType, Sequence[T]):
     def __get_pydantic_core_schema__(
         cls, source_type: Any, handler: "GetCoreSchemaHandler"
     ) -> core_schema.CoreSchema:
-        """Validate the elements, then put the index and rows back.
+        """Validate the values through the element type; keep index and rows.
 
-        The inner list schema does the real work, so a bad element fails
-        with pydantic's own message and the field's name.
+        A ``Series`` passes through with its index and rows intact; a plain
+        list becomes a dense series on a fresh root index; a scalar is
+        refused rather than wrapped. Serialises as ``{index, rows, values}``.
         """
         element = getattr(source_type, "element", None)
         element_schema = (
@@ -235,8 +231,7 @@ class Series(DType, Sequence[T]):
                 return Series(value.index, inner(list(value.values)), rows=value.rows)
             if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
                 return Series(Index.fresh(), inner(list(value)))
-            # Wrapping a scalar into a one-element series here would turn a
-            # mistake into a plausible-looking success.
+            # A scalar is not silently wrapped into a one-element series.
             raise TypeError(f"expected a series, got {type(value).__name__}")
 
         return core_schema.no_info_wrap_validator_function(
@@ -244,8 +239,7 @@ class Series(DType, Sequence[T]):
             core_schema.list_schema(element_schema),
             serialization=core_schema.plain_serializer_function_ser_schema(
                 _wire,
-                # The values travel through the element's own schema, so a
-                # series of files dumps each file's wire form.
+                # Values serialise through the element type's own schema.
                 return_schema=core_schema.typed_dict_schema({
                     "index": core_schema.typed_dict_field(core_schema.any_schema()),
                     "rows": core_schema.typed_dict_field(core_schema.any_schema()),
@@ -258,11 +252,10 @@ class Series(DType, Sequence[T]):
 
 
 def _wire(series: "Series[Any]") -> dict[str, Any]:
-    """A series on the wire: its index whole, its rows, its values.
+    """The JSON form of a series: ``{"index": {...}, "rows": [...], "values": [...]}``.
 
-    The index travels as lineage — id, parent, parent rows — never as a
-    length, so a consumer can group series that share one into a table and
-    can tell a child's rows from its parent's.
+    The index travels whole (id and parent chain), so a consumer can tell
+    which series share one and which rows belong to which parent.
     """
     return {
         "index": _index_wire(series.index),
@@ -278,9 +271,9 @@ def _index_wire(index: Index) -> dict[str, Any]:
     }
 
 
-#: An index on the wire. ``parent`` is the same shape again, as deep as the
-#: lineage goes; a JSON schema cannot name itself from inside a pydantic
-#: schema function, so the parent is published as an object and described.
+#: The JSON schema of an index. ``parent`` has this same shape, as deep as
+#: the lineage goes; it is published as a plain object because a schema
+#: built inside a pydantic schema function cannot reference itself.
 _INDEX_WIRE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
