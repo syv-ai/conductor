@@ -3,9 +3,8 @@
 from typing import Any
 
 import pytest
-from pydantic import BaseModel, TypeAdapter
-
 from conductor.dtype import DType, DTypeRef, Single, description_of, dtype_of, registered_dtypes
+from pydantic import BaseModel, TypeAdapter
 
 
 class Text(DType, str):

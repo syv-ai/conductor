@@ -1,10 +1,9 @@
 import dataclasses
 
 import pytest
-from pydantic import BaseModel
-
 from conductor.dtype import DType
 from conductor.series import Index, Series
+from pydantic import BaseModel
 
 
 class Text(DType, str):

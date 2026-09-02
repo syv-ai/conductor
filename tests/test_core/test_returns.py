@@ -1,13 +1,15 @@
 """A node's fields, and what a return declaration produces."""
 
 import dataclasses
+from collections.abc import Mapping
+from typing import Annotated, Any
 
 import pytest
-from pydantic import TypeAdapter
-
 from conductor.dtype import DType
 from conductor.metadata import Field, Output
+from conductor.returns import Result, outputs_of, unpack
 from conductor.series import Series
+from pydantic import TypeAdapter
 
 
 class Text(DType, str):
@@ -95,11 +97,6 @@ def test_the_record_publishes_a_json_schema():
     assert schema["properties"]["dtype"]["anyOf"][0]["type"] == "object"
     assert set(schema["required"]) == {"name", "dtype", "title"}
 
-
-from collections.abc import Mapping
-from typing import Annotated, Any
-
-from conductor.returns import Result, outputs_of, unpack
 
 
 class Num(DType, float):

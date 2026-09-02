@@ -1,7 +1,6 @@
 """What is wrong with a graph, as data."""
 
 import pytest
-
 from conductor.graph.problem import Problem
 
 

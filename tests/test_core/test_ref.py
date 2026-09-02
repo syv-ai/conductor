@@ -1,7 +1,6 @@
 import pytest
-from pydantic import BaseModel, TypeAdapter
-
 from conductor.ref import Ref
+from pydantic import BaseModel, TypeAdapter
 
 
 def test_a_ref_names_a_node_and_one_of_its_fields():
