@@ -16,6 +16,8 @@ from conductor.compound import (
     compute_for_each_end_outputs,
 )
 from conductor.compound.subprocess import SubprocessRegistry
+from conductor.dtype import DType, Single, dtype_of, registered_dtypes
+from conductor.dtype_ref import DTypeRef
 from conductor.errors import (
     CompilationError,
     ConductorError,
@@ -46,9 +48,12 @@ from conductor.graph.model import (
     GraphNode,
 )
 from conductor.node import BaseNode
+from conductor.ref import Ref
 from conductor.registry import NodeRegistry
 from conductor.registry.definition import Actor
 from conductor.registry.view import DefinitionSource, RegistryView
+from conductor.returns import Result
+from conductor.series import Index, Series
 from conductor.types import NodeCategory, ResultFormat, WidgetType
 
 __all__ = [
@@ -85,6 +90,16 @@ __all__ = [
     "SubprocessNode",
     "SUBPROCESS",
     "SubprocessRegistry",
+    # The type vocabulary
+    "DType",
+    "DTypeRef",
+    "Single",
+    "dtype_of",
+    "registered_dtypes",
+    "Ref",
+    "Result",
+    "Index",
+    "Series",
     # Types / enums
     "ResultFormat",
     "NodeCategory",
