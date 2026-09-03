@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING
 
 from conductor.errors import CompilationError
 from conductor.graph.model import GraphEdge, GraphNode
-from conductor.graph.type_check import TypeWarning
 from conductor.metadata import Input, Output
 
 if TYPE_CHECKING:
@@ -30,25 +29,21 @@ def validate_and_build_consume_map(
     registry: "NodeRegistry",
     node_outputs: dict[str, tuple[Output, ...]] | None = None,
     node_inputs: dict[str, tuple[Input, ...]] | None = None,
-) -> tuple[ConsumeMap, list[TypeWarning]]:
+) -> ConsumeMap:
     """Validate produces/consumes decorations and return the consume map.
 
     Raises ``CompilationError`` on structural violations (§6.1, §6.2 of the
-    design). Returns a list of non-fatal warnings (e.g. duplicate producer
-    labels) alongside the map.
+    design).
 
     ``node_outputs`` is the post-``compute_outputs`` map from the compiler.
     When provided, producer-handle existence is checked against the
     resolved outputs in preference to the static schema, so a hook that
     introduces ``output_3`` enables ``produces={"output_3": "..."}``.
     """
-    warnings: list[TypeWarning] = []
-
-    _validate_producers(nodes, managed_ids, registry, warnings, node_outputs)
-    consume_map = _validate_consumers_and_build_map(
+    _validate_producers(nodes, managed_ids, registry, node_outputs)
+    return _validate_consumers_and_build_map(
         nodes, edges, node_map, registry, node_inputs=node_inputs
     )
-    return consume_map, warnings
 
 
 # ---------------------------------------------------------------------------
@@ -60,10 +55,8 @@ def _validate_producers(
     nodes: list[GraphNode],
     managed_ids: frozenset[str],
     registry: "NodeRegistry",
-    warnings: list[TypeWarning],
     node_outputs: dict[str, tuple[Output, ...]] | None = None,
 ) -> None:
-    label_to_producers: dict[str, list[tuple[str, str]]] = {}
 
     for node in nodes:
         if not node.produces:
@@ -88,7 +81,7 @@ def _validate_producers(
             and getattr(node_def, "compute_outputs", None) is not None
         )
 
-        for output_handle, label in node.produces.items():
+        for output_handle in node.produces:
             # §6.1.2 — output handle must exist on the node type
             if node_def is not None and not defer_handle_check:
                 # Prefer resolved (post-compute_outputs) handles when
@@ -107,27 +100,6 @@ def _validate_producers(
                         f"{sorted(known_outputs) or '(none)'}"
                     )
 
-            label_to_producers.setdefault(label, []).append((node.id, output_handle))
-
-    # §6.1.3 — duplicate labels are a warning, not an error
-    for label, producers in label_to_producers.items():
-        if len(producers) > 1:
-            producer_list = ", ".join(f"{nid}.{h}" for nid, h in producers)
-            warnings.append(TypeWarning(
-                edge_id="",
-                source_node="",
-                source_output="",
-                source_type="",
-                target_node="",
-                target_input="",
-                target_type="",
-                message=(
-                    f"Multiple producers share the display label '{label}': "
-                    f"{producer_list}. Labels are for UI only; references are "
-                    f"bound by identity, so this is non-fatal."
-                ),
-                code="shared-label-collision",
-            ))
 
 
 # ---------------------------------------------------------------------------

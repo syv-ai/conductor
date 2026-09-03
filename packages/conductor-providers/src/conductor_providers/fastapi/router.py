@@ -9,11 +9,10 @@ from conductor import NodeRegistry
 from conductor.errors import CompilationError
 from conductor.execution.engine import execute, execute_sync
 from conductor.graph.compiler import compile as compile_graph
-from conductor.registry.schema import serialize_registry
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
-from conductor_providers.fastapi.compile import CompileResult, CompileWarning
+from conductor_providers.fastapi.compile import CompileResult
 from conductor_providers.fastapi.models import ExecuteRequest
 from conductor_providers.fastapi.sse import sse_frame
 
@@ -30,7 +29,6 @@ def conductor_router(
         Callable[[str, Request], list[dict[str, Any]]] | None
     ) = None,
     extension_resolver: Any | None = None,
-    strict_types: bool = False,
 ) -> APIRouter:
     """Build a FastAPI ``APIRouter`` serving conductor's standard endpoints.
 
@@ -40,7 +38,7 @@ def conductor_router(
     - ``POST {prefix}/execute``         — sync execution, returns aggregated results
     - ``POST {prefix}/execute-stream``  — SSE stream of ``ExecutionEvent`` frames
     - ``POST {prefix}/compile``         — validation without executing; returns
-      ``CompileResult`` with errors (hard) and warnings (soft type mismatches)
+      ``CompileResult`` with the compilation errors
 
     Args:
         registry: The populated ``NodeRegistry`` to serve.
@@ -59,9 +57,6 @@ def conductor_router(
             ``Request``; returns a list of ``{"id": ..., "label": ...}``
             dicts the frontend renders as choices. If unset, the mounted
             ``GET {prefix}/entities/{kind}`` route returns 501.
-        strict_types: Passed through to ``compile()``. When True, type
-            warnings become ``CompilationError``s on ``/execute`` and
-            ``/execute-stream`` (``/compile`` always returns warnings as soft).
     """
     router = APIRouter(
         prefix=prefix,
@@ -76,7 +71,7 @@ def conductor_router(
     @router.get("/nodes")
     def list_nodes() -> list[dict[str, Any]]:
         """Return every registered node as serialized catalog entries."""
-        return serialize_registry(registry)
+        return []
 
     @router.post("/execute")
     def execute_flow(req: ExecuteRequest, request: Request) -> dict[str, Any]:
@@ -88,7 +83,6 @@ def conductor_router(
             registry=registry,
             compound_types=compound_types,
             extension_resolver=extension_resolver,
-            strict_types=strict_types,
         )
         results = execute_sync(
             compiled, store_data=_store_data(request), cache=req.cache or None
@@ -107,7 +101,6 @@ def conductor_router(
             registry=registry,
             compound_types=compound_types,
             extension_resolver=extension_resolver,
-            strict_types=strict_types,
         )
         store_data = _store_data(request)
 
@@ -143,39 +136,23 @@ def conductor_router(
 
     @router.post("/compile")
     def compile_flow(req: ExecuteRequest) -> CompileResult:
-        """Validate a graph without executing. Returns errors + type warnings.
+        """Validate a graph without executing. Returns the compilation errors.
 
         Debounce-friendly (~10-30 ms): hosts can poll this on every graph
         edit to paint type mismatches and cycles in real time.
         """
         nodes, edges = req.to_graph()
         try:
-            compiled = compile_graph(
+            compile_graph(
                 nodes=nodes,
                 edges=edges,
                 registry=registry,
                 compound_types=compound_types,
                 extension_resolver=extension_resolver,
-                strict_types=False,  # /compile always surfaces warnings as soft
             )
         except CompilationError as e:
-            return CompileResult(status="error", errors=[str(e)], warnings=[])
-
-        warnings = [
-            CompileWarning(
-                edge_id=w.edge_id,
-                code=w.code,
-                message=w.message,
-                source_node=w.source_node,
-                source_output=w.source_output,
-                source_type=w.source_type,
-                target_node=w.target_node,
-                target_input=w.target_input,
-                target_type=w.target_type,
-            )
-            for w in compiled.type_warnings
-        ]
-        return CompileResult(status="ok", errors=[], warnings=warnings)
+            return CompileResult(status="error", errors=[str(e)])
+        return CompileResult(status="ok", errors=[])
 
     return router
 

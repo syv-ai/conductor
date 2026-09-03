@@ -4,13 +4,13 @@ from collections import defaultdict
 from typing import Any
 
 from conductor._sentinel import is_skipped
+from conductor.errors import InputResolutionError
 from conductor.execution.results import extract_output
 from conductor.graph.model import GraphNode
 from conductor.metadata import Input
 from conductor.registry import NodeRegistry
+from conductor.series import Index, Series
 from conductor.types import NodeResult
-
-MULTI_VALUE_SEPARATOR = "\n\n"
 
 
 class InputResolver:
@@ -26,10 +26,6 @@ class InputResolver:
         # Only nodes with a ``compute_inputs`` hook differ from their static
         # schema, but the map covers every node.
         self._node_inputs = node_inputs
-        # Per-node-type cache of param metadata — avoids a linear scan on
-        # every resolve. Hook-driven nodes are cached per instance instead,
-        # since two instances of one type can declare different rosters.
-        self._param_cache: dict[str, dict[str, tuple[bool, bool]]] = {}
 
     def resolve(
         self,
@@ -49,6 +45,10 @@ class InputResolver:
             2. Shared-reference consume bindings (``consume_map``)
             3. Static data on the node
             4. Widget default (not materialized here; handled by Pydantic)
+
+        Several wires into one input: a ``Series`` input receives them as
+        one series on a fresh index; a scalar input fed by more than one
+        wire is an error, since no other shape exists for it.
         """
         skipped_edges = skipped_edges or set()
         inputs: dict[str, Any] = dict(node.data or {})
@@ -87,32 +87,19 @@ class InputResolver:
                     by_handle[target_handle].append((sid, shandle, eid))
 
         for target_handle, live_sources in by_handle.items():
-            if not live_sources:
+            values = self._collect_values(live_sources, results)
+            if not values:
                 continue
-            uses_cl, expects_list = self._param_info(
-                node.type, target_handle, node_id=node.id
-            )
-            if uses_cl:
-                values, labels = self._collect_values_with_labels(
-                    live_sources, results, node_map,
-                )
-                if values:
-                    unique_labels = _make_labels_unique(labels)
-                    inputs[target_handle] = dict(
-                        zip(unique_labels, values, strict=False),
-                    )
+            declared = self._declared_input(node, target_handle)
+            if declared is not None and _is_series(declared.dtype):
+                inputs[target_handle] = Series(Index.fresh(), values)
+            elif len(values) == 1:
+                inputs[target_handle] = values[0]
             else:
-                values = self._collect_values(live_sources, results)
-                if not values:
-                    continue
-                if len(values) == 1:
-                    inputs[target_handle] = values[0]
-                elif expects_list:
-                    inputs[target_handle] = values
-                else:
-                    inputs[target_handle] = MULTI_VALUE_SEPARATOR.join(
-                        str(v) for v in values
-                    )
+                raise InputResolutionError(
+                    f"{node.id}.{target_handle} is a scalar input fed by {len(values)} wires",
+                    node_id=node.id,
+                )
 
         return inputs
 
@@ -132,127 +119,16 @@ class InputResolver:
             values.append(value)
         return values
 
-    def _collect_values_with_labels(
-        self,
-        sources: list[tuple[str, str, str]],
-        results: dict[str, NodeResult],
-        node_map: dict[str, GraphNode],
-    ) -> tuple[list[Any], list[str]]:
-        """Collect values and human-readable labels from sources."""
-        values: list[Any] = []
-        labels: list[tuple[str, str]] = []
-        for source_id, source_handle, _edge_id in sources:
-            source_result = results.get(source_id)
-            if source_result is None or is_skipped(source_result):
-                continue
-            value = extract_output(source_result, source_handle)
-            if is_skipped(value):
-                continue
-            values.append(value)
-            source_node = node_map.get(source_id)
-            # Prefer host-supplied display hints (covers user renames in the
-            # UI); fall back to the registry's default name + raw handle id.
-            node_label_hint: str | None = None
-            output_label_hint: str | None = None
-            if source_node:
-                node_label_hint = source_node.node_label
-                if source_node.output_labels:
-                    output_label_hint = source_node.output_labels.get(
-                        source_handle
-                    )
-                if not node_label_hint:
-                    node_def = self._registry.get(source_node.type)
-                    node_label_hint = node_def.name if node_def else source_id
-            else:
-                node_label_hint = source_id
-            output_label_hint = output_label_hint or source_handle
-            # Two-pass label assignment: keep node + output for now,
-            # decide the final shape once we've seen them all.
-            labels.append((node_label_hint, output_label_hint))
-
-        # Collision-aware finalization: an output label that's unique
-        # within this aggregator is used bare; collisions fall back to
-        # "Nodename (outputLabel)" to disambiguate.
-        out_counts: dict[str, int] = {}
-        for _, out_lbl in labels:
-            out_counts[out_lbl] = out_counts.get(out_lbl, 0) + 1
-        finalized = [
-            f"{node_lbl} ({out_lbl})" if out_counts[out_lbl] > 1 else out_lbl
-            for node_lbl, out_lbl in labels
-        ]
-        return values, finalized
-
-    def _param_info(
-        self, node_type: str, param_name: str, *, node_id: str | None = None
-    ) -> tuple[bool, bool]:
-        """Return ``(uses_connection_list, expects_list)`` for ``param_name``.
-
-        A node whose roster came from a ``compute_inputs`` hook is
-        per-instance, so its entry is keyed by node id. Everything else stays
-        keyed by type, which is the overwhelmingly common case and keeps the
-        cache small.
-        """
-        resolved = (self._node_inputs or {}).get(node_id) if node_id else None
-        if resolved is not None:
-            key = f"{node_type}\x00{node_id}"
-            per_instance = self._param_cache.get(key)
-            if per_instance is None:
-                per_instance = {
-                    inp.name: (inp.uses_connection_list, inp.expects_list)
-                    for inp in resolved
-                }
-                self._param_cache[key] = per_instance
-            return per_instance.get(param_name, (False, False))
-
-        cache = self._param_cache.get(node_type)
-        if cache is None:
-            node_def = self._registry.get(node_type)
-            cache = {}
-            if node_def is not None:
-                for inp in node_def.inputs:
-                    cache[inp.name] = (inp.uses_connection_list, inp.expects_list)
-            self._param_cache[node_type] = cache
-        return cache.get(param_name, (False, False))
+    def _declared_input(self, node: GraphNode, name: str) -> Input | None:
+        """The ``Input`` this placement declares under ``name``, or ``None``
+        for a handle no declaration names (a computed handle received through
+        ``**kwargs``)."""
+        roster = self._node_inputs.get(node.id) if self._node_inputs is not None else None
+        if roster is None:
+            node_def = self._registry.get(node.type)
+            roster = node_def.inputs if node_def is not None else ()
+        return next((inp for inp in roster if inp.name == name), None)
 
 
-def finalize_connection_labels(label_hints: list[tuple[str, str]]) -> list[str]:
-    """Turn ordered ``(node_label, output_label)`` hints into a ConnectionList
-    aggregator's final input keys.
-
-    Two passes, in order:
-
-    1. **Collision-aware finalization** — an output label that's unique within
-       this aggregator is used bare; a colliding one falls back to
-       ``"NodeName (outputLabel)"`` to disambiguate.
-    2. **Deduplication** — any label still duplicated after that is suffixed
-       ``_2``, ``_3``, … .
-
-    This is the exact key sequence the resolver aggregates a ConnectionList
-    input under, exposed so a host that resolves labels *ahead* of execution
-    (e.g. rewriting stored templates to their live source labels) can reproduce
-    it without mirroring the resolver's internals. Keep it in step with the
-    finalization in ``InputResolver._collect_values_with_labels`` +
-    ``_make_labels_unique`` (``test_finalize_connection_labels`` pins the rule).
-    """
-    out_counts: dict[str, int] = {}
-    for _node_lbl, out_lbl in label_hints:
-        out_counts[out_lbl] = out_counts.get(out_lbl, 0) + 1
-    finalized = [
-        f"{node_lbl} ({out_lbl})" if out_counts[out_lbl] > 1 else out_lbl
-        for node_lbl, out_lbl in label_hints
-    ]
-    return _make_labels_unique(finalized)
-
-
-def _make_labels_unique(labels: list[str]) -> list[str]:
-    """Deduplicate labels by appending _2, _3, etc."""
-    seen: dict[str, int] = {}
-    result: list[str] = []
-    for label in labels:
-        if label in seen:
-            seen[label] += 1
-            result.append(f"{label}_{seen[label]}")
-        else:
-            seen[label] = 1
-            result.append(label)
-    return result
+def _is_series(dtype: Any) -> bool:
+    return isinstance(dtype, type) and issubclass(dtype, Series)

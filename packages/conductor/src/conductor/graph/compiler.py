@@ -13,7 +13,6 @@ from conductor.graph.dynamic_outputs import _resolve_in_order
 from conductor.graph.model import Flow, FlowDependency, GraphEdge, GraphNode
 from conductor.graph.shared_refs import validate_and_build_consume_map
 from conductor.graph.topology import build_edge_map, build_incoming_map, topological_sort
-from conductor.graph.type_check import TypeWarning, check_consume_types, check_edge_types
 from conductor.metadata import Input, Output
 
 if TYPE_CHECKING:
@@ -62,7 +61,6 @@ class CompiledGraph:
     extension_resolver: ExtensionResolver | None = None
     compound_nodes: dict[str, Any] = field(default_factory=dict)
     managed_ids: frozenset[str] = field(default_factory=frozenset)
-    type_warnings: tuple[TypeWarning, ...] = field(default_factory=tuple)
     # (target_id, target_handle) -> (producer_id, output_handle)
     consume_map: dict[tuple[str, str], tuple[str, str]] = field(default_factory=dict)
     # managed_node_id -> its region's start_id (for scheduling redirection)
@@ -106,7 +104,6 @@ def compile(
     *,
     compound_types: list[Any] | None = None,
     extension_resolver: ExtensionResolver | None = None,
-    strict_types: bool = False,
     flow: Flow | None = None,
     subprocess_registry: Any = None,
 ) -> CompiledGraph:
@@ -115,11 +112,6 @@ def compile(
     Accepts either a ``Flow`` via ``flow=`` or the traditional ``nodes``
     + ``edges`` args. ``subprocess_registry`` is forwarded to subprocess
     nodes so they can look up their target flow by id.
-
-    Args:
-        strict_types: If True, type mismatches raise CompilationError.
-                      If False (default), they're returned as warnings
-                      on CompiledGraph.type_warnings.
     """
     if flow is not None:
         nodes = flow.nodes
@@ -185,7 +177,7 @@ def compile(
     }
 
     # 6. Validate shared references (produce/consume), build consume map
-    consume_map, shared_warnings = validate_and_build_consume_map(
+    consume_map = validate_and_build_consume_map(
         nodes, edges, node_map, frozenset(managed_ids), registry,
         node_inputs=node_inputs,
     )
@@ -223,17 +215,11 @@ def compile(
     #     ran without resolved outputs; we keep the structural errors it
     #     surfaced (managed-region rejection, structural integrity) and now
     #     supplement with handle-existence checks against the post-hook map.
-    _, resolved_warnings = validate_and_build_consume_map(
+    validate_and_build_consume_map(
         nodes, edges, node_map, frozenset(managed_ids), registry,
         node_outputs=node_outputs,
         node_inputs=node_inputs,
     )
-    # Replace the placeholder warnings collected pre-resolution. Both
-    # passes produce the same label-collision set, so dedup by message.
-    seen_msgs = {w.message for w in shared_warnings}
-    for w in resolved_warnings:
-        if w.message not in seen_msgs:
-            shared_warnings.append(w)
 
     # 9. Now that we have the topological order, rebuild the compound node
     #    executors with the proper order (matching pre-refactor behavior) and
@@ -254,33 +240,12 @@ def compile(
             if region.end_id != region.start_id:
                 managed_to_region_start[region.end_id] = region.start_id
 
-    # 10. Type-check edges and consume bindings — using resolved outputs so
-    #     hook-driven type strings participate in compatibility analysis.
-    edge_warnings = check_edge_types(
-        edges, node_map, registry, node_outputs, node_inputs=node_inputs
-    )
-    consume_warnings = check_consume_types(
-        consume_map, node_map, registry, node_outputs, node_inputs=node_inputs
-    )
-    type_warnings = [*edge_warnings, *consume_warnings, *shared_warnings]
+    # 10. Validate and pre-parse decision guards (and edge ``when`` in general)
+    decision_guards = _compile_decisions(nodes, edges, registry)
 
-    # 11. Validate and pre-parse decision guards (and edge ``when`` in general)
-    decision_guards, expr_warnings = _compile_decisions(nodes, edges, registry, type_warnings)
-    type_warnings.extend(expr_warnings)
-
-    # 12. Pre-parse other CEL expressions: idempotency keys, timeout info lives
+    # 11. Pre-parse other CEL expressions: idempotency keys, timeout info lives
     #     in node definitions rather than on instances.
     compiled_expressions = _compile_idempotency_expressions(nodes, registry)
-
-    # Strict mode promotes only real mismatches (not informational warnings
-    # like label collisions) to an error.
-    strict_fatal = [w for w in type_warnings if w.code == "type-mismatch"]
-    if strict_types and strict_fatal:
-        messages = [w.message for w in strict_fatal]
-        raise CompilationError(
-            f"Type errors in {len(strict_fatal)} connection(s):\n"
-            + "\n".join(f"  - {m}" for m in messages)
-        )
 
     # Compensation nodes should never run as regular nodes — the engine
     # only dispatches them via ``_run_compensation``.
@@ -296,7 +261,6 @@ def compile(
         extension_resolver=extension_resolver,
         compound_nodes=compound_nodes,
         managed_ids=frozenset(managed_ids),
-        type_warnings=tuple(type_warnings),
         consume_map=consume_map,
         managed_to_region_start=managed_to_region_start,
         edges=tuple(edges),
@@ -319,10 +283,8 @@ def _compile_decisions(
     nodes: list[GraphNode],
     edges: list[GraphEdge],
     registry: "NodeRegistry",
-    existing_warnings: list[TypeWarning],
-) -> tuple[dict[str, tuple[DecisionGuard, ...]], list[TypeWarning]]:
+) -> dict[str, tuple[DecisionGuard, ...]]:
     """Validate every decision node and pre-parse its outgoing guards."""
-    warnings: list[TypeWarning] = []
     decision_guards: dict[str, tuple[DecisionGuard, ...]] = {}
 
     # Group edges by source (one pass)
@@ -401,7 +363,7 @@ def _compile_decisions(
         )
         decision_guards[node.id] = tuple(parsed_guards)
 
-    return decision_guards, warnings
+    return decision_guards
 
 
 def _compile_idempotency_expressions(

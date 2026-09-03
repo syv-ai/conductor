@@ -36,6 +36,7 @@ from conductor.execution.events import (
 )
 from conductor.execution.results import extract_output, filter_skipped, normalize_result
 from conductor.graph.regions import discover_for_each_regions
+from conductor.series import Series
 
 if TYPE_CHECKING:
     from conductor.metadata import Output
@@ -526,20 +527,18 @@ def compute_for_each_end_outputs(
 
     outputs: list[Output] = []
     for idx, binding in enumerate(bindings):
-        source_type = binding.source_output.type_str or "any"
-        if source_type.startswith("list[") and source_type.endswith("]"):
-            inner = source_type[5:-1]
-        else:
-            inner = source_type
-        source_label = binding.source_output.label or binding.source_handle
+        source_dtype = binding.source_output.dtype
+        element = (
+            source_dtype.element
+            if isinstance(source_dtype, type) and issubclass(source_dtype, Series)
+            else source_dtype
+        )
         outputs.append(
             Output(
                 name=f"output_{idx + 1}",
-                type_str=f"list[{inner}]",
-                label=strip_sub_output_prefix(source_label),
+                dtype=Series[element],
+                title=strip_sub_output_prefix(binding.source_output.title),
                 description=binding.source_output.description,
-                download=binding.source_output.download,
-                filename=binding.source_output.filename,
             )
         )
     return outputs

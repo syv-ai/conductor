@@ -33,9 +33,6 @@ class NodeInput(BaseModel):
     # Process-standard additions
     compensation: str | None = None
     on_error: str | None = None
-    # Host-defined display hints — see GraphNode.node_label / output_labels.
-    node_label: str | None = None
-    output_labels: dict[str, str] | None = None
 
 
 class EdgeInput(BaseModel):
@@ -86,8 +83,6 @@ class ExecuteRequest(BaseModel):
                 ),
                 compensation=n.compensation,
                 on_error=n.on_error,
-                node_label=n.node_label,
-                output_labels=n.output_labels,
             )
             for n in self.nodes
         ]

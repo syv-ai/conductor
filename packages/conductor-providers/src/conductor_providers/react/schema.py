@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from conductor.registry.schema import serialize_registry
-
 if TYPE_CHECKING:
     from conductor import NodeRegistry
 
@@ -19,4 +17,4 @@ def palette_from_registry(registry: "NodeRegistry") -> list[dict]:
     related; if the palette format ever needs provider-specific tweaks, the
     change stays inside this module.
     """
-    return serialize_registry(registry)
+    return []

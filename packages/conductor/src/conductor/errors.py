@@ -7,8 +7,7 @@ meaningful messages, log to observability tools, or route to error handlers.
 Hierarchy:
     ConductorError                     # Base — catch-all for any engine error
     ├── CompilationError                # Graph structure is invalid
-    │   ├── CycleDetectionError         # Graph contains a cycle
-    │   └── TypeCheckError              # Edge type mismatch (strict mode)
+    │   └── CycleDetectionError         # Graph contains a cycle
     ├── NodeError                       # Something went wrong with a specific node
     │   ├── NodeValidationError         # Input validation failed (Pydantic)
     │   ├── NodeExecutionError          # Node function raised during execution
@@ -30,7 +29,6 @@ __all__ = [
     # Compilation
     "CompilationError",
     "CycleDetectionError",
-    "TypeCheckError",
     # Node-level
     "NodeError",
     "NodeValidationError",
@@ -76,10 +74,6 @@ class CompilationError(ConductorError):
 
 class CycleDetectionError(CompilationError):
     """Raised when a cycle is detected in the graph."""
-
-
-class TypeCheckError(CompilationError):
-    """Raised in strict_types mode when edge types are incompatible."""
 
 
 # =============================================================================

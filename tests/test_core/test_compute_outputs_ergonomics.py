@@ -23,7 +23,8 @@ from conductor.registry.dynamic_outputs import (
     ComputeOutputsContext,
     strip_sub_output_prefix,
 )
-from conductor.widgets import Output as OutputWidget, Text
+from conductor.widgets import Output as OutputWidget
+from conductor.widgets import Text
 
 # ---------------------------------------------------------------------------
 # Issue 1 — NodeCategory.node() forwards compute_outputs / dynamic_handles

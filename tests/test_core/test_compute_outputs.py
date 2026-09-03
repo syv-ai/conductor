@@ -13,7 +13,8 @@ from conductor.registry.dynamic_outputs import (
     IncomingBinding,
 )
 from conductor.registry.schema import serialize_registry
-from conductor.widgets import Output as OutputWidget, Text
+from conductor.widgets import Output as OutputWidget
+from conductor.widgets import Text
 
 # ---------------------------------------------------------------------------
 # Basic single-node hook

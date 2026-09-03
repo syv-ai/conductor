@@ -2,85 +2,18 @@
 
 from __future__ import annotations
 
-import inspect
 from collections.abc import Callable
-from typing import Annotated, Any, get_args, get_origin, get_type_hints
+from typing import Any
 
-from conductor.metadata import Input, Output
+from conductor.interface import Interface, model_of
 from conductor.registry.definition import Actor, NodeDefinition
-from conductor.types import (
-    OUTPUT_PREFIX,
-    RESULT_KEY,
-    NodeCategory,
-    ResultFormat,
-    WidgetType,
-)
-from conductor.validation import _extract_type_string, _is_injectable, create_validation_model
-from conductor.widgets import (
-    Checkbox,
-    DatePicker,
-    FileUpload,
-    List,
-    Number,
-    Output as OutputWidget,
-    SchemaBuilder,
-    Text,
-    Widget,
-)
+from conductor.types import NodeCategory
 
 __all__ = [
     "NodeRegistry",
     "NodeDefinition",
     "Actor",
 ]
-
-
-def _default_widget(base_type: Any, param_name: str) -> Widget | None:
-    """Return a default widget for a given Python type, or ``None`` if the
-    type is something we don't have a sensible default for.
-
-    Rules:
-        str           -> Text
-        int / float   -> Number (with integer_only for int)
-        bool          -> Checkbox
-        Date (alias)  -> DatePicker
-        Base64Str, NamedFile, MultiNamedFile (aliases) -> FileUpload
-        list[T]       -> List (item widget inferred from T)
-        dict, dict[str, Any] -> SchemaBuilder
-        Any other     -> None (caller falls back to no widget)
-
-    Explicit ``Annotated[T, Widget(...)]`` on a parameter always wins — this
-    function is only consulted when no ``Widget`` instance was found.
-    """
-    origin = get_origin(base_type)
-
-    # list[T]
-    if origin is list or base_type is list:
-        inner_args = get_args(base_type)
-        inner_widget = _default_widget(inner_args[0], param_name) if inner_args else None
-        return List(label=param_name, item_widget=inner_widget)
-
-    # dict[...]
-    if origin is dict or base_type is dict:
-        return SchemaBuilder(label=param_name)
-
-    if base_type is str:
-        return Text(label=param_name)
-    if base_type is int:
-        return Number(label=param_name, integer_only=True)
-    if base_type is float:
-        return Number(label=param_name)
-    if base_type is bool:
-        return Checkbox(label=param_name)
-
-    # Custom type aliases surface via the normalized type_str
-    type_str = _extract_type_string(base_type).lower()
-    if type_str == "date":
-        return DatePicker(label=param_name)
-    if type_str in ("base64str", "namedfile", "multinamedfile"):
-        return FileUpload(label=param_name)
-
-    return None
 
 
 def _parse_timeout(value: Any) -> float | None:
@@ -224,10 +157,7 @@ class NodeRegistry:
             if full_id in self._nodes:
                 raise ValueError(_duplicate_registration_message(base_id, version))
 
-            inputs, outputs, result_format = _introspect_function(func)
-            validation_model = create_validation_model(
-                func, allow_extra=dynamic_handles
-            )
+            iface = Interface.of(func)
 
             node_def = NodeDefinition(
                 id=full_id,
@@ -237,10 +167,9 @@ class NodeRegistry:
                 description=description,
                 tags=tuple(tags or []),
                 category=category,
-                inputs=tuple(inputs),
-                outputs=tuple(outputs),
-                result_format=result_format,
-                validation_model=validation_model,
+                inputs=iface.inputs,
+                outputs=iface.outputs,
+                validation_model=model_of(iface.inputs),
                 func=func,
                 max_retries=max_retries,
                 retry_delay=retry_delay,
@@ -301,7 +230,6 @@ class NodeRegistry:
             category=category,
             inputs=(),
             outputs=(),
-            result_format=ResultFormat.SINGLE,
             validation_model=None,
             func=None,
             _node_class=node_cls,
@@ -451,166 +379,3 @@ class NodeRegistry:
 
         return discover_nodes(package_name, self)
 
-
-# ------------------------------------------------------------------
-# Introspection helpers
-# ------------------------------------------------------------------
-
-
-def _introspect_function(
-    func: Callable,
-) -> tuple[list[Input], list[Output], ResultFormat]:
-    """Extract input/output metadata from a function signature."""
-    sig = inspect.signature(func)
-    type_hints = get_type_hints(func, include_extras=True)
-
-    inputs = _extract_inputs(sig, type_hints)
-    outputs, result_format = _extract_outputs(type_hints)
-    return inputs, outputs, result_format
-
-
-def _extract_inputs(
-    sig: inspect.Signature,
-    type_hints: dict[str, Any],
-) -> list[Input]:
-    inputs: list[Input] = []
-
-    for param_name, param in sig.parameters.items():
-        if param_name == "self":
-            continue
-
-        # ``*args`` / ``**kwargs`` are how a node RECEIVES values, not values
-        # it declares. A node whose handles come from ``compute_inputs``
-        # needs ``**kwargs`` for the resolver to reach it at all; registering
-        # that as an input gives it a Text widget, which renders as a stray
-        # field on the node and puts a phantom handle in the palette.
-        if param.kind in (
-            inspect.Parameter.VAR_KEYWORD,
-            inspect.Parameter.VAR_POSITIONAL,
-        ):
-            continue
-
-        annotation = type_hints.get(param_name, param.annotation)
-
-        # Skip injectable types (FlowStore, etc.)
-        if _is_injectable(annotation):
-            continue
-
-        has_default = param.default != inspect.Parameter.empty
-        default = param.default if has_default else None
-
-        widget_instance: Widget | None = None
-        base_type = annotation
-
-        if get_origin(annotation) is Annotated:
-            args = get_args(annotation)
-            base_type = args[0]
-            for arg in args[1:]:
-                if isinstance(arg, Widget):
-                    widget_instance = arg
-                    break
-
-        type_str = _extract_type_string(base_type)
-        expects_list = type_str.startswith("list[")
-
-        # If the user didn't annotate a widget, fall back to a sensible
-        # default based on the parameter's type. Explicit widgets still win.
-        if widget_instance is None:
-            widget_instance = _default_widget(base_type, param_name)
-
-        if widget_instance:
-            wt = widget_instance.widget_type
-            inputs.append(Input(
-                name=param_name,
-                type_str=type_str,
-                label=widget_instance.label,
-                description=widget_instance.description,
-                widget=wt,
-                default=default,
-                optional=has_default,
-                expects_list=expects_list,
-                uses_connection_list=(wt == WidgetType.CONNECTION_LIST),
-                disable_handle=widget_instance.disable_handle,
-                widget_config={
-                    k: v
-                    for k, v in widget_instance.to_schema().items()
-                    if k not in ("widget", "label", "description", "disable_handle")
-                },
-            ))
-        else:
-            inputs.append(Input(
-                name=param_name,
-                type_str=type_str,
-                label=param_name,
-                default=default,
-                optional=has_default,
-                expects_list=expects_list,
-            ))
-
-    return inputs
-
-
-def _extract_outputs(
-    type_hints: dict[str, Any],
-) -> tuple[list[Output], ResultFormat]:
-    return_hint = type_hints.get("return", inspect.Parameter.empty)
-
-    if return_hint is inspect.Parameter.empty or return_hint is type(None):
-        return [Output(name=RESULT_KEY, type_str="none", label="Output")], ResultFormat.SINGLE
-
-    origin = get_origin(return_hint)
-
-    # Multi-output: tuple[Annotated[T, Output(...)], ...]
-    if origin is tuple:
-        args = get_args(return_hint)
-        outputs: list[Output] = []
-        for i, arg in enumerate(args):
-            name = f"{OUTPUT_PREFIX}{i + 1}"
-            if get_origin(arg) is Annotated:
-                inner_args = get_args(arg)
-                base_type = inner_args[0]
-                out_widget = None
-                for a in inner_args[1:]:
-                    if isinstance(a, OutputWidget):
-                        out_widget = a
-                        break
-                outputs.append(Output(
-                    name=name,
-                    type_str=_extract_type_string(base_type),
-                    label=out_widget.label if out_widget else name,
-                    description=out_widget.description if out_widget else None,
-                    download=out_widget.download if out_widget else False,
-                    filename=out_widget.filename if out_widget else None,
-                ))
-            else:
-                outputs.append(Output(
-                    name=name,
-                    type_str=_extract_type_string(arg),
-                    label=name,
-                ))
-        return outputs, ResultFormat.MULTI
-
-    # Single output: Annotated[T, Output(...)]
-    if get_origin(return_hint) is Annotated:
-        args = get_args(return_hint)
-        base_type = args[0]
-        out_widget = None
-        for a in args[1:]:
-            if isinstance(a, OutputWidget):
-                out_widget = a
-                break
-        return [Output(
-            name=RESULT_KEY,
-            type_str=_extract_type_string(base_type),
-            label=out_widget.label if out_widget else "Output",
-            description=out_widget.description if out_widget else None,
-            download=out_widget.download if out_widget else False,
-            filename=out_widget.filename if out_widget else None,
-        )], ResultFormat.SINGLE
-
-    # Plain type
-    return [Output(
-        name=RESULT_KEY,
-        type_str=_extract_type_string(return_hint),
-        label="Output",
-    )], ResultFormat.SINGLE

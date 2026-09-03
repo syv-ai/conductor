@@ -106,9 +106,7 @@ def resolve_node_outputs(
             # Handle not declared on the producer (likely a dynamic-handles
             # compound emitting ``output_3``, etc.). Synthesize a permissive
             # placeholder so the hook still gets a complete picture.
-            match = Output(
-                name=source_handle, type_str="any", label=source_handle,
-            )
+            match = Output(name=source_handle, dtype=Any, title=source_handle)
 
         bindings.append(IncomingBinding(
             target_handle=target_handle,

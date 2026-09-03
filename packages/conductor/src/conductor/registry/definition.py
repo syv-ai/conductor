@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
 from conductor.metadata import Input, Output
-from conductor.types import NodeCategory, ResultFormat
+from conductor.types import NodeCategory
 
 
 @dataclass(frozen=True)
@@ -72,7 +72,6 @@ class NodeDefinition:
     category: NodeCategory = NodeCategory.IO
     inputs: tuple[Input, ...] = field(default_factory=tuple)
     outputs: tuple[Output, ...] = field(default_factory=tuple)
-    result_format: ResultFormat = ResultFormat.SINGLE
     validation_model: type | None = None
     func: Callable[..., Any] | None = None
     _node_class: type | None = None

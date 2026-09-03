@@ -54,7 +54,7 @@ from conductor.registry.definition import Actor
 from conductor.registry.view import DefinitionSource, RegistryView
 from conductor.returns import Result
 from conductor.series import Index, Series
-from conductor.types import NodeCategory, ResultFormat, WidgetType
+from conductor.types import NodeCategory
 
 __all__ = [
     # Registry + graph
@@ -101,9 +101,7 @@ __all__ = [
     "Index",
     "Series",
     # Types / enums
-    "ResultFormat",
     "NodeCategory",
-    "WidgetType",
     # Errors (most commonly raised from node code)
     "ConductorError",
     "CompilationError",

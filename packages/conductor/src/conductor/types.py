@@ -29,16 +29,9 @@ NodeResult: TypeAlias = dict[str, Any]
 # =============================================================================
 # Custom type aliases for nodes
 #
-# These are NewType/TypedDict aliases that:
-# - At runtime, behave as their base type (str, dict, list)
-# - In the registry schema, surface as distinct type strings for the frontend
-#   (e.g., "base64str", "namedfile") so it can pick the right widget/rendering
-# - Are fully extensible — host apps can define their own NewType aliases
-#
-# To create a custom type:
-#   MyType = NewType("MyType", str)
-#   # In the registry JSON, this becomes type_str="mytype"
-#   # The frontend matches on "mytype" to render a custom widget
+# NewType/TypedDict aliases that behave as their base type (str, dict,
+# list) at runtime. The old registry surfaced them as distinct type strings;
+# a node now declares a ``DType``. The module goes with the old engine.
 # =============================================================================
 
 # Base64-encoded string (typically for file uploads)
