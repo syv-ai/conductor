@@ -1084,3 +1084,16 @@ def test_a_category_is_a_string_on_the_definition():
     assert not hasattr(NodeRegistry, "include")
 
 
+
+
+def test_the_contract_is_importable_from_the_package_root():
+    import conductor
+
+    for name in (
+        "NodeDefinition", "NodeVersion", "GraphVersion", "Policy", "Deprecation",
+        "NodeDescription", "Input", "Interface", "Provided", "AnyWidget",
+    ):
+        assert getattr(conductor, name) is not None
+    assert callable(conductor.version)
+    assert callable(conductor.upgrade)
+    assert callable(conductor.deprecated)

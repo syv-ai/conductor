@@ -47,14 +47,29 @@ from conductor.graph.model import (
     GraphEdge,
     GraphNode,
 )
+from conductor.interface import Interface, Provided
+from conductor.metadata import Input, Output
+from conductor.node import (
+    Deprecation,
+    GraphVersion,
+    NodeDefinition,
+    NodeDescription,
+    NodeVersion,
+    Policy,
+    deprecated,
+    upgrade,
+    version,
+)
 from conductor.ref import Ref
-from conductor.registry import NodeRegistry
+from conductor.registry import NodeRegistry, runner_for
 from conductor.returns import Result
 from conductor.series import Index, Series
+from conductor.widgets import AnyWidget
 
 __all__ = [
     # Registry + graph
     "NodeRegistry",
+    "runner_for",
     "GraphNode",
     "GraphEdge",
     "Flow",
@@ -82,6 +97,21 @@ __all__ = [
     "SubprocessNode",
     "SUBPROCESS",
     "SubprocessRegistry",
+    # The node contract
+    "NodeDefinition",
+    "NodeVersion",
+    "GraphVersion",
+    "Policy",
+    "Deprecation",
+    "NodeDescription",
+    "Interface",
+    "Provided",
+    "Input",
+    "Output",
+    "AnyWidget",
+    "version",
+    "upgrade",
+    "deprecated",
     # The type vocabulary
     "DType",
     "DTypeRef",
