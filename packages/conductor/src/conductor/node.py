@@ -38,7 +38,7 @@ import inspect
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, ClassVar
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Literal
 
 from conductor.interface import Interface
 from conductor.metadata import Input, Output
@@ -235,6 +235,45 @@ def upgrade_methods(cls: type) -> dict[tuple[int, int], Callable[..., Any]]:
                 found[step] = fn
     return found
 
+@dataclass(frozen=True, kw_only=True)
+class VersionDescription:
+    """One version as a palette reads it: fields, policy, roster shape and notice.
+
+    One per entry in ``NodeDescription.versions``, built by ``describe()``
+    from the ``NodeVersion`` (or ``GraphVersion``) with the callable left
+    out. ``policy`` is ``None`` for a graph-bodied version, which nothing
+    runs as one unit; ``open`` is the open roster's shape or ``None``.
+    """
+
+    inputs: tuple[Input, ...]
+    outputs: tuple[Output, ...]
+    policy: Policy | None
+    open: Literal["single", "series"] | None
+    deprecation: Deprecation | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class NodeDescription:
+    """A node definition as a record — the palette entry.
+
+    Built by ``NodeDefinition.describe()`` from the class, on demand, and
+    read by an editor: a palette is these records dumped through pydantic.
+    Never stored, so there is no copy to keep in step with the class.
+
+    Describes the *type*. The titles a particular placement shows live on
+    its ``GraphNode``.
+    """
+
+    id: str
+    title: str
+    description: str
+    category: str
+    tags: tuple[str, ...]
+    docs: str | None
+    deprecation: Deprecation | None
+    versions: dict[int, VersionDescription]
+    current: int
+
 class NodeDefinition(ABC):
     """Base class for every node.
 
@@ -364,6 +403,34 @@ class NodeDefinition(ABC):
         """
         return declared
 
+    @classmethod
+    def describe(cls) -> NodeDescription:
+        """This definition as a ``NodeDescription`` — the one serialisation of a node.
+
+        A classmethod, because a description is of the type; what a
+        placement adds (its titles, its bindings) lives on the ``GraphNode``.
+        """
+        return NodeDescription(
+            id=cls.id,
+            title=cls.title,
+            description=cls.description,
+            category=cls.category,
+            tags=cls.tags,
+            docs=cls.docs,
+            deprecation=cls.deprecation,
+            versions={
+                number: VersionDescription(
+                    inputs=v.interface.inputs,
+                    outputs=v.interface.outputs,
+                    policy=v.policy if isinstance(v, NodeVersion) else None,
+                    open=v.interface.open,
+                    deprecation=v.deprecation if isinstance(v, NodeVersion) else None,
+                )
+                for number, v in cls.versions.items()
+            },
+            current=cls.current,
+        )
+
 def _derive_versions(cls: type) -> None:
     """Collect every version this class declares into ``cls.versions``.
 
@@ -413,6 +480,7 @@ def _derive_versions(cls: type) -> None:
         for n, fn in methods.items()
     }
     cls.current = max(methods)
+
 
 class BaseNode(ABC):
     """The old class-based contract. Deleted with the decorator at the end of this plan."""

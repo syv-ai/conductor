@@ -4,10 +4,18 @@ import pytest
 from conductor import NodeRegistry
 from conductor.dtype import DType
 from conductor.metadata import Output
-from conductor.node import Deprecation, NodeDefinition, Policy, deprecated, version
+from conductor.node import (
+    Deprecation,
+    NodeDefinition,
+    NodeDescription,
+    Policy,
+    deprecated,
+    version,
+)
 from conductor.returns import Result
 from conductor.series import Series
 from conductor.widgets import Choice, ConnectionList, Dropdown, Textarea
+from pydantic import TypeAdapter
 
 
 class Txt(DType, str):
@@ -682,6 +690,117 @@ def test_a_reduction_declares_a_series_input():
 
     (texts,) = Join.versions[1].interface.inputs
     assert texts.dtype is Series[Txt]
+
+
+
+
+def test_describe_is_the_class_as_a_record():
+    class Translate(NodeDefinition):
+        id = "describe-translate"
+        title = "Translation"
+        description = "Translates"
+        category = "test"
+        tags = ("Language model",)
+
+        @version(1)
+        def run_v1(self, text: Annotated[Txt, Textarea(title="Text")] = Txt("")) -> Out:
+            return text
+
+        @version(2, policy=Policy(retries=2))
+        def run(
+            self,
+            text: Annotated[Txt, Textarea(title="Text")] = Txt(""),
+            language: Annotated[Txt, Dropdown(title="Language", choices=(Choice(id="da", title="Danish"), Choice(id="en", title="English")))] = Txt("da"),
+        ) -> Out:
+            return text
+
+    d = Translate.describe()
+
+    assert isinstance(d, NodeDescription)
+    assert (d.id, d.title, d.tags) == ("describe-translate", "Translation", ("Language model",))
+    assert d.current == 2
+    assert [i.name for i in d.versions[2].inputs] == ["text", "language"]
+    assert d.versions[2].policy.retries == 2
+    assert d.versions[1].outputs[0].name == "result"
+    assert d.versions[1].open is None
+    assert not hasattr(d, "role")
+
+
+def test_describe_carries_both_notices():
+    """Two scopes, two true things. The palette renders both when both
+    exist, node first — a precedence rule would show strictly less."""
+
+    @deprecated(header="Node retired")
+    class Old(NodeDefinition):
+        id = "describe-old"
+        title = "Old"
+        description = "d"
+        category = "test"
+
+        @deprecated(header="v1 retired", migration="Use v2.")
+        @version(1)
+        def run_v1(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+            return x
+
+        @version(2)
+        def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+            return x
+
+    d = Old.describe()
+
+    assert d.deprecation == Deprecation(header="Node retired")
+    assert d.versions[1].deprecation == Deprecation(header="v1 retired", migration="Use v2.")
+    assert d.versions[2].deprecation is None
+    data = TypeAdapter(NodeDescription).dump_python(d, mode="json")
+    assert data["deprecation"] == {"header": "Node retired", "description": None, "alternative": None, "migration": None}
+    assert "deprecated" not in data
+
+
+def test_describe_dumps_as_the_palette_payload():
+    class Echo(NodeDefinition):
+        id = "describe-echo"
+        title = "Echo"
+        description = "d"
+        category = "test"
+
+        def run(self, x: Annotated[Txt, Textarea(title="X", rows=2)] = Txt("")) -> Out:
+            return x
+
+    data = TypeAdapter(NodeDescription).dump_python(Echo.describe(), mode="json")
+
+    assert data["id"] == "describe-echo"
+    assert data["category"] == "test"
+    assert data["versions"]["1"]["inputs"][0]["widget"] == {
+        "kind": "textarea", "min_length": None, "max_length": None, "rows": 2,
+    }
+    assert data["versions"]["1"]["inputs"][0]["dtype"] == {"id": "node-class-test-txt", "accepted_as": ["node-class-test-txt"]}
+    assert data["versions"]["1"]["outputs"][0]["dtype"] == {"id": "node-class-test-txt", "accepted_as": ["node-class-test-txt"]}
+    for gone in ("base_id", "width", "is_decision", "has_dynamic_outputs", "latest_version", "deprecated"):
+        assert gone not in data
+
+
+def test_describe_publishes_a_json_schema():
+    schema = TypeAdapter(NodeDescription).json_schema(mode="serialization")
+
+    assert "Input" in schema["$defs"]
+    assert "Output" in schema["$defs"]
+    assert "Policy" in schema["$defs"]
+    widget = schema["$defs"]["Input"]["properties"]["widget"]
+    assert widget["discriminator"]["propertyName"] == "kind"
+
+
+def test_describe_is_computed_not_stored():
+    class Echo(NodeDefinition):
+        id = "describe-echo-2"
+        title = "Echo"
+        description = "d"
+        category = "test"
+
+        def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+            return x
+
+    assert Echo.describe() == Echo.describe()
+    assert "description_record" not in vars(Echo)
 
 
 

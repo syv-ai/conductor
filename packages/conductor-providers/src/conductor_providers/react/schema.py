@@ -1,4 +1,4 @@
-"""Palette serialization — thin wrapper over conductor's registry schema."""
+"""Palette serialization — every definition's ``describe()``."""
 
 from __future__ import annotations
 
@@ -6,15 +6,13 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from conductor import NodeRegistry
+    from conductor.node import NodeDescription
 
 
-def palette_from_registry(registry: "NodeRegistry") -> list[dict]:
-    """Return the node palette as a list of dicts — one per registered version.
+def palette_from_registry(registry: "NodeRegistry") -> list["NodeDescription"]:
+    """The node palette: one ``NodeDescription`` per registered definition.
 
-    The shape is exactly what ``conductor.registry.schema.serialize_registry``
-    produces. We re-export it from the provider package so that frontends
-    calling the provider have one import path for everything ReactFlow-
-    related; if the palette format ever needs provider-specific tweaks, the
-    change stays inside this module.
+    Re-exported from the provider package so a frontend calling the
+    provider has one import path for everything ReactFlow-related.
     """
-    return []
+    return [cls.describe() for cls in registry.definitions()]

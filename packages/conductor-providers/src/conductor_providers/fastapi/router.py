@@ -9,6 +9,7 @@ from conductor import NodeRegistry
 from conductor.errors import CompilationError
 from conductor.execution.engine import execute, execute_sync
 from conductor.graph.compiler import compile as compile_graph
+from conductor.node import NodeDescription
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
@@ -34,7 +35,7 @@ def conductor_router(
 
     Mounts:
 
-    - ``GET  {prefix}/nodes``           — serialized node catalog
+    - ``GET  {prefix}/nodes``           — every definition's ``describe()``
     - ``POST {prefix}/execute``         — sync execution, returns aggregated results
     - ``POST {prefix}/execute-stream``  — SSE stream of ``ExecutionEvent`` frames
     - ``POST {prefix}/compile``         — validation without executing; returns
@@ -68,10 +69,10 @@ def conductor_router(
     def _store_data(request: Request) -> dict[str, Any] | None:
         return context_factory(request) if context_factory else None
 
-    @router.get("/nodes")
-    def list_nodes() -> list[dict[str, Any]]:
-        """Return every registered node as serialized catalog entries."""
-        return []
+    @router.get("/nodes", response_model=list[NodeDescription])
+    def list_nodes() -> list[NodeDescription]:
+        """Every registered definition as a record — the palette."""
+        return [cls.describe() for cls in registry.definitions()]
 
     @router.post("/execute")
     def execute_flow(req: ExecuteRequest, request: Request) -> dict[str, Any]:

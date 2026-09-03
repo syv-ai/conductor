@@ -14,7 +14,6 @@ from conductor.compound.for_each import FOR_EACH
 from conductor.execution.engine import execute, execute_sync
 from conductor.graph.compiler import compile
 from conductor.graph.model import GraphEdge, GraphNode
-from conductor.registry.schema import serialize_registry
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -85,7 +84,7 @@ def _build_graph(req: ExecuteRequest) -> tuple[list[GraphNode], list[GraphEdge]]
 @app.get("/api/nodes")
 def get_nodes() -> list[dict[str, Any]]:
     """Return all registered nodes as JSON for the frontend."""
-    return serialize_registry(registry)
+    return [cls.describe() for cls in registry.definitions()]
 
 
 @app.post("/api/execute")
