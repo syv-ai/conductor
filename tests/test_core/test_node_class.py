@@ -13,12 +13,13 @@ from conductor.node import (
     NodeDescription,
     Policy,
     deprecated,
+    upgrade,
     version,
 )
 from conductor.registry import runner_for
 from conductor.returns import Result
 from conductor.series import Series
-from conductor.widgets import Choice, ConnectionList, Dropdown, Textarea
+from conductor.widgets import Choice, ConnectionList, Dropdown, Switch, Textarea
 from pydantic import TypeAdapter
 
 
@@ -957,3 +958,98 @@ def test_a_definition_may_carry_its_versions_by_value():
     registry.register(Loaded)
     with pytest.raises(TypeError, match="graph"):
         runner_for(registry, "loaded", 1)
+
+
+class Flag(DType):
+    """A boolean dtype for the test — conductor ships none."""
+
+    id = "node-class-test-flag"
+    title = "Yes/No"
+
+    def __init__(self, value: bool = False) -> None:
+        self.value = bool(value)
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, Flag) and other.value == self.value
+
+
+def test_an_upgrade_rewrites_saved_values_between_versions():
+    class Docs(NodeDefinition):
+        id = "docs"
+        title = "Docs"
+        description = "d"
+        category = "test"
+
+        @version(1)
+        def run_v1(
+            self,
+            files: Annotated[Txt, Textarea(title="Files")] = Txt(""),
+            strategy: Annotated[Txt, Textarea(title="Strategy")] = Txt("whole"),
+        ) -> Out:
+            return Txt(f"{files}:{strategy}")
+
+        @version(2)
+        def run(
+            self,
+            files: Annotated[Txt, Textarea(title="Files")] = Txt(""),
+            split: Annotated[Flag, Switch(title="Split")] = Flag(False),
+        ) -> Out:
+            return Txt(f"{files}:{split.value}")
+
+        @upgrade(1, 2)
+        def _v1_to_v2(values):
+            rewritten = dict(values)
+            rewritten["split"] = Flag(rewritten.pop("strategy", None) == "per_page")
+            return rewritten
+
+    registry = NodeRegistry()
+    registry.register(Docs)
+
+    rewrite = registry.upgrade_path("docs", 1, 2)
+    assert rewrite is not None
+    assert rewrite({"files": "a.pdf", "strategy": "per_page"}) == {
+        "files": "a.pdf",
+        "split": Flag(True),
+    }
+
+
+def test_an_upgrade_takes_values_and_not_an_instance():
+    """It rewrites data. There is no placement to consult and no state."""
+
+    class Docs2(NodeDefinition):
+        id = "docs-2"
+        title = "Docs"
+        description = "d"
+        category = "test"
+
+        @version(1)
+        def run_v1(self, a: Annotated[Txt, Textarea(title="A")] = Txt("")) -> Out:
+            return a
+
+        @version(2)
+        def run(self, b: Annotated[Txt, Textarea(title="B")] = Txt("")) -> Out:
+            return b
+
+        @upgrade(1, 2)
+        def _v1_to_v2(values):
+            return {"b": values["a"]}
+
+    assert isinstance(vars(Docs2)["_v1_to_v2"], staticmethod)
+    assert Docs2._v1_to_v2({"a": Txt("x")}) == {"b": "x"}
+
+
+def test_a_missing_upgrade_path_is_none_not_an_error():
+    class Plain(NodeDefinition):
+        id = "plain"
+        title = "Plain"
+        description = "d"
+        category = "test"
+
+        def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+            return x
+
+    registry = NodeRegistry()
+    registry.register(Plain)
+    assert registry.upgrade_path("plain", 1, 2) is None
+
+
