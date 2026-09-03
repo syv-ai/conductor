@@ -3,7 +3,10 @@ from typing import Annotated, ClassVar
 import pytest
 from conductor import NodeRegistry
 from conductor.dtype import DType
-from conductor.metadata import Output
+from conductor.execution.engine import execute_sync
+from conductor.graph.compiler import compile as compile_graph
+from conductor.graph.model import GraphNode
+from conductor.metadata import Input, Output
 from conductor.node import (
     Deprecation,
     NodeDefinition,
@@ -12,6 +15,7 @@ from conductor.node import (
     deprecated,
     version,
 )
+from conductor.registry import runner_for
 from conductor.returns import Result
 from conductor.series import Series
 from conductor.widgets import Choice, ConnectionList, Dropdown, Textarea
@@ -805,3 +809,151 @@ def test_describe_is_computed_not_stored():
 
 
 
+
+
+def test_a_class_node_executes_in_a_graph():
+    class Shout(NodeDefinition):
+        id = "shout"
+        title = "Shout"
+        description = "d"
+        category = "test"
+
+        def run(self, text: Annotated[Txt, Textarea(title="Text")] = Txt("")) -> Out:
+            return Txt(self._decorate(text))
+
+        def _decorate(self, text: str) -> str:
+            return text.upper() + "!"
+
+    registry = NodeRegistry()
+    registry.register(Shout)
+
+    compiled = compile_graph(
+        nodes=[GraphNode(id="a", type="shout", version=1, data={"text": "hi"})],
+        edges=[],
+        registry=registry,
+    )
+    results = execute_sync(compiled)
+    assert results["a"]["result"] == "HI!"
+
+
+def test_two_versions_of_one_class_execute_independently():
+    class Suffix(NodeDefinition):
+        id = "suffix"
+        title = "Suffix"
+        description = "d"
+        category = "test"
+
+        @version(1)
+        def run_v1(self, text: Annotated[Txt, Textarea(title="Text")] = Txt("")) -> Out:
+            return text
+
+        @version(2)
+        def run(
+            self,
+            text: Annotated[Txt, Textarea(title="Text")] = Txt(""),
+            mark: Annotated[Txt, Textarea(title="Mark")] = Txt("?"),
+        ) -> Out:
+            return Txt(text + mark)
+
+    registry = NodeRegistry()
+    registry.register(Suffix)
+
+    for pinned, expected in ((1, "hi"), (2, "hi?")):
+        compiled = compile_graph(
+            nodes=[GraphNode(id="a", type="suffix", version=pinned, data={"text": "hi"})],
+            edges=[],
+            registry=registry,
+        )
+        assert execute_sync(compiled)["a"]["result"] == expected
+
+
+def test_a_version_a_class_does_not_declare_is_refused():
+    """The pin is what a graph selects with, so a graph naming a version
+    that is not there must not resolve to the nearest one."""
+
+    class Once(NodeDefinition):
+        id = "once-exec"
+        title = "Once"
+        description = "d"
+        category = "test"
+
+        def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+            return x
+
+    registry = NodeRegistry()
+    registry.register(Once)
+
+    with pytest.raises(KeyError):
+        runner_for(registry, "once-exec", 2)
+    with pytest.raises(KeyError):
+        runner_for(registry, "never-registered", 1)
+
+
+def test_each_call_gets_a_fresh_instance():
+    """Stateless by contract."""
+    seen = []  # holds the instances, so CPython cannot reuse an id
+
+    class Counting(NodeDefinition):
+        id = "counting"
+        title = "Counting"
+        description = "d"
+        category = "test"
+
+        def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+            seen.append(self)
+            return x
+
+    registry = NodeRegistry()
+    registry.register(Counting)
+    runner = runner_for(registry, "counting", 1)
+    runner(x=Txt("a"))
+    runner(x=Txt("b"))
+
+    assert seen[0] is not seen[1]
+
+
+def test_a_definition_may_carry_its_versions_by_value():
+    """A definition built from data (an embedded flow) sets ``versions`` in
+    the class body, each a ``GraphVersion`` holding an interface and the
+    placements the compiler expands it to. ``register()`` checks the
+    numbering and ``describe()`` reads it, but ``runner_for`` refuses it:
+    there is nothing to run, the compiler expanded it."""
+    from collections.abc import Mapping
+
+    from conductor.interface import Interface, model_of
+    from conductor.node import GraphVersion
+
+    class Wrapped(NodeDefinition):
+        id = "wrapped"
+        title = "Embedded"
+        description = "d"
+        category = "test"
+
+        versions: ClassVar[dict[int, GraphVersion]] = {
+            3: GraphVersion(
+                graph=(),
+                interface=Interface(
+                    inputs=(Input(name="inner.text", dtype=Txt, title="Text", widget=Textarea(title="Text")),),
+                    outputs=(Output(name="inner.result", dtype=Txt, title="Result"),),
+                    returns=Mapping,
+                ),
+            )
+        }
+
+    assert set(Wrapped.versions) == {3} and Wrapped.current == 3
+    assert [i.name for i in Wrapped.versions[3].interface.inputs] == ["inner.text"]
+    assert isinstance(getattr(model_of(Wrapped.versions[3].interface.inputs)(**{"inner.text": "hi"}), "inner.text"), Txt)
+    described = Wrapped.describe().versions[3]
+    assert [i.name for i in described.inputs] == ["inner.text"]
+    assert described.policy is None and described.deprecation is None
+    with pytest.raises(ValueError, match="numbers from 1"):
+        NodeRegistry().register(Wrapped)
+
+    class Loaded(Wrapped):
+        id = "loaded"
+        versions: ClassVar[dict[int, GraphVersion]] = {1: Wrapped.versions[3]}
+
+    registry = NodeRegistry()
+    registry.register(Loaded)
+    with pytest.raises(TypeError, match="graph"):
+        runner_for(registry, "loaded", 1)

@@ -49,6 +49,7 @@ from conductor.execution.state import FlowRunState
 from conductor.execution.store import FlowStore
 from conductor.graph.compiler import CompiledGraph
 from conductor.interface import model_of
+from conductor.registry import runner_for
 
 __all__ = [
     "execute",
@@ -751,19 +752,11 @@ def _invoke_node(
             f"Compensation node type '{node.type}' not found in registry",
             node_id=req.node_id, node_type=node.type,
         )
-    if node_def._node_class is not None:
-        instance = node_def._node_class()
-        return instance.execute(req)
-    if node_def.func is None:
-        raise NodeExecutionError(
-            f"Compensation node '{node.type}' has no callable",
-            node_id=req.node_id, node_type=node.type,
-        )
-    # Filter req.inputs to known params (shared with the normal dispatch path)
-    kwargs = _filter_to_signature(node_def.func, req.inputs)
-    if "store" in inspect.signature(node_def.func).parameters:
+    runner = runner_for(compiled.registry, node.type, node.version)
+    kwargs = _filter_to_signature(runner, req.inputs)
+    if "store" in inspect.signature(runner).parameters:
         kwargs["store"] = state.store
-    return node_def.func(**kwargs)
+    return runner(**kwargs)
 
 
 # =========================================================================
@@ -806,26 +799,6 @@ def _dispatch_node(
             node_id=node_id, node_type=node_type,
         )
 
-    # 3a. Class-based node
-    if hasattr(node_def, "_node_class") and node_def._node_class is not None:
-        try:
-            instance = node_def._node_class()
-            return instance.execute(req)
-        except (NodeValidationError, NodeExecutionError, HumanInputRequired, SignalRequired):
-            raise
-        except Exception as e:
-            raise NodeExecutionError(
-                f"Execution failed for {node_type}: {type(e).__name__}: {e}",
-                node_id=node_id, node_type=node_type, original=e,
-            ) from e
-
-    # 3b. Function-based node
-    if not node_def.func:
-        raise NodeExecutionError(
-            f"Node type '{node_type}' has no callable",
-            node_id=node_id, node_type=node_type,
-        )
-
     # Coerce the raw inputs through the placement's roster before anything
     # else touches them.
     from pydantic import ValidationError
@@ -842,11 +815,12 @@ def _dispatch_node(
             node_id=node_id, node_type=node_type, original=e,
         ) from e
 
-    inputs = _inject_store(node_def.func, inputs, state)
-    inputs = _filter_to_signature(node_def.func, inputs)
+    runner = runner_for(compiled.registry, node_type, pinned)
+    inputs = _inject_store(runner, inputs, state)
+    inputs = _filter_to_signature(runner, inputs)
 
     try:
-        return node_def.func(**inputs)
+        return runner(**inputs)
     except (NodeValidationError, NodeExecutionError, NodeConnectionError,
             HumanInputRequired, SignalRequired):
         raise
@@ -922,18 +896,18 @@ def _format_validation_error(e: Any, roster: Any) -> str:
 
 
 def _inject_store(func: Any, inputs: dict[str, Any], state: FlowRunState) -> dict[str, Any]:
-    """If the function has a FlowStore parameter, inject it."""
-    from typing import get_type_hints
+    """If the callable declares a ``FlowStore`` parameter, inject it.
 
+    Read off the signature rather than resolved type hints, because a
+    class node's runner carries the method's signature and nothing else.
+    """
     try:
-        hints = get_type_hints(func)
-    except Exception:
+        params = inspect.signature(func).parameters
+    except (TypeError, ValueError):
         return inputs
-
-    for name, hint in hints.items():
-        if hint is FlowStore:
-            inputs = {**inputs, name: state.store}
-            break
+    for name, param in params.items():
+        if param.annotation is FlowStore or param.annotation == "FlowStore":
+            return {**inputs, name: state.store}
     return inputs
 
 
