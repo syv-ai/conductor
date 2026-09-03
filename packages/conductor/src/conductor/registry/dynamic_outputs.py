@@ -17,7 +17,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from conductor.metadata import OutputMetadata
+from conductor.metadata import Output
 
 __all__ = [
     "IncomingBinding",
@@ -43,7 +43,7 @@ class IncomingBinding:
     target_handle: str
     source_node_id: str
     source_handle: str
-    source_output: OutputMetadata
+    source_output: Output
 
 
 @dataclass(frozen=True)
@@ -76,14 +76,14 @@ class ComputeOutputsContext:
     data: dict[str, Any]
     incoming: tuple[IncomingBinding, ...]
     node_id: str
-    defaults: tuple[OutputMetadata, ...]
+    defaults: tuple[Output, ...]
     validated_data: dict[str, Any] | None = None
 
 
-ComputeOutputsFn = Callable[[ComputeOutputsContext], list[OutputMetadata]]
+ComputeOutputsFn = Callable[[ComputeOutputsContext], list[Output]]
 """Signature of a compute_outputs hook.
 
-Must return a ``list[OutputMetadata]``. The resolver validates uniqueness of
+Must return a ``list[Output]``. The resolver validates uniqueness of
 output names and (when ``dynamic_handles=False`` on the node definition)
 that all statically declared output names are still present.
 """

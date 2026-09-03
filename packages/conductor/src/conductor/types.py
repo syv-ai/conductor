@@ -1,6 +1,5 @@
 """Core types, enums, and constants for conductor."""
 
-from enum import Enum
 from typing import Any, NewType, TypeAlias, TypedDict
 
 # `NodeCategory` lives in its own module so it can carry registration
@@ -11,8 +10,6 @@ from conductor.category import NodeCategory  # noqa: F401  (re-export)
 
 __all__ = [
     "NodeCategory",
-    "WidgetType",
-    "ResultFormat",
     "NodeResult",
     "Base64Str",
     "Date",
@@ -22,42 +19,6 @@ __all__ = [
     "OUTPUT_PREFIX",
 ]
 
-
-class WidgetType(str, Enum):
-    """All widget types for node parameters. Maps 1:1 to frontend components."""
-
-    TEXT = "text"
-    TEXTAREA = "textarea"
-    DROPDOWN = "dropdown"
-    DEPENDENT_DROPDOWN = "dependent-dropdown"
-    RANGE = "range"
-    CHECKBOX = "checkbox"
-    FILE = "file"
-    SCHEMA_BUILDER = "schema-builder"
-    DATEPICKER = "datepicker"
-    NUMBER = "number"
-    SWITCH = "switch"
-    CONNECTION_LIST = "connection-list"
-    LIST = "list"
-    TEMPLATE_TEXTAREA = "template-textarea"
-    IF_ELSE_BUILDER = "if-else-builder"
-    MULTISELECT = "multiselect"
-    ENTITY_DROPDOWN = "entity-dropdown"
-    CODE_EDITOR = "code-editor"
-    OUTPUT = "output"
-    TABLE_SOURCE = "table-source"
-    CONDITION_BUILDER = "condition-builder"
-    TAGS = "tags"
-    COLUMN_SELECT = "column-select"
-    TABLE_INPUT = "table-input"
-
-
-class ResultFormat(str, Enum):
-    """How node results are wrapped in the container format."""
-
-    SINGLE = "single"
-    MULTI = "multi"
-    DICT_SPREAD = "dict"
 
 
 RESULT_KEY: str = "result"

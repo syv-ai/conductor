@@ -23,7 +23,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from conductor.metadata import InputMetadata
+from conductor.metadata import Input
 
 __all__ = [
     "ComputeInputsContext",
@@ -52,14 +52,14 @@ class ComputeInputsContext:
 
     data: dict[str, Any]
     node_id: str
-    defaults: tuple[InputMetadata, ...]
+    defaults: tuple[Input, ...]
     validated_data: dict[str, Any] | None = None
 
 
-ComputeInputsFn = Callable[[ComputeInputsContext], list[InputMetadata]]
+ComputeInputsFn = Callable[[ComputeInputsContext], list[Input]]
 """Signature of a compute_inputs hook.
 
-Must return a ``list[InputMetadata]``. The resolver validates uniqueness of
+Must return a ``list[Input]``. The resolver validates uniqueness of
 input names and (when ``dynamic_handles=False`` on the node definition)
 that all statically declared input names are still present.
 """

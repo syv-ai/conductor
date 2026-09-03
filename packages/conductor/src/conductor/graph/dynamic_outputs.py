@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from conductor.errors import CompilationError
 from conductor.graph.topology import build_incoming_map, topological_sort
-from conductor.metadata import OutputMetadata
+from conductor.metadata import Output
 from conductor.registry.dynamic_outputs import (
     ComputeOutputsContext,
     IncomingBinding,
@@ -43,10 +43,10 @@ def resolve_node_outputs(
     node: "GraphNode",
     node_def,
     incoming_edges: list[tuple[str, str, str, str]],
-    resolved_outputs: dict[str, tuple[OutputMetadata, ...]],
+    resolved_outputs: dict[str, tuple[Output, ...]],
     node_map: dict[str, "GraphNode"],
     registry: _DefinitionGet,
-) -> tuple[OutputMetadata, ...]:
+) -> tuple[Output, ...]:
     """Resolve a node's outputs, invoking ``compute_outputs`` if present.
 
     Args:
@@ -65,7 +65,7 @@ def resolve_node_outputs(
             when the producer has no hook.
 
     Returns:
-        A tuple of ``OutputMetadata``. When the node has no hook this is
+        A tuple of ``Output``. When the node has no hook this is
         simply ``node_def.outputs`` (or an empty tuple for extension nodes).
 
     Raises:
@@ -106,7 +106,7 @@ def resolve_node_outputs(
             # Handle not declared on the producer (likely a dynamic-handles
             # compound emitting ``output_3``, etc.). Synthesize a permissive
             # placeholder so the hook still gets a complete picture.
-            match = OutputMetadata(
+            match = Output(
                 name=source_handle, type_str="any", label=source_handle,
             )
 
@@ -154,16 +154,16 @@ def resolve_node_outputs(
     if not isinstance(result, list):
         raise CompilationError(
             f"compute_outputs failed for node {node.id} ({node.type}): "
-            f"hook must return list[OutputMetadata], got {type(result).__name__}"
+            f"hook must return list[Output], got {type(result).__name__}"
         )
 
-    # Validate every entry is OutputMetadata and names are unique.
+    # Validate every entry is Output and names are unique.
     seen: set[str] = set()
     for idx, item in enumerate(result):
-        if not isinstance(item, OutputMetadata):
+        if not isinstance(item, Output):
             raise CompilationError(
                 f"compute_outputs failed for node {node.id} ({node.type}): "
-                f"item {idx} is not an OutputMetadata, got "
+                f"item {idx} is not an Output, got "
                 f"{type(item).__name__}"
             )
         if item.name in seen:
@@ -205,7 +205,7 @@ def _resolve_in_order(
     node_map: "dict[str, GraphNode]",
     incoming_map: dict[str, list[tuple[str, str, str, str]]],
     lookup: _DefinitionGet,
-) -> dict[str, tuple[OutputMetadata, ...]]:
+) -> dict[str, tuple[Output, ...]]:
     """The ONE resolution walk — both ``compile()`` (step 8b) and
     :func:`resolve_graph_outputs` are callers.
 
@@ -215,7 +215,7 @@ def _resolve_in_order(
     only — every producer a binding reads is resolved before its
     consumer either way.
     """
-    resolved: dict[str, tuple[OutputMetadata, ...]] = {}
+    resolved: dict[str, tuple[Output, ...]] = {}
     for node_id in order:
         node = node_map[node_id]
         resolved[node_id] = resolve_node_outputs(
@@ -233,7 +233,7 @@ def resolve_graph_outputs(
     nodes: "list[GraphNode]",
     edges: "list[GraphEdge]",
     definitions: Mapping[str, "NodeDefinition | None"],
-) -> dict[str, tuple[OutputMetadata, ...]]:
+) -> dict[str, tuple[Output, ...]]:
     """Resolve every node's effective outputs in topological order.
 
     The ahead-of-compile entry to the same engine ``compile()`` runs at
@@ -265,7 +265,7 @@ def resolve_graph_outputs(
       ``CompilationError``,
     * acyclic — else ``CycleDetectionError``,
     * hook results validated by :func:`resolve_node_outputs` (non-list,
-      non-``OutputMetadata`` items, duplicate names, dropped static
+      non-``Output`` items, duplicate names, dropped static
       handles without ``dynamic_handles=True``, hook exceptions) — all
       ``CompilationError``.
 

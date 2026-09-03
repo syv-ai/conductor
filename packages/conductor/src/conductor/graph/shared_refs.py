@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 from conductor.errors import CompilationError
 from conductor.graph.model import GraphEdge, GraphNode
 from conductor.graph.type_check import TypeWarning
-from conductor.metadata import InputMetadata, OutputMetadata
+from conductor.metadata import Input, Output
 
 if TYPE_CHECKING:
     from conductor.registry import NodeRegistry
@@ -28,8 +28,8 @@ def validate_and_build_consume_map(
     node_map: dict[str, GraphNode],
     managed_ids: frozenset[str],
     registry: "NodeRegistry",
-    node_outputs: dict[str, tuple[OutputMetadata, ...]] | None = None,
-    node_inputs: dict[str, tuple[InputMetadata, ...]] | None = None,
+    node_outputs: dict[str, tuple[Output, ...]] | None = None,
+    node_inputs: dict[str, tuple[Input, ...]] | None = None,
 ) -> tuple[ConsumeMap, list[TypeWarning]]:
     """Validate produces/consumes decorations and return the consume map.
 
@@ -61,7 +61,7 @@ def _validate_producers(
     managed_ids: frozenset[str],
     registry: "NodeRegistry",
     warnings: list[TypeWarning],
-    node_outputs: dict[str, tuple[OutputMetadata, ...]] | None = None,
+    node_outputs: dict[str, tuple[Output, ...]] | None = None,
 ) -> None:
     label_to_producers: dict[str, list[tuple[str, str]]] = {}
 
@@ -140,7 +140,7 @@ def _validate_consumers_and_build_map(
     edges: list[GraphEdge],
     node_map: dict[str, GraphNode],
     registry: "NodeRegistry",
-    node_inputs: dict[str, tuple[InputMetadata, ...]] | None = None,
+    node_inputs: dict[str, tuple[Input, ...]] | None = None,
 ) -> ConsumeMap:
     # Pre-compute: which (target, handle) pairs already have an explicit edge
     edge_targets: set[tuple[str, str]] = {

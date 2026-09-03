@@ -133,7 +133,7 @@ class TestSchemaKeyAlignment:
         assert "entity_kind" not in schema
 
 
-class TestConnectionInputMetadata:
+class TestConnectionInput:
     """``connection_input`` is a base-class field exposed in the schema.
 
     Widgets that drive variable autocomplete (TemplateTextarea, the

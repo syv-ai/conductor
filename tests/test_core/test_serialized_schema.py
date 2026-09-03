@@ -13,12 +13,12 @@ from test_core.test_registry_serialization import _all_widget_instances
 
 
 def _metadata_for(widget):
-    """Build an InputMetadata carrying the widget's config, as the
+    """Build an Input carrying the widget's config, as the
     registration decorator does (registry/__init__.py)."""
-    from conductor.metadata import InputMetadata
+    from conductor.metadata import Input
 
     schema = widget.to_schema()
-    return InputMetadata(
+    return Input(
         name="felt",
         type_str="str",
         label=schema["label"],
@@ -52,9 +52,9 @@ def test_dict_and_model_routes_are_byte_identical() -> None:
 
 
 def test_serialized_output_covers_output_serializer() -> None:
-    from conductor.metadata import OutputMetadata
+    from conductor.metadata import Output
 
-    out = OutputMetadata(
+    out = Output(
         name="result", type_str="str", label="Resultat", download=True, filename="x.txt"
     )
     model = SerializedOutput.model_validate(serialize_output(out))
@@ -81,7 +81,7 @@ def test_serialized_input_fields_pin_widget_schema_keys() -> None:
 
 def test_serialize_node_model_validates_without_registry() -> None:
     """A host can serialize an ad-hoc definition without a registry."""
-    from conductor.metadata import InputMetadata, OutputMetadata
+    from conductor.metadata import Input, Output
     from conductor.registry.definition import NodeDefinition
     from conductor.registry.schema import serialize_node, serialize_node_model
     from conductor.registry.serialized import SerializedNode
@@ -95,8 +95,8 @@ def test_serialize_node_model_validates_without_registry() -> None:
         description="A demo node.",
         tags=("Flow",),
         category=NodeCategory("flow"),
-        inputs=(InputMetadata(name="a", type_str="str", label="A"),),
-        outputs=(OutputMetadata(name="result", type_str="str", label="R"),),
+        inputs=(Input(name="a", type_str="str", label="A"),),
+        outputs=(Output(name="result", type_str="str", label="R"),),
     )
     model = serialize_node_model(nd)
     assert isinstance(model, SerializedNode)
@@ -111,11 +111,11 @@ def test_serialize_node_model_validates_without_registry() -> None:
 
 def test_input_metadata_derives_expects_list_from_type() -> None:
     """``expects_list`` is filled from a ``list[...]`` type when not given."""
-    from conductor.metadata import InputMetadata
+    from conductor.metadata import Input
 
-    assert InputMetadata(name="xs", type_str="list[str]", label="Xs").expects_list is True
-    assert InputMetadata(name="x", type_str="str", label="X").expects_list is False
+    assert Input(name="xs", type_str="list[str]", label="Xs").expects_list is True
+    assert Input(name="x", type_str="str", label="X").expects_list is False
     # An explicit value is never overridden.
     assert (
-        InputMetadata(name="x", type_str="str", label="X", expects_list=True).expects_list is True
+        Input(name="x", type_str="str", label="X", expects_list=True).expects_list is True
     )

@@ -6,7 +6,7 @@ from typing import Any
 from conductor._sentinel import is_skipped
 from conductor.execution.results import extract_output
 from conductor.graph.model import GraphNode
-from conductor.metadata import InputMetadata
+from conductor.metadata import Input
 from conductor.registry import NodeRegistry
 from conductor.types import NodeResult
 
@@ -19,7 +19,7 @@ class InputResolver:
     def __init__(
         self,
         registry: NodeRegistry,
-        node_inputs: dict[str, tuple[InputMetadata, ...]] | None = None,
+        node_inputs: dict[str, tuple[Input, ...]] | None = None,
     ) -> None:
         self._registry = registry
         # Resolved per-instance input rosters (``CompiledGraph.node_inputs``).

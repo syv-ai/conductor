@@ -10,21 +10,21 @@ from typing import Annotated
 import pytest
 from conductor import GraphEdge, GraphNode, NodeRegistry, compile, resolve_graph_outputs
 from conductor.errors import CompilationError, CycleDetectionError
-from conductor.metadata import OutputMetadata
+from conductor.metadata import Output
 from conductor.registry.dynamic_outputs import ComputeOutputsContext
-from conductor.widgets import Output
+from conductor.widgets import Output as OutputWidget
 
 
 def _make_registry() -> NodeRegistry:
     reg = NodeRegistry()
 
     @reg.node("static-src", version=1, name="Static", description="Static source")
-    def static_src() -> Annotated[str, Output(label="Tekst")]:
+    def static_src() -> Annotated[str, OutputWidget(label="Tekst")]:
         return "x"
 
-    def passthrough_hook(ctx: ComputeOutputsContext) -> list[OutputMetadata]:
+    def passthrough_hook(ctx: ComputeOutputsContext) -> list[Output]:
         extras = [
-            OutputMetadata(
+            Output(
                 name=b.source_output.name,
                 type_str=b.source_output.type_str,
                 label=b.source_output.label,
@@ -37,13 +37,13 @@ def _make_registry() -> NodeRegistry:
         "dyn-passthrough", version=1, name="Passthrough", description="Passes incoming",
         compute_outputs=passthrough_hook,
     )
-    def dyn_passthrough(inputs: str = "") -> Annotated[str, Output(label="Resultat")]:
+    def dyn_passthrough(inputs: str = "") -> Annotated[str, OutputWidget(label="Resultat")]:
         return inputs
 
-    def schema_hook(ctx: ComputeOutputsContext) -> list[OutputMetadata]:
+    def schema_hook(ctx: ComputeOutputsContext) -> list[Output]:
         rows = ctx.data.get("fields") or []
         return list(ctx.defaults) + [
-            OutputMetadata(name=r["name"], type_str=r["type"], label=r["name"])
+            Output(name=r["name"], type_str=r["type"], label=r["name"])
             for r in rows
         ]
 
@@ -51,7 +51,7 @@ def _make_registry() -> NodeRegistry:
         "dyn-schema", version=1, name="Schema", description="Schema-driven fields",
         compute_outputs=schema_hook,
     )
-    def dyn_schema(fields: list | None = None) -> Annotated[str, Output(label="Resultat")]:
+    def dyn_schema(fields: list | None = None) -> Annotated[str, OutputWidget(label="Resultat")]:
         return ""
 
     return reg
@@ -151,14 +151,14 @@ def test_cycle_raises() -> None:
 def test_hook_exception_wraps_in_compilation_error() -> None:
     reg = NodeRegistry()
 
-    def bad_hook(ctx: ComputeOutputsContext) -> list[OutputMetadata]:
+    def bad_hook(ctx: ComputeOutputsContext) -> list[Output]:
         raise ValueError("kaputt")
 
     @reg.node(
         "boom", version=1, name="Boom", description="Raising hook",
         compute_outputs=bad_hook,
     )
-    def boom() -> Annotated[str, Output(label="X")]:
+    def boom() -> Annotated[str, OutputWidget(label="X")]:
         return ""
 
     nodes = [GraphNode(id="a", type="boom@1", data={})]

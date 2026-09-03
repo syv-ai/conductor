@@ -6,7 +6,7 @@ import inspect
 from collections.abc import Callable
 from typing import Annotated, Any, get_args, get_origin, get_type_hints
 
-from conductor.metadata import InputMetadata, OutputMetadata
+from conductor.metadata import Input, Output
 from conductor.registry.definition import Actor, NodeDefinition
 from conductor.types import (
     OUTPUT_PREFIX,
@@ -22,7 +22,7 @@ from conductor.widgets import (
     FileUpload,
     List,
     Number,
-    Output,
+    Output as OutputWidget,
     SchemaBuilder,
     Text,
     Widget,
@@ -459,7 +459,7 @@ class NodeRegistry:
 
 def _introspect_function(
     func: Callable,
-) -> tuple[list[InputMetadata], list[OutputMetadata], ResultFormat]:
+) -> tuple[list[Input], list[Output], ResultFormat]:
     """Extract input/output metadata from a function signature."""
     sig = inspect.signature(func)
     type_hints = get_type_hints(func, include_extras=True)
@@ -472,8 +472,8 @@ def _introspect_function(
 def _extract_inputs(
     sig: inspect.Signature,
     type_hints: dict[str, Any],
-) -> list[InputMetadata]:
-    inputs: list[InputMetadata] = []
+) -> list[Input]:
+    inputs: list[Input] = []
 
     for param_name, param in sig.parameters.items():
         if param_name == "self":
@@ -520,7 +520,7 @@ def _extract_inputs(
 
         if widget_instance:
             wt = widget_instance.widget_type
-            inputs.append(InputMetadata(
+            inputs.append(Input(
                 name=param_name,
                 type_str=type_str,
                 label=widget_instance.label,
@@ -538,7 +538,7 @@ def _extract_inputs(
                 },
             ))
         else:
-            inputs.append(InputMetadata(
+            inputs.append(Input(
                 name=param_name,
                 type_str=type_str,
                 label=param_name,
@@ -552,18 +552,18 @@ def _extract_inputs(
 
 def _extract_outputs(
     type_hints: dict[str, Any],
-) -> tuple[list[OutputMetadata], ResultFormat]:
+) -> tuple[list[Output], ResultFormat]:
     return_hint = type_hints.get("return", inspect.Parameter.empty)
 
     if return_hint is inspect.Parameter.empty or return_hint is type(None):
-        return [OutputMetadata(name=RESULT_KEY, type_str="none", label="Output")], ResultFormat.SINGLE
+        return [Output(name=RESULT_KEY, type_str="none", label="Output")], ResultFormat.SINGLE
 
     origin = get_origin(return_hint)
 
     # Multi-output: tuple[Annotated[T, Output(...)], ...]
     if origin is tuple:
         args = get_args(return_hint)
-        outputs: list[OutputMetadata] = []
+        outputs: list[Output] = []
         for i, arg in enumerate(args):
             name = f"{OUTPUT_PREFIX}{i + 1}"
             if get_origin(arg) is Annotated:
@@ -571,10 +571,10 @@ def _extract_outputs(
                 base_type = inner_args[0]
                 out_widget = None
                 for a in inner_args[1:]:
-                    if isinstance(a, Output):
+                    if isinstance(a, OutputWidget):
                         out_widget = a
                         break
-                outputs.append(OutputMetadata(
+                outputs.append(Output(
                     name=name,
                     type_str=_extract_type_string(base_type),
                     label=out_widget.label if out_widget else name,
@@ -583,7 +583,7 @@ def _extract_outputs(
                     filename=out_widget.filename if out_widget else None,
                 ))
             else:
-                outputs.append(OutputMetadata(
+                outputs.append(Output(
                     name=name,
                     type_str=_extract_type_string(arg),
                     label=name,
@@ -596,10 +596,10 @@ def _extract_outputs(
         base_type = args[0]
         out_widget = None
         for a in args[1:]:
-            if isinstance(a, Output):
+            if isinstance(a, OutputWidget):
                 out_widget = a
                 break
-        return [OutputMetadata(
+        return [Output(
             name=RESULT_KEY,
             type_str=_extract_type_string(base_type),
             label=out_widget.label if out_widget else "Output",
@@ -609,7 +609,7 @@ def _extract_outputs(
         )], ResultFormat.SINGLE
 
     # Plain type
-    return [OutputMetadata(
+    return [Output(
         name=RESULT_KEY,
         type_str=_extract_type_string(return_hint),
         label="Output",

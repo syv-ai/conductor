@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from conductor.errors import CompilationError
-from conductor.metadata import InputMetadata
+from conductor.metadata import Input
 from conductor.registry.dynamic_inputs import ComputeInputsContext
 
 if TYPE_CHECKING:
@@ -25,7 +25,7 @@ def resolve_node_inputs(
     *,
     node: GraphNode,
     node_def: NodeDefinition | None,
-) -> tuple[InputMetadata, ...]:
+) -> tuple[Input, ...]:
     """Return the input roster this node instance actually exposes.
 
     Nodes without a hook get a verbatim copy of their static
@@ -69,15 +69,15 @@ def resolve_node_inputs(
     if not isinstance(result, list):
         raise CompilationError(
             f"compute_inputs failed for node {node.id} ({node.type}): "
-            f"hook must return list[InputMetadata], got {type(result).__name__}"
+            f"hook must return list[Input], got {type(result).__name__}"
         )
 
     seen: set[str] = set()
     for idx, item in enumerate(result):
-        if not isinstance(item, InputMetadata):
+        if not isinstance(item, Input):
             raise CompilationError(
                 f"compute_inputs failed for node {node.id} ({node.type}): "
-                f"item {idx} is not an InputMetadata, got {type(item).__name__}"
+                f"item {idx} is not an Input, got {type(item).__name__}"
             )
         if item.name in seen:
             raise CompilationError(
@@ -103,7 +103,7 @@ def resolve_node_inputs(
 def resolve_graph_inputs(
     nodes: list[GraphNode],
     definitions: dict[str, NodeDefinition | None],
-) -> dict[str, tuple[InputMetadata, ...]]:
+) -> dict[str, tuple[Input, ...]]:
     """Resolve every node's input roster.
 
     The public counterpart to :func:`conductor.resolve_graph_outputs`, for

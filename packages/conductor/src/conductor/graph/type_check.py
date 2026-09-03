@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from conductor.graph.model import GraphEdge, GraphNode
-from conductor.metadata import InputMetadata, OutputMetadata
+from conductor.metadata import Input, Output
 
 if TYPE_CHECKING:
     from conductor.registry import NodeRegistry
@@ -53,8 +53,8 @@ def check_edge_types(
     edges: list[GraphEdge],
     node_map: dict[str, GraphNode],
     registry: "NodeRegistry",
-    node_outputs: dict[str, tuple[OutputMetadata, ...]] | None = None,
-    node_inputs: dict[str, tuple[InputMetadata, ...]] | None = None,
+    node_outputs: dict[str, tuple[Output, ...]] | None = None,
+    node_inputs: dict[str, tuple[Input, ...]] | None = None,
 ) -> list[TypeWarning]:
     """Check all edges for type compatibility. Returns warnings (not errors).
 
@@ -117,8 +117,8 @@ def check_consume_types(
     consume_map: dict[tuple[str, str], tuple[str, str]],
     node_map: dict[str, GraphNode],
     registry: "NodeRegistry",
-    node_outputs: dict[str, tuple[OutputMetadata, ...]] | None = None,
-    node_inputs: dict[str, tuple[InputMetadata, ...]] | None = None,
+    node_outputs: dict[str, tuple[Output, ...]] | None = None,
+    node_inputs: dict[str, tuple[Input, ...]] | None = None,
 ) -> list[TypeWarning]:
     """Type-check every consume binding. Same rules as ``check_edge_types``.
 
@@ -173,7 +173,7 @@ def check_consume_types(
     return warnings
 
 
-def _types_compatible(source_type: str, target_type: str, target_input: InputMetadata) -> bool:
+def _types_compatible(source_type: str, target_type: str, target_input: Input) -> bool:
     """Check if source_type can flow into target_type."""
     s = source_type.lower().strip()
     t = target_type.lower().strip()
@@ -264,8 +264,8 @@ def _find_output(
     node_def: "NodeDefinition",
     handle: str,
     *,
-    resolved: tuple[OutputMetadata, ...] | None = None,
-) -> OutputMetadata | None:
+    resolved: tuple[Output, ...] | None = None,
+) -> Output | None:
     """Look up an output by handle, preferring the resolved (post-hook) tuple.
 
     When ``resolved`` is provided it shadows ``node_def.outputs`` — that's
@@ -284,8 +284,8 @@ def _find_input(
     node_def: "NodeDefinition",
     handle: str,
     *,
-    resolved: tuple[InputMetadata, ...] | None = None,
-) -> InputMetadata | None:
+    resolved: tuple[Input, ...] | None = None,
+) -> Input | None:
     """Look up an input by handle, preferring the resolved (post-hook) tuple.
 
     Mirrors :func:`_find_output`. ``resolved`` is the node's entry in

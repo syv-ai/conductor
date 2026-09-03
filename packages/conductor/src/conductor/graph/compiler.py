@@ -14,7 +14,7 @@ from conductor.graph.model import Flow, FlowDependency, GraphEdge, GraphNode
 from conductor.graph.shared_refs import validate_and_build_consume_map
 from conductor.graph.topology import build_edge_map, build_incoming_map, topological_sort
 from conductor.graph.type_check import TypeWarning, check_consume_types, check_edge_types
-from conductor.metadata import InputMetadata, OutputMetadata
+from conductor.metadata import Input, Output
 
 if TYPE_CHECKING:
     from conductor.registry import NodeRegistry
@@ -88,7 +88,7 @@ class CompiledGraph:
     # it carries the dynamically derived shape. Extension nodes have an
     # empty tuple. Type-checking, shared-ref validation, and compound
     # runtimes consult this in preference to the static schema.
-    node_outputs: dict[str, tuple[OutputMetadata, ...]] = field(default_factory=dict)
+    node_outputs: dict[str, tuple[Output, ...]] = field(default_factory=dict)
     # Resolved inputs per node id — populated for every node. For nodes
     # without a ``compute_inputs`` hook this is a copy of
     # ``NodeDefinition.inputs``; for hook-driven nodes it carries the
@@ -96,7 +96,7 @@ class CompiledGraph:
     # Type-checking, consume validation, the input resolver and
     # validation-error labelling consult this in preference to the static
     # schema.
-    node_inputs: dict[str, tuple[InputMetadata, ...]] = field(default_factory=dict)
+    node_inputs: dict[str, tuple[Input, ...]] = field(default_factory=dict)
 
 
 def compile(

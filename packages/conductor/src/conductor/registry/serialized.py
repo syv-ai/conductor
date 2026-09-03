@@ -28,7 +28,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 # The non-widget-config fields of ``SerializedInput`` — the keys
-# ``serialize_input`` writes directly from the ``InputMetadata`` rather than
+# ``serialize_input`` writes directly from the ``Input`` rather than
 # merging out of ``widget_config``. Everything else on the model mirrors
 # ``WIDGET_SCHEMA_KEYS``.
 _BASE_INPUT_KEYS: frozenset[str] = frozenset(

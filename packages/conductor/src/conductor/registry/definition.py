@@ -4,7 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
-from conductor.metadata import InputMetadata, OutputMetadata
+from conductor.metadata import Input, Output
 from conductor.types import NodeCategory, ResultFormat
 
 
@@ -70,8 +70,8 @@ class NodeDefinition:
     description: str
     tags: tuple[str, ...] = field(default_factory=tuple)
     category: NodeCategory = NodeCategory.IO
-    inputs: tuple[InputMetadata, ...] = field(default_factory=tuple)
-    outputs: tuple[OutputMetadata, ...] = field(default_factory=tuple)
+    inputs: tuple[Input, ...] = field(default_factory=tuple)
+    outputs: tuple[Output, ...] = field(default_factory=tuple)
     result_format: ResultFormat = ResultFormat.SINGLE
     validation_model: type | None = None
     func: Callable[..., Any] | None = None
@@ -97,13 +97,13 @@ class NodeDefinition:
     dynamic_handles: bool = False
     # Optional hook that re-derives output metadata from instance ``data``
     # and resolved upstream outputs at compile time. Signature:
-    # ``(ComputeOutputsContext) -> list[OutputMetadata]``. ``None`` means
+    # ``(ComputeOutputsContext) -> list[Output]``. ``None`` means
     # use the statically declared ``outputs`` unchanged. See
     # ``conductor.registry.dynamic_outputs`` for the context types.
     compute_outputs: Callable[..., Any] | None = None
     # Optional hook that re-derives input metadata from instance ``data`` at
     # compile time. Signature:
-    # ``(ComputeInputsContext) -> list[InputMetadata]``. ``None`` means use
+    # ``(ComputeInputsContext) -> list[Input]``. ``None`` means use
     # the statically declared ``inputs`` unchanged. Unlike
     # ``compute_outputs`` it receives no upstream bindings — the target
     # handles it declares are what a binding would be keyed by, so reading

@@ -38,7 +38,7 @@ from conductor.execution.results import extract_output, filter_skipped, normaliz
 from conductor.graph.regions import discover_for_each_regions
 
 if TYPE_CHECKING:
-    from conductor.metadata import OutputMetadata
+    from conductor.metadata import Output
     from conductor.registry.dynamic_outputs import ComputeOutputsContext
 
 MAX_ITERATIONS = 1000
@@ -486,7 +486,7 @@ def _is_end_input_edge(target_handle: str) -> bool:
 
 def compute_for_each_end_outputs(
     ctx: "ComputeOutputsContext",
-) -> "list[OutputMetadata]":
+) -> "list[Output]":
     """Default ``compute_outputs`` hook for ``for-each-end``.
 
     Types each collected slot as ``list[<inner>]`` where ``<inner>`` is the
@@ -507,7 +507,7 @@ def compute_for_each_end_outputs(
 
     Returns ``ctx.defaults`` unchanged when nothing is wired into the end.
     """
-    from conductor.metadata import OutputMetadata
+    from conductor.metadata import Output
     from conductor.registry.dynamic_outputs import strip_sub_output_prefix
 
     seen: set[EndSlotKey] = set()
@@ -524,7 +524,7 @@ def compute_for_each_end_outputs(
     if not bindings:
         return list(ctx.defaults)
 
-    outputs: list[OutputMetadata] = []
+    outputs: list[Output] = []
     for idx, binding in enumerate(bindings):
         source_type = binding.source_output.type_str or "any"
         if source_type.startswith("list[") and source_type.endswith("]"):
@@ -533,7 +533,7 @@ def compute_for_each_end_outputs(
             inner = source_type
         source_label = binding.source_output.label or binding.source_handle
         outputs.append(
-            OutputMetadata(
+            Output(
                 name=f"output_{idx + 1}",
                 type_str=f"list[{inner}]",
                 label=strip_sub_output_prefix(source_label),
