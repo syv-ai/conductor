@@ -1,8 +1,9 @@
 from typing import Annotated, ClassVar
 
 import pytest
+from conductor import NodeRegistry
 from conductor.dtype import DType
-from conductor.node import Deprecation, NodeDefinition, deprecated
+from conductor.node import Deprecation, NodeDefinition, Policy, deprecated, version
 from conductor.returns import Result
 from conductor.widgets import Textarea
 
@@ -161,6 +162,191 @@ def test_a_bare_deprecated_means_going_away_with_no_details_yet():
             return x
 
     assert Old.deprecation == Deprecation()
+
+
+
+
+def test_an_undecorated_run_is_version_one():
+    class Once(NodeDefinition):
+        id = "once"
+        title = "Once"
+        description = "d"
+        category = "test"
+
+        def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+            return x
+
+    assert set(Once.versions) == {1}
+    assert Once.current == 1
+    assert Once.versions[1].run.__name__ == "run"
+
+
+def test_versions_live_together_in_one_class():
+    class Two(NodeDefinition):
+        id = "two"
+        title = "Two"
+        description = "d"
+        category = "test"
+
+        @version(1)
+        def run_v1(self, old: Annotated[Txt, Textarea(title="Old")] = Txt("")) -> Out:
+            return old
+
+        @version(2)
+        def run(self, new: Annotated[Txt, Textarea(title="New")] = Txt("")) -> Out:
+            return new
+
+    assert set(Two.versions) == {1, 2}
+    assert Two.current == 2
+    assert [i.name for i in Two.versions[1].interface.inputs] == ["old"]
+    assert [i.name for i in Two.versions[2].interface.inputs] == ["new"]
+
+
+def test_the_current_version_is_the_one_called_run():
+    class Two(NodeDefinition):
+        id = "two-b"
+        title = "Two"
+        description = "d"
+        category = "test"
+
+        @version(1)
+        def run_v1(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+            return x
+
+        @version(2)
+        def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+            return Txt(x.upper())
+
+    assert Two.versions[Two.current].run.__name__ == "run"
+
+
+def test_a_version_with_no_policy_gets_the_default():
+    class Plain(NodeDefinition):
+        id = "plain-policy"
+        title = "Plain"
+        description = "d"
+        category = "test"
+
+        def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+            return x
+
+    assert Plain.versions[1].policy == Policy()
+    assert Plain.versions[1].policy.retries == 0
+    assert Plain.versions[1].policy.concurrency == 8
+
+
+def test_policy_is_declared_per_version():
+    class Fetch(NodeDefinition):
+        id = "fetch"
+        title = "Fetch"
+        description = "d"
+        category = "test"
+
+        @version(1, policy=Policy(retries=3, delay=1.0))
+        def run_v1(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+            return x
+
+        @version(2, policy=Policy(timeout=30.0, concurrency=1))
+        def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+            return x
+
+    assert Fetch.versions[1].policy.retries == 3
+    assert Fetch.versions[2].policy.retries == 0
+    assert Fetch.versions[2].policy.timeout == 30.0
+    assert Fetch.versions[2].policy.concurrency == 1
+
+
+def test_a_gap_in_the_versions_is_the_catalogs_rule_not_the_classs():
+    """Defining {1, 3} is legal — a loaded definition (an embedded flow whose
+    approved versions skip one) is whole as it is. Registering it is not:
+    the catalog promises every version up to the current one."""
+
+    class Gapped(NodeDefinition):
+        id = "gapped"
+        title = "Gapped"
+        description = "d"
+        category = "test"
+
+        @version(1)
+        def run_v1(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+            return x
+
+        @version(3)
+        def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+            return x
+
+    assert set(Gapped.versions) == {1, 3}
+
+    with pytest.raises(ValueError, match="numbers from 1 with no hole"):
+        NodeRegistry().register(Gapped)
+
+
+def test_two_methods_claiming_one_version_are_refused():
+    with pytest.raises(TypeError, match="version 1"):
+
+        class Twice(NodeDefinition):
+            id = "twice"
+            title = "Twice"
+            description = "d"
+            category = "test"
+
+            @version(1)
+            def run_a(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+                return x
+
+            @version(1)
+            def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+                return x
+
+
+def test_a_version_record_does_not_restate_its_number():
+    import dataclasses
+
+    from conductor.node import GraphVersion, NodeVersion
+
+    assert [f.name for f in dataclasses.fields(NodeVersion)] == ["run", "interface", "policy", "deprecation"]
+    assert [f.name for f in dataclasses.fields(GraphVersion)] == ["graph", "interface"]
+
+
+def test_a_version_may_be_deprecated_on_its_own():
+    """Where the decorator sits is the scope. On a run method the
+    notice rides on that NodeVersion, beside its signature and policy —
+    a per-version fact filed with the version, not keyed by its number on
+    the class."""
+
+    class Two(NodeDefinition):
+        id = "two-dep"
+        title = "Two"
+        description = "d"
+        category = "test"
+
+        @deprecated(header="Use v2", migration="The field 'old' is now 'new'.")
+        @version(1)
+        def run_v1(self, old: Annotated[Txt, Textarea(title="Old")] = Txt("")) -> Out:
+            return old
+
+        @version(2)
+        def run(self, new: Annotated[Txt, Textarea(title="New")] = Txt("")) -> Out:
+            return new
+
+    assert Two.versions[1].deprecation == Deprecation(header="Use v2", migration="The field 'old' is now 'new'.")
+    assert Two.versions[2].deprecation is None
+    assert Two.deprecation is None
+    assert Two.current == 2, "deprecation never moves which version runs"
+
+
+def test_an_undecorated_run_may_carry_a_deprecation():
+    class Once(NodeDefinition):
+        id = "once-dep"
+        title = "Once"
+        description = "d"
+        category = "test"
+
+        @deprecated()
+        def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+            return x
+
+    assert Once.versions[1].deprecation == Deprecation()
 
 
 

@@ -40,11 +40,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, ClassVar
 
+from conductor.interface import Interface
 from conductor.metadata import Input, Output
 from conductor.types import NodeCategory
 
 if TYPE_CHECKING:
     from conductor.dtype import DType
+    from conductor.graph.model import GraphNode
 
 
 class Refuses(Exception):
@@ -108,6 +110,130 @@ def deprecated(
         return target
 
     return decorate
+
+@dataclass(frozen=True)
+class Policy:
+    """How the engine runs one version of a node: retries, timeout, concurrency.
+
+    Written by the node author on the version, ``@version(2, policy=Policy(retries=3))``,
+    and read only by the engine; a person placing the node never sees it.
+    Worth setting for work that can fail transiently or hang, such as a
+    network call. Retrying a pure computation only repeats the same failure.
+    """
+
+    #: How many times to re-run after a failure. 0 means run once.
+    retries: int = 0
+
+    #: Seconds between attempts. Ignored when ``retries`` is 0.
+    delay: float = 1.0
+
+    #: Seconds after which the engine abandons the node and fails it.
+    #: ``None`` means the run's own timeout is the only limit.
+    timeout: float | None = None
+
+    #: How many rows may run at once when the node runs once per row of a
+    #: series. ``1`` means one after another. The engine has no other cap.
+    concurrency: int = 8
+
+
+@dataclass(frozen=True)
+class NodeVersion:
+    """One declared version of a node: its ``run``, ``Interface``, ``Policy`` and notice.
+
+    Built by ``__init_subclass__`` from each method marked ``@version`` (an
+    undecorated ``run`` is version 1) and kept in ``NodeDefinition.versions``
+    keyed by number, which is why there is no ``number`` field here.
+    ``interface`` is derived from ``run``'s signature by ``Interface.of``.
+    Read by the registry's numbering check, by the compiler when a
+    placement pins a version, and by the engine, which calls ``run`` under
+    ``policy``. A version whose body is a graph rather than a ``run`` is a
+    ``GraphVersion``.
+    """
+
+    run: Callable[..., Any]
+    interface: Interface
+    policy: Policy
+    #: This version's own notice, from ``@deprecated`` on its run method;
+    #: ``None`` means it is not going away.
+    deprecation: Deprecation | None = None
+
+
+@dataclass(frozen=True)
+class GraphVersion:
+    """One version of a definition whose body is a graph rather than a ``run``.
+
+    A host builds one from data — an embedded flow's approved version,
+    say. ``interface`` is that flow's interface (inputs named by address,
+    ``returns`` a ``Mapping``) and ``graph`` the placements the compiler
+    expands under the placing node's name, so the inner nodes run as
+    nodes of the outer flow. Nothing runs it as one unit: ``runner_for``
+    refuses it and it carries no policy. A sibling of ``NodeVersion``
+    rather than an optional field on it, so neither record can be
+    half-filled.
+    """
+
+    #: The placements this version expands to. Wiring lives in their
+    #: bindings, so the nodes are the whole graph.
+    graph: tuple[GraphNode, ...]
+    interface: Interface
+
+
+def version(
+    number: int, *, policy: Policy | None = None
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Mark a method as one version of this node's ``run``.
+
+    The current version is the method named ``run``; older ones keep any
+    name that reads well, conventionally ``run_v1``. The signature and the
+    policy both belong to the version. A node with a single version needs
+    no decorator.
+
+    This only marks the method; ``__init_subclass__`` builds a
+    ``NodeVersion`` per marked method.
+    """
+
+    def decorate(method: Callable[..., Any]) -> Callable[..., Any]:
+        method.__node_version__ = number
+        method.__node_policy__ = policy or Policy()
+        return method
+
+    return decorate
+
+def upgrade(
+    from_version: int, to_version: int
+) -> Callable[[Callable[..., Any]], staticmethod]:
+    """Mark a function as the value rewrite from ``from_version`` to ``to_version``.
+
+    It takes the values saved against the old version and returns the
+    values the new one expects. A ``staticmethod``, because it rewrites
+    data and has no instance to consult::
+
+        @upgrade(1, 2)
+        def _split_name(values: dict) -> dict:
+            first, _, last = values["name"].partition(" ")
+            return {**values, "first": first, "last": last}
+    """
+
+    def decorate(func: Callable[..., Any]) -> staticmethod:
+        func.__node_upgrade__ = (from_version, to_version)
+        return staticmethod(func)
+
+    return decorate
+
+
+def upgrade_methods(cls: type) -> dict[tuple[int, int], Callable[..., Any]]:
+    """Every value rewrite this class declares, keyed by the step it spans."""
+    found: dict[tuple[int, int], Callable[..., Any]] = {}
+    for klass in reversed(cls.__mro__):
+        for name in vars(klass):
+            # `getattr`, not `vars()[name]`: a `staticmethod` descriptor does
+            # not forward attribute lookups to the function it wraps, so the
+            # marker is invisible from the outside.
+            fn = getattr(cls, name, None)
+            step = getattr(fn, "__node_upgrade__", None)
+            if step is not None:
+                found[step] = fn
+    return found
 
 class NodeDefinition(ABC):
     """Base class for every node.
@@ -238,6 +364,55 @@ class NodeDefinition(ABC):
         """
         return declared
 
+def _derive_versions(cls: type) -> None:
+    """Collect every version this class declares into ``cls.versions``.
+
+    Reads ``vars()`` of the class and its bases rather than ``dir()``, so an
+    inherited version is found once and an override replaces it.
+    """
+    methods: dict[int, Callable[..., Any]] = {}
+    policies: dict[int, Policy] = {}
+
+    for klass in reversed(cls.__mro__):
+        # One class body at a time, so "two methods claim this version" is
+        # judged *within* a class. Across the MRO a later entry is a
+        # subclass overriding a version its base declared.
+        claimed: dict[int, Callable[..., Any]] = {}
+        for attr in vars(klass).values():
+            fn = attr.__func__ if isinstance(attr, staticmethod) else attr
+            number = getattr(fn, "__node_version__", None)
+            if number is None:
+                continue
+            if number in claimed:
+                raise TypeError(
+                    f"{cls.__name__}: two methods claim version {number}. "
+                    "Each version is one signature."
+                )
+            claimed[number] = fn
+        for number, fn in claimed.items():
+            methods[number] = fn
+            policies[number] = fn.__node_policy__
+
+    if not methods:
+        # An undecorated `run` is version 1 with the default policy.
+        methods[1] = cls.run
+        policies[1] = Policy()
+
+    # No contiguity check here: numbering from 1 with no holes is the
+    # registry's rule and lives in ``register()``. A definition a host
+    # loads from data may legitimately carry only the versions {1, 3}.
+
+    cls.versions = {
+        n: NodeVersion(
+            run=fn,
+            interface=Interface.of(fn),
+            policy=policies[n],
+            # ``@deprecated`` on a run method stamps the marker.
+            deprecation=getattr(fn, "__node_deprecation__", None),
+        )
+        for n, fn in methods.items()
+    }
+    cls.current = max(methods)
 
 class BaseNode(ABC):
     """The old class-based contract. Deleted with the decorator at the end of this plan."""
