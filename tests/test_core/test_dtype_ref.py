@@ -54,5 +54,3 @@ def test_a_dtype_ref_has_a_json_schema():
     assert wire["type"] == "object"
     assert wire["properties"]["id"] == {"type": "string"}
     assert "of" in wire["properties"]
-
-
