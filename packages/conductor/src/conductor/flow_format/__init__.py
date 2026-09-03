@@ -28,7 +28,6 @@ The shape::
         type: stripe-charge@1
         data: {amount: 1000}
         compensation: refund
-        actor: {kind: system, role: stripe}
       - id: refund
         type: stripe-refund@1
     edges:

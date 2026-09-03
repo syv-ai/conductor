@@ -172,12 +172,7 @@ def compile(
     #     ``resolve_graph_outputs`` is its other caller, so the two can
     #     never diverge. ``order`` here honours consume dependencies too
     #     (a superset constraint; resolution reads drawn edges only).
-    node_outputs = _resolve_in_order(
-        order=order,
-        node_map=node_map,
-        incoming_map=incoming_map,
-        lookup=registry,
-    )
+    node_outputs = _resolve_in_order(order=order, node_map=node_map, lookup=registry)
 
     # 8c. Re-validate producer handles against resolved outputs — a
     #     ``compute_outputs`` hook may legitimately introduce a handle that

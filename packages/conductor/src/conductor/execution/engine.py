@@ -949,7 +949,7 @@ def _filter_to_signature(func: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
     here so they behave identically.
 
     A function that declares ``**kwargs`` (``VAR_KEYWORD``) accepts any key,
-    so nothing is filtered — this preserves ``dynamic_handles`` nodes that
+    so nothing is filtered — this preserves the nodes that
     legitimately receive extra wired handles.
     """
     try:

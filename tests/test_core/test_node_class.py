@@ -3,9 +3,11 @@ from typing import Annotated, ClassVar
 import pytest
 from conductor import NodeRegistry
 from conductor.dtype import DType
+from conductor.metadata import Output
 from conductor.node import Deprecation, NodeDefinition, Policy, deprecated, version
 from conductor.returns import Result
-from conductor.widgets import Choice, Dropdown, Textarea
+from conductor.series import Series
+from conductor.widgets import Choice, ConnectionList, Dropdown, Textarea
 
 
 class Txt(DType, str):
@@ -553,6 +555,133 @@ def test_the_flattened_record_is_gone():
 
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module("conductor.registry.definition")
+
+
+
+
+def test_a_node_shapes_its_own_outputs_from_its_values():
+    """The columns come from the value the node holds."""
+
+    class OpenSheet(NodeDefinition):
+        id = "open-sheet"
+        title = "Open sheet"
+        description = "Exposes a header row as outputs"
+        category = "test"
+
+        def run(self, header: Annotated[Txt, Textarea(title="Header")] = Txt("")) -> Out:
+            return header
+
+        def compute_outputs(self, declared, values, arriving):
+            return tuple(
+                Output(name=col, dtype=Txt, title=col)
+                for col in str(values.get("header", "")).split(",")
+                if col
+            )
+
+    declared = OpenSheet.versions[1].interface.outputs
+    outputs = OpenSheet().compute_outputs(declared, {"header": "name,email"}, {})
+    assert [o.name for o in outputs] == ["name", "email"]
+
+
+def test_a_node_shapes_its_own_inputs_from_its_values():
+    """A roster that depends on a value is the node's own answer."""
+
+    class Modes(NodeDefinition):
+        id = "modes"
+        title = "Modes"
+        description = "A second field only in one mode"
+        category = "test"
+
+        def run(
+            self,
+            mode: Annotated[Txt, Dropdown(title="Mode", choices=(Choice(id="a", title="A"), Choice(id="b", title="B")))] = Txt("a"),
+            extra: Annotated[Txt, Textarea(title="Extra")] = Txt(""),
+        ) -> Out:
+            return mode
+
+        def compute_inputs(self, declared, values):
+            if values.get("mode") == "b":
+                return declared
+            return tuple(i for i in declared if i.name != "extra")
+
+    declared = Modes.versions[1].interface.inputs
+    assert [i.name for i in Modes().compute_inputs(declared, {"mode": "a"})] == ["mode"]
+    assert [i.name for i in Modes().compute_inputs(declared, {"mode": "b"})] == ["mode", "extra"]
+
+
+def test_a_hook_shapes_the_version_the_placement_pins_not_the_newest():
+    """A fresh instance knows no version. The caller hands the hook the
+    declaration of the version it is asking about, so an old placement keeps
+    its old roster."""
+    from conductor.node import version
+
+    class Two(NodeDefinition):
+        id = "two-hook"
+        title = "Two"
+        description = "d"
+        category = "test"
+
+        @version(1)
+        def run_v1(self, old: Annotated[Txt, Textarea(title="Old")] = Txt("")) -> Out:
+            return old
+
+        @version(2)
+        def run(self, new: Annotated[Txt, Textarea(title="New")] = Txt("")) -> Out:
+            return new
+
+    pinned = Two.versions[1].interface.inputs
+    assert [i.name for i in Two().compute_inputs(pinned, {})] == ["old"]
+
+
+def test_a_node_with_no_shaping_declares_none():
+    """The default hooks answer with the declaration, so nothing branches."""
+
+    class Simple(NodeDefinition):
+        id = "simple"
+        title = "Simple"
+        description = "No shaping"
+        category = "test"
+
+        def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+            return x
+
+    current = Simple.versions[Simple.current].interface
+    assert Simple().compute_inputs(current.inputs, {}) == current.inputs
+    assert Simple().compute_outputs(current.outputs, {}, {}) == current.outputs
+
+
+def test_the_hook_contract_is_two_methods():
+    """A value's constraints are its dtype's constructor rules, and a
+    wiring problem is the compiler's — so a node has no `validate` and no
+    `Problem` channel of its own."""
+    assert not hasattr(NodeDefinition, "validate")
+
+
+def test_a_hook_that_cannot_answer_raises_refuses():
+    """`Refuses(code, message)` is the one refusal a roster hook has: the
+    host names the code and writes the sentence, and the compiler anchors both
+    as the placement's fatal `Problem` (the graph plans)."""
+    from conductor.node import Refuses
+
+    refusal = Refuses("wrong_shape", "What arrives does not fit.")
+    assert (refusal.code, refusal.message) == ("wrong_shape", "What arrives does not fit.")
+    assert isinstance(refusal, Exception)
+
+
+def test_a_reduction_declares_a_series_input():
+    """The dtype is the only thing that says 'do not broadcast me'."""
+
+    class Join(NodeDefinition):
+        id = "join"
+        title = "Join text"
+        description = "d"
+        category = "test"
+
+        def run(self, texts: Annotated[Series[Txt], ConnectionList(title="Texts")] = ()) -> Out:
+            return Txt("\n".join(texts))
+
+    (texts,) = Join.versions[1].interface.inputs
+    assert texts.dtype is Series[Txt]
 
 
 

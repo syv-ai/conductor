@@ -34,7 +34,6 @@ __all__ = [
 class NodeStartEvent(TypedDict, total=False):
     type: Literal["node_start"]
     node_id: str
-    idempotency_key: str
 
 
 class NodeCompleteEvent(TypedDict, total=False):
