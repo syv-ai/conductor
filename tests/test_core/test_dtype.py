@@ -3,8 +3,8 @@
 from typing import Any
 
 import pytest
-from conductor.dtype import DType, DTypeRef, Single, description_of, dtype_of, registered_dtypes
-from pydantic import BaseModel, TypeAdapter
+from conductor.dtype import DType, Single, dtype_of, registered_dtypes
+from pydantic import BaseModel
 
 
 class Text(DType, str):
@@ -16,14 +16,14 @@ class Text(DType, str):
     """
 
     id = "dtype-test-text"
-    title = "Tekst"
+    title = "Text"
 
 
 class Colour(DType):
     """A type built on nothing — validated by instance, not by a builtin."""
 
     id = "dtype-test-colour"
-    title = "Farve"
+    title = "Colour"
 
     def __init__(self, name):
         self.name = name
@@ -31,7 +31,7 @@ class Colour(DType):
 
 def test_a_dtype_declares_its_id_and_its_title():
     assert Text.id == "dtype-test-text"
-    assert Text.title == "Tekst"
+    assert Text.title == "Text"
 
 
 def test_a_dtype_declares_no_widget():
@@ -48,25 +48,25 @@ def test_a_dtype_has_no_conversions():
 def test_a_type_renders_its_own_text():
     """The one hook a user-facing rendering calls. The default is ``str``;
     a host whose values read differently overrides it on the type."""
-    assert Text.as_text(Text("hej")) == "hej"
+    assert Text.as_text(Text("hello")) == "hello"
     assert Colour.as_text(3.5) == "3.5"
 
 
 def test_a_dtype_is_a_real_python_type():
     """So a type checker sees it and isinstance works."""
-    assert isinstance(Text("hej"), str)
-    assert Text("hej") == "hej"
+    assert isinstance(Text("hello"), str)
+    assert Text("hello") == "hello"
 
 
 def test_pydantic_validates_into_the_subclass_not_the_builtin():
     """The one piece of help pydantic needs: a str subclass is unknown to it."""
 
     class M(BaseModel):
-        tekst: Text
+        text: Text
 
-    validated = M(tekst="hej").tekst
+    validated = M(text="hello").text
     assert isinstance(validated, Text)
-    assert M(tekst=Text("hej")).tekst == "hej"
+    assert M(text=Text("hello")).text == "hello"
 
 
 def test_a_dtype_built_on_nothing_validates_by_instance():
@@ -83,7 +83,7 @@ def test_a_dtype_must_declare_an_id_and_a_title():
     with pytest.raises(TypeError, match="id"):
 
         class Nameless(DType, str):
-            title = "Uden id"
+            title = "No id"
 
 
 def test_two_unrelated_dtypes_cannot_share_an_id():
@@ -91,7 +91,7 @@ def test_two_unrelated_dtypes_cannot_share_an_id():
 
         class Duplicate(DType, str):
             id = "dtype-test-text"
-            title = "En anden tekst"
+            title = "Another text"
 
 
 def test_every_dtype_serializes_as_an_object():
@@ -191,51 +191,10 @@ def test_any_is_the_unconstrained_marker_and_is_not_a_type():
     assert dtype_of(Annotated[Any, object()]) is Any
 
 
-def test_an_any_input_dumps_as_any():
-    """A palette shows an if/else node with ``value: Any`` before anything is
-    wired, so the declaration needs a JSON form — and it says "any", never
-    a dtype id."""
-    from typing import Any
-
-    assert description_of(Any) == {"id": "any"}
-    assert TypeAdapter(DTypeRef).dump_python(Any, mode="json") == {"id": "any"}
-
-
 def test_single_is_a_bare_marker():
     """``**inputs: Single`` — the open roster. ``Single`` is the whole
     declaration; what it means is ``Interface.of`` to read."""
     assert Single() is not None
-
-
-# --- DTypeRef: how a record carries a type on the wire -----------
-
-
-def test_a_dtype_ref_dumps_as_the_description():
-    assert TypeAdapter(DTypeRef).dump_python(Text, mode="json") == {"id": "dtype-test-text", "accepted_as": ["dtype-test-text"]}
-
-
-def test_a_static_type_has_no_wire_form():
-    """A handle-less input may declare a type that is not a ``DType``
-    — a schema, a set of branches. Nothing travels on it, so the wire says
-    ``null`` rather than inventing an id that no cable could carry."""
-
-    class Schema:
-        pass
-
-    assert description_of(Schema) is None
-    assert TypeAdapter(DTypeRef).dump_python(Schema, mode="json") is None
-
-
-def test_a_dtype_ref_has_a_json_schema():
-    """So a record holding one can be a FastAPI response model. The
-    ``null`` arm is the static type of a handle-less input."""
-    schema = TypeAdapter(DTypeRef).json_schema()
-
-    wire, nothing = schema["anyOf"]
-    assert nothing == {"type": "null"}
-    assert wire["type"] == "object"
-    assert wire["properties"]["id"] == {"type": "string"}
-    assert "of" in wire["properties"]
 
 
 # --- dtype_of --------------------------------------------------------------

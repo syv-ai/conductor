@@ -41,8 +41,6 @@ from typing import Any
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema, core_schema
 
-__all__ = ["Ref"]
-
 
 class Ref(str):
     """The address ``"<node id>.<field name>"`` of one field on one node.

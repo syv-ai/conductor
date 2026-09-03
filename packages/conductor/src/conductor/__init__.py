@@ -16,7 +16,8 @@ from conductor.compound import (
     compute_for_each_end_outputs,
 )
 from conductor.compound.subprocess import SubprocessRegistry
-from conductor.dtype import DType, DTypeRef, Single, dtype_of, registered_dtypes
+from conductor.dtype import DType, Single, dtype_of, registered_dtypes
+from conductor.dtype_ref import DTypeRef
 from conductor.errors import (
     CompilationError,
     ConductorError,

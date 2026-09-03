@@ -13,15 +13,8 @@ palette is simply these records dumped.
 from dataclasses import dataclass, field
 from typing import Any
 
-from conductor.dtype import DTypeRef
+from conductor.dtype_ref import DTypeRef
 from conductor.types import WidgetType
-
-__all__ = [
-    "Field",
-    "Output",
-    "InputMetadata",
-    "OutputMetadata",
-]
 
 
 @dataclass(frozen=True, kw_only=True)

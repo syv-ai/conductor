@@ -13,7 +13,7 @@ class Text(DType, str):
 
 class Num(DType, float):
     id = "series-test-num"
-    title = "Tal"
+    title = "Number"
 
 
 # --- a series reads as its values -----------------------------------------
@@ -179,10 +179,10 @@ def test_a_parameterised_series_does_not_re_register_its_id():
 
 def test_pydantic_validates_the_elements_and_keeps_the_index():
     class M(BaseModel):
-        kilder: Series[Text]
+        sources: Series[Text]
 
     docs = Index("docs")
-    validated = M(kilder=Series[Text](docs, ["hej"], rows=((3,),))).kilder
+    validated = M(sources=Series[Text](docs, ["hello"], rows=((3,),))).sources
 
     assert isinstance(validated[0], Text)
     assert validated.index == docs
@@ -191,9 +191,9 @@ def test_pydantic_validates_the_elements_and_keeps_the_index():
 
 def test_a_plain_sequence_validates_into_a_series_on_a_fresh_root():
     class M(BaseModel):
-        kilder: Series[Text]
+        sources: Series[Text]
 
-    validated = M(kilder=["a", "b"]).kilder
+    validated = M(sources=["a", "b"]).sources
 
     assert list(validated) == ["a", "b"]
     assert validated.index.parent is None
@@ -203,20 +203,20 @@ def test_a_scalar_is_not_silently_wrapped_into_a_series():
     """A caller sending the wrong shape hears about it."""
 
     class M(BaseModel):
-        kilder: Series[Text]
+        sources: Series[Text]
 
     with pytest.raises(Exception):
-        M(kilder="not a series")
+        M(sources="not a series")
 
 
 def test_a_bad_element_fails_validation_naming_the_field():
     class M(BaseModel):
-        kilder: Series[Text]
+        sources: Series[Text]
 
     with pytest.raises(Exception) as exc:
-        M(kilder=Series[Text](Index("docs"), [object()]))
+        M(sources=Series[Text](Index("docs"), [object()]))
 
-    assert "kilder" in str(exc.value)
+    assert "sources" in str(exc.value)
 
 
 def test_a_series_dumps_with_its_index_and_rows():

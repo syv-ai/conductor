@@ -30,12 +30,13 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 from uuid import uuid4
 
 from pydantic_core import core_schema
 
-from conductor.dtype import DType, description_of
+from conductor.dtype import DType
+from conductor.dtype_ref import description_of
 
 #: The element type, for the ``Sequence`` protocol: ``Series[Text]`` yields ``Text``.
 T = TypeVar("T")
@@ -46,9 +47,6 @@ if TYPE_CHECKING:
 #: A row's position on its index, as a path: ``(i,)`` on a root index,
 #: ``(i, j)`` for the j-th row born under parent row ``(i,)``.
 Row = tuple[int, ...]
-
-__all__ = ["Index", "Row", "Series"]
-
 
 @dataclass(frozen=True, slots=True, eq=False)
 class Index:
@@ -89,10 +87,6 @@ class Index:
         return 1 if self.parent is None else self.parent.depth + 1
 
 
-#: One subclass per element type, built once, so ``Series[Text] is Series[Text]``.
-_PARAMETERISED: dict[Any, type["Series[Any]"]] = {}
-
-
 class Series(DType, Sequence[T]):
     """Many values of one type on one index, read as a sequence of the values.
 
@@ -114,20 +108,23 @@ class Series(DType, Sequence[T]):
 
     __slots__ = ("index", "rows", "values")
 
+    #: One subclass per element type, built once, so ``Series[Text] is Series[Text]``.
+    _parameterised: ClassVar[dict[Any, type["Series[Any]"]]] = {}
+
     def __class_getitem__(cls, item: Any) -> type["Series[Any]"]:
         if getattr(item, "element", None) is not None:
             raise TypeError(
                 "Series[Series[...]] does not exist — a nested structure is a "
                 "Table cell, opened one level by a node"
             )
-        made = _PARAMETERISED.get(item)
+        made = Series._parameterised.get(item)
         if made is None:
             made = type(
                 f"Series[{getattr(item, '__name__', item)}]",
                 (cls,),
                 {"element": item, "__slots__": ()},
             )
-            _PARAMETERISED[item] = made
+            Series._parameterised[item] = made
         return made
 
     def __init__(
@@ -238,7 +235,7 @@ class Series(DType, Sequence[T]):
             validate,
             core_schema.list_schema(element_schema),
             serialization=core_schema.plain_serializer_function_ser_schema(
-                _wire,
+                Series._as_wire,
                 # Values serialise through the element type's own schema.
                 return_schema=core_schema.typed_dict_schema({
                     "index": core_schema.typed_dict_field(core_schema.any_schema()),
@@ -247,50 +244,48 @@ class Series(DType, Sequence[T]):
                 }),
                 when_used="json",
             ),
-            metadata={"pydantic_js_functions": [lambda _s, _h: _SERIES_WIRE_SCHEMA]},
+            metadata={"pydantic_js_functions": [lambda _s, _h: cls._WIRE_SCHEMA]},
         )
 
+    def _as_wire(self) -> dict[str, Any]:
+        """The JSON form of a series: ``{"index": {...}, "rows": [...], "values": [...]}``.
 
-def _wire(series: "Series[Any]") -> dict[str, Any]:
-    """The JSON form of a series: ``{"index": {...}, "rows": [...], "values": [...]}``.
+        The index travels whole (id and parent chain), so a consumer can
+        tell which series share one and which rows belong to which parent.
+        """
+        return {
+            "index": Series._index_as_wire(self.index),
+            "rows": [list(row) for row in self.rows],
+            "values": list(self.values),
+        }
 
-    The index travels whole (id and parent chain), so a consumer can tell
-    which series share one and which rows belong to which parent.
-    """
-    return {
-        "index": _index_wire(series.index),
-        "rows": [list(row) for row in series.rows],
-        "values": list(series.values),
-    }
+    @staticmethod
+    def _index_as_wire(index: Index) -> dict[str, Any]:
+        return {
+            "id": index.id,
+            "parent": None if index.parent is None else Series._index_as_wire(index.parent),
+        }
 
-
-def _index_wire(index: Index) -> dict[str, Any]:
-    return {
-        "id": index.id,
-        "parent": None if index.parent is None else _index_wire(index.parent),
-    }
-
-
-#: The JSON schema of an index. ``parent`` has this same shape, as deep as
-#: the lineage goes; it is published as a plain object because a schema
-#: built inside a pydantic schema function cannot reference itself.
-_INDEX_WIRE_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "id": {"type": "string"},
-        "parent": {
-            "anyOf": [{"type": "object"}, {"type": "null"}],
-            "description": "The parent index, in this same shape; null for a root.",
+    #: The JSON schema of an index. ``parent`` has this same shape, as deep
+    #: as the lineage goes; it is published as a plain object because a
+    #: schema built inside a pydantic schema function cannot reference itself.
+    _INDEX_WIRE_SCHEMA: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {
+            "id": {"type": "string"},
+            "parent": {
+                "anyOf": [{"type": "object"}, {"type": "null"}],
+                "description": "The parent index, in this same shape; null for a root.",
+            },
         },
-    },
-    "required": ["id", "parent"],
-}
-_SERIES_WIRE_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "index": _INDEX_WIRE_SCHEMA,
-        "rows": {"type": "array", "items": {"type": "array", "items": {"type": "integer"}}},
-        "values": {"type": "array"},
-    },
-    "required": ["index", "rows", "values"],
-}
+        "required": ["id", "parent"],
+    }
+    _WIRE_SCHEMA: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {
+            "index": _INDEX_WIRE_SCHEMA,
+            "rows": {"type": "array", "items": {"type": "array", "items": {"type": "integer"}}},
+            "values": {"type": "array"},
+        },
+        "required": ["index", "rows", "values"],
+    }

@@ -14,7 +14,7 @@ from pydantic import TypeAdapter
 
 class Text(DType, str):
     id = "returns-test-text"
-    title = "Tekst"
+    title = "Text"
 
 
 def test_an_output_is_a_field_and_adds_one_contract_fact():
@@ -101,13 +101,13 @@ def test_the_record_publishes_a_json_schema():
 
 class Num(DType, float):
     id = "returns-test-num"
-    title = "Tal"
+    title = "Number"
 
 
 @dataclasses.dataclass(frozen=True)
 class Pair:
-    text: Annotated[Text, Result(title="Tekst")]
-    number: Annotated[Num, Result(title="Tal")]
+    text: Annotated[Text, Result(title="Text")]
+    number: Annotated[Num, Result(title="Number")]
 
 
 def test_a_dtype_return_declares_one_output_named_result():
@@ -129,7 +129,7 @@ def test_a_record_return_declares_one_output_per_field_named_by_the_field():
     returns, outputs = outputs_of(Pair)
 
     assert returns is Pair
-    assert [(o.name, o.title, o.dtype) for o in outputs] == [("text", "Tekst", Text), ("number", "Tal", Num)]
+    assert [(o.name, o.title, o.dtype) for o in outputs] == [("text", "Text", Text), ("number", "Number", Num)]
 
 
 def test_a_record_field_declares_its_choice():
@@ -172,7 +172,7 @@ def test_a_return_that_is_none_of_the_three_is_refused():
 def test_unpack_puts_a_dtype_return_on_its_one_output():
     _, outputs = outputs_of(Annotated[Text, Result(title="R")])
 
-    assert unpack(Text, "hej", outputs) == {"result": "hej"}
+    assert unpack(Text, "hello", outputs) == {"result": "hello"}
 
 
 def test_unpack_reads_a_record_by_field():
@@ -190,11 +190,11 @@ def test_unpack_refuses_a_value_that_is_not_the_record():
 
 
 def test_unpack_reads_a_mapping_against_the_roster():
-    roster = (Output(name="navn", dtype=Text, title="Navn"), Output(name="alder", dtype=Num, title="Alder"))
+    roster = (Output(name="name", dtype=Text, title="Name"), Output(name="age", dtype=Num, title="Age"))
 
-    assert unpack(Mapping, {"navn": "Ida", "alder": 3}, roster) == {"navn": "Ida", "alder": 3}
+    assert unpack(Mapping, {"name": "Ida", "age": 3}, roster) == {"name": "Ida", "age": 3}
     with pytest.raises(ValueError, match="exactly the outputs"):
-        unpack(Mapping, {"navn": "Ida"}, roster)
+        unpack(Mapping, {"name": "Ida"}, roster)
 
 
 def test_nothing_is_positional():

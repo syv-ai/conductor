@@ -18,15 +18,12 @@ without parsing the message.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Mapping
-from dataclasses import dataclass
-from dataclasses import field as dataclass_field
 from typing import Any
 
-__all__ = ["Problem"]
 
-
-@dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class Problem:
     """One thing wrong with a graph.
 
@@ -67,5 +64,6 @@ class Problem:
     field: str | None = None
 
     #: What the message was formatted from, under stable keys. Empty when
-    #: the message names nothing beyond the anchor.
-    details: Mapping[str, Any] = dataclass_field(default_factory=dict)
+    #: the message names nothing beyond the anchor. (``dataclasses.field``
+    #: by its module name: this record's own ``field`` shadows it here.)
+    details: Mapping[str, Any] = dataclasses.field(default_factory=dict)

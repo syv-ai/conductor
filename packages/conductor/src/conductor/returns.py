@@ -37,8 +37,6 @@ from typing import Annotated, Any, get_args, get_origin, get_type_hints
 from conductor.dtype import DType, dtype_of
 from conductor.metadata import Output
 
-__all__ = ["Result", "outputs_of", "unpack"]
-
 RESULT_KEY = "result"
 
 
@@ -62,6 +60,17 @@ class Result:
     description: str | None = None
     choice: str | None = None
 
+    @classmethod
+    def on(cls, hint: Any) -> Result | None:
+        """The ``Result`` written on ``hint``, or ``None`` if it carries none."""
+        if get_origin(hint) is not Annotated:
+            return None
+        return next((extra for extra in get_args(hint)[1:] if isinstance(extra, cls)), None)
+
+    def output(self, name: str, dtype: Any) -> Output:
+        """The ``Output`` this declares for the field ``name`` of type ``dtype``."""
+        return Output(name=name, dtype=dtype, title=self.title, description=self.description, choice=self.choice)
+
 
 def outputs_of(return_hint: Any) -> tuple[Any, tuple[Output, ...]]:
     """Read ``run``'s return annotation: the declared type, and the outputs it declares.
@@ -77,21 +86,21 @@ def outputs_of(return_hint: Any) -> tuple[Any, tuple[Output, ...]]:
     declared = get_args(return_hint)[0] if get_origin(return_hint) is Annotated else return_hint
     dtype = dtype_of(declared)
     if dtype is not None:
-        result = _result_on(return_hint)
+        result = Result.on(return_hint)
         if result is None:
             raise TypeError("a one-output run() must be annotated Annotated[DType, Result(title=...)]")
-        return dtype, (_output(RESULT_KEY, dtype, result),)
+        return dtype, (result.output(RESULT_KEY, dtype),)
     if isinstance(declared, type) and is_dataclass(declared):
         hints = get_type_hints(declared, include_extras=True)
         outputs = []
         for field in fields(declared):
             hint = hints[field.name]
-            field_dtype, result = dtype_of(hint), _result_on(hint)
+            field_dtype, result = dtype_of(hint), Result.on(hint)
             if field_dtype is None or result is None:
                 raise TypeError(
                     f"{declared.__name__}.{field.name} must be Annotated[DType, Result(title=...)] — got {hint!r}"
                 )
-            outputs.append(_output(field.name, field_dtype, result))
+            outputs.append(result.output(field.name, field_dtype))
         return declared, tuple(outputs)
     if declared is Mapping or get_origin(declared) is Mapping:
         return Mapping, ()
@@ -120,15 +129,3 @@ def unpack(returns: Any, value: Any, outputs: tuple[Output, ...]) -> dict[str, A
     if not isinstance(value, returns):
         raise ValueError(f"run() must return a {returns.__name__} — got {value!r}")
     return {field.name: getattr(value, field.name) for field in fields(returns)}
-
-
-def _output(name: str, dtype: Any, result: Result) -> Output:
-    return Output(
-        name=name, dtype=dtype, title=result.title, description=result.description, choice=result.choice
-    )
-
-
-def _result_on(hint: Any) -> Result | None:
-    if get_origin(hint) is not Annotated:
-        return None
-    return next((extra for extra in get_args(hint)[1:] if isinstance(extra, Result)), None)
