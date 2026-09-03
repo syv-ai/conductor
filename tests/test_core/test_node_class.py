@@ -5,7 +5,7 @@ from conductor import NodeRegistry
 from conductor.dtype import DType
 from conductor.node import Deprecation, NodeDefinition, Policy, deprecated, version
 from conductor.returns import Result
-from conductor.widgets import Textarea
+from conductor.widgets import Choice, Dropdown, Textarea
 
 
 class Txt(DType, str):
@@ -347,6 +347,212 @@ def test_an_undecorated_run_may_carry_a_deprecation():
             return x
 
     assert Once.versions[1].deprecation == Deprecation()
+
+
+
+
+def test_the_registry_gives_back_the_class():
+    class Translate(NodeDefinition):
+        id = "translate"
+        title = "Translation"
+        description = "Translates text"
+        category = "test"
+
+        def run(
+            self,
+            text: Annotated[Txt, Textarea(title="Text")] = Txt(""),
+            language: Annotated[Txt, Dropdown(title="Language", choices=(Choice(id="da", title="Danish"), Choice(id="en", title="English")))] = Txt("da"),
+        ) -> Out:
+            return Txt(f"{language}:{text}")
+
+    registry = NodeRegistry()
+    registry.register(Translate)
+
+    assert registry.get("translate") is Translate
+
+
+def test_a_caller_asks_the_class_rather_than_a_copy_of_it():
+    """There is no record, so there is nothing to keep in step."""
+
+    class Translate(NodeDefinition):
+        id = "translate-2"
+        title = "Translation"
+        description = "d"
+        category = "test"
+
+        def run(
+            self,
+            text: Annotated[Txt, Textarea(title="Text")] = Txt(""),
+            language: Annotated[Txt, Dropdown(title="Language", choices=(Choice(id="da", title="Danish"), Choice(id="en", title="English")))] = Txt("da"),
+        ) -> Out:
+            return text
+
+    registry = NodeRegistry()
+    registry.register(Translate)
+    found = registry.get("translate-2")
+
+    assert found.title == "Translation"
+    iface = found.versions[1].interface
+    assert [i.name for i in iface.inputs] == ["text", "language"]
+    assert iface.inputs[0].show_handle is True
+
+
+def test_every_declared_version_is_registered():
+    class Two(NodeDefinition):
+        id = "two-reg"
+        title = "Two"
+        description = "d"
+        category = "test"
+
+        @version(1)
+        def run_v1(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+            return x
+
+        @version(2)
+        def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+            return x
+
+    registry = NodeRegistry()
+    registry.register(Two)
+
+    assert set(registry.get("two-reg").versions) == {1, 2}
+
+
+def test_the_registry_keys_on_the_id():
+    class Echo(NodeDefinition):
+        id = "echo-key"
+        title = "Echo"
+        description = "d"
+        category = "test"
+
+        def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+            return x
+
+    registry = NodeRegistry()
+    registry.register(Echo)
+
+    assert registry.contains("echo-key")
+    assert not registry.contains("echo-nothing")
+    assert registry.definitions() == (Echo,)
+
+
+def test_registering_the_same_id_twice_is_refused():
+    class A(NodeDefinition):
+        id = "dupe"
+        title = "A"
+        description = "d"
+        category = "test"
+
+        def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+            return x
+
+    class B(NodeDefinition):
+        id = "dupe"
+        title = "B"
+        description = "d"
+        category = "test"
+
+        def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+            return x
+
+    registry = NodeRegistry()
+    registry.register(A)
+    with pytest.raises(ValueError, match="dupe"):
+        registry.register(B)
+
+
+def test_a_registered_node_numbers_from_one():
+    class Late(NodeDefinition):
+        id = "late"
+        title = "Late"
+        description = "d"
+        category = "test"
+
+        @version(3)
+        def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+            return x
+
+    assert set(Late.versions) == {3}, "a class may declare any contiguous range"
+    with pytest.raises(ValueError, match="numbers from 1"):
+        NodeRegistry().register(Late)
+
+
+def test_registering_something_that_is_not_a_node_is_refused():
+    registry = NodeRegistry()
+    with pytest.raises(TypeError, match="NodeDefinition"):
+        registry.register(object)
+
+
+def test_the_current_version_may_not_retire_alone():
+    """A palette offering a version that announces its own death with
+    no newer one to move to is incoherent. The class carrying a notice too
+    is what makes it coherent."""
+
+    class Dying(NodeDefinition):
+        id = "dying"
+        title = "Dying"
+        description = "d"
+        category = "test"
+
+        @deprecated(header="Retired")
+        def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+            return x
+
+    with pytest.raises(ValueError, match="current"):
+        NodeRegistry().register(Dying)
+
+    @deprecated(header="Whole node retired")
+    class Retiring(NodeDefinition):
+        id = "retiring"
+        title = "Retiring"
+        description = "d"
+        category = "test"
+
+        @deprecated(header="Retired")
+        def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+            return x
+
+    NodeRegistry().register(Retiring)
+
+
+def test_an_alternative_names_a_node_in_the_same_catalog():
+    """An alternative resolved to nothing in the editor is a silent failure,
+    so the registry refuses it — which means the replacement is
+    registered before the node it replaces."""
+
+    class New(NodeDefinition):
+        id = "new-node"
+        title = "New"
+        description = "d"
+        category = "test"
+
+        def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+            return x
+
+    @deprecated(alternative="new-node")
+    class Old(NodeDefinition):
+        id = "old-node"
+        title = "Old"
+        description = "d"
+        category = "test"
+
+        def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+            return x
+
+    with pytest.raises(ValueError, match="new-node"):
+        NodeRegistry().register(Old)
+
+    registry = NodeRegistry()
+    registry.register(New)
+    registry.register(Old)
+    assert registry.get("old-node").deprecation.alternative == "new-node"
+
+
+def test_the_flattened_record_is_gone():
+    import importlib
+
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("conductor.registry.definition")
 
 
 

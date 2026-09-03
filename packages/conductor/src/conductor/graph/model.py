@@ -27,8 +27,11 @@ class GraphNode:
     """
 
     id: str
+    #: The registry id of the definition this placement is an instance of.
     type: str
-    data: dict[str, Any] | None
+    #: Which of the definition's versions the placement pins.
+    version: int = 1
+    data: dict[str, Any] | None = None
     produces: dict[str, str] | None = None
     consumes: dict[str, tuple[str, str]] | None = None
     compensation: str | None = None

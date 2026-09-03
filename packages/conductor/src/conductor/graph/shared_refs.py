@@ -90,7 +90,11 @@ def _validate_producers(
                 resolved = (
                     node_outputs.get(node.id) if node_outputs is not None else None
                 )
-                pool = resolved if resolved is not None else node_def.outputs
+                pool = (
+                    resolved
+                    if resolved is not None
+                    else node_def.versions[node.version].interface.outputs
+                )
                 known_outputs = {o.name for o in pool}
                 if output_handle not in known_outputs:
                     raise CompilationError(
@@ -155,7 +159,11 @@ def _validate_consumers_and_build_map(
                 resolved = (
                     node_inputs.get(node.id) if node_inputs is not None else None
                 )
-                pool = resolved if resolved is not None else node_def.inputs
+                pool = (
+                    resolved
+                    if resolved is not None
+                    else node_def.versions[node.version].interface.inputs
+                )
                 known_inputs = {i.name for i in pool}
                 if input_handle not in known_inputs:
                     raise CompilationError(

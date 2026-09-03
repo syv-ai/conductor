@@ -126,7 +126,9 @@ class InputResolver:
         roster = self._node_inputs.get(node.id) if self._node_inputs is not None else None
         if roster is None:
             node_def = self._registry.get(node.type)
-            roster = node_def.inputs if node_def is not None else ()
+            roster = (
+                node_def.versions[node.version].interface.inputs if node_def is not None else ()
+            )
         return next((inp for inp in roster if inp.name == name), None)
 
 

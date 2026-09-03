@@ -11,12 +11,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from conductor.errors import CompilationError
+from conductor.interface import model_of
 from conductor.metadata import Input
 from conductor.registry.dynamic_inputs import ComputeInputsContext
 
 if TYPE_CHECKING:
     from conductor.graph.model import GraphNode
-    from conductor.registry.definition import NodeDefinition
+    from conductor.node import NodeDefinition
 
 __all__ = ["resolve_node_inputs", "resolve_graph_inputs"]
 
@@ -24,7 +25,7 @@ __all__ = ["resolve_node_inputs", "resolve_graph_inputs"]
 def resolve_node_inputs(
     *,
     node: GraphNode,
-    node_def: NodeDefinition | None,
+    node_def: type[NodeDefinition] | None,
 ) -> tuple[Input, ...]:
     """Return the input roster this node instance actually exposes.
 
@@ -36,19 +37,17 @@ def resolve_node_inputs(
         return ()
 
     hook = getattr(node_def, "compute_inputs", None)
-    static_inputs = tuple(node_def.inputs)
+    static_inputs = node_def.versions[node.version].interface.inputs
     if hook is None:
         return static_inputs
 
     raw_data = dict(node.data or {})
 
     validated_data: dict[str, Any] | None = None
-    validation_model = getattr(node_def, "validation_model", None)
-    if validation_model is not None:
-        try:
-            validated_data = validation_model(**raw_data).model_dump()
-        except Exception:  # noqa: BLE001 — validation failures are expected
-            validated_data = None
+    try:
+        validated_data = model_of(static_inputs)(**raw_data).model_dump()
+    except Exception:  # noqa: BLE001 — validation failures are expected
+        validated_data = None
 
     ctx = ComputeInputsContext(
         data=raw_data,
@@ -102,7 +101,7 @@ def resolve_node_inputs(
 
 def resolve_graph_inputs(
     nodes: list[GraphNode],
-    definitions: dict[str, NodeDefinition | None],
+    definitions: dict[str, type[NodeDefinition] | None],
 ) -> dict[str, tuple[Input, ...]]:
     """Resolve every node's input roster.
 

@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from conductor.errors import CompilationError
 from conductor.graph.topology import build_incoming_map, topological_sort
+from conductor.interface import model_of
 from conductor.metadata import Output
 from conductor.registry.dynamic_outputs import (
     ComputeOutputsContext,
@@ -26,7 +27,7 @@ from conductor.registry.dynamic_outputs import (
 
 if TYPE_CHECKING:
     from conductor.graph.model import GraphEdge, GraphNode
-    from conductor.registry import NodeDefinition
+    from conductor.node import NodeDefinition
 
 
 class _DefinitionGet(Protocol):
@@ -36,7 +37,7 @@ class _DefinitionGet(Protocol):
     mapping adapter below — the engine neither knows nor cares which.
     """
 
-    def get(self, node_type: str) -> "NodeDefinition | None": ...
+    def get(self, node_type: str) -> "type[NodeDefinition] | None": ...
 
 
 def resolve_node_outputs(
@@ -79,7 +80,8 @@ def resolve_node_outputs(
         return ()
 
     hook = getattr(node_def, "compute_outputs", None)
-    static_outputs = tuple(node_def.outputs)
+    declared = node_def.versions[node.version].interface
+    static_outputs = declared.outputs
     if hook is None:
         return static_outputs
 
@@ -96,7 +98,11 @@ def resolve_node_outputs(
             source_def = (
                 registry.get(source_node.type) if source_node is not None else None
             )
-            source_outputs = tuple(source_def.outputs) if source_def else ()
+            source_outputs = (
+                source_def.versions[source_node.version].interface.outputs
+                if source_def is not None
+                else ()
+            )
 
         match = next(
             (o for o in source_outputs if o.name == source_handle),
@@ -125,12 +131,10 @@ def resolve_node_outputs(
     # the latter is expected during in-progress editing where ``data`` is
     # incomplete. Failures must not crash the resolver.
     validated_data: dict[str, Any] | None = None
-    validation_model = getattr(node_def, "validation_model", None)
-    if validation_model is not None:
-        try:
-            validated_data = validation_model(**raw_data).model_dump()
-        except Exception:  # noqa: BLE001 — validation failures are expected
-            validated_data = None
+    try:
+        validated_data = model_of(declared.inputs)(**raw_data).model_dump()
+    except Exception:  # noqa: BLE001 — validation failures are expected
+        validated_data = None
 
     ctx = ComputeOutputsContext(
         data=raw_data,
@@ -191,10 +195,10 @@ def resolve_node_outputs(
 class _MappingLookup:
     """``_DefinitionGet`` over a host-supplied definitions mapping."""
 
-    def __init__(self, definitions: Mapping[str, "NodeDefinition | None"]) -> None:
+    def __init__(self, definitions: Mapping[str, "type[NodeDefinition] | None"]) -> None:
         self._definitions = definitions
 
-    def get(self, node_type: str) -> "NodeDefinition | None":
+    def get(self, node_type: str) -> "type[NodeDefinition] | None":
         return self._definitions.get(node_type)
 
 
@@ -230,7 +234,7 @@ def _resolve_in_order(
 def resolve_graph_outputs(
     nodes: "list[GraphNode]",
     edges: "list[GraphEdge]",
-    definitions: Mapping[str, "NodeDefinition | None"],
+    definitions: Mapping[str, "type[NodeDefinition] | None"],
 ) -> dict[str, tuple[Output, ...]]:
     """Resolve every node's effective outputs in topological order.
 

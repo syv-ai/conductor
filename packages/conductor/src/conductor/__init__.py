@@ -50,7 +50,6 @@ from conductor.graph.model import (
 from conductor.node import BaseNode
 from conductor.ref import Ref
 from conductor.registry import NodeRegistry
-from conductor.registry.definition import Actor
 from conductor.registry.view import DefinitionSource, RegistryView
 from conductor.returns import Result
 from conductor.series import Index, Series
@@ -67,7 +66,6 @@ __all__ = [
     "FlowDependency",
     "FlowTrigger",
     "BaseNode",
-    "Actor",
     "compile",
     "CompiledGraph",
     "resolve_graph_inputs",

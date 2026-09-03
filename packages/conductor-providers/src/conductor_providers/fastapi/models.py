@@ -25,6 +25,7 @@ class NodeInput(BaseModel):
 
     id: str
     type: str
+    version: int = 1
     data: dict[str, Any] | None = None
     produces: dict[str, str] | None = None
     # JSON has no tuples — inbound consumes use ``[producer_id, output_handle]``
@@ -74,6 +75,7 @@ class ExecuteRequest(BaseModel):
             GraphNode(
                 id=n.id,
                 type=n.type,
+                version=n.version,
                 data=n.data,
                 produces=n.produces or None,
                 consumes=(
