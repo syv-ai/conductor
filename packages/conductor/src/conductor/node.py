@@ -42,7 +42,6 @@ from typing import TYPE_CHECKING, Any, Callable, ClassVar, Literal
 
 from conductor.interface import Interface
 from conductor.metadata import Input, Output
-from conductor.types import NodeCategory
 
 if TYPE_CHECKING:
     from conductor.dtype import DType
@@ -480,18 +479,3 @@ def _derive_versions(cls: type) -> None:
         for n, fn in methods.items()
     }
     cls.current = max(methods)
-
-
-class BaseNode(ABC):
-    """The old class-based contract. Deleted with the decorator at the end of this plan."""
-
-    node_id: ClassVar[str]
-    node_name: ClassVar[str]
-    node_description: ClassVar[str]
-    node_version: ClassVar[int] = 1
-    node_tags: ClassVar[tuple[str, ...]] = ()
-    node_category: ClassVar[NodeCategory] = NodeCategory.IO
-
-    @abstractmethod
-    def execute(self, req: Any) -> Any:
-        """Execute the node. Receives a NodeExecRequest."""

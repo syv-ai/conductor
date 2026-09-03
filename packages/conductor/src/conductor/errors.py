@@ -138,7 +138,7 @@ class NodeConnectionError(NodeError):
     (worth retrying) from logic errors (not worth retrying).
 
     Example:
-        @registry.node("fetch-api", ..., max_retries=3)
+        @version(1, policy=Policy(retries=3))
         def fetch_api(url):
             try:
                 resp = requests.get(url, timeout=10)

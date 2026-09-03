@@ -1053,3 +1053,34 @@ def test_a_missing_upgrade_path_is_none_not_an_error():
     assert registry.upgrade_path("plain", 1, 2) is None
 
 
+
+
+def test_there_is_exactly_one_way_to_declare_a_node():
+    """Gone, so they cannot come back by habit."""
+    import conductor
+
+    assert not hasattr(NodeRegistry, "node")
+    assert not hasattr(NodeRegistry, "register_class")
+    assert not hasattr(conductor, "BaseNode")
+
+
+def test_a_category_is_a_string_on_the_definition():
+    """A category is presentation: where the palette files the node. No
+    object, no registration side-channel."""
+    import conductor
+
+    class Echo(NodeDefinition):
+        id = "echo-cat"
+        title = "Echo"
+        description = "Returns input"
+        category = "tools"
+
+        def run(self, text: Annotated[Txt, Textarea(title="Text")] = Txt("")) -> Out:
+            return text
+
+    assert Echo.category == "tools"
+    assert Echo.describe().category == "tools"
+    assert not hasattr(conductor, "NodeCategory")
+    assert not hasattr(NodeRegistry, "include")
+
+

@@ -2,14 +2,7 @@
 
 from typing import Any, NewType, TypeAlias, TypedDict
 
-# `NodeCategory` lives in its own module so it can carry registration
-# decorators without creating a circular import with `conductor.registry`.
-# Re-exported here to keep the historical `from conductor.types import
-# NodeCategory` import path working.
-from conductor.category import NodeCategory  # noqa: F401  (re-export)
-
 __all__ = [
-    "NodeCategory",
     "NodeResult",
     "Base64Str",
     "Date",
