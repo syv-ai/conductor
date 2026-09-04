@@ -6,16 +6,6 @@ internals (resolver, state, topology, etc.) stay in submodules.
 
 from conductor import errors, expr, widgets
 from conductor._sentinel import SKIPPED
-from conductor.compound import (
-    FOR_EACH,
-    SUBPROCESS,
-    WHILE,
-    ForEachNode,
-    SubprocessNode,
-    WhileNode,
-    compute_for_each_end_outputs,
-)
-from conductor.compound.subprocess import SubprocessRegistry
 from conductor.dtype import DType, Single, dtype_of, registered_dtypes
 from conductor.dtype_ref import DTypeRef
 from conductor.errors import (
@@ -37,18 +27,14 @@ from conductor.execution.checkpoint import FlowCheckpoint
 from conductor.execution.engine import execute, execute_sync, resume, resume_sync
 from conductor.execution.retry import RetryConfig
 from conductor.execution.store import FlowStore
+from conductor.graph.binding import Binding, Sources, Static
 from conductor.graph.compiler import CompiledGraph, compile
 from conductor.graph.dynamic_inputs import resolve_graph_inputs
 from conductor.graph.dynamic_outputs import resolve_graph_outputs
-from conductor.graph.model import (
-    Flow,
-    FlowDependency,
-    FlowTrigger,
-    GraphEdge,
-    GraphNode,
-)
+from conductor.graph.model import FieldContent, Flow, GraphNode
+from conductor.graph.views import dependencies_of, is_input_node
 from conductor.interface import Interface, Provided
-from conductor.metadata import Input, Output
+from conductor.metadata import Input, Output, Roster
 from conductor.node import (
     Deprecation,
     GraphVersion,
@@ -71,10 +57,13 @@ __all__ = [
     "NodeRegistry",
     "runner_for",
     "GraphNode",
-    "GraphEdge",
+    "FieldContent",
     "Flow",
-    "FlowDependency",
-    "FlowTrigger",
+    "Binding",
+    "Sources",
+    "Static",
+    "dependencies_of",
+    "is_input_node",
     "compile",
     "CompiledGraph",
     "resolve_graph_inputs",
@@ -88,15 +77,6 @@ __all__ = [
     "FlowStore",
     "FlowCheckpoint",
     "SKIPPED",
-    # Compound nodes
-    "ForEachNode",
-    "FOR_EACH",
-    "compute_for_each_end_outputs",
-    "WhileNode",
-    "WHILE",
-    "SubprocessNode",
-    "SUBPROCESS",
-    "SubprocessRegistry",
     # The node contract
     "NodeDefinition",
     "NodeVersion",
@@ -108,6 +88,7 @@ __all__ = [
     "Provided",
     "Input",
     "Output",
+    "Roster",
     "AnyWidget",
     "version",
     "upgrade",

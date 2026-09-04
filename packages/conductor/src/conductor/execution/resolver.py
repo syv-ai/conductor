@@ -33,7 +33,6 @@ class InputResolver:
         edge_map: dict[tuple[str, str], list[tuple[str, str, str]]],
         results: dict[str, NodeResult],
         node_map: dict[str, GraphNode],
-        consume_map: dict[tuple[str, str], tuple[str, str]] | None = None,
         skipped_edges: set[str] | None = None,
         incoming_map: dict[str, list[tuple[str, str, str, str]]] | None = None,
     ) -> dict[str, Any]:
@@ -42,9 +41,8 @@ class InputResolver:
         Precedence (first match wins):
             1. Explicit edges targeting this input (edges in ``skipped_edges``
                are treated as absent)
-            2. Shared-reference consume bindings (``consume_map``)
-            3. Static data on the node
-            4. Widget default (not materialized here; handled by Pydantic)
+            2. The values the author typed into the node
+            3. Widget default (not materialized here; handled by Pydantic)
 
         A ``Series`` input fed by one wire carrying a series receives it
         whole; fed by several wires, it gathers their values as one series
@@ -52,32 +50,18 @@ class InputResolver:
         error, since no other shape exists for it.
         """
         skipped_edges = skipped_edges or set()
-        inputs: dict[str, Any] = dict(node.data or {})
+        inputs: dict[str, Any] = dict(node.data)
 
-        # (2) Consume bindings overlay static data before edges take over.
-        if consume_map:
-            for (target_id, target_handle), (source_id, source_handle) in consume_map.items():
-                if target_id != node.id:
-                    continue
-                source_result = results.get(source_id)
-                if source_result is None:
-                    continue
-                if is_skipped(source_result):
-                    inputs[target_handle] = source_result
-                    continue
-                value = extract_output(source_result, source_handle)
-                inputs[target_handle] = value
-
-        # (1) Edge-based resolution. Gather all incoming (source, handle, edge_id)
+        # (1) Wire-based resolution. Gather all incoming (source, handle, wire_id)
         # per target_handle in one pass.
         by_handle: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
         if incoming_map is not None:
-            for target_handle, source_id, source_handle, edge_id in incoming_map.get(node.id, ()):
+            for target_handle, source_id, source_handle, wire_id in incoming_map.get(node.id, ()):
                 if not target_handle:
                     continue
-                if edge_id and edge_id in skipped_edges:
+                if wire_id and wire_id in skipped_edges:
                     continue
-                by_handle[target_handle].append((source_id, source_handle, edge_id))
+                by_handle[target_handle].append((source_id, source_handle, wire_id))
         else:
             for (target_id, target_handle), sources in edge_map.items():
                 if target_id != node.id or not target_handle:
@@ -114,7 +98,7 @@ class InputResolver:
         results: dict[str, NodeResult],
     ) -> list[Any]:
         values: list[Any] = []
-        for source_id, source_handle, _edge_id in sources:
+        for source_id, source_handle, _wire_id in sources:
             source_result = results.get(source_id)
             if source_result is None or is_skipped(source_result):
                 continue

@@ -4,7 +4,7 @@ outside world.
 Two flavors of subpackage:
 
 * **Frontend wire-format adapters** — translate conductor's Python-side data
-  model (``NodeRegistry``, ``GraphNode``, ``GraphEdge``) into a shape a
+  model (``NodeRegistry``, ``Flow``) into a shape a
   specific frontend framework expects. ``conductor_providers.react``
   speaks ReactFlow. Svelte, Vue, etc. go in sibling subpackages.
 

@@ -24,12 +24,10 @@ def conductor_router(
     prefix: str = "",
     tags: list[str] | None = None,
     dependencies: Sequence[Any] | None = None,
-    compound_types: list[type] | None = None,
     context_factory: Callable[[Request], dict[str, Any]] | None = None,
     entity_resolver: (
         Callable[[str, Request], list[dict[str, Any]]] | None
     ) = None,
-    extension_resolver: Any | None = None,
 ) -> APIRouter:
     """Build a FastAPI ``APIRouter`` serving conductor's standard endpoints.
 
@@ -47,8 +45,6 @@ def conductor_router(
         tags: OpenAPI tags attached to every route.
         dependencies: FastAPI dependencies applied to every route (auth, rate
             limiting, anything ``Depends(...)`` can express).
-        compound_types: Compound types passed to ``compile()`` (e.g.
-            ``[FOR_EACH]``).
         context_factory: Optional hook invoked per-request on ``/execute`` and
             ``/execute-stream``. Receives the FastAPI ``Request`` and returns
             a dict that seeds the node ``FlowStore``. Node functions declaring
@@ -64,8 +60,6 @@ def conductor_router(
         tags=tags or ["conductor"],
         dependencies=list(dependencies) if dependencies else None,
     )
-    compound_types = compound_types or []
-
     def _store_data(request: Request) -> dict[str, Any] | None:
         return context_factory(request) if context_factory else None
 
@@ -77,14 +71,7 @@ def conductor_router(
     @router.post("/execute")
     def execute_flow(req: ExecuteRequest, request: Request) -> dict[str, Any]:
         """Run a flow synchronously and return the aggregated results dict."""
-        nodes, edges = req.to_graph()
-        compiled = compile_graph(
-            nodes=nodes,
-            edges=edges,
-            registry=registry,
-            compound_types=compound_types,
-            extension_resolver=extension_resolver,
-        )
+        compiled = compile_graph(req.flow, registry)
         results = execute_sync(
             compiled, store_data=_store_data(request), cache=req.cache or None
         )
@@ -95,14 +82,7 @@ def conductor_router(
         req: ExecuteRequest, request: Request
     ) -> StreamingResponse:
         """Run a flow and stream ``ExecutionEvent``s as Server-Sent Events."""
-        nodes, edges = req.to_graph()
-        compiled = compile_graph(
-            nodes=nodes,
-            edges=edges,
-            registry=registry,
-            compound_types=compound_types,
-            extension_resolver=extension_resolver,
-        )
+        compiled = compile_graph(req.flow, registry)
         store_data = _store_data(request)
 
         async def event_stream() -> Any:
@@ -142,15 +122,8 @@ def conductor_router(
         Debounce-friendly (~10-30 ms): hosts can poll this on every graph
         edit to paint type mismatches and cycles in real time.
         """
-        nodes, edges = req.to_graph()
         try:
-            compile_graph(
-                nodes=nodes,
-                edges=edges,
-                registry=registry,
-                compound_types=compound_types,
-                extension_resolver=extension_resolver,
-            )
+            compile_graph(req.flow, registry)
         except CompilationError as e:
             return CompileResult(status="error", errors=[str(e)])
         return CompileResult(status="ok", errors=[])

@@ -94,26 +94,6 @@ class NodeRetryEvent(TypedDict):
     delay: float
 
 
-class CompensationStartEvent(TypedDict):
-    type: Literal["compensation_start"]
-    node_id: str
-    compensation_node_id: str
-
-
-class CompensationCompleteEvent(TypedDict):
-    type: Literal["compensation_complete"]
-    node_id: str
-    compensation_node_id: str
-    result: Any
-
-
-class CompensationFailedEvent(TypedDict):
-    type: Literal["compensation_failed"]
-    node_id: str
-    compensation_node_id: str
-    error: str
-
-
 class SignalWaitingEvent(TypedDict, total=False):
     type: Literal["signal_waiting"]
     node_id: str
@@ -136,9 +116,6 @@ ExecutionEvent = (
     | FlowTimeoutEvent
     | FlowPausedEvent
     | NodeRetryEvent
-    | CompensationStartEvent
-    | CompensationCompleteEvent
-    | CompensationFailedEvent
     | SignalWaitingEvent
 )
 

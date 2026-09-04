@@ -21,10 +21,13 @@ import time
 from typing import Annotated
 
 import pytest
-from conductor import GraphEdge, GraphNode, NodeRegistry, compile
+from conductor import GraphNode, NodeRegistry, compile
 from conductor.errors import NodeExecutionError
 from conductor.execution.engine import execute, execute_sync
+from conductor.graph.binding import Sources, Static
+from conductor.graph.model import Flow
 from conductor.node import NodeDefinition, Policy, version
+from conductor.ref import Ref
 from conductor.returns import Result
 from conductor.widgets import Textarea
 from conductor_nodes.types import Text
@@ -60,19 +63,17 @@ def test_500_node_linear_chain_compile_and_execute() -> None:
 
     n = 500
     nodes: list[GraphNode] = []
-    edges: list[GraphEdge] = []
 
     # The first node carries a static input; every subsequent node takes
     # the previous node's ``result`` on its ``text`` parameter.
-    nodes.append(GraphNode("n0", "upper", 1, {"text": "hello"}))
+    nodes.append(GraphNode("n0", "upper", 1, bindings={"text": Static(value="hello")}))
     for i in range(1, n):
-        nodes.append(GraphNode(f"n{i}", "upper", 1, None))
-        edges.append(
-            GraphEdge(f"e{i}", f"n{i - 1}", f"n{i}", "result", "text"),
-        )
+        nodes.append(GraphNode(
+            f"n{i}", "upper", 1, bindings={"text": Sources(refs=(Ref(f"n{i - 1}", "result"),))},
+        ))
 
     t0 = time.monotonic()
-    compiled = compile(nodes=nodes, edges=edges, registry=registry)
+    compiled = compile(Flow(nodes=nodes), registry)
     compile_seconds = time.monotonic() - t0
     assert compile_seconds < 5.0, (
         f"compile took {compile_seconds:.2f}s; expected <5s"
@@ -121,11 +122,7 @@ async def test_cancellation_honored_during_retry_sleep() -> None:
     registry = NodeRegistry()
     registry.register(AlwaysFlaky)
 
-    compiled = compile(
-        nodes=[GraphNode("n1", "always-flaky", 1, {"text": "x"})],
-        edges=[],
-        registry=registry,
-    )
+    compiled = compile(Flow(nodes=[GraphNode("n1", "always-flaky", 1, bindings={"text": Static(value="x")})]), registry)
 
     # Capture the live ``FlowRunState`` so the cancellation flag can be
     # flipped from outside. ``execute()`` builds state internally via

@@ -12,6 +12,7 @@ from conductor import (
     execute_sync,
 )
 from conductor.dtype import DType
+from conductor.graph.model import Flow
 from conductor.node import NodeDefinition, Policy, version
 from conductor.returns import Result
 
@@ -39,8 +40,6 @@ def test_per_node_timeout_triggers() -> None:
             return Txt("done")
 
     reg.register(Slow)
-    compiled = compile(
-        nodes=[GraphNode("n1", "slow", 1, {})], edges=[], registry=reg,
-    )
+    compiled = compile(Flow(nodes=[GraphNode("n1", "slow", 1)]), reg)
     with pytest.raises(FlowExecutionError):
         execute_sync(compiled)

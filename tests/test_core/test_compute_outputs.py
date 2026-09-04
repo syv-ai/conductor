@@ -17,6 +17,8 @@ import pytest
 from conductor import GraphNode, NodeRegistry, compile
 from conductor.dtype import DType
 from conductor.execution.engine import execute_sync
+from conductor.graph.binding import Static
+from conductor.graph.model import Flow
 from conductor.metadata import Output
 from conductor.node import NodeDefinition
 from conductor.returns import Result
@@ -73,9 +75,7 @@ def test_hook_replaces_static_outputs_in_compiled_graph():
     reg = NodeRegistry()
     reg.register(Splitter)
 
-    compiled = compile(
-        nodes=[GraphNode("n1", "splitter", 1, {"count": 3})], edges=[], registry=reg
-    )
+    compiled = compile(Flow(nodes=[GraphNode("n1", "splitter", 1, bindings={"count": Static(value=3)})]), reg)
 
     outputs = compiled.node_outputs["n1"]
     assert tuple(o.name for o in outputs) == ("slot_0", "slot_1", "slot_2")
@@ -86,7 +86,7 @@ def test_no_hook_falls_back_to_static_outputs():
     reg = NodeRegistry()
     reg.register(Noop)
 
-    compiled = compile(nodes=[GraphNode("n1", "noop", 1, None)], edges=[], registry=reg)
+    compiled = compile(Flow(nodes=[GraphNode("n1", "noop", 1)]), reg)
 
     assert compiled.node_outputs["n1"] == Noop.versions[1].interface.outputs
 
@@ -109,7 +109,7 @@ def test_a_mapping_return_lands_on_the_computed_roster():
     reg = NodeRegistry()
     reg.register(Klass)
 
-    compiled = compile(nodes=[GraphNode("n1", "klass", 1, None)], edges=[], registry=reg)
+    compiled = compile(Flow(nodes=[GraphNode("n1", "klass", 1)]), reg)
 
     assert tuple(o.name for o in compiled.node_outputs["n1"]) == ("custom",)
     assert execute_sync(compiled)["n1"]["custom"] == 42
@@ -132,41 +132,6 @@ def test_a_raising_hook_raises_where_it_is_found():
     reg.register(Boom)
 
     with pytest.raises(RuntimeError, match="kaboom"):
-        compile(nodes=[GraphNode("n1", "boom", 1, None)], edges=[], registry=reg)
+        compile(Flow(nodes=[GraphNode("n1", "boom", 1)]), reg)
 
 
-def test_extension_node_alongside_hook_node():
-    """An extension node with no definition coexists with a hook-driven
-    registered node: the resolver tolerates the missing definition."""
-
-    class Hooked(NodeDefinition):
-        id = "hooked"
-        title = "Hooked"
-        description = "Hooked"
-        category = "test"
-
-        def run(self) -> Out:
-            return Txt("x")
-
-        def compute_outputs(self, declared, values, arriving):
-            return (Output(name="result", dtype=Txt, title="Result"),)
-
-    class MockExtensionResolver:
-        def is_known_type(self, node_type: str) -> bool:
-            return node_type.startswith("ext:")
-
-        def create_executor(self, node_type: str) -> Any:
-            return None
-
-    reg = NodeRegistry()
-    reg.register(Hooked)
-
-    compiled = compile(
-        nodes=[GraphNode("h", "hooked", 1, None), GraphNode("e", "ext:thing", 1, None)],
-        edges=[],
-        registry=reg,
-        extension_resolver=MockExtensionResolver(),
-    )
-
-    assert tuple(o.name for o in compiled.node_outputs["h"]) == ("result",)
-    assert compiled.node_outputs["e"] == ()

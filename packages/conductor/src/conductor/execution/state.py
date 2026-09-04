@@ -30,8 +30,7 @@ class FlowRunState:
     # Edge IDs that have been marked skipped at runtime — used by decision
     # nodes to turn off non-taken branches.
     skipped_edges: set[str] = field(default_factory=set)
-    # Nodes that have completed, in order; used for the saga compensation
-    # cascade (reverse topological walk over completed nodes).
+    # Nodes that have completed, in order.
     completed_order: list[str] = field(default_factory=list)
     # Idempotency key (after CEL evaluation) keyed by node id. Surfaced on
     # node_start events and injected into node functions.

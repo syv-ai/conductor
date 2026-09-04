@@ -20,7 +20,7 @@ conductor/
 │       ├── errors.py           # Exception hierarchy
 │       ├── _sentinel.py        # SKIPPED
 │       ├── registry/           # NodeRegistry, runner_for, discover_nodes
-│       ├── graph/              # GraphNode/GraphEdge/Flow, topology, compiler, dynamic_inputs/outputs, shared_refs
+│       ├── graph/              # model (GraphNode/Flow), binding (Sources/Static), views (dependencies, interface), topology, compiler, dynamic_inputs/outputs
 │       ├── execution/          # engine (eager+parallel), retry, state, resolver, events
 │       ├── flow_format/        # YAML / JSON flow file format (Flow ↔ dict)
 │       └── about/              # Runnable library context: `python -m conductor.about`
@@ -78,7 +78,7 @@ Slash command: `/docs-audit` — runs a docs review against the last N commits a
 Three phases: `declare → compile → execute`.
 
 1. **Declare** — a node is a `NodeDefinition` subclass. `__init_subclass__` checks `id`, `title`, `description`, `category` and derives one `NodeVersion` per `@version` method (an undecorated `run` is version 1) by reading the signature once with `Interface.of`. `NodeRegistry.register(cls)` files the class under its id and checks the catalogue rules (versions numbered from 1 with no holes, a deprecated current version pointing somewhere, an `alternative` that exists).
-2. **Compile** — `compile(nodes, edges, registry)` validates node types, edge endpoints and cycles, resolves shared-reference bindings, and asks each placement's `compute_inputs` / `compute_outputs` for its roster. Returns an immutable `CompiledGraph`.
+2. **Compile** — `compile(flow, registry)` validates node types, that every wire names an existing node, and cycles (over `dependencies_of(flow.nodes)`), and asks each placement's `compute_inputs` / `compute_outputs` for its roster. Returns an immutable `CompiledGraph`. Every definition the flow names must be in the registry; a host that loads one calls `registry.extended_with(...)` first.
 3. **Execute** — `execute(compiled)` is an async generator yielding `ExecutionEvent`s. Nodes are scheduled eagerly: as soon as all dependencies complete, a node's task is created — independent branches run concurrently. A call is validated through `model_of(roster)` and dispatched through `runner_for(registry, type, version)`, a fresh instance per call. `execute_sync()` is a blocking wrapper.
 
 ### The node contract
@@ -108,12 +108,13 @@ class Upper(NodeDefinition):
 
 ### Data flow
 
-How a node receives a value, first match wins:
+Each input of a placement holds at most one binding (`GraphNode.bindings`):
 
-1. **Edges** — the primary mechanism, visible as wires. `InputResolver` reads outputs by name.
-2. **Shared references** — per-placement `produces`/`consumes` on `GraphNode`. Invisible to edges, but part of dependency ordering and cycle detection.
-3. **Static data** — `GraphNode.data`; used when no edge or consume targets the input.
-4. **The parameter's default.**
+1. **`Sources(refs=(...))`** — the value arrives from other placements' outputs; `refs` is in operand order and several refs into a `Series[X]` input gather into one series. `InputResolver` reads the outputs by name.
+2. **`Static(value=...)`** — the author typed the value in. `GraphNode.data` is the typed-in values as a dict.
+3. **No binding** — the parameter's default.
+
+There is no per-cable record: a canvas derives its cables from the bindings, and `dependencies_of(nodes)` derives what each node waits for.
 
 The call is validated through the placement's roster with pydantic (`extra="ignore"`, so stray data keys are dropped), and `run` receives instances of the declared dtypes.
 
@@ -124,7 +125,7 @@ Every control is a frozen, keyword-only dataclass with a `kind` discriminator; `
 ### Eager parallel execution
 
 The engine uses a dependency-driven scheduler (`_run_eager` in `execution/engine.py`):
-- Each schedulable node tracks an in-degree counter (unfinished deps from edges + consumes).
+- Each schedulable node tracks an in-degree counter (unfinished deps from its `Sources` bindings).
 - When in-degree hits 0, `asyncio.create_task` dispatches the node via `asyncio.to_thread` so sync `run` methods don't block the loop.
 - Node events flow through an `asyncio.Queue`; the main loop yields them to the caller.
 - Failures cancel all running tasks.
@@ -149,20 +150,16 @@ All exceptions inherit from `ConductorError` (see `errors.py`):
   - `NodeExecutionError` (`run` raised)
   - `NodeTimeoutError`
   - `NodeConnectionError` (raise from node code for transient network/API failures)
-- `InputResolutionError` — could not resolve inputs from edges
+- `InputResolutionError` — could not resolve inputs from the wires
 - `FlowExecutionError` — raised by `execute_sync` when the flow fails
 
-### Shared references (produce / consume)
+### The persisted graph
 
-Per-placement opt-in on `GraphNode`: `produces: dict[str, str] | None` (output name → display label) and `consumes: dict[str, tuple[str, str]] | None` (input name → `(producer id, output name)`). Identity is `(producer id, output name)`; the label is UI-only. At runtime `consume_map` on `CompiledGraph` feeds the scheduler and resolver like edges do.
-
-### Compensation
-
-`GraphNode.compensation` names the node that undoes this one's work; on failure the engine walks `state.completed_order` in reverse and dispatches each completed node's compensation with `(target_node_id, original_inputs, original_output)`. Events: `compensation_start`, `compensation_complete`, `compensation_failed`. `GraphNode.on_error` (`fail` default, `continue`, `compensate`) controls what a node's own failure triggers.
+`Flow` is `nodes` and `display`. A `GraphNode` is behaviour (`type`, `version`, `bindings`, `locked`), content (`title`, `description`, one `FieldContent` per field) and chrome (`display`, stored and returned, never parsed). An id refuses `.` (a `Ref` reads `node.field`) and accepts `/`. What the flow takes and returns is derived, never stored: `graph/views.py`'s `derive_interface(flow, rosters, versions)` returns an `Interface` whose inputs are the unlocked handle-bearing inputs of the input nodes and whose outputs are every output of the nodes nothing consumes, each named by its address. A failed node fails the run; there is no saga.
 
 ### YAML / JSON flow format (`conductor.flow_format`)
 
-Round-trip `Flow` ↔ dict via `load_flow` / `flow_to_dict`, and YAML/JSON files via `yaml_to_flow` / `flow_to_yaml` / `load_flow_from_path` / `dump_flow`. Requires PyYAML (optional extra: `syv-conductor[yaml]`).
+The record is the schema: the module wraps `TypeAdapter(Flow)` — `load_flow` / `flow_to_dict`, and YAML/JSON files via `yaml_to_flow` / `flow_to_yaml` / `load_flow_from_path` / `dump_flow`. A ref stores as its address, `"node.field"`. Requires PyYAML (optional extra: `syv-conductor[yaml]`).
 
 ### Documentation maintenance
 
@@ -206,11 +203,7 @@ registry.register(MyNode)     # ids are unique; registering a second class under
 
 ### Building and running a flow
 ```python
-compiled = compile(
-    nodes=[GraphNode("n1", "my-node", 1, {"text": "hello"})],
-    edges=[],
-    registry=registry,
-)
+compiled = compile(Flow(nodes=[GraphNode("n1", "my-node", 1, bindings={"text": Static(value="hello")})]), registry)
 results = execute_sync(compiled)     # results["n1"]["result"] == "HELLO"
 ```
 
@@ -236,9 +229,9 @@ palette = [cls.describe() for cls in registry.definitions()]     # NodeDescripti
 
 ## Conventions
 
-- A placement is `GraphNode(id, type, version, data)`; `type` is the node id and `version` the pinned version. There is no `"id@version"` string anywhere.
+- A placement is `GraphNode(id, type, version, bindings)`; `type` is the node id and `version` the pinned version. There is no `"id@version"` string anywhere, and no edge record: a wire is a `Sources` on the target's input.
 - A result is `results[node_id][output_name]`; a single output is named `result`.
-- `SKIPPED` propagates — if all inputs (edges + consumes) are `SKIPPED`, the node is skipped.
+- `SKIPPED` propagates — if every wired value is `SKIPPED`, the node is skipped.
 - A `run` returns values of its declared dtypes (`Text(...)`, never a bare `str`), because a value arrives downstream as the type the wire carried.
 - Identifiers are English; the host's language lives in titles, descriptions and messages.
 - No `__all__` in a module: a reader imports a name from the module that defines it. A package `__init__` may declare one for its re-exports.

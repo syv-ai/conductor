@@ -163,3 +163,80 @@ def test_a_node_that_is_only_var_keyword_declares_no_inputs():
             return Txt("x")
 
     assert AllKw.versions[1].interface.inputs == ()
+
+
+def _node(node_id):
+    class Made(NodeDefinition):
+        id = node_id
+        title = node_id
+        description = "d"
+        category = "test"
+
+        def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Annotated[Txt, Result(title="R")]:
+            return x
+
+    return Made
+
+
+def test_extending_leaves_the_original_alone():
+    """A per-run registry must not mutate the process-wide catalog."""
+    base = NodeRegistry()
+    base.register(_node("static"))
+    loaded = _node("loaded")
+
+    extended = base.extended_with({"loaded": loaded})
+
+    assert extended.contains("loaded")
+    assert extended.contains("static")
+    assert not base.contains("loaded")
+
+
+def test_a_registered_type_cannot_be_shadowed():
+    """A statically registered node means what it says, whatever a host loads."""
+    static = _node("shared-id")
+    base = NodeRegistry()
+    base.register(static)
+
+    extended = base.extended_with({"shared-id": _node("other")})
+
+    assert extended.get("shared-id") is static
+
+
+def test_a_loaded_definition_need_not_number_from_one():
+    """An embedded flow is one FlowVersion, loaded because a graph pinned it;
+    its versions are {3} and nothing is missing. `register()` refuses that;
+    `extended_with` does not, because the catalog rule is the catalog's."""
+    from conductor.node import version
+
+    class Loaded(NodeDefinition):
+        id = "loaded-3"
+        title = "Loaded"
+        description = "d"
+        category = "test"
+
+        @version(3)
+        def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Annotated[Txt, Result(title="R")]:
+            return x
+
+    extended = NodeRegistry().extended_with({"loaded-3": Loaded})
+
+    assert extended.get("loaded-3").versions.keys() == {3}
+
+
+def test_extending_with_nothing_is_the_same_registry_contents():
+    base = NodeRegistry()
+    base.register(_node("only"))
+
+    assert base.extended_with({}).get("only") is base.get("only")
+
+
+def test_conductor_names_no_loading_seam():
+    """Loading needs a database, and conductor has no idea what one is."""
+    import conductor
+    import conductor.graph.compiler as compiler
+    import conductor.registry as registry_pkg
+
+    for gone in ("resolve", "RegistryView", "DefinitionSource", "ExtensionResolver"):
+        assert not hasattr(conductor, gone), gone
+        assert not hasattr(registry_pkg, gone), gone
+        assert not hasattr(compiler, gone), gone
