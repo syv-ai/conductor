@@ -105,13 +105,3 @@ class Flow:
     #: Chrome, at flow level.
     display: Mapping[str, Any] = field(default_factory=dict)
 
-
-@dataclass(frozen=True)
-class GraphEdge:
-    """One cable, as the compiler still reads it; deleted with its readers."""
-
-    id: str
-    source: str
-    target: str
-    source_handle: str | None
-    target_handle: str | None

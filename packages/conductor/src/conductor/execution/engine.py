@@ -897,7 +897,7 @@ def _build_dep_graph(
     dependents: dict[str, set[str]] = defaultdict(set)
 
     for target_id, entries in compiled.incoming_map.items():
-        for _target_handle, source_id, _source_handle, _edge_id in entries:
+        for _target_handle, source_id, _source_handle, _wire_id in entries:
             deps[target_id].add(source_id)
             dependents[source_id].add(target_id)
 

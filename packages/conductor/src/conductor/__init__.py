@@ -30,7 +30,7 @@ from conductor.execution.store import FlowStore
 from conductor.graph.compiler import CompiledGraph, compile
 from conductor.graph.dynamic_inputs import resolve_graph_inputs
 from conductor.graph.dynamic_outputs import resolve_graph_outputs
-from conductor.graph.model import Flow, GraphEdge, GraphNode
+from conductor.graph.model import Flow, GraphNode
 from conductor.interface import Interface, Provided
 from conductor.metadata import Input, Output
 from conductor.node import (
@@ -55,7 +55,6 @@ __all__ = [
     "NodeRegistry",
     "runner_for",
     "GraphNode",
-    "GraphEdge",
     "Flow",
     "compile",
     "CompiledGraph",

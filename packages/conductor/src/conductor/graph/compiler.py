@@ -6,10 +6,12 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
 from conductor.errors import CompilationError
+from conductor.graph.binding import Sources
 from conductor.graph.dynamic_inputs import resolve_node_inputs
 from conductor.graph.dynamic_outputs import _resolve_in_order
-from conductor.graph.model import GraphEdge, GraphNode
+from conductor.graph.model import Flow, GraphNode
 from conductor.graph.topology import build_edge_map, build_incoming_map, topological_sort
+from conductor.graph.views import dependencies_of
 from conductor.metadata import Input, Output
 
 if TYPE_CHECKING:
@@ -32,8 +34,7 @@ class CompiledGraph:
     node_map: dict[str, GraphNode]
     registry: Any  # NodeRegistry
     extension_resolver: ExtensionResolver | None = None
-    edges: tuple[GraphEdge, ...] = ()
-    # target_id -> [(target_handle, source_id, source_handle, edge_id), ...]
+    # target_id -> [(target_handle, source_id, source_handle, wire_id), ...]
     # Inverted edge view — faster than scanning edge_map per node.
     incoming_map: dict[str, list[tuple[str, str, str, str]]] = field(default_factory=dict)
     # Resolved outputs per node id — populated for every node in
@@ -52,13 +53,13 @@ class CompiledGraph:
 
 
 def compile(
-    nodes: list[GraphNode],
-    edges: list[GraphEdge],
+    flow: Flow,
     registry: "NodeRegistry",
     *,
     extension_resolver: ExtensionResolver | None = None,
 ) -> CompiledGraph:
-    """Validate and compile a graph into an immutable execution plan."""
+    """Validate and compile a flow into an immutable execution plan."""
+    nodes = flow.nodes
     node_map = {n.id: n for n in nodes}
 
     # 1. Validate node types
@@ -69,16 +70,15 @@ def compile(
         if not known:
             raise CompilationError(f"Unknown node type: '{node.type}'")
 
-    # 2. Validate edges reference existing nodes
-    for edge in edges:
-        if edge.source not in node_map:
-            raise CompilationError(
-                f"Edge '{edge.id}' references non-existent source node: '{edge.source}'"
-            )
-        if edge.target not in node_map:
-            raise CompilationError(
-                f"Edge '{edge.id}' references non-existent target node: '{edge.target}'"
-            )
+    # 2. Validate that every wire names an existing node
+    for node in nodes:
+        for handle, binding in node.bindings.items():
+            if isinstance(binding, Sources):
+                for ref in binding.refs:
+                    if ref.node_id not in node_map:
+                        raise CompilationError(
+                            f"'{node.id}.{handle}' is wired from non-existent node: '{ref.node_id}'"
+                        )
 
     # 3. Resolve dynamic inputs. Order-free — an input roster depends on
     #    the node's own typed values alone.
@@ -87,13 +87,13 @@ def compile(
         for node in nodes
     }
 
-    # 4. Topological sort
-    order = topological_sort(nodes, edges)
+    # 4. Topological sort over the dependency map
+    order = topological_sort(dependencies_of(nodes))
 
     # 5. Build edge maps — forward (for resolver) and inverted (for fast
     #    per-node incoming lookup).
-    edge_map = build_edge_map(edges)
-    incoming_map = build_incoming_map(edges)
+    edge_map = build_edge_map(nodes)
+    incoming_map = build_incoming_map(nodes)
 
     # 6. Resolve dynamic outputs in topological order. Each node sees its
     #    producers' already-resolved shapes (which may themselves be hook-
@@ -107,7 +107,6 @@ def compile(
         node_map=node_map,
         registry=registry,
         extension_resolver=extension_resolver,
-        edges=tuple(edges),
         incoming_map=incoming_map,
         node_outputs=node_outputs,
         node_inputs=node_inputs,

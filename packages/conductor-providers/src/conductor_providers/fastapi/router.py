@@ -72,13 +72,7 @@ def conductor_router(
     @router.post("/execute")
     def execute_flow(req: ExecuteRequest, request: Request) -> dict[str, Any]:
         """Run a flow synchronously and return the aggregated results dict."""
-        nodes, edges = req.to_graph()
-        compiled = compile_graph(
-            nodes=nodes,
-            edges=edges,
-            registry=registry,
-            extension_resolver=extension_resolver,
-        )
+        compiled = compile_graph(req.flow, registry, extension_resolver=extension_resolver)
         results = execute_sync(
             compiled, store_data=_store_data(request), cache=req.cache or None
         )
@@ -89,13 +83,7 @@ def conductor_router(
         req: ExecuteRequest, request: Request
     ) -> StreamingResponse:
         """Run a flow and stream ``ExecutionEvent``s as Server-Sent Events."""
-        nodes, edges = req.to_graph()
-        compiled = compile_graph(
-            nodes=nodes,
-            edges=edges,
-            registry=registry,
-            extension_resolver=extension_resolver,
-        )
+        compiled = compile_graph(req.flow, registry, extension_resolver=extension_resolver)
         store_data = _store_data(request)
 
         async def event_stream() -> Any:
@@ -135,14 +123,8 @@ def conductor_router(
         Debounce-friendly (~10-30 ms): hosts can poll this on every graph
         edit to paint type mismatches and cycles in real time.
         """
-        nodes, edges = req.to_graph()
         try:
-            compile_graph(
-                nodes=nodes,
-                edges=edges,
-                registry=registry,
-                    extension_resolver=extension_resolver,
-            )
+            compile_graph(req.flow, registry, extension_resolver=extension_resolver)
         except CompilationError as e:
             return CompileResult(status="error", errors=[str(e)])
         return CompileResult(status="ok", errors=[])

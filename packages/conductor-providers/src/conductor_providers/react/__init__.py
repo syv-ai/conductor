@@ -1,4 +1,4 @@
-"""ReactFlow provider — translates conductor graphs to/from ReactFlow JSON.
+"""ReactFlow provider — translates a conductor ``Flow`` to/from ReactFlow JSON.
 
 Wire format produced by ``graph_to_react``:
 
@@ -6,18 +6,20 @@ Wire format produced by ``graph_to_react``:
       "nodes": [
         {
           "id": "n1",
-          "type": "text-uppercase@1",
+          "type": "text-uppercase",
           "position": {"x": 0, "y": 0},
-          "data": {
-            "data": {...},            # conductor's static-data dict
-            "produces": {...},        # present only if non-empty
-            "consumes": {"text": ["n0", "result"]},   # tuples as lists
+          "data": {                    # the placement record, dumped
+            "id": "n1",
+            "type": "text-uppercase",
+            "version": 1,
+            "bindings": {"text": {"refs": ["n0.result"]}},
+            "locked": [], "title": "", "description": "", "fields": {}
           }
         }
       ],
-      "edges": [
+      "edges": [                       # one cable per ref, derived
         {
-          "id": "e1",
+          "id": "n0.result->n1.text",
           "source": "n0",
           "target": "n1",
           "sourceHandle": "result",
@@ -28,13 +30,11 @@ Wire format produced by ``graph_to_react``:
 
 Notes:
 - ReactFlow uses camelCase for ``sourceHandle`` / ``targetHandle``.
-- Conductor stores ``consumes`` values as tuples; JSON has no tuples, so
-  the wire form uses lists and ``react_to_graph`` restores tuples.
-- Positions are ReactFlow-only; if they aren't provided on the inbound
-  side, conductor doesn't care. ``graph_to_react`` fills them in with a
-  simple topological layout so nodes don't stack at the origin.
+- Positions are ReactFlow's; ``graph_to_react`` reads one from the
+  placement's ``display`` and lays out the rest, ``react_to_graph`` writes
+  the canvas's back into ``display``.
 - The palette (node-type metadata for a sidebar) is available via
-  ``palette_from_registry``, which wraps ``conductor.registry.schema``.
+  ``palette_from_registry``.
 """
 
 from conductor_providers.react.graph import graph_to_react, react_to_graph

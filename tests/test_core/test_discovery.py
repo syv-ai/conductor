@@ -6,10 +6,11 @@ from typing import Annotated, Any
 
 from conductor.dtype import DType
 from conductor.execution.engine import execute_sync
-from conductor.graph.binding import Static
+from conductor.graph.binding import Sources, Static
 from conductor.graph.compiler import compile
-from conductor.graph.model import GraphEdge, GraphNode
+from conductor.graph.model import Flow, GraphNode
 from conductor.node import NodeDefinition
+from conductor.ref import Ref
 from conductor.registry import NodeRegistry
 from conductor.registry.discovery import discover_nodes
 from conductor.returns import Result
@@ -102,15 +103,10 @@ def test_extension_node_dispatched(registry):
         def create_executor(self, node_type: str):
             return MockExtensionExecutor()
 
-    compiled = compile(
-        nodes=[
+    compiled = compile(Flow(nodes=[
             GraphNode("n1", "echo", 1, bindings={"text": Static(value="hello")}),
-            GraphNode("n2", "ext:custom", 1),
-        ],
-        edges=[GraphEdge("e1", "n1", "n2", "result", "text")],
-        registry=registry,
-        extension_resolver=MockExtensionResolver(),
-    )
+            GraphNode("n2", "ext:custom", 1, bindings={"text": Sources(refs=(Ref('n1', 'result'),))}),
+        ]), registry, extension_resolver=MockExtensionResolver())
 
     results = execute_sync(compiled)
     assert results["n2"]["result"] == "extension:hello"

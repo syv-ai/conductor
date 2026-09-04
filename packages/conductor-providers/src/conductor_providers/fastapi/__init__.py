@@ -34,15 +34,13 @@ Requires ``fastapi`` installed (declared as an optional extra:
 """
 
 from conductor_providers.fastapi.compile import CompileResult
-from conductor_providers.fastapi.models import EdgeInput, ExecuteRequest, NodeInput
+from conductor_providers.fastapi.models import ExecuteRequest
 from conductor_providers.fastapi.router import conductor_router
 from conductor_providers.fastapi.sse import sse_frame
 
 __all__ = [
     "conductor_router",
     "ExecuteRequest",
-    "NodeInput",
-    "EdgeInput",
     "CompileResult",
     "sse_frame",
 ]

@@ -17,10 +17,11 @@ from typing import TYPE_CHECKING, Protocol
 
 from conductor.errors import CompilationError
 from conductor.graph.topology import topological_sort
+from conductor.graph.views import dependencies_of
 from conductor.metadata import Output
 
 if TYPE_CHECKING:
-    from conductor.graph.model import GraphEdge, GraphNode
+    from conductor.graph.model import GraphNode
     from conductor.node import NodeDefinition
 
 
@@ -66,7 +67,7 @@ def _resolve_in_order(
     """The ONE resolution walk — both compile() and
     :func:`resolve_graph_outputs` are callers.
 
-    order must be topological over the drawn edges, so that when the
+    order must be topological over the bindings, so that when the
     compiler records arrivals every producer is resolved before its
     consumer.
     """
@@ -79,7 +80,6 @@ def _resolve_in_order(
 
 def resolve_graph_outputs(
     nodes: "list[GraphNode]",
-    edges: "list[GraphEdge]",
     definitions: Mapping[str, "type[NodeDefinition] | None"],
 ) -> dict[str, tuple[Output, ...]]:
     """Resolve every node's effective outputs in topological order.
@@ -93,8 +93,8 @@ def resolve_graph_outputs(
     definitions is **required** and keyed by node *type*: the host
     resolves each type however it wants. A None value means "known but
     definition-less" (extension semantics — resolves to ()); a
-    *missing key* is a host bug and raises. Every edge endpoint must
-    reference an existing node, and the graph must be acyclic.
+    *missing key* is a host bug and raises. Every wire must name an
+    existing node, and the graph must be acyclic.
     """
     node_map = {n.id: n for n in nodes}
 
@@ -102,20 +102,13 @@ def resolve_graph_outputs(
         if node.type not in definitions:
             raise CompilationError(f"Unknown node type: '{node.type}'")
 
-    for edge in edges:
-        if edge.source not in node_map:
-            raise CompilationError(
-                f"Edge '{edge.id}' references non-existent source node: "
-                f"'{edge.source}'"
-            )
-        if edge.target not in node_map:
-            raise CompilationError(
-                f"Edge '{edge.id}' references non-existent target node: "
-                f"'{edge.target}'"
-            )
+    dependencies = dependencies_of(nodes)
+    for node_id, deps in dependencies.items():
+        for dep in deps - node_map.keys():
+            raise CompilationError(f"'{node_id}' is wired from non-existent node: '{dep}'")
 
     return _resolve_in_order(
-        order=topological_sort(nodes, edges),
+        order=topological_sort(dependencies),
         node_map=node_map,
         lookup=_MappingLookup(definitions),
     )

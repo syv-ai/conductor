@@ -69,19 +69,12 @@ def client(calls: list[str]) -> TestClient:
 def _graph() -> dict:
     # seed (n1) -> shout (n2): n2 uppercases whatever n1 produced.
     return {
-        "nodes": [
-            {"id": "n1", "type": "seed", "version": 1, "data": {}},
-            {"id": "n2", "type": "shout", "version": 1, "data": {}},
-        ],
-        "edges": [
-            {
-                "id": "e1",
-                "source": "n1",
-                "target": "n2",
-                "source_handle": "result",
-                "target_handle": "text",
-            },
-        ],
+        "flow": {
+            "nodes": [
+                {"id": "n1", "type": "seed", "version": 1},
+                {"id": "n2", "type": "shout", "version": 1, "bindings": {"text": {"refs": ["n1.result"]}}},
+            ],
+        },
     }
 
 

@@ -29,8 +29,8 @@ def should_skip_node(
     """
     incoming_sources: list[tuple[str, str, str]] = []
     if incoming_map is not None:
-        for _target_handle, source_id, source_handle, edge_id in incoming_map.get(node.id, ()):
-            incoming_sources.append((source_id, source_handle, edge_id))
+        for _target_handle, source_id, source_handle, wire_id in incoming_map.get(node.id, ()):
+            incoming_sources.append((source_id, source_handle, wire_id))
     else:
         for (target_id, _handle), sources in edge_map.items():
             if target_id == node.id:
@@ -41,8 +41,8 @@ def should_skip_node(
 
     skipped_edges = skipped_edges or set()
 
-    for source_id, source_handle, edge_id in incoming_sources:
-        if edge_id and edge_id in skipped_edges:
+    for source_id, source_handle, wire_id in incoming_sources:
+        if wire_id and wire_id in skipped_edges:
             continue
         source_result = results.get(source_id)
         if source_result is None:

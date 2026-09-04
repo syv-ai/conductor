@@ -3,6 +3,7 @@ import dataclasses
 import pytest
 from conductor.graph.binding import Ref, Sources, Static, static_values
 from conductor.graph.model import FieldContent, Flow, GraphNode
+from conductor.graph.views import dependencies_of
 from pydantic import TypeAdapter
 
 
@@ -119,3 +120,46 @@ def test_the_record_is_the_schema():
     adapter = TypeAdapter(Flow)
 
     assert adapter.validate_python(adapter.dump_python(flow, mode="json")) == flow
+def test_a_node_depends_on_every_node_its_wires_name():
+    nodes = [
+        GraphNode(id="a", type="t", version=1),
+        GraphNode(id="b", type="t", version=1, bindings={"x": Sources(refs=(Ref("a", "result"),))}),
+    ]
+
+    assert dependencies_of(nodes) == {"a": frozenset(), "b": frozenset({"a"})}
+
+
+def test_a_static_binding_creates_no_dependency():
+    nodes = [GraphNode(id="a", type="t", version=1, bindings={"x": Static(value="hi")})]
+
+    assert dependencies_of(nodes) == {"a": frozenset()}
+
+
+def test_two_refs_on_one_input_are_one_dependency_each():
+    nodes = [
+        GraphNode(
+            id="b", type="t", version=1,
+            bindings={"x": Sources(refs=(Ref("a", "result"), Ref("c", "result")))},
+        )
+    ]
+
+    assert dependencies_of(nodes)["b"] == frozenset({"a", "c"})
+
+
+def test_two_wires_from_the_same_node_are_one_dependency():
+    """A set, not a list: waiting twice for one node is waiting once."""
+    nodes = [
+        GraphNode(
+            id="b", type="t", version=1,
+            bindings={"x": Sources(refs=(Ref("a", "result"),)), "y": Sources(refs=(Ref("a", "other"),))},
+        )
+    ]
+
+    assert dependencies_of(nodes)["b"] == frozenset({"a"})
+
+
+def test_conductor_defines_no_edge_type():
+    """The canvas derives its own cables; there is nothing here to convert."""
+    import conductor.graph.model as model
+
+    assert not hasattr(model, "GraphEdge")

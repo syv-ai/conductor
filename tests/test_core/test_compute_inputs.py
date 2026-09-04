@@ -18,13 +18,15 @@ from typing import Annotated, Any
 
 import pydantic
 import pytest
-from conductor import GraphEdge, GraphNode, NodeRegistry, compile
+from conductor import GraphNode, NodeRegistry, compile
 from conductor.dtype import DType
 from conductor.execution.engine import _format_validation_error
-from conductor.graph.binding import Static
+from conductor.graph.binding import Sources, Static
 from conductor.graph.dynamic_inputs import resolve_node_inputs
+from conductor.graph.model import Flow
 from conductor.metadata import Input
 from conductor.node import NodeDefinition
+from conductor.ref import Ref
 from conductor.returns import Result
 from conductor.widgets import Number as NumberWidget
 from conductor.widgets import Textarea
@@ -121,25 +123,17 @@ class TestResolver:
 
 class TestCompileIntegration:
     def test_compiled_graph_carries_resolved_inputs(self):
-        compiled = compile(
-            nodes=[GraphNode("n1", "dyn", 1, bindings={"code": Static(value="x")})], edges=[], registry=_registry()
-        )
+        compiled = compile(Flow(nodes=[GraphNode("n1", "dyn", 1, bindings={"code": Static(value="x")})]), _registry())
         assert [i.name for i in compiled.node_inputs["n1"]] == ["customers"]
 
     def test_a_node_without_a_hook_gets_its_static_inputs(self):
-        compiled = compile(
-            nodes=[GraphNode("n1", "plain", 1)], edges=[], registry=_registry()
-        )
+        compiled = compile(Flow(nodes=[GraphNode("n1", "plain", 1)]), _registry())
         assert [i.name for i in compiled.node_inputs["n1"]] == ["text"]
 
 
 class TestBindingsIntoHookDeclaredInputs:
     def test_an_edge_into_a_hook_declared_handle_compiles(self):
-        compiled = compile(
-            nodes=[GraphNode("a", "src", 1), GraphNode("b", "dyn", 1, bindings={"code": Static(value="x")})],
-            edges=[GraphEdge("e1", "a", "b", "result", "customers")],
-            registry=_registry(),
-        )
+        compiled = compile(Flow(nodes=[GraphNode("a", "src", 1), GraphNode("b", "dyn", 1, bindings={"code": Static(value="x"), "customers": Sources(refs=(Ref('a', 'result'),))})]), _registry())
         assert "b" in compiled.execution_order
 
 def test_a_hook_declared_input_uses_its_title_in_errors():
@@ -167,7 +161,7 @@ def test_a_hook_declared_input_uses_its_title_in_errors():
     reg = NodeRegistry()
     reg.register(Rows)
     declared = Rows.versions[1].interface.inputs
-    resolved = compile(nodes=[GraphNode("n1", "rows", 1)], edges=[], registry=reg).node_inputs["n1"]
+    resolved = compile(Flow(nodes=[GraphNode("n1", "rows", 1)]), reg).node_inputs["n1"]
 
     # The declaration has no such input, so the error reads as the bare name.
     assert "Row count" not in _format_validation_error(err, declared)

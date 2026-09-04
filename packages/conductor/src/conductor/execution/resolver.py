@@ -52,16 +52,16 @@ class InputResolver:
         skipped_edges = skipped_edges or set()
         inputs: dict[str, Any] = dict(node.data)
 
-        # (1) Edge-based resolution. Gather all incoming (source, handle, edge_id)
+        # (1) Wire-based resolution. Gather all incoming (source, handle, wire_id)
         # per target_handle in one pass.
         by_handle: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
         if incoming_map is not None:
-            for target_handle, source_id, source_handle, edge_id in incoming_map.get(node.id, ()):
+            for target_handle, source_id, source_handle, wire_id in incoming_map.get(node.id, ()):
                 if not target_handle:
                     continue
-                if edge_id and edge_id in skipped_edges:
+                if wire_id and wire_id in skipped_edges:
                     continue
-                by_handle[target_handle].append((source_id, source_handle, edge_id))
+                by_handle[target_handle].append((source_id, source_handle, wire_id))
         else:
             for (target_id, target_handle), sources in edge_map.items():
                 if target_id != node.id or not target_handle:
@@ -98,7 +98,7 @@ class InputResolver:
         results: dict[str, NodeResult],
     ) -> list[Any]:
         values: list[Any] = []
-        for source_id, source_handle, _edge_id in sources:
+        for source_id, source_handle, _wire_id in sources:
             source_result = results.get(source_id)
             if source_result is None or is_skipped(source_result):
                 continue
