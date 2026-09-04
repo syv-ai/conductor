@@ -1,47 +1,82 @@
-"""Built-in decision node.
+"""``decision`` — route a value to one of two branches.
 
-A decision node evaluates CEL ``when`` expressions on its outgoing edges
-and selectively marks branches as SKIPPED. Unlike an ``if-else`` node
-whose logic lives inside Python, the decision node makes branching
-visible on the diagram as data on the edges — the same pattern as BPMN
-gateways, Step Functions ``Choice``, and Temporal's continue-as.
+The node sends ``value`` to its ``if_true`` or ``if_false`` output
+according to ``when`` and returns ``SKIPPED`` on the other, so whatever is
+wired to the branch not taken does not run. The engine treats ``SKIPPED``
+like any other value; the node has no special role. A choice between more
+than two branches is a chain of decisions.
 
-Register via :func:`register`; the runtime magic is in
-``conductor/execution/engine.py`` which detects ``is_decision=True`` nodes
-and post-processes their guards.
+``when`` is a ``Flag``, not an expression to parse: the catalog already
+produces booleans (``text-contains``, ``regex-match``, ``logic-not``), so
+the condition is wired in rather than written in a language this node
+would have to own.
 
-The node's output is the ``value`` input passed through unchanged, so
-downstream consumers can still read the data that drove the decision.
+``value`` is declared ``Any`` because the node routes it without reading
+it and so cannot name its type. ``compute_outputs`` copies the type that
+arrives on ``value`` onto both outputs. The two outputs share the
+``choice`` ``"when"``: exactly one of them is produced per run.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Annotated, Any
 
-from conductor.types import NodeCategory
-from conductor.widgets import Output, Text
+from conductor._sentinel import SKIPPED
+from conductor.metadata import Output
+from conductor.returns import Result
+from conductor.widgets import ConnectionList, Switch
+
+from conductor_nodes.types import Flag, StdlibNode
 
 if TYPE_CHECKING:
     from conductor import NodeRegistry
+    from conductor.dtype import DType
+
+
+@dataclass(frozen=True)
+class Branches:
+    """What ``Decision.run`` returns: one field per output.
+
+    Both fields share ``choice="when"``, so the interface records that
+    exactly one of them is produced; the other holds ``SKIPPED``.
+    """
+
+    if_true: Annotated[Any, Result(title="If true", choice="when")]
+    if_false: Annotated[Any, Result(title="If false", choice="when")]
+
+
+class Decision(StdlibNode):
+    id = "decision"
+    title = "Decision"
+    description = "Routes a value to one of two branches according to `when`."
+    category = "control"
+
+    def run(
+        self,
+        value: Annotated[Any, ConnectionList(title="Value")],
+        when: Annotated[Flag, Switch(title="When")] = Flag(True),
+    ) -> Branches:
+        if when:
+            return Branches(if_true=value, if_false=SKIPPED)
+        return Branches(if_true=SKIPPED, if_false=value)
+
+    def compute_outputs(
+        self,
+        declared: tuple[Output, ...],
+        values: Mapping[str, Any],
+        arriving: Mapping[str, "type[DType]"],
+    ) -> tuple[Output, ...]:
+        """Give both outputs the type that arrives on ``value`` (``Any`` until wired)."""
+        dtype = arriving.get("value", Any)
+        return tuple(replace(out, dtype=dtype) for out in declared)
+
+
+NODES = (Decision,)
 
 
 def register(registry: "NodeRegistry") -> None:
-    """Register the canonical ``decision`` node."""
-
-    @registry.node(
-        "decision",
-        version=1,
-        name="Decision",
-        description=(
-            "Branching gateway. Evaluates `when` CEL expressions on outgoing "
-            "edges — exactly one branch is taken, the others are marked "
-            "SKIPPED."
-        ),
-        category=NodeCategory.DECISION,
-        is_decision=True,
-    )
-    def decision(
-        value: Annotated[Any, Text(label="Value")] = None,
-    ) -> Annotated[Any, Output(label="Pass-through")]:
-        """Pass the input through so downstream readers still see the value."""
-        return value
+    """Register the ``decision`` node on ``registry``."""
+    for node_cls in NODES:
+        registry.register(node_cls)
