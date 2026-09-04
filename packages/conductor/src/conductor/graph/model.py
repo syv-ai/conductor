@@ -1,138 +1,117 @@
-"""Graph wire format — GraphNode and GraphEdge."""
+"""``Flow`` and ``GraphNode`` — the persisted graph.
 
+A flow is a list of placed nodes and nothing else: wiring lives in each
+node's ``bindings``, and a canvas derives its own cables from them. A
+placement's fields fall in three groups:
+
+* **behaviour** — ``type``, ``version``, ``bindings``, ``locked`` — is what
+  the runtime reads and branches on;
+* **content** — the placement's ``title``, ``description`` and one
+  ``FieldContent`` per field — is shown to people and emitted in events,
+  never branched on;
+* **chrome** — ``display`` — is stored and returned and never parsed.
+
+So a diff of the behaviour fields is the behavioural diff, and chrome can
+change shape without a migration. A host stores these records through
+pydantic.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
+
+from conductor.graph.binding import Binding, static_values
+
+
+@dataclass(frozen=True)
+class FieldContent:
+    """The title and description a person reads for one field of one placement.
+
+    Copied from the node's declaration when the node is placed, and edited
+    freely afterwards; nothing resolves it against the declaration again,
+    so an upstream rename never reaches an existing graph. Read by
+    whatever shows the field to a person, by nothing that decides
+    behaviour.
+    """
+
+    title: str
+    description: str | None = None
 
 
 @dataclass(frozen=True)
 class GraphNode:
-    """A node in the graph (matches ReactFlow's data model).
+    """One placement of a node in a flow.
 
-    Attributes:
-        produces: Optional map of output_handle → display label. Presence of a
-            handle in this dict marks the output as a shared reference that
-            other nodes may consume. The label is UI-only; references are
-            bound by identity (node_id, output_handle).
-        consumes: Optional map of input_handle → (producer_node_id, output_handle).
-            Declares that this input should be filled by the producer's shared
-            output instead of (or in the absence of) a drawn edge.
-        compensation: Optional id of another node that should run to "undo"
-            this node's work if the flow fails after it completes. See
-            docs/compensation.md for the saga semantics.
-        on_error: Per-instance error policy override —
-            ``"fail"`` (default: halt the flow), ``"continue"`` (treat the
-            failure as success with a ``null`` result), or ``"compensate"``
-            (trigger the compensation cascade). ``None`` means "use the flow
-            default" (``"fail"``).
+    ``type`` names the definition and ``version`` selects one of its
+    versions; ``bindings`` says where each input's value comes from (one
+    entry per input, so a typed value and a cable cannot both claim one);
+    ``locked`` names inputs no caller may fill. ``title``, ``description``
+    and ``fields`` are copies of the declaration's text that the author may
+    edit. ``display`` is the canvas's own::
+
+        GraphNode(
+            id="upper-1", type="upper", version=1,
+            bindings={"text": Sources(refs=(Ref("reader-1", "text"),))},
+            title="Upper case",
+        )
+
+    There is no edge record beside it; a canvas derives cables from
+    ``bindings``. What the placement's inputs and outputs actually are
+    is answered when the flow is compiled, not stored here.
     """
 
     id: str
-    #: The registry id of the definition this placement is an instance of.
+    #: Which definition runs this node, and which of its versions. Two
+    #: fields; nothing parses a ``type@version`` string.
     type: str
-    #: Which of the definition's versions the placement pins.
-    version: int = 1
-    data: dict[str, Any] | None = None
-    produces: dict[str, str] | None = None
-    consumes: dict[str, tuple[str, str]] | None = None
-    compensation: str | None = None
-    on_error: str | None = None
+    version: int
+    bindings: Mapping[str, Binding] = field(default_factory=dict)
+    #: Inputs of this placement no caller may fill. Only matters on a
+    #: placement with no wire into it, since only those offer inputs to a
+    #: caller.
+    locked: tuple[str, ...] = ()
+    #: Content.
+    title: str = ""
+    description: str = ""
+    fields: Mapping[str, FieldContent] = field(default_factory=dict)
+    #: Chrome: position, size, whatever the canvas keeps. Never parsed here.
+    display: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        # ``.`` separates node from field in a ``Ref``, so an id may not
+        # contain one. ``/`` may: the compiler uses it to namespace an
+        # embedded flow's nodes under the placing node's id (``approve/check``).
+        if "." in self.id:
+            raise ValueError(f"node id {self.id!r} contains '.': a Ref reads as 'node.field' and must read one way")
+
+    @property
+    def data(self) -> dict[str, Any]:
+        """The typed-in values as a plain dict, for the engine."""
+        return static_values(self.bindings)
+
+
+@dataclass(frozen=True)
+class Flow:
+    """A flow: its placed nodes and its chrome. The whole persisted graph.
+
+    There is no edge list, no trigger and no settings block. What the
+    flow takes and returns is derived when it is compiled
+    (``derive_interface``), never stored.
+    """
+
+    nodes: list[GraphNode]
+    #: Chrome, at flow level.
+    display: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
 class GraphEdge:
-    """An edge connecting two nodes.
-
-    Attributes:
-        when: Optional CEL expression evaluated at runtime to decide whether
-            the edge is "taken". Only meaningful on outgoing edges from
-            ``decision`` nodes. ``None`` means "else / fallback". Decision
-            nodes must declare exactly one else edge and at least one
-            guarded edge.
-        priority: Explicit integer ordering for guard evaluation. Higher
-            priority is evaluated first; ties fall back to edge-declaration
-            order. Default ``0``.
-    """
+    """One cable, as the compiler still reads it; deleted with its readers."""
 
     id: str
     source: str
     target: str
     source_handle: str | None
     target_handle: str | None
-    when: str | None = None
-    priority: int = 0
-
-
-@dataclass(frozen=True)
-class FlowDependency:
-    """A declared top-level dependency of a flow.
-
-    Flows declare every external system they touch up-front so hosts can
-    do dependency-aware things (credential injection, rate limiting, audit
-    reports) without executing the flow.
-
-    Attributes:
-        id: Stable id used by node ``uses`` lists and dependency registries.
-        kind: One of ``"api"``, ``"db"``, ``"queue"``, ``"subprocess"``,
-            ``"notification"``, or any project-defined string.
-        config: Arbitrary host-specific config (endpoint, auth method, etc.)
-            — opaque to the engine.
-    """
-
-    id: str
-    kind: str
-    config: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class FlowTrigger:
-    """A declared way to start a flow.
-
-    The engine never fires triggers — it just records them so hosts can
-    inspect them and wire external machinery (cron, webhook router, queue
-    consumer).
-
-    Attributes:
-        id: Stable id referenced by logs and observability.
-        kind: ``"manual"``, ``"schedule"``, ``"event"``, or ``"webhook"``.
-        config: Kind-specific config (e.g. ``{"cron": "0 9 * * 1",
-            "timezone": "UTC"}``). Opaque to the engine.
-        input_map: Optional CEL expression that transforms the trigger's raw
-            payload into the flow's inputs.
-    """
-
-    id: str
-    kind: str
-    config: dict[str, Any] = field(default_factory=dict)
-    input_map: str | None = None
-
-
-@dataclass(frozen=True)
-class Flow:
-    """A complete process definition — nodes, edges, and top-level metadata.
-
-    This is the "flow file" in memory. The compiler can take either this
-    rich shape or the raw ``nodes`` / ``edges`` lists.
-
-    Attributes:
-        nodes: The graph's nodes.
-        edges: The graph's edges (may carry ``when`` guards on decision
-            outputs).
-        id: Optional stable id used for subprocess references.
-        version: Optional version used for subprocess pinning. Defaults to
-            ``1`` when a flow is referenced.
-        name: Human-readable name.
-        description: Free-form description.
-        dependencies: Top-level dependency manifest (SOC2, rate limiting).
-        triggers: Declarative triggers that can start this flow.
-        on_error_default: Flow-level default for node ``on_error`` policy.
-    """
-
-    nodes: list[GraphNode]
-    edges: list[GraphEdge]
-    id: str | None = None
-    version: int = 1
-    name: str | None = None
-    description: str | None = None
-    dependencies: tuple[FlowDependency, ...] = ()
-    triggers: tuple[FlowTrigger, ...] = ()
-    on_error_default: str = "fail"

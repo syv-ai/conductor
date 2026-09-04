@@ -5,6 +5,7 @@ from typing import Annotated
 import pytest
 from conductor.dtype import DType
 from conductor.errors import CompilationError, CycleDetectionError
+from conductor.graph.binding import Static
 from conductor.graph.compiler import compile
 from conductor.graph.model import GraphEdge, GraphNode
 from conductor.graph.topology import topological_sort
@@ -33,7 +34,7 @@ class Echo(NodeDefinition):
 
 class TestGraphModel:
     def test_graph_node_is_frozen(self):
-        node = GraphNode(id="n1", type="echo", version=1, data={"text": "hello"})
+        node = GraphNode(id="n1", type="echo", version=1, bindings={"text": Static(value="hello")})
         assert node.id == "n1"
         assert node.type == "echo"
         assert node.version == 1
@@ -48,18 +49,18 @@ class TestGraphModel:
         with pytest.raises(AttributeError):
             edge.source = "n3"
 
-    def test_graph_node_data_optional(self):
-        node = GraphNode(id="n1", type="echo", version=1, data=None)
-        assert node.data is None
+    def test_a_node_with_no_bindings_has_no_data(self):
+        node = GraphNode(id="n1", type="echo", version=1)
+        assert node.data == {}
 
 
 class TestTopologicalSort:
     def test_linear_chain(self):
         """A -> B -> C should produce [A, B, C]."""
         nodes = [
-            GraphNode("a", "t", 1, None),
-            GraphNode("b", "t", 1, None),
-            GraphNode("c", "t", 1, None),
+            GraphNode("a", "t", 1),
+            GraphNode("b", "t", 1),
+            GraphNode("c", "t", 1),
         ]
         edges = [
             GraphEdge("e1", "a", "b", "result", "input"),
@@ -73,7 +74,7 @@ class TestTopologicalSort:
         A -> B -> D
         A -> C -> D
         """
-        nodes = [GraphNode(x, "t", 1, None) for x in ["a", "b", "c", "d"]]
+        nodes = [GraphNode(x, "t", 1) for x in ["a", "b", "c", "d"]]
         edges = [
             GraphEdge("e1", "a", "b", "r", "i"),
             GraphEdge("e2", "a", "c", "r", "i"),
@@ -87,17 +88,17 @@ class TestTopologicalSort:
         assert order.index("c") < order.index("d")
 
     def test_single_node(self):
-        nodes = [GraphNode("a", "t", 1, None)]
+        nodes = [GraphNode("a", "t", 1)]
         order = topological_sort(nodes, [])
         assert order == ["a"]
 
     def test_disconnected_nodes(self):
-        nodes = [GraphNode(x, "t", 1, None) for x in ["a", "b", "c"]]
+        nodes = [GraphNode(x, "t", 1) for x in ["a", "b", "c"]]
         order = topological_sort(nodes, [])
         assert set(order) == {"a", "b", "c"}
 
     def test_cycle_detected(self):
-        nodes = [GraphNode(x, "t", 1, None) for x in ["a", "b"]]
+        nodes = [GraphNode(x, "t", 1) for x in ["a", "b"]]
         edges = [
             GraphEdge("e1", "a", "b", "r", "i"),
             GraphEdge("e2", "b", "a", "r", "i"),
@@ -106,7 +107,7 @@ class TestTopologicalSort:
             topological_sort(nodes, edges)
 
     def test_self_loop_detected(self):
-        nodes = [GraphNode("a", "t", 1, None)]
+        nodes = [GraphNode("a", "t", 1)]
         edges = [GraphEdge("e1", "a", "a", "r", "i")]
         with pytest.raises(CycleDetectionError):
             topological_sort(nodes, edges)
@@ -116,8 +117,8 @@ class TestCompile:
     def test_compile_returns_compiled_graph(self, registry):
         registry.register(Echo)
         nodes = [
-            GraphNode("n1", "echo", 1, {"text": "hello"}),
-            GraphNode("n2", "echo", 1, None),
+            GraphNode("n1", "echo", 1, bindings={"text": Static(value="hello")}),
+            GraphNode("n2", "echo", 1),
         ]
         edges = [GraphEdge("e1", "n1", "n2", "result", "text")]
 
@@ -128,13 +129,13 @@ class TestCompile:
         assert compiled.execution_order.index("n1") < compiled.execution_order.index("n2")
 
     def test_compile_unknown_node_type_raises(self, registry):
-        nodes = [GraphNode("n1", "nonexistent", 1, None)]
+        nodes = [GraphNode("n1", "nonexistent", 1)]
         with pytest.raises(CompilationError):
             compile(nodes=nodes, edges=[], registry=registry)
 
     def test_compile_invalid_edge_raises(self, registry):
         registry.register(Echo)
-        nodes = [GraphNode("n1", "echo", 1, None)]
+        nodes = [GraphNode("n1", "echo", 1)]
         edges = [GraphEdge("e1", "n1", "n_missing", "result", "text")]
 
         with pytest.raises(CompilationError):
@@ -143,8 +144,8 @@ class TestCompile:
     def test_compile_cycle_raises(self, registry):
         registry.register(Echo)
         nodes = [
-            GraphNode("n1", "echo", 1, None),
-            GraphNode("n2", "echo", 1, None),
+            GraphNode("n1", "echo", 1),
+            GraphNode("n2", "echo", 1),
         ]
         edges = [
             GraphEdge("e1", "n1", "n2", "result", "text"),

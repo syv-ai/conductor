@@ -33,7 +33,6 @@ class InputResolver:
         edge_map: dict[tuple[str, str], list[tuple[str, str, str]]],
         results: dict[str, NodeResult],
         node_map: dict[str, GraphNode],
-        consume_map: dict[tuple[str, str], tuple[str, str]] | None = None,
         skipped_edges: set[str] | None = None,
         incoming_map: dict[str, list[tuple[str, str, str, str]]] | None = None,
     ) -> dict[str, Any]:
@@ -42,9 +41,8 @@ class InputResolver:
         Precedence (first match wins):
             1. Explicit edges targeting this input (edges in ``skipped_edges``
                are treated as absent)
-            2. Shared-reference consume bindings (``consume_map``)
-            3. Static data on the node
-            4. Widget default (not materialized here; handled by Pydantic)
+            2. The values the author typed into the node
+            3. Widget default (not materialized here; handled by Pydantic)
 
         A ``Series`` input fed by one wire carrying a series receives it
         whole; fed by several wires, it gathers their values as one series
@@ -52,21 +50,7 @@ class InputResolver:
         error, since no other shape exists for it.
         """
         skipped_edges = skipped_edges or set()
-        inputs: dict[str, Any] = dict(node.data or {})
-
-        # (2) Consume bindings overlay static data before edges take over.
-        if consume_map:
-            for (target_id, target_handle), (source_id, source_handle) in consume_map.items():
-                if target_id != node.id:
-                    continue
-                source_result = results.get(source_id)
-                if source_result is None:
-                    continue
-                if is_skipped(source_result):
-                    inputs[target_handle] = source_result
-                    continue
-                value = extract_output(source_result, source_handle)
-                inputs[target_handle] = value
+        inputs: dict[str, Any] = dict(node.data)
 
         # (1) Edge-based resolution. Gather all incoming (source, handle, edge_id)
         # per target_handle in one pass.

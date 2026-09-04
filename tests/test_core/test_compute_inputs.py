@@ -21,6 +21,7 @@ import pytest
 from conductor import GraphEdge, GraphNode, NodeRegistry, compile
 from conductor.dtype import DType
 from conductor.execution.engine import _format_validation_error
+from conductor.graph.binding import Static
 from conductor.graph.dynamic_inputs import resolve_node_inputs
 from conductor.metadata import Input
 from conductor.node import NodeDefinition
@@ -90,15 +91,15 @@ def _registry() -> NodeRegistry:
 
 class TestResolver:
     def test_no_hook_returns_static_inputs(self):
-        got = resolve_node_inputs(node=GraphNode("n1", "plain", 1, None), node_def=Plain)
+        got = resolve_node_inputs(node=GraphNode("n1", "plain", 1), node_def=Plain)
         assert [i.name for i in got] == ["text"]
 
     def test_hook_result_replaces_the_roster(self):
-        got = resolve_node_inputs(node=GraphNode("n1", "dyn", 1, {"code": "x"}), node_def=Dyn)
+        got = resolve_node_inputs(node=GraphNode("n1", "dyn", 1, bindings={"code": Static(value="x")}), node_def=Dyn)
         assert [i.name for i in got] == ["customers"]
 
     def test_an_extension_node_resolves_to_nothing(self):
-        got = resolve_node_inputs(node=GraphNode("n1", "unknown", 1, None), node_def=None)
+        got = resolve_node_inputs(node=GraphNode("n1", "unknown", 1), node_def=None)
         assert got == ()
 
     def test_a_raising_hook_raises_where_it_is_found(self):
@@ -115,19 +116,19 @@ class TestResolver:
                 raise RuntimeError("kaboom")
 
         with pytest.raises(RuntimeError, match="kaboom"):
-            resolve_node_inputs(node=GraphNode("n1", "boom-in", 1, None), node_def=Boom)
+            resolve_node_inputs(node=GraphNode("n1", "boom-in", 1), node_def=Boom)
 
 
 class TestCompileIntegration:
     def test_compiled_graph_carries_resolved_inputs(self):
         compiled = compile(
-            nodes=[GraphNode("n1", "dyn", 1, {"code": "x"})], edges=[], registry=_registry()
+            nodes=[GraphNode("n1", "dyn", 1, bindings={"code": Static(value="x")})], edges=[], registry=_registry()
         )
         assert [i.name for i in compiled.node_inputs["n1"]] == ["customers"]
 
     def test_a_node_without_a_hook_gets_its_static_inputs(self):
         compiled = compile(
-            nodes=[GraphNode("n1", "plain", 1, None)], edges=[], registry=_registry()
+            nodes=[GraphNode("n1", "plain", 1)], edges=[], registry=_registry()
         )
         assert [i.name for i in compiled.node_inputs["n1"]] == ["text"]
 
@@ -135,23 +136,11 @@ class TestCompileIntegration:
 class TestBindingsIntoHookDeclaredInputs:
     def test_an_edge_into_a_hook_declared_handle_compiles(self):
         compiled = compile(
-            nodes=[GraphNode("a", "src", 1, None), GraphNode("b", "dyn", 1, {"code": "x"})],
+            nodes=[GraphNode("a", "src", 1), GraphNode("b", "dyn", 1, bindings={"code": Static(value="x")})],
             edges=[GraphEdge("e1", "a", "b", "result", "customers")],
             registry=_registry(),
         )
         assert "b" in compiled.execution_order
-
-    def test_consume_into_a_hook_declared_input_compiles(self):
-        compiled = compile(
-            nodes=[
-                GraphNode("a", "src", 1, None, produces={"result": "Shared"}),
-                GraphNode("b", "dyn", 1, {"code": "x"}, consumes={"customers": ("a", "result")}),
-            ],
-            edges=[],
-            registry=_registry(),
-        )
-        assert "b" in compiled.execution_order
-
 
 def test_a_hook_declared_input_uses_its_title_in_errors():
     class Rows(NodeDefinition):
@@ -178,7 +167,7 @@ def test_a_hook_declared_input_uses_its_title_in_errors():
     reg = NodeRegistry()
     reg.register(Rows)
     declared = Rows.versions[1].interface.inputs
-    resolved = compile(nodes=[GraphNode("n1", "rows", 1, None)], edges=[], registry=reg).node_inputs["n1"]
+    resolved = compile(nodes=[GraphNode("n1", "rows", 1)], edges=[], registry=reg).node_inputs["n1"]
 
     # The declaration has no such input, so the error reads as the bare name.
     assert "Row count" not in _format_validation_error(err, declared)

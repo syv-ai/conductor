@@ -4,6 +4,7 @@ import pytest
 from conductor import NodeRegistry
 from conductor.dtype import DType
 from conductor.execution.engine import execute_sync
+from conductor.graph.binding import Static
 from conductor.graph.compiler import compile as compile_graph
 from conductor.graph.model import GraphNode
 from conductor.metadata import Input, Output
@@ -963,7 +964,7 @@ def test_a_class_node_executes_in_a_graph():
     registry.register(Shout)
 
     compiled = compile_graph(
-        nodes=[GraphNode(id="a", type="shout", version=1, data={"text": "hi"})],
+        nodes=[GraphNode(id="a", type="shout", version=1, bindings={"text": Static(value="hi")})],
         edges=[],
         registry=registry,
     )
@@ -995,7 +996,7 @@ def test_two_versions_of_one_class_execute_independently():
 
     for pinned, expected in ((1, "hi"), (2, "hi?")):
         compiled = compile_graph(
-            nodes=[GraphNode(id="a", type="suffix", version=pinned, data={"text": "hi"})],
+            nodes=[GraphNode(id="a", type="suffix", version=pinned, bindings={"text": Static(value="hi")})],
             edges=[],
             registry=registry,
         )

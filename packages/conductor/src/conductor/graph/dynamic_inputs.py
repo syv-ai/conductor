@@ -31,7 +31,7 @@ def resolve_node_inputs(
     if node_def is None:
         return ()
     declared = node_def.versions[node.version].interface.inputs
-    return tuple(node_def().compute_inputs(declared, node.data or {}))
+    return tuple(node_def().compute_inputs(declared, node.data))
 
 
 def resolve_graph_inputs(

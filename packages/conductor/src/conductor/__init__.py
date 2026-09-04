@@ -6,16 +6,6 @@ internals (resolver, state, topology, etc.) stay in submodules.
 
 from conductor import errors, expr, widgets
 from conductor._sentinel import SKIPPED
-from conductor.compound import (
-    FOR_EACH,
-    SUBPROCESS,
-    WHILE,
-    ForEachNode,
-    SubprocessNode,
-    WhileNode,
-    compute_for_each_end_outputs,
-)
-from conductor.compound.subprocess import SubprocessRegistry
 from conductor.dtype import DType, Single, dtype_of, registered_dtypes
 from conductor.dtype_ref import DTypeRef
 from conductor.errors import (
@@ -40,13 +30,7 @@ from conductor.execution.store import FlowStore
 from conductor.graph.compiler import CompiledGraph, compile
 from conductor.graph.dynamic_inputs import resolve_graph_inputs
 from conductor.graph.dynamic_outputs import resolve_graph_outputs
-from conductor.graph.model import (
-    Flow,
-    FlowDependency,
-    FlowTrigger,
-    GraphEdge,
-    GraphNode,
-)
+from conductor.graph.model import Flow, GraphEdge, GraphNode
 from conductor.interface import Interface, Provided
 from conductor.metadata import Input, Output
 from conductor.node import (
@@ -73,8 +57,6 @@ __all__ = [
     "GraphNode",
     "GraphEdge",
     "Flow",
-    "FlowDependency",
-    "FlowTrigger",
     "compile",
     "CompiledGraph",
     "resolve_graph_inputs",
@@ -88,15 +70,6 @@ __all__ = [
     "FlowStore",
     "FlowCheckpoint",
     "SKIPPED",
-    # Compound nodes
-    "ForEachNode",
-    "FOR_EACH",
-    "compute_for_each_end_outputs",
-    "WhileNode",
-    "WHILE",
-    "SubprocessNode",
-    "SUBPROCESS",
-    "SubprocessRegistry",
     # The node contract
     "NodeDefinition",
     "NodeVersion",

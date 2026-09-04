@@ -11,14 +11,12 @@ def should_skip_node(
     node: GraphNode,
     edge_map: dict[tuple[str, str], list[tuple[str, str, str]]],
     results: dict[str, Any],
-    consume_map: dict[tuple[str, str], tuple[str, str]] | None = None,
     skipped_edges: set[str] | None = None,
     incoming_map: dict[str, list[tuple[str, str, str, str]]] | None = None,
 ) -> bool:
     """Determine if a node should be skipped.
 
-    A node is skipped if ALL of its incoming values (edges + consume
-    bindings) are SKIPPED. Edges whose ``id`` appears in ``skipped_edges``
+    A node is skipped if ALL of its incoming values are SKIPPED. Edges whose ``id`` appears in ``skipped_edges``
     also count as SKIPPED — this is how decision-node edge guards mark
     branches as "not taken". A node with no incoming sources is never
     skipped.
@@ -37,11 +35,6 @@ def should_skip_node(
         for (target_id, _handle), sources in edge_map.items():
             if target_id == node.id:
                 incoming_sources.extend(sources)
-
-    if consume_map:
-        for (target_id, _handle), source in consume_map.items():
-            if target_id == node.id:
-                incoming_sources.append((source[0], source[1], ""))
 
     if not incoming_sources:
         return False

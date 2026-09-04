@@ -24,6 +24,7 @@ import pytest
 from conductor import GraphEdge, GraphNode, NodeRegistry, compile
 from conductor.errors import NodeExecutionError
 from conductor.execution.engine import execute, execute_sync
+from conductor.graph.binding import Static
 from conductor.node import NodeDefinition, Policy, version
 from conductor.returns import Result
 from conductor.widgets import Textarea
@@ -64,9 +65,9 @@ def test_500_node_linear_chain_compile_and_execute() -> None:
 
     # The first node carries a static input; every subsequent node takes
     # the previous node's ``result`` on its ``text`` parameter.
-    nodes.append(GraphNode("n0", "upper", 1, {"text": "hello"}))
+    nodes.append(GraphNode("n0", "upper", 1, bindings={"text": Static(value="hello")}))
     for i in range(1, n):
-        nodes.append(GraphNode(f"n{i}", "upper", 1, None))
+        nodes.append(GraphNode(f"n{i}", "upper", 1))
         edges.append(
             GraphEdge(f"e{i}", f"n{i - 1}", f"n{i}", "result", "text"),
         )
@@ -122,7 +123,7 @@ async def test_cancellation_honored_during_retry_sleep() -> None:
     registry.register(AlwaysFlaky)
 
     compiled = compile(
-        nodes=[GraphNode("n1", "always-flaky", 1, {"text": "x"})],
+        nodes=[GraphNode("n1", "always-flaky", 1, bindings={"text": Static(value="x")})],
         edges=[],
         registry=registry,
     )

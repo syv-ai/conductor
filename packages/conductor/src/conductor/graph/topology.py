@@ -6,21 +6,11 @@ from conductor.errors import CycleDetectionError
 from conductor.graph.model import GraphEdge, GraphNode
 
 
-def topological_sort(
-    nodes: list[GraphNode],
-    edges: list[GraphEdge],
-    *,
-    extra_dependencies: list[tuple[str, str]] | None = None,
-) -> list[str]:
-    """Topologically sort nodes based on edge (and optional extra) dependencies.
+def topological_sort(nodes: list[GraphNode], edges: list[GraphEdge]) -> list[str]:
+    """Topologically sort nodes based on edge dependencies.
 
     Uses Kahn's algorithm. Returns node IDs in execution order.
     Raises CycleDetectionError if the graph contains cycles.
-
-    ``extra_dependencies`` is a list of ``(source, target)`` pairs representing
-    dependencies that are not explicit edges — shared reference consume
-    bindings are the primary use. They participate in in-degree counting and
-    cycle detection identically to drawn edges.
     """
     node_ids = {n.id for n in nodes}
 
@@ -40,9 +30,6 @@ def topological_sort(
 
     for edge in edges:
         _add(edge.source, edge.target)
-
-    for source, target in extra_dependencies or []:
-        _add(source, target)
 
     queue = deque(nid for nid, deg in in_degree.items() if deg == 0)
     result: list[str] = []

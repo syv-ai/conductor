@@ -10,6 +10,7 @@ from conductor.dtype import DType
 from conductor.errors import FlowExecutionException
 from conductor.execution.engine import collect, execute, execute_sync
 from conductor.execution.results import OutputRef, normalize_result, project_outputs
+from conductor.graph.binding import Static
 from conductor.graph.compiler import compile
 from conductor.graph.model import GraphEdge, GraphNode
 from conductor.node import NodeDefinition
@@ -154,8 +155,8 @@ class TestStreamingExecution:
         """echo -> upper should produce start/complete events for each node."""
         compiled = compile(
             nodes=[
-                GraphNode("n1", "echo", 1, {"text": "hello"}),
-                GraphNode("n2", "upper", 1, None),
+                GraphNode("n1", "echo", 1, bindings={"text": Static(value="hello")}),
+                GraphNode("n2", "upper", 1),
             ],
             edges=[GraphEdge("e1", "n1", "n2", "result", "text")],
             registry=three_node_registry,
@@ -174,8 +175,8 @@ class TestStreamingExecution:
         """echo('hello') -> upper -> 'HELLO'."""
         compiled = compile(
             nodes=[
-                GraphNode("n1", "echo", 1, {"text": "hello"}),
-                GraphNode("n2", "upper", 1, None),
+                GraphNode("n1", "echo", 1, bindings={"text": Static(value="hello")}),
+                GraphNode("n2", "upper", 1),
             ],
             edges=[GraphEdge("e1", "n1", "n2", "result", "text")],
             registry=three_node_registry,
@@ -191,10 +192,10 @@ class TestStreamingExecution:
         """
         compiled = compile(
             nodes=[
-                GraphNode("n1", "echo", 1, {"text": "hello"}),
-                GraphNode("n2", "upper", 1, None),
-                GraphNode("n3", "echo", 1, None),
-                GraphNode("n4", "combine", 1, None),
+                GraphNode("n1", "echo", 1, bindings={"text": Static(value="hello")}),
+                GraphNode("n2", "upper", 1),
+                GraphNode("n3", "echo", 1),
+                GraphNode("n4", "combine", 1),
             ],
             edges=[
                 GraphEdge("e1", "n1", "n2", "result", "text"),
@@ -218,8 +219,8 @@ class TestSyncExecution:
         """Blocking API: echo -> upper."""
         compiled = compile(
             nodes=[
-                GraphNode("n1", "echo", 1, {"text": "world"}),
-                GraphNode("n2", "upper", 1, None),
+                GraphNode("n1", "echo", 1, bindings={"text": Static(value="world")}),
+                GraphNode("n2", "upper", 1),
             ],
             edges=[GraphEdge("e1", "n1", "n2", "result", "text")],
             registry=three_node_registry,
@@ -231,7 +232,7 @@ class TestSyncExecution:
     def test_single_node_no_edges(self, three_node_registry):
         """A single node with static data, no edges."""
         compiled = compile(
-            nodes=[GraphNode("n1", "echo", 1, {"text": "standalone"})],
+            nodes=[GraphNode("n1", "echo", 1, bindings={"text": Static(value="standalone")})],
             edges=[],
             registry=three_node_registry,
         )
@@ -249,8 +250,8 @@ class TestCaching:
         """Passing cache skips execution and uses cached value."""
         compiled = compile(
             nodes=[
-                GraphNode("n1", "echo", 1, {"text": "hello"}),
-                GraphNode("n2", "upper", 1, None),
+                GraphNode("n1", "echo", 1, bindings={"text": Static(value="hello")}),
+                GraphNode("n2", "upper", 1),
             ],
             edges=[GraphEdge("e1", "n1", "n2", "result", "text")],
             registry=three_node_registry,
@@ -272,7 +273,7 @@ class TestErrorHandling:
     async def test_node_execution_error_yields_flow_error(self, registry):
         registry.register(Fail)
         compiled = compile(
-            nodes=[GraphNode("n1", "fail", 1, {"text": "hello"})],
+            nodes=[GraphNode("n1", "fail", 1, bindings={"text": Static(value="hello")})],
             edges=[],
             registry=registry,
         )
@@ -288,7 +289,7 @@ class TestErrorHandling:
     def test_execute_sync_raises_on_error(self, registry):
         registry.register(Fail)
         compiled = compile(
-            nodes=[GraphNode("n1", "fail", 1, {"text": "hello"})],
+            nodes=[GraphNode("n1", "fail", 1, bindings={"text": Static(value="hello")})],
             edges=[],
             registry=registry,
         )
@@ -315,7 +316,7 @@ class TestTimeout:
 
         registry.register(Slow)
         compiled = compile(
-            nodes=[GraphNode("n1", "slow", 1, {"text": "hello"})],
+            nodes=[GraphNode("n1", "slow", 1, bindings={"text": Static(value="hello")})],
             edges=[],
             registry=registry,
         )
@@ -357,8 +358,8 @@ class TestSkipPropagation:
         registry.register(Conditional)
         compiled = compile(
             nodes=[
-                GraphNode("n1", "conditional", 1, {"text": "hello"}),
-                GraphNode("n2", "echo", 1, None),  # connected to the branch not taken
+                GraphNode("n1", "conditional", 1, bindings={"text": Static(value="hello")}),
+                GraphNode("n2", "echo", 1),  # connected to the branch not taken
             ],
             edges=[GraphEdge("e1", "n1", "n2", "not_taken", "text")],
             registry=registry,
@@ -383,7 +384,7 @@ class TestStrayDataKeyFiltering:
     def test_node_ignores_stray_data_key(self, three_node_registry):
         compiled = compile(
             nodes=[
-                GraphNode("n1", "upper", 1, {"text": "hi", "_host_note": ["x"]}),
+                GraphNode("n1", "upper", 1, bindings={"text": Static(value="hi"), "_host_note": Static(value=["x"])}),
             ],
             edges=[],
             registry=three_node_registry,

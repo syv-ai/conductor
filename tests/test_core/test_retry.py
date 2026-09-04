@@ -21,6 +21,7 @@ from conductor.errors import (
 )
 from conductor.execution.engine import execute_sync
 from conductor.execution.retry import RetryConfig
+from conductor.graph.binding import Static
 from conductor.node import NodeDefinition, Policy, version
 from conductor.returns import Result
 from conductor.widgets import Textarea
@@ -60,7 +61,7 @@ def test_validation_errors_not_retried():
 
     reg.register(RaiseValidation)
     compiled = compile(
-        nodes=[GraphNode("n1", "raise-validation", 1, {"text": "x"})],
+        nodes=[GraphNode("n1", "raise-validation", 1, bindings={"text": Static(value="x")})],
         edges=[],
         registry=reg,
     )
@@ -100,7 +101,7 @@ def test_node_execution_error_with_retryable_false_not_retried():
 
     reg.register(RaiseFatal)
     compiled = compile(
-        nodes=[GraphNode("n1", "raise-fatal", 1, {"text": "x"})],
+        nodes=[GraphNode("n1", "raise-fatal", 1, bindings={"text": Static(value="x")})],
         edges=[],
         registry=reg,
     )
@@ -140,7 +141,7 @@ def test_default_node_execution_error_still_retries():
 
     reg.register(FlakyExec)
     compiled = compile(
-        nodes=[GraphNode("n1", "flaky-exec", 1, {"text": "x"})],
+        nodes=[GraphNode("n1", "flaky-exec", 1, bindings={"text": Static(value="x")})],
         edges=[],
         registry=reg,
     )

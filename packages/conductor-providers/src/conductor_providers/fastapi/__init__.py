@@ -8,7 +8,6 @@ Usage::
 
     from fastapi import FastAPI, Depends
     from conductor import NodeRegistry
-    from conductor.compound.for_each import FOR_EACH
     from conductor_providers.fastapi import conductor_router
 
     registry = NodeRegistry()
@@ -19,7 +18,6 @@ Usage::
         conductor_router(
             registry,
             prefix="/api/v1/flows",
-            compound_types=[FOR_EACH],
             dependencies=[Depends(require_admin)],
         )
     )

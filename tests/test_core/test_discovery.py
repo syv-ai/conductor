@@ -6,6 +6,7 @@ from typing import Annotated, Any
 
 from conductor.dtype import DType
 from conductor.execution.engine import execute_sync
+from conductor.graph.binding import Static
 from conductor.graph.compiler import compile
 from conductor.graph.model import GraphEdge, GraphNode
 from conductor.node import NodeDefinition
@@ -103,8 +104,8 @@ def test_extension_node_dispatched(registry):
 
     compiled = compile(
         nodes=[
-            GraphNode("n1", "echo", 1, {"text": "hello"}),
-            GraphNode("n2", "ext:custom", 1, None),
+            GraphNode("n1", "echo", 1, bindings={"text": Static(value="hello")}),
+            GraphNode("n2", "ext:custom", 1),
         ],
         edges=[GraphEdge("e1", "n1", "n2", "result", "text")],
         registry=registry,

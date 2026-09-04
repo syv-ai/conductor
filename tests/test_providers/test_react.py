@@ -15,6 +15,7 @@ import conductor_nodes
 import pytest
 from conductor import GraphEdge, GraphNode, NodeRegistry, compile
 from conductor.execution.engine import execute_sync
+from conductor.graph.binding import Static
 from conductor.node import NodeDefinition
 from conductor.returns import Result
 from conductor_nodes.types import Text
@@ -42,9 +43,9 @@ def registry() -> NodeRegistry:
 @pytest.fixture
 def sample_graph():
     nodes = [
-        GraphNode("n1", "build-pair", 1, {"seed": "x"}),
-        GraphNode("n2", "text-uppercase", 1, {"text": "hi"}),
-        GraphNode("n3", "text-concat", 1, {"separator": "+"}),
+        GraphNode("n1", "build-pair", 1, bindings={"seed": Static(value="x")}),
+        GraphNode("n2", "text-uppercase", 1, bindings={"text": Static(value="hi")}),
+        GraphNode("n3", "text-concat", 1, bindings={"separator": Static(value="+")}),
     ]
     edges = [
         GraphEdge("e0", "n1", "n3", "result", "a"),
@@ -75,7 +76,7 @@ class TestGraphToReact:
         assert n2["data"]["data"] == {"text": "hi"}
 
     def test_optional_fields_omitted_when_empty(self):
-        nodes = [GraphNode("n", "text-uppercase", 1, {"text": "x"})]
+        nodes = [GraphNode("n", "text-uppercase", 1, bindings={"text": Static(value="x")})]
         out = react.graph_to_react(nodes, [])
         n = out["nodes"][0]
         assert "produces" not in n["data"]
@@ -173,8 +174,8 @@ class TestReactToGraph:
 class TestEndToEnd:
     def test_wire_format_can_be_compiled_and_executed(self, registry):
         nodes_in = [
-            GraphNode("src", "text-uppercase", 1, {"text": "hello"}),
-            GraphNode("down", "text-reverse", 1, None),
+            GraphNode("src", "text-uppercase", 1, bindings={"text": Static(value="hello")}),
+            GraphNode("down", "text-reverse", 1),
         ]
         edges_in = [GraphEdge("e1", "src", "down", "result", "text")]
 
@@ -188,32 +189,3 @@ class TestEndToEnd:
         assert results["down"]["result"] == "OLLEH"
 
 
-class TestProcessStandardFields:
-    """``when`` / ``priority`` / ``compensation`` / ``on_error`` round-trip."""
-
-    def test_edge_when_and_priority_preserved(self):
-        edge = GraphEdge(
-            "e1", "a", "b", "result", "text",
-            when="amount > 100", priority=5,
-        )
-        nodes = [GraphNode("a", "build-pair", 1, None),
-                 GraphNode("b", "text-uppercase", 1, {})]
-        wire = react.graph_to_react(nodes, [edge])
-        back_nodes, back_edges = react.react_to_graph(
-            json.loads(json.dumps(wire))
-        )
-        assert back_edges[0].when == "amount > 100"
-        assert back_edges[0].priority == 5
-
-    def test_compensation_and_on_error_preserved(self):
-        nodes = [
-            GraphNode("n1", "text-uppercase", 1, {"text": "x"},
-                      compensation="undo",
-                      on_error="compensate"),
-            GraphNode("undo", "text-uppercase", 1, {"text": "u"}),
-        ]
-        wire = react.graph_to_react(nodes, [])
-        back_nodes, _ = react.react_to_graph(json.loads(json.dumps(wire)))
-        n1 = next(n for n in back_nodes if n.id == "n1")
-        assert n1.compensation == "undo"
-        assert n1.on_error == "compensate"

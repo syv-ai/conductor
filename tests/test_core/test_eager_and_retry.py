@@ -14,6 +14,7 @@ from conductor.dtype import DType
 from conductor.errors import FlowExecutionException
 from conductor.execution.engine import execute, execute_sync
 from conductor.execution.retry import RetryConfig
+from conductor.graph.binding import Static
 from conductor.node import NodeDefinition, Policy, version
 from conductor.returns import Result
 from conductor.widgets import Number as NumberWidget
@@ -104,11 +105,11 @@ class TestEagerScheduling:
         # B(0.3s) -> D(0.3s) --+
         compiled = compile(
             nodes=[
-                GraphNode("a", "slow", 1, {"text": "hello"}),
-                GraphNode("b", "slow", 1, {"text": "world"}),
-                GraphNode("c", "slow", 1, None),
-                GraphNode("d", "slow", 1, None),
-                GraphNode("e", "join", 1, None),
+                GraphNode("a", "slow", 1, bindings={"text": Static(value="hello")}),
+                GraphNode("b", "slow", 1, bindings={"text": Static(value="world")}),
+                GraphNode("c", "slow", 1),
+                GraphNode("d", "slow", 1),
+                GraphNode("e", "join", 1),
             ],
             edges=[
                 GraphEdge("e1", "a", "c", "result", "text"),
@@ -130,9 +131,9 @@ class TestEagerScheduling:
     def test_linear_chain_still_works(self):
         compiled = compile(
             nodes=[
-                GraphNode("n1", "echo", 1, {"text": "hello"}),
-                GraphNode("n2", "upper", 1, None),
-                GraphNode("n3", "echo", 1, None),
+                GraphNode("n1", "echo", 1, bindings={"text": Static(value="hello")}),
+                GraphNode("n2", "upper", 1),
+                GraphNode("n3", "echo", 1),
             ],
             edges=[
                 GraphEdge("e1", "n1", "n2", "result", "text"),
@@ -146,8 +147,8 @@ class TestEagerScheduling:
     async def test_events_emitted_for_parallel_nodes(self):
         compiled = compile(
             nodes=[
-                GraphNode("a", "echo", 1, {"text": "x"}),
-                GraphNode("b", "echo", 1, {"text": "y"}),
+                GraphNode("a", "echo", 1, bindings={"text": Static(value="x")}),
+                GraphNode("b", "echo", 1, bindings={"text": Static(value="y")}),
             ],
             edges=[],
             registry=_registry(Echo),
@@ -162,7 +163,7 @@ class TestEagerScheduling:
 
     def test_single_node_works(self):
         compiled = compile(
-            nodes=[GraphNode("n1", "echo", 1, {"text": "hi"})],
+            nodes=[GraphNode("n1", "echo", 1, bindings={"text": Static(value="hi")})],
             edges=[],
             registry=_registry(Echo),
         )
@@ -189,7 +190,7 @@ class TestRetry:
                 return Txt(f"ok:{text}")
 
         compiled = compile(
-            nodes=[GraphNode("n1", "flaky", 1, {"text": "hello"})],
+            nodes=[GraphNode("n1", "flaky", 1, bindings={"text": Static(value="hello")})],
             edges=[],
             registry=_registry(Flaky),
         )
@@ -200,7 +201,7 @@ class TestRetry:
 
     def test_global_retry_exhausted_raises(self):
         compiled = compile(
-            nodes=[GraphNode("n1", "always-fails", 1, {"text": "hello"})],
+            nodes=[GraphNode("n1", "always-fails", 1, bindings={"text": Static(value="hello")})],
             edges=[],
             registry=_registry(AlwaysFails),
         )
@@ -227,7 +228,7 @@ class TestRetry:
                 return Txt("done")
 
         compiled = compile(
-            nodes=[GraphNode("n1", "flaky", 1, {"text": "x"})],
+            nodes=[GraphNode("n1", "flaky", 1, bindings={"text": Static(value="x")})],
             edges=[],
             registry=_registry(Flaky),
         )
@@ -239,7 +240,7 @@ class TestRetry:
 
     def test_no_retry_by_default(self):
         compiled = compile(
-            nodes=[GraphNode("n1", "always-fails", 1, {"text": "x"})],
+            nodes=[GraphNode("n1", "always-fails", 1, bindings={"text": Static(value="x")})],
             edges=[],
             registry=_registry(AlwaysFails),
         )
@@ -266,7 +267,7 @@ class TestRetry:
                 return num
 
         compiled = compile(
-            nodes=[GraphNode("n1", "typed", 1, {"num": "not-a-number"})],
+            nodes=[GraphNode("n1", "typed", 1, bindings={"num": Static(value="not-a-number")})],
             edges=[],
             registry=_registry(Typed),
         )
@@ -293,7 +294,7 @@ class TestRetry:
                 return Txt("ok")
 
         compiled = compile(
-            nodes=[GraphNode("n1", "flaky", 1, {"text": "x"})],
+            nodes=[GraphNode("n1", "flaky", 1, bindings={"text": Static(value="x")})],
             edges=[],
             registry=_registry(Flaky),
         )
@@ -343,9 +344,9 @@ class TestRetryWithParallel:
 
         compiled = compile(
             nodes=[
-                GraphNode("n1", "flaky-a", 1, {"text": "x"}),
-                GraphNode("n2", "fast-b", 1, {"text": "y"}),
-                GraphNode("n3", "join", 1, None),
+                GraphNode("n1", "flaky-a", 1, bindings={"text": Static(value="x")}),
+                GraphNode("n2", "fast-b", 1, bindings={"text": Static(value="y")}),
+                GraphNode("n3", "join", 1),
             ],
             edges=[
                 GraphEdge("e1", "n1", "n3", "result", "a"),

@@ -24,7 +24,6 @@ def conductor_router(
     prefix: str = "",
     tags: list[str] | None = None,
     dependencies: Sequence[Any] | None = None,
-    compound_types: list[type] | None = None,
     context_factory: Callable[[Request], dict[str, Any]] | None = None,
     entity_resolver: (
         Callable[[str, Request], list[dict[str, Any]]] | None
@@ -47,8 +46,6 @@ def conductor_router(
         tags: OpenAPI tags attached to every route.
         dependencies: FastAPI dependencies applied to every route (auth, rate
             limiting, anything ``Depends(...)`` can express).
-        compound_types: Compound types passed to ``compile()`` (e.g.
-            ``[FOR_EACH]``).
         context_factory: Optional hook invoked per-request on ``/execute`` and
             ``/execute-stream``. Receives the FastAPI ``Request`` and returns
             a dict that seeds the node ``FlowStore``. Node functions declaring
@@ -64,8 +61,6 @@ def conductor_router(
         tags=tags or ["conductor"],
         dependencies=list(dependencies) if dependencies else None,
     )
-    compound_types = compound_types or []
-
     def _store_data(request: Request) -> dict[str, Any] | None:
         return context_factory(request) if context_factory else None
 
@@ -82,7 +77,6 @@ def conductor_router(
             nodes=nodes,
             edges=edges,
             registry=registry,
-            compound_types=compound_types,
             extension_resolver=extension_resolver,
         )
         results = execute_sync(
@@ -100,7 +94,6 @@ def conductor_router(
             nodes=nodes,
             edges=edges,
             registry=registry,
-            compound_types=compound_types,
             extension_resolver=extension_resolver,
         )
         store_data = _store_data(request)
@@ -148,8 +141,7 @@ def conductor_router(
                 nodes=nodes,
                 edges=edges,
                 registry=registry,
-                compound_types=compound_types,
-                extension_resolver=extension_resolver,
+                    extension_resolver=extension_resolver,
             )
         except CompilationError as e:
             return CompileResult(status="error", errors=[str(e)])

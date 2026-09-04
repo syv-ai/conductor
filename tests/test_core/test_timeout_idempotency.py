@@ -40,7 +40,7 @@ def test_per_node_timeout_triggers() -> None:
 
     reg.register(Slow)
     compiled = compile(
-        nodes=[GraphNode("n1", "slow", 1, {})], edges=[], registry=reg,
+        nodes=[GraphNode("n1", "slow", 1)], edges=[], registry=reg,
     )
     with pytest.raises(FlowExecutionError):
         execute_sync(compiled)

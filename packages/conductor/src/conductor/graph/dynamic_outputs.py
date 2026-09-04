@@ -5,9 +5,8 @@ definition for the outputs this placement has, given the pinned version's
 declared outputs and the values the author typed. What arrives on each
 wired input is not recorded yet, so the hook is handed an empty
 arriving; the compiler records arrivals when it derives bindings. The
-result is stored on CompiledGraph.node_outputs; downstream stages
-(shared refs, compound runtimes) consult that map in preference to the
-declaration. Nothing is checked here: a hook that returns the wrong shape
+result is stored on CompiledGraph.node_outputs, which the engine reads
+in preference to the declaration. Nothing is checked here: a hook that returns the wrong shape
 is a node bug and raises where it is found.
 """
 
@@ -46,7 +45,7 @@ def resolve_node_outputs(
     if node_def is None:
         return ()
     declared = node_def.versions[node.version].interface.outputs
-    return tuple(node_def().compute_outputs(declared, node.data or {}, {}))
+    return tuple(node_def().compute_outputs(declared, node.data, {}))
 
 
 class _MappingLookup:

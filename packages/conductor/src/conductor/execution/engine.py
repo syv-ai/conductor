@@ -24,9 +24,6 @@ from conductor.errors import (
 )
 from conductor.execution.checkpoint import FlowCheckpoint
 from conductor.execution.events import (
-    CompensationCompleteEvent,
-    CompensationFailedEvent,
-    CompensationStartEvent,
     EventSink,
     ExecutionEvent,
     FlowCancelledEvent,
@@ -59,11 +56,10 @@ from conductor.series import Index, Series
 _DONE = object()
 _FATAL = object()
 
-# How often a running compound node's event sink is polled so the events
-# it emits mid-execution (loop-body node_start/node_complete, for-each
-# node_progress) stream to the host live instead of arriving in a burst
-# once the whole compound finishes. Small enough to feel live, large
-# enough not to busy-spin the event loop.
+# How often a running node's event sink is polled so the events it emits
+# mid-execution stream to the host live instead of arriving in a burst
+# once the node finishes. Small enough to feel live, large enough not to
+# busy-spin the event loop.
 _SINK_DRAIN_INTERVAL = 0.05
 
 
@@ -72,11 +68,10 @@ async def _drain_sink_live(
 ) -> None:
     """Forward events from a node's sink to ``event_queue`` while it runs.
 
-    Compound nodes (for-each / while loops) emit body-node and progress
-    events to ``state._event_sink`` from a worker thread during their
-    execution. Without a concurrent drainer those events sit in the sink
-    until the compound completes and the post-dispatch tail-drain flushes
-    them — so a host sees nothing until the loop ends. This coroutine
+    A node may push events to ``state._event_sink`` from its worker thread
+    while it runs. Without a concurrent drainer those events sit in the
+    sink until the node completes and the post-dispatch tail-drain flushes
+    them — so a host sees nothing until then. This coroutine
     runs alongside the dispatch task and pumps the sink on a short
     interval; the caller cancels it once dispatch returns, and the
     existing tail-drain flushes anything emitted after the final poll.
@@ -189,9 +184,7 @@ async def _run_eager(
     # Build dependency graph from edge_map
     deps, dependents = _build_dep_graph(compiled)
 
-    # Compute schedulable nodes (exclude managed + compensation-only)
-    all_nodes = set(compiled.execution_order)
-    schedulable = all_nodes - compiled.managed_ids - compiled.compensation_node_ids
+    schedulable = set(compiled.execution_order)
 
     # Track in-degree (number of unfinished deps). Nodes with in-degree 0
     # feed a ready_queue — O(1) dispatch instead of re-scanning every tick.
@@ -299,42 +292,9 @@ async def _run_eager(
             running.pop(event.node_id, None)
 
             if event.error:
-                # Honor per-node on_error policy
-                node = compiled.node_map[event.node_id]
-                policy = (node.on_error or
-                          (compiled.flow.on_error_default if compiled.flow else "fail"))
-
-                if policy == "continue":
-                    # Treat as success with null result
-                    state.results[event.node_id] = normalize_result(None)
-                    state.completed_order.append(event.node_id)
-                    if event.error_event:
-                        yield event.error_event
-                    _satisfy(event.node_id)
-                    continue
-
-                if policy == "compensate":
-                    # Run compensation cascade, then emit flow_error
-                    _cancel_all(running)
-                    if event.error_event:
-                        yield event.error_event
-                    async for ev in _run_compensation(state, compiled, event.node_id):
-                        yield ev
-                    yield FlowErrorEvent(
-                        type="flow_error",
-                        error=event.error_event["error"] if event.error_event else "Flow failed",
-                        is_validation=(event.error_event or {}).get("is_validation", False),
-                    )
-                    return
-
-                # Default: fail — also run compensation if any node has one
                 _cancel_all(running)
                 if event.error_event:
                     yield event.error_event
-                if _flow_has_compensation(compiled):
-                    async for ev in _run_compensation(state, compiled, event.node_id):
-                        yield ev
-                if event.error_event:
                     yield FlowErrorEvent(
                         type="flow_error",
                         error=event.error_event["error"],
@@ -391,7 +351,7 @@ async def _execute_node_async(
 
     # Skip propagation
     if should_skip_node(
-        node, compiled.edge_map, state.results, compiled.consume_map,
+        node, compiled.edge_map, state.results,
         state.skipped_edges, compiled.incoming_map,
     ):
         state.results[node_id] = SKIPPED
@@ -403,7 +363,7 @@ async def _execute_node_async(
     try:
         inputs = state.resolver.resolve(
             node, compiled.edge_map, state.results, compiled.node_map,
-            compiled.consume_map, state.skipped_edges, compiled.incoming_map,
+            state.skipped_edges, compiled.incoming_map,
         )
     except InputResolutionError as e:
         # Raised before the try below; without this the task would end
@@ -451,22 +411,20 @@ async def _execute_node_async(
 
             inputs = state.resolver.resolve(
                 node, compiled.edge_map, state.results, compiled.node_map,
-                compiled.consume_map, state.skipped_edges, compiled.incoming_map,
+                state.skipped_edges, compiled.incoming_map,
             )
 
         try:
             remaining = state.remaining_seconds()
             effective_timeout = _effective_timeout(remaining, node_timeout)
-            # Run dispatch and a live sink-drainer concurrently so a
-            # compound node's mid-execution events (loop-body status,
-            # for-each progress) stream to the host instead of arriving
-            # in a burst at completion. The drainer is cancelled as soon
-            # as dispatch settles (success, timeout, or error); the
+            # Run dispatch and a live sink-drainer concurrently so events
+            # pushed into the sink mid-execution stream to the host. The
+            # drainer is cancelled as soon as dispatch settles; the
             # tail-drain below flushes any final stragglers.
             dispatch = asyncio.ensure_future(
                 asyncio.to_thread(
                     _dispatch_node, node.type, node_id, inputs,
-                    node.data or {}, state, compiled,
+                    node.data, state, compiled,
                 )
             )
             drainer = asyncio.ensure_future(
@@ -645,8 +603,8 @@ async def _execute_node_async(
                 return
 
         except Exception as e:
-            # Any other error (LoopRunawayError, bugs in compound nodes, etc.)
-            # surfaces as a node_error and aborts the flow. Retry does not
+            # Any other error (a bug in a node, a runaway loop) surfaces as
+            # a node_error and aborts the flow. Retry does not
             # apply to non-recognized exceptions.
             await event_queue.put(_NodeDone(
                 node_id=node_id,
@@ -673,99 +631,6 @@ def _effective_timeout(
 
 
 # =========================================================================
-# Compensation cascade
-# =========================================================================
-
-
-def _flow_has_compensation(compiled: CompiledGraph) -> bool:
-    return any(n.compensation is not None for n in compiled.node_map.values())
-
-
-async def _run_compensation(
-    state: FlowRunState,
-    compiled: CompiledGraph,
-    failed_node_id: str,
-) -> AsyncGenerator[ExecutionEvent, None]:
-    """Run compensation for every completed node, in reverse order.
-
-    Best-effort: a compensation failure is emitted as an event but does
-    not abort the cascade.
-    """
-    for node_id in reversed(state.completed_order):
-        if node_id == failed_node_id:
-            continue
-        node = compiled.node_map.get(node_id)
-        if node is None or node.compensation is None:
-            continue
-
-        comp_node = compiled.node_map.get(node.compensation)
-        if comp_node is None:
-            continue  # compiler validated this, defensive
-
-        yield CompensationStartEvent(
-            type="compensation_start",
-            node_id=node_id,
-            compensation_node_id=node.compensation,
-        )
-
-        try:
-            original_inputs = state.resolver.resolve(
-                node, compiled.edge_map, state.results, compiled.node_map,
-                compiled.consume_map, state.skipped_edges, compiled.incoming_map,
-            )
-            original_output = state.results.get(node_id)
-            req_inputs = {
-                "original_inputs": original_inputs,
-                "original_output": original_output,
-                "target_node_id": node_id,
-                **(comp_node.data or {}),
-            }
-            req = NodeExecRequest(
-                node_id=node.compensation,
-                node_type=comp_node.type,
-                inputs=req_inputs,
-                data=comp_node.data or {},
-                state=state,
-            )
-            result = await asyncio.to_thread(
-                _invoke_node, comp_node, req, state, compiled,
-            )
-            yield CompensationCompleteEvent(
-                type="compensation_complete",
-                node_id=node_id,
-                compensation_node_id=node.compensation,
-                result=result,
-            )
-        except Exception as e:
-            yield CompensationFailedEvent(
-                type="compensation_failed",
-                node_id=node_id,
-                compensation_node_id=node.compensation,
-                error=str(e),
-            )
-
-
-def _invoke_node(
-    node: Any,
-    req: Any,
-    state: FlowRunState,
-    compiled: CompiledGraph,
-) -> Any:
-    """Invoke a single node's callable directly (used for compensation)."""
-    node_def = compiled.registry.get(node.type)
-    if node_def is None:
-        raise NodeExecutionError(
-            f"Compensation node type '{node.type}' not found in registry",
-            node_id=req.node_id, node_type=node.type,
-        )
-    runner = runner_for(compiled.registry, node.type, node.version)
-    kwargs = _filter_to_signature(runner, req.inputs)
-    if "store" in inspect.signature(runner).parameters:
-        kwargs["store"] = state.store
-    return runner(**kwargs)
-
-
-# =========================================================================
 # Node dispatch
 # =========================================================================
 
@@ -787,17 +652,13 @@ def _dispatch_node(
         state=state,
     )
 
-    # 1. Compound node
-    if node_id in compiled.compound_nodes:
-        return normalize_result(compiled.compound_nodes[node_id].execute(req))
-
-    # 2. Extension node
+    # 1. Extension node
     ext = compiled.extension_resolver
     if ext and ext.is_known_type(node_type):
         executor = ext.create_executor(node_type)
         return normalize_result(executor.execute(req))
 
-    # 3. Registry node
+    # 2. Registry node
     node_def = compiled.registry.get(node_type)
     if node_def is None:
         raise NodeExecutionError(
@@ -955,8 +816,6 @@ def _filter_to_signature(func: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
     inputs, so a saved flow can carry stray keys (host metadata, migration
     breadcrumbs) that aren't parameters of the node function. Forwarding
     those verbatim raises ``TypeError: got an unexpected keyword argument``.
-    Both the normal dispatch path and the compensation path funnel through
-    here so they behave identically.
 
     A function that declares ``**kwargs`` (``VAR_KEYWORD``) accepts any key,
     so nothing is filtered — this preserves the nodes that
@@ -1033,38 +892,14 @@ def _build_state(
 def _build_dep_graph(
     compiled: CompiledGraph,
 ) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
-    """Build deps (node -> deps) and dependents (node -> nodes that depend on it).
-
-    Edges pointing at or originating from managed nodes (compound region
-    body / end gates) are remapped to the region's start node — only the
-    start is schedulable, so an unmapped reference would drop the
-    dependency entirely and let the downstream node fire before the
-    compound has run.
-    """
+    """Build deps (node -> deps) and dependents (node -> nodes that depend on it)."""
     deps: dict[str, set[str]] = defaultdict(set)
     dependents: dict[str, set[str]] = defaultdict(set)
-    managed_to_start = compiled.managed_to_region_start
 
     for target_id, entries in compiled.incoming_map.items():
-        effective_target = managed_to_start.get(target_id, target_id)
         for _target_handle, source_id, _source_handle, _edge_id in entries:
-            effective_source = managed_to_start.get(source_id, source_id)
-            if effective_source == effective_target:
-                # Edges that live entirely inside the compound (body→body,
-                # body→end) collapse to a self-loop after remap; the
-                # compound executor handles internal scheduling, so we
-                # skip them here.
-                continue
-            deps[effective_target].add(effective_source)
-            dependents[effective_source].add(effective_target)
-
-    for (target_id, _target_handle), (source_id, _source_handle) in compiled.consume_map.items():
-        effective_target = managed_to_start.get(target_id, target_id)
-        effective_source = managed_to_start.get(source_id, source_id)
-        if effective_source == effective_target:
-            continue
-        deps[effective_target].add(effective_source)
-        dependents[effective_source].add(effective_target)
+            deps[target_id].add(source_id)
+            dependents[source_id].add(target_id)
 
     return dict(deps), dict(dependents)
 

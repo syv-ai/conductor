@@ -12,6 +12,7 @@ import pytest
 from conductor import GraphEdge, GraphNode, NodeRegistry, compile, resolve_graph_outputs
 from conductor.dtype import DType
 from conductor.errors import CompilationError, CycleDetectionError
+from conductor.graph.binding import Static
 from conductor.metadata import Output
 from conductor.node import NodeDefinition
 from conductor.returns import Result
@@ -83,14 +84,14 @@ def _definitions(reg: NodeRegistry, nodes: list[GraphNode]) -> dict:
 
 def test_static_only_graph_returns_static_declarations() -> None:
     reg = _make_registry()
-    nodes = [GraphNode(id="a", type="static-src", data={})]
+    nodes = [GraphNode(id="a", type="static-src", version=1)]
     out = resolve_graph_outputs(nodes, [], _definitions(reg, nodes))
     assert [o.name for o in out["a"]] == ["result"]
 
 
 def test_hook_adds_outputs_from_typed_in_values() -> None:
     reg = _make_registry()
-    nodes = [GraphNode(id="a", type="dyn-schema", data={"fields": "amount,name"})]
+    nodes = [GraphNode(id="a", type="dyn-schema", version=1, bindings={"fields": Static(value="amount,name")})]
     out = resolve_graph_outputs(nodes, [], _definitions(reg, nodes))
     assert [o.name for o in out["a"]] == ["result", "amount", "name"]
     assert out["a"][1].dtype is Txt
@@ -101,8 +102,8 @@ def test_none_definition_is_extension_semantics() -> None:
     # extension node): it resolves to ().
     reg = _make_registry()
     nodes = [
-        GraphNode(id="ext", type="flow-version:abc", data={}),
-        GraphNode(id="b", type="relay", data={}),
+        GraphNode(id="ext", type="flow-version:abc", version=1),
+        GraphNode(id="b", type="relay", version=1),
     ]
     edges = [
         GraphEdge(
@@ -117,14 +118,14 @@ def test_none_definition_is_extension_semantics() -> None:
 
 
 def test_missing_definitions_key_raises() -> None:
-    nodes = [GraphNode(id="a", type="mystery", data={})]
+    nodes = [GraphNode(id="a", type="mystery", version=1)]
     with pytest.raises(CompilationError, match="mystery"):
         resolve_graph_outputs(nodes, [], {})
 
 
 def test_dangling_edge_endpoint_raises() -> None:
     reg = _make_registry()
-    nodes = [GraphNode(id="a", type="static-src", data={})]
+    nodes = [GraphNode(id="a", type="static-src", version=1)]
     edges = [
         GraphEdge(id="e1", source="a", target="ghost",
                   source_handle="result", target_handle="x")
@@ -136,8 +137,8 @@ def test_dangling_edge_endpoint_raises() -> None:
 def test_cycle_raises() -> None:
     reg = _make_registry()
     nodes = [
-        GraphNode(id="a", type="relay", data={}),
-        GraphNode(id="b", type="relay", data={}),
+        GraphNode(id="a", type="relay", version=1),
+        GraphNode(id="b", type="relay", version=1),
     ]
     edges = [
         GraphEdge(id="e1", source="a", target="b",
@@ -170,7 +171,7 @@ def test_hook_exception_propagates() -> None:
         ) -> tuple[Output, ...]:
             raise ValueError("kaputt")
 
-    nodes = [GraphNode(id="a", type="boom", data={})]
+    nodes = [GraphNode(id="a", type="boom", version=1)]
     with pytest.raises(ValueError, match="kaputt"):
         resolve_graph_outputs(nodes, [], {"boom": Boom})
 
@@ -179,8 +180,8 @@ def test_equivalence_with_compile_node_outputs() -> None:
     # The public API and compile() must never diverge: same graph, same map.
     reg = _make_registry()
     nodes = [
-        GraphNode(id="a", type="dyn-schema", data={"fields": "field"}),
-        GraphNode(id="b", type="relay", data={}),
+        GraphNode(id="a", type="dyn-schema", version=1, bindings={"fields": Static(value="field")}),
+        GraphNode(id="b", type="relay", version=1),
     ]
     edges = [
         GraphEdge(id="e1", source="a", target="b",
