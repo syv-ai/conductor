@@ -4,10 +4,9 @@ A node overrides ``compute_inputs`` to shape the inputs one placement has
 from the values the author typed; the inputs it adds arrive in ``run``
 through ``**values``. ``resolve_node_inputs`` asks a fresh instance per
 placement, ``compile`` stores the answer on ``CompiledGraph.node_inputs``,
-and an edge or a consume binding may land on a handle only the hook
-declared. A node with no override gets its declaration verbatim, an
-extension node with no definition resolves to an empty tuple, and a hook
-that raises does so where it is found. The engine validates a call
+and a wire may land on a handle only the hook declared. A node with no
+override gets its declaration verbatim, and a hook that raises does so
+where it is found. The engine validates a call
 against the resolved roster, so a hook-declared input's title is what a
 validation error shows.
 """
@@ -99,10 +98,6 @@ class TestResolver:
     def test_hook_result_replaces_the_roster(self):
         got = resolve_node_inputs(node=GraphNode("n1", "dyn", 1, bindings={"code": Static(value="x")}), node_def=Dyn)
         assert [i.name for i in got] == ["customers"]
-
-    def test_an_extension_node_resolves_to_nothing(self):
-        got = resolve_node_inputs(node=GraphNode("n1", "unknown", 1), node_def=None)
-        assert got == ()
 
     def test_a_raising_hook_raises_where_it_is_found(self):
         class Boom(NodeDefinition):

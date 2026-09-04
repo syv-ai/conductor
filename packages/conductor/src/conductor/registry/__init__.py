@@ -11,6 +11,7 @@ engine a plain callable for one registered version.
 from __future__ import annotations
 
 import inspect
+from collections.abc import Mapping
 from typing import Any, Callable
 
 from conductor.node import NodeDefinition, NodeVersion, upgrade_methods
@@ -87,6 +88,26 @@ class NodeRegistry:
         """The ``@upgrade`` function for one version step, or ``None``."""
         return self._upgrades.get(node_id, {}).get((from_version, to_version))
 
+
+    def extended_with(
+        self, definitions: Mapping[str, type[NodeDefinition]]
+    ) -> "NodeRegistry":
+        """A new registry holding these definitions plus everything a host loaded.
+
+        A new object rather than a mutation: the registry is process-wide
+        and the loaded definitions are per run. A registered type wins over
+        a loaded one of the same id, so a host cannot redefine a built-in
+        node by loading something under its name. Loaded definitions are
+        not held to the numbering rule — a version loaded because a graph
+        pinned it may be the only one.
+        """
+        extended = NodeRegistry()
+        extended._nodes = {**definitions, **self._nodes}
+        extended._upgrades = {
+            **{node_id: upgrade_methods(cls) for node_id, cls in definitions.items()},
+            **self._upgrades,
+        }
+        return extended
 
 def _class_runner(
     node_cls: type[NodeDefinition], method: Callable[..., Any]

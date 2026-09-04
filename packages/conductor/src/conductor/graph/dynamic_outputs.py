@@ -28,23 +28,18 @@ if TYPE_CHECKING:
 class _DefinitionGet(Protocol):
     """The one lookup shape the resolution walk needs: get by type.
 
-    Structurally satisfied by NodeRegistry, RegistryView and the
-    mapping adapter below — the walk neither knows nor cares which.
+    Structurally satisfied by NodeRegistry and the mapping adapter
+    below — the walk neither knows nor cares which.
     """
 
-    def get(self, node_type: str) -> "type[NodeDefinition] | None": ...
+    def get(self, node_type: str) -> "type[NodeDefinition]": ...
 
 
 def resolve_node_outputs(
     node: "GraphNode",
-    node_def: "type[NodeDefinition] | None",
+    node_def: "type[NodeDefinition]",
 ) -> tuple[Output, ...]:
-    """The outputs this placement actually exposes.
-
-    Extension nodes (no definition) resolve to an empty tuple.
-    """
-    if node_def is None:
-        return ()
+    """The outputs this placement actually exposes."""
     declared = node_def.versions[node.version].interface.outputs
     return tuple(node_def().compute_outputs(declared, node.data, {}))
 
@@ -52,11 +47,11 @@ def resolve_node_outputs(
 class _MappingLookup:
     """_DefinitionGet over a host-supplied definitions mapping."""
 
-    def __init__(self, definitions: Mapping[str, "type[NodeDefinition] | None"]) -> None:
+    def __init__(self, definitions: Mapping[str, "type[NodeDefinition]"]) -> None:
         self._definitions = definitions
 
-    def get(self, node_type: str) -> "type[NodeDefinition] | None":
-        return self._definitions.get(node_type)
+    def get(self, node_type: str) -> "type[NodeDefinition]":
+        return self._definitions[node_type]
 
 
 def _resolve_in_order(
@@ -80,7 +75,7 @@ def _resolve_in_order(
 
 def resolve_graph_outputs(
     nodes: "list[GraphNode]",
-    definitions: Mapping[str, "type[NodeDefinition] | None"],
+    definitions: Mapping[str, "type[NodeDefinition]"],
 ) -> dict[str, tuple[Output, ...]]:
     """Resolve every node's effective outputs in topological order.
 
@@ -91,10 +86,9 @@ def resolve_graph_outputs(
     need it.
 
     definitions is **required** and keyed by node *type*: the host
-    resolves each type however it wants. A None value means "known but
-    definition-less" (extension semantics — resolves to ()); a
-    *missing key* is a host bug and raises. Every wire must name an
-    existing node, and the graph must be acyclic.
+    resolves each type however it wants; a *missing key* is a host bug
+    and raises. Every wire must name an existing node, and the graph
+    must be acyclic.
     """
     node_map = {n.id: n for n in nodes}
 

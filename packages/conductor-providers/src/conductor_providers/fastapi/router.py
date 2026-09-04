@@ -28,7 +28,6 @@ def conductor_router(
     entity_resolver: (
         Callable[[str, Request], list[dict[str, Any]]] | None
     ) = None,
-    extension_resolver: Any | None = None,
 ) -> APIRouter:
     """Build a FastAPI ``APIRouter`` serving conductor's standard endpoints.
 
@@ -72,7 +71,7 @@ def conductor_router(
     @router.post("/execute")
     def execute_flow(req: ExecuteRequest, request: Request) -> dict[str, Any]:
         """Run a flow synchronously and return the aggregated results dict."""
-        compiled = compile_graph(req.flow, registry, extension_resolver=extension_resolver)
+        compiled = compile_graph(req.flow, registry)
         results = execute_sync(
             compiled, store_data=_store_data(request), cache=req.cache or None
         )
@@ -83,7 +82,7 @@ def conductor_router(
         req: ExecuteRequest, request: Request
     ) -> StreamingResponse:
         """Run a flow and stream ``ExecutionEvent``s as Server-Sent Events."""
-        compiled = compile_graph(req.flow, registry, extension_resolver=extension_resolver)
+        compiled = compile_graph(req.flow, registry)
         store_data = _store_data(request)
 
         async def event_stream() -> Any:
@@ -124,7 +123,7 @@ def conductor_router(
         edit to paint type mismatches and cycles in real time.
         """
         try:
-            compile_graph(req.flow, registry, extension_resolver=extension_resolver)
+            compile_graph(req.flow, registry)
         except CompilationError as e:
             return CompileResult(status="error", errors=[str(e)])
         return CompileResult(status="ok", errors=[])

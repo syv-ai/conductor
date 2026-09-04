@@ -38,7 +38,6 @@ from conductor.execution.events import (
     NodeStartEvent,
     SignalWaitingEvent,
 )
-from conductor.execution.request import NodeExecRequest
 from conductor.execution.resolver import InputResolver
 from conductor.execution.results import filter_all_skipped, filter_skipped, normalize_result
 from conductor.execution.retry import NO_RETRY, RetryConfig
@@ -423,8 +422,7 @@ async def _execute_node_async(
             # tail-drain below flushes any final stragglers.
             dispatch = asyncio.ensure_future(
                 asyncio.to_thread(
-                    _dispatch_node, node.type, node_id, inputs,
-                    node.data, state, compiled,
+                    _dispatch_node, node.type, node_id, inputs, state, compiled,
                 )
             )
             drainer = asyncio.ensure_future(
@@ -639,26 +637,10 @@ def _dispatch_node(
     node_type: str,
     node_id: str,
     inputs: dict[str, Any],
-    data: dict[str, Any],
     state: FlowRunState,
     compiled: CompiledGraph,
 ) -> dict[str, Any]:
-    """Route execution to the right handler; the answer is ``{output name: value}``."""
-    req = NodeExecRequest(
-        node_id=node_id,
-        node_type=node_type,
-        inputs=inputs,
-        data=data,
-        state=state,
-    )
-
-    # 1. Extension node
-    ext = compiled.extension_resolver
-    if ext and ext.is_known_type(node_type):
-        executor = ext.create_executor(node_type)
-        return normalize_result(executor.execute(req))
-
-    # 2. Registry node
+    """Validate ``inputs`` against the placement's roster and run the node; the answer is ``{output name: value}``."""
     node_def = compiled.registry.get(node_type)
     if node_def is None:
         raise NodeExecutionError(

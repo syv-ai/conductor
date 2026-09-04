@@ -99,20 +99,6 @@ def test_hook_adds_outputs_from_typed_in_values() -> None:
     assert out["a"][1].dtype is Txt
 
 
-def test_none_definition_is_extension_semantics() -> None:
-    # A ``None`` value means "known to the host, no definition" (an
-    # extension node): it resolves to ().
-    reg = _make_registry()
-    nodes = [
-        GraphNode(id="ext", type="flow-version:abc", version=1),
-        GraphNode(id="b", type="relay", version=1, bindings={"text": Sources(refs=(Ref('ext', 'result'),))}),
-    ]
-    definitions = {**_definitions(reg, nodes), "flow-version:abc": None}
-    out = resolve_graph_outputs(nodes, definitions)
-    assert out["ext"] == ()
-    assert [o.name for o in out["b"]] == ["result"]
-
-
 def test_missing_definitions_key_raises() -> None:
     nodes = [GraphNode(id="a", type="mystery", version=1)]
     with pytest.raises(CompilationError, match="mystery"):

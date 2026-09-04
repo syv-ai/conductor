@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any
 
 from conductor.errors import CompilationError
 from conductor.graph.binding import Sources
@@ -18,13 +18,6 @@ if TYPE_CHECKING:
     from conductor.registry import NodeRegistry
 
 
-class ExtensionResolver(Protocol):
-    """Implemented by host applications for custom node types."""
-
-    def is_known_type(self, node_type: str) -> bool: ...
-    def create_executor(self, node_type: str) -> Any: ...
-
-
 @dataclass(frozen=True)
 class CompiledGraph:
     """Immutable, validated, ready-to-execute graph."""
@@ -33,41 +26,35 @@ class CompiledGraph:
     edge_map: dict[tuple[str, str], list[tuple[str, str, str]]]
     node_map: dict[str, GraphNode]
     registry: Any  # NodeRegistry
-    extension_resolver: ExtensionResolver | None = None
     # target_id -> [(target_handle, source_id, source_handle, wire_id), ...]
     # Inverted edge view — faster than scanning edge_map per node.
     incoming_map: dict[str, list[tuple[str, str, str, str]]] = field(default_factory=dict)
     # Resolved outputs per node id — populated for every node in
     # ``execution_order``. For nodes without a ``compute_outputs`` hook
     # this is a copy of ``NodeDefinition.outputs``; for hook-driven nodes
-    # it carries the dynamically derived shape. Extension nodes have an
-    # empty tuple.
+    # it carries the dynamically derived shape.
     node_outputs: dict[str, tuple[Output, ...]] = field(default_factory=dict)
     # Resolved inputs per node id — populated for every node. For nodes
     # without a ``compute_inputs`` hook this is a copy of
     # ``NodeDefinition.inputs``; for hook-driven nodes it carries the
-    # dynamically derived roster. Extension nodes have an empty tuple.
+    # dynamically derived roster.
     # The input resolver and validation-error labelling consult this in
     # preference to the static schema.
     node_inputs: dict[str, tuple[Input, ...]] = field(default_factory=dict)
 
 
-def compile(
-    flow: Flow,
-    registry: "NodeRegistry",
-    *,
-    extension_resolver: ExtensionResolver | None = None,
-) -> CompiledGraph:
-    """Validate and compile a flow into an immutable execution plan."""
+def compile(flow: Flow, registry: "NodeRegistry") -> CompiledGraph:
+    """Validate and compile a flow into an immutable execution plan.
+
+    Every definition the flow names must be in ``registry``; a host that
+    had to load one built it and called ``NodeRegistry.extended_with``.
+    """
     nodes = flow.nodes
     node_map = {n.id: n for n in nodes}
 
     # 1. Validate node types
     for node in nodes:
-        known = registry.contains(node.type)
-        if not known and extension_resolver:
-            known = extension_resolver.is_known_type(node.type)
-        if not known:
+        if not registry.contains(node.type):
             raise CompilationError(f"Unknown node type: '{node.type}'")
 
     # 2. Validate that every wire names an existing node
@@ -98,7 +85,7 @@ def compile(
     # 6. Resolve dynamic outputs in topological order. Each node sees its
     #    producers' already-resolved shapes (which may themselves be hook-
     #    driven). Nodes without a hook get a verbatim copy of their static
-    #    ``NodeDefinition.outputs``. Extension nodes resolve to ``()``.
+    #    ``NodeDefinition.outputs``.
     node_outputs = _resolve_in_order(order=order, node_map=node_map, lookup=registry)
 
     return CompiledGraph(
@@ -106,7 +93,6 @@ def compile(
         edge_map=edge_map,
         node_map=node_map,
         registry=registry,
-        extension_resolver=extension_resolver,
         incoming_map=incoming_map,
         node_outputs=node_outputs,
         node_inputs=node_inputs,

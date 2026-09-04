@@ -21,22 +21,16 @@ if TYPE_CHECKING:
 def resolve_node_inputs(
     *,
     node: GraphNode,
-    node_def: type[NodeDefinition] | None,
+    node_def: type[NodeDefinition],
 ) -> tuple[Input, ...]:
-    """The input roster this placement actually exposes.
-
-    Extension nodes (no definition) resolve to an empty tuple, matching
-    resolve_node_outputs.
-    """
-    if node_def is None:
-        return ()
+    """The input roster this placement actually exposes."""
     declared = node_def.versions[node.version].interface.inputs
     return tuple(node_def().compute_inputs(declared, node.data))
 
 
 def resolve_graph_inputs(
     nodes: list[GraphNode],
-    definitions: dict[str, type[NodeDefinition] | None],
+    definitions: dict[str, type[NodeDefinition]],
 ) -> dict[str, tuple[Input, ...]]:
     """Resolve every node's input roster.
 
@@ -44,6 +38,6 @@ def resolve_graph_inputs(
     hosts that need the resolved shape without compiling.
     """
     return {
-        node.id: resolve_node_inputs(node=node, node_def=definitions.get(node.type))
+        node.id: resolve_node_inputs(node=node, node_def=definitions[node.type])
         for node in nodes
     }

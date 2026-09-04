@@ -135,33 +135,3 @@ def test_a_raising_hook_raises_where_it_is_found():
         compile(Flow(nodes=[GraphNode("n1", "boom", 1)]), reg)
 
 
-def test_extension_node_alongside_hook_node():
-    """An extension node with no definition coexists with a hook-driven
-    registered node: the resolver tolerates the missing definition."""
-
-    class Hooked(NodeDefinition):
-        id = "hooked"
-        title = "Hooked"
-        description = "Hooked"
-        category = "test"
-
-        def run(self) -> Out:
-            return Txt("x")
-
-        def compute_outputs(self, declared, values, arriving):
-            return (Output(name="result", dtype=Txt, title="Result"),)
-
-    class MockExtensionResolver:
-        def is_known_type(self, node_type: str) -> bool:
-            return node_type.startswith("ext:")
-
-        def create_executor(self, node_type: str) -> Any:
-            return None
-
-    reg = NodeRegistry()
-    reg.register(Hooked)
-
-    compiled = compile(Flow(nodes=[GraphNode("h", "hooked", 1), GraphNode("e", "ext:thing", 1)]), reg, extension_resolver=MockExtensionResolver())
-
-    assert tuple(o.name for o in compiled.node_outputs["h"]) == ("result",)
-    assert compiled.node_outputs["e"] == ()
