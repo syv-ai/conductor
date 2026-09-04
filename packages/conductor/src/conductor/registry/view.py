@@ -91,7 +91,3 @@ class RegistryView:
         return getattr(self._base, name)
 
 
-__all__ = [
-    "DefinitionSource",
-    "RegistryView",
-]

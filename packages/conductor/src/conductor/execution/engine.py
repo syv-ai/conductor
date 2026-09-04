@@ -51,14 +51,6 @@ from conductor.graph.compiler import CompiledGraph
 from conductor.interface import model_of
 from conductor.registry import runner_for
 
-__all__ = [
-    "execute",
-    "execute_sync",
-    "resume",
-    "resume_sync",
-    "collect",
-]
-
 # Internal sentinel pushed into the event queue when all work is done
 _DONE = object()
 _FATAL = object()
