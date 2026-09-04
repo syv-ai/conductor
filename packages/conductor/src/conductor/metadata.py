@@ -1,20 +1,21 @@
 """The records that describe a node's fields.
 
 ``Field`` is what an input and an output have in common: name, type,
-title, description. ``Output`` adds ``choice``. The input-side record,
-which also carries a widget and a default, lands with the registry that
-derives a node's interface from its ``run`` signature.
+title, description. ``Input`` adds how a person supplies the value (widget,
+default, optionality, whether a cable can reach it); ``Output`` adds
+``choice``. The registry writes them when it derives a node's interface
+from its ``run`` signature; the compiler, the engine and the editor read them.
 
 These records are their own schema: ``dtype`` is a ``DTypeRef``, so
 dumping a record through pydantic gives the type's ``describe()``, and a
 palette is simply these records dumped.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from conductor.dtype_ref import DTypeRef
-from conductor.types import WidgetType
+from conductor.widgets import AnyWidget
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -57,40 +58,39 @@ class Output(Field):
     choice: str | None = None
 
 
-@dataclass(frozen=True)
-class InputMetadata:
-    """Pre-computed metadata for a single node input parameter."""
+@dataclass(frozen=True, kw_only=True)
+class Input(Field):
+    """A field a value is supplied to — one parameter of ``run``.
 
-    name: str
-    type_str: str
-    label: str
-    description: str | None = None
-    widget: WidgetType = WidgetType.TEXT
+    Adds to ``Field`` how the value gets there: the ``widget`` a person
+    edits it with, whether a cable can reach it (``show_handle``), and the
+    parameter's ``default``. ``Interface.of`` builds one per ``run``
+    parameter, copying ``title``, ``description`` and ``show_handle`` off
+    the widget annotation onto the record; ``compute_inputs`` may build
+    more for a placement whose fields depend on its values::
+
+        Input(name="text", dtype=Text, title="Text", widget=Textarea(title="Text"))
+
+    ``dtype`` is a ``DType`` or ``Any`` where the input has a handle, and
+    any pydantic-validatable type where it has none (a schema an author
+    fills in; it serialises as ``null``). ``widget`` is typed as the union
+    of every widget so the record's JSON schema is discriminated per
+    control. Read by ``model_of`` to validate a call, by the compiler to
+    type a typed-in value and to decide whether a cable may land, and by
+    an editor to draw the row.
+    """
+
+    #: How a person supplies the value. Required: an input with no widget is
+    #: a broken declaration, not one that falls back to a default control.
+    widget: AnyWidget
+
+    #: Whether a cable can reach this input. A fact about the field, copied
+    #: off the widget annotation where the author wrote it.
+    show_handle: bool = True
+
+    #: What the value is when nothing binds the input.
     default: Any = None
+
+    #: Whether the parameter has a default at all. Kept separately because
+    #: ``None`` is a legitimate default value.
     optional: bool = False
-    expects_list: bool = False
-    uses_connection_list: bool = False
-    disable_handle: bool = False
-    widget_config: dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        # A ``list[...]`` input fans several upstream sources into a list. Derive
-        # ``expects_list`` from the type so metadata built by hand carries the same
-        # flag the registry derives at registration, rather than defaulting to
-        # False and silently string-joining a fan-in. Only fills the default; an
-        # explicit True is left untouched.
-        if not self.expects_list and self.type_str.startswith("list["):
-            object.__setattr__(self, "expects_list", True)
-
-
-@dataclass(frozen=True)
-class OutputMetadata:
-    """Pre-computed metadata for a single node output."""
-
-    name: str
-    type_str: str
-    label: str
-    description: str | None = None
-    optional: bool = False
-    download: bool = False
-    filename: str | None = None

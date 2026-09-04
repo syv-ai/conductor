@@ -11,8 +11,7 @@ from typing import TYPE_CHECKING
 
 from conductor.errors import CompilationError
 from conductor.graph.model import GraphEdge, GraphNode
-from conductor.graph.type_check import TypeWarning
-from conductor.metadata import InputMetadata, OutputMetadata
+from conductor.metadata import Input, Output
 
 if TYPE_CHECKING:
     from conductor.registry import NodeRegistry
@@ -28,31 +27,26 @@ def validate_and_build_consume_map(
     node_map: dict[str, GraphNode],
     managed_ids: frozenset[str],
     registry: "NodeRegistry",
-    node_outputs: dict[str, tuple[OutputMetadata, ...]] | None = None,
-    node_inputs: dict[str, tuple[InputMetadata, ...]] | None = None,
-) -> tuple[ConsumeMap, list[TypeWarning]]:
+    node_outputs: dict[str, tuple[Output, ...]] | None = None,
+    node_inputs: dict[str, tuple[Input, ...]] | None = None,
+) -> ConsumeMap:
     """Validate produces/consumes decorations and return the consume map.
 
-    Raises ``CompilationError`` on structural violations (§6.1, §6.2 of the
-    design). Returns a list of non-fatal warnings (e.g. duplicate producer
-    labels) alongside the map.
+    Raises ``CompilationError`` on structural violations.
 
     ``node_outputs`` is the post-``compute_outputs`` map from the compiler.
     When provided, producer-handle existence is checked against the
     resolved outputs in preference to the static schema, so a hook that
     introduces ``output_3`` enables ``produces={"output_3": "..."}``.
     """
-    warnings: list[TypeWarning] = []
-
-    _validate_producers(nodes, managed_ids, registry, warnings, node_outputs)
-    consume_map = _validate_consumers_and_build_map(
+    _validate_producers(nodes, managed_ids, registry, node_outputs)
+    return _validate_consumers_and_build_map(
         nodes, edges, node_map, registry, node_inputs=node_inputs
     )
-    return consume_map, warnings
 
 
 # ---------------------------------------------------------------------------
-# Producer validation (§6.1)
+# Producer validation
 # ---------------------------------------------------------------------------
 
 
@@ -60,21 +54,18 @@ def _validate_producers(
     nodes: list[GraphNode],
     managed_ids: frozenset[str],
     registry: "NodeRegistry",
-    warnings: list[TypeWarning],
-    node_outputs: dict[str, tuple[OutputMetadata, ...]] | None = None,
+    node_outputs: dict[str, tuple[Output, ...]] | None = None,
 ) -> None:
-    label_to_producers: dict[str, list[tuple[str, str]]] = {}
 
     for node in nodes:
         if not node.produces:
             continue
 
-        # §6.1.1 — producers cannot sit inside compound regions in v1
+        # producers cannot sit inside compound regions in v1
         if node.id in managed_ids:
             raise CompilationError(
                 f"Node '{node.id}' cannot produce a shared reference from "
-                f"inside a compound region (v1 limitation — see "
-                f"docs/shared-references.md §8)"
+                f"inside a compound region"
             )
 
         node_def = registry.get(node.type)
@@ -88,8 +79,8 @@ def _validate_producers(
             and getattr(node_def, "compute_outputs", None) is not None
         )
 
-        for output_handle, label in node.produces.items():
-            # §6.1.2 — output handle must exist on the node type
+        for output_handle in node.produces:
+            # output handle must exist on the node type
             if node_def is not None and not defer_handle_check:
                 # Prefer resolved (post-compute_outputs) handles when
                 # available so dynamic outputs participate in shared-ref
@@ -97,7 +88,11 @@ def _validate_producers(
                 resolved = (
                     node_outputs.get(node.id) if node_outputs is not None else None
                 )
-                pool = resolved if resolved is not None else node_def.outputs
+                pool = (
+                    resolved
+                    if resolved is not None
+                    else node_def.versions[node.version].interface.outputs
+                )
                 known_outputs = {o.name for o in pool}
                 if output_handle not in known_outputs:
                     raise CompilationError(
@@ -107,31 +102,10 @@ def _validate_producers(
                         f"{sorted(known_outputs) or '(none)'}"
                     )
 
-            label_to_producers.setdefault(label, []).append((node.id, output_handle))
-
-    # §6.1.3 — duplicate labels are a warning, not an error
-    for label, producers in label_to_producers.items():
-        if len(producers) > 1:
-            producer_list = ", ".join(f"{nid}.{h}" for nid, h in producers)
-            warnings.append(TypeWarning(
-                edge_id="",
-                source_node="",
-                source_output="",
-                source_type="",
-                target_node="",
-                target_input="",
-                target_type="",
-                message=(
-                    f"Multiple producers share the display label '{label}': "
-                    f"{producer_list}. Labels are for UI only; references are "
-                    f"bound by identity, so this is non-fatal."
-                ),
-                code="shared-label-collision",
-            ))
 
 
 # ---------------------------------------------------------------------------
-# Consumer validation + map construction (§6.2)
+# Consumer validation + map construction
 # ---------------------------------------------------------------------------
 
 
@@ -140,7 +114,7 @@ def _validate_consumers_and_build_map(
     edges: list[GraphEdge],
     node_map: dict[str, GraphNode],
     registry: "NodeRegistry",
-    node_inputs: dict[str, tuple[InputMetadata, ...]] | None = None,
+    node_inputs: dict[str, tuple[Input, ...]] | None = None,
 ) -> ConsumeMap:
     # Pre-compute: which (target, handle) pairs already have an explicit edge
     edge_targets: set[tuple[str, str]] = {
@@ -158,7 +132,7 @@ def _validate_consumers_and_build_map(
         for input_handle, ref in node.consumes.items():
             producer_id, output_handle = ref
 
-            # §6.2.1.1 — producer must exist
+            # producer must exist
             producer_node = node_map.get(producer_id)
             if producer_node is None:
                 raise CompilationError(
@@ -166,7 +140,7 @@ def _validate_consumers_and_build_map(
                     f"'{producer_id}' (input '{input_handle}')"
                 )
 
-            # §6.2.1.2 — producer must explicitly publish this handle
+            # producer must explicitly publish this handle
             producer_published = producer_node.produces or {}
             if output_handle not in producer_published:
                 raise CompilationError(
@@ -175,7 +149,7 @@ def _validate_consumers_and_build_map(
                     f"Add '{output_handle}' to '{producer_id}'.produces."
                 )
 
-            # §6.2.1.3 — input handle must exist on the consumer's node type
+            # input handle must exist on the consumer's node type
             if node_def is not None:
                 # A ``compute_inputs`` hook can legitimately declare a handle
                 # the static signature has no name for, so prefer the
@@ -183,7 +157,11 @@ def _validate_consumers_and_build_map(
                 resolved = (
                     node_inputs.get(node.id) if node_inputs is not None else None
                 )
-                pool = resolved if resolved is not None else node_def.inputs
+                pool = (
+                    resolved
+                    if resolved is not None
+                    else node_def.versions[node.version].interface.inputs
+                )
                 known_inputs = {i.name for i in pool}
                 if input_handle not in known_inputs:
                     raise CompilationError(
@@ -193,7 +171,7 @@ def _validate_consumers_and_build_map(
                         f"{sorted(known_inputs) or '(none)'}"
                     )
 
-            # §6.2.1.4 — cannot also be the target of an explicit edge
+            # cannot also be the target of an explicit edge
             if (node.id, input_handle) in edge_targets:
                 raise CompilationError(
                     f"Input '{node.id}.{input_handle}' is both consumed from "

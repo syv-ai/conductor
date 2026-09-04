@@ -25,6 +25,7 @@ class NodeInput(BaseModel):
 
     id: str
     type: str
+    version: int = 1
     data: dict[str, Any] | None = None
     produces: dict[str, str] | None = None
     # JSON has no tuples — inbound consumes use ``[producer_id, output_handle]``
@@ -33,9 +34,6 @@ class NodeInput(BaseModel):
     # Process-standard additions
     compensation: str | None = None
     on_error: str | None = None
-    # Host-defined display hints — see GraphNode.node_label / output_labels.
-    node_label: str | None = None
-    output_labels: dict[str, str] | None = None
 
 
 class EdgeInput(BaseModel):
@@ -77,6 +75,7 @@ class ExecuteRequest(BaseModel):
             GraphNode(
                 id=n.id,
                 type=n.type,
+                version=n.version,
                 data=n.data,
                 produces=n.produces or None,
                 consumes=(
@@ -86,8 +85,6 @@ class ExecuteRequest(BaseModel):
                 ),
                 compensation=n.compensation,
                 on_error=n.on_error,
-                node_label=n.node_label,
-                output_labels=n.output_labels,
             )
             for n in self.nodes
         ]

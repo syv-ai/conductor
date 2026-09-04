@@ -3,7 +3,7 @@
 Supports unbounded parallel-zip iteration: any number of sources wired
 into ``for-each-start.items`` are zipped element-wise into per-iteration
 tuples, and any number of body→end edges are transposed into per-slot
-``Collected`` lists. Both markers register with ``dynamic_handles=True``,
+``Collected`` lists. Both markers accept handles beyond their signature,
 which lifts the strict-handle requirement so the start can emit
 ``output_3, output_4, output_5, …`` and the end can accept
 ``item_2, item_3, item_4, …`` without changing the registered schema.
@@ -36,10 +36,10 @@ from conductor.execution.events import (
 )
 from conductor.execution.results import extract_output, filter_skipped, normalize_result
 from conductor.graph.regions import discover_for_each_regions
+from conductor.series import Series
 
 if TYPE_CHECKING:
-    from conductor.metadata import OutputMetadata
-    from conductor.registry.dynamic_outputs import ComputeOutputsContext
+    from conductor.metadata import Output
 
 MAX_ITERATIONS = 1000
 
@@ -485,8 +485,8 @@ def _is_end_input_edge(target_handle: str) -> bool:
 
 
 def compute_for_each_end_outputs(
-    ctx: "ComputeOutputsContext",
-) -> "list[OutputMetadata]":
+    ctx: Any,
+) -> "list[Output]":
     """Default ``compute_outputs`` hook for ``for-each-end``.
 
     Types each collected slot as ``list[<inner>]`` where ``<inner>`` is the
@@ -507,9 +507,7 @@ def compute_for_each_end_outputs(
 
     Returns ``ctx.defaults`` unchanged when nothing is wired into the end.
     """
-    from conductor.metadata import OutputMetadata
-    from conductor.registry.dynamic_outputs import strip_sub_output_prefix
-
+    from conductor.metadata import Output
     seen: set[EndSlotKey] = set()
     bindings = []
     for binding in ctx.incoming:
@@ -524,22 +522,20 @@ def compute_for_each_end_outputs(
     if not bindings:
         return list(ctx.defaults)
 
-    outputs: list[OutputMetadata] = []
+    outputs: list[Output] = []
     for idx, binding in enumerate(bindings):
-        source_type = binding.source_output.type_str or "any"
-        if source_type.startswith("list[") and source_type.endswith("]"):
-            inner = source_type[5:-1]
-        else:
-            inner = source_type
-        source_label = binding.source_output.label or binding.source_handle
+        source_dtype = binding.source_output.dtype
+        element = (
+            source_dtype.element
+            if isinstance(source_dtype, type) and issubclass(source_dtype, Series)
+            else source_dtype
+        )
         outputs.append(
-            OutputMetadata(
+            Output(
                 name=f"output_{idx + 1}",
-                type_str=f"list[{inner}]",
-                label=strip_sub_output_prefix(source_label),
+                dtype=Series[element],
+                title=_strip_sub_output_prefix(binding.source_output.title),
                 description=binding.source_output.description,
-                download=binding.source_output.download,
-                filename=binding.source_output.filename,
             )
         )
     return outputs
@@ -676,3 +672,8 @@ FOR_EACH = CompoundNodeType(
     discover=discover_for_each_regions,
     factory=lambda region, order: ForEachNode(region, order),
 )
+
+
+def _strip_sub_output_prefix(name: str) -> str:
+    """Drop the leading ``output_N.`` segment from a derived sub-output name."""
+    return name.split(".", 1)[1] if "." in name else name

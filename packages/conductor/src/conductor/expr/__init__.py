@@ -4,7 +4,6 @@ Conductor uses a small CEL-compatible expression language for:
 
 * Edge ``when`` guards on decision nodes
 * ``while-start`` loop conditions
-* ``idempotency_key`` expressions on nodes
 * Trigger input-mapping and correlation expressions
 * Subprocess input/output mapping
 

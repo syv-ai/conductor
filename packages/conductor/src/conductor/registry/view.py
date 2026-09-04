@@ -27,8 +27,8 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
+    from conductor.node import NodeDefinition
     from conductor.registry import NodeRegistry
-    from conductor.registry.definition import NodeDefinition
 
 
 @runtime_checkable
@@ -91,7 +91,3 @@ class RegistryView:
         return getattr(self._base, name)
 
 
-__all__ = [
-    "DefinitionSource",
-    "RegistryView",
-]

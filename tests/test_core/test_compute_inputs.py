@@ -9,15 +9,15 @@ from conductor import GraphEdge, GraphNode, NodeRegistry, compile
 from conductor.category import NodeCategory
 from conductor.errors import CompilationError
 from conductor.graph.dynamic_inputs import resolve_node_inputs
-from conductor.metadata import InputMetadata
+from conductor.metadata import Input
 from conductor.registry.dynamic_inputs import ComputeInputsContext
 from conductor.types import WidgetType
 from conductor.widgets import Output, Text
 
 
-def _hook(ctx: ComputeInputsContext) -> list[InputMetadata]:
+def _hook(ctx: ComputeInputsContext) -> list[Input]:
     return [
-        InputMetadata(
+        Input(
             name="customers",
             type_str="table",
             label="customers",
@@ -31,7 +31,7 @@ class TestContextShape:
         ctx = ComputeInputsContext(
             data={"code": "def f(): pass"},
             node_id="n1",
-            defaults=(InputMetadata(name="code", type_str="str", label="Kode"),),
+            defaults=(Input(name="code", type_str="str", label="Kode"),),
         )
         assert ctx.data["code"] == "def f(): pass"
         assert ctx.node_id == "n1"
@@ -130,10 +130,10 @@ class TestResolver:
         assert got == ()
 
     def test_duplicate_names_raise(self) -> None:
-        def dup(ctx: ComputeInputsContext) -> list[InputMetadata]:
+        def dup(ctx: ComputeInputsContext) -> list[Input]:
             return [
-                InputMetadata(name="a", type_str="str", label="A"),
-                InputMetadata(name="a", type_str="str", label="A2"),
+                Input(name="a", type_str="str", label="A"),
+                Input(name="a", type_str="str", label="A2"),
             ]
 
         reg = NodeRegistry()
@@ -174,7 +174,7 @@ class TestResolver:
             )
 
     def test_a_raising_hook_becomes_a_compilation_error(self) -> None:
-        def boom(ctx: ComputeInputsContext) -> list[InputMetadata]:
+        def boom(ctx: ComputeInputsContext) -> list[Input]:
             raise RuntimeError("kaboom")
 
         reg = NodeRegistry()
@@ -204,7 +204,7 @@ class TestResolver:
             name="S",
             description="S",
             compute_inputs=lambda ctx: [
-                InputMetadata(name="other", type_str="str", label="Other")
+                Input(name="other", type_str="str", label="Other")
             ],
         )
         def strict(
@@ -353,10 +353,10 @@ class TestPerInstanceParamInfo:
     def test_two_instances_of_one_dynamic_type_do_not_share_a_cache(self) -> None:
         from conductor.execution.resolver import InputResolver
 
-        def per_node(ctx: ComputeInputsContext) -> list[InputMetadata]:
+        def per_node(ctx: ComputeInputsContext) -> list[Input]:
             if ctx.node_id == "n1":
-                return [InputMetadata(name="a", type_str="list[str]", label="A")]
-            return [InputMetadata(name="a", type_str="str", label="A")]
+                return [Input(name="a", type_str="list[str]", label="A")]
+            return [Input(name="a", type_str="str", label="A")]
 
         reg = NodeRegistry()
 
@@ -399,7 +399,7 @@ class TestValidationErrorLabels:
             description="D",
             dynamic_handles=True,
             compute_inputs=lambda ctx: [
-                InputMetadata(name="antal", type_str="int", label="Antal rækker")
+                Input(name="antal", type_str="int", label="Antal rækker")
             ],
         )
         def dyn7(**kwargs: Any) -> Annotated[str, Output(label="U")]:

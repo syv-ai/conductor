@@ -7,13 +7,14 @@ from typing import Annotated, Any
 import pytest
 from conductor import GraphEdge, GraphNode, NodeRegistry, compile
 from conductor.errors import CompilationError
-from conductor.metadata import OutputMetadata
+from conductor.metadata import Output
 from conductor.registry.dynamic_outputs import (
     ComputeOutputsContext,
     IncomingBinding,
 )
 from conductor.registry.schema import serialize_registry
-from conductor.widgets import Output, Text
+from conductor.widgets import Output as OutputWidget
+from conductor.widgets import Text
 
 # ---------------------------------------------------------------------------
 # Basic single-node hook
@@ -26,10 +27,10 @@ class TestBasicSingleNodeHook:
         ``CompiledGraph.node_outputs``."""
         reg = NodeRegistry()
 
-        def my_outputs(ctx: ComputeOutputsContext) -> list[OutputMetadata]:
+        def my_outputs(ctx: ComputeOutputsContext) -> list[Output]:
             count = ctx.data.get("count", 1)
             return [
-                OutputMetadata(name=f"slot_{i}", type_str="str", label=f"Slot {i}")
+                Output(name=f"slot_{i}", type_str="str", label=f"Slot {i}")
                 for i in range(count)
             ]
 
@@ -61,7 +62,7 @@ class TestBasicSingleNodeHook:
         @reg.node("noop", version=1, name="Noop", description="Pass-through")
         def noop(
             text: Annotated[str, Text(label="In")],
-        ) -> Annotated[str, Output(label="Out")]:
+        ) -> Annotated[str, OutputWidget(label="Out")]:
             return text
 
         compiled = compile(
@@ -79,8 +80,8 @@ class TestBasicSingleNodeHook:
 
         reg = NodeRegistry()
 
-        def class_outputs(ctx: ComputeOutputsContext) -> list[OutputMetadata]:
-            return [OutputMetadata(name="custom", type_str="int", label="Custom")]
+        def class_outputs(ctx: ComputeOutputsContext) -> list[Output]:
+            return [Output(name="custom", type_str="int", label="Custom")]
 
         class MyNode(BaseNode):
             node_id = "klass"
@@ -106,15 +107,15 @@ class TestTopologicalResolution:
         """Node B's hook receives A's *resolved* outputs via incoming bindings."""
         reg = NodeRegistry()
 
-        def producer_outputs(ctx: ComputeOutputsContext) -> list[OutputMetadata]:
-            return [OutputMetadata(name="result", type_str="custom_int", label="Out")]
+        def producer_outputs(ctx: ComputeOutputsContext) -> list[Output]:
+            return [Output(name="result", type_str="custom_int", label="Out")]
 
-        def consumer_outputs(ctx: ComputeOutputsContext) -> list[OutputMetadata]:
+        def consumer_outputs(ctx: ComputeOutputsContext) -> list[Output]:
             # Ingest the upstream type and propagate it.
             assert len(ctx.incoming) == 1
             incoming: IncomingBinding = ctx.incoming[0]
             return [
-                OutputMetadata(
+                Output(
                     name="result",
                     type_str=f"echoed[{incoming.source_output.type_str}]",
                     label="Echoed",
@@ -127,7 +128,7 @@ class TestTopologicalResolution:
         )
         def producer(
             v: Annotated[str, Text(label="V")] = "hi",
-        ) -> Annotated[str, Output(label="Out")]:
+        ) -> Annotated[str, OutputWidget(label="Out")]:
             return v
 
         @reg.node(
@@ -136,7 +137,7 @@ class TestTopologicalResolution:
         )
         def consumer(
             x: Annotated[str, Text(label="X")],
-        ) -> Annotated[str, Output(label="Out")]:
+        ) -> Annotated[str, OutputWidget(label="Out")]:
             return x
 
         compiled = compile(
@@ -170,7 +171,7 @@ class TestValidationErrors:
             "bad", version=1, name="Bad", description="Bad",
             dynamic_handles=True, compute_outputs=bad,
         )
-        def bad_node() -> Annotated[str, Output(label="Out")]:
+        def bad_node() -> Annotated[str, OutputWidget(label="Out")]:
             return "x"
 
         with pytest.raises(CompilationError, match="must return list"):
@@ -183,17 +184,17 @@ class TestValidationErrors:
     def test_duplicate_names_raises(self) -> None:
         reg = NodeRegistry()
 
-        def dup(ctx: ComputeOutputsContext) -> list[OutputMetadata]:
+        def dup(ctx: ComputeOutputsContext) -> list[Output]:
             return [
-                OutputMetadata(name="x", type_str="str", label="X"),
-                OutputMetadata(name="x", type_str="str", label="X2"),
+                Output(name="x", type_str="str", label="X"),
+                Output(name="x", type_str="str", label="X2"),
             ]
 
         @reg.node(
             "dup", version=1, name="Dup", description="Dup",
             dynamic_handles=True, compute_outputs=dup,
         )
-        def dup_node() -> Annotated[str, Output(label="Out")]:
+        def dup_node() -> Annotated[str, OutputWidget(label="Out")]:
             return "x"
 
         with pytest.raises(CompilationError, match="duplicate output name"):
@@ -206,7 +207,7 @@ class TestValidationErrors:
     def test_dropping_static_handle_without_dynamic_handles_raises(self) -> None:
         reg = NodeRegistry()
 
-        def drop(ctx: ComputeOutputsContext) -> list[OutputMetadata]:
+        def drop(ctx: ComputeOutputsContext) -> list[Output]:
             # Returns nothing — drops the static "result" handle.
             return []
 
@@ -214,7 +215,7 @@ class TestValidationErrors:
             "drop", version=1, name="Drop", description="Drop",
             compute_outputs=drop,
         )
-        def drop_node() -> Annotated[str, Output(label="Out")]:
+        def drop_node() -> Annotated[str, OutputWidget(label="Out")]:
             return "x"
 
         with pytest.raises(CompilationError, match="dropped statically declared"):
@@ -227,14 +228,14 @@ class TestValidationErrors:
     def test_dropping_static_handle_with_dynamic_handles_allowed(self) -> None:
         reg = NodeRegistry()
 
-        def replace(ctx: ComputeOutputsContext) -> list[OutputMetadata]:
-            return [OutputMetadata(name="other", type_str="int", label="Other")]
+        def replace(ctx: ComputeOutputsContext) -> list[Output]:
+            return [Output(name="other", type_str="int", label="Other")]
 
         @reg.node(
             "replace", version=1, name="Replace", description="Replace",
             dynamic_handles=True, compute_outputs=replace,
         )
-        def replace_node() -> Annotated[str, Output(label="Out")]:
+        def replace_node() -> Annotated[str, OutputWidget(label="Out")]:
             return "x"
 
         compiled = compile(
@@ -247,14 +248,14 @@ class TestValidationErrors:
     def test_hook_exception_wrapped_as_compilation_error(self) -> None:
         reg = NodeRegistry()
 
-        def boom(ctx: ComputeOutputsContext) -> list[OutputMetadata]:
+        def boom(ctx: ComputeOutputsContext) -> list[Output]:
             raise RuntimeError("kaboom")
 
         @reg.node(
             "boom", version=1, name="Boom", description="Boom",
             dynamic_handles=True, compute_outputs=boom,
         )
-        def boom_node() -> Annotated[str, Output(label="Out")]:
+        def boom_node() -> Annotated[str, OutputWidget(label="Out")]:
             return "x"
 
         with pytest.raises(CompilationError, match="compute_outputs failed"):
@@ -276,14 +277,14 @@ class TestExtensionCoexistence:
         registered node — the resolver tolerates the missing definition."""
         reg = NodeRegistry()
 
-        def hooked(ctx: ComputeOutputsContext) -> list[OutputMetadata]:
-            return [OutputMetadata(name="result", type_str="str", label="Result")]
+        def hooked(ctx: ComputeOutputsContext) -> list[Output]:
+            return [Output(name="result", type_str="str", label="Result")]
 
         @reg.node(
             "hooked", version=1, name="Hooked", description="Hooked",
             compute_outputs=hooked,
         )
-        def hooked_node() -> Annotated[str, Output(label="Out")]:
+        def hooked_node() -> Annotated[str, OutputWidget(label="Out")]:
             return "x"
 
         class MockExtensionResolver:
@@ -319,20 +320,20 @@ class TestTypeCheckUsesResolved:
         and warns accordingly on incompatible downstream connections."""
         reg = NodeRegistry()
 
-        def retype(ctx: ComputeOutputsContext) -> list[OutputMetadata]:
-            return [OutputMetadata(name="result", type_str="custom_blob", label="Out")]
+        def retype(ctx: ComputeOutputsContext) -> list[Output]:
+            return [Output(name="result", type_str="custom_blob", label="Out")]
 
         @reg.node(
             "retype", version=1, name="Retype", description="Retype",
             compute_outputs=retype,
         )
-        def retype_node() -> Annotated[str, Output(label="Out")]:
+        def retype_node() -> Annotated[str, OutputWidget(label="Out")]:
             return "x"
 
         @reg.node("int-in", version=1, name="Int In", description="Int In")
         def int_in(
             num: Annotated[int, Text(label="N")],
-        ) -> Annotated[int, Output(label="Out")]:
+        ) -> Annotated[int, OutputWidget(label="Out")]:
             return num
 
         compiled = compile(
@@ -360,18 +361,18 @@ class TestSerializationFlag:
     def test_has_dynamic_outputs_emitted_when_hook_present(self) -> None:
         reg = NodeRegistry()
 
-        def fn(ctx: ComputeOutputsContext) -> list[OutputMetadata]:
+        def fn(ctx: ComputeOutputsContext) -> list[Output]:
             return list(ctx.defaults)
 
         @reg.node(
             "with-hook", version=1, name="WithHook", description="X",
             compute_outputs=fn,
         )
-        def with_hook() -> Annotated[str, Output(label="Out")]:
+        def with_hook() -> Annotated[str, OutputWidget(label="Out")]:
             return "x"
 
         @reg.node("no-hook", version=1, name="NoHook", description="X")
-        def no_hook() -> Annotated[str, Output(label="Out")]:
+        def no_hook() -> Annotated[str, OutputWidget(label="Out")]:
             return "x"
 
         payload = {n["id"]: n for n in serialize_registry(reg)}

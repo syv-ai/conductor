@@ -1,680 +1,269 @@
-"""Widget ABC and concrete widget classes for node parameter UI rendering."""
+"""Widgets — how a person edits an input.
+
+A widget is the control an input is edited with, plus what that control
+needs: a dropdown's choices, a number's range. Every widget is a frozen,
+keyword-only record with a ``kind`` discriminator, and ``AnyWidget`` is the
+union of all of them, so pydantic dumps a widget and publishes a JSON
+schema per kind. An author writes one inside ``Annotated`` on a ``run``
+parameter::
+
+    language: Annotated[Text, Dropdown(title="Language", choices=(Choice(id="en", title="English"),))]
+
+Three things written on the widget belong to the field, not the control:
+``title``, ``description`` and ``show_handle``. They sit on the widget
+because a parameter has one annotation object; ``Interface.of`` copies
+them onto the ``Input`` and they are left out of the widget's own dump, so
+each travels once. Nothing downstream reads ``widget.title``.
+
+A widget does not decide whether a cable can reach the input:
+``show_handle`` defaults to ``True`` on the base and no control overrides
+it. A node closes one input by writing ``show_handle=False`` on that
+input's annotation. Nor does a widget change how the engine runs: a pause
+is a node that returns ``Asks``, not a widget kind.
+
+Conductor ships no default widget for any type: ``Text`` may be a
+textarea, a single line or a dropdown, so every input declares its own.
+"""
+
+from __future__ import annotations
 
 from abc import ABC
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
+from typing import Annotated, Any, Literal, Union
 
-from conductor.types import WidgetType
+from pydantic import Discriminator, Field
 
-__all__ = [
-    "WIDGET_SCHEMA_KEYS",
-    "Widget",
-    "WidgetType",
-    # Core single-value widgets
-    "Text",
-    "Textarea",
-    "Dropdown",
-    "DependentDropdown",
-    "Range",
-    "Checkbox",
-    "FileUpload",
-    "ConnectionList",
-    "Output",
-    "Number",
-    "Switch",
-    "HumanReview",
-    "DatePicker",
-    "Multiselect",
-    "List",
-    "SchemaBuilder",
-    "CodeEditor",
-    "TemplateTextarea",
-    "EntityDropdown",
-    "IfElseBuilder",
-    # Tabular-data primitives
-    "TableSource",
-    "ConditionBuilder",
-    "Tags",
-    "ColumnSelect",
-    "TableInput",
-]
+#: Marks the three fields that belong to the ``Input``, not the control.
+#: ``Interface.of`` copies them onto the ``Input``; they are left out of
+#: the widget's own dump.
+_Lifted = Field(exclude=True)
 
 
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class Widget(ABC):
-    """Base widget class for node parameters.
+    """What every control has in common: a title, a description, and whether a cable can reach the field.
 
-    Widgets define how node parameters are rendered in the frontend UI
-    and provide validation constraints for Pydantic.
-
-    ``connection_input`` names another input on the same node whose
-    incoming edges should be scanned for variables this widget can
-    reference. ``TemplateTextarea`` and the future ``IfElseBuilder``
-    use it to declare which other input drives variable autocomplete.
+    Never subclassed outside this module: ``AnyWidget`` is built from the
+    subclasses declared here, and a control the host's frontend cannot
+    render is not a control.
     """
 
-    label: str
-    description: str | None = None
-    disable_handle: bool = False
-    hidden_when: dict[str, list[str]] | None = None
-    advanced: bool = False
-    connection_input: str | None = None
-
-    @property
-    def widget_type(self) -> WidgetType:
-        """Return the WidgetType enum for this widget."""
-        raise NotImplementedError
-
-    def to_schema(self) -> dict[str, Any]:
-        """Convert to a JSON dict for frontend rendering."""
-        schema: dict[str, Any] = {
-            "widget": self.widget_type.value if isinstance(self.widget_type, WidgetType) else self.widget_type,
-            "label": self.label,
-            "description": self.description,
-            "disable_handle": self.disable_handle,
-        }
-        if self.hidden_when is not None:
-            schema["hidden_when"] = self.hidden_when
-        if self.advanced:
-            schema["advanced"] = True
-        if self.connection_input is not None:
-            schema["connection_input"] = self.connection_input
-        return schema
+    title: Annotated[str, _Lifted]
+    description: Annotated[str | None, _Lifted] = None
+    show_handle: Annotated[bool, _Lifted] = True
 
 
-@dataclass
+@dataclass(frozen=True, kw_only=True)
+class Choice:
+    """One option a person may pick: the ``id`` the value stores and the ``title`` shown.
+
+    A host declares them on the widget where it declares the input, so the
+    vocabulary travels as data and no frontend list has to agree with a
+    host table by hand. ``element`` is a dtype description when the option
+    fits only one element type (a reduction that works on numbers), and
+    ``None`` when it fits anything; an editor filters by it. Its sibling
+    ``OperatorChoice`` does the same for a condition builder's operators.
+    """
+
+    id: str
+    title: str
+    element: dict | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class OperatorChoice:
+    """One operator a condition builder offers.
+
+    The host's operator table, serialised onto ``IfElseBuilder`` so a
+    frontend need not keep a copy. ``category`` files it under the host's
+    value kinds; ``arity`` is 1 for an operator with no argument beside its
+    operand ("is empty") and 2 for one with ("contains ...").
+    """
+
+    id: str
+    title: str
+    category: str
+    arity: int
+
+
+@dataclass(frozen=True, kw_only=True)
 class Text(Widget):
-    """Single-line text input."""
+    """Single-line text."""
 
+    kind: Literal["text"] = "text"
     min_length: int | None = None
     max_length: int | None = None
     pattern: str | None = None
 
-    @property
-    def widget_type(self) -> WidgetType:
-        return WidgetType.TEXT
 
-    def to_schema(self) -> dict[str, Any]:
-        schema = super().to_schema()
-        if self.min_length is not None:
-            schema["min_length"] = self.min_length
-        if self.max_length is not None:
-            schema["max_length"] = self.max_length
-        if self.pattern is not None:
-            schema["pattern"] = self.pattern
-        return schema
-
-
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class Textarea(Widget):
-    """Multi-line text input."""
+    """Multi-line text."""
 
+    kind: Literal["textarea"] = "textarea"
     min_length: int | None = None
     max_length: int | None = None
     rows: int = 4
 
-    @property
-    def widget_type(self) -> WidgetType:
-        return WidgetType.TEXTAREA
 
-    def to_schema(self) -> dict[str, Any]:
-        schema = super().to_schema()
-        schema["rows"] = self.rows
-        if self.min_length is not None:
-            schema["min_length"] = self.min_length
-        if self.max_length is not None:
-            schema["max_length"] = self.max_length
-        return schema
-
-
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class Dropdown(Widget):
-    """Dropdown / select input."""
+    """Pick one of a declared vocabulary of ``Choice``s."""
 
-    disable_handle: bool = True
-    choices: list[str] = field(default_factory=list)
-
-    @property
-    def widget_type(self) -> WidgetType:
-        return WidgetType.DROPDOWN
-
-    def to_schema(self) -> dict[str, Any]:
-        schema = super().to_schema()
-        schema["choices"] = self.choices
-        return schema
+    kind: Literal["dropdown"] = "dropdown"
+    choices: tuple[Choice, ...] = ()
 
 
-@dataclass
-class DependentDropdown(Widget):
-    """Dropdown whose choices depend on another field's value."""
-
-    disable_handle: bool = True
-    depends_on: str = ""
-    choices_map: dict[str, list[str]] = field(default_factory=dict)
-
-    @property
-    def widget_type(self) -> WidgetType:
-        return WidgetType.DEPENDENT_DROPDOWN
-
-    def to_schema(self) -> dict[str, Any]:
-        schema = super().to_schema()
-        schema["depends_on"] = self.depends_on
-        schema["choices_map"] = self.choices_map
-        return schema
-
-
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class Range(Widget):
-    """Numeric slider / range input.
+    """A number picked on a slider, between declared bounds."""
 
-    The Python attributes are ``min_val`` / ``max_val`` for parity with
-    :class:`Number`, but the serialised schema uses ``range_min`` /
-    ``range_max`` so frontends can distinguish slider bounds from a
-    free-input numeric field's bounds without sniffing the widget type.
-    """
-
-    disable_handle: bool = True
+    kind: Literal["range"] = "range"
     min_val: float | None = None
     max_val: float | None = None
     step: float | None = None
 
-    @property
-    def widget_type(self) -> WidgetType:
-        return WidgetType.RANGE
 
-    def to_schema(self) -> dict[str, Any]:
-        schema = super().to_schema()
-        if self.min_val is not None:
-            schema["range_min"] = self.min_val
-        if self.max_val is not None:
-            schema["range_max"] = self.max_val
-        if self.step is not None:
-            schema["step"] = self.step
-        return schema
-
-
-@dataclass
-class Checkbox(Widget):
-    """Boolean checkbox."""
-
-    disable_handle: bool = True
-
-    @property
-    def widget_type(self) -> WidgetType:
-        return WidgetType.CHECKBOX
-
-
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class FileUpload(Widget):
-    """File upload widget (returns base64 encoded content)."""
+    """Files a person uploads. ``multiple`` births a series of them."""
 
-    disable_handle: bool = True
-    accept: str | list[str] | None = None
+    kind: Literal["file"] = "file"
+    accept: tuple[str, ...] | None = None
     max_size_mb: float | None = None
     multiple: bool = False
 
-    @property
-    def widget_type(self) -> WidgetType:
-        return WidgetType.FILE
 
-    def to_schema(self) -> dict[str, Any]:
-        schema = super().to_schema()
-        if self.accept is not None:
-            # Canonical wire shape: always a list of extensions. Widget
-            # authors may pass a single string for convenience.
-            schema["accept"] = (
-                [self.accept] if isinstance(self.accept, str) else list(self.accept)
-            )
-        if self.max_size_mb is not None:
-            schema["max_size_mb"] = self.max_size_mb
-        schema["multiple"] = self.multiple
-        return schema
-
-
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class ConnectionList(Widget):
-    """Widget for accepting multiple connections from other nodes."""
+    """Edited by wiring only: the value comes down a cable, so there is nothing to type.
 
-    @property
-    def widget_type(self) -> WidgetType:
-        return WidgetType.CONNECTION_LIST
-
-
-@dataclass
-class Output(Widget):
-    """Output widget for node return values."""
-
-    download: bool = False
-    filename: str | None = None
-
-    @property
-    def widget_type(self) -> WidgetType:
-        return WidgetType.OUTPUT
-
-    def to_schema(self) -> dict[str, Any]:
-        schema = super().to_schema()
-        schema["download"] = self.download
-        if self.filename is not None:
-            schema["filename"] = self.filename
-        return schema
-
-
-# ---------------------------------------------------------------------------
-# Extended widgets — one concrete class per WidgetType enum value so the
-# frontend can render every widget by reading the registry, without any
-# backend-side guesswork. Each widget's ``to_schema()`` is complete.
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class Number(Widget):
-    """Free-input numeric field. Prefer ``Range`` for slider-style.
-
-    Distinct from ``Range`` because a text-input numeric field and a
-    slider are different UX — one is for arbitrary values, the other for
-    bounded, picked-from-a-range values.
+    The control for a ``Series[X]`` input, an ``Any`` input and an open
+    roster's rows.
     """
 
-    disable_handle: bool = True
+    kind: Literal["connection-list"] = "connection-list"
+
+
+@dataclass(frozen=True, kw_only=True)
+class Number(Widget):
+    """A number typed in, optionally bounded and optionally whole."""
+
+    kind: Literal["number"] = "number"
     min_val: float | None = None
     max_val: float | None = None
     step: float | None = None
     integer_only: bool = False
 
-    @property
-    def widget_type(self) -> WidgetType:
-        return WidgetType.NUMBER
 
-    def to_schema(self) -> dict[str, Any]:
-        schema = super().to_schema()
-        if self.min_val is not None:
-            schema["min_val"] = self.min_val
-        if self.max_val is not None:
-            schema["max_val"] = self.max_val
-        if self.step is not None:
-            schema["step"] = self.step
-        schema["integer_only"] = self.integer_only
-        return schema
-
-
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class Switch(Widget):
-    """Boolean toggle switch. Semantic sibling of ``Checkbox``.
+    """A boolean, on or off."""
 
-    Frontends that render toggles differently from checkboxes pick
-    ``Switch`` vs ``Checkbox`` based on the widget type; the value is a
-    plain bool either way.
-    """
-
-    disable_handle: bool = True
-
-    @property
-    def widget_type(self) -> WidgetType:
-        return WidgetType.SWITCH
+    kind: Literal["switch"] = "switch"
 
 
-@dataclass
-class HumanReview(Widget):
-    """Per-instance toggle that pauses the flow for human review of *this
-    node's* result.
-
-    Renders as an ordinary switch (``WidgetType.SWITCH``), so frontends need
-    no new renderer. The extra ``human_review: true`` marker it writes into
-    the parameter schema is what the engine keys on: when the resolved value
-    is truthy, the engine pauses **after** the node computes — emitting a
-    ``flow_paused`` event whose ``schema.value`` is the freshly-produced
-    result — and ``resume()`` injects the human's response as the node's
-    result (the node is not re-run). The marker also lets a frontend badge
-    the node as "needs approval". ``prompt`` is an optional message shown to
-    the reviewer.
-
-    Unlike a node raising :class:`~conductor.errors.HumanInputRequired`, this
-    needs no code in the node body: any node can opt in by declaring one
-    ``HumanReview``-annotated boolean input.
-    """
-
-    disable_handle: bool = True
-    prompt: str | None = None
-
-    @property
-    def widget_type(self) -> WidgetType:
-        return WidgetType.SWITCH
-
-    def to_schema(self) -> dict[str, Any]:
-        schema = super().to_schema()
-        schema["human_review"] = True
-        if self.prompt is not None:
-            schema["prompt"] = self.prompt
-        return schema
-
-
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class DatePicker(Widget):
-    """Calendar / date input. Values are ISO-8601 date strings ("YYYY-MM-DD")."""
+    """A date picked from a calendar."""
 
-    disable_handle: bool = True
+    kind: Literal["datepicker"] = "datepicker"
     min_date: str | None = None
     max_date: str | None = None
-
-    @property
-    def widget_type(self) -> WidgetType:
-        return WidgetType.DATEPICKER
-
-    def to_schema(self) -> dict[str, Any]:
-        schema = super().to_schema()
-        if self.min_date is not None:
-            schema["min_date"] = self.min_date
-        if self.max_date is not None:
-            schema["max_date"] = self.max_date
-        return schema
+    #: ``"today"`` asks the editor to write today's date into the field
+    #: when the node is placed. Declared here because "today" is not a
+    #: constant a default could hold.
+    seed: Literal["today"] | None = None
 
 
-@dataclass
-class Multiselect(Widget):
-    """Pick zero or more values from a fixed set."""
-
-    disable_handle: bool = True
-    choices: list[str] = field(default_factory=list)
-    min_selected: int | None = None
-    max_selected: int | None = None
-
-    @property
-    def widget_type(self) -> WidgetType:
-        return WidgetType.MULTISELECT
-
-    def to_schema(self) -> dict[str, Any]:
-        schema = super().to_schema()
-        schema["choices"] = self.choices
-        if self.min_selected is not None:
-            schema["min_selected"] = self.min_selected
-        if self.max_selected is not None:
-            schema["max_selected"] = self.max_selected
-        return schema
-
-
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class List(Widget):
-    """User-authored array. Each item is edited with ``item_widget``.
+    """A list of values typed by hand. The per-item control is derived by
+    the host from the element type, so none is declared here."""
 
-    Distinct from ``ConnectionList``: ``List`` is for values the user
-    types into the UI; ``ConnectionList`` is for values aggregated from
-    multiple upstream edges.
-    """
-
-    item_widget: Widget | None = None
+    kind: Literal["list"] = "list"
     min_items: int | None = None
     max_items: int | None = None
 
-    @property
-    def widget_type(self) -> WidgetType:
-        return WidgetType.LIST
 
-    def to_schema(self) -> dict[str, Any]:
-        schema = super().to_schema()
-        # If no item widget is given the frontend falls back to a text
-        # input; we still emit ``item_widget: null`` so the absence is
-        # explicit rather than missing.
-        schema["item_widget"] = (
-            self.item_widget.to_schema() if self.item_widget is not None else None
-        )
-        if self.min_items is not None:
-            schema["min_items"] = self.min_items
-        if self.max_items is not None:
-            schema["max_items"] = self.max_items
-        return schema
-
-
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class SchemaBuilder(Widget):
-    """Structured dict / object editor. Values are plain dicts.
+    """A schema an author builds field by field — name, type, description."""
 
-    ``schema`` is an optional JSON-Schema-ish dict that hints at the
-    expected keys and types. ``allow_additional`` controls whether the
-    user may add keys beyond what the schema declares.
-    """
-
-    disable_handle: bool = True
+    kind: Literal["schema-builder"] = "schema-builder"
     schema: dict[str, Any] | None = None
     allow_additional: bool = True
-
-    @property
-    def widget_type(self) -> WidgetType:
-        return WidgetType.SCHEMA_BUILDER
-
-    def to_schema(self) -> dict[str, Any]:
-        out = super().to_schema()
-        if self.schema is not None:
-            out["schema"] = self.schema
-        out["allow_additional"] = self.allow_additional
-        return out
+    #: The field types the builder offers — the host's vocabulary, as data.
+    field_types: tuple[Choice, ...] = ()
 
 
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class CodeEditor(Widget):
-    """Syntax-highlighted code editor. Value is a plain string."""
+    """Source a person writes, highlighted for ``language``."""
 
+    kind: Literal["code-editor"] = "code-editor"
     language: str = "python"
     min_length: int | None = None
     max_length: int | None = None
 
-    @property
-    def widget_type(self) -> WidgetType:
-        return WidgetType.CODE_EDITOR
 
-    def to_schema(self) -> dict[str, Any]:
-        schema = super().to_schema()
-        schema["language"] = self.language
-        if self.min_length is not None:
-            schema["min_length"] = self.min_length
-        if self.max_length is not None:
-            schema["max_length"] = self.max_length
-        return schema
-
-
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class TemplateTextarea(Widget):
-    """Textarea that is aware of a fixed set of interpolation variables.
+    """Text with placeholders. Each placeholder is an input."""
 
-    ``variables`` lists the names the user may reference. The frontend
-    can render autocomplete, highlighting, or inline validation. The
-    value is still a plain string at runtime; interpolation is the
-    node author's responsibility.
-    """
-
+    kind: Literal["template-textarea"] = "template-textarea"
     rows: int = 4
-    variables: list[str] = field(default_factory=list)
-
-    @property
-    def widget_type(self) -> WidgetType:
-        return WidgetType.TEMPLATE_TEXTAREA
-
-    def to_schema(self) -> dict[str, Any]:
-        schema = super().to_schema()
-        schema["rows"] = self.rows
-        schema["variables"] = self.variables
-        return schema
 
 
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class EntityDropdown(Widget):
-    """Dropdown whose choices are loaded by the host at render time.
+    """Choices the host resolves — documents, say."""
 
-    ``entity_kind`` names the resource the frontend should query
-    (``"user"``, ``"project"``, …). The mapping from entity_kind to a
-    concrete data source is host-application concern — this widget only
-    declares the intent.
-
-    The Python attribute is ``entity_kind`` but the serialised schema
-    key is ``entity_type`` for parity with the AKA frontend contract.
-    """
-
-    disable_handle: bool = True
+    kind: Literal["entity-dropdown"] = "entity-dropdown"
     entity_kind: str = ""
     multiple: bool = False
 
-    @property
-    def widget_type(self) -> WidgetType:
-        return WidgetType.ENTITY_DROPDOWN
 
-    def to_schema(self) -> dict[str, Any]:
-        schema = super().to_schema()
-        schema["entity_type"] = self.entity_kind
-        schema["multiple"] = self.multiple
-        return schema
-
-
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class IfElseBuilder(Widget):
-    """Conditional expression editor. Value shape is host-defined.
+    """Conditions an author builds from the host's operators."""
 
-    A minimal skeleton so the frontend can offer a branch-builder UI.
-    The concrete expression language lives in the host application.
-    """
-
-    disable_handle: bool = True
-    variables: list[str] = field(default_factory=list)
-
-    @property
-    def widget_type(self) -> WidgetType:
-        return WidgetType.IF_ELSE_BUILDER
-
-    def to_schema(self) -> dict[str, Any]:
-        schema = super().to_schema()
-        schema["variables"] = self.variables
-        return schema
+    kind: Literal["if-else-builder"] = "if-else-builder"
+    #: The operators the builder offers — the host's operator table, as data.
+    operators: tuple[OperatorChoice, ...] = ()
 
 
-# ---------------------------------------------------------------------------
-# Tabular-data widgets — composite UI primitives shared across nodes that
-# operate on table-shaped data. Like ``EntityDropdown`` and
-# ``IfElseBuilder``, these are skeleton widgets: declared metadata only,
-# with no Python-side execution semantics. The host application owns the
-# concrete renderer and the persisted value shape.
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class TableSource(Widget):
-    """Composite tri-mode source picker for tabular data.
-
-    Hosts typically render upload / library / manual modes and collapse
-    to an upstream-source display when an edge is wired. Mode resolution
-    is host-side; this widget declares no widget-specific config.
-    """
-
-    @property
-    def widget_type(self) -> WidgetType:
-        return WidgetType.TABLE_SOURCE
-
-
-@dataclass
-class ConditionBuilder(Widget):
-    """Structured ``column / operator / value`` filter editor.
-
-    Rows are evaluated left-to-right with logic chips between them.
-    ``connection_input`` (inherited) declares which input's incoming
-    edges feed the column / variable autocomplete.
-    """
-
-    disable_handle: bool = True
-
-    @property
-    def widget_type(self) -> WidgetType:
-        return WidgetType.CONDITION_BUILDER
-
-
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class Tags(Widget):
-    """Chip-list input. The persisted value is ``list[str]``."""
+    """Free-form labels a person adds one at a time."""
 
-    @property
-    def widget_type(self) -> WidgetType:
-        return WidgetType.TAGS
+    kind: Literal["tags"] = "tags"
 
 
-@dataclass
-class ColumnSelect(Widget):
-    """Dropdown whose choices come from a sibling input's column headers.
-
-    ``depends_on`` names the input on the same node whose data shape
-    drives the column choices.
-    """
-
-    disable_handle: bool = True
-    depends_on: str = ""
-
-    @property
-    def widget_type(self) -> WidgetType:
-        return WidgetType.COLUMN_SELECT
-
-    def to_schema(self) -> dict[str, Any]:
-        schema = super().to_schema()
-        schema["depends_on"] = self.depends_on
-        return schema
-
-
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class TableInput(Widget):
-    """Inline spreadsheet editor. Value is ``{columns: [...], rows: [...]}``."""
+    """A table an author types or pastes in, column types and all."""
 
+    kind: Literal["table-input"] = "table-input"
     min_rows: int = 1
     min_columns: int = 1
-
-    @property
-    def widget_type(self) -> WidgetType:
-        return WidgetType.TABLE_INPUT
-
-    def to_schema(self) -> dict[str, Any]:
-        schema = super().to_schema()
-        schema["min_rows"] = self.min_rows
-        schema["min_columns"] = self.min_columns
-        return schema
+    #: The column types an editor offers when a person corrects a guessed
+    #: one — the host's scalar types, as data, each with the title its
+    #: dtype declares.
+    column_types: tuple[Choice, ...] = ()
 
 
-# The complete vocabulary of widget_config keys any stdlib widget can emit
-# via ``to_schema()`` (beyond the base widget/label/description/disable_handle
-# keys the registry strips). This mirrors the widget-config fields of
-# ``conductor.registry.serialized.SerializedInput`` (the two are pinned equal by
-# ``test_serialized_input_fields_pin_widget_schema_keys``); a host validating the
-# serialized registry can type against either.
-# ``test_widget_schema_keys_covers_every_emitted_key`` keeps this honest against
-# the widgets in both directions.
-WIDGET_SCHEMA_KEYS: frozenset[str] = frozenset({
-    "accept",
-    "advanced",
-    "allow_additional",
-    "choices",
-    "choices_map",
-    "connection_input",
-    "depends_on",
-    "download",
-    "entity_type",
-    "filename",
-    "hidden_when",
-    "human_review",
-    "integer_only",
-    "item_widget",
-    "language",
-    "max_date",
-    "max_items",
-    "max_length",
-    "max_selected",
-    "max_size_mb",
-    "max_val",
-    "min_columns",
-    "min_date",
-    "min_items",
-    "min_length",
-    "min_rows",
-    "min_selected",
-    "min_val",
-    "multiple",
-    "pattern",
-    "prompt",
-    "range_max",
-    "range_min",
-    "rows",
-    "schema",
-    "step",
-    "variables",
-})
+#: The union of every widget, discriminated by ``kind``: the type of
+#: ``Input.widget``, and what makes the JSON schema say which fields a
+#: dropdown has and a number does not.
+#:
+#: Built once at import from the subclasses in this module, so a widget a
+#: host declares elsewhere is not in the union and an ``Input`` carrying it
+#: is refused by pydantic. That is deliberate: conductor ships the
+#: controls and a host ships the vocabulary inside them as data. A new
+#: control is a change here, since the component that renders each
+#: ``kind`` has to exist in the host's frontend anyway.
+AnyWidget = Annotated[
+    Union[tuple(Widget.__subclasses__())],  # noqa: UP007
+    Discriminator("kind"),
+]

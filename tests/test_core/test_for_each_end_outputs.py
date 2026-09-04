@@ -9,7 +9,7 @@ full compile.
 from __future__ import annotations
 
 from conductor import compute_for_each_end_outputs
-from conductor.metadata import OutputMetadata
+from conductor.metadata import Output
 from conductor.registry.dynamic_outputs import (
     ComputeOutputsContext,
     IncomingBinding,
@@ -27,7 +27,7 @@ def _binding(
         target_handle=target_handle,
         source_node_id=source_node_id,
         source_handle=source_handle,
-        source_output=OutputMetadata(
+        source_output=Output(
             name=source_handle, type_str=type_str, label=label
         ),
     )
@@ -38,7 +38,7 @@ def _ctx(*bindings: IncomingBinding) -> ComputeOutputsContext:
         data={},
         incoming=tuple(bindings),
         node_id="end",
-        defaults=(OutputMetadata(name="output_1", type_str="list", label="Collected"),),
+        defaults=(Output(name="output_1", type_str="list", label="Collected"),),
     )
 
 

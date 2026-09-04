@@ -1,64 +1,6 @@
 """Core types, enums, and constants for conductor."""
 
-from enum import Enum
 from typing import Any, NewType, TypeAlias, TypedDict
-
-# `NodeCategory` lives in its own module so it can carry registration
-# decorators without creating a circular import with `conductor.registry`.
-# Re-exported here to keep the historical `from conductor.types import
-# NodeCategory` import path working.
-from conductor.category import NodeCategory  # noqa: F401  (re-export)
-
-__all__ = [
-    "NodeCategory",
-    "WidgetType",
-    "ResultFormat",
-    "NodeResult",
-    "Base64Str",
-    "Date",
-    "NamedFile",
-    "MultiNamedFile",
-    "RESULT_KEY",
-    "OUTPUT_PREFIX",
-]
-
-
-class WidgetType(str, Enum):
-    """All widget types for node parameters. Maps 1:1 to frontend components."""
-
-    TEXT = "text"
-    TEXTAREA = "textarea"
-    DROPDOWN = "dropdown"
-    DEPENDENT_DROPDOWN = "dependent-dropdown"
-    RANGE = "range"
-    CHECKBOX = "checkbox"
-    FILE = "file"
-    SCHEMA_BUILDER = "schema-builder"
-    DATEPICKER = "datepicker"
-    NUMBER = "number"
-    SWITCH = "switch"
-    CONNECTION_LIST = "connection-list"
-    LIST = "list"
-    TEMPLATE_TEXTAREA = "template-textarea"
-    IF_ELSE_BUILDER = "if-else-builder"
-    MULTISELECT = "multiselect"
-    ENTITY_DROPDOWN = "entity-dropdown"
-    CODE_EDITOR = "code-editor"
-    OUTPUT = "output"
-    TABLE_SOURCE = "table-source"
-    CONDITION_BUILDER = "condition-builder"
-    TAGS = "tags"
-    COLUMN_SELECT = "column-select"
-    TABLE_INPUT = "table-input"
-
-
-class ResultFormat(str, Enum):
-    """How node results are wrapped in the container format."""
-
-    SINGLE = "single"
-    MULTI = "multi"
-    DICT_SPREAD = "dict"
-
 
 RESULT_KEY: str = "result"
 OUTPUT_PREFIX: str = "output_"
@@ -68,16 +10,9 @@ NodeResult: TypeAlias = dict[str, Any]
 # =============================================================================
 # Custom type aliases for nodes
 #
-# These are NewType/TypedDict aliases that:
-# - At runtime, behave as their base type (str, dict, list)
-# - In the registry schema, surface as distinct type strings for the frontend
-#   (e.g., "base64str", "namedfile") so it can pick the right widget/rendering
-# - Are fully extensible — host apps can define their own NewType aliases
-#
-# To create a custom type:
-#   MyType = NewType("MyType", str)
-#   # In the registry JSON, this becomes type_str="mytype"
-#   # The frontend matches on "mytype" to render a custom widget
+# NewType/TypedDict aliases that behave as their base type (str, dict,
+# list) at runtime. The old registry surfaced them as distinct type strings;
+# a node now declares a ``DType``. The module goes with the old engine.
 # =============================================================================
 
 # Base64-encoded string (typically for file uploads)

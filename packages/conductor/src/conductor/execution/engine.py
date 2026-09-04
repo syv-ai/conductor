@@ -10,7 +10,7 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Any
 
-from conductor._sentinel import SKIPPED, is_skipped
+from conductor._sentinel import SKIPPED
 from conductor.errors import (
     FlowExecutionException,
     FlowPausedException,
@@ -47,17 +47,9 @@ from conductor.execution.retry import NO_RETRY, RetryConfig
 from conductor.execution.skip import should_skip_node
 from conductor.execution.state import FlowRunState
 from conductor.execution.store import FlowStore
-from conductor.expr import ExpressionError
 from conductor.graph.compiler import CompiledGraph
-from conductor.types import RESULT_KEY
-
-__all__ = [
-    "execute",
-    "execute_sync",
-    "resume",
-    "resume_sync",
-    "collect",
-]
+from conductor.interface import model_of
+from conductor.registry import runner_for
 
 # Internal sentinel pushed into the event queue when all work is done
 _DONE = object()
@@ -165,11 +157,6 @@ async def resume(
         type="node_complete",
         node_id=checkpoint.waiting_node_id,
         result=normalize_result(response),
-    )
-
-    # If the resumed node is a decision, process its guards
-    _maybe_process_decision_post_complete(
-        compiled, state, checkpoint.waiting_node_id,
     )
 
     async for event in _run_eager(state, cache={}, retry=retry or NO_RETRY):
@@ -384,20 +371,6 @@ class _NodeDone:
     pause_event: dict | None = None
 
 
-def _human_review_input(node_def: Any) -> Any | None:
-    """Return the node's HumanReview-marked input metadata, if it has one.
-
-    A node opts into post-execution review by declaring a single boolean
-    input annotated with the ``HumanReview`` widget, which stamps
-    ``human_review: true`` into that input's ``widget_config``.
-    """
-    if node_def is None:
-        return None
-    for inp in getattr(node_def, "inputs", ()) or ():
-        if inp.widget_config.get("human_review"):
-            return inp
-    return None
-
 
 async def _execute_node_async(
     node_id: str,
@@ -409,7 +382,8 @@ async def _execute_node_async(
     """Execute a single node with retry, pushing events to the queue."""
     node = compiled.node_map[node_id]
     sink = state._event_sink
-    node_def = compiled.registry.get(node.type)
+    node_cls = compiled.registry.get(node.type)
+    policy = node_cls.versions[node.version].policy if node_cls is not None else None
 
     # Skip propagation
     if should_skip_node(
@@ -417,54 +391,23 @@ async def _execute_node_async(
         state.skipped_edges, compiled.incoming_map,
     ):
         state.results[node_id] = SKIPPED
-        # When a decision node itself is skipped, force-skip all its outgoing edges too.
-        if node_id in compiled.decision_guards:
-            for g in compiled.decision_guards[node_id]:
-                state.skipped_edges.add(g.edge_id)
         state.completed_order.append(node_id)
         await event_queue.put(NodeSkippedEvent(type="node_skipped", node_id=node_id))
         await event_queue.put(_NodeDone(node_id=node_id))
         return
 
-    # Resolve inputs first (so we can compute idempotency key)
     inputs = state.resolver.resolve(
         node, compiled.edge_map, state.results, compiled.node_map,
         compiled.consume_map, state.skipped_edges, compiled.incoming_map,
     )
 
-    # Compute idempotency key if configured
-    idem_key: str | None = None
-    expr = compiled.compiled_expressions.get((node_id, "idempotency_key"))
-    if expr is not None:
-        try:
-            idem_value = expr.evaluate({
-                **inputs,
-                "$": {"inputs": inputs, "node": {"id": node_id, "type": node.type}},
-                "inputs": inputs,
-            })
-            idem_key = str(idem_value)
-            state.idempotency_keys[node_id] = idem_key
-        except ExpressionError as e:
-            await event_queue.put(_NodeDone(
-                node_id=node_id,
-                error=True,
-                error_event=NodeErrorEvent(
-                    type="node_error", node_id=node_id,
-                    error=f"idempotency_key evaluation failed: {e}",
-                    is_validation=False,
-                ),
-            ))
-            return
-
     start_event: NodeStartEvent = NodeStartEvent(type="node_start", node_id=node_id)
-    if idem_key is not None:
-        start_event["idempotency_key"] = idem_key
     await event_queue.put(start_event)
 
-    # Determine retry config: node-level overrides global
-    if node_def and node_def.max_retries > 0:
-        max_retries = node_def.max_retries
-        base_delay = node_def.retry_delay
+    # Determine retry config: the version's policy overrides the run-level default
+    if policy is not None and policy.retries > 0:
+        max_retries = policy.retries
+        base_delay = policy.delay
         backoff = 2.0
     else:
         max_retries = retry.max_retries
@@ -472,7 +415,7 @@ async def _execute_node_async(
         backoff = retry.backoff_factor
 
     # Determine node timeout budget — node-level wins over flow-level
-    node_timeout = node_def.timeout_seconds if node_def else None
+    node_timeout = policy.timeout if policy is not None else None
 
     attempt = 0
     last_error: Exception | None = None
@@ -507,7 +450,7 @@ async def _execute_node_async(
             dispatch = asyncio.ensure_future(
                 asyncio.to_thread(
                     _dispatch_node, node.type, node_id, inputs,
-                    node.data or {}, state, compiled, idem_key,
+                    node.data or {}, state, compiled,
                 )
             )
             drainer = asyncio.ensure_future(
@@ -524,52 +467,7 @@ async def _execute_node_async(
                 except asyncio.CancelledError:
                     pass
 
-            raw_result = result
             result = normalize_result(result)
-
-            # Human-in-the-loop: if this node carries a (truthy) HumanReview
-            # toggle and actually produced a value, pause *after* computing so
-            # a person can approve / edit / reject the result before it flows
-            # on. resume() injects their response as this node's result — the
-            # node is not re-run, so nothing is recomputed or re-billed.
-            review_inp = _human_review_input(node_def)
-            if (
-                review_inp is not None
-                and not is_skipped(raw_result)
-                and bool(inputs.get(review_inp.name))
-            ):
-                review_value = filter_skipped(result)
-                if (
-                    isinstance(review_value, dict)
-                    and set(review_value) == {RESULT_KEY}
-                ):
-                    review_value = review_value[RESULT_KEY]
-                review_prompt = review_inp.widget_config.get("prompt") or ""
-                review_schema = {"kind": "approval", "value": review_value}
-                cp = FlowCheckpoint(
-                    completed_node_ids=list(state.completed_order),
-                    waiting_node_id=node_id,
-                    waiting_node_type=node.type,
-                    results=dict(state.results),
-                    store_data=state.store.to_dict(),
-                    context=dict(state.context),
-                    prompt=review_prompt,
-                    input_schema=review_schema,
-                    execution_index=-1,
-                    skipped_edges=list(state.skipped_edges),
-                )
-                await event_queue.put(_NodeDone(
-                    node_id=node_id,
-                    paused=True,
-                    pause_event=FlowPausedEvent(
-                        type="flow_paused",
-                        node_id=node_id,
-                        prompt=review_prompt,
-                        schema=review_schema,
-                        checkpoint=cp.to_dict(),
-                    ),
-                ))
-                return
 
             state.results[node_id] = result
             state.completed_order.append(node_id)
@@ -577,10 +475,6 @@ async def _execute_node_async(
                 type="node_complete", node_id=node_id,
                 result=filter_skipped(result),
             ))
-
-            # If this was a decision node, evaluate its guards now and
-            # populate skipped_edges so dependents see the right branches.
-            _maybe_process_decision_post_complete(compiled, state, node_id)
 
             while (evt := sink.pop()) is not None:
                 await event_queue.put(evt)
@@ -763,63 +657,6 @@ def _effective_timeout(
     return max(0.05, min(candidates))
 
 
-# =========================================================================
-# Decision-node post-processing
-# =========================================================================
-
-
-def _maybe_process_decision_post_complete(
-    compiled: CompiledGraph,
-    state: FlowRunState,
-    node_id: str,
-) -> None:
-    """If ``node_id`` is a decision, evaluate its guards and mark non-taken edges."""
-    guards = compiled.decision_guards.get(node_id)
-    if not guards:
-        return
-
-    node_result = state.results.get(node_id)
-    # Build evaluation context from the decision's result + flow store.
-    ctx: dict[str, Any] = {}
-    if isinstance(node_result, dict):
-        # Strip the SKIPPED sentinel entries, which aren't JSON-y
-        ctx.update({k: v for k, v in node_result.items() if k != "result"})
-        if "result" in node_result:
-            ctx["result"] = node_result["result"]
-    ctx["results"] = state.results
-    ctx["store"] = state.store.to_dict()
-    ctx["$"] = {
-        "result": ctx.get("result"),
-        "results": state.results,
-        "store": ctx["store"],
-    }
-
-    # Walk guards in priority order (compiler already sorted). First matching wins.
-    taken_idx: int | None = None
-    for idx, g in enumerate(guards):
-        if g.when is None:
-            # else fallback — only taken if we get here with no match
-            continue
-        try:
-            if bool(g.when.evaluate(ctx)):
-                taken_idx = idx
-                break
-        except ExpressionError as e:
-            raise NodeExecutionError(
-                f"Decision node '{node_id}' failed to evaluate guard "
-                f"on edge '{g.edge_id}': {e}",
-                node_id=node_id,
-            ) from e
-
-    if taken_idx is None:
-        # Take the else edge (exactly one, guaranteed by compiler)
-        taken_idx = next(i for i, g in enumerate(guards) if g.when is None)
-
-    # Mark every *other* outgoing edge as skipped
-    for idx, g in enumerate(guards):
-        if idx != taken_idx:
-            state.skipped_edges.add(g.edge_id)
-
 
 # =========================================================================
 # Compensation cascade
@@ -907,19 +744,11 @@ def _invoke_node(
             f"Compensation node type '{node.type}' not found in registry",
             node_id=req.node_id, node_type=node.type,
         )
-    if node_def._node_class is not None:
-        instance = node_def._node_class()
-        return instance.execute(req)
-    if node_def.func is None:
-        raise NodeExecutionError(
-            f"Compensation node '{node.type}' has no callable",
-            node_id=req.node_id, node_type=node.type,
-        )
-    # Filter req.inputs to known params (shared with the normal dispatch path)
-    kwargs = _filter_to_signature(node_def.func, req.inputs)
-    if "store" in inspect.signature(node_def.func).parameters:
+    runner = runner_for(compiled.registry, node.type, node.version)
+    kwargs = _filter_to_signature(runner, req.inputs)
+    if "store" in inspect.signature(runner).parameters:
         kwargs["store"] = state.store
-    return node_def.func(**kwargs)
+    return runner(**kwargs)
 
 
 # =========================================================================
@@ -934,7 +763,6 @@ def _dispatch_node(
     data: dict[str, Any],
     state: FlowRunState,
     compiled: CompiledGraph,
-    idempotency_key: str | None = None,
 ) -> Any:
     """Route execution to the right handler."""
     req = NodeExecRequest(
@@ -957,51 +785,34 @@ def _dispatch_node(
 
     # 3. Registry node
     node_def = compiled.registry.get(node_type)
-    if not node_def:
+    if node_def is None:
         raise NodeExecutionError(
             f"Node type '{node_type}' not found in registry",
             node_id=node_id, node_type=node_type,
         )
 
-    # 3a. Class-based node
-    if hasattr(node_def, "_node_class") and node_def._node_class is not None:
-        try:
-            instance = node_def._node_class()
-            return instance.execute(req)
-        except (NodeValidationError, NodeExecutionError, HumanInputRequired, SignalRequired):
-            raise
-        except Exception as e:
-            raise NodeExecutionError(
-                f"Execution failed for {node_type}: {type(e).__name__}: {e}",
-                node_id=node_id, node_type=node_type, original=e,
-            ) from e
+    # Coerce the raw inputs through the placement's roster before anything
+    # else touches them.
+    from pydantic import ValidationError
 
-    # 3b. Function-based node
-    if not node_def.func:
-        raise NodeExecutionError(
-            f"Node type '{node_type}' has no callable",
-            node_id=node_id, node_type=node_type,
-        )
+    pinned = compiled.node_map[node_id].version
+    roster = compiled.node_inputs.get(
+        node_id, node_def.versions[pinned].interface.inputs
+    )
+    try:
+        inputs = model_of(roster)(**inputs).model_dump()
+    except ValidationError as e:
+        raise NodeValidationError(
+            _format_validation_error(e, roster),
+            node_id=node_id, node_type=node_type, original=e,
+        ) from e
 
-    if node_def.validation_model:
-        from pydantic import ValidationError
-        try:
-            validated = node_def.validation_model(**inputs)
-            inputs = validated.model_dump()
-        except ValidationError as e:
-            raise NodeValidationError(
-                _format_validation_error(
-                    e, node_def, compiled.node_inputs.get(node_id)
-                ),
-                node_id=node_id, node_type=node_type, original=e,
-            ) from e
-
-    inputs = _inject_store(node_def.func, inputs, state)
-    inputs = _inject_idempotency_key(node_def.func, inputs, idempotency_key)
-    inputs = _filter_to_signature(node_def.func, inputs)
+    runner = runner_for(compiled.registry, node_type, pinned)
+    inputs = _inject_store(runner, inputs, state)
+    inputs = _filter_to_signature(runner, inputs)
 
     try:
-        return node_def.func(**inputs)
+        return runner(**inputs)
     except (NodeValidationError, NodeExecutionError, NodeConnectionError,
             HumanInputRequired, SignalRequired):
         raise
@@ -1012,9 +823,7 @@ def _dispatch_node(
         ) from e
 
 
-def _format_validation_error(
-    e: Any, node_def: Any, resolved_inputs: Any = None
-) -> str:
+def _format_validation_error(e: Any, roster: Any) -> str:
     """Collapse a pydantic ``ValidationError`` into a one-line-per-field
     summary suitable for end-user surfaces.
 
@@ -1027,7 +836,7 @@ def _format_validation_error(
       * picks the most specific message per field (prefers
         ``"Field required"`` and ``"Input should be ..."`` over generic
         ``"Input should be a valid …"`` from union fan-out),
-      * resolves field ids to their declared ``label`` when available.
+      * resolves field ids to their declared ``title``.
 
     Hosts that want structured access can still read ``e.original`` (the
     pydantic ``ValidationError``) off the raised ``NodeValidationError``.
@@ -1045,13 +854,9 @@ def _format_validation_error(
             "nonetype", "none", "any",
         }
 
-    # Build a {field_label: message} map preserving insertion order.
+    # Build a {field_title: message} map preserving insertion order.
     seen: dict[str, str] = {}
-    # A hook-declared handle is absent from the static schema, so its
-    # validation error would surface as a bare name. Prefer the resolved
-    # roster when the caller has one.
-    pool = resolved_inputs if resolved_inputs is not None else node_def.inputs
-    label_by_name = {inp.name: (inp.label or inp.name) for inp in pool}
+    label_by_name = {inp.name: inp.title for inp in roster}
 
     for err in e.errors():
         loc = [seg for seg in err.get("loc", ()) if not _is_union_arm(seg)]
@@ -1083,34 +888,20 @@ def _format_validation_error(
 
 
 def _inject_store(func: Any, inputs: dict[str, Any], state: FlowRunState) -> dict[str, Any]:
-    """If the function has a FlowStore parameter, inject it."""
-    from typing import get_type_hints
+    """If the callable declares a ``FlowStore`` parameter, inject it.
 
+    Read off the signature rather than resolved type hints, because a
+    class node's runner carries the method's signature and nothing else.
+    """
     try:
-        hints = get_type_hints(func)
-    except Exception:
-        return inputs
-
-    for name, hint in hints.items():
-        if hint is FlowStore:
-            inputs = {**inputs, name: state.store}
-            break
-    return inputs
-
-
-def _inject_idempotency_key(
-    func: Any, inputs: dict[str, Any], idem_key: str | None,
-) -> dict[str, Any]:
-    """If the node function declares ``idempotency_key``, inject the value."""
-    if idem_key is None:
-        return inputs
-    try:
-        sig = inspect.signature(func)
+        params = inspect.signature(func).parameters
     except (TypeError, ValueError):
         return inputs
-    if "idempotency_key" in sig.parameters:
-        inputs = {**inputs, "idempotency_key": idem_key}
+    for name, param in params.items():
+        if param.annotation is FlowStore or param.annotation == "FlowStore":
+            return {**inputs, name: state.store}
     return inputs
+
 
 
 def _filter_to_signature(func: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
@@ -1124,7 +915,7 @@ def _filter_to_signature(func: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
     here so they behave identically.
 
     A function that declares ``**kwargs`` (``VAR_KEYWORD``) accepts any key,
-    so nothing is filtered — this preserves ``dynamic_handles`` nodes that
+    so nothing is filtered — this preserves the nodes that
     legitimately receive extra wired handles.
     """
     try:

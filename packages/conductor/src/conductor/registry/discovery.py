@@ -15,7 +15,7 @@ def discover_nodes(package_name: str, registry: NodeRegistry) -> int:
 
     Returns the number of newly registered nodes.
     """
-    count_before = len(registry.all())
+    count_before = len(registry.definitions())
     package = importlib.import_module(package_name)
 
     for _importer, modname, _ispkg in pkgutil.walk_packages(
@@ -23,4 +23,4 @@ def discover_nodes(package_name: str, registry: NodeRegistry) -> int:
     ):
         importlib.import_module(modname)
 
-    return len(registry.all()) - count_before
+    return len(registry.definitions()) - count_before

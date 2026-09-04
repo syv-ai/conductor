@@ -18,12 +18,13 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from conductor import GraphNode, NodeCategory, NodeRegistry, compile
-from conductor.metadata import OutputMetadata
+from conductor.metadata import Output
 from conductor.registry.dynamic_outputs import (
     ComputeOutputsContext,
     strip_sub_output_prefix,
 )
-from conductor.widgets import Output, Text
+from conductor.widgets import Output as OutputWidget
+from conductor.widgets import Text
 
 # ---------------------------------------------------------------------------
 # Issue 1 — NodeCategory.node() forwards compute_outputs / dynamic_handles
@@ -36,8 +37,8 @@ class TestCategoryForwardsHookKwargs:
         resulting NodeDefinition's ``compute_outputs``."""
         cat = NodeCategory("primitives", label="Primitives")
 
-        def hook(ctx: ComputeOutputsContext) -> list[OutputMetadata]:
-            return [OutputMetadata(name="x", type_str="str", label="X")]
+        def hook(ctx: ComputeOutputsContext) -> list[Output]:
+            return [Output(name="x", type_str="str", label="X")]
 
         @cat.node(
             "via-category",
@@ -62,7 +63,7 @@ class TestCategoryForwardsHookKwargs:
         cat = NodeCategory("p2")
 
         @cat.node("plain", version=1, name="Plain", description="X")
-        def fn() -> Annotated[str, Output(label="Out")]:
+        def fn() -> Annotated[str, OutputWidget(label="Out")]:
             return "x"
 
         registry = NodeRegistry()
@@ -76,10 +77,10 @@ class TestCategoryForwardsHookKwargs:
         """End-to-end: a category-registered hook fires during compile."""
         cat = NodeCategory("p3")
 
-        def hook(ctx: ComputeOutputsContext) -> list[OutputMetadata]:
+        def hook(ctx: ComputeOutputsContext) -> list[Output]:
             count = ctx.data.get("count", 1)
             return [
-                OutputMetadata(name=f"slot_{i}", type_str="str", label=f"Slot {i}")
+                Output(name=f"slot_{i}", type_str="str", label=f"Slot {i}")
                 for i in range(count)
             ]
 
@@ -146,7 +147,7 @@ class TestValidatedData:
         registry = NodeRegistry()
         observed: dict[str, Any] = {}
 
-        def hook(ctx: ComputeOutputsContext) -> list[OutputMetadata]:
+        def hook(ctx: ComputeOutputsContext) -> list[Output]:
             observed["validated"] = ctx.validated_data
             observed["raw"] = ctx.data
             return list(ctx.defaults)
@@ -160,7 +161,7 @@ class TestValidatedData:
         )
         def fn(
             value: Annotated[str, Text(label="V")] = "default",
-        ) -> Annotated[str, Output(label="Out")]:
+        ) -> Annotated[str, OutputWidget(label="Out")]:
             return value
 
         compile(
@@ -177,7 +178,7 @@ class TestValidatedData:
         registry = NodeRegistry()
         observed: dict[str, Any] = {}
 
-        def hook(ctx: ComputeOutputsContext) -> list[OutputMetadata]:
+        def hook(ctx: ComputeOutputsContext) -> list[Output]:
             observed["validated"] = ctx.validated_data
             return list(ctx.defaults)
 
@@ -190,7 +191,7 @@ class TestValidatedData:
         )
         def fn(
             value: Annotated[str, Text(label="V")] = "the-default",
-        ) -> Annotated[str, Output(label="Out")]:
+        ) -> Annotated[str, OutputWidget(label="Out")]:
             return value
 
         compile(
@@ -209,7 +210,7 @@ class TestValidatedData:
         registry = NodeRegistry()
         observed: dict[str, Any] = {}
 
-        def hook(ctx: ComputeOutputsContext) -> list[OutputMetadata]:
+        def hook(ctx: ComputeOutputsContext) -> list[Output]:
             observed["validated"] = ctx.validated_data
             observed["raw"] = ctx.data
             return list(ctx.defaults)
@@ -223,7 +224,7 @@ class TestValidatedData:
         )
         def fn(
             value: Annotated[str, Text(label="V")],  # required, no default
-        ) -> Annotated[str, Output(label="Out")]:
+        ) -> Annotated[str, OutputWidget(label="Out")]:
             return value
 
         # Compile with empty data — validation fails (missing required field)

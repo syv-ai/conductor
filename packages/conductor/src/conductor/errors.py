@@ -7,8 +7,7 @@ meaningful messages, log to observability tools, or route to error handlers.
 Hierarchy:
     ConductorError                     # Base — catch-all for any engine error
     ├── CompilationError                # Graph structure is invalid
-    │   ├── CycleDetectionError         # Graph contains a cycle
-    │   └── TypeCheckError              # Edge type mismatch (strict mode)
+    │   └── CycleDetectionError         # Graph contains a cycle
     ├── NodeError                       # Something went wrong with a specific node
     │   ├── NodeValidationError         # Input validation failed (Pydantic)
     │   ├── NodeExecutionError          # Node function raised during execution
@@ -23,38 +22,6 @@ Hierarchy:
 from __future__ import annotations
 
 from typing import Any
-
-__all__ = [
-    # Base
-    "ConductorError",
-    # Compilation
-    "CompilationError",
-    "CycleDetectionError",
-    "TypeCheckError",
-    # Node-level
-    "NodeError",
-    "NodeValidationError",
-    "NodeExecutionError",
-    "NodeTimeoutError",
-    "NodeConnectionError",
-    # Resolver
-    "InputResolutionError",
-    # Flow-level
-    "FlowExecutionError",
-    # Human-in-the-loop
-    "HumanInputRequired",
-    "FlowPausedError",
-    # Signals
-    "SignalRequired",
-    # Compound runtime
-    "LoopRunawayError",
-    "SubprocessFailedError",
-    # Back-compat aliases (kept for 1.x; future deprecation candidates)
-    "NodeValidationException",
-    "NodeExecutionException",
-    "FlowExecutionException",
-    "FlowPausedException",
-]
 
 # =============================================================================
 # Base
@@ -76,10 +43,6 @@ class CompilationError(ConductorError):
 
 class CycleDetectionError(CompilationError):
     """Raised when a cycle is detected in the graph."""
-
-
-class TypeCheckError(CompilationError):
-    """Raised in strict_types mode when edge types are incompatible."""
 
 
 # =============================================================================
@@ -144,7 +107,7 @@ class NodeConnectionError(NodeError):
     (worth retrying) from logic errors (not worth retrying).
 
     Example:
-        @registry.node("fetch-api", ..., max_retries=3)
+        @version(1, policy=Policy(retries=3))
         def fetch_api(url):
             try:
                 resp = requests.get(url, timeout=10)

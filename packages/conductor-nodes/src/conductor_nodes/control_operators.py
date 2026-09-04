@@ -319,13 +319,3 @@ def evaluate(op_id_or_label: str, a: Any, b: Any = None) -> bool:
     return spec.evaluator(a_str, b_str)
 
 
-__all__ = [
-    "OperatorEvaluationError",
-    "OperatorSpec",
-    "OPERATORS",
-    "OPERATORS_BY_ID",
-    "OPERATORS_BY_LABEL",
-    "OPERATORS_BY_TYPE",
-    "UNARY_OPERATORS",
-    "evaluate",
-]
