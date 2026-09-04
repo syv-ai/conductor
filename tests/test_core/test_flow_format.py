@@ -1,118 +1,42 @@
-"""Tests for the YAML / JSON flow format round-trip."""
+"""A flow file is the record, dumped."""
 
-from __future__ import annotations
-
-from pathlib import Path
-
-import pytest
-from conductor import Flow, FlowDependency, FlowTrigger, GraphEdge, GraphNode
-from conductor.flow_format import (
-    dump_flow,
-    flow_to_dict,
-    flow_to_yaml,
-    load_flow,
-    load_flow_from_path,
-    yaml_to_flow,
-)
+from conductor.flow_format import flow_to_dict, flow_to_yaml, load_flow, yaml_to_flow
+from conductor.graph.binding import Sources, Static
+from conductor.graph.model import FieldContent, Flow, GraphNode
+from conductor.ref import Ref
 
 
-def _sample_flow() -> Flow:
+def _flow():
     return Flow(
-        id="order-fulfillment",
-        version=1,
-        name="Order fulfillment",
-        description="Charges card, saves order, sends receipt.",
-        on_error_default="compensate",
-        dependencies=(
-            FlowDependency(id="stripe", kind="api",
-                           config={"endpoint": "https://api.stripe.com"}),
-            FlowDependency(id="orders_db", kind="db"),
-        ),
-        triggers=(
-            FlowTrigger(id="api", kind="manual", config={}),
-            FlowTrigger(id="nightly", kind="schedule",
-                        config={"cron": "0 9 * * *", "timezone": "UTC"}),
-        ),
         nodes=[
-            GraphNode("d", "decision@1", {"value": 100}),
-            GraphNode("a", "echo@1", {"text": "A"},
-                      compensation="compA", on_error="compensate"),
-            GraphNode("compA", "undo@1", {}),
-        ],
-        edges=[
-            GraphEdge("e1", "d", "a", "result", "text",
-                      when="value > 10", priority=5),
-            GraphEdge("e2", "d", "compA", "result", "_"),
+            GraphNode(id="a", type="echo", version=1, bindings={"x": Static(value="hi")}, locked=("x",), title="A", fields={"x": FieldContent(title="X")}),
+            GraphNode(id="b", type="echo", version=1, bindings={"x": Sources(refs=(Ref("a", "result"),))}, display={"x": 1}),
         ],
     )
 
 
-def test_flow_to_dict_roundtrip() -> None:
-    original = _sample_flow()
-    data = flow_to_dict(original)
-    reloaded = load_flow(data)
-
-    assert reloaded.id == original.id
-    assert reloaded.version == original.version
-    assert reloaded.name == original.name
-    assert reloaded.on_error_default == "compensate"
-    assert len(reloaded.nodes) == len(original.nodes)
-    assert len(reloaded.edges) == len(original.edges)
-    assert reloaded.dependencies[0].id == "stripe"
-    assert reloaded.triggers[1].kind == "schedule"
+def test_dict_roundtrip():
+    assert load_flow(flow_to_dict(_flow())) == _flow()
 
 
-def test_yaml_roundtrip() -> None:
-    original = _sample_flow()
-    yaml_text = flow_to_yaml(original)
-    reloaded = yaml_to_flow(yaml_text)
-    assert reloaded.id == original.id
-    assert len(reloaded.edges) == 2
-    # Check edge fields preserved
-    e1 = next(e for e in reloaded.edges if e.id == "e1")
-    assert e1.when == "value > 10"
-    assert e1.priority == 5
+def test_yaml_roundtrip():
+    assert yaml_to_flow(flow_to_yaml(_flow())) == _flow()
 
 
-def test_json_roundtrip(tmp_path: Path) -> None:
-    original = _sample_flow()
-    path = tmp_path / "flow.json"
-    dump_flow(original, path)
-    reloaded = load_flow_from_path(path)
-    assert reloaded.name == original.name
+def test_the_dict_is_the_record():
+    """And a ref stores as the address, the one form it has anywhere: the
+    same string a flow-level `Input` is named by, so the stored graph and
+    the derived interface cannot spell one wire two ways."""
+    data = flow_to_dict(_flow())
+
+    assert data["nodes"][1]["bindings"]["x"] == {"refs": ["a.result"]}
+    assert data["nodes"][0]["locked"] == ["x"]
+    assert "inputs" not in data and "outputs" not in data and "edges" not in data
 
 
-def test_yaml_file_roundtrip(tmp_path: Path) -> None:
-    original = _sample_flow()
-    path = tmp_path / "flow.yaml"
-    dump_flow(original, path)
-    reloaded = load_flow_from_path(path)
-    assert reloaded.id == original.id
+def test_a_node_without_a_type_is_refused():
+    import pytest
+    from pydantic import ValidationError
 
-
-def test_minimal_yaml() -> None:
-    yaml_text = """
-nodes:
-  - id: a
-    type: echo@1
-    data: {text: hi}
-edges: []
-"""
-    flow = yaml_to_flow(yaml_text)
-    assert len(flow.nodes) == 1
-    assert flow.nodes[0].type == "echo@1"
-    assert flow.nodes[0].data == {"text": "hi"}
-
-
-def test_compensation_preserved_in_yaml() -> None:
-    original = _sample_flow()
-    yaml_text = flow_to_yaml(original)
-    reloaded = yaml_to_flow(yaml_text)
-    a = next(n for n in reloaded.nodes if n.id == "a")
-    assert a.compensation == "compA"
-    assert a.on_error == "compensate"
-
-
-def test_missing_type_raises() -> None:
-    with pytest.raises(ValueError, match="missing `type`"):
-        load_flow({"nodes": [{"id": "x"}], "edges": []})
+    with pytest.raises(ValidationError):
+        load_flow({"nodes": [{"id": "a", "version": 1}]})
