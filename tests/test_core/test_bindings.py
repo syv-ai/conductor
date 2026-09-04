@@ -1,10 +1,16 @@
 import dataclasses
+import inspect
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Annotated
 
 import pytest
+from conductor import NodeRegistry
+from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
+from conductor.execution.engine import execute_sync
 from conductor.graph.binding import Ref, Sources, Static, static_values
+from conductor.graph.compiler import compile as compile_graph
 from conductor.graph.model import FieldContent, Flow, GraphNode
 from conductor.graph.views import dependencies_of, derive_interface, is_input_node
 from conductor.interface import Interface, Provided
@@ -223,8 +229,6 @@ class Stamped(NodeDefinition):
 
 
 def _registry():
-    from conductor import NodeRegistry
-
     reg = NodeRegistry()
     reg.register(TextInput)
     reg.register(Summarise)
@@ -498,3 +502,81 @@ def test_an_unauthored_field_reads_the_declarations_title():
     assert problems == ()
     assert [(i.name, i.title) for i in interface.inputs] == [("x.value", "Text")]
     assert [(o.name, o.title) for o in interface.outputs] == [("x.result", "Text")]
+
+
+def _echo_registry():
+    class Echo(NodeDefinition):
+        id = "echo"
+        title = "Echo"
+        description = "d"
+        category = "test"
+
+        def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Annotated[Txt, Result(title="Result")]:
+            return Txt(x.upper())
+
+    registry = NodeRegistry()
+    registry.register(Echo)
+    return registry
+
+
+def test_a_flow_of_bindings_compiles_and_runs():
+    flow = Flow(
+        nodes=[
+            GraphNode(id="a", type="echo", version=1, bindings={"x": Static(value="hi")}),
+            GraphNode(id="b", type="echo", version=1, bindings={"x": Sources(refs=(Ref("a", "result"),))}),
+        ],
+    )
+    results = execute_sync(compile_graph(flow=flow, registry=_echo_registry()))
+
+    assert results["a"]["result"] == "HI"
+    assert results["b"]["result"] == "HI"
+
+
+def test_an_unbound_input_falls_back_to_its_declared_default():
+    """Absence is the only "nothing binds this" state there is."""
+    flow = Flow(nodes=[GraphNode(id="a", type="echo", version=1)])
+
+    assert execute_sync(compile_graph(flow=flow, registry=_echo_registry()))["a"]["result"] == ""
+
+
+def test_a_branch_not_taken_is_skipped_downstream():
+    """A branch is an output; SKIPPED on it skips what hangs off it."""
+
+    @dataclass(frozen=True)
+    class Answer:
+        yes: Annotated[Txt, Result(title="Yes", choice="answer")]
+        no: Annotated[Txt, Result(title="No", choice="answer")]
+
+    class Gate(NodeDefinition):
+        id = "gate"
+        title = "Gate"
+        description = "d"
+        category = "test"
+
+        def run(
+            self, x: Annotated[Txt, Textarea(title="X")] = Txt("")
+        ) -> Answer:
+            return Answer(yes=x, no=SKIPPED) if x else Answer(yes=SKIPPED, no=x)
+
+    registry = _echo_registry()
+    registry.register(Gate)
+    flow = Flow(
+        nodes=[
+            GraphNode(id="g", type="gate", version=1, bindings={"x": Static(value="hi")}),
+            GraphNode(id="yes", type="echo", version=1, bindings={"x": Sources(refs=(Ref("g", "yes"),))}),
+            GraphNode(id="no", type="echo", version=1, bindings={"x": Sources(refs=(Ref("g", "no"),))}),
+        ],
+    )
+    results = execute_sync(compile_graph(flow=flow, registry=registry))
+
+    assert results["yes"]["result"] == "HI"
+    # The aggregated results of ``execute_sync`` omit a skipped node.
+    assert "no" not in results
+
+
+def test_compile_takes_a_flow_and_a_registry_and_nothing_else_positional():
+    params = inspect.signature(compile_graph).parameters
+
+    assert list(params)[:2] == ["flow", "registry"]
+    for gone in ("nodes", "edges", "extension_resolver", "subprocess_registry"):
+        assert gone not in params, gone

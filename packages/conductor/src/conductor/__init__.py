@@ -27,12 +27,14 @@ from conductor.execution.checkpoint import FlowCheckpoint
 from conductor.execution.engine import execute, execute_sync, resume, resume_sync
 from conductor.execution.retry import RetryConfig
 from conductor.execution.store import FlowStore
+from conductor.graph.binding import Binding, Sources, Static
 from conductor.graph.compiler import CompiledGraph, compile
 from conductor.graph.dynamic_inputs import resolve_graph_inputs
 from conductor.graph.dynamic_outputs import resolve_graph_outputs
-from conductor.graph.model import Flow, GraphNode
+from conductor.graph.model import FieldContent, Flow, GraphNode
+from conductor.graph.views import dependencies_of, is_input_node
 from conductor.interface import Interface, Provided
-from conductor.metadata import Input, Output
+from conductor.metadata import Input, Output, Roster
 from conductor.node import (
     Deprecation,
     GraphVersion,
@@ -55,7 +57,13 @@ __all__ = [
     "NodeRegistry",
     "runner_for",
     "GraphNode",
+    "FieldContent",
     "Flow",
+    "Binding",
+    "Sources",
+    "Static",
+    "dependencies_of",
+    "is_input_node",
     "compile",
     "CompiledGraph",
     "resolve_graph_inputs",
@@ -80,6 +88,7 @@ __all__ = [
     "Provided",
     "Input",
     "Output",
+    "Roster",
     "AnyWidget",
     "version",
     "upgrade",
