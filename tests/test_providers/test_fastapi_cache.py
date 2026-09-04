@@ -1,10 +1,9 @@
-"""Tests for request-``cache`` forwarding through the FastAPI provider router.
+"""Request-``cache`` forwarding through the FastAPI provider router.
 
-A node listed in the request ``cache`` must be seeded as already-completed:
-the engine emits ``node_complete`` with ``cached=True`` and skips running the
-node, while its cached result still flows to downstream nodes. This lets a host
-(the conductor lab) reuse outputs from a previous run instead of recomputing
-the whole graph.
+A node listed in the request ``cache`` is seeded as already completed: the
+engine emits ``node_complete`` with ``cached=True`` and never runs the node,
+while its cached result still flows to downstream nodes. A host reuses
+outputs from a previous run instead of recomputing the whole graph.
 """
 
 from __future__ import annotations
@@ -19,7 +18,10 @@ pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
 from conductor import NodeRegistry  # noqa: E402
-from conductor.widgets import Output  # noqa: E402
+from conductor.node import NodeDefinition  # noqa: E402
+from conductor.returns import Result  # noqa: E402
+from conductor.widgets import Textarea  # noqa: E402
+from conductor_nodes.types import Text  # noqa: E402
 from conductor_providers.fastapi import conductor_router  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -27,23 +29,37 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 @pytest.fixture
 def calls() -> list[str]:
-    """Records which node functions actually executed."""
+    """Records which nodes actually ran."""
     return []
 
 
 @pytest.fixture
 def client(calls: list[str]) -> TestClient:
+    class Seed(NodeDefinition):
+        id = "seed"
+        title = "Seed"
+        description = "emits a value"
+        category = "test"
+
+        def run(self) -> Annotated[Text, Result(title="Value")]:
+            calls.append("seed")
+            return Text("fresh")
+
+    class Shout(NodeDefinition):
+        id = "shout"
+        title = "Shout"
+        description = "uppercases input"
+        category = "test"
+
+        def run(
+            self, text: Annotated[Text, Textarea(title="Text")]
+        ) -> Annotated[Text, Result(title="Loud")]:
+            calls.append("shout")
+            return Text(text.upper())
+
     reg = NodeRegistry()
-
-    @reg.node("seed", version=1, name="Seed", description="emits a value")
-    def seed() -> Annotated[str, Output(label="Value")]:
-        calls.append("seed")
-        return "fresh"
-
-    @reg.node("shout", version=1, name="Shout", description="uppercases input")
-    def shout(text: str) -> Annotated[str, Output(label="Loud")]:
-        calls.append("shout")
-        return text.upper()
+    reg.register(Seed)
+    reg.register(Shout)
 
     app = FastAPI()
     app.include_router(conductor_router(reg))
@@ -54,8 +70,8 @@ def _graph() -> dict:
     # seed (n1) -> shout (n2): n2 uppercases whatever n1 produced.
     return {
         "nodes": [
-            {"id": "n1", "type": "seed@1", "data": {}},
-            {"id": "n2", "type": "shout@1", "data": {}},
+            {"id": "n1", "type": "seed", "version": 1, "data": {}},
+            {"id": "n2", "type": "shout", "version": 1, "data": {}},
         ],
         "edges": [
             {
@@ -84,7 +100,7 @@ def test_execute_skips_cached_node_and_feeds_downstream(client, calls):
     resp = client.post("/execute", json=body)
     assert resp.status_code == 200
     results = resp.json()["results"]
-    # n1 served from cache -> its function never ran; n2 ran on the cached value.
+    # n1 served from cache -> it never ran; n2 ran on the cached value.
     assert "seed" not in calls
     assert "shout" in calls
     assert results["n2"]["result"] == "CACHED"

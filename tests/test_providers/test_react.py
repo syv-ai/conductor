@@ -1,4 +1,10 @@
-"""Tests for conductor_providers.react — ReactFlow JSON round-trips."""
+"""``conductor_providers.react`` — a conductor graph to ReactFlow JSON and back.
+
+``graph_to_react`` emits the ``{nodes, edges}`` dict a ReactFlow canvas
+renders (camelCase handles, a position per node, the placement's data
+under ``data.data``); ``react_to_graph`` reads it back into ``GraphNode``
+and ``GraphEdge``. The round trip must survive ``json.dumps`` and compile.
+"""
 
 from __future__ import annotations
 
@@ -9,67 +15,42 @@ import conductor_nodes
 import pytest
 from conductor import GraphEdge, GraphNode, NodeRegistry, compile
 from conductor.execution.engine import execute_sync
-from conductor.widgets import Output
+from conductor.node import NodeDefinition
+from conductor.returns import Result
+from conductor_nodes.types import Text
 from conductor_providers import react
 
-# ---------------------------------------------------------------------------
-# Fixture: a non-trivial graph with every surface we want to preserve
-# ---------------------------------------------------------------------------
+
+class BuildPair(NodeDefinition):
+    id = "build-pair"
+    title = "Build Pair"
+    description = "Emits a value"
+    category = "test"
+
+    def run(self) -> Annotated[Text, Result(title="Value")]:
+        return Text("val")
 
 
 @pytest.fixture
 def registry() -> NodeRegistry:
     reg = NodeRegistry()
     conductor_nodes.register_all(reg)
-
-    @reg.node("build-pair", version=1, name="Build Pair",
-              description="Emits two strings")
-    def build_pair() -> Annotated[str, Output(label="Value")]:
-        return "val"
-
+    reg.register(BuildPair)
     return reg
 
 
 @pytest.fixture
 def sample_graph():
     nodes = [
-        GraphNode("n1", "build-pair@1", {"seed": "x"},
-                  produces={"result": "shared-value"}),
-        GraphNode("n2", "text-uppercase@1", {"text": "hi"}),
-        GraphNode("n3", "text-concat@1", {"separator": "+"},
-                  consumes={"a": ("n1", "result")}),
+        GraphNode("n1", "build-pair", 1, {"seed": "x"}),
+        GraphNode("n2", "text-uppercase", 1, {"text": "hi"}),
+        GraphNode("n3", "text-concat", 1, {"separator": "+"}),
     ]
     edges = [
+        GraphEdge("e0", "n1", "n3", "result", "a"),
         GraphEdge("e1", "n2", "n3", "result", "b"),
     ]
     return nodes, edges
-
-
-# ---------------------------------------------------------------------------
-# palette_from_registry
-# ---------------------------------------------------------------------------
-
-
-class TestPalette:
-    def test_palette_has_entry_per_registered_node(self, registry):
-        palette = react.palette_from_registry(registry)
-        ids = {e["id"] for e in palette}
-        assert "text-uppercase@1" in ids
-        assert "math-add@1" in ids
-        assert "build-pair@1" in ids
-
-    def test_palette_entry_has_expected_shape(self, registry):
-        palette = react.palette_from_registry(registry)
-        entry = next(e for e in palette if e["id"] == "text-uppercase@1")
-        assert entry["name"] == "Uppercase"
-        assert isinstance(entry["inputs"], list)
-        assert isinstance(entry["outputs"], list)
-        assert "deprecated" in entry
-
-
-# ---------------------------------------------------------------------------
-# graph_to_react
-# ---------------------------------------------------------------------------
 
 
 class TestGraphToReact:
@@ -87,27 +68,14 @@ class TestGraphToReact:
             assert isinstance(n["position"]["x"], int)
             assert isinstance(n["position"]["y"], int)
 
-    def test_produces_preserved(self, sample_graph):
-        nodes, edges = sample_graph
-        out = react.graph_to_react(nodes, edges)
-        n1 = next(n for n in out["nodes"] if n["id"] == "n1")
-        assert n1["data"]["produces"] == {"result": "shared-value"}
-
-    def test_consumes_serialized_as_lists_for_json(self, sample_graph):
-        """Tuples can't survive JSON; the wire format uses lists."""
-        nodes, edges = sample_graph
-        out = react.graph_to_react(nodes, edges)
-        n3 = next(n for n in out["nodes"] if n["id"] == "n3")
-        assert n3["data"]["consumes"] == {"a": ["n1", "result"]}
-
     def test_static_data_passed_through(self, sample_graph):
         nodes, edges = sample_graph
         out = react.graph_to_react(nodes, edges)
         n2 = next(n for n in out["nodes"] if n["id"] == "n2")
         assert n2["data"]["data"] == {"text": "hi"}
 
-    def test_optional_fields_omitted_when_empty(self, registry):
-        nodes = [GraphNode("n", "text-uppercase@1", {"text": "x"})]
+    def test_optional_fields_omitted_when_empty(self):
+        nodes = [GraphNode("n", "text-uppercase", 1, {"text": "x"})]
         out = react.graph_to_react(nodes, [])
         n = out["nodes"][0]
         assert "produces" not in n["data"]
@@ -116,7 +84,7 @@ class TestGraphToReact:
     def test_edges_use_camel_case_handles(self, sample_graph):
         nodes, edges = sample_graph
         out = react.graph_to_react(nodes, edges)
-        e = out["edges"][0]
+        e = out["edges"][1]
         assert e["sourceHandle"] == "result"
         assert e["targetHandle"] == "b"
         assert e["source"] == "n2"
@@ -136,8 +104,8 @@ class TestGraphToReact:
         nodes, edges = sample_graph
         out = react.graph_to_react(nodes, edges)
         positions = {n["id"]: n["position"] for n in out["nodes"]}
-        # n1 and n2 are roots (x=0). n3 consumes from n1 and has edge from
-        # n2, so its depth is 1 (x>0).
+        # n1 and n2 are roots (x=0); n3 is fed by both, so it sits one
+        # column to the right.
         assert positions["n3"]["x"] > positions["n1"]["x"]
         assert positions["n3"]["x"] > positions["n2"]["x"]
 
@@ -145,14 +113,7 @@ class TestGraphToReact:
         """No tuples, no sets, nothing exotic — must survive json.dumps."""
         nodes, edges = sample_graph
         out = react.graph_to_react(nodes, edges)
-        # Should not raise
-        text = json.dumps(out)
-        assert "\"consumes\"" in text
-
-
-# ---------------------------------------------------------------------------
-# react_to_graph
-# ---------------------------------------------------------------------------
+        assert json.loads(json.dumps(out)) == out
 
 
 class TestReactToGraph:
@@ -161,16 +122,14 @@ class TestReactToGraph:
         wire = react.graph_to_react(nodes, edges)
         nodes2, edges2 = react.react_to_graph(wire)
 
-        # Compare as dicts keyed by id for stable diffs
         by_id = {n.id: n for n in nodes}
         by_id2 = {n.id: n for n in nodes2}
         assert set(by_id) == set(by_id2)
         for nid in by_id:
             a, b = by_id[nid], by_id2[nid]
             assert a.type == b.type
+            assert a.version == b.version
             assert a.data == b.data
-            assert a.produces == b.produces
-            assert a.consumes == b.consumes   # tuples restored
 
         assert len(edges) == len(edges2)
         for e1, e2 in zip(edges, edges2, strict=True):
@@ -180,23 +139,10 @@ class TestReactToGraph:
             assert e1.source_handle == e2.source_handle
             assert e1.target_handle == e2.target_handle
 
-    def test_consumes_list_form_parsed_back_as_tuple(self):
-        """A frontend sending raw JSON will have lists, not tuples."""
-        wire = {
-            "nodes": [
-                {"id": "c", "type": "text-concat@1", "position": {"x": 0, "y": 0},
-                 "data": {"consumes": {"a": ["p", "result"]}}},
-            ],
-            "edges": [],
-        }
-        nodes, _ = react.react_to_graph(wire)
-        assert nodes[0].consumes == {"a": ("p", "result")}
-        assert isinstance(nodes[0].consumes["a"], tuple)
-
     def test_handles_missing_data_payload(self):
         wire = {
             "nodes": [
-                {"id": "x", "type": "text-uppercase@1", "position": {"x": 0, "y": 0}},
+                {"id": "x", "type": "text-uppercase", "position": {"x": 0, "y": 0}},
             ],
             "edges": [],
         }
@@ -210,7 +156,7 @@ class TestReactToGraph:
         wire = {
             "nodes": [
                 {
-                    "id": "x", "type": "text-uppercase@1",
+                    "id": "x", "type": "text-uppercase",
                     "position": {"x": 0, "y": 0},
                     "data": {"data": {"text": "hi"}, "__host_flag__": True},
                     "__draft__": True,
@@ -224,17 +170,11 @@ class TestReactToGraph:
         assert edges == []
 
 
-# ---------------------------------------------------------------------------
-# End-to-end: wire → conductor → execute
-# ---------------------------------------------------------------------------
-
-
 class TestEndToEnd:
     def test_wire_format_can_be_compiled_and_executed(self, registry):
-        # Build a graph, round-trip through the wire format, then execute.
         nodes_in = [
-            GraphNode("src", "text-uppercase@1", {"text": "hello"}),
-            GraphNode("down", "text-reverse@1", None),
+            GraphNode("src", "text-uppercase", 1, {"text": "hello"}),
+            GraphNode("down", "text-reverse", 1, None),
         ]
         edges_in = [GraphEdge("e1", "src", "down", "result", "text")]
 
@@ -247,20 +187,6 @@ class TestEndToEnd:
         results = execute_sync(compiled)
         assert results["down"]["result"] == "OLLEH"
 
-    def test_shared_references_preserved_through_wire(self, registry):
-        nodes_in = [
-            GraphNode("mapper", "build-pair@1", None,
-                      produces={"result": "pair"}),
-            GraphNode("cons", "text-concat@1", {"b": "!"},
-                      consumes={"a": ("mapper", "result")}),
-        ]
-        wire = react.graph_to_react(nodes_in, [])
-        back_nodes, back_edges = react.react_to_graph(json.loads(json.dumps(wire)))
-
-        compiled = compile(nodes=back_nodes, edges=back_edges, registry=registry)
-        results = execute_sync(compiled)
-        assert results["cons"]["result"] == "val!"
-
 
 class TestProcessStandardFields:
     """``when`` / ``priority`` / ``compensation`` / ``on_error`` round-trip."""
@@ -270,8 +196,8 @@ class TestProcessStandardFields:
             "e1", "a", "b", "result", "text",
             when="amount > 100", priority=5,
         )
-        nodes = [GraphNode("a", "build-pair@1", None),
-                 GraphNode("b", "text-uppercase@1", {})]
+        nodes = [GraphNode("a", "build-pair", 1, None),
+                 GraphNode("b", "text-uppercase", 1, {})]
         wire = react.graph_to_react(nodes, [edge])
         back_nodes, back_edges = react.react_to_graph(
             json.loads(json.dumps(wire))
@@ -281,39 +207,13 @@ class TestProcessStandardFields:
 
     def test_compensation_and_on_error_preserved(self):
         nodes = [
-            GraphNode("n1", "text-uppercase@1", {"text": "x"},
+            GraphNode("n1", "text-uppercase", 1, {"text": "x"},
                       compensation="undo",
                       on_error="compensate"),
-            GraphNode("undo", "text-uppercase@1", {"text": "u"}),
+            GraphNode("undo", "text-uppercase", 1, {"text": "u"}),
         ]
         wire = react.graph_to_react(nodes, [])
         back_nodes, _ = react.react_to_graph(json.loads(json.dumps(wire)))
         n1 = next(n for n in back_nodes if n.id == "n1")
         assert n1.compensation == "undo"
         assert n1.on_error == "compensate"
-
-    def test_registry_schema_surfaces_actor_and_uses(self):
-        from conductor.registry.schema import serialize_registry
-        from conductor.types import NodeCategory
-
-        reg = NodeRegistry()
-
-        @reg.node(
-            "approve", version=1, name="Approve", description="x",
-            actor={"kind": "human", "role": "finance"},
-            uses=["stripe"],
-            is_decision=True,
-            timeout=10.0,
-            idempotency_key='"op-" + string(id)',
-            category=NodeCategory.DECISION,
-        )
-        def approve(id: Annotated[int, Output(label="id")] = 1) -> Annotated[str, Output(label="r")]:
-            return "ok"
-
-        schema = serialize_registry(reg)
-        entry = schema[0]
-        assert entry["actor"] == {"kind": "human", "role": "finance"}
-        assert entry["uses"] == ["stripe"]
-        assert entry["is_decision"] is True
-        assert entry["timeout_seconds"] == 10.0
-        assert entry["idempotency_key"] == '"op-" + string(id)'

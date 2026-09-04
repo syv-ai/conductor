@@ -1,43 +1,80 @@
-"""Phase 1: Execution engine — the core end-to-end tests."""
+"""The execution engine end to end: results, streaming, caching, errors, timeout, skips."""
 
+import time
+from dataclasses import dataclass
 from typing import Annotated
 
 import pytest
 from conductor import SKIPPED
+from conductor.dtype import DType
 from conductor.errors import FlowExecutionException
 from conductor.execution.engine import collect, execute, execute_sync
 from conductor.execution.results import OutputRef, normalize_result, project_outputs
 from conductor.graph.compiler import compile
 from conductor.graph.model import GraphEdge, GraphNode
-from conductor.widgets import Output, Text
+from conductor.node import NodeDefinition
+from conductor.returns import Result
+from conductor.widgets import Textarea
 
-# ---------------------------------------------------------------------------
-# Fixtures: register nodes for test use
-# ---------------------------------------------------------------------------
+
+class Txt(DType, str):
+    id = "execution-test-text"
+    title = "Text"
+
+
+Out = Annotated[Txt, Result(title="Out")]
+
+
+class Echo(NodeDefinition):
+    id = "echo"
+    title = "Echo"
+    description = "Returns input"
+    category = "test"
+
+    def run(self, text: Annotated[Txt, Textarea(title="Input")]) -> Out:
+        return text
+
+
+class Upper(NodeDefinition):
+    id = "upper"
+    title = "Upper"
+    description = "Uppercases"
+    category = "test"
+
+    def run(self, text: Annotated[Txt, Textarea(title="Input")]) -> Out:
+        return Txt(text.upper())
+
+
+class Combine(NodeDefinition):
+    id = "combine"
+    title = "Combine"
+    description = "Joins two strings"
+    category = "test"
+
+    def run(
+        self,
+        a: Annotated[Txt, Textarea(title="A")],
+        b: Annotated[Txt, Textarea(title="B")],
+    ) -> Out:
+        return Txt(f"{a} {b}")
+
+
+class Fail(NodeDefinition):
+    id = "fail"
+    title = "Fail"
+    description = "Always fails"
+    category = "test"
+
+    def run(self, text: Annotated[Txt, Textarea(title="Input")]) -> Out:
+        raise RuntimeError("boom")
+
 
 @pytest.fixture
 def three_node_registry(registry):
     """Registry with echo, upper, and combine nodes."""
-
-    @registry.node("echo", version=1, name="Echo", description="Returns input")
-    def echo(
-        text: Annotated[str, Text(label="Input")],
-    ) -> Annotated[str, Output(label="Output")]:
-        return text
-
-    @registry.node("upper", version=1, name="Upper", description="Uppercases")
-    def upper(
-        text: Annotated[str, Text(label="Input")],
-    ) -> Annotated[str, Output(label="Output")]:
-        return text.upper()
-
-    @registry.node("combine", version=1, name="Combine", description="Joins two strings")
-    def combine(
-        a: Annotated[str, Text(label="A")],
-        b: Annotated[str, Text(label="B")],
-    ) -> Annotated[str, Output(label="Output")]:
-        return f"{a} {b}"
-
+    registry.register(Echo)
+    registry.register(Upper)
+    registry.register(Combine)
     return registry
 
 
@@ -117,8 +154,8 @@ class TestStreamingExecution:
         """echo -> upper should produce start/complete events for each node."""
         compiled = compile(
             nodes=[
-                GraphNode("n1", "echo@1", {"text": "hello"}),
-                GraphNode("n2", "upper@1", None),
+                GraphNode("n1", "echo", 1, {"text": "hello"}),
+                GraphNode("n2", "upper", 1, None),
             ],
             edges=[GraphEdge("e1", "n1", "n2", "result", "text")],
             registry=three_node_registry,
@@ -137,8 +174,8 @@ class TestStreamingExecution:
         """echo('hello') -> upper -> 'HELLO'."""
         compiled = compile(
             nodes=[
-                GraphNode("n1", "echo@1", {"text": "hello"}),
-                GraphNode("n2", "upper@1", None),
+                GraphNode("n1", "echo", 1, {"text": "hello"}),
+                GraphNode("n2", "upper", 1, None),
             ],
             edges=[GraphEdge("e1", "n1", "n2", "result", "text")],
             registry=three_node_registry,
@@ -154,10 +191,10 @@ class TestStreamingExecution:
         """
         compiled = compile(
             nodes=[
-                GraphNode("n1", "echo@1", {"text": "hello"}),
-                GraphNode("n2", "upper@1", None),
-                GraphNode("n3", "echo@1", None),
-                GraphNode("n4", "combine@1", None),
+                GraphNode("n1", "echo", 1, {"text": "hello"}),
+                GraphNode("n2", "upper", 1, None),
+                GraphNode("n3", "echo", 1, None),
+                GraphNode("n4", "combine", 1, None),
             ],
             edges=[
                 GraphEdge("e1", "n1", "n2", "result", "text"),
@@ -181,8 +218,8 @@ class TestSyncExecution:
         """Blocking API: echo -> upper."""
         compiled = compile(
             nodes=[
-                GraphNode("n1", "echo@1", {"text": "world"}),
-                GraphNode("n2", "upper@1", None),
+                GraphNode("n1", "echo", 1, {"text": "world"}),
+                GraphNode("n2", "upper", 1, None),
             ],
             edges=[GraphEdge("e1", "n1", "n2", "result", "text")],
             registry=three_node_registry,
@@ -194,7 +231,7 @@ class TestSyncExecution:
     def test_single_node_no_edges(self, three_node_registry):
         """A single node with static data, no edges."""
         compiled = compile(
-            nodes=[GraphNode("n1", "echo@1", {"text": "standalone"})],
+            nodes=[GraphNode("n1", "echo", 1, {"text": "standalone"})],
             edges=[],
             registry=three_node_registry,
         )
@@ -212,8 +249,8 @@ class TestCaching:
         """Passing cache skips execution and uses cached value."""
         compiled = compile(
             nodes=[
-                GraphNode("n1", "echo@1", {"text": "hello"}),
-                GraphNode("n2", "upper@1", None),
+                GraphNode("n1", "echo", 1, {"text": "hello"}),
+                GraphNode("n2", "upper", 1, None),
             ],
             edges=[GraphEdge("e1", "n1", "n2", "result", "text")],
             registry=three_node_registry,
@@ -233,14 +270,9 @@ class TestCaching:
 
 class TestErrorHandling:
     async def test_node_execution_error_yields_flow_error(self, registry):
-        @registry.node("fail", version=1, name="Fail", description="Always fails")
-        def fail(
-            text: Annotated[str, Text(label="Input")],
-        ) -> Annotated[str, Output(label="Output")]:
-            raise RuntimeError("boom")
-
+        registry.register(Fail)
         compiled = compile(
-            nodes=[GraphNode("n1", "fail@1", {"text": "hello"})],
+            nodes=[GraphNode("n1", "fail", 1, {"text": "hello"})],
             edges=[],
             registry=registry,
         )
@@ -254,14 +286,9 @@ class TestErrorHandling:
         assert "flow_error" in event_types
 
     def test_execute_sync_raises_on_error(self, registry):
-        @registry.node("fail", version=1, name="Fail", description="Always fails")
-        def fail(
-            text: Annotated[str, Text(label="Input")],
-        ) -> Annotated[str, Output(label="Output")]:
-            raise RuntimeError("boom")
-
+        registry.register(Fail)
         compiled = compile(
-            nodes=[GraphNode("n1", "fail@1", {"text": "hello"})],
+            nodes=[GraphNode("n1", "fail", 1, {"text": "hello"})],
             edges=[],
             registry=registry,
         )
@@ -276,17 +303,19 @@ class TestErrorHandling:
 
 class TestTimeout:
     async def test_timeout_produces_event(self, registry):
-        import time
+        class Slow(NodeDefinition):
+            id = "slow"
+            title = "Slow"
+            description = "Sleeps"
+            category = "test"
 
-        @registry.node("slow", version=1, name="Slow", description="Sleeps")
-        def slow(
-            text: Annotated[str, Text(label="Input")],
-        ) -> Annotated[str, Output(label="Output")]:
-            time.sleep(2)
-            return text
+            def run(self, text: Annotated[Txt, Textarea(title="Input")]) -> Out:
+                time.sleep(2)
+                return text
 
+        registry.register(Slow)
         compiled = compile(
-            nodes=[GraphNode("n1", "slow@1", {"text": "hello"})],
+            nodes=[GraphNode("n1", "slow", 1, {"text": "hello"})],
             edges=[],
             registry=registry,
         )
@@ -303,32 +332,35 @@ class TestTimeout:
 # Skip propagation
 # ---------------------------------------------------------------------------
 
+@dataclass(frozen=True)
+class Branches:
+    """Two exclusive outputs: the one not taken holds ``SKIPPED``."""
+
+    taken: Annotated[Txt, Result(title="Taken", choice="branch")]
+    not_taken: Annotated[Txt, Result(title="Not taken", choice="branch")]
+
+
 class TestSkipPropagation:
     async def test_skipped_input_skips_downstream(self, registry):
         """If all inputs to a node are SKIPPED, the node itself is skipped."""
-        from conductor._sentinel import SKIPPED
 
-        @registry.node("passthrough", version=1, name="Pass", description="Passes through")
-        def passthrough(
-            text: Annotated[str, Text(label="Input")],
-        ) -> Annotated[str, Output(label="Output")]:
-            return text
+        class Conditional(NodeDefinition):
+            id = "conditional"
+            title = "Cond"
+            description = "Returns SKIPPED on one branch"
+            category = "test"
 
-        @registry.node("conditional", version=1, name="Cond", description="Returns SKIPPED on one branch")
-        def conditional(
-            text: Annotated[str, Text(label="Input")],
-        ) -> tuple[
-            Annotated[str, Output(label="True branch")],
-            Annotated[str, Output(label="False branch")],
-        ]:
-            return (text, SKIPPED)
+            def run(self, text: Annotated[Txt, Textarea(title="Input")]) -> Branches:
+                return Branches(taken=text, not_taken=SKIPPED)
 
+        registry.register(Echo)
+        registry.register(Conditional)
         compiled = compile(
             nodes=[
-                GraphNode("n1", "conditional@1", {"text": "hello"}),
-                GraphNode("n2", "passthrough@1", None),  # connected to false branch
+                GraphNode("n1", "conditional", 1, {"text": "hello"}),
+                GraphNode("n2", "echo", 1, None),  # connected to the branch not taken
             ],
-            edges=[GraphEdge("e1", "n1", "n2", "output_2", "text")],
+            edges=[GraphEdge("e1", "n1", "n2", "not_taken", "text")],
             registry=registry,
         )
 
@@ -342,33 +374,19 @@ class TestSkipPropagation:
 
 
 # ---------------------------------------------------------------------------
-# Regression: stray data keys must not crash the normal dispatch path.
-# The input resolver overlays a node's static ``data`` onto the resolved
-# inputs, so a saved flow can carry keys that aren't parameters of the node
-# function (host metadata, migration breadcrumbs). The compensation path
-# already filtered these; the normal dispatch path must too. See issue #7.
+# Stray data keys: a saved flow may carry keys that are not parameters of
+# the node (host metadata). The engine validates a call with extra="ignore",
+# so every node drops them rather than failing on an unexpected keyword.
 # ---------------------------------------------------------------------------
 
 class TestStrayDataKeyFiltering:
-    def test_dynamic_handles_node_ignores_stray_data_key(self, registry):
-        """A dynamic_handles node (extra='allow' validation) carrying a stray
-        data key used to crash with ``got an unexpected keyword argument``."""
-
-        @registry.node(
-            "tabel", version=1, name="Tabel", description="Uppercases",
-            dynamic_handles=True,
-        )
-        def tabel(
-            text: Annotated[str, Text(label="Input")],
-        ) -> Annotated[str, Output(label="Output")]:
-            return text.upper()
-
+    def test_node_ignores_stray_data_key(self, three_node_registry):
         compiled = compile(
             nodes=[
-                GraphNode("n1", "tabel@1", {"text": "hi", "_migration_warnings": ["x"]}),
+                GraphNode("n1", "upper", 1, {"text": "hi", "_host_note": ["x"]}),
             ],
             edges=[],
-            registry=registry,
+            registry=three_node_registry,
         )
 
         results = execute_sync(compiled)

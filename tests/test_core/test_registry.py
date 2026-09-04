@@ -1,239 +1,165 @@
-"""Phase 1: Node registry — registration, lookup, versioning."""
+"""``NodeRegistry`` — filing a node class under its id, looking it up, and
+what its versions declare.
 
-from typing import Annotated
+A registry holds classes: ``register(Cls)`` files the class under
+``Cls.id``, ``get(id)`` gives it back, and every fact about a version's
+fields is read off ``Cls.versions[n].interface``.
+"""
+
+from typing import Annotated, Any
 
 import pytest
+from conductor.dtype import DType
+from conductor.node import NodeDefinition, version
 from conductor.registry import NodeRegistry
-from conductor.widgets import Output, Text
+from conductor.returns import Result
+from conductor.widgets import Textarea
+
+
+class Txt(DType, str):
+    id = "registry-test-text"
+    title = "Text"
+
+
+Out = Annotated[Txt, Result(title="Output")]
+
+
+class Echo(NodeDefinition):
+    id = "echo"
+    title = "Echo"
+    description = "Returns input unchanged"
+    category = "test"
+
+    @version(1)
+    def run_v1(self, text: Annotated[Txt, Textarea(title="Input")]) -> Out:
+        return text
+
+    @version(2)
+    def run(
+        self,
+        text: Annotated[Txt, Textarea(title="Input")],
+        prefix: Annotated[Txt, Textarea(title="Prefix")] = Txt(""),
+    ) -> Out:
+        return Txt(f"{prefix}{text}")
+
+
+class Upper(NodeDefinition):
+    id = "upper"
+    title = "Uppercase"
+    description = "Uppercases text"
+    category = "test"
+
+    def run(self, text: Annotated[Txt, Textarea(title="Input")]) -> Out:
+        return Txt(text.upper())
 
 
 @pytest.fixture
-def populated_registry():
-    """Registry with a few nodes registered."""
+def populated_registry() -> NodeRegistry:
     reg = NodeRegistry()
-
-    @reg.node("echo", version=1, name="Echo", description="Returns input unchanged")
-    def echo(
-        text: Annotated[str, Text(label="Input")],
-    ) -> Annotated[str, Output(label="Output")]:
-        return text
-
-    @reg.node("echo", version=2, name="Echo v2", description="Echo with prefix")
-    def echo_v2(
-        text: Annotated[str, Text(label="Input")],
-        prefix: Annotated[str, Text(label="Prefix")] = "",
-    ) -> Annotated[str, Output(label="Output")]:
-        return f"{prefix}{text}"
-
-    @reg.node("upper", version=1, name="Uppercase", description="Uppercases text")
-    def upper(
-        text: Annotated[str, Text(label="Input")],
-    ) -> Annotated[str, Output(label="Output")]:
-        return text.upper()
-
+    reg.register(Echo)
+    reg.register(Upper)
     return reg
 
 
-class TestNodeRegistration:
-    def test_register_via_decorator(self, registry):
-        @registry.node("greet", version=1, name="Greet", description="Says hello")
-        def greet(
-            name: Annotated[str, Text(label="Name")],
-        ) -> Annotated[str, Output(label="Greeting")]:
-            return f"Hello {name}"
+def test_register_files_the_class_under_its_id(registry):
+    registry.register(Echo)
 
-        node_def = registry.get("greet@1")
-        assert node_def is not None
-        assert node_def.name == "Greet"
+    assert registry.get("echo") is Echo
+    assert registry.get("echo").title == "Echo"
 
-    def test_decorator_returns_original_function(self, registry):
-        """The decorated function is still callable as-is (raw function stored)."""
 
-        @registry.node("greet", version=1, name="Greet", description="Says hello")
-        def greet(
-            name: Annotated[str, Text(label="Name")],
-        ) -> Annotated[str, Output(label="Greeting")]:
-            return f"Hello {name}"
+def test_a_second_class_under_the_same_id_is_refused(registry):
+    class First(NodeDefinition):
+        id = "dup"
+        title = "Dup"
+        description = "First"
+        category = "test"
 
-        assert greet("World") == "Hello World"
-
-    def test_duplicate_registration_raises(self, registry):
-        @registry.node("dup", version=1, name="Dup", description="First")
-        def first(x: Annotated[str, Text(label="X")]) -> Annotated[str, Output(label="Y")]:
+        def run(self, x: Annotated[Txt, Textarea(title="X")]) -> Out:
             return x
 
-        with pytest.raises(ValueError, match="already registered"):
+    class Second(NodeDefinition):
+        id = "dup"
+        title = "Dup2"
+        description = "Second"
+        category = "test"
 
-            @registry.node("dup", version=1, name="Dup2", description="Second")
-            def second(x: Annotated[str, Text(label="X")]) -> Annotated[str, Output(label="Y")]:
-                return x
-
-    def test_duplicate_error_suggests_bumping_version_and_fresh_registry(self, registry):
-        """The error message must steer users toward the two common fixes
-        (bumping the version, or creating a new registry in a notebook)."""
-        @registry.node("dup2", version=3, name="Dup", description="First")
-        def first(x: Annotated[str, Text(label="X")]) -> Annotated[str, Output(label="Y")]:
+        def run(self, x: Annotated[Txt, Textarea(title="X")]) -> Out:
             return x
 
-        with pytest.raises(ValueError) as excinfo:
-
-            @registry.node("dup2", version=3, name="Dup", description="Second")
-            def second(x: Annotated[str, Text(label="X")]) -> Annotated[str, Output(label="Y")]:
-                return x
-
-        message = str(excinfo.value)
-        # Names the specific duplicate so the reader knows which node to look at.
-        assert "dup2@3" in message
-        # Mentions the two actionable fixes — bumping version + fresh registry.
-        assert "version=4" in message            # next version suggestion
-        assert "NodeRegistry()" in message       # notebook fix hint
+    registry.register(First)
+    with pytest.raises(ValueError, match="already registered"):
+        registry.register(Second)
 
 
-class TestNodeLookup:
-    def test_get_by_full_id(self, populated_registry):
-        node = populated_registry.get("echo@1")
-        assert node is not None
-        assert node.id == "echo@1"
-        assert node.base_id == "echo"
-        assert node.version == 1
-
-    def test_get_returns_none_for_unknown(self, populated_registry):
-        assert populated_registry.get("nonexistent@1") is None
-
-    def test_get_latest(self, populated_registry):
-        latest = populated_registry.get_latest("echo")
-        assert latest is not None
-        assert latest.version == 2
-        assert latest.id == "echo@2"
-
-    def test_get_latest_returns_none_for_unknown(self, populated_registry):
-        assert populated_registry.get_latest("nonexistent") is None
-
-    def test_is_deprecated(self, populated_registry):
-        assert populated_registry.is_deprecated("echo@1") is True
-        assert populated_registry.is_deprecated("echo@2") is False
-        assert populated_registry.is_deprecated("upper@1") is False
-
-    def test_all_returns_every_version(self, populated_registry):
-        all_nodes = populated_registry.all()
-        ids = {n.id for n in all_nodes}
-        assert "echo@1" in ids
-        assert "echo@2" in ids
-        assert "upper@1" in ids
-
-    def test_all_current_returns_only_latest(self, populated_registry):
-        current = populated_registry.all_current()
-        ids = {n.id for n in current}
-        assert "echo@2" in ids
-        assert "upper@1" in ids
-        assert "echo@1" not in ids
+def test_get_returns_none_for_unknown(populated_registry):
+    assert populated_registry.get("nonexistent") is None
 
 
-class TestNodeDefinitionMetadata:
-    def test_inputs_extracted_from_signature(self, populated_registry):
-        node = populated_registry.get("echo@1")
-        assert len(node.inputs) == 1
-        assert node.inputs[0].name == "text"
-        assert node.inputs[0].label == "Input"
-
-    def test_outputs_extracted_from_return_type(self, populated_registry):
-        node = populated_registry.get("echo@1")
-        assert len(node.outputs) >= 1
-        assert node.outputs[0].label == "Output"
-
-    def test_multi_input_node(self, populated_registry):
-        node = populated_registry.get("echo@2")
-        assert len(node.inputs) == 2
-        names = [inp.name for inp in node.inputs]
-        assert "text" in names
-        assert "prefix" in names
-
-    def test_default_values_captured(self, populated_registry):
-        node = populated_registry.get("echo@2")
-        prefix_input = next(inp for inp in node.inputs if inp.name == "prefix")
-        assert prefix_input.default == ""
-        assert prefix_input.optional is True
-
-    def test_node_definition_is_frozen(self, populated_registry):
-        node = populated_registry.get("echo@1")
-        with pytest.raises(AttributeError):
-            node.name = "Changed"
-
-    def test_raw_function_stored(self, populated_registry):
-        """NodeDefinition stores the original unwrapped function."""
-        node = populated_registry.get("echo@1")
-        assert node.func is not None
-        assert node.func("hello") == "hello"
-
-    def test_validation_model_created(self, populated_registry):
-        """A Pydantic model is auto-generated for input validation."""
-        node = populated_registry.get("echo@1")
-        assert node.validation_model is not None
-        validated = node.validation_model(text="hello")
-        assert validated.model_dump() == {"text": "hello"}
+def test_inputs_extracted_from_signature(populated_registry):
+    iface = populated_registry.get("echo").versions[1].interface
+    assert len(iface.inputs) == 1
+    assert iface.inputs[0].name == "text"
+    assert iface.inputs[0].title == "Input"
 
 
-class TestMultiOutputNode:
-    def test_tuple_return_creates_multi_outputs(self, registry):
-        @registry.node("split", version=1, name="Split", description="Splits text")
-        def split(
-            text: Annotated[str, Text(label="Input")],
-        ) -> tuple[
-            Annotated[str, Output(label="First half")],
-            Annotated[str, Output(label="Second half")],
-        ]:
-            mid = len(text) // 2
-            return text[:mid], text[mid:]
-
-        node = registry.get("split@1")
-        assert len(node.outputs) == 2
-        assert node.outputs[0].label == "First half"
-        assert node.outputs[1].label == "Second half"
+def test_outputs_extracted_from_return_type(populated_registry):
+    iface = populated_registry.get("echo").versions[1].interface
+    assert [o.name for o in iface.outputs] == ["result"]
+    assert iface.outputs[0].title == "Output"
 
 
-class TestVarArgsAreNotInputs:
-    """``**kwargs`` is a delivery mechanism, not an input handle.
+def test_multi_input_node(populated_registry):
+    iface = populated_registry.get("echo").versions[2].interface
+    assert [i.name for i in iface.inputs] == ["text", "prefix"]
 
-    A node whose handles come from ``compute_inputs`` declares ``**kwargs``
-    so the resolver's values actually reach it. Introspecting that as an
-    input named ``kwargs`` gives it a Text widget, which renders as a stray
-    field on the node, puts a phantom handle in the palette payload, and
-    trips host-side checks that every declared handle be documented.
-    """
 
-    def test_var_keyword_is_not_registered_as_an_input(self) -> None:
-        from typing import Any
+def test_default_values_captured(populated_registry):
+    iface = populated_registry.get("echo").versions[2].interface
+    text, prefix = iface.inputs
+    assert text.optional is False
+    assert prefix.default == ""
+    assert prefix.optional is True
 
-        reg = NodeRegistry()
 
-        @reg.node("varkw", version=1, name="VarKw", description="Dynamic")
-        def varkw(
-            text: Annotated[str, Text(label="Tekst")], **kwargs: Any
-        ) -> Annotated[str, Output(label="Ud")]:
+def test_var_keyword_is_not_an_input():
+    """``**values`` is where the inputs a ``compute_inputs`` hook adds arrive;
+    the hook declares them, so the signature walk skips the parameter."""
+
+    class VarKw(NodeDefinition):
+        id = "varkw"
+        title = "VarKw"
+        description = "Dynamic"
+        category = "test"
+
+        def run(self, text: Annotated[Txt, Textarea(title="Text")], **values: Any) -> Out:
             return text
 
-        assert [i.name for i in reg.get("varkw@1").inputs] == ["text"]
+    assert [i.name for i in VarKw.versions[1].interface.inputs] == ["text"]
 
-    def test_var_positional_is_not_registered_as_an_input(self) -> None:
-        from typing import Any
 
-        reg = NodeRegistry()
+def test_var_positional_is_refused():
+    """A ``*args`` parameter has no widget and no name a wire could land on."""
+    with pytest.raises(TypeError, match="declares no widget"):
 
-        @reg.node("varpos", version=1, name="VarPos", description="Dynamic")
-        def varpos(
-            text: Annotated[str, Text(label="Tekst")], *args: Any
-        ) -> Annotated[str, Output(label="Ud")]:
-            return text
+        class VarPos(NodeDefinition):
+            id = "varpos"
+            title = "VarPos"
+            description = "Dynamic"
+            category = "test"
 
-        assert [i.name for i in reg.get("varpos@1").inputs] == ["text"]
+            def run(self, text: Annotated[Txt, Textarea(title="Text")], *args: Any) -> Out:
+                return text
 
-    def test_a_node_that_is_only_var_keyword_declares_no_inputs(self) -> None:
-        from typing import Any
 
-        reg = NodeRegistry()
+def test_a_node_that_is_only_var_keyword_declares_no_inputs():
+    class AllKw(NodeDefinition):
+        id = "allkw"
+        title = "AllKw"
+        description = "Dynamic"
+        category = "test"
 
-        @reg.node("allkw", version=1, name="AllKw", description="Dynamic")
-        def allkw(**kwargs: Any) -> Annotated[str, Output(label="Ud")]:
-            return "x"
+        def run(self, **values: Any) -> Out:
+            return Txt("x")
 
-        assert reg.get("allkw@1").inputs == ()
+    assert AllKw.versions[1].interface.inputs == ()
