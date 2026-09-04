@@ -5,41 +5,57 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Annotated, Any
 
-from conductor.widgets import Checkbox, Output, Range, Text, Textarea
+from conductor.returns import Result
+from conductor.widgets import Range, Switch, Textarea
+from conductor.widgets import Text as TextWidget
+
+from conductor_nodes.types import Flag, Json, Number, StdlibNode, Text
 
 if TYPE_CHECKING:
     from conductor import NodeRegistry
 
 
-def register(registry: "NodeRegistry") -> None:
-    """Register every JSON node on the supplied registry."""
+class Parse(StdlibNode):
+    id = "json-parse"
+    title = "JSON Parse"
+    description = "Parses a JSON string into a value"
+    category = "json"
 
-    @registry.node("json-parse", version=1, name="JSON Parse", description="Parses a JSON string into an object")
-    def parse(
-        text: Annotated[str, Textarea(label="JSON text")],
-    ) -> Annotated[object, Output(label="Parsed")]:
-        return json.loads(text)
+    def run(
+        self, text: Annotated[Text, Textarea(title="JSON text")]
+    ) -> Annotated[Json, Result(title="Parsed")]:
+        return Json(json.loads(text))
 
-    @registry.node(
-        "json-stringify", version=1, name="JSON Stringify",
-        description="Serializes a value to a JSON string",
-    )
-    def stringify(
-        value: Annotated[object, Text(label="Value")],
-        indent: Annotated[int, Range(label="Indent", min_val=0, max_val=8, step=1)] = 0,
-        sort_keys: Annotated[bool, Checkbox(label="Sort keys")] = False,
-    ) -> Annotated[str, Output(label="JSON")]:
-        return json.dumps(value, indent=indent or None, sort_keys=sort_keys)
 
-    @registry.node(
-        "json-get", version=1, name="JSON Get",
-        description="Reads a dotted path from a JSON-like value (e.g. 'user.name', 'items.0.id')",
-    )
-    def get_path(
-        value: Annotated[object, Text(label="Value")],
-        path: Annotated[str, Text(label="Path")],
-    ) -> Annotated[object, Output(label="Extracted")]:
-        return _get_path(value, path)
+class Stringify(StdlibNode):
+    id = "json-stringify"
+    title = "JSON Stringify"
+    description = "Serializes a value to a JSON string"
+    category = "json"
+
+    def run(
+        self,
+        value: Annotated[Json, Textarea(title="Value")],
+        indent: Annotated[
+            Number, Range(title="Indent", min_val=0, max_val=8, step=1)
+        ] = Number(0),
+        sort_keys: Annotated[Flag, Switch(title="Sort keys")] = Flag(False),
+    ) -> Annotated[Text, Result(title="JSON")]:
+        return Text(json.dumps(value.value, indent=int(indent) or None, sort_keys=bool(sort_keys)))
+
+
+class GetPath(StdlibNode):
+    id = "json-get"
+    title = "JSON Get"
+    description = "Reads a dotted path from a JSON value (e.g. 'user.name', 'items.0.id')"
+    category = "json"
+
+    def run(
+        self,
+        value: Annotated[Json, Textarea(title="Value")],
+        path: Annotated[Text, TextWidget(title="Path")],
+    ) -> Annotated[Json, Result(title="Extracted")]:
+        return Json(_get_path(value.value, path))
 
 
 def _get_path(value: Any, path: str) -> Any:
@@ -59,3 +75,12 @@ def _get_path(value: Any, path: str) -> Any:
         else:
             return None
     return current
+
+
+NODES = (Parse, Stringify, GetPath)
+
+
+def register(registry: "NodeRegistry") -> None:
+    """Register every JSON node on the supplied registry."""
+    for node_cls in NODES:
+        registry.register(node_cls)
