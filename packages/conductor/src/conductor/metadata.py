@@ -94,3 +94,18 @@ class Input(Field):
     #: Whether the parameter has a default at all. Kept separately because
     #: ``None`` is a legitimate default value.
     optional: bool = False
+
+@dataclass(frozen=True, kw_only=True)
+class Roster:
+    """The fields one placement actually has, as its roster hooks answered.
+
+    A declaration says what a *version* has; ``compute_inputs`` and
+    ``compute_outputs`` say what *this placement* has given the values it
+    holds — a table's columns, a template's placeholders, an open roster's
+    wired names. The compiler asks once per placement and passes the answer
+    on as one record. Not an ``Interface``: that is the version's
+    declaration, this is one placement's result.
+    """
+
+    inputs: tuple[Input, ...]
+    outputs: tuple[Output, ...]
