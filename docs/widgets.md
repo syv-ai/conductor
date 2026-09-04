@@ -1,209 +1,102 @@
 # Widgets
 
-Widgets describe how a node parameter renders in a frontend UI. They also carry validation constraints (max length, min/max values, allowed choices, etc.) so the same annotation drives backend Pydantic validation and frontend rendering. One class per `WidgetType` enum value means a generic frontend can render any registered node by reading the registry.
-
-If the widget you need is missing, jump to [Adding a new widget](#adding-a-new-widget).
+A widget is the control an input is edited with, plus what that control needs: a dropdown's choices, a number's range. Every widget is a frozen, keyword-only record with a `kind` discriminator, and `AnyWidget` is the union of all of them, so pydantic dumps a widget and publishes a JSON schema per kind — a generic frontend renders any registered node by reading the palette.
 
 ## How to use a widget
 
-Widgets attach to function parameters through `Annotated[T, Widget(...)]`:
+An author writes the widget inside `Annotated` on a `run` parameter:
 
 ```python
 from typing import Annotated
-from conductor.widgets import Text, Output
+from conductor import NodeDefinition, Result
+from conductor.widgets import Text as TextWidget
+from conductor_nodes.types import Text
 
-@registry.node("greet", version=1, name="Greet", description="Greets someone")
-def greet(
-    name: Annotated[str, Text(label="Name", description="Who to greet")],
-) -> Annotated[str, Output(label="Greeting")]:
-    return f"Hello, {name}!"
+class Greet(NodeDefinition):
+    id = "greet"
+    title = "Greet"
+    description = "Greets someone"
+    category = "text"
+
+    def run(
+        self, name: Annotated[Text, TextWidget(title="Name", description="Who to greet")]
+    ) -> Annotated[Text, Result(title="Greeting")]:
+        return Text(f"Hello, {name}!")
 ```
 
-The widget's fields (`label`, `description`, `min_length`, `choices`, …) serialize into the JSON schema that the frontend reads to draw the node.
+Three things written on the widget belong to the field, not the control: `title`, `description` and `show_handle`. They sit on the widget because a parameter has one annotation object; `Interface.of` copies them onto the `Input` and they are left out of the widget's own dump, so each travels once.
 
-## Defaults — you don't always need a widget
+## Every input declares its own
 
-If a parameter has only a type hint (or an `Annotated` without a `Widget` instance), the registry picks a default widget from the type:
+Conductor ships no default widget for any type. The same `Text` may be a textarea, a single line or a dropdown, so a parameter with no widget is a broken declaration and fails at import — not one that falls back to a default control.
 
-| Python type | Default widget |
-|---|---|
-| `str` | `Text` |
-| `int` | `Number(integer_only=True)` |
-| `float` | `Number` |
-| `bool` | `Checkbox` |
-| `Date` | `DatePicker` |
-| `Base64Str` / `NamedFile` / `MultiNamedFile` | `FileUpload` |
-| `list[str]` | `List(item_widget=Text())` |
-| `list[int]` | `List(item_widget=Number(integer_only=True))` |
-| `list[T]` (bare or other `T`) | `List` (no `item_widget`) |
-| `dict` or `dict[str, T]` | `SchemaBuilder` |
-| anything else | no widget (rare; annotate explicitly) |
-
-```python
-# No Annotated needed — the registry picks Number and Checkbox
-@registry.node("plan-trip", version=1, name="Plan Trip", description="...")
-def plan_trip(days: int, include_weekends: bool) -> Annotated[str, Output(label="Plan")]:
-    return f"{days}d, weekends={include_weekends}"
-```
-
-Explicit `Annotated[T, Widget(...)]` always wins. Defaults are a convenience; annotate when you want:
-- A different widget (`Range` instead of `Number`, `Dropdown` instead of `Text`).
-- Validation constraints (`min_length`, `max_val`, `pattern`).
-- A human-friendly label (`label="Number of days"`) or description.
+A widget does not decide whether a cable can reach the input: `show_handle` defaults to `True` on the base and no control overrides it. A node closes one input by writing `show_handle=False` on that input's annotation; such an input may declare any pydantic-validatable type (a schema, a list of branches), since nothing travels on a wire to it. Where a cable *can* land, the parameter declares a `DType` — or `Any`, for a value the node routes without reading.
 
 ## Widget catalog
-
-Every widget below corresponds 1:1 to a `WidgetType` enum value and has a concrete class in `conductor.widgets`.
 
 ### Text & code
 
 - **`Text`** — single-line string. Options: `min_length`, `max_length`, `pattern`.
 - **`Textarea`** — multi-line string. Options: `rows`, `min_length`, `max_length`.
-- **`TemplateTextarea`** — textarea aware of a fixed set of interpolation variables. Options: `rows`, `variables: list[str]`. Interpolation is the node author's responsibility; the widget just declares the variables for editor hints.
-- **`CodeEditor`** — syntax-highlighted code blob. Options: `language` (default `"python"`), `min_length`, `max_length`.
+- **`TemplateTextarea`** — text with placeholders; each placeholder is an input. Options: `rows`.
+- **`CodeEditor`** — source a person writes, highlighted for `language` (default `"python"`). Options: `min_length`, `max_length`.
 
 ### Choice
 
-- **`Dropdown`** — pick one from a fixed set. Options: `choices: list[str]`.
-- **`DependentDropdown`** — choices depend on another field's value. Options: `depends_on: str`, `choices_map: dict[str, list[str]]`.
-- **`Multiselect`** — pick many from a fixed set. Options: `choices`, `min_selected`, `max_selected`.
-- **`EntityDropdown`** — host-loaded async choices. Options: `entity_kind: str` (host-defined), `multiple: bool`. Which data source a given `entity_kind` maps to is a host-application concern; the widget only declares intent.
+- **`Dropdown`** — pick one of a declared vocabulary of `Choice`s (`id`, `title`, optional `element` — a dtype description when the option fits only one element type). Options: `choices`.
+- **`EntityDropdown`** — choices the host resolves (documents, say). Options: `entity_kind`, `multiple`.
 
 ### Numeric
 
-- **`Number`** — free numeric input (text-style). Options: `min_val`, `max_val`, `step`, `integer_only`. Prefer `Range` for slider UX.
-- **`Range`** — numeric slider. Options: `min_val`, `max_val`, `step`.
+- **`Number`** — a number typed in, optionally bounded and optionally whole. Options: `min_val`, `max_val`, `step`, `integer_only`.
+- **`Range`** — a number picked on a slider. Options: `min_val`, `max_val`, `step`.
 
 ### Boolean
 
-- **`Checkbox`** — boolean. Typically rendered as a square checkbox.
-- **`Switch`** — boolean with toggle styling. Value is a plain `bool`; the widget type hints at visual treatment.
+- **`Switch`** — on or off.
 
 ### Date & file
 
-- **`DatePicker`** — ISO-8601 date (`"YYYY-MM-DD"`). Options: `min_date`, `max_date`.
-- **`FileUpload`** — base64-encoded file. Options: `accept` (a list of extensions, e.g. `[".pdf", ".csv"]`; a single string is accepted and serialized as a one-element list), `max_size_mb`, `multiple`.
+- **`DatePicker`** — a date from a calendar. Options: `min_date`, `max_date`, `seed` (`"today"` asks the editor to write today's date when the node is placed).
+- **`FileUpload`** — files a person uploads. Options: `accept`, `max_size_mb`, `multiple` (births a series of files).
 
 ### Structured
 
-- **`List`** — user-authored array. Each element is edited through `item_widget`. Options: `item_widget: Widget | None`, `min_items`, `max_items`. When `item_widget` is `None`, frontends default to a plain text input per row.
-- **`SchemaBuilder`** — structured dict / object editor. Options: `schema: dict | None` (JSON-Schema-ish hint), `allow_additional: bool`. Values are plain Python dicts at runtime.
-- **`IfElseBuilder`** — conditional-expression editor. Options: `variables: list[str]`. The concrete expression language is host-defined; the backend stores whatever the frontend emits.
+- **`List`** — a list of values typed by hand; the per-item control is derived by the host from the element type. Options: `min_items`, `max_items`.
+- **`Tags`** — free-form labels added one at a time.
+- **`TableInput`** — a table typed or pasted in, column types and all. Options: `min_rows`, `min_columns`, `column_types` (the host's scalar types as `Choice`s).
+- **`SchemaBuilder`** — a schema built field by field. Options: `schema`, `allow_additional`, `field_types` (the host's vocabulary as `Choice`s).
+- **`IfElseBuilder`** — conditions built from the host's operators. Options: `operators` (a tuple of `OperatorChoice`: `id`, `title`, `category`, `arity`).
 
 ### Special
 
-- **`ConnectionList`** — aggregates *N upstream edges* into a single labeled dict input (keys are producer display names). Distinct from `List`: `ConnectionList` is for edge-driven aggregation, `List` is for user-authored values.
-- **`Output`** — marker on return-value annotations. Options: `download` (offer as download in the UI), `filename`.
+- **`ConnectionList`** — edited by wiring only: the value comes down a cable, so there is nothing to type. The control for a `Series[X]` input, an `Any` input and an open roster's rows.
+
+The vocabulary inside a control — a dropdown's choices, a builder's operators, a table's column types — is the host's, declared on the widget where it declares the input, so it travels as data and no frontend list has to agree with a host table by hand.
 
 ## Inspecting the schema
 
-Every widget has a `to_schema()` method that emits the JSON dict the frontend reads:
+A widget dumps through pydantic; the three lifted fields are excluded because they live on the `Input`:
 
 ```python
->>> Text(label="URL", pattern=r"https?://.*").to_schema()
-{
-  "widget": "text",
-  "label": "URL",
-  "description": None,
-  "disable_handle": False,
-  "pattern": "https?://.*"
-}
+>>> from pydantic import TypeAdapter
+>>> from conductor.widgets import AnyWidget, Text
+>>> TypeAdapter(AnyWidget).dump_python(Text(title="URL", pattern=r"https?://.*"), mode="json")
+{'kind': 'text', 'min_length': None, 'max_length': None, 'pattern': 'https?://.*'}
 ```
 
-At the node level, `serialize_registry(registry)` produces the full per-node schema (inputs with their widget configs, outputs, metadata); the per-piece functions `serialize_node` / `serialize_input` / `serialize_output` are public too, so hosts projecting the registry into their own typed models can call the exact functions the wire uses. `conductor.widgets.WIDGET_SCHEMA_KEYS` is the pinned vocabulary of widget-config keys stdlib widgets can emit — validate host-side port models against it. `conductor_providers.react.palette_from_registry(registry)` wraps that for ReactFlow frontends.
+At the node level, `cls.describe()` is the whole palette entry — every version's `Input` and `Output` records, each `Input` carrying its widget — and `conductor_providers.react.palette_from_registry(registry)` is `[cls.describe() for cls in registry.definitions()]`.
 
 ## Adding a new widget
 
-If the catalog above doesn't cover your case, adding a widget is four steps. The built-in widgets are all ~30 lines each, so use them as templates.
+The set of controls is closed: `AnyWidget` is built from the subclasses declared in `conductor/widgets.py`, and an `Input` carrying a widget declared elsewhere is refused by pydantic. That is deliberate — conductor ships the controls and a host ships the vocabulary inside them as data — and a new control is a change here, since the component that renders each `kind` has to exist in the host's frontend anyway.
 
-### 1. Add the enum value
-
-`packages/conductor/src/conductor/types.py`:
-
-```python
-class WidgetType(str, Enum):
-    ...
-    COLOR_PICKER = "color-picker"   # new
-```
-
-The string value is what ends up in the JSON schema (`"widget": "color-picker"`), so pick something your frontend can dispatch on.
-
-### 2. Define the Widget class
-
-`packages/conductor/src/conductor/widgets.py`:
-
-```python
-@dataclass
-class ColorPicker(Widget):
-    """Hex color input. Value is a string like ``"#3366ff"``."""
-
-    disable_handle: bool = True
-    default: str | None = None
-
-    @property
-    def widget_type(self) -> WidgetType:
-        return WidgetType.COLOR_PICKER
-
-    def to_schema(self) -> dict[str, Any]:
-        schema = super().to_schema()
-        if self.default is not None:
-            schema["default"] = self.default
-        return schema
-```
-
-Conventions the existing widgets follow:
-
-- **Inherit from `Widget`.** You get `label`, `description`, `disable_handle`, `hidden_when`, `advanced`, and a base `to_schema()` for free.
-- **Override `widget_type`** to return your new `WidgetType` member.
-- **Override `to_schema()`** to add fields specific to your widget. Call `super().to_schema()` first. Emit optional fields only when set (`if self.foo is not None:`) so the JSON stays compact.
-- **Decide `disable_handle`.** If the widget is for user input only (no edge makes sense), default to `True`. If it should also accept an edge from upstream, default to `False`.
-
-### 3. (Optional) Register a default for a Python type
-
-If your widget is the natural default for some built-in type, update the dispatch in `packages/conductor/src/conductor/registry/__init__.py`:
-
-```python
-def _default_widget(base_type, param_name):
-    ...
-    if base_type is MyColor:                # custom type alias
-        return ColorPicker(label=param_name)
-    ...
-```
-
-Skip this step if users should always opt in explicitly (which is the case for most domain-specific widgets).
-
-### 4. Write tests
-
-Add a test class to `tests/test_core/test_widget_defaults.py`:
-
-```python
-class TestColorPickerWidget:
-    def test_emits_correct_type(self):
-        s = ColorPicker(label="bg").to_schema()
-        assert s["widget"] == WidgetType.COLOR_PICKER.value
-
-    def test_default_surfaces_when_set(self):
-        s = ColorPicker(label="bg", default="#fff").to_schema()
-        assert s["default"] == "#fff"
-```
-
-If you added a default-widget rule, also test that `def f(x: MyColor)` produces a `ColorPicker` input.
-
-That's it on the Python side. The frontend owes a matching component that reads the schema's `"widget": "color-picker"` dispatch key — but that's per-framework, not a backend concern.
-
-## Troubleshooting
-
-**"`NameError: name 'Text' is not defined`" when registering a node in a test.**
-`get_type_hints` evaluates annotations in the function's `__globals__`, not the local scope where the decorator was applied. Import widgets at module level in test files — local imports inside a test method will fail at `@registry.node(...)` time.
-
-**I want a widget the library has a `WidgetType` value for, but no class.**
-That shouldn't happen anymore — every enum value has a concrete class. If you find a gap, open an issue or follow the four-step recipe above.
-
-**My node's input renders as a plain text input even though I wrote `list[str]`.**
-Check that the frontend dispatches on `"widget": "list"`. The backend is emitting it; older frontends may fall back to Text when they don't recognize a widget type.
+1. Add a frozen, keyword-only dataclass subclassing `Widget` in `widgets.py` with a `kind: Literal["color-picker"] = "color-picker"` field and whatever the control needs. `AnyWidget` picks it up at import.
+2. Add a test in `tests/test_core/test_interface.py` that an input declaring it dumps with that `kind`.
+3. The frontend owes a component dispatching on `"kind": "color-picker"`.
 
 ## Related
 
 - [`examples/08_widgets.ipynb`](../examples/08_widgets.ipynb) — hands-on tour of every widget.
-- [`README.md`](../README.md) — user-facing widget table + default mapping.
+- [`README.md`](../README.md) — the widget table.
 - [`CLAUDE.md`](../CLAUDE.md) — convention notes for agent sessions.

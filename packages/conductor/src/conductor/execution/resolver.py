@@ -46,9 +46,10 @@ class InputResolver:
             3. Static data on the node
             4. Widget default (not materialized here; handled by Pydantic)
 
-        Several wires into one input: a ``Series`` input receives them as
-        one series on a fresh index; a scalar input fed by more than one
-        wire is an error, since no other shape exists for it.
+        A ``Series`` input fed by one wire carrying a series receives it
+        whole; fed by several wires, it gathers their values as one series
+        on a fresh index. A scalar input fed by more than one wire is an
+        error, since no other shape exists for it.
         """
         skipped_edges = skipped_edges or set()
         inputs: dict[str, Any] = dict(node.data or {})
@@ -92,7 +93,11 @@ class InputResolver:
                 continue
             declared = self._declared_input(node, target_handle)
             if declared is not None and _is_series(declared.dtype):
-                inputs[target_handle] = Series(Index.fresh(), values)
+                inputs[target_handle] = (
+                    values[0]
+                    if len(values) == 1 and isinstance(values[0], Series)
+                    else Series(Index.fresh(), values)
+                )
             elif len(values) == 1:
                 inputs[target_handle] = values[0]
             else:

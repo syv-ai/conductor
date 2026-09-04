@@ -1,17 +1,42 @@
-"""Phase 1: Graph model, topological sort, cycle detection, compilation."""
+"""Graph model, topological sort, cycle detection, compilation."""
+
+from typing import Annotated
 
 import pytest
+from conductor.dtype import DType
 from conductor.errors import CompilationError, CycleDetectionError
 from conductor.graph.compiler import compile
 from conductor.graph.model import GraphEdge, GraphNode
 from conductor.graph.topology import topological_sort
+from conductor.node import NodeDefinition
+from conductor.returns import Result
+from conductor.widgets import Textarea
+
+
+class Txt(DType, str):
+    id = "graph-test-text"
+    title = "Text"
+
+
+Out = Annotated[Txt, Result(title="Out")]
+
+
+class Echo(NodeDefinition):
+    id = "echo"
+    title = "Echo"
+    description = "Echo"
+    category = "test"
+
+    def run(self, text: Annotated[Txt, Textarea(title="In")]) -> Out:
+        return text
 
 
 class TestGraphModel:
     def test_graph_node_is_frozen(self):
-        node = GraphNode(id="n1", type="echo@1", data={"text": "hello"})
+        node = GraphNode(id="n1", type="echo", version=1, data={"text": "hello"})
         assert node.id == "n1"
-        assert node.type == "echo@1"
+        assert node.type == "echo"
+        assert node.version == 1
         assert node.data == {"text": "hello"}
         with pytest.raises(AttributeError):
             node.id = "n2"
@@ -24,7 +49,7 @@ class TestGraphModel:
             edge.source = "n3"
 
     def test_graph_node_data_optional(self):
-        node = GraphNode(id="n1", type="echo@1", data=None)
+        node = GraphNode(id="n1", type="echo", version=1, data=None)
         assert node.data is None
 
 
@@ -32,9 +57,9 @@ class TestTopologicalSort:
     def test_linear_chain(self):
         """A -> B -> C should produce [A, B, C]."""
         nodes = [
-            GraphNode("a", "t", None),
-            GraphNode("b", "t", None),
-            GraphNode("c", "t", None),
+            GraphNode("a", "t", 1, None),
+            GraphNode("b", "t", 1, None),
+            GraphNode("c", "t", 1, None),
         ]
         edges = [
             GraphEdge("e1", "a", "b", "result", "input"),
@@ -48,7 +73,7 @@ class TestTopologicalSort:
         A -> B -> D
         A -> C -> D
         """
-        nodes = [GraphNode(x, "t", None) for x in ["a", "b", "c", "d"]]
+        nodes = [GraphNode(x, "t", 1, None) for x in ["a", "b", "c", "d"]]
         edges = [
             GraphEdge("e1", "a", "b", "r", "i"),
             GraphEdge("e2", "a", "c", "r", "i"),
@@ -62,17 +87,17 @@ class TestTopologicalSort:
         assert order.index("c") < order.index("d")
 
     def test_single_node(self):
-        nodes = [GraphNode("a", "t", None)]
+        nodes = [GraphNode("a", "t", 1, None)]
         order = topological_sort(nodes, [])
         assert order == ["a"]
 
     def test_disconnected_nodes(self):
-        nodes = [GraphNode(x, "t", None) for x in ["a", "b", "c"]]
+        nodes = [GraphNode(x, "t", 1, None) for x in ["a", "b", "c"]]
         order = topological_sort(nodes, [])
         assert set(order) == {"a", "b", "c"}
 
     def test_cycle_detected(self):
-        nodes = [GraphNode(x, "t", None) for x in ["a", "b"]]
+        nodes = [GraphNode(x, "t", 1, None) for x in ["a", "b"]]
         edges = [
             GraphEdge("e1", "a", "b", "r", "i"),
             GraphEdge("e2", "b", "a", "r", "i"),
@@ -81,7 +106,7 @@ class TestTopologicalSort:
             topological_sort(nodes, edges)
 
     def test_self_loop_detected(self):
-        nodes = [GraphNode("a", "t", None)]
+        nodes = [GraphNode("a", "t", 1, None)]
         edges = [GraphEdge("e1", "a", "a", "r", "i")]
         with pytest.raises(CycleDetectionError):
             topological_sort(nodes, edges)
@@ -89,17 +114,10 @@ class TestTopologicalSort:
 
 class TestCompile:
     def test_compile_returns_compiled_graph(self, registry):
-        from typing import Annotated
-
-        from conductor.widgets import Output, Text
-
-        @registry.node("echo", version=1, name="Echo", description="Echo")
-        def echo(text: Annotated[str, Text(label="In")]) -> Annotated[str, Output(label="Out")]:
-            return text
-
+        registry.register(Echo)
         nodes = [
-            GraphNode("n1", "echo@1", {"text": "hello"}),
-            GraphNode("n2", "echo@1", None),
+            GraphNode("n1", "echo", 1, {"text": "hello"}),
+            GraphNode("n2", "echo", 1, None),
         ]
         edges = [GraphEdge("e1", "n1", "n2", "result", "text")]
 
@@ -110,37 +128,23 @@ class TestCompile:
         assert compiled.execution_order.index("n1") < compiled.execution_order.index("n2")
 
     def test_compile_unknown_node_type_raises(self, registry):
-        nodes = [GraphNode("n1", "nonexistent@1", None)]
+        nodes = [GraphNode("n1", "nonexistent", 1, None)]
         with pytest.raises(CompilationError):
             compile(nodes=nodes, edges=[], registry=registry)
 
     def test_compile_invalid_edge_raises(self, registry):
-        from typing import Annotated
-
-        from conductor.widgets import Output, Text
-
-        @registry.node("echo", version=1, name="Echo", description="Echo")
-        def echo(text: Annotated[str, Text(label="In")]) -> Annotated[str, Output(label="Out")]:
-            return text
-
-        nodes = [GraphNode("n1", "echo@1", None)]
+        registry.register(Echo)
+        nodes = [GraphNode("n1", "echo", 1, None)]
         edges = [GraphEdge("e1", "n1", "n_missing", "result", "text")]
 
         with pytest.raises(CompilationError):
             compile(nodes=nodes, edges=edges, registry=registry)
 
     def test_compile_cycle_raises(self, registry):
-        from typing import Annotated
-
-        from conductor.widgets import Output, Text
-
-        @registry.node("echo", version=1, name="Echo", description="Echo")
-        def echo(text: Annotated[str, Text(label="In")]) -> Annotated[str, Output(label="Out")]:
-            return text
-
+        registry.register(Echo)
         nodes = [
-            GraphNode("n1", "echo@1", None),
-            GraphNode("n2", "echo@1", None),
+            GraphNode("n1", "echo", 1, None),
+            GraphNode("n2", "echo", 1, None),
         ]
         edges = [
             GraphEdge("e1", "n1", "n2", "result", "text"),

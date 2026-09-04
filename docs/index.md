@@ -4,47 +4,52 @@
 
 # Conductor
 
-A reusable, host-agnostic graph execution engine for building DAG-based workflow systems. Register nodes as plain Python functions with type annotations, compile them into a validated execution plan, and run them with **eager parallel streaming execution** and **built-in retry**.
+A reusable, host-agnostic graph execution engine for building DAG-based workflow systems. Declare a node as a class whose typed `run` signature is its interface, compile placements of it into a validated execution plan, and run the plan with **eager parallel streaming execution** and **built-in retry**.
 
 ## Highlights
 
+- **One node contract** — a `NodeDefinition` subclass; the signature of `run` is the interface, read once into `Input` and `Output` records that drive validation, execution and the palette.
+- **A type vocabulary the host owns** — every wire value is a `DType`; conductor ships the mechanism (`DType`, `Series[X]`, `accepts`) and no vocabulary.
+- **Versions with a policy** — `@version(n, policy=Policy(retries=..., timeout=...))`, `@upgrade(1, 2)`, `@deprecated`.
 - **Eager parallel scheduling** — independent branches in a DAG run concurrently with no configuration.
-- **Node-level and global retry** — exponential backoff with a clean `node_retry` event on every attempt.
-- **Shared references (produce / consume)** — per-instance bindings that replace fan-out edges and cross for-each boundaries.
+- **Retry** — on the version's `Policy` or a run-level `RetryConfig`; a clean `node_retry` event on every attempt.
 - **Structured error hierarchy** — `NodeValidationError`, `NodeExecutionError`, `NodeConnectionError`, `NodeTimeoutError`, and more, all carrying `node_id` / `node_type` context.
-- **Human-in-the-loop** — pause on `HumanInputRequired`, checkpoint to JSON, resume later.
-- **Widget-annotated registration** — one `Annotated[T, Widget]` drives validation, execution, and frontend rendering.
+- **Branching by value** — a node returns `SKIPPED` on the branch not taken; exclusive outputs share a `choice`.
 
 ## Quick start
 
 ```python
 from typing import Annotated
-from conductor import NodeRegistry, GraphNode, GraphEdge, compile
+from conductor import GraphNode, NodeDefinition, NodeRegistry, Policy, Result, compile, version
 from conductor.execution.engine import execute_sync
-from conductor.execution.retry import RetryConfig
-from conductor.widgets import Text, Output
+from conductor.widgets import Text as TextWidget
+from conductor_nodes.types import Text          # or a DType of your own
+
+class Fetch(NodeDefinition):
+    id = "fetch"
+    title = "Fetch"
+    description = "HTTP GET"
+    category = "http"
+
+    @version(1, policy=Policy(retries=3, delay=0.5))
+    def run(self, url: Annotated[Text, TextWidget(title="URL")]) -> Annotated[Text, Result(title="Body")]:
+        ...
 
 registry = NodeRegistry()
-
-@registry.node(
-    "fetch", version=1, name="Fetch", description="HTTP GET",
-    max_retries=3, retry_delay=0.5,
-)
-def fetch(url: Annotated[str, Text(label="URL")]) -> Annotated[str, Output(label="Body")]:
-    ...
+registry.register(Fetch)
 
 compiled = compile(
-    nodes=[GraphNode("n1", "fetch@1", {"url": "https://example.com"})],
+    nodes=[GraphNode("n1", "fetch", 1, {"url": "https://example.com"})],
     edges=[],
     registry=registry,
 )
 
-results = execute_sync(compiled)
+results = execute_sync(compiled)     # results["n1"]["result"]
 ```
 
 ## Eager parallel execution
 
-As soon as a node's dependencies complete, its task is dispatched via `asyncio.create_task`. Sync node functions run on `asyncio.to_thread`, so they don't block the event loop. No flag is needed — this is the default (and only) execution mode.
+As soon as a node's dependencies complete, its task is dispatched via `asyncio.create_task`. Sync `run` methods run on `asyncio.to_thread`, so they don't block the event loop. No flag is needed — this is the default (and only) execution mode.
 
 ```
   A (0.3s) ──> C (0.3s) ──┐
@@ -57,29 +62,30 @@ Sequential: 5 × 0.3 s = 1.5 s. Eager: `A+B` || `C+D` || `E` = ~0.9 s.
 ## Retry
 
 ```python
-# Node-level (wins over any global config)
-@registry.node("fetch", ..., max_retries=3, retry_delay=0.5)
-def fetch(...): ...
+# On the version — the node author's call
+@version(1, policy=Policy(retries=3, delay=0.5))
+def run(self, ...): ...
 
-# Global — applies to nodes that don't set their own
+# Run-level — applies to nodes whose policy sets none
 execute_sync(compiled, retry=RetryConfig(max_retries=2, delay=1.0, backoff_factor=2.0))
 ```
 
-- Delay: `retry_delay * backoff_factor ** (attempt - 1)`
+- Delay: `delay * backoff_factor ** (attempt - 1)`
 - Retried: `NodeExecutionError`, `NodeConnectionError`
-- Never retried: `NodeValidationError`, `HumanInputRequired`
+- Never retried: `NodeValidationError`
 - Each attempt emits a `node_retry` event: `{attempt, max_retries, error, delay}`
+- `Policy(timeout=...)` bounds one attempt; expiry is `NodeTimeoutError`
 
 ## Shared references (produce / consume)
 
-An alternative to drawn edges for fan-out and cross-region wiring. Declared per-instance on `GraphNode`; validated at compile time; participates in scheduling, cycle detection, and type checking identically to edges.
+An alternative to drawn edges for fan-out. Declared per placement on `GraphNode`; participates in scheduling and cycle detection like an edge.
 
 ```python
 compiled = compile(
     nodes=[
-        GraphNode("mapper", "build-map@1", {"seed": "x"},
+        GraphNode("mapper", "build-map", 1, {"seed": "x"},
                   produces={"result": "pseudonym map"}),
-        GraphNode("redactor", "redact@1", {"text": "Alice met Bob."},
+        GraphNode("redactor", "redact", 1, {"text": "Alice met Bob."},
                   consumes={"mapping": ("mapper", "result")}),
     ],
     edges=[],     # no edge needed
@@ -87,34 +93,27 @@ compiled = compile(
 )
 ```
 
-Reference identity is `(producer_node_id, output_handle)`; the label is UI-only so renames never break subscribers. A consumer inside a for-each body reads the same producer value on every iteration (broadcast, not per-iteration) — this is the idiomatic way to inject a system prompt or a pseudonymisation map into every loop step.
-
-v1 constraint: producers must be top-level; consumers can be anywhere.
-
-Full rules and error cases: [`shared-references.md`](./shared-references.md).
+Reference identity is `(producer node id, output name)`; the label is UI-only so renames never break subscribers.
 
 ## Error hierarchy
 
 ```
 ConductorError
 ├── CompilationError
-│   ├── CycleDetectionError
-│   └── TypeCheckError
+│   └── CycleDetectionError
 ├── NodeError                       # carries node_id, node_type, original
 │   ├── NodeValidationError         # pydantic — never retried
-│   ├── NodeExecutionError          # node function raised — retried
+│   ├── NodeExecutionError          # run() raised — retried per policy
 │   ├── NodeTimeoutError
 │   └── NodeConnectionError         # transient network/API — retried
 ├── InputResolutionError
-├── FlowExecutionError              # raised by execute_sync
-├── FlowPausedError                 # HITL sync counterpart
-└── HumanInputRequired              # pauses execution
+└── FlowExecutionError              # raised by execute_sync
 ```
 
-Raise `NodeConnectionError` from your node code to mark a transient failure as retry-worthy. Legacy aliases (`NodeValidationException`, `NodeExecutionException`, `FlowExecutionException`, `FlowPausedException`) still work.
+Raise `NodeConnectionError` from `run` to mark a transient failure as retry-worthy.
 
 ## Further reading
 
-- [`packages/conductor/src/conductor/about/llms.txt`](../packages/conductor/src/conductor/about/llms.txt) — importable AI context for the whole library (also `python -m conductor.about`).
-- [`conductor-design.md`](./conductor-design.md) — full design specification.
-- Jupyter notebooks in [`examples/`](https://github.com/syvai/conductor/tree/main/examples) cover nodes, flows, store, control flow, discovery, and HITL.
+- [`packages/conductor/src/conductor/about/llms.txt`](../packages/conductor/src/conductor/about/llms.txt) — the packaged reference (also `python -m conductor.about`).
+- [`widgets.md`](./widgets.md) — the controls and how an input declares one.
+- Jupyter notebooks in [`examples/`](https://github.com/syvai/conductor/tree/main/examples) cover nodes, flows, discovery and widgets.

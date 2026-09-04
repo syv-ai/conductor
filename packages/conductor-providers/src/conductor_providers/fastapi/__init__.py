@@ -35,7 +35,7 @@ Requires ``fastapi`` installed (declared as an optional extra:
 ``pip install conductor-providers[fastapi]``).
 """
 
-from conductor_providers.fastapi.compile import CompileResult, CompileWarning
+from conductor_providers.fastapi.compile import CompileResult
 from conductor_providers.fastapi.models import EdgeInput, ExecuteRequest, NodeInput
 from conductor_providers.fastapi.router import conductor_router
 from conductor_providers.fastapi.sse import sse_frame
@@ -46,6 +46,5 @@ __all__ = [
     "NodeInput",
     "EdgeInput",
     "CompileResult",
-    "CompileWarning",
     "sse_frame",
 ]

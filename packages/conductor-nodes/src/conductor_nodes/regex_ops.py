@@ -5,51 +5,73 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Annotated
 
-from conductor.widgets import Checkbox, Output, Text, Textarea
+from conductor.returns import Result
+from conductor.series import Series
+from conductor.widgets import Switch, Textarea
+from conductor.widgets import Text as TextWidget
+
+from conductor_nodes.types import Flag, StdlibNode, Text
 
 if TYPE_CHECKING:
     from conductor import NodeRegistry
 
 
-def register(registry: "NodeRegistry") -> None:
-    """Register every regex node on the supplied registry."""
+class Match(StdlibNode):
+    id = "regex-match"
+    title = "Regex Match"
+    description = "True if the pattern matches anywhere in the text"
+    category = "regex"
 
-    @registry.node(
-        "regex-match", version=1, name="Regex Match",
-        description="True if the pattern matches anywhere in the text",
-    )
-    def match(
-        text: Annotated[str, Textarea(label="Text")],
-        pattern: Annotated[str, Text(label="Pattern")],
-        ignore_case: Annotated[bool, Checkbox(label="Ignore case")] = False,
-    ) -> Annotated[bool, Output(label="Matched")]:
+    def run(
+        self,
+        text: Annotated[Text, Textarea(title="Text")],
+        pattern: Annotated[Text, TextWidget(title="Pattern")],
+        ignore_case: Annotated[Flag, Switch(title="Ignore case")] = Flag(False),
+    ) -> Annotated[Flag, Result(title="Matched")]:
         flags = re.IGNORECASE if ignore_case else 0
-        return re.search(pattern, text, flags=flags) is not None
+        return Flag(re.search(pattern, text, flags=flags) is not None)
 
-    @registry.node(
-        "regex-replace", version=1, name="Regex Replace",
-        description="Replaces all pattern matches with `replacement`",
-    )
-    def replace(
-        text: Annotated[str, Textarea(label="Text")],
-        pattern: Annotated[str, Text(label="Pattern")],
-        replacement: Annotated[str, Text(label="Replace with")] = "",
-        ignore_case: Annotated[bool, Checkbox(label="Ignore case")] = False,
-    ) -> Annotated[str, Output(label="Result")]:
+
+class ReplaceAll(StdlibNode):
+    id = "regex-replace"
+    title = "Regex Replace"
+    description = "Replaces all pattern matches with `replacement`"
+    category = "regex"
+
+    def run(
+        self,
+        text: Annotated[Text, Textarea(title="Text")],
+        pattern: Annotated[Text, TextWidget(title="Pattern")],
+        replacement: Annotated[Text, TextWidget(title="Replace with")] = Text(""),
+        ignore_case: Annotated[Flag, Switch(title="Ignore case")] = Flag(False),
+    ) -> Annotated[Text, Result(title="Result")]:
         flags = re.IGNORECASE if ignore_case else 0
-        return re.sub(pattern, replacement, text, flags=flags)
+        return Text(re.sub(pattern, replacement, text, flags=flags))
 
-    @registry.node(
-        "regex-extract", version=1, name="Regex Extract",
-        description="Returns a list of all matches (or the first group of each, if present)",
-    )
-    def extract(
-        text: Annotated[str, Textarea(label="Text")],
-        pattern: Annotated[str, Text(label="Pattern")],
-        ignore_case: Annotated[bool, Checkbox(label="Ignore case")] = False,
-    ) -> Annotated[list[str], Output(label="Matches")]:
+
+class Extract(StdlibNode):
+    id = "regex-extract"
+    title = "Regex Extract"
+    description = "Every match (or the first group of each, if the pattern has groups)"
+    category = "regex"
+
+    def run(
+        self,
+        text: Annotated[Text, Textarea(title="Text")],
+        pattern: Annotated[Text, TextWidget(title="Pattern")],
+        ignore_case: Annotated[Flag, Switch(title="Ignore case")] = Flag(False),
+    ) -> Annotated[Series[Text], Result(title="Matches")]:
         flags = re.IGNORECASE if ignore_case else 0
         compiled = re.compile(pattern, flags=flags)
         if compiled.groups:
-            return [m.group(1) for m in compiled.finditer(text)]
-        return compiled.findall(text)
+            return [Text(m.group(1)) for m in compiled.finditer(text)]
+        return [Text(m) for m in compiled.findall(text)]
+
+
+NODES = (Match, ReplaceAll, Extract)
+
+
+def register(registry: "NodeRegistry") -> None:
+    """Register every regex node on the supplied registry."""
+    for node_cls in NODES:
+        registry.register(node_cls)

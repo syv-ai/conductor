@@ -10,11 +10,12 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Any
 
-from conductor._sentinel import SKIPPED
+from conductor._sentinel import SKIPPED, is_skipped
 from conductor.errors import (
     FlowExecutionException,
     FlowPausedException,
     HumanInputRequired,
+    InputResolutionError,
     NodeConnectionError,
     NodeExecutionError,
     NodeTimeoutError,
@@ -49,7 +50,10 @@ from conductor.execution.state import FlowRunState
 from conductor.execution.store import FlowStore
 from conductor.graph.compiler import CompiledGraph
 from conductor.interface import model_of
+from conductor.metadata import Output
 from conductor.registry import runner_for
+from conductor.returns import unpack
+from conductor.series import Index, Series
 
 # Internal sentinel pushed into the event queue when all work is done
 _DONE = object()
@@ -396,10 +400,22 @@ async def _execute_node_async(
         await event_queue.put(_NodeDone(node_id=node_id))
         return
 
-    inputs = state.resolver.resolve(
-        node, compiled.edge_map, state.results, compiled.node_map,
-        compiled.consume_map, state.skipped_edges, compiled.incoming_map,
-    )
+    try:
+        inputs = state.resolver.resolve(
+            node, compiled.edge_map, state.results, compiled.node_map,
+            compiled.consume_map, state.skipped_edges, compiled.incoming_map,
+        )
+    except InputResolutionError as e:
+        # Raised before the try below; without this the task would end
+        # with no ``_NodeDone`` and the scheduler would wait forever.
+        await event_queue.put(_NodeDone(
+            node_id=node_id,
+            error=True,
+            error_event=NodeErrorEvent(
+                type="node_error", node_id=node_id, error=str(e), is_validation=False,
+            ),
+        ))
+        return
 
     start_event: NodeStartEvent = NodeStartEvent(type="node_start", node_id=node_id)
     await event_queue.put(start_event)
@@ -466,8 +482,6 @@ async def _execute_node_async(
                     await drainer
                 except asyncio.CancelledError:
                     pass
-
-            result = normalize_result(result)
 
             state.results[node_id] = result
             state.completed_order.append(node_id)
@@ -763,8 +777,8 @@ def _dispatch_node(
     data: dict[str, Any],
     state: FlowRunState,
     compiled: CompiledGraph,
-) -> Any:
-    """Route execution to the right handler."""
+) -> dict[str, Any]:
+    """Route execution to the right handler; the answer is ``{output name: value}``."""
     req = NodeExecRequest(
         node_id=node_id,
         node_type=node_type,
@@ -775,13 +789,13 @@ def _dispatch_node(
 
     # 1. Compound node
     if node_id in compiled.compound_nodes:
-        return compiled.compound_nodes[node_id].execute(req)
+        return normalize_result(compiled.compound_nodes[node_id].execute(req))
 
     # 2. Extension node
     ext = compiled.extension_resolver
     if ext and ext.is_known_type(node_type):
         executor = ext.create_executor(node_type)
-        return executor.execute(req)
+        return normalize_result(executor.execute(req))
 
     # 3. Registry node
     node_def = compiled.registry.get(node_type)
@@ -800,19 +814,23 @@ def _dispatch_node(
         node_id, node_def.versions[pinned].interface.inputs
     )
     try:
-        inputs = model_of(roster)(**inputs).model_dump()
+        validated = model_of(roster)(**inputs)
     except ValidationError as e:
         raise NodeValidationError(
             _format_validation_error(e, roster),
             node_id=node_id, node_type=node_type, original=e,
         ) from e
 
+    # The validated instances themselves, not a dump: ``run`` receives the
+    # declared dtypes and nothing is re-serialised on the way in.
+    inputs = {name: getattr(validated, name) for name in type(validated).model_fields}
+
     runner = runner_for(compiled.registry, node_type, pinned)
     inputs = _inject_store(runner, inputs, state)
     inputs = _filter_to_signature(runner, inputs)
 
     try:
-        return runner(**inputs)
+        value = runner(**inputs)
     except (NodeValidationError, NodeExecutionError, NodeConnectionError,
             HumanInputRequired, SignalRequired):
         raise
@@ -821,6 +839,32 @@ def _dispatch_node(
             f"Execution failed for {node_type}: {type(e).__name__}: {e}",
             node_id=node_id, node_type=node_type, original=e,
         ) from e
+    return _outputs_of(
+        node_def.versions[pinned].interface.returns, compiled.node_outputs[node_id], value
+    )
+
+
+def _outputs_of(returns: Any, outputs: tuple[Output, ...], value: Any) -> dict[str, Any]:
+    """What ``run`` returned, split across the placement's outputs by name.
+
+    ``unpack`` reads the return declaration. A series output is returned by
+    the node as a plain sequence and lands here on a fresh root index: its
+    rows came from nowhere the engine tracks. ``SKIPPED`` on an output
+    passes through as the value it is.
+    """
+    values = unpack(returns, value, outputs)
+    series_outputs = {
+        out.name for out in outputs
+        if isinstance(out.dtype, type) and issubclass(out.dtype, Series)
+    }
+    return {
+        name: (
+            Series(Index.fresh(), v)
+            if name in series_outputs and not is_skipped(v) and not isinstance(v, Series)
+            else v
+        )
+        for name, v in values.items()
+    }
 
 
 def _format_validation_error(e: Any, roster: Any) -> str:

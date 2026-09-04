@@ -11,9 +11,9 @@ if TYPE_CHECKING:
 
 
 def discover_nodes(package_name: str, registry: NodeRegistry) -> int:
-    """Import all modules in a package to trigger @node decorators.
+    """Import every module in a package so the registrations in them run.
 
-    Returns the number of newly registered nodes.
+    Returns how many definitions the registry gained.
     """
     count_before = len(registry.definitions())
     package = importlib.import_module(package_name)

@@ -1,59 +1,79 @@
-"""Public graph-level output resolution (``resolve_graph_outputs``).
+"""Graph-level output resolution ahead of compile (``resolve_graph_outputs``).
 
-The ahead-of-compile twin of compile() step 8b: same topological walk,
-same per-node hook engine, host-supplied ``definitions`` instead of a
-registry. The equivalence test pins that the two can never diverge.
+The same topological walk compile() runs, over host-supplied
+``definitions`` instead of a registry. The equivalence test pins that the
+two never diverge.
 """
 
-from typing import Annotated
+from collections.abc import Mapping
+from typing import Annotated, Any
 
 import pytest
 from conductor import GraphEdge, GraphNode, NodeRegistry, compile, resolve_graph_outputs
+from conductor.dtype import DType
 from conductor.errors import CompilationError, CycleDetectionError
 from conductor.metadata import Output
-from conductor.registry.dynamic_outputs import ComputeOutputsContext
-from conductor.widgets import Output as OutputWidget
+from conductor.node import NodeDefinition
+from conductor.returns import Result
+from conductor.widgets import Textarea
+
+
+class Txt(DType, str):
+    id = "resolve-outputs-test-text"
+    title = "Text"
+
+
+Out = Annotated[Txt, Result(title="Out")]
+
+
+class StaticSrc(NodeDefinition):
+    id = "static-src"
+    title = "Static"
+    description = "Static source"
+    category = "test"
+
+    def run(self) -> Out:
+        return Txt("x")
+
+
+class Relay(NodeDefinition):
+    id = "relay"
+    title = "Relay"
+    description = "Passes its input on"
+    category = "test"
+
+    def run(self, text: Annotated[Txt, Textarea(title="Text")] = Txt("")) -> Out:
+        return text
+
+
+class Schema(NodeDefinition):
+    """One extra output per comma-separated name the author typed."""
+
+    id = "dyn-schema"
+    title = "Schema"
+    description = "Fields from a typed-in list"
+    category = "test"
+
+    def run(
+        self, fields: Annotated[Txt, Textarea(title="Fields", show_handle=False)] = Txt("")
+    ) -> Out:
+        return Txt("")
+
+    def compute_outputs(
+        self,
+        declared: tuple[Output, ...],
+        values: Mapping[str, Any],
+        arriving: Mapping[str, type[DType]],
+    ) -> tuple[Output, ...]:
+        names = [n for n in str(values.get("fields", "")).split(",") if n]
+        return declared + tuple(Output(name=n, dtype=Txt, title=n) for n in names)
 
 
 def _make_registry() -> NodeRegistry:
     reg = NodeRegistry()
-
-    @reg.node("static-src", version=1, name="Static", description="Static source")
-    def static_src() -> Annotated[str, OutputWidget(label="Tekst")]:
-        return "x"
-
-    def passthrough_hook(ctx: ComputeOutputsContext) -> list[Output]:
-        extras = [
-            Output(
-                name=b.source_output.name,
-                type_str=b.source_output.type_str,
-                label=b.source_output.label,
-            )
-            for b in ctx.incoming
-        ]
-        return list(ctx.defaults) + extras
-
-    @reg.node(
-        "dyn-passthrough", version=1, name="Passthrough", description="Passes incoming",
-        compute_outputs=passthrough_hook,
-    )
-    def dyn_passthrough(inputs: str = "") -> Annotated[str, OutputWidget(label="Resultat")]:
-        return inputs
-
-    def schema_hook(ctx: ComputeOutputsContext) -> list[Output]:
-        rows = ctx.data.get("fields") or []
-        return list(ctx.defaults) + [
-            Output(name=r["name"], type_str=r["type"], label=r["name"])
-            for r in rows
-        ]
-
-    @reg.node(
-        "dyn-schema", version=1, name="Schema", description="Schema-driven fields",
-        compute_outputs=schema_hook,
-    )
-    def dyn_schema(fields: list | None = None) -> Annotated[str, OutputWidget(label="Resultat")]:
-        return ""
-
+    reg.register(StaticSrc)
+    reg.register(Relay)
+    reg.register(Schema)
     return reg
 
 
@@ -63,67 +83,48 @@ def _definitions(reg: NodeRegistry, nodes: list[GraphNode]) -> dict:
 
 def test_static_only_graph_returns_static_declarations() -> None:
     reg = _make_registry()
-    nodes = [GraphNode(id="a", type="static-src@1", data={})]
+    nodes = [GraphNode(id="a", type="static-src", data={})]
     out = resolve_graph_outputs(nodes, [], _definitions(reg, nodes))
     assert [o.name for o in out["a"]] == ["result"]
 
 
-def test_downstream_hook_sees_upstream_resolved_outputs() -> None:
-    # a (schema hook: dynamic field "Beløb": int) → b (passthrough hook).
-    # b's binding must carry a's RESOLVED metadata, not a static decl or
-    # an "any" synthesis.
+def test_hook_adds_outputs_from_typed_in_values() -> None:
     reg = _make_registry()
-    nodes = [
-        GraphNode(
-            id="a",
-            type="dyn-schema@1",
-            data={"fields": [{"name": "Beløb", "type": "int"}]},
-        ),
-        GraphNode(id="b", type="dyn-passthrough@1", data={}),
-    ]
-    edges = [
-        GraphEdge(
-            id="e1", source="a", target="b",
-            source_handle="Beløb", target_handle="inputs",
-        )
-    ]
-    out = resolve_graph_outputs(nodes, edges, _definitions(reg, nodes))
-    passed = [o for o in out["b"] if o.name == "Beløb"]
-    assert len(passed) == 1
-    assert passed[0].type_str == "int"
+    nodes = [GraphNode(id="a", type="dyn-schema", data={"fields": "amount,name"})]
+    out = resolve_graph_outputs(nodes, [], _definitions(reg, nodes))
+    assert [o.name for o in out["a"]] == ["result", "amount", "name"]
+    assert out["a"][1].dtype is Txt
 
 
 def test_none_definition_is_extension_semantics() -> None:
-    # A ``None`` value means "known to the host, no definition" (embedded
-    # extension node): it resolves to () and a downstream binding onto its
-    # handle synthesizes the permissive ``any`` placeholder.
+    # A ``None`` value means "known to the host, no definition" (an
+    # extension node): it resolves to ().
     reg = _make_registry()
     nodes = [
-        GraphNode(id="ext", type="flow-version@1:abc", data={}),
-        GraphNode(id="b", type="dyn-passthrough@1", data={}),
+        GraphNode(id="ext", type="flow-version:abc", data={}),
+        GraphNode(id="b", type="relay", data={}),
     ]
     edges = [
         GraphEdge(
             id="e1", source="ext", target="b",
-            source_handle="output_1", target_handle="inputs",
+            source_handle="result", target_handle="text",
         )
     ]
-    definitions = {**_definitions(reg, nodes), "flow-version@1:abc": None}
+    definitions = {**_definitions(reg, nodes), "flow-version:abc": None}
     out = resolve_graph_outputs(nodes, edges, definitions)
     assert out["ext"] == ()
-    passed = [o for o in out["b"] if o.name == "output_1"]
-    assert passed and passed[0].type_str == "any"
+    assert [o.name for o in out["b"]] == ["result"]
 
 
 def test_missing_definitions_key_raises() -> None:
-    nodes = [GraphNode(id="a", type="mystery@1", data={})]
-    with pytest.raises(CompilationError, match="mystery@1"):
+    nodes = [GraphNode(id="a", type="mystery", data={})]
+    with pytest.raises(CompilationError, match="mystery"):
         resolve_graph_outputs(nodes, [], {})
 
 
 def test_dangling_edge_endpoint_raises() -> None:
     reg = _make_registry()
-    nodes = [GraphNode(id="a", type="static-src@1", data={})]
+    nodes = [GraphNode(id="a", type="static-src", data={})]
     edges = [
         GraphEdge(id="e1", source="a", target="ghost",
                   source_handle="result", target_handle="x")
@@ -135,52 +136,55 @@ def test_dangling_edge_endpoint_raises() -> None:
 def test_cycle_raises() -> None:
     reg = _make_registry()
     nodes = [
-        GraphNode(id="a", type="dyn-passthrough@1", data={}),
-        GraphNode(id="b", type="dyn-passthrough@1", data={}),
+        GraphNode(id="a", type="relay", data={}),
+        GraphNode(id="b", type="relay", data={}),
     ]
     edges = [
         GraphEdge(id="e1", source="a", target="b",
-                  source_handle="result", target_handle="inputs"),
+                  source_handle="result", target_handle="text"),
         GraphEdge(id="e2", source="b", target="a",
-                  source_handle="result", target_handle="inputs"),
+                  source_handle="result", target_handle="text"),
     ]
     with pytest.raises(CycleDetectionError):
         resolve_graph_outputs(nodes, edges, _definitions(reg, nodes))
 
 
-def test_hook_exception_wraps_in_compilation_error() -> None:
-    reg = NodeRegistry()
+def test_hook_exception_propagates() -> None:
+    """Nothing wraps a hook that raises: its own exception surfaces where
+    the placement is resolved."""
 
-    def bad_hook(ctx: ComputeOutputsContext) -> list[Output]:
-        raise ValueError("kaputt")
+    class Boom(NodeDefinition):
+        id = "boom"
+        title = "Boom"
+        description = "Raising hook"
+        category = "test"
 
-    @reg.node(
-        "boom", version=1, name="Boom", description="Raising hook",
-        compute_outputs=bad_hook,
-    )
-    def boom() -> Annotated[str, OutputWidget(label="X")]:
-        return ""
+        def run(self) -> Out:
+            return Txt("")
 
-    nodes = [GraphNode(id="a", type="boom@1", data={})]
-    with pytest.raises(CompilationError, match="compute_outputs failed") as exc_info:
-        resolve_graph_outputs(nodes, [], {"boom@1": reg.get("boom@1")})
-    assert isinstance(exc_info.value.__cause__, ValueError)
+        def compute_outputs(
+            self,
+            declared: tuple[Output, ...],
+            values: Mapping[str, Any],
+            arriving: Mapping[str, type[DType]],
+        ) -> tuple[Output, ...]:
+            raise ValueError("kaputt")
+
+    nodes = [GraphNode(id="a", type="boom", data={})]
+    with pytest.raises(ValueError, match="kaputt"):
+        resolve_graph_outputs(nodes, [], {"boom": Boom})
 
 
 def test_equivalence_with_compile_node_outputs() -> None:
-    # The public API and compile() step 8b must never diverge: same graph,
-    # same map.
+    # The public API and compile() must never diverge: same graph, same map.
     reg = _make_registry()
     nodes = [
-        GraphNode(
-            id="a", type="dyn-schema@1",
-            data={"fields": [{"name": "Felt", "type": "str"}]},
-        ),
-        GraphNode(id="b", type="dyn-passthrough@1", data={}),
+        GraphNode(id="a", type="dyn-schema", data={"fields": "field"}),
+        GraphNode(id="b", type="relay", data={}),
     ]
     edges = [
         GraphEdge(id="e1", source="a", target="b",
-                  source_handle="Felt", target_handle="inputs"),
+                  source_handle="field", target_handle="text"),
     ]
     compiled = compile(nodes=nodes, edges=edges, registry=reg)
     standalone = resolve_graph_outputs(nodes, edges, _definitions(reg, nodes))

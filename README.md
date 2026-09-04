@@ -5,47 +5,33 @@
 <h1 align="center">Conductor</h1>
 
 <p align="center">
-  A reusable, host-agnostic graph execution engine for building DAG-based workflow systems. Register nodes as plain Python functions with type annotations, compile them into a validated execution plan, and run them with streaming events.
+  A reusable, host-agnostic graph execution engine for building DAG-based workflow systems. Declare a node as a class whose typed <code>run</code> signature is its interface, compile placements of it into a validated execution plan, and run the plan with streaming events.
 </p>
 
+Built to be the shared core behind visual flow builders — declare a node once and get validation, execution and the palette a frontend renders from that one declaration.
 
-Built to be the shared core behind visual flow builders — define nodes once, get backend execution, input validation, and frontend UI metadata for free.
-
-> Need a short tour to share with a colleague? See [`docs/OVERVIEW.md`](OVERVIEW.md) for a one-page architecture summary.
+> Need a short tour to share with a colleague? See [`docs/OVERVIEW.md`](docs/OVERVIEW.md) for a one-page architecture summary.
 
 ## Features
 
-- **Decorator-based node registration** — `@registry.node()` turns any function into a validated, UI-renderable node
-- **Widget annotations** — `Annotated[str, Text(label="Input")]` is the single source of truth for validation, execution, and frontend rendering
-- **Union-aware type checking** — `str | int` on either side of an edge is checked alternative-by-alternative; any matching pair passes
-- **Display hints** — optional `node_label` / `output_labels` on `GraphNode` (mirrored on the FastAPI provider) feed ConnectionList aggregation and host UIs without affecting execution
-- **Friendly validation errors** — `NodeValidationError` renders one line per failed field; the original pydantic exception stays on `.original`
-- **Compile-then-execute** — structural errors caught before any node runs
-- **Eager parallel scheduling** — nodes start as soon as their dependencies finish; independent branches run concurrently
-- **Retry** — per-node `max_retries`/`retry_delay` with exponential backoff, or a global `RetryConfig`
-- **Structured error hierarchy** — `NodeValidationError`, `NodeExecutionError`, `NodeConnectionError`, `NodeTimeoutError`, and more, all carrying `node_id`/`node_type` context
-- **Streaming execution** — async generator yields events (node_start, node_complete, node_retry, flow_complete, etc.)
-- **Shared references** — per-instance produce/consume bindings let any node feed any other without drawing an edge — including across for-each region boundaries
-- **Conditional branching** — SKIPPED sentinel propagates through inactive branches
-- **For-each loops** — compound node regions with sequential or parallel execution
-- **Human-in-the-loop** — `HumanInputRequired` pauses to a JSON-serializable checkpoint; resume later
-- **Class-based nodes** — `BaseNode` ABC for complex nodes needing state
-- **FlowStore** — side-channel key-value cache for cross-node data sharing
-- **Auto-discovery** — scan a package to register all `@node`-decorated functions
-- **Extension resolver** — protocol for host-app-specific node types (sub-flows, etc.)
-- **Decision nodes + edge guards** — first-class branching driven by CEL expressions on outgoing edges
-- **CEL expression language** — sandboxed mini-evaluator (`conductor.expr`) for guards, loop conditions, idempotency keys, signal correlation
-- **Actor metadata** — declare who performs each step (system/human/agent/external_service) for auditability and rendering
-- **Top-level flow metadata** — `dependencies`, `triggers`, and `on_error_default` on `Flow` objects for portable process definitions
-- **Per-node timeout and idempotency key** — `timeout=` wraps execution with `asyncio.wait_for`; `idempotency_key=` evaluates a CEL expression once and injects a stable key across retries
-- **While / until compound** — condition-based loops with `max_iterations` safety; raises `LoopRunawayError` on cap
-- **Subprocess compound** — call another flow by id+version, with a `SubprocessRegistry` and runtime depth cap
-- **Compensation / saga** — per-node `compensation=` cascades on failure in reverse topological order
-- **Signal / event nodes** — `SignalRequired` pauses on a named event with optional correlation and timeout, mirroring HITL
-- **YAML / JSON flow format** — `conductor.flow_format` round-trips `Flow` ↔ YAML/JSON/dict
-- **Zero app dependencies** — no FastAPI, no database, no auth in the core
-- **Standard node library** — `conductor-nodes` ships text, math, logic, json, regex, decision, while, subprocess, signal, and canonical for-each markers
-- **Framework adapters** — `conductor-providers.react` translates conductor graphs to/from ReactFlow JSON; `conductor-providers.fastapi` mounts an `/execute`, `/execute-stream`, `/compile`, `/nodes` API
+- **One node contract** — a node is a `NodeDefinition` subclass; the typed signature of its `run` method *is* its interface. Nothing is declared twice.
+- **A type vocabulary you own** — every value on a wire has a `DType`; conductor ships the mechanism and no vocabulary (except `Series[X]`, the one collection). A host declares `Text`, `Number`, `Document`, … as it sees fit.
+- **Widgets on the declaration** — `Annotated[Text, Textarea(title="Text")]` says how a person edits an input; the same record drives validation and the palette.
+- **Versions with a policy** — several versions live in one class (`@version(2)`); each carries a `Policy` for retries, timeout and concurrency; `@upgrade(1, 2)` rewrites saved values; `@deprecated` retires a node or a version.
+- **Compile-then-execute** — structural errors are caught before any node runs.
+- **Eager parallel scheduling** — nodes start as soon as their dependencies finish; independent branches run concurrently.
+- **Retry** — per version on its `Policy`, or a run-level `RetryConfig`.
+- **Structured error hierarchy** — `NodeValidationError`, `NodeExecutionError`, `NodeConnectionError`, `NodeTimeoutError`, and more, all carrying `node_id`/`node_type` context.
+- **Streaming execution** — an async generator yields events (`node_start`, `node_complete`, `node_retry`, `flow_complete`, …).
+- **Branching by value** — a node returns `SKIPPED` on the branch it did not take; outputs that are exclusive alternatives share a `choice`.
+- **Roster hooks** — a node whose inputs or outputs depend on its configuration overrides `compute_inputs` / `compute_outputs`.
+- **Shared references** — per-placement produce/consume bindings let one node feed another without an edge.
+- **Compensation** — a placement names the node that undoes its work if the flow fails later.
+- **Auto-discovery** — import a package and every node it registers is in the registry.
+- **YAML / JSON flow format** — `conductor.flow_format` round-trips `Flow` ↔ YAML/JSON/dict.
+- **Zero app dependencies** — no FastAPI, no database, no auth in the core; pydantic is the one hard dependency.
+- **Standard node library** — `conductor-nodes` ships text, math, logic, JSON and regex nodes and a decision gate, declared in a four-word vocabulary of its own.
+- **Framework adapters** — `conductor_providers.react` translates graphs to/from ReactFlow JSON and builds the palette; `conductor_providers.fastapi` mounts `/nodes`, `/compile`, `/execute` and `/execute-stream`.
 
 ## Quick start
 
@@ -84,29 +70,48 @@ uv run pytest tests/ -v
 
 ## Usage
 
-### 1. Create a registry and register nodes
+### 1. Declare a vocabulary and some nodes
+
+A value on a wire has a `DType`. Conductor declares none, so start by naming the types your nodes take — or import the standard library's (`conductor_nodes.types`), as this example does.
 
 ```python
 from typing import Annotated
-from conductor import NodeRegistry
-from conductor.widgets import Text, Textarea, Dropdown, Range, Output
+from conductor import NodeDefinition, NodeRegistry, Result
+from conductor.widgets import Textarea, Text as TextWidget
+from conductor_nodes.types import Text
+
+class Echo(NodeDefinition):
+    id = "echo"
+    title = "Echo"
+    description = "Returns the input unchanged"
+    category = "text"
+
+    def run(
+        self, text: Annotated[Text, Textarea(title="Input", description="Text to echo")]
+    ) -> Annotated[Text, Result(title="Output")]:
+        return text
+
+class Uppercase(NodeDefinition):
+    id = "uppercase"
+    title = "Uppercase"
+    description = "Converts to uppercase"
+    category = "text"
+
+    def run(
+        self, text: Annotated[Text, TextWidget(title="Input")]
+    ) -> Annotated[Text, Result(title="Result")]:
+        return Text(text.upper())
 
 registry = NodeRegistry()
-
-@registry.node("echo", version=1, name="Echo", description="Returns input unchanged")
-def echo(
-    text: Annotated[str, Text(label="Input", description="Text to echo")],
-) -> Annotated[str, Output(label="Output")]:
-    return text
-
-@registry.node("uppercase", version=1, name="Uppercase", description="Converts to uppercase")
-def uppercase(
-    text: Annotated[str, Text(label="Input")],
-) -> Annotated[str, Output(label="Result")]:
-    return text.upper()
+registry.register(Echo)
+registry.register(Uppercase)
 ```
 
+The class is checked the moment it is defined: a missing `id`, `title`, `description` or `category`, a parameter without a widget, or a return without a `Result` fails at import with the traceback at the class.
+
 ### 2. Build and execute a flow
+
+A placement pins a node by `type` and `version`:
 
 ```python
 from conductor import GraphNode, GraphEdge, compile
@@ -114,8 +119,8 @@ from conductor.execution.engine import execute_sync
 
 compiled = compile(
     nodes=[
-        GraphNode("n1", "echo@1", {"text": "hello world"}),
-        GraphNode("n2", "uppercase@1", None),
+        GraphNode("n1", "echo", 1, {"text": "hello world"}),
+        GraphNode("n2", "uppercase", 1),
     ],
     edges=[
         GraphEdge("e1", "n1", "n2", "result", "text"),
@@ -126,6 +131,8 @@ compiled = compile(
 results = execute_sync(compiled)
 print(results["n2"]["result"])  # "HELLO WORLD"
 ```
+
+A single-output node's output is named `result`; a multi-output node's outputs are the field names of the record it returns (below).
 
 ### 3. Stream execution events
 
@@ -149,184 +156,203 @@ async for event in execute(compiled):
 ```
 conductor/
 ├── packages/
-│   └── conductor/                 # Core library
-│       ├── pyproject.toml          # pip install syv-conductor
-│       └── src/conductor/
-│           ├── types.py            # Enums: WidgetType, ResultFormat, NodeCategory
-│           ├── widgets.py          # Widget ABC + Text, Dropdown, Range, Output, etc.
-│           ├── metadata.py         # InputMetadata, OutputMetadata
-│           ├── validation.py       # Pydantic model generation from signatures
-│           ├── errors.py           # Exception hierarchy (ConductorError, NodeError, ...)
-│           ├── node.py             # BaseNode ABC for class-based nodes
-│           ├── _sentinel.py        # SKIPPED singleton
-│           ├── registry/
-│           │   ├── __init__.py     # NodeRegistry + @node decorator
-│           │   ├── definition.py   # NodeDefinition dataclass
-│           │   ├── discovery.py    # Auto-discovery via importlib
-│           │   └── schema.py       # JSON serialization for frontends
-│           ├── graph/
-│           │   ├── model.py        # GraphNode (with produces/consumes), GraphEdge
-│           │   ├── topology.py     # Topological sort, cycle detection
-│           │   ├── compiler.py     # compile() -> CompiledGraph
-│           │   ├── type_check.py   # Edge + consume type compatibility
-│           │   ├── shared_refs.py  # produce/consume validation, consume_map build
-│           │   └── regions.py      # Compound node region discovery
-│           ├── execution/
-│           │   ├── engine.py       # execute(), execute_sync(), eager scheduler, retry loop
-│           │   ├── retry.py        # RetryConfig
-│           │   ├── state.py        # FlowRunState
-│           │   ├── store.py        # FlowStore (cross-node cache)
-│           │   ├── request.py      # NodeExecRequest DTO
-│           │   ├── resolver.py     # Input resolution from edges
-│           │   ├── results.py      # Result normalization
-│           │   ├── events.py       # Event TypedDicts + EventSink
-│           │   ├── skip.py         # Skip propagation
-│           │   └── checkpoint.py   # FlowCheckpoint for human-in-the-loop
-│           └── compound/
-│               ├── protocol.py     # CompoundNodeType, Region
-│               └── for_each.py     # ForEachNode + FOR_EACH constant
-├── packages/
-│   ├── conductor/                  # Core library
-│   ├── conductor-nodes/            # Standard node library (text, math, logic, json, regex, loop)
-│   └── conductor-providers/        # Framework adapters — react today, more later
-├── examples/                       # Usage notebooks (7 examples)
-├── tests/                          # pytest test suite (430 tests across core, nodes, providers)
+│   ├── conductor/                  # Core library — pip install syv-conductor
+│   │   └── src/conductor/
+│   │       ├── node.py             # NodeDefinition, NodeVersion, Policy, version/upgrade/deprecated, describe()
+│   │       ├── interface.py        # Interface.of(run): the signature read once; Provided; model_of
+│   │       ├── metadata.py         # Field, Input, Output records
+│   │       ├── returns.py          # Result — what an author writes on a return; outputs_of / unpack
+│   │       ├── dtype.py            # DType — a value's type; accepts(); registered_dtypes()
+│   │       ├── series.py           # Series[X] and Index — many values of one type
+│   │       ├── ref.py              # Ref — the address "<node id>.<field>"
+│   │       ├── widgets.py          # The controls: Text, Textarea, Dropdown, …; AnyWidget
+│   │       ├── errors.py           # Exception hierarchy (ConductorError, NodeError, …)
+│   │       ├── _sentinel.py        # SKIPPED
+│   │       ├── registry/           # NodeRegistry, runner_for, discover_nodes
+│   │       ├── graph/              # GraphNode/GraphEdge/Flow, topology, compile(), roster resolution
+│   │       ├── execution/          # execute(), execute_sync(), the eager scheduler, retry, events
+│   │       ├── flow_format/        # YAML / JSON flow files
+│   │       └── about/              # Runnable library reference: python -m conductor.about
+│   ├── conductor-nodes/            # Standard node library — pip install syv-conductor-nodes
+│   └── conductor-providers/        # Framework adapters (react, fastapi) — pip install syv-conductor-providers
+├── examples/                       # Jupyter notebooks
+├── tests/                          # pytest suite (core, nodes, providers, stress)
 ├── .github/workflows/              # ci.yml (PR lint + test), docs-audit.yml (weekly)
-└── docs/                           # Design specs + MkDocs site (llms.txt ships inside the package)
+└── docs/                           # MkDocs site + design notes (llms.txt ships inside the package)
 ```
 
 ## Concepts
 
-### Nodes
+### The node contract
 
-Nodes are the building blocks. Register them as decorated functions or BaseNode subclasses:
-
-```python
-# Function-based (most nodes)
-@registry.node("add", version=1, name="Add", description="Adds two numbers")
-def add(
-    a: Annotated[float, Text(label="A")],
-    b: Annotated[float, Text(label="B")],
-) -> Annotated[float, Output(label="Sum")]:
-    return a + b
-
-# Multi-output
-@registry.node("split", version=1, name="Split", description="Splits text")
-def split(
-    text: Annotated[str, Text(label="Input")],
-) -> tuple[
-    Annotated[str, Output(label="First half")],
-    Annotated[str, Output(label="Second half")],
-]:
-    mid = len(text) // 2
-    return text[:mid], text[mid:]
-
-# Class-based (complex nodes)
-class MyNode(BaseNode):
-    node_id = "my-node"
-    node_name = "My Node"
-    node_description = "A complex node"
-
-    def execute(self, req: NodeExecRequest) -> str:
-        return req.inputs["text"].upper()
-
-registry.register_class(MyNode)
-```
-
-### Versioning
-
-Nodes are versioned as `base_id@version`. When you register a new version, the old one becomes deprecated but continues to work for existing flows:
+A node is a class. It declares its identity and what a palette shows (`id`, `title`, `description`, `category`, optional `tags` and `docs`) and implements `run`, whose typed signature is its interface:
 
 ```python
-@registry.node("echo", version=2, name="Echo v2", description="Echo with prefix")
-def echo_v2(text: Annotated[str, Text(label="Input")], prefix: Annotated[str, Text(label="Prefix")] = "") -> ...:
-    return f"{prefix}{text}"
+from dataclasses import dataclass
+from conductor import NodeDefinition, Result, Series
+from conductor.widgets import List, Switch, Textarea
+from conductor_nodes.types import Flag, Number, Text
 
-registry.get("echo@1")          # Old version (deprecated)
-registry.get("echo@2")          # Current version
-registry.get_latest("echo")     # Returns echo@2
-registry.is_deprecated("echo@1") # True
+class Length(NodeDefinition):
+    id = "length"
+    title = "Length"
+    description = "Character count of the text"
+    category = "text"
+
+    def run(self, text: Annotated[Text, Textarea(title="Text")]) -> Annotated[Number, Result(title="Length")]:
+        return Number(len(text))
 ```
 
-### FlowStore
+- Every parameter a cable can reach declares a `DType` (or `Any`, below) and a widget. A default makes the input optional.
+- The return annotation is the output declaration. A `DType` return declares one output named `result`.
+- A node returns a value of the declared type — `Text(...)`, never a bare `str` — because a value arrives downstream as the type the wire carried.
+- A collection is `Series[X]`. A node that declares `Series[Text]` receives the whole series at once; a series output is returned as a plain list.
 
-Side-channel key-value store for sharing data between nodes outside of edges:
+**Several outputs** are a frozen dataclass whose fields are the outputs; `run` returns an instance. The field names are the output names, and nothing is positional:
 
 ```python
-from conductor.execution.store import FlowStore
+@dataclass(frozen=True)
+class Halves:
+    head: Annotated[Text, Result(title="First half")]
+    tail: Annotated[Text, Result(title="Second half")]
 
-@registry.node("cache-doc", version=1, name="Cache Document", description="Parses and caches")
-def cache_doc(
-    file: Annotated[str, Text(label="File")],
-    store: FlowStore,  # Auto-injected by the engine
-) -> Annotated[str, Output(label="Text")]:
-    parsed = expensive_parse(file)
-    store.set("parsed_doc", parsed)  # Available to downstream nodes
-    return parsed.text
+class Split(NodeDefinition):
+    id = "split"
+    title = "Split"
+    description = "Splits text down the middle"
+    category = "text"
+
+    def run(self, text: Annotated[Text, Textarea(title="Text")]) -> Halves:
+        mid = len(text) // 2
+        return Halves(head=Text(text[:mid]), tail=Text(text[mid:]))
 ```
 
-### Auto-discovery
-
-Scan a Python package to register all `@node`-decorated functions:
+**Branching** is a value, not a role. A node that takes one of two branches returns `SKIPPED` on the other; downstream nodes fed only `SKIPPED` are skipped in turn. Outputs that are exclusive alternatives share a `choice`, so an editor knows exactly one of them arrives:
 
 ```python
-registry.discover("myapp.nodes")  # Imports all modules, triggering decorators
+@dataclass(frozen=True)
+class Emptiness:
+    not_empty: Annotated[Text, Result(title="Not empty", choice="emptiness")]
+    empty: Annotated[Text, Result(title="Empty", choice="emptiness")]
+
+class IfEmpty(NodeDefinition):
+    id = "if-empty"
+    title = "If empty"
+    description = "Routes text by whether it is blank"
+    category = "control"
+
+    def run(self, text: Annotated[Text, Textarea(title="Text")]) -> Emptiness:
+        if text.strip():
+            return Emptiness(not_empty=text, empty=SKIPPED)
+        return Emptiness(not_empty=SKIPPED, empty=text)
 ```
 
-### Extension resolver
+**A value the node routes without reading** is annotated `Any` instead of a type. An `Any` output requires the node to override `compute_outputs` so the outputs can be typed from what arrives — the standard library's `decision` gate is the example.
 
-Let host applications handle custom node types:
+### Types
+
+A `DType` is a real Python class, usually built on a builtin, declared with an `id` (the stable name the persisted graph and the frontend use) and a `title`:
 
 ```python
-class AppNodeResolver:
-    def is_known_type(self, node_type: str) -> bool:
-        return node_type.startswith("app:")
+from conductor import DType
 
-    def create_executor(self, node_type: str):
-        return MyAppNodeExecutor(node_type)
+class Text(DType, str):
+    id = "text"
+    title = "Text"
 
-compiled = compile(nodes, edges, registry, extension_resolver=AppNodeResolver())
+class Number(DType, float):
+    id = "number"
+    title = "Number"
 ```
 
-### Shared references
+`Text("hello")` is both a `str` and a `Text`; a pydantic model with a `Text` field gives back a `Text`. A type answers one question about wiring — `target.accepts(source)`: may a value of type `source` land on an input declared as `target`? The default is `issubclass`, so a subtype is accepted wherever its parent is. A `DType` does not convert values, does not pick a widget and does not format itself beyond `as_text`. `registered_dtypes()` lists every type declared so far; `describe()` on a type is its JSON-ready record.
 
-An alternative to explicit edges for two cases they handle awkwardly: **fan-out** (one producer feeding many consumers) and **cross-region binding** (feeding a value into a for-each body from outside the loop). Every shared reference is opt-in per node *instance*; no changes to the node function are required.
+`Series[X]` is the one collection: many values of one type on an `Index`, which says where the rows came from. Two series align when they share an index, never by length. `Series[Series[X]]` does not exist.
 
-A producer marks an output as shared. Any other node — anywhere in the graph, including inside a for-each body — can bind one of its inputs to that output. Reference identity is `(producer_node_id, output_handle)`; the label is for UI only.
+### Versions
+
+Several versions live in one class as methods marked `@version(n)`; the current one is the method named `run`. Each version has its own signature and `Policy`. `@upgrade(1, 2)` marks the function that rewrites values saved against version 1 into what version 2 expects; `@deprecated` marks a class or a version as going away, optionally naming an `alternative`:
 
 ```python
-compiled = compile(
-    nodes=[
-        GraphNode("mapper", "build-map@1", {"seed": "x"},
-                  produces={"result": "pseudonym map"}),
-        GraphNode("redactor", "redact@1", {"text": "Alice met Bob."},
-                  consumes={"mapping": ("mapper", "result")}),
-    ],
-    edges=[],           # no edge needed
-    registry=registry,
-)
-results = execute_sync(compiled)
-print(results["redactor"]["result"])   # "P001-x met P002-x."
+from conductor import Policy, deprecated, upgrade, version
+
+class Greet(NodeDefinition):
+    id = "greet"
+    title = "Greet"
+    description = "Greets a person"
+    category = "text"
+
+    @version(1)
+    @deprecated(header="Use version 2", migration="The name is now first and last")
+    def run_v1(self, name: Annotated[Text, TextWidget(title="Name")]) -> Annotated[Text, Result(title="Greeting")]:
+        return Text(f"Hi, {name}!")
+
+    @version(2, policy=Policy(retries=2, delay=0.5))
+    def run(
+        self,
+        first: Annotated[Text, TextWidget(title="First name")],
+        last: Annotated[Text, TextWidget(title="Last name")],
+    ) -> Annotated[Text, Result(title="Greeting")]:
+        return Text(f"Hi, {first} {last}!")
+
+    @upgrade(1, 2)
+    def _split_name(values: dict) -> dict:
+        first, _, last = values["name"].partition(" ")
+        return {**values, "first": first, "last": last}
 ```
 
-**Inside a for-each loop** a consumer reads the same producer value on every iteration (broadcast, not per-iteration). This is how you inject a system prompt defined once at the top of a flow into an LLM node inside a loop over 1,000 records.
+A registered node numbers its versions from 1 with no holes; a placement pins any version up to the current one. `Policy` carries `retries`, `delay`, `timeout` (seconds) and `concurrency`.
 
-Validated at compile time: the producer must declare the handle in `produces`, the consumer's input handle must exist, an input cannot be both a consume target and the target of an explicit edge, and cycles through consume bindings are caught alongside edge cycles. Type checking uses the same rules as edges.
+### The registry
 
-In v1, **producers must be top-level** (cannot sit inside a for-each or other compound region). Consumers can be anywhere.
+`NodeRegistry` maps a node id to the class itself — one entry per id, not per version:
 
-Resolver precedence, first match wins:
+```python
+registry.register(Greet)
+registry.get("greet")                      # the class, or None
+registry.contains("greet")                 # True
+registry.definitions()                     # every class, in registration order
+Greet.versions[2].interface.inputs         # the Input records of version 2
+Greet.describe()                           # the palette entry, derived on demand
+registry.upgrade_path("greet", 1, 2)       # the @upgrade function, or None
+```
 
-1. Explicit edge targeting the input
-2. Consume binding (shared reference)
-3. Static data on the node (`GraphNode.data`)
-4. Widget default (Pydantic)
+`describe()` is the one serialisation of a node: a `NodeDescription` with its versions, fields, policy and deprecation notice, dumped through pydantic when a palette needs JSON. Nothing is stored, so a description is always derived from the live declaration.
 
-Full design and rules: [`docs/shared-references.md`](docs/shared-references.md). Walkthrough: `examples/07_shared_references.ipynb`.
+**Auto-discovery** imports every module in a package so the registrations in them run:
+
+```python
+from conductor.registry.discovery import discover_nodes
+
+discover_nodes("myapp.nodes", registry)    # returns how many definitions were added
+```
+
+### Roster hooks
+
+Two optional methods let a node say what one *placement* of it has, when that depends on configuration:
+
+```python
+def compute_inputs(self, declared, values) -> tuple[Input, ...]: ...
+def compute_outputs(self, declared, values, arriving) -> tuple[Output, ...]: ...
+```
+
+`declared` is the pinned version's declaration, `values` what the author typed, `arriving` the type on each wired input where the compiler has recorded one. The default returns `declared`. The compiler asks a fresh instance once per placement and stores the answers on `CompiledGraph.node_inputs` / `node_outputs`. Nothing is checked here: a hook that returns the wrong shape is a node bug and raises where it is found.
+
+### Provided parameters
+
+A parameter marked `Provided()` is not an input — no widget, no handle — but a value the host supplies by type when it runs the flow:
+
+```python
+from conductor import Provided
+
+def run(self, text: Annotated[Text, Textarea(title="Text")], who: Annotated[Identity, Provided()]) -> ...:
+```
+
+`Interface.needs` lists such parameters by name so a host knows what a flow requires before starting it.
 
 ### Eager parallel execution
 
-The engine schedules nodes eagerly: as soon as all of a node's dependencies finish, its task is dispatched. Independent branches run concurrently without any configuration. Sync node functions are offloaded to `asyncio.to_thread`, so they don't block the event loop.
+The engine schedules nodes eagerly: as soon as all of a node's dependencies finish, its task is dispatched. Independent branches run concurrently without any configuration. Sync `run` methods are offloaded to `asyncio.to_thread`, so they don't block the event loop.
 
 ```
   A (0.3s) ──> C (0.3s) ──┐
@@ -334,264 +360,104 @@ The engine schedules nodes eagerly: as soon as all of a node's dependencies fini
   B (0.3s) ──> D (0.3s) ──┘
 ```
 
-Sequential would be 5 × 0.3 s = 1.5 s. Eager execution: `A + B` in parallel (0.3 s), `C + D` in parallel (0.3 s), `E` (0.3 s) = ~0.9 s.
-
-No flag is needed — this is the default and only execution mode.
+Sequential would be 5 × 0.3 s = 1.5 s. Eager execution: `A + B` in parallel (0.3 s), `C + D` in parallel (0.3 s), `E` (0.3 s) = ~0.9 s. This is the default and only execution mode.
 
 ### Retry
 
-Nodes can retry automatically on failure. Configure retries at the **node level** (preferred) or the **flow level**:
+Retries belong to the version, on its `Policy`; a run-level `RetryConfig` applies to every node whose policy sets none:
 
 ```python
+from conductor import Policy, version
 from conductor.execution.retry import RetryConfig
 
-# Node-level — wins over any global config
-@registry.node("fetch-url", version=1, name="Fetch", description="HTTP GET",
-               max_retries=3, retry_delay=0.5)
-def fetch_url(url: Annotated[str, Text(label="URL")]) -> Annotated[str, Output(label="Body")]:
-    resp = requests.get(url, timeout=10)
-    resp.raise_for_status()
-    return resp.text
+class FetchUrl(NodeDefinition):
+    id = "fetch-url"
+    title = "Fetch"
+    description = "HTTP GET"
+    category = "http"
 
-# Or flow-level — applies to every node that doesn't set its own max_retries
-results = execute_sync(
-    compiled,
-    retry=RetryConfig(max_retries=2, delay=1.0, backoff_factor=2.0),
-)
+    @version(1, policy=Policy(retries=3, delay=0.5))
+    def run(self, url: Annotated[Text, TextWidget(title="URL")]) -> Annotated[Text, Result(title="Body")]:
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        return Text(resp.text)
+
+results = execute_sync(compiled, retry=RetryConfig(max_retries=2, delay=1.0, backoff_factor=2.0))
 ```
 
-Delay between attempts is `retry_delay * backoff_factor ** (attempt - 1)` — e.g., `1s, 2s, 4s, ...` with defaults. Node-level retry uses a backoff factor of 2.0.
-
-**What gets retried:**
-- `NodeExecutionError` (anything raised from a node function)
-- `NodeConnectionError` (raise this from nodes for transient network/API failures)
-
-**What never gets retried:**
-- `NodeValidationError` — pydantic rejected the inputs; retrying with the same inputs is pointless
-- `HumanInputRequired` — pauses immediately
-
-Each retry emits a `node_retry` streaming event with `{attempt, max_retries, error, delay}`.
-
-```python
-async for event in execute(compiled, retry=RetryConfig(max_retries=2, delay=0.5)):
-    if event["type"] == "node_retry":
-        print(f"Retrying {event['node_id']} in {event['delay']}s — {event['error']}")
-```
+Delay between attempts is `delay * backoff_factor ** (attempt - 1)`. `NodeExecutionError` and `NodeConnectionError` are retried; `NodeValidationError` never is — pydantic rejected the inputs, and retrying with the same inputs is pointless. Each retry emits a `node_retry` event with `{attempt, max_retries, error, delay}`. `Policy(timeout=...)` bounds one attempt and raises `NodeTimeoutError` on expiry.
 
 ### Error types
 
-All exceptions inherit from `ConductorError` and are importable from `conductor.errors`. Node-level errors carry `node_id`, `node_type`, and the `original` exception so they propagate with enough context to log, display, or route to an error handler.
+All exceptions inherit from `ConductorError` and are importable from `conductor.errors`. Node-level errors carry `node_id`, `node_type` and the `original` exception:
 
 ```
 ConductorError                     # Base — catch-all for any engine error
 ├── CompilationError                # Graph structure is invalid
-│   ├── CycleDetectionError         # Graph contains a cycle
-│   └── TypeCheckError              # Edge type mismatch (strict mode)
+│   └── CycleDetectionError         # Graph contains a cycle
 ├── NodeError                       # Something went wrong with a specific node
-│   ├── NodeValidationError         # Input validation failed (Pydantic) — never retried
-│   ├── NodeExecutionError          # Node function raised — retried if configured
-│   ├── NodeTimeoutError            # Node exceeded its timeout
+│   ├── NodeValidationError         # Input validation failed (pydantic) — never retried
+│   ├── NodeExecutionError          # run() raised — retried if the policy says so
+│   ├── NodeTimeoutError            # Node exceeded its policy's timeout
 │   └── NodeConnectionError         # External service / network failure inside a node
 ├── InputResolutionError            # Could not resolve inputs from edges
-├── FlowExecutionError              # Flow-level failure (raised by execute_sync)
-├── FlowPausedError                 # Flow paused for human input (carries checkpoint)
-└── HumanInputRequired              # Signal raised by nodes to request human input
+└── FlowExecutionError              # Flow-level failure (raised by execute_sync)
 ```
 
-Use `NodeConnectionError` from your node code to mark a failure as transient and retry-worthy:
+Raise `NodeConnectionError` from `run` to mark a failure as transient and retry-worthy.
+
+### Shared references
+
+A placement can bind one of its inputs to another placement's output without an edge. A producer marks an output as shared in `produces`; a consumer names it in `consumes`. Reference identity is `(producer node id, output name)`; the label is for the UI only:
 
 ```python
-from conductor.errors import NodeConnectionError
-
-@registry.node("fetch-api", version=1, name="Fetch", description="HTTP GET",
-               max_retries=3, retry_delay=1.0)
-def fetch_api(url: Annotated[str, Text(label="URL")]) -> Annotated[str, Output(label="Body")]:
-    try:
-        resp = requests.get(url, timeout=10)
-        resp.raise_for_status()
-        return resp.text
-    except requests.RequestException as e:
-        raise NodeConnectionError(f"API call failed: {e}") from e
+compiled = compile(
+    nodes=[
+        GraphNode("mapper", "build-map", 1, {"seed": "x"}, produces={"result": "pseudonym map"}),
+        GraphNode("redactor", "redact", 1, {"text": "Alice met Bob."}, consumes={"mapping": ("mapper", "result")}),
+    ],
+    edges=[],
+    registry=registry,
+)
 ```
 
-Legacy aliases (`NodeValidationException`, `NodeExecutionException`, `FlowExecutionException`, `FlowPausedException`) remain importable from `conductor.errors` and map to the new `*Error` names.
+Resolver precedence, first match wins: an edge into the input, a consume binding, static data on the placement (`GraphNode.data`), the parameter's default.
 
-### Human-in-the-loop
+### Compensation
 
-Nodes can pause execution to request human input. The engine checkpoints state (JSON-serializable), and execution resumes later with the human's response:
+A placement may name the node that undoes its work: `GraphNode(..., compensation="refund")`. When the flow fails, the engine walks the completed nodes in reverse order and runs each one's compensation with the original inputs and output, emitting `compensation_start` / `compensation_complete` / `compensation_failed`. A placement's `on_error` (`"fail"`, `"continue"`, `"compensate"`) decides what its own failure triggers.
 
-```python
-from conductor.errors import HumanInputRequired, FlowPausedException
-from conductor.execution.engine import execute_sync, resume_sync
+### YAML / JSON flow format
 
-# A node that needs approval
-@registry.node("approve", version=1, name="Approval", description="Needs approval")
-def approve(text: Annotated[str, Text(label="Content")]) -> Annotated[str, Output(label="Approved")]:
-    raise HumanInputRequired(
-        prompt=f"Please approve: {text}",
-        schema={"approved": "bool", "comment": "str"},
-    )
-
-# Execute — pauses at the approval node
-try:
-    results = execute_sync(compiled)
-except FlowPausedException as e:
-    checkpoint = e.checkpoint  # JSON-serializable dict, store in DB
-
-# Resume later with the human's response
-results = resume_sync(compiled, checkpoint, response="Approved!")
-```
-
-Key features:
-- Checkpoints are plain dicts — serialize to JSON, store in a database, resume hours/days later
-- FlowStore data survives the checkpoint/resume cycle
-- A flow can pause multiple times (sequential approval gates)
-- Works with both streaming (`flow_paused` event) and sync (`FlowPausedException`) APIs
-- Both function-based and class-based nodes can raise `HumanInputRequired`
-
-### Process-standard features
-
-Conductor ships a full set of process-orchestration primitives designed for
-portable "process-as-code":
-
-**Decision nodes + edge guards** — first-class branching driven by CEL
-expressions on outgoing edges. Compile-time validation: exactly one else
-edge, ≥1 guarded edge. Priority-ordered evaluation; non-taken edges are
-marked skipped so the SKIPPED sentinel propagates through normally.
-
-```python
-@registry.node("decision", ..., is_decision=True)
-def decision(value): return value
-
-GraphEdge("e1", "d", "high", "result", None, when="amount > 1000", priority=10),
-GraphEdge("e2", "d", "low",  "result", None),  # else
-```
-
-**CEL expression language** — sandboxed mini-evaluator (`conductor.expr`)
-for guards, loop conditions, idempotency keys, signal correlation, and
-subprocess input mapping. Literals, arithmetic/comparison/logical ops,
-ternary, `in`, dotted/indexed identifiers, `$` root, built-in functions
-(`size`, `has`, `contains`, `startsWith`, `matches`, `string`/`int`/`double`,
-etc.).
-
-**Actor metadata** — `@registry.node(actor={"kind": "human", "role": "manager"})`.
-Kinds: `system`, `human`, `agent`, `external_service`. Pure metadata;
-surfaces in the registry JSON schema for UI rendering and audit trails.
-
-**Per-node timeout and idempotency key** — `timeout=0.2` (seconds) or
-`timeout="PT30S"` (ISO 8601) wraps execution with `asyncio.wait_for`.
-`idempotency_key='"charge-" + string(amount)'` evaluates a CEL expression
-against the node's inputs, surfaces the result on `node_start`, and
-injects it into the function if it declares an `idempotency_key`
-parameter. Stable across retries.
-
-**While / until compound region** — CEL-driven loops, with a
-`max_iterations` safety cap that raises `LoopRunawayError`. Register the
-`while-start` / `while-end` markers and pass `compound_types=[WHILE]` to
-`compile()`. `negate=True` turns while into until.
-
-**Subprocess compound** — call another flow by `(flow_id, version)`.
-Register target flows in a `SubprocessRegistry` and pass it to
-`compile(subprocess_registry=...)`. Runtime depth cap catches recursion;
-errors bubble as `SubprocessFailedError`.
-
-**Compensation / saga** — per-node `compensation=` points at another
-node. On flow failure the engine walks completed nodes in reverse and
-dispatches each one's compensation with
-`(target_node_id, original_inputs, original_output)`. Events:
-`compensation_start/_complete/_failed`. Per-node `on_error` policy
-(`fail` / `continue` / `compensate`) controls triggering.
-
-**Signal / event nodes** — nodes raise
-`SignalRequired(name, correlation=..., timeout_seconds=...)` to pause on
-an external event, mirroring HITL. Host uses
-`FlowCheckpoint.matches_signal(name, payload)` to route incoming
-signals; correlation is evaluated as CEL on the host side.
-
-**Flow-level metadata** — `Flow(dependencies=..., triggers=...,
-on_error_default=...)`. Node `uses=[...]` lists are validated against
-`dependencies`; `triggers` are stored for hosts to wire external
-machinery (cron, webhook, queue consumer).
-
-**YAML / JSON flow format** — `conductor.flow_format` round-trips `Flow`
-↔ YAML/JSON/dict. `load_flow(dict)`, `yaml_to_flow(str)`,
-`load_flow_from_path(path)`, `flow_to_yaml(flow)`. Optional PyYAML
-dependency (`conductor[yaml]`).
-
-See [`spec.md`](spec.md) for the design motivation and
-[`PROGRESS.md`](PROGRESS.md) for the full feature-by-feature implementation
-log.
-
-### Custom data types
-
-Define custom types using `NewType` — at runtime they're their base type, but the type string surfaces in the frontend JSON schema:
-
-```python
-from typing import NewType, TypedDict
-
-# Simple alias — shows as "base64str" in the schema
-Base64Str = NewType("Base64Str", str)
-
-# Structured type
-class NamedFile(TypedDict):
-    content: str   # Base64-encoded
-    filename: str
-
-# Use in node signatures
-@registry.node("upload", version=1, name="Upload", description="Accepts a file")
-def upload(file: Annotated[Base64Str, FileUpload(label="File")]) -> ...:
-    ...
-```
-
-Built-in types: `Base64Str`, `Date`, `NamedFile`, `MultiNamedFile`. Host apps can define additional types following the same pattern.
+`conductor.flow_format` round-trips a `Flow` (nodes, edges, id, version, name, description) to and from a dict, YAML or a file: `load_flow`, `flow_to_dict`, `yaml_to_flow`, `flow_to_yaml`, `load_flow_from_path`, `dump_flow`. Requires PyYAML (`syv-conductor[yaml]`).
 
 ## Widgets
 
-Widgets define how inputs render in the frontend and what validation to apply. Every `WidgetType` enum value has a concrete Python class so a generic frontend can render by reading the registry — no bespoke backend code per widget.
+A widget is the control an input is edited with, plus what that control needs. Every widget is a frozen, keyword-only record with a `kind` discriminator; `AnyWidget` is the union of all of them, so pydantic dumps a widget and publishes a JSON schema per kind. `title`, `description` and `show_handle` are written on the widget but belong to the field: `Interface.of` copies them onto the `Input`.
 
 | Widget | Best for | Key options |
 |--------|----------|-------------|
 | `Text` | Single-line string | `min_length`, `max_length`, `pattern` |
 | `Textarea` | Multi-line string | `rows`, `min_length`, `max_length` |
-| `TemplateTextarea` | String with interpolation hints | `variables`, `rows` |
-| `CodeEditor` | Code blob with syntax highlighting | `language`, `min_length`, `max_length` |
-| `Dropdown` | Pick one from a fixed set | `choices` |
-| `DependentDropdown` | Choices depend on another field | `depends_on`, `choices_map` |
-| `Multiselect` | Pick many from a fixed set | `choices`, `min_selected`, `max_selected` |
-| `EntityDropdown` | Host-loaded async choices | `entity_kind`, `multiple` |
-| `Number` | Free numeric input | `min_val`, `max_val`, `step`, `integer_only` |
-| `Range` | Numeric slider | `min_val`, `max_val`, `step` |
-| `Checkbox` | Boolean toggle | — |
-| `Switch` | Boolean toggle (sibling of Checkbox) | — |
-| `DatePicker` | ISO date input | `min_date`, `max_date` |
-| `FileUpload` | Base64 file | `accept`, `max_size_mb`, `multiple` |
-| `List` | User-authored array | `item_widget`, `min_items`, `max_items` |
-| `SchemaBuilder` | Structured dict / object editor | `schema`, `allow_additional` |
-| `IfElseBuilder` | Conditional expression editor | `variables` |
-| `ConnectionList` | Aggregates N upstream edges into a labeled dict | — |
-| `Output` | Return-value marker | `download`, `filename` |
+| `TemplateTextarea` | Text with placeholders, each an input | `rows` |
+| `CodeEditor` | Source a person writes | `language`, `min_length`, `max_length` |
+| `Dropdown` | Pick one of a declared vocabulary of `Choice`s | `choices` |
+| `EntityDropdown` | Choices the host resolves | `entity_kind`, `multiple` |
+| `Number` | A number typed in | `min_val`, `max_val`, `step`, `integer_only` |
+| `Range` | A number on a slider | `min_val`, `max_val`, `step` |
+| `Switch` | A boolean | — |
+| `DatePicker` | A date from a calendar | `min_date`, `max_date`, `seed` |
+| `FileUpload` | Files a person uploads | `accept`, `max_size_mb`, `multiple` |
+| `List` | A list of values typed by hand | `min_items`, `max_items` |
+| `Tags` | Free-form labels | — |
+| `TableInput` | A table typed or pasted in | `min_rows`, `min_columns`, `column_types` |
+| `SchemaBuilder` | A schema built field by field | `schema`, `allow_additional`, `field_types` |
+| `IfElseBuilder` | Conditions built from the host's operators | `operators` |
+| `ConnectionList` | Edited by wiring only — a `Series[X]` or `Any` input | — |
 
-### Widgets for common types — the default mapping
+Conductor ships no default widget for any type: `Text` may be a textarea, a single line or a dropdown, so every input declares its own. An input closes itself to cables with `show_handle=False` on its widget, and may then declare any pydantic-validatable type. The set of controls is closed — `AnyWidget` is built from the subclasses in `widgets.py`, and a new control is a change there, since the component that renders each `kind` has to exist in the host's frontend anyway.
 
-When a parameter has no `Annotated[T, Widget(...)]` (or has `Annotated[T, ...]` without a widget instance), the registry infers a sensible default widget from the type:
-
-| Python type | Default widget |
-|---|---|
-| `str` | `Text` |
-| `int` | `Number(integer_only=True)` |
-| `float` | `Number` |
-| `bool` | `Checkbox` |
-| `Date` | `DatePicker` |
-| `Base64Str`, `NamedFile`, `MultiNamedFile` | `FileUpload` |
-| `list[str]` | `List(item_widget=Text())` |
-| `list[int]` | `List(item_widget=Number(integer_only=True))` |
-| `list[T]` (bare or other) | `List` (no `item_widget`) |
-| `dict`, `dict[str, T]` | `SchemaBuilder` |
-| anything else | no widget (rare — annotate one explicitly) |
-
-Explicit `Annotated[T, Widget(...)]` always wins. So `def f(x: int)` gets `Number`, but `def f(x: Annotated[int, Range(min_val=0, max_val=100)])` still gets `Range`. Use defaults for plain "just a field"; annotate when you want constraints, a different widget, or a human-friendly label.
-
-**Full widget guide:** [`docs/widgets.md`](docs/widgets.md) — catalog, the default dispatch, and a four-step recipe for adding a new widget. Hands-on tour: [`examples/08_widgets.ipynb`](examples/08_widgets.ipynb).
+**Full widget guide:** [`docs/widgets.md`](docs/widgets.md). Hands-on tour: [`examples/08_widgets.ipynb`](examples/08_widgets.ipynb).
 
 ## Execution events
 
@@ -604,102 +470,81 @@ The `execute()` async generator yields these events:
 | `node_skipped` | Node skipped (all inputs SKIPPED) |
 | `node_error` | Node raised an unretryable (or final) exception |
 | `node_retry` | Node failed and will be retried (includes attempt, max_retries, error, delay) |
-| `node_progress` | Loop iteration progress |
+| `runtime_warning` | The engine noticed something worth surfacing without failing |
+| `compensation_start` / `compensation_complete` / `compensation_failed` | The compensation cascade after a failure |
 | `flow_complete` | All nodes done (includes all results) |
-| `flow_paused` | Node requested human input (includes checkpoint) |
 | `flow_error` | Unrecoverable error |
-| `flow_timeout` | Execution exceeded timeout |
+| `flow_timeout` | Execution exceeded `timeout_seconds` |
 | `flow_cancelled` | Execution was cancelled |
 
 ## Using in other projects
 
 ### AI context (llms.txt)
 
-The canonical AI-readable library reference lives inside the package at `packages/conductor/src/conductor/about/llms.txt`. It ships as package data in the wheel, so any project that depends on `conductor` can pull it at runtime with no repo access — preferred for downstream projects:
+An AI-readable library reference lives inside the package at `packages/conductor/src/conductor/about/llms.txt` and ships as package data in the wheel:
 
 ```bash
 python -m conductor.about                 # full reference
 python -m conductor.about sections        # list section slugs
-python -m conductor.about shared          # just the shared-references section (prefix match)
+python -m conductor.about retry           # one section (prefix match)
 ```
-
-Useful when an agent in a downstream project needs to learn the library without you having to paste docs into its context.
 
 ### Keeping docs in sync
 
-Two channels guard against doc drift:
-
-- **`/docs-audit` Claude Code slash command** — run it at the end of a session that added public API or changed default behavior. It diffs the last N commits against `CLAUDE.md`, `README.md`, `packages/conductor/src/conductor/about/llms.txt`, `docs/shared-references.md`, and `docs/index.md`, and applies edits in place. Does not commit; you review the diff.
+- **`/docs-audit` Claude Code slash command** — run it at the end of a session that added public API or changed default behaviour. It diffs the last N commits against `CLAUDE.md`, `README.md`, `llms.txt` and `docs/index.md`, and applies edits in place. Does not commit; you review the diff.
 - **Weekly CI audit** — `.github/workflows/docs-audit.yml` runs the same audit every Monday and opens a PR if anything drifted. Requires `ANTHROPIC_API_KEY` as a repo secret.
 
 ### Documentation
 
-For full documentation, we recommend [MkDocs Material](https://squidfunk.github.io/mkdocs-material/). To set it up:
+For full documentation, we recommend [MkDocs Material](https://squidfunk.github.io/mkdocs-material/):
 
 ```bash
 uv add --group docs mkdocs-material mkdocstrings[python]
-uv run mkdocs serve  # Local preview at http://localhost:8000
+uv run mkdocs serve      # Local preview at http://localhost:8000
 uv run mkdocs gh-deploy  # Deploy to GitHub Pages
 ```
 
 ## Standard node library (`conductor-nodes`)
 
-A workspace sibling to `conductor` that ships common nodes so downstream flows don't have to re-author them. Distributed on PyPI as `syv-conductor-nodes`; the Python import path is `conductor_nodes`. Pick categories you want:
+A workspace sibling to `conductor` that ships common nodes so downstream flows don't have to re-author them. Distributed on PyPI as `syv-conductor-nodes`; the Python import path is `conductor_nodes`. Pick the categories you want:
 
 ```python
 from conductor import NodeRegistry
-from conductor_nodes import register_all, text, math
+from conductor_nodes import register_all, get_default_registry, text, math
 
 reg = NodeRegistry()
 register_all(reg)                                   # everything
 register_all(reg, categories=["text", "math"])      # a subset
-# or per-module:
-text.register(reg)
-math.register(reg)
+text.register(reg)                                  # or per module
+reg = get_default_registry()                        # a fresh registry holding everything
 ```
 
-Alternatively, grab a pre-populated registry and merge it into yours — useful when composing multiple sources:
+The library declares the four types its nodes take in `conductor_nodes.types` — `Text`, `Number`, `Flag`, `Json` — because a node library has to say what its nodes take, and conductor itself ships no vocabulary. A host with its own vocabulary declares its own types and does not need these.
 
-```python
-from conductor_nodes import get_default_registry
-
-mine = NodeRegistry()
-# ... register your own nodes ...
-mine.merge(get_default_registry())              # raises on full-id collisions
-mine.merge(other_registry, on_conflict="skip")  # or tolerate existing wins
-```
-
-Categories and highlights:
-
-| Module | Node IDs |
+| Module | Node ids |
 |---|---|
 | `text` | `text-uppercase`, `text-lowercase`, `text-trim`, `text-length`, `text-concat`, `text-replace`, `text-contains`, `text-split`, `text-join`, `text-reverse` |
 | `math` | `math-add`, `math-subtract`, `math-multiply`, `math-divide`, `math-modulo`, `math-round`, `math-min`, `math-max`, `math-abs` |
-| `logic` | `logic-if-empty`, `logic-if-equals`, `logic-not` (branch via SKIPPED sentinel) |
-| `loop` | `for-each-start`, `for-each-end` — canonical markers for the `FOR_EACH` compound |
+| `logic` | `logic-if-empty`, `logic-if-equals`, `logic-not` (the two `if` nodes branch via `SKIPPED`) |
 | `json_ops` | `json-parse`, `json-stringify`, `json-get` (dotted path) |
 | `regex_ops` | `regex-match`, `regex-replace`, `regex-extract` |
+| `decision` | `decision` — routes any value to one of two branches on a wired-in `Flag` |
 
-Node IDs are category-prefixed to avoid colliding with application-level IDs. Registering twice with the same ID raises — pick one source.
+Node ids are category-prefixed to avoid colliding with application-level ids. Registering two different classes under one id raises.
 
 ## Frontend providers (`conductor-providers`)
 
-Framework adapters. Each provider is a subpackage translating between conductor's Python objects and the framework's wire format. Distributed on PyPI as `syv-conductor-providers`; the Python import path is `conductor_providers`. The initial provider is `conductor_providers.react`:
+Framework adapters. Each provider is a subpackage translating between conductor's Python objects and the framework's wire format. Distributed on PyPI as `syv-conductor-providers`; the Python import path is `conductor_providers`.
 
 ```python
 from conductor_providers import react
 
-# Registry → node palette JSON for a sidebar
-palette = react.palette_from_registry(registry)
-
-# GraphNode/GraphEdge → ReactFlow JSON (positions auto-assigned if omitted)
-flow_json = react.graph_to_react(nodes, edges)
-
-# ReactFlow JSON → GraphNode/GraphEdge (tuples restored from JSON lists)
-nodes2, edges2 = react.react_to_graph(flow_json)
+palette = react.palette_from_registry(registry)   # [cls.describe() for every definition]
+flow_json = react.graph_to_react(nodes, edges)    # GraphNode/GraphEdge → ReactFlow JSON (positions auto-assigned if omitted)
+nodes2, edges2 = react.react_to_graph(flow_json)  # ReactFlow JSON → GraphNode/GraphEdge
 ```
 
-Shared references survive the round-trip: `produces` and `consumes` ride on each node's `data` payload and come back as the same dicts. Unknown keys in the wire format are ignored, so hosts can decorate without breaking compatibility.
+`conductor_providers.fastapi.conductor_router(registry)` returns an APIRouter with `GET /nodes` (the palette), `POST /compile`, `POST /execute`, `POST /execute-stream` (server-sent events) and `GET /entities/{kind}` for `EntityDropdown` choices.
 
 New providers (Svelte, Vue, Gradio, …) go in sibling subpackages under `conductor_providers.` — no abstract base class to satisfy; each provider picks the shape that matches its framework.
 
@@ -709,14 +554,11 @@ The examples are Jupyter notebooks under `examples/` — open them in VS Code, J
 
 | Notebook | What it covers |
 |----------|---------------|
-| `01_basic_nodes.ipynb` | Widgets, multi-output, optional params |
-| `02_build_and_run_flow.ipynb` | Graph building, collecting results, streaming |
-| `03_class_nodes_and_store.ipynb` | BaseNode ABC, FlowStore injection |
-| `04_control_flow.ipynb` | Conditionals (SKIPPED), for-each loops |
-| `05_auto_discovery.ipynb` | Package scanning, JSON schema for frontends |
-| `06_human_in_the_loop.ipynb` | Pause, checkpoint, resume |
-| `07_shared_references.ipynb` | Producers, consumers, fan-out, broadcast into loop bodies |
-| `08_widgets.ipynb` | Type defaults, every widget, inspecting the schema, writing a custom widget |
+| `01_basic_nodes.ipynb` | Declaring nodes: widgets, defaults, multi-output records, inspecting a registry |
+| `02_build_and_run_flow.ipynb` | Placements and edges, collecting results, streaming events |
+| `03_class_nodes_and_store.ipynb` | A node with its own methods; `Provided` parameters |
+| `05_auto_discovery.ipynb` | Package scanning, versions and deprecation, the palette as JSON |
+| `08_widgets.ipynb` | Every control, inspecting a widget's schema |
 
 ```bash
 uv sync                       # includes the ipykernel used by the notebooks
@@ -727,67 +569,22 @@ The notebooks use `await collect(execute(compiled))` because the kernel already 
 
 ## Stability and versioning
 
-From `1.0.0` onward, conductor follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-This is the contract host applications can rely on:
+From `1.0.0` onward, conductor follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). This is the contract host applications can rely on:
 
-**Public API.** A name is part of the public API if and only if it is listed
-in a module's `__all__`, or it is documented in this README / `docs/`.
-Anything else — private helpers, `_`-prefixed names, modules not re-exported
-from a public surface — is internal and may change in any release without
-warning. The audited public surface lives in:
+**Public API.** A name is part of the public API if it is exported from a package's `__init__` or documented in this README / `docs/`. Anything else — `_`-prefixed names, modules not re-exported from a public surface — is internal and may change in any release without warning. The public surface:
 
-- Top-level: `conductor.__init__` (incl. `resolve_graph_outputs` — the
-  ahead-of-compile dynamic-output resolution; import it from `conductor`,
-  not from its internal home), `resolve_graph_inputs` (the input-side
-  counterpart, likewise imported from `conductor`)
-- Widgets / metadata / types: `conductor.widgets`, `conductor.metadata`,
-  `conductor.types`
-- Errors: `conductor.errors`
-- Registry: `conductor.registry` (`NodeRegistry`, `NodeDefinition`, `Actor`),
-  `conductor.registry.dynamic_outputs` (`ComputeOutputsContext`,
-  `IncomingBinding`, `ComputeOutputsFn`, `strip_sub_output_prefix`)
-  and `conductor.registry.dynamic_inputs` (`ComputeInputsContext`,
-  `ComputeInputsFn`)
-- Graph: `conductor.graph.compiler` (`compile`, `CompiledGraph`,
-  `ExtensionResolver`, `DecisionGuard`)
-- Compound nodes: `conductor.compound` (`ForEachNode`, `WhileNode`,
-  `SubprocessNode`, the matching `*_TYPE` constants, plus `Region`,
-  `NodeExecutor`, `CompoundNodeType`)
-- Execution: `conductor.execution.engine` (`execute`, `execute_sync`,
-  `resume`, `resume_sync`, `collect`), `conductor.execution.events`
-  (the `*Event` `TypedDict`s, `ExecutionEvent`, `EventSink`),
-  `conductor.execution.results` (`normalize_result`, `extract_output`,
-  `filter_skipped`, `filter_all_skipped`, `project_outputs`, `OutputRef`),
-  `conductor.execution.state` (`FlowRunState`),
-  `conductor.execution.resolver` (`finalize_connection_labels`)
+- Top-level `conductor`: the node contract (`NodeDefinition`, `NodeVersion`, `GraphVersion`, `Policy`, `Deprecation`, `NodeDescription`, `version`, `upgrade`, `deprecated`, `Interface`, `Provided`, `Input`, `Output`, `AnyWidget`), the type vocabulary (`DType`, `DTypeRef`, `Single`, `dtype_of`, `registered_dtypes`, `Series`, `Index`, `Ref`, `Result`), the registry (`NodeRegistry`, `runner_for`), the graph (`GraphNode`, `GraphEdge`, `Flow`, `compile`, `CompiledGraph`, `resolve_graph_inputs`, `resolve_graph_outputs`), execution (`execute`, `execute_sync`, `RetryConfig`, `SKIPPED`) and the error classes
+- `conductor.widgets`, `conductor.metadata`, `conductor.errors`, `conductor.execution.events` (the `*Event` `TypedDict`s), `conductor.registry.discovery` (`discover_nodes`), `conductor.flow_format`
+- `conductor_nodes` (`register_all`, `get_default_registry`, the category modules, `conductor_nodes.types`) and `conductor_providers.react` / `conductor_providers.fastapi`
 
 **Compatibility guarantees from `1.0.0`.**
 
-- *No breaking changes without a major bump.* If a `1.x` release removes
-  a public name, changes a public signature in a way that breaks callers,
-  or alters documented behavior, the version that ships that change is
-  `2.0.0` (or later).
-- *Deprecation policy.* When a public name is scheduled for removal it
-  stays live for **at least one minor release** after deprecation, with a
-  `DeprecationWarning` raised at import or call time. The `CHANGELOG.md`
-  entry that introduces the deprecation lists the target removal version.
-- *Internal modules are fair game.* `conductor.expr.engine`,
-  `conductor.graph.topology`,
-  `conductor.graph.regions`, `conductor.graph.shared_refs`,
-  `conductor.graph.type_check`, `conductor.graph.dynamic_outputs`,
-  `conductor.validation`, `conductor._sentinel`, and any other module
-  not on the list above are internal. They may be renamed, restructured,
-  or removed in any release.
-- *The three workspace packages release in lockstep.*
-  `syv-conductor`, `syv-conductor-nodes`, `syv-conductor-providers`
-  share a single version. The `syv-conductor[nodes]` / `[providers]` /
-  `[all]` extras pin sibling packages with `==` to prevent resolver skew.
+- *No breaking changes without a major bump.* If a `1.x` release removes a public name, changes a public signature in a way that breaks callers, or alters documented behaviour, the version that ships that change is `2.0.0` (or later).
+- *Deprecation policy.* When a public name is scheduled for removal it stays live for **at least one minor release** after deprecation, with a `DeprecationWarning` raised at import or call time. The `CHANGELOG.md` entry that introduces the deprecation lists the target removal version.
+- *Internal modules are fair game.* Anything not listed above may be renamed, restructured or removed in any release.
+- *The three workspace packages release in lockstep.* `syv-conductor`, `syv-conductor-nodes`, `syv-conductor-providers` share a single version. The `syv-conductor[nodes]` / `[providers]` / `[all]` extras pin sibling packages with `==` to prevent resolver skew.
 
-**Pre-1.0 (`0.x`) iteration.** The `0.1.x` series was iterated freely
-without semver guarantees; consumers were advised to pin exact versions
-(`==0.1.6`, etc.). The `CHANGELOG.md` carries the full `0.1.0 → 0.1.7`
-history and flags any wart that is a candidate for a future major bump
-under "Future deprecation candidates".
+The `CHANGELOG.md` carries the full history, including the removals that lead up to the next major.
 
 ## License
 

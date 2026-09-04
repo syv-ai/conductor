@@ -188,7 +188,7 @@ No new state container is required. Published values already live in `state.resu
 
 ### 7.5 Node runtime contract
 
-Nodes are unaware of sharing. A producer returns its output normally — the runtime caches it in `state.results` just as it does today. A consumer receives the shared value in its normal `inputs[handle]` parameter. Neither the node function nor the `BaseNode` subclass sees anything new.
+Nodes are unaware of sharing. A producer returns its output normally — the runtime caches it in `state.results` just as it does today. A consumer receives the shared value in its normal `inputs[handle]` parameter. The node sees nothing new.
 
 ## 8. Compound region interaction
 
