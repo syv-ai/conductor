@@ -13,6 +13,58 @@ lockstep from this monorepo.
 
 ## [Unreleased]
 
+### Changed
+
+- **One node contract.** A node is a `NodeDefinition` subclass whose typed
+  `run` signature is its interface. Every handle parameter declares a `DType`
+  (or `Any`) and a widget; the return annotation declares the output — a
+  `DType` with a `Result` for one output, a frozen dataclass of them for
+  several (field names are the output names). Versions are `@version(n)`
+  methods on the class, each with a `Policy` (`retries`, `delay`, `timeout`,
+  `concurrency`); `@upgrade(a, b)` rewrites saved values; `@deprecated` retires
+  a node or a version. `NodeRegistry` holds classes by id; `describe()` is the
+  one serialisation of a node.
+- **A placement pins `type` and `version`** as two fields on `GraphNode`; the
+  `"id@version"` string is gone.
+- **`Series[X]` is the one collection.** A parameter declared `Series[X]`
+  receives the whole series; a series output is returned as a plain sequence
+  and lands on a fresh index. `list[T]` is not a wire type.
+- **Branching is a value.** A node returns `SKIPPED` on the branch it did not
+  take; outputs that are exclusive alternatives share a `choice`. The
+  `decision` node takes a wired-in `Flag` and routes an `Any` value; there is
+  no expression on an edge.
+- **Widgets are frozen records** with a `kind` discriminator; `title`,
+  `description` and `show_handle` on the widget belong to the field. There is
+  no default widget for any type.
+- **The standard library declares its own vocabulary**: `conductor_nodes.types`
+  ships `Text`, `Number`, `Flag`, `Json`, and `StdlibNode` pins each node's
+  `category` to the package's `Category` literal.
+- **The engine unpacks a record return by its declared outputs**, lands a
+  series output on a fresh root index, passes one series wire through whole,
+  hands `run` the validated dtype instances, and ends a node whose inputs
+  cannot be resolved with a `node_error` instead of hanging the run.
+
+### Removed
+
+- `@registry.node()`, `BaseNode`, `registry.register_class()`, `NodeCategory`,
+  `registry.include()`, `registry.merge()`, `registry.discover()`,
+  `get_latest()`, `all()`, `all_current()`, `is_deprecated()`,
+  `serialize_registry`, the flattened node record, `type_str`, `label=`, the
+  `Output` widget, `Checkbox`, `Multiselect`, `DependentDropdown`, `to_schema()`
+  and the type-to-default-widget table.
+- `dynamic_handles`, `is_decision`, `is_signal`, `actor`, `uses`,
+  `idempotency_key`, `max_retries=` / `retry_delay=` / `timeout=` on a
+  registration (a `Policy` on the version replaces the last three), CEL guards
+  on edges and compile-time type warnings.
+- The marker and signal nodes: `for-each-start`, `for-each-end`,
+  `while-start`, `while-end`, `subprocess-call`, `signal-wait`,
+  `signal-timer`, with `HumanReview`.
+- `control_operators`, its JSON mirror and `dump_operator_catalog` — an
+  application's operator vocabulary, moved to the application.
+- `Many[T]` / `Spread` — `Series[X]` is the collection.
+- The notebooks on control flow, human-in-the-loop and shared references; the
+  extraction design spec and the process-standard spec and progress log.
+
 ### Future deprecation candidates
 
 These shapes are part of the `1.0.0` public surface and are not deprecated, but
