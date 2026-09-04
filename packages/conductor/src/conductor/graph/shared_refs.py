@@ -32,8 +32,7 @@ def validate_and_build_consume_map(
 ) -> ConsumeMap:
     """Validate produces/consumes decorations and return the consume map.
 
-    Raises ``CompilationError`` on structural violations (§6.1, §6.2 of the
-    design).
+    Raises ``CompilationError`` on structural violations.
 
     ``node_outputs`` is the post-``compute_outputs`` map from the compiler.
     When provided, producer-handle existence is checked against the
@@ -47,7 +46,7 @@ def validate_and_build_consume_map(
 
 
 # ---------------------------------------------------------------------------
-# Producer validation (§6.1)
+# Producer validation
 # ---------------------------------------------------------------------------
 
 
@@ -62,12 +61,11 @@ def _validate_producers(
         if not node.produces:
             continue
 
-        # §6.1.1 — producers cannot sit inside compound regions in v1
+        # producers cannot sit inside compound regions in v1
         if node.id in managed_ids:
             raise CompilationError(
                 f"Node '{node.id}' cannot produce a shared reference from "
-                f"inside a compound region (v1 limitation — see "
-                f"docs/shared-references.md §8)"
+                f"inside a compound region"
             )
 
         node_def = registry.get(node.type)
@@ -82,7 +80,7 @@ def _validate_producers(
         )
 
         for output_handle in node.produces:
-            # §6.1.2 — output handle must exist on the node type
+            # output handle must exist on the node type
             if node_def is not None and not defer_handle_check:
                 # Prefer resolved (post-compute_outputs) handles when
                 # available so dynamic outputs participate in shared-ref
@@ -107,7 +105,7 @@ def _validate_producers(
 
 
 # ---------------------------------------------------------------------------
-# Consumer validation + map construction (§6.2)
+# Consumer validation + map construction
 # ---------------------------------------------------------------------------
 
 
@@ -134,7 +132,7 @@ def _validate_consumers_and_build_map(
         for input_handle, ref in node.consumes.items():
             producer_id, output_handle = ref
 
-            # §6.2.1.1 — producer must exist
+            # producer must exist
             producer_node = node_map.get(producer_id)
             if producer_node is None:
                 raise CompilationError(
@@ -142,7 +140,7 @@ def _validate_consumers_and_build_map(
                     f"'{producer_id}' (input '{input_handle}')"
                 )
 
-            # §6.2.1.2 — producer must explicitly publish this handle
+            # producer must explicitly publish this handle
             producer_published = producer_node.produces or {}
             if output_handle not in producer_published:
                 raise CompilationError(
@@ -151,7 +149,7 @@ def _validate_consumers_and_build_map(
                     f"Add '{output_handle}' to '{producer_id}'.produces."
                 )
 
-            # §6.2.1.3 — input handle must exist on the consumer's node type
+            # input handle must exist on the consumer's node type
             if node_def is not None:
                 # A ``compute_inputs`` hook can legitimately declare a handle
                 # the static signature has no name for, so prefer the
@@ -173,7 +171,7 @@ def _validate_consumers_and_build_map(
                         f"{sorted(known_inputs) or '(none)'}"
                     )
 
-            # §6.2.1.4 — cannot also be the target of an explicit edge
+            # cannot also be the target of an explicit edge
             if (node.id, input_handle) in edge_targets:
                 raise CompilationError(
                     f"Input '{node.id}.{input_handle}' is both consumed from "
