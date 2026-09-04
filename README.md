@@ -82,23 +82,6 @@ uv run pre-commit install   # strip notebook outputs on commit
 uv run pytest tests/ -v
 ```
 
-### Run the demo playground
-
-The demo is split into a FastAPI backend and a Next.js frontend — run them in two terminals.
-
-```bash
-# terminal 1 — backend (FastAPI, port 8765)
-uv sync --group demo
-uv run uvicorn demo.app:app --port 8765 --reload
-
-# terminal 2 — frontend (Next.js 15 + shadcn + @xyflow/react, port 3000)
-cd demo/web
-npm install
-npm run dev
-```
-
-Open http://localhost:3000 — drag nodes onto the canvas, connect them, and hit "Run". The frontend proxies `/api/*` to the backend via `next.config.ts`.
-
 ## Usage
 
 ### 1. Create a registry and register nodes
@@ -207,7 +190,6 @@ conductor/
 │   ├── conductor-nodes/            # Standard node library (text, math, logic, json, regex, loop)
 │   └── conductor-providers/        # Framework adapters — react today, more later
 ├── examples/                       # Usage notebooks (7 examples)
-├── demo/                           # Interactive playground (FastAPI + browser UI)
 ├── tests/                          # pytest test suite (430 tests across core, nodes, providers)
 ├── .github/workflows/              # ci.yml (PR lint + test), docs-audit.yml (weekly)
 └── docs/                           # Design specs + MkDocs site (llms.txt ships inside the package)

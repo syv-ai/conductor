@@ -89,7 +89,7 @@ jobs:
             - Only edit CLAUDE.md, README.md,
               packages/conductor/src/conductor/about/llms.txt,
               docs/shared-references.md, docs/index.md. No code, tests,
-              examples, or demo.
+              or examples.
             - Do not run `git commit` or `git push`; the workflow handles
               that outside this turn.
             - If a commit message describes something not present in the

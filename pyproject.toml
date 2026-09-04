@@ -40,7 +40,6 @@ dev = [
     "jupyter>=1.1.1",
     "pre-commit>=4.5.1",
 ]
-demo = ["fastapi>=0.115", "uvicorn[standard]>=0.34", "syv-conductor"]
 docs = [
     "mkdocs-material>=9.7.6",
     "mkdocstrings[python]>=1.0.4",

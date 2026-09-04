@@ -31,10 +31,6 @@ conductor/
 ├── tests/test_core/            # 363 tests for conductor core (CEL, decision, while, subprocess, signal, compensation, timeout/idempotency, flow format, integration, …)
 ├── tests/test_nodes/           # conductor-nodes tests
 ├── tests/test_providers/       # conductor-providers tests (React + FastAPI)
-├── demo/                       # Playground — FastAPI backend + Next.js frontend
-│   ├── app.py                  # FastAPI endpoints (GET /api/nodes, POST /api/execute, /api/execute-stream) with CORS
-│   ├── nodes.py                # Demo nodes: text, uppercase, template, combine, regex, make-list, number, math, if-else, for-each start/end
-│   └── web/                    # Next.js 15 + shadcn + Tailwind v4 + @xyflow/react flow builder (independent of aka frontend)
 ├── examples/                   # 7 Jupyter notebooks (nodes, flows, store, control flow, discovery, HITL, shared refs)
 ├── docs/                       # Design specs, MkDocs site, logo (llms.txt lives inside the package)
 ├── .github/workflows/          # ci.yml (ruff + pytest on PR), docs-audit.yml (weekly)
@@ -56,7 +52,6 @@ Tag-driven publishing: pushing a `v*` tag fires `.github/workflows/publish.yml`,
 - Python 3.12+, uv workspace monorepo
 - pydantic (only hard dependency of conductor core)
 - pytest + pytest-asyncio for tests
-- FastAPI + uvicorn for demo app
 - pre-commit + nbstripout for clean notebook diffs
 - ruff for linting (config in root pyproject.toml, `uvx ruff check .`); PR-triggered CI in `.github/workflows/ci.yml`
 
@@ -64,7 +59,6 @@ Tag-driven publishing: pushing a `v*` tag fires `.github/workflows/publish.yml`,
 
 ```bash
 uv sync                           # Install all deps
-uv sync --group demo              # Install with demo deps (FastAPI)
 uv run pre-commit install         # Activate the nbstripout hook on your clone
 uv run pytest tests/ -v           # Run all 430 tests (core + nodes + providers)
 uvx ruff check .                  # Lint (what CI runs on PRs)
@@ -72,8 +66,6 @@ uv run python -m conductor.about  # Print the full library reference (llms.txt)
 uv run python -m conductor.about sections   # List reference sections
 uv run python -m conductor.about retry      # Print one section
 uv run pytest tests/test_core/test_shared_references.py -v  # Run specific file
-uv run uvicorn demo.app:app --port 8765 --reload    # Start demo backend (FastAPI)
-cd demo/web && npm install && npm run dev           # Start demo frontend (Next.js on :3000)
 uv run jupyter lab examples/                         # Open the example notebooks
 ```
 
