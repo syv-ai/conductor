@@ -6,12 +6,10 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from conductor.errors import CompilationError
-from conductor.graph.binding import Sources
 from conductor.graph.dynamic_inputs import resolve_node_inputs
 from conductor.graph.dynamic_outputs import _resolve_in_order
 from conductor.graph.model import Flow, GraphNode
-from conductor.graph.topology import build_edge_map, build_incoming_map, topological_sort
-from conductor.graph.views import dependencies_of
+from conductor.graph.topology import dependencies_of, topological_sort, wire_maps
 from conductor.metadata import Input, Output
 
 if TYPE_CHECKING:
@@ -57,15 +55,11 @@ def compile(flow: Flow, registry: "NodeRegistry") -> CompiledGraph:
         if not registry.contains(node.type):
             raise CompilationError(f"Unknown node type: '{node.type}'")
 
-    # 2. Validate that every wire names an existing node
-    for node in nodes:
-        for handle, binding in node.bindings.items():
-            if isinstance(binding, Sources):
-                for ref in binding.refs:
-                    if ref.node_id not in node_map:
-                        raise CompilationError(
-                            f"'{node.id}.{handle}' is wired from non-existent node: '{ref.node_id}'"
-                        )
+    # 2. Read the wiring once; every wire must name an existing node
+    dependencies = dependencies_of(nodes)
+    for node_id, deps in dependencies.items():
+        for missing in sorted(deps - node_map.keys()):
+            raise CompilationError(f"'{node_id}' is wired from non-existent node: '{missing}'")
 
     # 3. Resolve dynamic inputs. Order-free — an input roster depends on
     #    the node's own typed values alone.
@@ -75,12 +69,11 @@ def compile(flow: Flow, registry: "NodeRegistry") -> CompiledGraph:
     }
 
     # 4. Topological sort over the dependency map
-    order = topological_sort(dependencies_of(nodes))
+    order = topological_sort(dependencies)
 
     # 5. Build edge maps — forward (for resolver) and inverted (for fast
     #    per-node incoming lookup).
-    edge_map = build_edge_map(nodes)
-    incoming_map = build_incoming_map(nodes)
+    edge_map, incoming_map = wire_maps(nodes)
 
     # 6. Resolve dynamic outputs in topological order. Each node sees its
     #    producers' already-resolved shapes (which may themselves be hook-

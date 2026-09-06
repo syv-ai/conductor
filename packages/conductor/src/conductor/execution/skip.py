@@ -22,7 +22,7 @@ def should_skip_node(
     skipped.
 
     ``incoming_map`` is an optional pre-built inverted view of the edges
-    (see :func:`conductor.graph.topology.build_incoming_map`). When
+    (see :func:`conductor.graph.topology.wire_maps`). When
     provided, lookup is O(1) per node instead of scanning the whole
     ``edge_map``. The old ``edge_map``-based path is kept for compat
     with callers that pass a ``None`` incoming_map.

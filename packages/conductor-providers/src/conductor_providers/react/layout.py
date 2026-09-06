@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections import defaultdict
 
 from conductor.graph.model import Flow
-from conductor.graph.views import dependencies_of
+from conductor.graph.topology import dependencies_of
 
 
 def topological_positions(

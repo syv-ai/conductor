@@ -32,7 +32,8 @@ from conductor.graph.compiler import CompiledGraph, compile
 from conductor.graph.dynamic_inputs import resolve_graph_inputs
 from conductor.graph.dynamic_outputs import resolve_graph_outputs
 from conductor.graph.model import FieldContent, Flow, GraphNode
-from conductor.graph.views import dependencies_of, is_input_node
+from conductor.graph.topology import dependencies_of
+from conductor.graph.views import is_input_node
 from conductor.interface import Interface, Provided
 from conductor.metadata import Input, Output, Roster
 from conductor.node import (

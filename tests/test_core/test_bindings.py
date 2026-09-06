@@ -12,7 +12,8 @@ from conductor.execution.engine import execute_sync
 from conductor.graph.binding import Ref, Sources, Static, static_values
 from conductor.graph.compiler import compile as compile_graph
 from conductor.graph.model import FieldContent, Flow, GraphNode
-from conductor.graph.views import dependencies_of, derive_interface, is_input_node
+from conductor.graph.topology import dependencies_of
+from conductor.graph.views import derive_interface, is_input_node, lock_problems
 from conductor.interface import Interface, Provided
 from conductor.metadata import Output, Roster
 from conductor.node import NodeDefinition
@@ -278,15 +279,20 @@ def _flow(application_locked=(), language_bindings=None):
 
 
 def _interface(flow, registry=None):
-    return derive_interface(flow, *_resolved(flow, registry))
+    return derive_interface(flow, *_resolved(flow, registry), dependencies_of(flow.nodes))
+
+
+def _locks(flow, registry=None):
+    rosters, _ = _resolved(flow, registry)
+    return lock_problems({n.id: n for n in flow.nodes}, rosters)
 
 
 def test_the_interface_is_derived_node_level():
     """Input nodes' unlocked handle-bearing fields in; output
     nodes' rosters out, each under its address. Nothing is stored."""
-    interface, problems = _interface(_flow())
+    interface = _interface(_flow())
 
-    assert problems == ()
+    assert _locks(_flow()) == ()
     assert [i.name for i in interface.inputs] == ["application.value", "language.value"]
     assert [o.name for o in interface.outputs] == ["language.result", "summary.result"]
 
@@ -294,7 +300,7 @@ def test_the_interface_is_derived_node_level():
 def test_the_interface_is_the_record_a_node_version_declares():
     """One type at both scales. A flow returns a computed roster by
     address, so `returns` is `Mapping`; these nodes need nothing provided."""
-    interface, _ = _interface(_flow())
+    interface = _interface(_flow())
 
     assert isinstance(interface, Interface)
     assert interface.returns is Mapping
@@ -304,7 +310,7 @@ def test_the_interface_is_the_record_a_node_version_declares():
 def test_a_flow_level_name_is_the_address_a_ref_spells():
     """The name *is* the `Ref`, not a rendering of it: one value, one
     writer, and the key on every wire and in every caller's payload."""
-    interface, _ = _interface(_flow())
+    interface = _interface(_flow())
 
     assert interface.inputs[0].name == Ref("application", "value")
     assert interface.inputs[0].name == "application.value"
@@ -319,16 +325,13 @@ def test_needs_is_the_union_of_the_placements_needs():
         GraphNode(id="c", type="text-input", version=1),
     ])
 
-    interface, problems = _interface(flow)
-
-    assert problems == ()
-    assert interface.needs == {"clock": Clock}
+    assert _interface(flow).needs == {"clock": Clock}
 
 
 def test_a_field_reports_the_title_its_placement_carries():
     """The placement's title is the title. Nothing else changes: the
     declaration comes through whole, under its address."""
-    interface, _ = _interface(_flow())
+    interface = _interface(_flow())
 
     declared = interface.inputs[0]
     assert declared.name == "application.value"
@@ -340,9 +343,7 @@ def test_a_field_reports_the_title_its_placement_carries():
 
 
 def test_an_output_reports_the_title_its_placement_carries():
-    interface, _ = _interface(_flow())
-
-    assert interface.outputs[1].title == "Result"
+    assert _interface(_flow()).outputs[1].title == "Result"
 
 
 def test_a_roster_is_the_two_tuples_a_nodes_hooks_answer():
@@ -355,9 +356,7 @@ def test_nodes_order_decides_the_order():
     flow = _flow()
     reordered = Flow(nodes=[flow.nodes[1], flow.nodes[0], flow.nodes[2]])
 
-    interface, _ = _interface(reordered)
-
-    assert [i.name for i in interface.inputs] == ["language.value", "application.value"]
+    assert [i.name for i in _interface(reordered).inputs] == ["language.value", "application.value"]
 
 
 def test_is_input_node_is_the_one_home_of_the_predicate():
@@ -372,26 +371,21 @@ def test_a_wire_into_any_field_makes_the_whole_node_static():
     placement is author config — not offered, not fillable."""
     flow = _flow(language_bindings={"value": Sources(refs=(Ref("application", "result"),))})
 
-    interface, problems = _interface(flow)
-
-    assert problems == ()
-    assert [i.name for i in interface.inputs] == ["application.value"]
+    assert [i.name for i in _interface(flow).inputs] == ["application.value"]
 
 
 def test_a_locked_field_is_not_an_input():
     """The lock is the author's narrowing, and the derivation reads it."""
-    interface, problems = _interface(_flow(application_locked=("value",)))
+    flow = _flow(application_locked=("value",))
 
-    assert problems == ()
-    assert [i.name for i in interface.inputs] == ["language.value"]
+    assert _locks(flow) == ()
+    assert [i.name for i in _interface(flow).inputs] == ["language.value"]
 
 
 def test_a_partly_consumed_node_offers_no_outputs():
     """`application` feeds the summariser, so it is an intermediate step:
     its leftover handle is a byproduct, not a result."""
-    interface, _ = _interface(_flow())
-
-    assert not any(o.name == "application.result" for o in interface.outputs)
+    assert not any(o.name == "application.result" for o in _interface(_flow()).outputs)
 
 
 def test_a_field_with_no_handle_is_never_an_input():
@@ -416,9 +410,8 @@ def test_a_field_with_no_handle_is_never_an_input():
                          fields={"code": FieldContent(title="Kode"), "result": FieldContent(title="Result")})],
     )
 
-    interface, problems = _interface(flow, reg)
+    interface = _interface(flow, reg)
 
-    assert problems == ()
     assert interface.inputs == ()
     assert [o.name for o in interface.outputs] == ["s.result"]
 
@@ -426,11 +419,12 @@ def test_a_field_with_no_handle_is_never_an_input():
 def test_a_locked_name_the_node_does_not_declare_is_a_problem():
     """A stale lock — the roster moved under it — is a state an editor
     mid-edit can be in, so it reports rather than raises. Non-fatal:
-    it narrows nothing and blocks nothing."""
-    interface, problems = _interface(_flow(application_locked=("ghost",)))
+    it narrows nothing and blocks nothing, and the interface is derived
+    without it."""
+    flow = _flow(application_locked=("ghost",))
 
-    assert [(p.code, p.node_id, p.fatal) for p in problems] == [("unknown_locked_field", "application", False)]
-    assert [i.name for i in interface.inputs] == ["application.value", "language.value"]
+    assert [(p.code, p.node_id, p.fatal) for p in _locks(flow)] == [("unknown_locked_field", "application", False)]
+    assert [i.name for i in _interface(flow).inputs] == ["application.value", "language.value"]
 
 
 def test_a_stale_lock_reports_on_a_wired_placement_too():
@@ -445,10 +439,8 @@ def test_a_stale_lock_reports_on_a_wired_placement_too():
         for node in flow.nodes
     ])
 
-    interface, problems = _interface(flow)
-
-    assert [(p.code, p.node_id, p.fatal) for p in problems] == [("unknown_locked_field", "language", False)]
-    assert [i.name for i in interface.inputs] == ["application.value"]
+    assert [(p.code, p.node_id, p.fatal) for p in _locks(flow)] == [("unknown_locked_field", "language", False)]
+    assert [i.name for i in _interface(flow).inputs] == ["application.value"]
 
 
 def test_a_column_a_node_computed_is_derivable():
@@ -471,9 +463,8 @@ def test_a_column_a_node_computed_is_derivable():
         outputs=(*declared.outputs, Output(name="name", dtype=Txt, title="Name")),
     )
 
-    interface, problems = derive_interface(flow, rosters, versions)
+    interface = derive_interface(flow, rosters, versions, dependencies_of(flow.nodes))
 
-    assert problems == ()
     assert [o.name for o in interface.outputs] == ["language.result", "summary.result", "summary.name"]
 
 
@@ -485,9 +476,8 @@ def test_a_field_on_a_placement_compile_could_not_resolve_contributes_nothing():
     rosters, versions = _resolved(flow)
     del rosters["application"], versions["application"]
 
-    interface, problems = derive_interface(flow, rosters, versions)
+    interface = derive_interface(flow, rosters, versions, dependencies_of(flow.nodes))
 
-    assert problems == ()
     assert [i.name for i in interface.inputs] == ["language.value"]
 
 
@@ -497,9 +487,8 @@ def test_an_unauthored_field_reads_the_declarations_title():
     is the one value there is — no chain, nothing resolved."""
     flow = Flow(nodes=[GraphNode(id="x", type="text-input", version=1, title="X")])
 
-    interface, problems = _interface(flow)
+    interface = _interface(flow)
 
-    assert problems == ()
     assert [(i.name, i.title) for i in interface.inputs] == [("x.value", "Text")]
     assert [(o.name, o.title) for o in interface.outputs] == [("x.result", "Text")]
 

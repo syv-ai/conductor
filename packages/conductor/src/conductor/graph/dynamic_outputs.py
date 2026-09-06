@@ -16,8 +16,7 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Protocol
 
 from conductor.errors import CompilationError
-from conductor.graph.topology import topological_sort
-from conductor.graph.views import dependencies_of
+from conductor.graph.topology import dependencies_of, topological_sort
 from conductor.metadata import Output
 
 if TYPE_CHECKING:

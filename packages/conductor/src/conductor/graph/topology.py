@@ -1,4 +1,11 @@
-"""An execution order from the dependency map, and the wire maps the engine reads."""
+"""The wiring facts of a graph, derived once from the bindings.
+
+``dependencies_of`` is the dependency map — which nodes each node waits
+for — and the one graph-wide reading of the wires; everything that needs
+a whole-graph fact (the execution order, which nodes nothing consumes)
+reads that map rather than walking the bindings again. ``wire_maps`` is
+the per-input view the old engine's resolver and skip check still key on.
+"""
 
 from collections import defaultdict, deque
 from collections.abc import Iterable, Mapping
@@ -8,10 +15,28 @@ from conductor.graph.binding import Sources
 from conductor.graph.model import GraphNode
 
 
+def dependencies_of(nodes: Iterable[GraphNode]) -> dict[str, frozenset[str]]:
+    """Which nodes each node waits for, by id.
+
+    A set: a node that feeds two inputs of the same target is one
+    dependency. Operand order matters only within a ``Sources`` and is
+    kept there. An empty set means an input node — nothing is wired in.
+    """
+    return {
+        node.id: frozenset(
+            ref.node_id
+            for binding in node.bindings.values()
+            if isinstance(binding, Sources)
+            for ref in binding.refs
+        )
+        for node in nodes
+    }
+
+
 def topological_sort(dependencies: Mapping[str, frozenset[str]]) -> list[str]:
     """Node ids in an order where every dependency precedes its dependent.
 
-    Kahn's algorithm over ``dependencies_of``'s map. Raises
+    Kahn's algorithm over the dependency map. Raises
     ``CycleDetectionError`` if the graph contains cycles. A dependency on
     an id the map does not hold is ignored here; compile reports it on
     the binding that names it.
@@ -39,42 +64,25 @@ def topological_sort(dependencies: Mapping[str, frozenset[str]]) -> list[str]:
     return result
 
 
-def _wires(nodes: Iterable[GraphNode]) -> Iterable[tuple[str, str, str, str]]:
-    """Every ``(target_id, target_handle, source_id, source_handle)`` the bindings hold, in ref order."""
-    for node in nodes:
-        for handle, binding in node.bindings.items():
-            if isinstance(binding, Sources):
-                for ref in binding.refs:
-                    yield node.id, handle, ref.node_id, ref.field
-
-
-def build_edge_map(
+def wire_maps(
     nodes: Iterable[GraphNode],
-) -> dict[tuple[str, str], list[tuple[str, str, str]]]:
-    """Build ``(target_id, target_handle) -> [(source_id, source_handle, wire_id), ...]``.
+) -> tuple[dict[tuple[str, str], list[tuple[str, str, str]]], dict[str, list[tuple[str, str, str, str]]]]:
+    """The two per-input views of the wires the engine reads, from one pass.
 
-    The wire id names the wire for the resolver's skip bookkeeping; it is
-    ``"source.handle->target.handle"``, derived and stored nowhere.
+    ``edge_map`` is ``(target_id, target_handle) -> [(source_id,
+    source_handle, wire_id), ...]`` and ``incoming_map`` its inversion,
+    ``target_id -> [(target_handle, source_id, source_handle, wire_id),
+    ...]``, in ref order. The wire id is ``"source.handle->target.handle"``,
+    derived and stored nowhere; the resolver's skip bookkeeping keys on it.
     """
     edge_map: dict[tuple[str, str], list[tuple[str, str, str]]] = defaultdict(list)
-    for target_id, target_handle, source_id, source_handle in _wires(nodes):
-        edge_map[(target_id, target_handle)].append(
-            (source_id, source_handle, f"{source_id}.{source_handle}->{target_id}.{target_handle}")
-        )
-    return dict(edge_map)
-
-
-def build_incoming_map(
-    nodes: Iterable[GraphNode],
-) -> dict[str, list[tuple[str, str, str, str]]]:
-    """Build ``target_id -> [(target_handle, source_id, source_handle, wire_id), ...]``.
-
-    The inverted view of ``build_edge_map``; ``should_skip_node`` and
-    ``InputResolver.resolve`` read it per node.
-    """
     incoming: dict[str, list[tuple[str, str, str, str]]] = defaultdict(list)
-    for target_id, target_handle, source_id, source_handle in _wires(nodes):
-        incoming[target_id].append(
-            (target_handle, source_id, source_handle, f"{source_id}.{source_handle}->{target_id}.{target_handle}")
-        )
-    return dict(incoming)
+    for node in nodes:
+        for handle, binding in node.bindings.items():
+            if not isinstance(binding, Sources):
+                continue
+            for ref in binding.refs:
+                wire_id = f"{ref.node_id}.{ref.field}->{node.id}.{handle}"
+                edge_map[(node.id, handle)].append((ref.node_id, ref.field, wire_id))
+                incoming[node.id].append((handle, ref.node_id, ref.field, wire_id))
+    return dict(edge_map), dict(incoming)
