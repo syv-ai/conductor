@@ -1,8 +1,8 @@
 """``Graph`` and ``GraphNode`` — the persisted graph.
 
-A flow is a list of placed nodes and nothing else: edges live in each
+A graph is a list of placed nodes and nothing else: edges live in each
 node's ``bindings``, and a canvas derives its own edges from them. A
-placement's fields fall in three groups:
+node's fields fall in three groups:
 
 * **behaviour** — ``type``, ``version``, ``bindings``, ``locked`` — is what
   the runtime reads and branches on;
@@ -42,7 +42,12 @@ class FieldContent:
 
 @dataclass(frozen=True)
 class GraphNode:
-    """One placement of a node in a flow.
+    """One node as it sits in a graph: a placement of a definition.
+
+    A definition (``NodeDefinition``) is what a developer wrote; a
+    placement is one use of it in a graph, with its own ``id``, minted
+    when the node is placed and never renamed. Where the contrast matters
+    the docs say "placement"; everywhere else a placement is just a node.
 
     ``type`` names the definition and ``version`` selects one of its
     versions; ``bindings`` says where each input's value comes from (one
@@ -58,8 +63,8 @@ class GraphNode:
         )
 
     There is no edge record beside it; a canvas derives edges from
-    ``bindings``. What the placement's inputs and outputs actually are
-    is answered when the flow is compiled, not stored here.
+    ``bindings``. What the node's inputs and outputs actually are is
+    answered when the graph is compiled (``Roster``), not stored here.
     """
 
     id: str
@@ -94,14 +99,14 @@ class GraphNode:
 
 @dataclass(frozen=True)
 class Graph:
-    """A flow: its placed nodes and its chrome. The whole persisted graph.
+    """The persisted graph: its nodes and its chrome.
 
-    There is no edge list, no trigger and no settings block. What the
-    flow takes and returns is derived when it is compiled
-    (``derive_interface``), never stored.
+    What a host stores for one version of a flow. There is no edge list,
+    no trigger and no settings block: edges live in each node's
+    ``bindings``. What the graph takes and returns is derived when it is
+    compiled (``derive_interface``), never stored.
     """
 
     nodes: list[GraphNode]
     #: Chrome, at flow level.
     display: Mapping[str, Any] = field(default_factory=dict)
-

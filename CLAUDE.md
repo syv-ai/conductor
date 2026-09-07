@@ -155,7 +155,7 @@ All exceptions inherit from `ConductorError` (see `errors.py`):
 
 ### The persisted graph
 
-`Graph` is `nodes` and `display`. A `GraphNode` is behaviour (`type`, `version`, `bindings`, `locked`), content (`title`, `description`, one `FieldContent` per field) and chrome (`display`, stored and returned, never parsed). An id refuses `.` (a `Ref` reads `node.field`) and accepts `/`. What the flow takes and returns is derived, never stored: `graph/views.py`'s `derive_interface(flow, rosters, versions)` returns an `Interface` whose inputs are the unlocked handle-bearing inputs of the input nodes and whose outputs are every output of the nodes nothing consumes, each named by its address. A failed node fails the run; there is no saga.
+`Graph` is `nodes` and `display`. A `GraphNode` is behaviour (`type`, `version`, `bindings`, `locked`), content (`title`, `description`, one `FieldContent` per field) and chrome (`display`, stored and returned, never parsed). An id refuses `.` (a `Ref` reads `node.field`) and accepts `/`. What the flow takes and returns is derived, never stored: `graph/views.py`'s `derive_interface(graph, rosters, versions, dependencies)` returns an `Interface` whose inputs are the unlocked handle-bearing inputs of the input nodes and whose outputs are every output of the nodes nothing consumes, each named by its address. A failed node fails the run; there is no saga.
 
 ### YAML / JSON flow format (`conductor.flow_format`)
 

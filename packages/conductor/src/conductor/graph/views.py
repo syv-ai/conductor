@@ -1,12 +1,15 @@
-"""What a graph takes and returns, derived from its nodes.
+"""What a graph takes and returns.
 
-Nothing here is persisted and nothing here walks the graph: the
-graph-wide fact the derivation needs — which nodes something consumes —
-comes in as the dependency map ``topology.dependencies_of`` built once
-per compile. ``is_input_node`` is the per-placement half of the same
-rule, for a caller holding one node; ``lock_problems`` is the one check
-a lock can fail, kept apart from the derivation so an editor gets its
-problems without a surface being rebuilt.
+A graph declares no inputs and no outputs; they are read off its nodes.
+A node with no edge into any input offers its inputs to the caller, and
+a node with no edge out of any output returns its outputs. This module
+derives that surface. Nothing here is stored and nothing here walks the
+graph: the one graph-wide fact it needs, which nodes consume which, comes
+in as the dependency map ``topology.dependencies_of`` builds once per
+compile. ``is_input_node`` is the same rule for one node, for a caller
+holding one; ``lock_problems`` is the one check a lock can fail, kept
+apart from the derivation so an editor gets its problems without a
+surface being rebuilt.
 """
 
 from __future__ import annotations
@@ -28,22 +31,26 @@ if TYPE_CHECKING:
 
 
 def is_input_node(node: GraphNode) -> bool:
-    """Has this placement no edge into any of its inputs?
+    """Does no edge lead into any input of this node?
 
-    A typed-in ``Static`` does not disqualify it; any ``Edges`` does.
-    The one home of the rule, so ``derive_interface``, an editor and a
-    migration all agree; in a dependency map it reads as an empty set.
+    A typed-in ``Static`` does not count; any ``Edges`` does. Such a node
+    is an input node: its inputs are the graph's inputs. The one home of
+    the rule, so ``derive_interface``, an editor and a migration agree; in
+    a dependency map it reads as an empty set.
     """
     return not any(isinstance(binding, Edges) for binding in node.bindings.values())
 
 
 def lock_problems(nodes: Mapping[str, GraphNode], rosters: Mapping[str, Roster]) -> tuple[Problem, ...]:
-    """A ``locked`` name the placement's roster does not declare — stale narrowing.
+    """Which locks point at a field the node does not have?
 
-    Non-fatal, and reported on every placement, connected or not: a stale lock
-    narrows nothing and blocks nothing, and is repairable wherever it sits.
-    A placement absent from ``rosters`` is one compile could not resolve; it
-    carries its own problem.
+    A lock (``GraphNode.locked``) is an input the graph's author closed:
+    no caller may fill it, so it leaves the graph's inputs. A lock naming
+    a field that is not on the node's roster is stale. It narrows nothing
+    and blocks nothing, so the problem is non-fatal, and it is reported on
+    every node, connected or not, because it is repairable wherever it
+    sits. A node absent from ``rosters`` is one compile could not resolve;
+    it carries its own problem.
     """
     return tuple(
         Problem(
@@ -65,26 +72,26 @@ def derive_interface(
     versions: Mapping[str, NodeVersion | GraphVersion],
     dependencies: Mapping[str, frozenset[str]],
 ) -> Interface:
-    """What this graph takes and returns, derived from its nodes.
+    """What this graph takes and returns, read off its nodes.
 
-    An **input node** (no edge into any input) offers its unlocked,
-    handle-bearing inputs; an **output node** (nothing connected out of any
-    output) offers every output. A placement with an edge in, or with any
-    output consumed, is an intermediate step and contributes nothing. The
-    rule is per node, so ordinary editing does not shift the interface by
-    accident.
+    Inputs: every input of a node no edge leads into, except inputs with
+    no handle and locked ones. Outputs: every output of a node no edge
+    leads out of. A node with an edge in, or with any output consumed, is
+    an intermediate step and contributes nothing. The rule is per node, so
+    ordinary editing does not shift the surface by accident.
 
-    Each graph-level ``Input`` / ``Output`` is the placement's own record,
-    whole, under its address ``Ref(node_id, field)`` as its name and
-    wearing the placement's title. ``returns`` is ``Mapping`` (a graph
-    returns its outputs by address); ``needs`` is the union of what the
-    placements' versions need, by parameter name.
+    Each ``Input`` / ``Output`` returned is the node's own record, named by
+    its address ``Ref(node_id, field)`` and carrying the title the author
+    gave that field on that node. ``returns`` is ``Mapping``: a graph
+    returns its outputs by address. ``needs`` is the union of what the
+    nodes' versions need, by parameter name.
 
-    ``rosters`` is what each placement's hooks answered and ``versions``
-    the version record each placement pinned — a placement in neither is
-    one compile could not resolve, and contributes nothing. ``dependencies``
-    is the map compile built once; a node in nobody's set is an output
-    node. Fields come in node order, roster order within a node.
+    ``rosters`` holds each node's actual fields (``Roster``) and
+    ``versions`` the version record each node pinned; a node in neither is
+    one compile could not resolve, and contributes nothing.
+    ``dependencies`` is the map compile built once; a node in nobody's set
+    is an output node. Fields come in node order, roster order within a
+    node.
     """
     consumed = frozenset().union(*dependencies.values())
     inputs: list[Input] = []
@@ -109,7 +116,7 @@ def derive_interface(
 
 
 def _placed(node: GraphNode, declared):
-    """``declared`` under its address, wearing the placement's title where one was authored."""
+    """``declared`` under its address, with the title the author gave it on this node where there is one."""
     content = node.fields.get(declared.name)
     if content is None:
         return replace(declared, name=Ref(node.id, declared.name))
