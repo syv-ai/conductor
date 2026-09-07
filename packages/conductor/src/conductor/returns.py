@@ -19,7 +19,7 @@ The return type *is* the output declaration. Three shapes are read::
 ``outputs_of`` turns the annotation into ``Output`` records and ``unpack``
 splits a returned value across those outputs by name. Nothing is
 positional and nothing is auto-named: an output's name is what other nodes
-wire to, so it is always a name the author chose. A ``run`` that returns
+edge to, so it is always a name the author chose. A ``run`` that returns
 the wrong shape raises at the point of disagreement.
 
 ``Result`` is what the author writes — title, description and, for one of

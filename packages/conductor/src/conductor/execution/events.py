@@ -40,7 +40,7 @@ class NodeProgressEvent(TypedDict):
 class RuntimeWarningEvent(TypedDict, total=False):
     """Non-fatal runtime warning surfaced by the engine or a compound node.
 
-    Currently emitted by the for-each compound when multiple wired source
+    Currently emitted by the for-each compound when multiple connected source
     lists differ in length and the loop truncates to ``min(len)``. The
     ``payload`` field carries warning-specific structured data (e.g. the
     per-source lengths and the truncation point). ``warning`` is a stable

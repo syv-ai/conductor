@@ -16,7 +16,7 @@ field gives back a ``Text`` (see ``__get_pydantic_core_schema__``). ``id``
 is the stable name the persisted graph and the frontend use; ``title`` is
 what a person reads.
 
-A type answers one question about wiring — ``target.accepts(source)``:
+A type answers one question about edges — ``target.accepts(source)``:
 may a value of type ``source`` land on an input declared as ``target``?
 The default is ``issubclass``, so a subtype is accepted wherever its
 parent is, and a ``Series`` of something is judged by its element::
@@ -31,7 +31,7 @@ parent is, and a ``Series`` of something is judged by its element::
 
 Three things a ``DType`` deliberately does not do:
 
-* **Convert.** A value arrives at a node as the type the wire carried.
+* **Convert.** A value arrives at a node as the type the edge carried.
   Where a conversion seems needed, the answer is a subtype, a node that
   does the work, or an input declared with the widest type the node
   handles.
@@ -43,7 +43,7 @@ Three things a ``DType`` deliberately does not do:
 An input that only routes a value it never reads is annotated ``Any``
 instead of a type, and the type of what actually arrives is recorded when
 the flow is compiled. ``Single`` marks an open roster, ``**inputs: Single``:
-every wired name becomes an input of that node.
+every connected name becomes an input of that node.
 
 Conductor defines no concrete ``DType`` except ``Series``. Which types
 exist is the host application's decision.
@@ -60,11 +60,11 @@ if TYPE_CHECKING:
     from pydantic import GetCoreSchemaHandler
 
 class DType(ABC):
-    """Base class for every type a value on a wire can have.
+    """Base class for every type a value on an edge can have.
 
     Subclass it together with the builtin the type is built on and declare
     ``id`` and ``title``; the class is registered on definition. The base
-    itself has no ``id`` and is never on a wire.
+    itself has no ``id`` and is never on an edge.
     """
 
     #: Stable identifier, used by the persisted graph and the frontend.
@@ -77,7 +77,7 @@ class DType(ABC):
     element: ClassVar[Any] = None
     #: May a person type a value of this type in directly (into a cell, a
     #: form, a schema field)? ``False`` unless the type says otherwise;
-    #: most values are carried on wires rather than typed in.
+    #: most values are carried on edges rather than typed in.
     authorable: ClassVar[bool] = False
 
     #: Every declared type by its ``id``; filled by ``__init_subclass__``,
@@ -93,9 +93,9 @@ class DType(ABC):
         nearly every type, and the default. Only a type that can be declared
         incompletely (a table whose columns nobody stated) overrides it.
 
-        The compiler asks it of a source type wired into an open roster
+        The compiler asks it of a source type connected into an open roster
         (``**inputs: Single``), where the node will read the value; a
-        ``None`` lets the wire through, a pair becomes a fatal problem on
+        ``None`` lets the edge through, a pair becomes a fatal problem on
         the field with that code and message. A value only routed through
         an ``Any`` input is never asked.
         """
@@ -229,7 +229,7 @@ class DType(ABC):
 class Single:
     """Marker for an open roster: ``def run(self, **inputs: Single)``.
 
-    Every name wired into such a node becomes an input, typed by its wire,
+    Every name connected into such a node becomes an input, typed by its edge,
     and each is received as one value — a series arrives as a whole series.
     The marker is only meaningful on ``**inputs``; the registry reads it
     when it derives a node's interface from its signature.
@@ -257,5 +257,5 @@ def dtype_of(annotation: Any) -> Any:
 
 
 def registered_dtypes() -> tuple[type[DType], ...]:
-    """Every ``DType`` declared so far — everything that can travel on a wire."""
+    """Every ``DType`` declared so far — everything that can travel on an edge."""
     return tuple(DType._by_id.values())

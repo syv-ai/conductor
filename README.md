@@ -15,7 +15,7 @@ Built to be the shared core behind visual flow builders — declare a node once 
 ## Features
 
 - **One node contract** — a node is a `NodeDefinition` subclass; the typed signature of its `run` method *is* its interface. Nothing is declared twice.
-- **A type vocabulary you own** — every value on a wire has a `DType`; conductor ships the mechanism and no vocabulary (except `Series[X]`, the one collection). A host declares `Text`, `Number`, `Document`, … as it sees fit.
+- **A type vocabulary you own** — every value on an edge has a `DType`; conductor ships the mechanism and no vocabulary (except `Series[X]`, the one collection). A host declares `Text`, `Number`, `Document`, … as it sees fit.
 - **Widgets on the declaration** — `Annotated[Text, Textarea(title="Text")]` says how a person edits an input; the same record drives validation and the palette.
 - **Versions with a policy** — several versions live in one class (`@version(2)`); each carries a `Policy` for retries, timeout and concurrency; `@upgrade(1, 2)` rewrites saved values; `@deprecated` retires a node or a version.
 - **Compile-then-execute** — structural errors are caught before any node runs.
@@ -72,7 +72,7 @@ uv run pytest tests/ -v
 
 ### 1. Declare a vocabulary and some nodes
 
-A value on a wire has a `DType`. Conductor declares none, so start by naming the types your nodes take — or import the standard library's (`conductor_nodes.types`), as this example does.
+A value on an edge has a `DType`. Conductor declares none, so start by naming the types your nodes take — or import the standard library's (`conductor_nodes.types`), as this example does.
 
 ```python
 from typing import Annotated
@@ -111,7 +111,7 @@ The class is checked the moment it is defined: a missing `id`, `title`, `descrip
 
 ### 2. Build and execute a flow
 
-A placement pins a node by `type` and `version` and says, per input, where its value comes from: a `Edges` binding names other placements' outputs (a cable), a `Static` binding holds a typed-in value, and an input with no binding takes its declared default. There is no edge list — a flow is its nodes.
+A placement pins a node by `type` and `version` and says, per input, where its value comes from: an `Edges` binding names other placements' outputs (an edge), a `Static` binding holds a typed-in value, and an input with no binding takes its declared default. There is no edge list — a flow is its nodes.
 
 ```python
 from conductor import Graph, GraphNode, Ref, Edges, Static, compile
@@ -198,9 +198,9 @@ class Length(NodeDefinition):
         return Number(len(text))
 ```
 
-- Every parameter a cable can reach declares a `DType` (or `Any`, below) and a widget. A default makes the input optional.
+- Every parameter an edge can reach declares a `DType` (or `Any`, below) and a widget. A default makes the input optional.
 - The return annotation is the output declaration. A `DType` return declares one output named `result`.
-- A node returns a value of the declared type — `Text(...)`, never a bare `str` — because a value arrives downstream as the type the wire carried.
+- A node returns a value of the declared type — `Text(...)`, never a bare `str` — because a value arrives downstream as the type the edge carried.
 - A collection is `Series[X]`. A node that declares `Series[Text]` receives the whole series at once; a series output is returned as a plain list.
 
 **Several outputs** are a frozen dataclass whose fields are the outputs; `run` returns an instance. The field names are the output names, and nothing is positional:
@@ -260,7 +260,7 @@ class Number(DType, float):
     title = "Number"
 ```
 
-`Text("hello")` is both a `str` and a `Text`; a pydantic model with a `Text` field gives back a `Text`. A type answers one question about wiring — `target.accepts(source)`: may a value of type `source` land on an input declared as `target`? The default is `issubclass`, so a subtype is accepted wherever its parent is. A `DType` does not convert values, does not pick a widget and does not format itself beyond `as_text`. `registered_dtypes()` lists every type declared so far; `describe()` on a type is its JSON-ready record.
+`Text("hello")` is both a `str` and a `Text`; a pydantic model with a `Text` field gives back a `Text`. A type answers one question about edges — `target.accepts(source)`: may a value of type `source` land on an input declared as `target`? The default is `issubclass`, so a subtype is accepted wherever its parent is. A `DType` does not convert values, does not pick a widget and does not format itself beyond `as_text`. `registered_dtypes()` lists every type declared so far; `describe()` on a type is its JSON-ready record.
 
 `Series[X]` is the one collection: many values of one type on an `Index`, which says where the rows came from. Two series align when they share an index, never by length. `Series[Series[X]]` does not exist.
 
@@ -331,7 +331,7 @@ def compute_inputs(self, declared, values) -> tuple[Input, ...]: ...
 def compute_outputs(self, declared, values, arriving) -> tuple[Output, ...]: ...
 ```
 
-`declared` is the pinned version's declaration, `values` what the author typed, `arriving` the type on each wired input where the compiler has recorded one. The default returns `declared`. The compiler asks a fresh instance once per placement and stores the answers on `CompiledGraph.node_inputs` / `node_outputs`. Nothing is checked here: a hook that returns the wrong shape is a node bug and raises where it is found.
+`declared` is the pinned version's declaration, `values` what the author typed, `arriving` the type on each connected input where the compiler has recorded one. The default returns `declared`. The compiler asks a fresh instance once per placement and stores the answers on `CompiledGraph.node_inputs` / `node_outputs`. Nothing is checked here: a hook that returns the wrong shape is a node bug and raises where it is found.
 
 ### Provided parameters
 
@@ -395,7 +395,7 @@ ConductorError                     # Base — catch-all for any engine error
 │   ├── NodeExecutionError          # run() raised — retried if the policy says so
 │   ├── NodeTimeoutError            # Node exceeded its policy's timeout
 │   └── NodeConnectionError         # External service / network failure inside a node
-├── InputResolutionError            # Could not resolve inputs from the wires
+├── InputResolutionError            # Could not resolve inputs from the edges
 └── FlowExecutionError              # Flow-level failure (raised by execute_sync)
 ```
 
@@ -403,7 +403,7 @@ Raise `NodeConnectionError` from `run` to mark a failure as transient and retry-
 
 ### Bindings
 
-One input holds one binding, so a cable and a typed value can never both claim the same input. `Edges(refs=(Ref("a", "result"), Ref("b", "result")))` is in operand order — into a `Series[X]` input several refs gather into one series. `Static(value=...)` is what the author typed. An absent binding means the declared default applies. A flow's dependencies (`dependencies_of`) and which placements are its input nodes (`is_input_node`, no cable into any input) are read off the bindings; nothing stores them. A failed node fails the run.
+One input holds one binding, so an edge and a typed value can never both claim the same input. `Edges(refs=(Ref("a", "result"), Ref("b", "result")))` is in operand order — into a `Series[X]` input several refs gather into one series. `Static(value=...)` is what the author typed. An absent binding means the declared default applies. A flow's dependencies (`dependencies_of`) and which placements are its input nodes (`is_input_node`, no edge into any input) are read off the bindings; nothing stores them. A failed node fails the run.
 
 A host that loads definitions the static registry lacks builds them and hands compile `registry.extended_with({...})` — a new registry per run in which a registered type wins over a loaded one.
 
@@ -433,9 +433,9 @@ A widget is the control an input is edited with, plus what that control needs. E
 | `TableInput` | A table typed or pasted in | `min_rows`, `min_columns`, `column_types` |
 | `SchemaBuilder` | A schema built field by field | `schema`, `allow_additional`, `field_types` |
 | `IfElseBuilder` | Conditions built from the host's operators | `operators` |
-| `ConnectionList` | Edited by wiring only — a `Series[X]` or `Any` input | — |
+| `ConnectionList` | Edited by connecting only — a `Series[X]` or `Any` input | — |
 
-Conductor ships no default widget for any type: `Text` may be a textarea, a single line or a dropdown, so every input declares its own. An input closes itself to cables with `show_handle=False` on its widget, and may then declare any pydantic-validatable type. The set of controls is closed — `AnyWidget` is built from the subclasses in `widgets.py`, and a new control is a change there, since the component that renders each `kind` has to exist in the host's frontend anyway.
+Conductor ships no default widget for any type: `Text` may be a textarea, a single line or a dropdown, so every input declares its own. An input closes itself to edges with `show_handle=False` on its widget, and may then declare any pydantic-validatable type. The set of controls is closed — `AnyWidget` is built from the subclasses in `widgets.py`, and a new control is a change there, since the component that renders each `kind` has to exist in the host's frontend anyway.
 
 **Full widget guide:** [`docs/widgets.md`](docs/widgets.md). Hands-on tour: [`examples/08_widgets.ipynb`](examples/08_widgets.ipynb).
 
@@ -507,7 +507,7 @@ The library declares the four types its nodes take in `conductor_nodes.types` �
 | `logic` | `logic-if-empty`, `logic-if-equals`, `logic-not` (the two `if` nodes branch via `SKIPPED`) |
 | `json_ops` | `json-parse`, `json-stringify`, `json-get` (dotted path) |
 | `regex_ops` | `regex-match`, `regex-replace`, `regex-extract` |
-| `decision` | `decision` — routes any value to one of two branches on a wired-in `Flag` |
+| `decision` | `decision` — routes any value to one of two branches on a `Flag` connected in |
 
 Node ids are category-prefixed to avoid colliding with application-level ids. Registering two different classes under one id raises.
 
@@ -519,7 +519,7 @@ Framework adapters. Each provider is a subpackage translating between conductor'
 from conductor_providers import react
 
 palette = react.palette_from_registry(registry)   # [cls.describe() for every definition]
-flow_json = react.graph_to_react(flow)            # Graph → ReactFlow JSON (the placement record under each node's data; cables derived; positions laid out if a placement has none)
+flow_json = react.graph_to_react(flow)            # Graph → ReactFlow JSON (the placement record under each node's data; edges derived; positions laid out if a placement has none)
 flow2 = react.react_to_graph(flow_json)           # ReactFlow JSON → Graph
 ```
 

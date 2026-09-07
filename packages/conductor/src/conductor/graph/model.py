@@ -1,7 +1,7 @@
 """``Graph`` and ``GraphNode`` — the persisted graph.
 
-A flow is a list of placed nodes and nothing else: wiring lives in each
-node's ``bindings``, and a canvas derives its own cables from them. A
+A flow is a list of placed nodes and nothing else: edges live in each
+node's ``bindings``, and a canvas derives its own edges from them. A
 placement's fields fall in three groups:
 
 * **behaviour** — ``type``, ``version``, ``bindings``, ``locked`` — is what
@@ -46,7 +46,7 @@ class GraphNode:
 
     ``type`` names the definition and ``version`` selects one of its
     versions; ``bindings`` says where each input's value comes from (one
-    entry per input, so a typed value and a cable cannot both claim one);
+    entry per input, so a typed value and an edge cannot both claim one);
     ``locked`` names inputs no caller may fill. ``title``, ``description``
     and ``fields`` are copies of the declaration's text that the author may
     edit. ``display`` is the canvas's own::
@@ -57,7 +57,7 @@ class GraphNode:
             title="Upper case",
         )
 
-    There is no edge record beside it; a canvas derives cables from
+    There is no edge record beside it; a canvas derives edges from
     ``bindings``. What the placement's inputs and outputs actually are
     is answered when the flow is compiled, not stored here.
     """
@@ -69,7 +69,7 @@ class GraphNode:
     version: int
     bindings: Mapping[str, Binding] = field(default_factory=dict)
     #: Inputs of this placement no caller may fill. Only matters on a
-    #: placement with no wire into it, since only those offer inputs to a
+    #: placement with no edge into it, since only those offer inputs to a
     #: caller.
     locked: tuple[str, ...] = ()
     #: Content.

@@ -54,7 +54,7 @@ def test_problems_compare_by_value():
 
 def test_details_carry_what_the_message_names():
     """A host that translates by code needs the values, not the sentence."""
-    p = Problem(code="unknown_ref_node", message="Field 'text' is wired to 'a', which is not in the flow.",
+    p = Problem(code="unknown_ref_node", message="Field 'text' is connected to 'a', which is not in the flow.",
                 fatal=True, node_id="b", field="text", details={"source_node": "a"})
 
     assert p.details == {"source_node": "a"}

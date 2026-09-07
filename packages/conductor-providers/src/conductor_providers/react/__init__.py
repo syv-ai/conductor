@@ -17,7 +17,7 @@ Wire format produced by ``graph_to_react``:
           }
         }
       ],
-      "edges": [                       # one cable per ref, derived
+      "edges": [                       # one edge per ref, derived
         {
           "id": "n0.result->n1.text",
           "source": "n0",

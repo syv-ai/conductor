@@ -26,7 +26,7 @@ def test_yaml_roundtrip():
 def test_the_dict_is_the_record():
     """And a ref stores as the address, the one form it has anywhere: the
     same string a flow-level `Input` is named by, so the stored graph and
-    the derived interface cannot spell one wire two ways."""
+    the derived interface cannot spell one edge two ways."""
     data = flow_to_dict(_flow())
 
     assert data["nodes"][1]["bindings"]["x"] == {"refs": ["a.result"]}

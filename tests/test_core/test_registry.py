@@ -139,7 +139,7 @@ def test_var_keyword_is_not_an_input():
 
 
 def test_var_positional_is_refused():
-    """A ``*args`` parameter has no widget and no name a wire could land on."""
+    """A ``*args`` parameter has no widget and no name an edge could land on."""
     with pytest.raises(TypeError, match="declares no widget"):
 
         class VarPos(NodeDefinition):

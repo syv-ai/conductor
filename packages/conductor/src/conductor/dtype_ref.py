@@ -33,8 +33,8 @@ def description_of(declared: Any) -> dict[str, Any] | None:
 
     A ``DType`` gives its ``describe()``; ``Any`` (an input that routes a
     value it does not read) gives ``{"id": "any"}``; any other type gives
-    ``None``, because no value of it travels on a wire — it is the static
-    type of an input no cable can reach.
+    ``None``, because no value of it travels on an edge — it is the static
+    type of an input no edge can reach.
     """
     if declared is Any:
         return {"id": "any"}

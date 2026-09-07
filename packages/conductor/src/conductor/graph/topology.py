@@ -1,9 +1,9 @@
-"""The wiring facts of a graph, derived once from the bindings.
+"""The edge facts of a graph, derived once from the bindings.
 
 ``dependencies_of`` is the dependency map — which nodes each node waits
-for — and the one graph-wide reading of the wires; everything that needs
+for — and the one graph-wide reading of the edges; everything that needs
 a whole-graph fact (the execution order, which nodes nothing consumes)
-reads that map rather than walking the bindings again. ``wire_maps`` is
+reads that map rather than walking the bindings again. ``edge_maps`` is
 the per-input view the old engine's resolver and skip check still key on.
 """
 
@@ -20,7 +20,7 @@ def dependencies_of(nodes: Iterable[GraphNode]) -> dict[str, frozenset[str]]:
 
     A set: a node that feeds two inputs of the same target is one
     dependency. Operand order matters only within a ``Edges`` and is
-    kept there. An empty set means an input node — nothing is wired in.
+    kept there. An empty set means an input node — nothing is connected in.
     """
     return {
         node.id: frozenset(
@@ -64,10 +64,10 @@ def topological_sort(dependencies: Mapping[str, frozenset[str]]) -> list[str]:
     return result
 
 
-def wire_maps(
+def edge_maps(
     nodes: Iterable[GraphNode],
 ) -> tuple[dict[tuple[str, str], list[tuple[str, str, str]]], dict[str, list[tuple[str, str, str, str]]]]:
-    """The two per-input views of the wires the engine reads, from one pass.
+    """The two per-input views of the edges the engine reads, from one pass.
 
     ``edge_map`` is ``(target_id, target_handle) -> [(source_id,
     source_handle, wire_id), ...]`` and ``incoming_map`` its inversion,

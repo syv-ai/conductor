@@ -2,9 +2,9 @@
 
 ``graph_to_react`` emits the ``{nodes, edges}`` dict a ReactFlow canvas
 renders: one node per placement carrying the placement record under
-``data`` and a position, and one cable per ref, derived from the
+``data`` and a position, and one edge per ref, derived from the
 bindings. ``react_to_graph`` reads the nodes back into a ``Graph``; the
-cables are the canvas's and are not read. The round trip must survive
+edges are the canvas's and are not read. The round trip must survive
 ``json.dumps`` and compile.
 """
 

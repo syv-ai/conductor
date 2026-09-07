@@ -801,7 +801,7 @@ def _filter_to_signature(func: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
 
     A function that declares ``**kwargs`` (``VAR_KEYWORD``) accepts any key,
     so nothing is filtered — this preserves the nodes that
-    legitimately receive extra wired handles.
+    legitimately receive extra connected handles.
     """
     try:
         params = inspect.signature(func).parameters

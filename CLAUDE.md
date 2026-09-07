@@ -78,7 +78,7 @@ Slash command: `/docs-audit` — runs a docs review against the last N commits a
 Three phases: `declare → compile → execute`.
 
 1. **Declare** — a node is a `NodeDefinition` subclass. `__init_subclass__` checks `id`, `title`, `description`, `category` and derives one `NodeVersion` per `@version` method (an undecorated `run` is version 1) by reading the signature once with `Interface.of`. `NodeRegistry.register(cls)` files the class under its id and checks the catalogue rules (versions numbered from 1 with no holes, a deprecated current version pointing somewhere, an `alternative` that exists).
-2. **Compile** — `compile(flow, registry)` validates node types, that every wire names an existing node, and cycles (over `dependencies_of(flow.nodes)`), and asks each placement's `compute_inputs` / `compute_outputs` for its roster. Returns an immutable `CompiledGraph`. Every definition the flow names must be in the registry; a host that loads one calls `registry.extended_with(...)` first.
+2. **Compile** — `compile(flow, registry)` validates node types, that every edge names an existing node, and cycles (over `dependencies_of(flow.nodes)`), and asks each placement's `compute_inputs` / `compute_outputs` for its roster. Returns an immutable `CompiledGraph`. Every definition the flow names must be in the registry; a host that loads one calls `registry.extended_with(...)` first.
 3. **Execute** — `execute(compiled)` is an async generator yielding `ExecutionEvent`s. Nodes are scheduled eagerly: as soon as all dependencies complete, a node's task is created — independent branches run concurrently. A call is validated through `model_of(roster)` and dispatched through `runner_for(registry, type, version)`, a fresh instance per call. `execute_sync()` is a blocking wrapper.
 
 ### The node contract
@@ -94,7 +94,7 @@ class Upper(NodeDefinition):
         return Text(text.upper())
 ```
 
-- Every parameter with a handle declares a `DType` (or `Any`) and a widget in `Annotated[...]`; `title`, `description` and `show_handle` are written on the widget and lifted onto the `Input`. A default makes the input optional. `show_handle=False` closes an input to cables; it may then declare any pydantic-validatable type.
+- Every parameter with a handle declares a `DType` (or `Any`) and a widget in `Annotated[...]`; `title`, `description` and `show_handle` are written on the widget and lifted onto the `Input`. A default makes the input optional. `show_handle=False` closes an input to edges; it may then declare any pydantic-validatable type.
 - The return annotation is the output declaration: a `DType` with a `Result` is one output named `result`; a frozen dataclass of `Annotated[DType, Result(...)]` fields is one output per field, names = field names; `Mapping[str, Any]` means the placement's computed roster names the outputs.
 - `Any` is for a value the node routes without reading; an `Any` output requires a `compute_outputs` override (refused at definition otherwise).
 - `Series[X]` is the one collection. A `Series[X]` parameter receives the whole series; a series output is returned as a plain list.
@@ -104,7 +104,7 @@ class Upper(NodeDefinition):
 
 ### Types
 
-`DType` is a real class, usually on a builtin (`class Text(DType, str)`), registered by id on definition. `target.accepts(source)` is the one wiring question (default `issubclass`; a series is judged by its element). A `DType` does not convert, does not pick a widget, does not format beyond `as_text`. `describe()` is `{"id", "accepted_as"}`; `Series[X].describe()` nests its element. `Ref("node.field")` is the address of one field on one node — a `str` subclass, split only in `node_id` / `field`.
+`DType` is a real class, usually on a builtin (`class Text(DType, str)`), registered by id on definition. `target.accepts(source)` is the one edge question (default `issubclass`; a series is judged by its element). A `DType` does not convert, does not pick a widget, does not format beyond `as_text`. `describe()` is `{"id", "accepted_as"}`; `Series[X].describe()` nests its element. `Ref("node.field")` is the address of one field on one node — a `str` subclass, split only in `node_id` / `field`.
 
 ### Data flow
 
@@ -114,7 +114,7 @@ Each input of a placement holds at most one binding (`GraphNode.bindings`):
 2. **`Static(value=...)`** — the author typed the value in. `GraphNode.data` is the typed-in values as a dict.
 3. **No binding** — the parameter's default.
 
-There is no per-cable record: a canvas derives its cables from the bindings, and `dependencies_of(nodes)` derives what each node waits for.
+There is no per-edge record: a canvas derives its edges from the bindings, and `dependencies_of(nodes)` derives what each node waits for.
 
 The call is validated through the placement's roster with pydantic (`extra="ignore"`, so stray data keys are dropped), and `run` receives instances of the declared dtypes.
 
@@ -150,7 +150,7 @@ All exceptions inherit from `ConductorError` (see `errors.py`):
   - `NodeExecutionError` (`run` raised)
   - `NodeTimeoutError`
   - `NodeConnectionError` (raise from node code for transient network/API failures)
-- `InputResolutionError` — could not resolve inputs from the wires
+- `InputResolutionError` — could not resolve inputs from the edges
 - `FlowExecutionError` — raised by `execute_sync` when the flow fails
 
 ### The persisted graph
@@ -229,10 +229,10 @@ palette = [cls.describe() for cls in registry.definitions()]     # NodeDescripti
 
 ## Conventions
 
-- A placement is `GraphNode(id, type, version, bindings)`; `type` is the node id and `version` the pinned version. There is no `"id@version"` string anywhere, and no edge record: a wire is a `Edges` on the target's input.
+- A placement is `GraphNode(id, type, version, bindings)`; `type` is the node id and `version` the pinned version. There is no `"id@version"` string anywhere, and no edge record: an edge is an `Edges` on the target's input.
 - A result is `results[node_id][output_name]`; a single output is named `result`.
-- `SKIPPED` propagates — if every wired value is `SKIPPED`, the node is skipped.
-- A `run` returns values of its declared dtypes (`Text(...)`, never a bare `str`), because a value arrives downstream as the type the wire carried.
+- `SKIPPED` propagates — if every connected value is `SKIPPED`, the node is skipped.
+- A `run` returns values of its declared dtypes (`Text(...)`, never a bare `str`), because a value arrives downstream as the type the edge carried.
 - Identifiers are English; the host's language lives in titles, descriptions and messages.
 - No `__all__` in a module: a reader imports a name from the module that defines it. A package `__init__` may declare one for its re-exports.
 - Fail loud: no defensive `None` checks or silent defaults where the state means a bug.

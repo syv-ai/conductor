@@ -23,13 +23,13 @@ from conductor.widgets import Textarea
 from pydantic import TypeAdapter
 
 
-def test_a_wire_carries_ordered_refs():
-    wire = Edges(refs=(Ref("a", "result"), Ref("b", "result")))
+def test_an_edge_carries_ordered_refs():
+    edge = Edges(refs=(Ref("a", "result"), Ref("b", "result")))
 
-    assert [r.node_id for r in wire.refs] == ["a", "b"]
+    assert [r.node_id for r in edge.refs] == ["a", "b"]
 
 
-def test_wire_order_is_operand_order():
+def test_edge_order_is_operand_order():
     first = Edges(refs=(Ref("a", "r"), Ref("b", "r")))
     second = Edges(refs=(Ref("b", "r"), Ref("a", "r")))
     assert first != second
@@ -136,7 +136,7 @@ def test_the_record_is_the_schema():
     adapter = TypeAdapter(Graph)
 
     assert adapter.validate_python(adapter.dump_python(flow, mode="json")) == flow
-def test_a_node_depends_on_every_node_its_wires_name():
+def test_a_node_depends_on_every_node_its_edges_name():
     nodes = [
         GraphNode(id="a", type="t", version=1),
         GraphNode(id="b", type="t", version=1, bindings={"x": Edges(refs=(Ref("a", "result"),))}),
@@ -162,7 +162,7 @@ def test_two_refs_on_one_input_are_one_dependency_each():
     assert dependencies_of(nodes)["b"] == frozenset({"a", "c"})
 
 
-def test_two_wires_from_the_same_node_are_one_dependency():
+def test_two_edges_from_the_same_node_are_one_dependency():
     """A set, not a list: waiting twice for one node is waiting once."""
     nodes = [
         GraphNode(
@@ -175,7 +175,7 @@ def test_two_wires_from_the_same_node_are_one_dependency():
 
 
 def test_conductor_defines_no_edge_type():
-    """The canvas derives its own cables; there is nothing here to convert."""
+    """The canvas derives its own edges; there is nothing here to convert."""
     import conductor.graph.model as model
 
     assert not hasattr(model, "GraphEdge")
@@ -254,7 +254,7 @@ def _resolved(flow, registry=None):
 
 
 def _flow(application_locked=(), language_bindings=None):
-    """Two value holders and one summariser wired from the first:
+    """Two value holders and one summariser connected from the first:
     `application` and `language` are input nodes; `language` and `summary`
     are output nodes (nothing consumes them); `application` is consumed."""
     return Graph(
@@ -310,7 +310,7 @@ def test_the_interface_is_the_record_a_node_version_declares():
 
 def test_a_flow_level_name_is_the_address_a_ref_spells():
     """The name *is* the `Ref`, not a rendering of it: one value, one
-    writer, and the key on every wire and in every caller's payload."""
+    writer, and the key on every edge and in every caller's payload."""
     interface = _interface(_flow())
 
     assert interface.inputs[0].name == Ref("application", "value")
@@ -367,8 +367,8 @@ def test_is_input_node_is_the_one_home_of_the_predicate():
     assert not is_input_node(flow.nodes[2])
 
 
-def test_a_wire_into_any_field_makes_the_whole_node_static():
-    """The rule is node-level: one wire in, and every other field of the
+def test_an_edge_into_any_field_makes_the_whole_node_static():
+    """The rule is node-level: one edge in, and every other field of the
     placement is author config — not offered, not fillable."""
     flow = _flow(language_bindings={"value": Edges(refs=(Ref("application", "result"),))})
 
@@ -390,7 +390,7 @@ def test_a_partly_consumed_node_offers_no_outputs():
 
 
 def test_a_field_with_no_handle_is_never_an_input():
-    """A field with no handle has no way in, for a cable or a caller.
+    """A field with no handle has no way in, for an edge or a caller.
     No lock is needed to say so; the field is simply not on the surface."""
 
     class Script(NodeDefinition):
@@ -428,8 +428,8 @@ def test_a_locked_name_the_node_does_not_declare_is_a_problem():
     assert [i.name for i in _interface(flow).inputs] == ["application.value", "language.value"]
 
 
-def test_a_stale_lock_reports_on_a_wired_placement_too():
-    """A dormant lock stays out of the derivation — a wired placement
+def test_a_stale_lock_reports_on_a_connected_placement_too():
+    """A dormant lock stays out of the derivation — a connected placement
     contributes no inputs — but a stale one is repairable wherever it
     sits, so it reports there as it would anywhere."""
     import dataclasses

@@ -3,7 +3,7 @@
 Walks each node in topological order and asks a fresh instance of its
 definition for the outputs this placement has, given the pinned version's
 declared outputs and the values the author typed. What arrives on each
-wired input is not recorded yet, so the hook is handed an empty
+connected input is not recorded yet, so the hook is handed an empty
 arriving; the compiler records arrivals when it derives bindings. The
 result is stored on CompiledGraph.node_outputs, which the engine reads
 in preference to the declaration. Nothing is checked here: a hook that returns the wrong shape
@@ -86,7 +86,7 @@ def resolve_graph_outputs(
 
     definitions is **required** and keyed by node *type*: the host
     resolves each type however it wants; a *missing key* is a host bug
-    and raises. Every wire must name an existing node, and the graph
+    and raises. Every edge must name an existing node, and the graph
     must be acyclic.
     """
     node_map = {n.id: n for n in nodes}
@@ -98,7 +98,7 @@ def resolve_graph_outputs(
     dependencies = dependencies_of(nodes)
     for node_id, deps in dependencies.items():
         for dep in deps - node_map.keys():
-            raise CompilationError(f"'{node_id}' is wired from non-existent node: '{dep}'")
+            raise CompilationError(f"'{node_id}' is connected from non-existent node: '{dep}'")
 
     return _resolve_in_order(
         order=topological_sort(dependencies),

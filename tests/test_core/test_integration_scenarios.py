@@ -217,7 +217,7 @@ class TestEdgeCases:
         assert "other" not in r
 
     def test_skip_propagates_through_decision_else_branch(self):
-        """A deciding node fed by a wire routes the taken branch; the else branch is skipped."""
+        """A deciding node fed by an edge routes the taken branch; the else branch is skipped."""
 
         compiled = compile(Graph(nodes=[
                 GraphNode("source", "echo", 1, bindings={"text": Static(value="data")}),

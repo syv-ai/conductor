@@ -9,7 +9,7 @@ A reusable, host-agnostic graph execution engine for building DAG-based workflow
 ## Highlights
 
 - **One node contract** — a `NodeDefinition` subclass; the signature of `run` is the interface, read once into `Input` and `Output` records that drive validation, execution and the palette.
-- **A type vocabulary the host owns** — every wire value is a `DType`; conductor ships the mechanism (`DType`, `Series[X]`, `accepts`) and no vocabulary.
+- **A type vocabulary the host owns** — every edge value is a `DType`; conductor ships the mechanism (`DType`, `Series[X]`, `accepts`) and no vocabulary.
 - **Versions with a policy** — `@version(n, policy=Policy(retries=..., timeout=...))`, `@upgrade(1, 2)`, `@deprecated`.
 - **Eager parallel scheduling** — independent branches in a DAG run concurrently with no configuration.
 - **Retry** — on the version's `Policy` or a run-level `RetryConfig`; a clean `node_retry` event on every attempt.
@@ -77,7 +77,7 @@ execute_sync(compiled, retry=RetryConfig(max_retries=2, delay=1.0, backoff_facto
 
 ## Bindings — one input, one source
 
-A flow is its nodes; there is no edge list. Each placement says per input where the value comes from: a `Edges` binding names other placements' outputs in operand order (a cable), a `Static` binding holds a typed-in value, and an input with no binding takes its declared default.
+A flow is its nodes; there is no edge list. Each placement says per input where the value comes from: an `Edges` binding names other placements' outputs in operand order (an edge), a `Static` binding holds a typed-in value, and an input with no binding takes its declared default.
 
 ```python
 flow = Graph(nodes=[
@@ -89,7 +89,7 @@ flow = Graph(nodes=[
 ])
 ```
 
-Dependencies, cycle detection and the flow's own inputs and outputs are all read off the bindings, so wiring has exactly one representation.
+Dependencies, cycle detection and the flow's own inputs and outputs are all read off the bindings, so an edge has exactly one representation.
 
 ## Error hierarchy
 

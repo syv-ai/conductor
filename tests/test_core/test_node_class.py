@@ -667,7 +667,7 @@ def test_a_node_with_no_shaping_declares_none():
 
 def test_the_hook_contract_is_two_methods():
     """A value's constraints are its dtype's constructor rules, and a
-    wiring problem is the compiler's — so a node has no `validate` and no
+    an edge problem is the compiler's — so a node has no `validate` and no
     `Problem` channel of its own."""
     assert not hasattr(NodeDefinition, "validate")
 

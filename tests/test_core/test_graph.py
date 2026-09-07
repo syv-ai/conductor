@@ -101,7 +101,7 @@ class TestCompile:
         with pytest.raises(CompilationError):
             compile(Graph(nodes=nodes), registry)
 
-    def test_compile_wire_from_a_missing_node_raises(self, registry):
+    def test_compile_edge_from_a_missing_node_raises(self, registry):
         registry.register(Echo)
         nodes = [GraphNode("n1", "echo", 1, bindings={"text": Edges(refs=(Ref("n_missing", "result"),))})]
 

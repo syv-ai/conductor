@@ -189,8 +189,8 @@ def test_a_param_without_a_widget_is_refused():
 
 
 def test_a_param_with_a_handle_must_declare_a_dtype():
-    """A plain `str` is not a declaration where a cable can land: it cannot
-    be wired (`accepts` has nothing to ask), rendered or checked."""
+    """A plain `str` is not a declaration where an edge can land: it cannot
+    be connected (`accepts` has nothing to ask), rendered or checked."""
 
     def plain(x: Annotated[str, Textarea(title="X")] = "") -> Annotated[Text, Result(title="R")]:
         return Text(x)
@@ -200,7 +200,7 @@ def test_a_param_with_a_handle_must_declare_a_dtype():
 
 
 def test_a_closed_param_may_declare_a_static_type():
-    """A parameter no cable can reach may declare any type pydantic
+    """A parameter no edge can reach may declare any type pydantic
     can validate — an authored schema, a set of branches. It is the
     `Input`'s `dtype`, read by `model_of` and by the compiler when it
     validates a typed-in value, and it has no JSON form."""
@@ -239,7 +239,7 @@ def test_a_bare_dtype_input_is_refused():
 def test_a_pass_through_declares_any():
     """An if/else node routes a value it never reads, so its type is
     whatever arrives. The parameter and the output both carry `Any` until
-    the compiler types them from the wire — the output through the node's
+    the compiler types them from the edge — the output through the node's
     own `compute_outputs`."""
     from typing import Any
 
@@ -269,9 +269,9 @@ def test_an_any_roster_validates_a_call():
 
 
 def test_an_open_roster_is_single_on_the_keyword_parameter():
-    """A node that takes whatever is wired to it: every wired name is an
-    input, typed by its wire and received as one value. The signature
-    declares no inputs for them — the compiler makes one per wire — and the
+    """A node that takes whatever is connected to it: every connected name is an
+    input, typed by its edge and received as one value. The signature
+    declares no inputs for them — the compiler makes one per edge — and the
     interface says only that it is open, and how."""
     from collections.abc import Mapping
     from typing import Any
@@ -288,7 +288,7 @@ def test_an_open_roster_is_single_on_the_keyword_parameter():
     def columns(**columns: Series) -> Annotated[Text, Result(title="R")]:
         return Text("")
 
-    assert Interface.of(columns).open == "series"  # every wire a reduction
+    assert Interface.of(columns).open == "series"  # every edge a reduction
 
 
 def test_single_is_spelled_on_the_keyword_parameter_only():
@@ -445,7 +445,7 @@ def test_a_widget_takes_a_cable_by_default():
 def test_a_control_does_not_close_its_own_handle():
     """Rendering and wireability are different questions.
 
-    A cable can legitimately deliver a dropdown's choice or a built schema,
+    An edge can legitimately deliver a dropdown's choice or a built schema,
     so the widget is the wrong place to decide. The node closes the input.
     """
     assert Dropdown(title="Choice", choices=(Choice(id="a", title="A"),)).show_handle is True
@@ -510,7 +510,7 @@ def test_every_widget_is_in_the_union():
 
 
 def test_the_string_type_check_is_gone():
-    """The one wiring question is `accepts`, and the compiler asks it."""
+    """The one edge question is `accepts`, and the compiler asks it."""
     import importlib
 
     with pytest.raises(ModuleNotFoundError):

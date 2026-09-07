@@ -32,7 +32,7 @@ class Problem:
     ``details`` carries the values the message names, so a host that
     translates by ``code`` has them::
 
-        Problem(code="unknown_ref_node", message="Field 'text' is wired to 'a', which is not in the flow.",
+        Problem(code="unknown_ref_node", message="Field 'text' is connected to 'a', which is not in the flow.",
                 fatal=True, node_id="b", field="text", details={"source_node": "a"})
     There is no graph-level problem — an empty flow is not broken, it is
     empty — so readers never have to handle a missing anchor.

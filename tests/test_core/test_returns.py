@@ -199,7 +199,7 @@ def test_unpack_reads_a_mapping_against_the_roster():
 
 def test_nothing_is_positional():
     """A field's name is the persisted binding key and the Ref an author
-    wires, so there is no Results carrying titles by position."""
+    edges, so there is no Results carrying titles by position."""
     import conductor.returns as returns_module
 
     assert not hasattr(returns_module, "Results")

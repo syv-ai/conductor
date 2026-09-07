@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 
 def is_input_node(node: GraphNode) -> bool:
-    """Has this placement no wire into any of its inputs?
+    """Has this placement no edge into any of its inputs?
 
     A typed-in ``Static`` does not disqualify it; any ``Edges`` does.
     The one home of the rule, so ``derive_interface``, an editor and a
@@ -40,7 +40,7 @@ def is_input_node(node: GraphNode) -> bool:
 def lock_problems(nodes: Mapping[str, GraphNode], rosters: Mapping[str, Roster]) -> tuple[Problem, ...]:
     """A ``locked`` name the placement's roster does not declare — stale narrowing.
 
-    Non-fatal, and reported on every placement, wired or not: a stale lock
+    Non-fatal, and reported on every placement, connected or not: a stale lock
     narrows nothing and blocks nothing, and is repairable wherever it sits.
     A placement absent from ``rosters`` is one compile could not resolve; it
     carries its own problem.
@@ -67,9 +67,9 @@ def derive_interface(
 ) -> Interface:
     """What this graph takes and returns, derived from its nodes.
 
-    An **input node** (no wire into any input) offers its unlocked,
-    handle-bearing inputs; an **output node** (nothing wired out of any
-    output) offers every output. A placement with a wire in, or with any
+    An **input node** (no edge into any input) offers its unlocked,
+    handle-bearing inputs; an **output node** (nothing connected out of any
+    output) offers every output. A placement with an edge in, or with any
     output consumed, is an intermediate step and contributes nothing. The
     rule is per node, so ordinary editing does not shift the interface by
     accident.

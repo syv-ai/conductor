@@ -25,7 +25,7 @@ def test_a_dtype_ref_keeps_the_declared_class_in_python():
 
 def test_an_any_input_dumps_as_any():
     """A palette shows an if/else node with ``value: Any`` before anything is
-    wired, so the declaration needs a JSON form — and it says "any", never
+    connected, so the declaration needs a JSON form — and it says "any", never
     a dtype id."""
 
     assert description_of(Any) == {"id": "any"}
@@ -35,7 +35,7 @@ def test_an_any_input_dumps_as_any():
 def test_a_static_type_has_no_wire_form():
     """A handle-less input may declare a type that is not a ``DType``
     — a schema, a set of branches. Nothing travels on it, so the wire says
-    ``null`` rather than inventing an id that no cable could carry."""
+    ``null`` rather than inventing an id that no edge could carry."""
 
     class Schema:
         pass

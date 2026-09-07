@@ -2,7 +2,7 @@
 
 ``Field`` is what an input and an output have in common: name, type,
 title, description. ``Input`` adds how a person supplies the value (widget,
-default, optionality, whether a cable can reach it); ``Output`` adds
+default, optionality, whether an edge can reach it); ``Output`` adds
 ``choice``. The registry writes them when it derives a node's interface
 from its ``run`` signature; the compiler, the engine and the editor read them.
 
@@ -22,10 +22,10 @@ from conductor.widgets import AnyWidget
 class Field:
     """One named part of a node — an input or an output.
 
-    ``name`` is what wires and bindings refer to (the ``field`` half of a
+    ``name`` is what edges and bindings refer to (the ``field`` half of a
     ``Ref``); ``title`` and ``description`` are for a person. ``dtype`` is
     the declared type — a ``DType``, ``Any`` for an input that only routes
-    a value, or a plain static type for an input no cable can reach, which
+    a value, or a plain static type for an input no edge can reach, which
     serialises as ``null``.
 
     Nobody constructs a bare ``Field``; a node has outputs and inputs.
@@ -63,7 +63,7 @@ class Input(Field):
     """A field a value is supplied to — one parameter of ``run``.
 
     Adds to ``Field`` how the value gets there: the ``widget`` a person
-    edits it with, whether a cable can reach it (``show_handle``), and the
+    edits it with, whether an edge can reach it (``show_handle``), and the
     parameter's ``default``. ``Interface.of`` builds one per ``run``
     parameter, copying ``title``, ``description`` and ``show_handle`` off
     the widget annotation onto the record; ``compute_inputs`` may build
@@ -76,7 +76,7 @@ class Input(Field):
     fills in; it serialises as ``null``). ``widget`` is typed as the union
     of every widget so the record's JSON schema is discriminated per
     control. Read by ``model_of`` to validate a call, by the compiler to
-    type a typed-in value and to decide whether a cable may land, and by
+    type a typed-in value and to decide whether an edge may land, and by
     an editor to draw the row.
     """
 
@@ -84,7 +84,7 @@ class Input(Field):
     #: a broken declaration, not one that falls back to a default control.
     widget: AnyWidget
 
-    #: Whether a cable can reach this input. A fact about the field, copied
+    #: Whether an edge can reach this input. A fact about the field, copied
     #: off the widget annotation where the author wrote it.
     show_handle: bool = True
 
@@ -102,7 +102,7 @@ class Roster:
     A declaration says what a *version* has; ``compute_inputs`` and
     ``compute_outputs`` say what *this placement* has given the values it
     holds — a table's columns, a template's placeholders, an open roster's
-    wired names. The compiler asks once per placement and passes the answer
+    connected names. The compiler asks once per placement and passes the answer
     on as one record. Not an ``Interface``: that is the version's
     declaration, this is one placement's result.
     """

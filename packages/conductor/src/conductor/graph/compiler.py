@@ -9,7 +9,7 @@ from conductor.errors import CompilationError
 from conductor.graph.dynamic_inputs import resolve_node_inputs
 from conductor.graph.dynamic_outputs import _resolve_in_order
 from conductor.graph.model import Graph, GraphNode
-from conductor.graph.topology import dependencies_of, topological_sort, wire_maps
+from conductor.graph.topology import dependencies_of, edge_maps, topological_sort
 from conductor.metadata import Input, Output
 
 if TYPE_CHECKING:
@@ -55,11 +55,11 @@ def compile(graph: Graph, registry: "NodeRegistry") -> CompiledGraph:
         if not registry.contains(node.type):
             raise CompilationError(f"Unknown node type: '{node.type}'")
 
-    # 2. Read the wiring once; every wire must name an existing node
+    # 2. Read the edges once; every edge must name an existing node
     dependencies = dependencies_of(nodes)
     for node_id, deps in dependencies.items():
         for missing in sorted(deps - node_map.keys()):
-            raise CompilationError(f"'{node_id}' is wired from non-existent node: '{missing}'")
+            raise CompilationError(f"'{node_id}' is connected from non-existent node: '{missing}'")
 
     # 3. Resolve dynamic inputs. Order-free — an input roster depends on
     #    the node's own typed values alone.
@@ -73,7 +73,7 @@ def compile(graph: Graph, registry: "NodeRegistry") -> CompiledGraph:
 
     # 5. Build edge maps — forward (for resolver) and inverted (for fast
     #    per-node incoming lookup).
-    edge_map, incoming_map = wire_maps(nodes)
+    edge_map, incoming_map = edge_maps(nodes)
 
     # 6. Resolve dynamic outputs in topological order. Each node sees its
     #    producers' already-resolved shapes (which may themselves be hook-

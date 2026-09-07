@@ -47,7 +47,7 @@ class Upper(NodeDefinition):
 
 @pytest.mark.slow
 def test_500_node_linear_chain_compile_and_execute() -> None:
-    """500 upper nodes wired n_i -> n_{i+1}. The compiler and the eager
+    """500 upper nodes connected n_i -> n_{i+1}. The compiler and the eager
     scheduler scale to non-trivial graph sizes and the value propagates
     end-to-end.
 

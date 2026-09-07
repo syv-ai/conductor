@@ -4,7 +4,7 @@ A node overrides ``compute_inputs`` to shape the inputs one placement has
 from the values the author typed; the inputs it adds arrive in ``run``
 through ``**values``. ``resolve_node_inputs`` asks a fresh instance per
 placement, ``compile`` stores the answer on ``CompiledGraph.node_inputs``,
-and a wire may land on a handle only the hook declared. A node with no
+and an edge may land on a handle only the hook declared. A node with no
 override gets its declaration verbatim, and a hook that raises does so
 where it is found. The engine validates a call
 against the resolved roster, so a hook-declared input's title is what a

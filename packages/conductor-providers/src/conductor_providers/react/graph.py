@@ -2,7 +2,7 @@
 
 Each ReactFlow node carries the placement record whole under ``data``
 (``TypeAdapter(GraphNode)`` is the schema), a ``position`` the canvas
-needs, and the canvas's own ``type``. The cables are derived from the
+needs, and the canvas's own ``type``. The edges are derived from the
 bindings, one per ref, for the canvas to draw; reading back ignores them,
 since the bindings in ``data`` already say where every value comes from.
 """

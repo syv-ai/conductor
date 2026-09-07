@@ -1,21 +1,21 @@
 """Bindings — where an input's value comes from.
 
-An author can do exactly two things to an input: draw a cable to it, or
+An author can do exactly two things to an input: draw an edge to it, or
 type a value into it. A placement's ``bindings`` map holds one entry per
 input the author touched::
 
     {
-        "text":  Edges(refs=(Ref("reader", "text"),)),   # wired
+        "text":  Edges(refs=(Ref("reader", "text"),)),   # connected
         "limit": Static(value=200),                         # typed in
         # "language" absent: the input's declared default applies
     }
 
-Because one input holds one binding, a wired cable and a typed value can
+Because one input holds one binding, an edge and a typed value can
 never both claim the same input. Absence is one state, not two.
 
 There is deliberately no variant for "the caller supplies this": a run
 supplies values for a flow's inputs beside the graph, never inside it, so
-a stored flow stays runnable on its own. And there is no guard on a wire:
+a stored flow stays runnable on its own. And there is no guard on an edge:
 a branch is an output of the node that decides, and a branch not taken
 carries ``SKIPPED``.
 """
@@ -31,7 +31,7 @@ from conductor.ref import Ref
 
 @dataclass(frozen=True)
 class Edges:
-    """The value comes from other nodes' outputs — the author drew a cable.
+    """The value comes from other nodes' outputs — the author drew an edge.
 
     ``refs`` is in operand order, and that order is the only order there
     is. Into a scalar input there is one ref; into a ``Series[X]`` input

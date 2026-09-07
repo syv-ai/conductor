@@ -171,7 +171,7 @@ class GraphVersion:
     half-filled.
     """
 
-    #: The placements this version expands to. Wiring lives in their
+    #: The placements this version expands to. Edges live in their
     #: bindings, so the nodes are the whole graph.
     graph: tuple[GraphNode, ...]
     interface: Interface
@@ -380,7 +380,7 @@ class NodeDefinition(ABC):
         dropdown that changes which fields exist. The default returns
         ``declared``. ``declared`` is passed in rather than read off the
         class because the placement pins a version, which may not be the
-        newest; ``values`` are the values the author typed (a wired input
+        newest; ``values`` are the values the author typed (a connected input
         has no value until the flow runs).
         """
         return declared
@@ -395,9 +395,9 @@ class NodeDefinition(ABC):
 
         Override when the outputs come from a value (a sheet's header
         row, a schema the author built) or from the *type* arriving on a
-        wired input. ``arriving`` maps each wired input name to the type
+        connected input. ``arriving`` maps each connected input name to the type
         one call receives there — for a series into a scalar input, its
-        element type — and has no entry for an unwired input. It is a
+        element type — and has no entry for an unconnected input. It is a
         type, never a value. The default returns ``declared``.
         """
         return declared

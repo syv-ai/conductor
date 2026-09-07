@@ -30,7 +30,7 @@ Three things written on the widget belong to the field, not the control: `title`
 
 Conductor ships no default widget for any type. The same `Text` may be a textarea, a single line or a dropdown, so a parameter with no widget is a broken declaration and fails at import — not one that falls back to a default control.
 
-A widget does not decide whether a cable can reach the input: `show_handle` defaults to `True` on the base and no control overrides it. A node closes one input by writing `show_handle=False` on that input's annotation; such an input may declare any pydantic-validatable type (a schema, a list of branches), since nothing travels on a wire to it. Where a cable *can* land, the parameter declares a `DType` — or `Any`, for a value the node routes without reading.
+A widget does not decide whether an edge can reach the input: `show_handle` defaults to `True` on the base and no control overrides it. A node closes one input by writing `show_handle=False` on that input's annotation; such an input may declare any pydantic-validatable type (a schema, a list of branches), since nothing travels on an edge to it. Where an edge *can* land, the parameter declares a `DType` — or `Any`, for a value the node routes without reading.
 
 ## Widget catalog
 
@@ -70,7 +70,7 @@ A widget does not decide whether a cable can reach the input: `show_handle` defa
 
 ### Special
 
-- **`ConnectionList`** — edited by wiring only: the value comes down a cable, so there is nothing to type. The control for a `Series[X]` input, an `Any` input and an open roster's rows.
+- **`ConnectionList`** — edited by edges only: the value comes down an edge, so there is nothing to type. The control for a `Series[X]` input, an `Any` input and an open roster's rows.
 
 The vocabulary inside a control — a dropdown's choices, a builder's operators, a table's column types — is the host's, declared on the widget where it declares the input, so it travels as data and no frontend list has to agree with a host table by hand.
 

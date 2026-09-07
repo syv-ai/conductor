@@ -17,17 +17,17 @@ the two could disagree, and it is here.
 
 Three things the walk understands beyond ``Annotated[DType, Widget]``:
 
-* ``Any`` in place of a ``DType`` — the input accepts whatever is wired to
+* ``Any`` in place of a ``DType`` — the input accepts whatever is connected to
   it. The type that actually arrives is recorded when the flow is
   compiled, and the node's ``compute_outputs`` types its outputs from it.
 * ``**inputs: Single`` (or ``**inputs: Series``) — an open roster: every
-  name wired to the node becomes an input, received as one value (or, for
+  name connected to the node becomes an input, received as one value (or, for
   ``Series``, as a whole series). The interface records only that the
   roster is open and in which shape; the inputs themselves are made from
-  the wiring when the flow is compiled.
-* A parameter whose widget says ``show_handle=False`` cannot be wired, so
+  the edges when the flow is compiled.
+* A parameter whose widget says ``show_handle=False`` cannot be connected, so
   it may declare any pydantic-validatable type (a schema, a list of
-  branches). A ``DType`` is required exactly where a cable can land.
+  branches). A ``DType`` is required exactly where an edge can land.
 """
 
 from __future__ import annotations
@@ -86,9 +86,9 @@ class Interface:
     #: nodes need a type it was not given.
     needs: dict[str, type] = field(default_factory=dict)
     #: The shape of an open roster, or ``None`` for a closed one:
-    #: ``"single"`` for ``**inputs: Single`` (each wired name received as
+    #: ``"single"`` for ``**inputs: Single`` (each connected name received as
     #: one value), ``"series"`` for ``**inputs: Series`` (each received as a
-    #: whole series). The inputs themselves are made from the wiring when
+    #: whole series). The inputs themselves are made from the edges when
     #: the flow is compiled, so only the shape is recorded here.
     open: Literal["single", "series"] | None = None
 
@@ -143,12 +143,12 @@ def _extract_inputs(
         annotation = hints.get(name, param.annotation)
         if param.kind is inspect.Parameter.VAR_KEYWORD:
             if annotation is Single:
-                # ``**inputs: Single``: an open roster, every wired name
+                # ``**inputs: Single``: an open roster, every connected name
                 # received as one value. Only the shape is recorded; the
-                # inputs are made from the wiring at compile time.
+                # inputs are made from the edges at compile time.
                 open_roster = "single"
             elif annotation is Series:
-                # ``**inputs: Series``: an open roster, every wire a
+                # ``**inputs: Series``: an open roster, every edge a
                 # reduction.
                 open_roster = "series"
             # Any other ``**values``: the inputs this node's ``compute_inputs``
@@ -170,7 +170,7 @@ def _extract_inputs(
             )
         dtype = dtype_of(annotation)
         if widget.show_handle:
-            # A cable can land here, so the type must be one a wire carries:
+            # An edge can land here, so the type must be one an edge carries:
             # a DType, or Any for "whatever arrives".
             if dtype is None:
                 raise TypeError(

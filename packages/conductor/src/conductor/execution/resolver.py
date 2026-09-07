@@ -44,15 +44,15 @@ class InputResolver:
             2. The values the author typed into the node
             3. Widget default (not materialized here; handled by Pydantic)
 
-        A ``Series`` input fed by one wire carrying a series receives it
-        whole; fed by several wires, it gathers their values as one series
-        on a fresh index. A scalar input fed by more than one wire is an
+        A ``Series`` input fed by one edge carrying a series receives it
+        whole; fed by several edges, it gathers their values as one series
+        on a fresh index. A scalar input fed by more than one edge is an
         error, since no other shape exists for it.
         """
         skipped_edges = skipped_edges or set()
         inputs: dict[str, Any] = dict(node.data)
 
-        # (1) Wire-based resolution. Gather all incoming (source, handle, wire_id)
+        # (1) Edge-based resolution. Gather all incoming (source, handle, wire_id)
         # per target_handle in one pass.
         by_handle: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
         if incoming_map is not None:
@@ -86,7 +86,7 @@ class InputResolver:
                 inputs[target_handle] = values[0]
             else:
                 raise InputResolutionError(
-                    f"{node.id}.{target_handle} is a scalar input fed by {len(values)} wires",
+                    f"{node.id}.{target_handle} is a scalar input fed by {len(values)} edges",
                     node_id=node.id,
                 )
 

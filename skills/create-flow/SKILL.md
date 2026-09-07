@@ -1,6 +1,6 @@
 ---
 name: create-flow
-description: Use when building or running a conductor flow — placing nodes with GraphNode, wiring them through Edges bindings, calling compile()/execute(), streaming events, or debugging a run. Triggers on phrases like "create a flow", "build a graph", "run a flow", "wire these nodes together", "stream execution events".
+description: Use when building or running a conductor flow — placing nodes with GraphNode, connecting them through Edges bindings, calling compile()/execute(), streaming events, or debugging a run. Triggers on phrases like "create a flow", "build a graph", "run a flow", "connect these nodes together", "stream execution events".
 ---
 
 # Creating and running a conductor flow
@@ -51,7 +51,7 @@ One input holds at most one binding:
 2. **`Static(value=...)`** — the author typed the value in.
 3. **No binding** — the parameter's default.
 
-There is no edge list and no per-cable record: `dependencies_of(flow.nodes)` derives what each node waits for, and a canvas derives its cables. The call is validated through pydantic against the placement's roster, and `run` receives instances of the declared dtypes.
+There is no edge list and no per-edge record: `dependencies_of(flow.nodes)` derives what each node waits for, and a canvas derives its edges. The call is validated through pydantic against the placement's roster, and `run` receives instances of the declared dtypes.
 
 ## Streaming execution
 
@@ -88,7 +88,7 @@ results = execute_sync(compiled, retry=RetryConfig(max_retries=2, delay=1.0, bac
 
 ## Branches
 
-A node returns `SKIPPED` on the branch it did not take. Whatever is wired to that output is skipped in turn and emits `node_skipped`. The standard library ships `logic-if-empty`, `logic-if-equals` and a `decision` gate — usually you don't write your own.
+A node returns `SKIPPED` on the branch it did not take. Whatever is connected to that output is skipped in turn and emits `node_skipped`. The standard library ships `logic-if-empty`, `logic-if-equals` and a `decision` gate — usually you don't write your own.
 
 ## Definitions the registry does not hold
 
@@ -107,7 +107,7 @@ from conductor_providers.react import graph_to_react, react_to_graph, palette_fr
 
 palette = palette_from_registry(registry)                    # [cls.describe() ...] for the palette
 flow = react_to_graph(flow_json)                             # frontend → conductor (a Graph)
-flow_json = graph_to_react(flow)                             # conductor → frontend (record under data, cables derived)
+flow_json = graph_to_react(flow)                             # conductor → frontend (record under data, edges derived)
 ```
 
 `conductor_providers.fastapi.conductor_router(registry)` mounts `/nodes`, `/compile`, `/execute`, `/execute-stream` and `/entities/{kind}`.
@@ -125,7 +125,7 @@ Treat it as opaque for most use; read it when building custom execution tooling.
 ## Checklist before running a flow
 
 - [ ] Every `GraphNode.type` is registered on the registry passed to `compile`, and its `version` exists.
-- [ ] Every `Ref` in a `Edges` names an existing node and one of its outputs, and the bindings key names an input.
+- [ ] Every `Ref` in an `Edges` names an existing node and one of its outputs, and the bindings key names an input.
 - [ ] `Static` values are the declared types (pydantic coerces builtins into the host's dtypes).
 - [ ] If long-running, the caller owns cancellation and/or `timeout_seconds`.
 
