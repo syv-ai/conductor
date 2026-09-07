@@ -70,9 +70,9 @@ def edge_maps(
     """The two per-input views of the edges the engine reads, from one pass.
 
     ``edge_map`` is ``(target_id, target_handle) -> [(source_id,
-    source_handle, wire_id), ...]`` and ``incoming_map`` its inversion,
-    ``target_id -> [(target_handle, source_id, source_handle, wire_id),
-    ...]``, in ref order. The wire id is ``"source.handle->target.handle"``,
+    source_handle, edge_id), ...]`` and ``incoming_map`` its inversion,
+    ``target_id -> [(target_handle, source_id, source_handle, edge_id),
+    ...]``, in ref order. The edge id is ``"source.handle->target.handle"``,
     derived and stored nowhere; the resolver's skip bookkeeping keys on it.
     """
     edge_map: dict[tuple[str, str], list[tuple[str, str, str]]] = defaultdict(list)
@@ -82,7 +82,7 @@ def edge_maps(
             if not isinstance(binding, Edges):
                 continue
             for ref in binding.refs:
-                wire_id = f"{ref.node_id}.{ref.field}->{node.id}.{handle}"
-                edge_map[(node.id, handle)].append((ref.node_id, ref.field, wire_id))
-                incoming[node.id].append((handle, ref.node_id, ref.field, wire_id))
+                edge_id = f"{ref.node_id}.{ref.field}->{node.id}.{handle}"
+                edge_map[(node.id, handle)].append((ref.node_id, ref.field, edge_id))
+                incoming[node.id].append((handle, ref.node_id, ref.field, edge_id))
     return dict(edge_map), dict(incoming)

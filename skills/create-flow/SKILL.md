@@ -117,7 +117,7 @@ flow_json = graph_to_react(flow)                             # conductor → fro
 `CompiledGraph` is immutable. Fields worth knowing:
 
 - `execution_order` — topo-sorted node ids.
-- `edge_map` — `(target id, input) → [(source id, output, wire id), ...]`, derived from the bindings on each compile.
+- `edge_map` — `(target id, input) → [(source id, output, edge id), ...]`, derived from the bindings on each compile.
 - `node_inputs` / `node_outputs` — each placement's roster, as its hooks answered.
 
 Treat it as opaque for most use; read it when building custom execution tooling.

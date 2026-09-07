@@ -24,7 +24,7 @@ class CompiledGraph:
     edge_map: dict[tuple[str, str], list[tuple[str, str, str]]]
     node_map: dict[str, GraphNode]
     registry: Any  # NodeRegistry
-    # target_id -> [(target_handle, source_id, source_handle, wire_id), ...]
+    # target_id -> [(target_handle, source_id, source_handle, edge_id), ...]
     # Inverted edge view — faster than scanning edge_map per node.
     incoming_map: dict[str, list[tuple[str, str, str, str]]] = field(default_factory=dict)
     # Resolved outputs per node id — populated for every node in
