@@ -20,7 +20,7 @@ A reusable, host-agnostic graph execution engine for building DAG-based workflow
 
 ```python
 from typing import Annotated
-from conductor import Flow, GraphNode, NodeDefinition, NodeRegistry, Policy, Result, Static, compile, version
+from conductor import Graph, GraphNode, NodeDefinition, NodeRegistry, Policy, Result, Static, compile, version
 from conductor.execution.engine import execute_sync
 from conductor.widgets import Text as TextWidget
 from conductor_nodes.types import Text          # or a DType of your own
@@ -39,7 +39,7 @@ registry = NodeRegistry()
 registry.register(Fetch)
 
 compiled = compile(
-    Flow(nodes=[GraphNode("n1", "fetch", 1, bindings={"url": Static(value="https://example.com")})]),
+    Graph(nodes=[GraphNode("n1", "fetch", 1, bindings={"url": Static(value="https://example.com")})]),
     registry,
 )
 
@@ -77,14 +77,14 @@ execute_sync(compiled, retry=RetryConfig(max_retries=2, delay=1.0, backoff_facto
 
 ## Bindings — one input, one source
 
-A flow is its nodes; there is no edge list. Each placement says per input where the value comes from: a `Sources` binding names other placements' outputs in operand order (a cable), a `Static` binding holds a typed-in value, and an input with no binding takes its declared default.
+A flow is its nodes; there is no edge list. Each placement says per input where the value comes from: a `Edges` binding names other placements' outputs in operand order (a cable), a `Static` binding holds a typed-in value, and an input with no binding takes its declared default.
 
 ```python
-flow = Flow(nodes=[
+flow = Graph(nodes=[
     GraphNode("mapper", "build-map", 1, bindings={"seed": Static(value="x")}),
     GraphNode("redactor", "redact", 1, bindings={
         "text": Static(value="Alice met Bob."),
-        "mapping": Sources(refs=(Ref("mapper", "result"),)),
+        "mapping": Edges(refs=(Ref("mapper", "result"),)),
     }),
 ])
 ```

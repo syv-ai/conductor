@@ -13,12 +13,12 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from conductor.graph.model import Flow
+from conductor.graph.model import Graph
 from conductor.graph.topology import dependencies_of
 
 
 def topological_positions(
-    flow: Flow,
+    graph: Graph,
     *,
     x_gap: int = 260,
     y_gap: int = 120,
@@ -32,10 +32,10 @@ def topological_positions(
 
     Returns a dict keyed by node id.
     """
-    dependencies = dependencies_of(flow.nodes)
-    depth: dict[str, int] = {n.id: 0 for n in flow.nodes}
+    dependencies = dependencies_of(graph.nodes)
+    depth: dict[str, int] = {n.id: 0 for n in graph.nodes}
     forward: dict[str, list[str]] = defaultdict(list)
-    in_degree: dict[str, int] = {n.id: 0 for n in flow.nodes}
+    in_degree: dict[str, int] = {n.id: 0 for n in graph.nodes}
 
     for target, sources in dependencies.items():
         for source in sources:
@@ -44,7 +44,7 @@ def topological_positions(
                 in_degree[target] += 1
 
     # Kahn's — process roots first so depth[target] = max(depth[sources]) + 1
-    queue = [n.id for n in flow.nodes if in_degree[n.id] == 0]
+    queue = [n.id for n in graph.nodes if in_degree[n.id] == 0]
     while queue:
         nid = queue.pop(0)
         for neighbor in forward.get(nid, []):
@@ -57,7 +57,7 @@ def topological_positions(
     # Bucket by depth and spread vertically within each bucket
     by_depth: dict[int, list[str]] = defaultdict(list)
     # Preserve declaration order when placing in columns
-    for n in flow.nodes:
+    for n in graph.nodes:
         by_depth[depth[n.id]].append(n.id)
 
     positions: dict[str, dict[str, int]] = {}

@@ -24,8 +24,8 @@ import pytest
 from conductor import GraphNode, NodeRegistry, compile
 from conductor.errors import NodeExecutionError
 from conductor.execution.engine import execute, execute_sync
-from conductor.graph.binding import Sources, Static
-from conductor.graph.model import Flow
+from conductor.graph.binding import Edges, Static
+from conductor.graph.model import Graph
 from conductor.node import NodeDefinition, Policy, version
 from conductor.ref import Ref
 from conductor.returns import Result
@@ -69,11 +69,11 @@ def test_500_node_linear_chain_compile_and_execute() -> None:
     nodes.append(GraphNode("n0", "upper", 1, bindings={"text": Static(value="hello")}))
     for i in range(1, n):
         nodes.append(GraphNode(
-            f"n{i}", "upper", 1, bindings={"text": Sources(refs=(Ref(f"n{i - 1}", "result"),))},
+            f"n{i}", "upper", 1, bindings={"text": Edges(refs=(Ref(f"n{i - 1}", "result"),))},
         ))
 
     t0 = time.monotonic()
-    compiled = compile(Flow(nodes=nodes), registry)
+    compiled = compile(Graph(nodes=nodes), registry)
     compile_seconds = time.monotonic() - t0
     assert compile_seconds < 5.0, (
         f"compile took {compile_seconds:.2f}s; expected <5s"
@@ -122,7 +122,7 @@ async def test_cancellation_honored_during_retry_sleep() -> None:
     registry = NodeRegistry()
     registry.register(AlwaysFlaky)
 
-    compiled = compile(Flow(nodes=[GraphNode("n1", "always-flaky", 1, bindings={"text": Static(value="x")})]), registry)
+    compiled = compile(Graph(nodes=[GraphNode("n1", "always-flaky", 1, bindings={"text": Static(value="x")})]), registry)
 
     # Capture the live ``FlowRunState`` so the cancellation flag can be
     # flipped from outside. ``execute()`` builds state internally via

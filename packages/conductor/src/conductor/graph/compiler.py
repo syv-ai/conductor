@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 from conductor.errors import CompilationError
 from conductor.graph.dynamic_inputs import resolve_node_inputs
 from conductor.graph.dynamic_outputs import _resolve_in_order
-from conductor.graph.model import Flow, GraphNode
+from conductor.graph.model import Graph, GraphNode
 from conductor.graph.topology import dependencies_of, topological_sort, wire_maps
 from conductor.metadata import Input, Output
 
@@ -41,13 +41,13 @@ class CompiledGraph:
     node_inputs: dict[str, tuple[Input, ...]] = field(default_factory=dict)
 
 
-def compile(flow: Flow, registry: "NodeRegistry") -> CompiledGraph:
-    """Validate and compile a flow into an immutable execution plan.
+def compile(graph: Graph, registry: "NodeRegistry") -> CompiledGraph:
+    """Validate and compile a graph into an immutable execution plan.
 
-    Every definition the flow names must be in ``registry``; a host that
+    Every definition the graph names must be in ``registry``; a host that
     had to load one built it and called ``NodeRegistry.extended_with``.
     """
-    nodes = flow.nodes
+    nodes = graph.nodes
     node_map = {n.id: n for n in nodes}
 
     # 1. Validate node types

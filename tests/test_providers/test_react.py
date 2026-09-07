@@ -1,9 +1,9 @@
-"""``conductor_providers.react`` — a ``Flow`` to ReactFlow JSON and back.
+"""``conductor_providers.react`` — a ``Graph`` to ReactFlow JSON and back.
 
 ``graph_to_react`` emits the ``{nodes, edges}`` dict a ReactFlow canvas
 renders: one node per placement carrying the placement record under
 ``data`` and a position, and one cable per ref, derived from the
-bindings. ``react_to_graph`` reads the nodes back into a ``Flow``; the
+bindings. ``react_to_graph`` reads the nodes back into a ``Graph``; the
 cables are the canvas's and are not read. The round trip must survive
 ``json.dumps`` and compile.
 """
@@ -15,9 +15,9 @@ from typing import Annotated
 
 import conductor_nodes
 import pytest
-from conductor import Flow, GraphNode, NodeRegistry, compile
+from conductor import Graph, GraphNode, NodeRegistry, compile
 from conductor.execution.engine import execute_sync
-from conductor.graph.binding import Sources, Static
+from conductor.graph.binding import Edges, Static
 from conductor.node import NodeDefinition
 from conductor.ref import Ref
 from conductor.returns import Result
@@ -44,16 +44,16 @@ def registry() -> NodeRegistry:
 
 
 @pytest.fixture
-def sample_flow() -> Flow:
-    return Flow(nodes=[
+def sample_flow() -> Graph:
+    return Graph(nodes=[
         GraphNode("n1", "build-pair", 1),
         GraphNode("n2", "text-uppercase", 2, bindings={"text": Static(value="hi")}),
         GraphNode(
             "n3", "text-concat", 1,
             bindings={
                 "separator": Static(value="+"),
-                "a": Sources(refs=(Ref("n1", "result"),)),
-                "b": Sources(refs=(Ref("n2", "result"),)),
+                "a": Edges(refs=(Ref("n1", "result"),)),
+                "b": Edges(refs=(Ref("n2", "result"),)),
             },
         ),
     ])
@@ -85,7 +85,7 @@ class TestGraphToReact:
         assert len({e["id"] for e in edges}) == 2
 
     def test_a_position_on_the_placement_is_kept(self, sample_flow):
-        flow = Flow(nodes=[
+        flow = Graph(nodes=[
             GraphNode("n1", "build-pair", 1, display={"position": {"x": 999, "y": 111}}),
             *sample_flow.nodes[1:],
         ])
@@ -116,7 +116,7 @@ class TestReactToGraph:
         ]
 
     def test_the_canvas_position_lands_in_display(self):
-        wire = react.graph_to_react(Flow(nodes=[GraphNode("x", "text-uppercase", 1)]))
+        wire = react.graph_to_react(Graph(nodes=[GraphNode("x", "text-uppercase", 1)]))
         wire["nodes"][0]["position"] = {"x": 5, "y": 6}
 
         assert react.react_to_graph(wire).nodes[0].display == {"position": {"x": 5, "y": 6}}
@@ -145,9 +145,9 @@ class TestReactToGraph:
 
 class TestEndToEnd:
     def test_wire_format_can_be_compiled_and_executed(self, registry):
-        flow_in = Flow(nodes=[
+        flow_in = Graph(nodes=[
             GraphNode("src", "text-uppercase", 1, bindings={"text": Static(value="hello")}),
-            GraphNode("down", "text-reverse", 1, bindings={"text": Sources(refs=(Ref("src", "result"),))}),
+            GraphNode("down", "text-reverse", 1, bindings={"text": Edges(refs=(Ref("src", "result"),))}),
         ])
 
         wire = react.graph_to_react(flow_in)

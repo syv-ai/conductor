@@ -1,4 +1,4 @@
-"""A ``Flow`` to ReactFlow JSON and back.
+"""A ``Graph`` to ReactFlow JSON and back.
 
 Each ReactFlow node carries the placement record whole under ``data``
 (``TypeAdapter(GraphNode)`` is the schema), a ``position`` the canvas
@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from conductor.graph.binding import Sources
-from conductor.graph.model import Flow, GraphNode
+from conductor.graph.binding import Edges
+from conductor.graph.model import Graph, GraphNode
 from pydantic import TypeAdapter
 
 from conductor_providers.react.layout import topological_positions
@@ -20,13 +20,13 @@ from conductor_providers.react.layout import topological_positions
 _NODE = TypeAdapter(GraphNode)
 
 
-def graph_to_react(flow: Flow) -> dict[str, Any]:
-    """Serialize ``flow`` to a ReactFlow-compatible dict.
+def graph_to_react(graph: Graph) -> dict[str, Any]:
+    """Serialize ``graph`` to a ReactFlow-compatible dict.
 
     A placement whose ``display`` holds a ``position`` keeps it; the rest
     are laid out left to right by ``topological_positions``.
     """
-    auto = topological_positions(flow)
+    auto = topological_positions(graph)
     rf_nodes = [
         {
             "id": node.id,
@@ -34,7 +34,7 @@ def graph_to_react(flow: Flow) -> dict[str, Any]:
             "position": node.display.get("position", auto[node.id]),
             "data": _NODE.dump_python(node, mode="json", exclude={"display"}),
         }
-        for node in flow.nodes
+        for node in graph.nodes
     ]
     rf_edges = [
         {
@@ -44,23 +44,23 @@ def graph_to_react(flow: Flow) -> dict[str, Any]:
             "sourceHandle": ref.field,
             "targetHandle": handle,
         }
-        for node in flow.nodes
+        for node in graph.nodes
         for handle, binding in node.bindings.items()
-        if isinstance(binding, Sources)
+        if isinstance(binding, Edges)
         for ref in binding.refs
     ]
     return {"nodes": rf_nodes, "edges": rf_edges}
 
 
-def react_to_graph(wire: dict[str, Any]) -> Flow:
-    """Parse a ReactFlow dict back into a ``Flow``.
+def react_to_graph(wire: dict[str, Any]) -> Graph:
+    """Parse a ReactFlow dict back into a ``Graph``.
 
     Each node's ``data`` is the placement record; the canvas's ``position``
     lands in the placement's ``display``. Keys the canvas added beside
     those are ignored, so a host can decorate the wire without breaking
     the round trip.
     """
-    return Flow(nodes=[
+    return Graph(nodes=[
         _NODE.validate_python({**raw["data"], "display": {"position": raw["position"]}})
         for raw in wire["nodes"]
     ])

@@ -1,4 +1,4 @@
-"""ReactFlow provider — translates a conductor ``Flow`` to/from ReactFlow JSON.
+"""ReactFlow provider — translates a conductor ``Graph`` to/from ReactFlow JSON.
 
 Wire format produced by ``graph_to_react``:
 

@@ -82,11 +82,11 @@ A flow is its nodes and nothing else; there is no edge list. Each placement says
 
 ```python
 GraphNode("mapper",   "build-map", 1, bindings={"seed": Static(value="x")})
-GraphNode("redactor", "redact",    1, bindings={"mapping": Sources(refs=(Ref("mapper", "result"),))})
-# the Sources binding is the wire and the dependency
+GraphNode("redactor", "redact",    1, bindings={"mapping": Edges(refs=(Ref("mapper", "result"),))})
+# the Edges binding is the wire and the dependency
 ```
 
-A `Sources` holds refs in operand order; a `Static` is what the author typed; an absent binding means the declared default. Dependencies, cycle detection and what the flow itself takes and returns are derived from the bindings.
+A `Edges` holds refs in operand order; a `Static` is what the author typed; an absent binding means the declared default. Dependencies, cycle detection and what the flow itself takes and returns are derived from the bindings.
 
 ## Standard nodes + frontend providers
 

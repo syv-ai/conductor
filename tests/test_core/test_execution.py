@@ -10,9 +10,9 @@ from conductor.dtype import DType
 from conductor.errors import FlowExecutionException
 from conductor.execution.engine import collect, execute, execute_sync
 from conductor.execution.results import OutputRef, normalize_result, project_outputs
-from conductor.graph.binding import Sources, Static
+from conductor.graph.binding import Edges, Static
 from conductor.graph.compiler import compile
-from conductor.graph.model import Flow, GraphNode
+from conductor.graph.model import Graph, GraphNode
 from conductor.node import NodeDefinition
 from conductor.ref import Ref
 from conductor.returns import Result
@@ -154,9 +154,9 @@ class TestProjectOutputs:
 class TestStreamingExecution:
     async def test_linear_chain_events(self, three_node_registry):
         """echo -> upper should produce start/complete events for each node."""
-        compiled = compile(Flow(nodes=[
+        compiled = compile(Graph(nodes=[
                 GraphNode("n1", "echo", 1, bindings={"text": Static(value="hello")}),
-                GraphNode("n2", "upper", 1, bindings={"text": Sources(refs=(Ref('n1', 'result'),))}),
+                GraphNode("n2", "upper", 1, bindings={"text": Edges(refs=(Ref('n1', 'result'),))}),
             ]), three_node_registry)
 
         events = []
@@ -170,9 +170,9 @@ class TestStreamingExecution:
 
     async def test_linear_chain_results(self, three_node_registry):
         """echo('hello') -> upper -> 'HELLO'."""
-        compiled = compile(Flow(nodes=[
+        compiled = compile(Graph(nodes=[
                 GraphNode("n1", "echo", 1, bindings={"text": Static(value="hello")}),
-                GraphNode("n2", "upper", 1, bindings={"text": Sources(refs=(Ref('n1', 'result'),))}),
+                GraphNode("n2", "upper", 1, bindings={"text": Edges(refs=(Ref('n1', 'result'),))}),
             ]), three_node_registry)
 
         results = await collect(execute(compiled))
@@ -183,11 +183,11 @@ class TestStreamingExecution:
         echo('hello') -> upper  -> combine
         echo('hello') -> echo2  -> combine
         """
-        compiled = compile(Flow(nodes=[
+        compiled = compile(Graph(nodes=[
                 GraphNode("n1", "echo", 1, bindings={"text": Static(value="hello")}),
-                GraphNode("n2", "upper", 1, bindings={"text": Sources(refs=(Ref('n1', 'result'),))}),
-                GraphNode("n3", "echo", 1, bindings={"text": Sources(refs=(Ref('n1', 'result'),))}),
-                GraphNode("n4", "combine", 1, bindings={"a": Sources(refs=(Ref('n2', 'result'),)), "b": Sources(refs=(Ref('n3', 'result'),))}),
+                GraphNode("n2", "upper", 1, bindings={"text": Edges(refs=(Ref('n1', 'result'),))}),
+                GraphNode("n3", "echo", 1, bindings={"text": Edges(refs=(Ref('n1', 'result'),))}),
+                GraphNode("n4", "combine", 1, bindings={"a": Edges(refs=(Ref('n2', 'result'),)), "b": Edges(refs=(Ref('n3', 'result'),))}),
             ]), three_node_registry)
 
         results = await collect(execute(compiled))
@@ -201,9 +201,9 @@ class TestStreamingExecution:
 class TestSyncExecution:
     def test_execute_sync_linear(self, three_node_registry):
         """Blocking API: echo -> upper."""
-        compiled = compile(Flow(nodes=[
+        compiled = compile(Graph(nodes=[
                 GraphNode("n1", "echo", 1, bindings={"text": Static(value="world")}),
-                GraphNode("n2", "upper", 1, bindings={"text": Sources(refs=(Ref('n1', 'result'),))}),
+                GraphNode("n2", "upper", 1, bindings={"text": Edges(refs=(Ref('n1', 'result'),))}),
             ]), three_node_registry)
 
         results = execute_sync(compiled)
@@ -211,7 +211,7 @@ class TestSyncExecution:
 
     def test_single_node_no_edges(self, three_node_registry):
         """A single node with static data, no edges."""
-        compiled = compile(Flow(nodes=[GraphNode("n1", "echo", 1, bindings={"text": Static(value="standalone")})]), three_node_registry)
+        compiled = compile(Graph(nodes=[GraphNode("n1", "echo", 1, bindings={"text": Static(value="standalone")})]), three_node_registry)
 
         results = execute_sync(compiled)
         assert results["n1"]["result"] == "standalone"
@@ -224,9 +224,9 @@ class TestSyncExecution:
 class TestCaching:
     async def test_cached_results_used(self, three_node_registry):
         """Passing cache skips execution and uses cached value."""
-        compiled = compile(Flow(nodes=[
+        compiled = compile(Graph(nodes=[
                 GraphNode("n1", "echo", 1, bindings={"text": Static(value="hello")}),
-                GraphNode("n2", "upper", 1, bindings={"text": Sources(refs=(Ref('n1', 'result'),))}),
+                GraphNode("n2", "upper", 1, bindings={"text": Edges(refs=(Ref('n1', 'result'),))}),
             ]), three_node_registry)
 
         results = await collect(execute(
@@ -244,7 +244,7 @@ class TestCaching:
 class TestErrorHandling:
     async def test_node_execution_error_yields_flow_error(self, registry):
         registry.register(Fail)
-        compiled = compile(Flow(nodes=[GraphNode("n1", "fail", 1, bindings={"text": Static(value="hello")})]), registry)
+        compiled = compile(Graph(nodes=[GraphNode("n1", "fail", 1, bindings={"text": Static(value="hello")})]), registry)
 
         events = []
         async for event in execute(compiled):
@@ -256,7 +256,7 @@ class TestErrorHandling:
 
     def test_execute_sync_raises_on_error(self, registry):
         registry.register(Fail)
-        compiled = compile(Flow(nodes=[GraphNode("n1", "fail", 1, bindings={"text": Static(value="hello")})]), registry)
+        compiled = compile(Graph(nodes=[GraphNode("n1", "fail", 1, bindings={"text": Static(value="hello")})]), registry)
 
         with pytest.raises(FlowExecutionException):
             execute_sync(compiled)
@@ -279,7 +279,7 @@ class TestTimeout:
                 return text
 
         registry.register(Slow)
-        compiled = compile(Flow(nodes=[GraphNode("n1", "slow", 1, bindings={"text": Static(value="hello")})]), registry)
+        compiled = compile(Graph(nodes=[GraphNode("n1", "slow", 1, bindings={"text": Static(value="hello")})]), registry)
 
         events = []
         async for event in execute(compiled, timeout_seconds=1):
@@ -316,9 +316,9 @@ class TestSkipPropagation:
 
         registry.register(Echo)
         registry.register(Conditional)
-        compiled = compile(Flow(nodes=[
+        compiled = compile(Graph(nodes=[
                 GraphNode("n1", "conditional", 1, bindings={"text": Static(value="hello")}),
-                GraphNode("n2", "echo", 1, bindings={"text": Sources(refs=(Ref('n1', 'not_taken'),))}),  # connected to the branch not taken
+                GraphNode("n2", "echo", 1, bindings={"text": Edges(refs=(Ref('n1', 'not_taken'),))}),  # connected to the branch not taken
             ]), registry)
 
         events = []
@@ -338,7 +338,7 @@ class TestSkipPropagation:
 
 class TestStrayDataKeyFiltering:
     def test_node_ignores_stray_data_key(self, three_node_registry):
-        compiled = compile(Flow(nodes=[
+        compiled = compile(Graph(nodes=[
                 GraphNode("n1", "upper", 1, bindings={"text": Static(value="hi"), "_host_note": Static(value=["x"])}),
             ]), three_node_registry)
 

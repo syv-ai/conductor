@@ -5,7 +5,7 @@ type a value into it. A placement's ``bindings`` map holds one entry per
 input the author touched::
 
     {
-        "text":  Sources(refs=(Ref("reader", "text"),)),   # wired
+        "text":  Edges(refs=(Ref("reader", "text"),)),   # wired
         "limit": Static(value=200),                         # typed in
         # "language" absent: the input's declared default applies
     }
@@ -26,13 +26,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Mapping, TypeAlias
 
-# ``Ref`` lives in ``conductor.ref``; re-exported here so the binding
-# vocabulary reads in one place.
 from conductor.ref import Ref
 
 
 @dataclass(frozen=True)
-class Sources:
+class Edges:
     """The value comes from other nodes' outputs — the author drew a cable.
 
     ``refs`` is in operand order, and that order is the only order there
@@ -57,7 +55,7 @@ class Static:
     value: Any
 
 
-Binding: TypeAlias = Sources | Static
+Binding: TypeAlias = Edges | Static
 
 
 def static_values(bindings: Mapping[str, Binding]) -> dict[str, Any]:

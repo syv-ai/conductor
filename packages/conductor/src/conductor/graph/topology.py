@@ -11,7 +11,7 @@ from collections import defaultdict, deque
 from collections.abc import Iterable, Mapping
 
 from conductor.errors import CycleDetectionError
-from conductor.graph.binding import Sources
+from conductor.graph.binding import Edges
 from conductor.graph.model import GraphNode
 
 
@@ -19,14 +19,14 @@ def dependencies_of(nodes: Iterable[GraphNode]) -> dict[str, frozenset[str]]:
     """Which nodes each node waits for, by id.
 
     A set: a node that feeds two inputs of the same target is one
-    dependency. Operand order matters only within a ``Sources`` and is
+    dependency. Operand order matters only within a ``Edges`` and is
     kept there. An empty set means an input node — nothing is wired in.
     """
     return {
         node.id: frozenset(
             ref.node_id
             for binding in node.bindings.values()
-            if isinstance(binding, Sources)
+            if isinstance(binding, Edges)
             for ref in binding.refs
         )
         for node in nodes
@@ -79,7 +79,7 @@ def wire_maps(
     incoming: dict[str, list[tuple[str, str, str, str]]] = defaultdict(list)
     for node in nodes:
         for handle, binding in node.bindings.items():
-            if not isinstance(binding, Sources):
+            if not isinstance(binding, Edges):
                 continue
             for ref in binding.refs:
                 wire_id = f"{ref.node_id}.{ref.field}->{node.id}.{handle}"

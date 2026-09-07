@@ -1,6 +1,6 @@
 ---
 name: create-flow
-description: Use when building or running a conductor flow — placing nodes with GraphNode, wiring them through Sources bindings, calling compile()/execute(), streaming events, or debugging a run. Triggers on phrases like "create a flow", "build a graph", "run a flow", "wire these nodes together", "stream execution events".
+description: Use when building or running a conductor flow — placing nodes with GraphNode, wiring them through Edges bindings, calling compile()/execute(), streaming events, or debugging a run. Triggers on phrases like "create a flow", "build a graph", "run a flow", "wire these nodes together", "stream execution events".
 ---
 
 # Creating and running a conductor flow
@@ -21,7 +21,7 @@ Programmatic: `from conductor.about import get_content, list_sections, get_secti
 ## Three phases: declare → compile → execute
 
 ```python
-from conductor import Flow, GraphNode, NodeRegistry, Ref, Sources, Static, compile
+from conductor import Graph, GraphNode, NodeRegistry, Ref, Edges, Static, compile
 from conductor.execution.engine import execute_sync
 
 # 1. declare — node classes registered at import (see add-node)
@@ -30,9 +30,9 @@ registry.register(Greet)
 registry.register(Shout)
 
 # 2. compile — a placement pins a node by type and version, and binds each input
-flow = Flow(nodes=[
+flow = Graph(nodes=[
     GraphNode(id="a", type="greet", version=1, bindings={"name": Static(value="Ada")}),
-    GraphNode(id="b", type="shout", version=1, bindings={"text": Sources(refs=(Ref("a", "result"),))}),
+    GraphNode(id="b", type="shout", version=1, bindings={"text": Edges(refs=(Ref("a", "result"),))}),
 ])
 compiled = compile(flow, registry)
 
@@ -47,7 +47,7 @@ A single-output node's output is named `result`; a multi-output node's outputs a
 
 One input holds at most one binding:
 
-1. **`Sources(refs=(Ref(...), ...))`** — the value comes from other placements' outputs, in operand order. Several refs into a `Series[X]` input gather into one series; a scalar input takes exactly one.
+1. **`Edges(refs=(Ref(...), ...))`** — the value comes from other placements' outputs, in operand order. Several refs into a `Series[X]` input gather into one series; a scalar input takes exactly one.
 2. **`Static(value=...)`** — the author typed the value in.
 3. **No binding** — the parameter's default.
 
@@ -106,7 +106,7 @@ If the host project has a React-based builder, use `conductor_providers.react`:
 from conductor_providers.react import graph_to_react, react_to_graph, palette_from_registry
 
 palette = palette_from_registry(registry)                    # [cls.describe() ...] for the palette
-flow = react_to_graph(flow_json)                             # frontend → conductor (a Flow)
+flow = react_to_graph(flow_json)                             # frontend → conductor (a Graph)
 flow_json = graph_to_react(flow)                             # conductor → frontend (record under data, cables derived)
 ```
 
@@ -125,7 +125,7 @@ Treat it as opaque for most use; read it when building custom execution tooling.
 ## Checklist before running a flow
 
 - [ ] Every `GraphNode.type` is registered on the registry passed to `compile`, and its `version` exists.
-- [ ] Every `Ref` in a `Sources` names an existing node and one of its outputs, and the bindings key names an input.
+- [ ] Every `Ref` in a `Edges` names an existing node and one of its outputs, and the bindings key names an input.
 - [ ] `Static` values are the declared types (pydantic coerces builtins into the host's dtypes).
 - [ ] If long-running, the caller owns cancellation and/or `timeout_seconds`.
 

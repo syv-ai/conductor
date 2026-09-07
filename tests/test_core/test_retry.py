@@ -22,7 +22,7 @@ from conductor.errors import (
 from conductor.execution.engine import execute_sync
 from conductor.execution.retry import RetryConfig
 from conductor.graph.binding import Static
-from conductor.graph.model import Flow
+from conductor.graph.model import Graph
 from conductor.node import NodeDefinition, Policy, version
 from conductor.returns import Result
 from conductor.widgets import Textarea
@@ -61,7 +61,7 @@ def test_validation_errors_not_retried():
             )
 
     reg.register(RaiseValidation)
-    compiled = compile(Flow(nodes=[GraphNode("n1", "raise-validation", 1, bindings={"text": Static(value="x")})]), reg)
+    compiled = compile(Graph(nodes=[GraphNode("n1", "raise-validation", 1, bindings={"text": Static(value="x")})]), reg)
 
     with pytest.raises(FlowExecutionError):
         execute_sync(compiled, retry=RetryConfig(max_retries=3, delay=0.01))
@@ -97,7 +97,7 @@ def test_node_execution_error_with_retryable_false_not_retried():
             )
 
     reg.register(RaiseFatal)
-    compiled = compile(Flow(nodes=[GraphNode("n1", "raise-fatal", 1, bindings={"text": Static(value="x")})]), reg)
+    compiled = compile(Graph(nodes=[GraphNode("n1", "raise-fatal", 1, bindings={"text": Static(value="x")})]), reg)
 
     with pytest.raises(FlowExecutionError):
         execute_sync(compiled)
@@ -133,7 +133,7 @@ def test_default_node_execution_error_still_retries():
             return Txt("ok")
 
     reg.register(FlakyExec)
-    compiled = compile(Flow(nodes=[GraphNode("n1", "flaky-exec", 1, bindings={"text": Static(value="x")})]), reg)
+    compiled = compile(Graph(nodes=[GraphNode("n1", "flaky-exec", 1, bindings={"text": Static(value="x")})]), reg)
 
     results = execute_sync(compiled)
     assert results["n1"]["result"] == "ok"

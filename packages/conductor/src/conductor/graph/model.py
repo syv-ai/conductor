@@ -1,4 +1,4 @@
-"""``Flow`` and ``GraphNode`` — the persisted graph.
+"""``Graph`` and ``GraphNode`` — the persisted graph.
 
 A flow is a list of placed nodes and nothing else: wiring lives in each
 node's ``bindings``, and a canvas derives its own cables from them. A
@@ -53,7 +53,7 @@ class GraphNode:
 
         GraphNode(
             id="upper-1", type="upper", version=1,
-            bindings={"text": Sources(refs=(Ref("reader-1", "text"),))},
+            bindings={"text": Edges(refs=(Ref("reader-1", "text"),))},
             title="Upper case",
         )
 
@@ -93,7 +93,7 @@ class GraphNode:
 
 
 @dataclass(frozen=True)
-class Flow:
+class Graph:
     """A flow: its placed nodes and its chrome. The whole persisted graph.
 
     There is no edge list, no trigger and no settings block. What the

@@ -12,8 +12,8 @@ import pytest
 from conductor import GraphNode, NodeRegistry, compile, resolve_graph_outputs
 from conductor.dtype import DType
 from conductor.errors import CompilationError, CycleDetectionError
-from conductor.graph.binding import Sources, Static
-from conductor.graph.model import Flow
+from conductor.graph.binding import Edges, Static
+from conductor.graph.model import Graph
 from conductor.metadata import Output
 from conductor.node import NodeDefinition
 from conductor.ref import Ref
@@ -107,7 +107,7 @@ def test_missing_definitions_key_raises() -> None:
 
 def test_dangling_edge_endpoint_raises() -> None:
     reg = _make_registry()
-    nodes = [GraphNode(id="a", type="static-src", version=1, bindings={"x": Sources(refs=(Ref("ghost", "result"),))})]
+    nodes = [GraphNode(id="a", type="static-src", version=1, bindings={"x": Edges(refs=(Ref("ghost", "result"),))})]
     with pytest.raises(CompilationError, match="ghost"):
         resolve_graph_outputs(nodes, _definitions(reg, nodes))
 
@@ -115,8 +115,8 @@ def test_dangling_edge_endpoint_raises() -> None:
 def test_cycle_raises() -> None:
     reg = _make_registry()
     nodes = [
-        GraphNode(id="a", type="relay", version=1, bindings={"text": Sources(refs=(Ref('b', 'result'),))}),
-        GraphNode(id="b", type="relay", version=1, bindings={"text": Sources(refs=(Ref('a', 'result'),))}),
+        GraphNode(id="a", type="relay", version=1, bindings={"text": Edges(refs=(Ref('b', 'result'),))}),
+        GraphNode(id="b", type="relay", version=1, bindings={"text": Edges(refs=(Ref('a', 'result'),))}),
     ]
     with pytest.raises(CycleDetectionError):
         resolve_graph_outputs(nodes, _definitions(reg, nodes))
@@ -153,8 +153,8 @@ def test_equivalence_with_compile_node_outputs() -> None:
     reg = _make_registry()
     nodes = [
         GraphNode(id="a", type="dyn-schema", version=1, bindings={"fields": Static(value="field")}),
-        GraphNode(id="b", type="relay", version=1, bindings={"text": Sources(refs=(Ref('a', 'field'),))}),
+        GraphNode(id="b", type="relay", version=1, bindings={"text": Edges(refs=(Ref('a', 'field'),))}),
     ]
-    compiled = compile(Flow(nodes=nodes), reg)
+    compiled = compile(Graph(nodes=nodes), reg)
     standalone = resolve_graph_outputs(nodes, _definitions(reg, nodes))
     assert standalone == compiled.node_outputs

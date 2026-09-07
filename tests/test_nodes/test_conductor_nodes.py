@@ -15,8 +15,8 @@ from conductor import GraphNode, NodeRegistry, compile
 from conductor._sentinel import SKIPPED
 from conductor.errors import FlowExecutionError
 from conductor.execution.engine import execute_sync
-from conductor.graph.binding import Sources, Static
-from conductor.graph.model import Flow
+from conductor.graph.binding import Edges, Static
+from conductor.graph.model import Graph
 from conductor.ref import Ref
 from conductor_nodes.decision import Decision
 from conductor_nodes.types import Flag, Json, Text
@@ -30,7 +30,7 @@ def full_registry() -> NodeRegistry:
 
 
 def _run(reg: NodeRegistry, nodes):
-    compiled = compile(Flow(nodes=nodes), reg)
+    compiled = compile(Graph(nodes=nodes), reg)
     return execute_sync(compiled)
 
 
@@ -236,7 +236,7 @@ class TestLogic:
             full_registry,
             [
                 GraphNode("cond", "logic-if-empty", 1, bindings={"text": Static(value="   ")}),
-                GraphNode("down", "text-uppercase", 1, bindings={"text": Sources(refs=(Ref('cond', 'empty'),))}),
+                GraphNode("down", "text-uppercase", 1, bindings={"text": Edges(refs=(Ref('cond', 'empty'),))}),
             ],
         )
         # Empty branch delivered "   " to the downstream node
@@ -248,8 +248,8 @@ class TestLogic:
             full_registry,
             [
                 GraphNode("cond", "logic-if-empty", 1, bindings={"text": Static(value="hi")}),
-                GraphNode("up", "text-uppercase", 1, bindings={"text": Sources(refs=(Ref('cond', 'not_empty'),))}),
-                GraphNode("other", "text-uppercase", 1, bindings={"text": Sources(refs=(Ref('cond', 'empty'),))}),
+                GraphNode("up", "text-uppercase", 1, bindings={"text": Edges(refs=(Ref('cond', 'not_empty'),))}),
+                GraphNode("other", "text-uppercase", 1, bindings={"text": Edges(refs=(Ref('cond', 'empty'),))}),
             ],
         )
         assert r["up"]["result"] == "HI"
@@ -260,7 +260,7 @@ class TestLogic:
             full_registry,
             [
                 GraphNode("cond", "logic-if-equals", 1, bindings={"a": Static(value="foo"), "b": Static(value="foo")}),
-                GraphNode("eq", "text-uppercase", 1, bindings={"text": Sources(refs=(Ref('cond', 'equal'),))}),
+                GraphNode("eq", "text-uppercase", 1, bindings={"text": Edges(refs=(Ref('cond', 'equal'),))}),
             ],
         )
         assert r["eq"]["result"] == "FOO"
@@ -271,7 +271,7 @@ class TestLogic:
             [
                 GraphNode("cond", "logic-if-equals", 1,
                           bindings={"a": Static(value="Foo"), "b": Static(value="FOO"), "case_sensitive": Static(value=False)}),
-                GraphNode("eq", "text-uppercase", 1, bindings={"text": Sources(refs=(Ref('cond', 'equal'),))}),
+                GraphNode("eq", "text-uppercase", 1, bindings={"text": Edges(refs=(Ref('cond', 'equal'),))}),
             ],
         )
         assert r["eq"]["result"] == "FOO"
@@ -406,8 +406,8 @@ class TestIntegration:
                 GraphNode("src", "text-split", 1,
                           bindings={"text": Static(value=" a ,  b , c "), "separator": Static(value=",")}),
                 # Reuse the split result, upper-cased after a join
-                GraphNode("joined", "text-join", 1, bindings={"separator": Static(value="|"), "parts": Sources(refs=(Ref('src', 'result'),))}),
-                GraphNode("upper", "text-uppercase", 1, bindings={"text": Sources(refs=(Ref('joined', 'result'),))}),
+                GraphNode("joined", "text-join", 1, bindings={"separator": Static(value="|"), "parts": Edges(refs=(Ref('src', 'result'),))}),
+                GraphNode("upper", "text-uppercase", 1, bindings={"text": Edges(refs=(Ref('joined', 'result'),))}),
             ],
         )
         # split produces [" a ", "  b ", " c "], join preserves whitespace,
@@ -420,8 +420,8 @@ class TestIntegration:
             full_registry,
             [
                 GraphNode("a", "math-add", 1, bindings={"a": Static(value=2), "b": Static(value=3)}),     # 5
-                GraphNode("b", "math-multiply", 1, bindings={"b": Static(value=4), "a": Sources(refs=(Ref('a', 'result'),))}),          # 5 * 4 = 20
-                GraphNode("c", "math-round", 1, bindings={"decimals": Static(value=0), "value": Sources(refs=(Ref('b', 'result'),))}),      # 20
+                GraphNode("b", "math-multiply", 1, bindings={"b": Static(value=4), "a": Edges(refs=(Ref('a', 'result'),))}),          # 5 * 4 = 20
+                GraphNode("c", "math-round", 1, bindings={"decimals": Static(value=0), "value": Edges(refs=(Ref('b', 'result'),))}),      # 20
             ],
         )
         assert r["c"]["result"] == 20

@@ -5,9 +5,9 @@ from typing import Annotated
 import pytest
 from conductor.dtype import DType
 from conductor.errors import CompilationError, CycleDetectionError
-from conductor.graph.binding import Sources, Static
+from conductor.graph.binding import Edges, Static
 from conductor.graph.compiler import compile
-from conductor.graph.model import Flow, GraphNode
+from conductor.graph.model import Graph, GraphNode
 from conductor.graph.topology import topological_sort
 from conductor.node import NodeDefinition
 from conductor.ref import Ref
@@ -87,10 +87,10 @@ class TestCompile:
         registry.register(Echo)
         nodes = [
             GraphNode("n1", "echo", 1, bindings={"text": Static(value="hello")}),
-            GraphNode("n2", "echo", 1, bindings={"text": Sources(refs=(Ref('n1', 'result'),))}),
+            GraphNode("n2", "echo", 1, bindings={"text": Edges(refs=(Ref('n1', 'result'),))}),
         ]
 
-        compiled = compile(Flow(nodes=nodes), registry)
+        compiled = compile(Graph(nodes=nodes), registry)
         assert compiled is not None
         assert "n1" in compiled.execution_order
         assert "n2" in compiled.execution_order
@@ -99,20 +99,20 @@ class TestCompile:
     def test_compile_unknown_node_type_raises(self, registry):
         nodes = [GraphNode("n1", "nonexistent", 1)]
         with pytest.raises(CompilationError):
-            compile(Flow(nodes=nodes), registry)
+            compile(Graph(nodes=nodes), registry)
 
     def test_compile_wire_from_a_missing_node_raises(self, registry):
         registry.register(Echo)
-        nodes = [GraphNode("n1", "echo", 1, bindings={"text": Sources(refs=(Ref("n_missing", "result"),))})]
+        nodes = [GraphNode("n1", "echo", 1, bindings={"text": Edges(refs=(Ref("n_missing", "result"),))})]
 
         with pytest.raises(CompilationError):
-            compile(Flow(nodes=nodes), registry)
+            compile(Graph(nodes=nodes), registry)
 
     def test_compile_cycle_raises(self, registry):
         registry.register(Echo)
         nodes = [
-            GraphNode("n1", "echo", 1, bindings={"text": Sources(refs=(Ref('n2', 'result'),))}),
-            GraphNode("n2", "echo", 1, bindings={"text": Sources(refs=(Ref('n1', 'result'),))}),
+            GraphNode("n1", "echo", 1, bindings={"text": Edges(refs=(Ref('n2', 'result'),))}),
+            GraphNode("n2", "echo", 1, bindings={"text": Edges(refs=(Ref('n1', 'result'),))}),
         ]
         with pytest.raises((CycleDetectionError, CompilationError)):
-            compile(Flow(nodes=nodes), registry)
+            compile(Graph(nodes=nodes), registry)

@@ -18,7 +18,7 @@ from conductor import GraphNode, NodeRegistry, compile
 from conductor.dtype import DType
 from conductor.execution.engine import execute_sync
 from conductor.graph.binding import Static
-from conductor.graph.model import Flow
+from conductor.graph.model import Graph
 from conductor.metadata import Output
 from conductor.node import NodeDefinition
 from conductor.returns import Result
@@ -75,7 +75,7 @@ def test_hook_replaces_static_outputs_in_compiled_graph():
     reg = NodeRegistry()
     reg.register(Splitter)
 
-    compiled = compile(Flow(nodes=[GraphNode("n1", "splitter", 1, bindings={"count": Static(value=3)})]), reg)
+    compiled = compile(Graph(nodes=[GraphNode("n1", "splitter", 1, bindings={"count": Static(value=3)})]), reg)
 
     outputs = compiled.node_outputs["n1"]
     assert tuple(o.name for o in outputs) == ("slot_0", "slot_1", "slot_2")
@@ -86,7 +86,7 @@ def test_no_hook_falls_back_to_static_outputs():
     reg = NodeRegistry()
     reg.register(Noop)
 
-    compiled = compile(Flow(nodes=[GraphNode("n1", "noop", 1)]), reg)
+    compiled = compile(Graph(nodes=[GraphNode("n1", "noop", 1)]), reg)
 
     assert compiled.node_outputs["n1"] == Noop.versions[1].interface.outputs
 
@@ -109,7 +109,7 @@ def test_a_mapping_return_lands_on_the_computed_roster():
     reg = NodeRegistry()
     reg.register(Klass)
 
-    compiled = compile(Flow(nodes=[GraphNode("n1", "klass", 1)]), reg)
+    compiled = compile(Graph(nodes=[GraphNode("n1", "klass", 1)]), reg)
 
     assert tuple(o.name for o in compiled.node_outputs["n1"]) == ("custom",)
     assert execute_sync(compiled)["n1"]["custom"] == 42
@@ -132,6 +132,6 @@ def test_a_raising_hook_raises_where_it_is_found():
     reg.register(Boom)
 
     with pytest.raises(RuntimeError, match="kaboom"):
-        compile(Flow(nodes=[GraphNode("n1", "boom", 1)]), reg)
+        compile(Graph(nodes=[GraphNode("n1", "boom", 1)]), reg)
 
 

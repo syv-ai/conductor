@@ -1,4 +1,4 @@
-"""What a flow takes and returns, derived from its nodes.
+"""What a graph takes and returns, derived from its nodes.
 
 Nothing here is persisted and nothing here walks the graph: the
 graph-wide fact the derivation needs — which nodes something consumes —
@@ -15,14 +15,14 @@ from collections.abc import Mapping
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from conductor.graph.binding import Sources
+from conductor.graph.binding import Edges
 from conductor.graph.model import GraphNode
 from conductor.graph.problem import Problem
 from conductor.interface import Interface
 from conductor.ref import Ref
 
 if TYPE_CHECKING:
-    from conductor.graph.model import Flow
+    from conductor.graph.model import Graph
     from conductor.metadata import Input, Output, Roster
     from conductor.node import GraphVersion, NodeVersion
 
@@ -30,11 +30,11 @@ if TYPE_CHECKING:
 def is_input_node(node: GraphNode) -> bool:
     """Has this placement no wire into any of its inputs?
 
-    A typed-in ``Static`` does not disqualify it; any ``Sources`` does.
+    A typed-in ``Static`` does not disqualify it; any ``Edges`` does.
     The one home of the rule, so ``derive_interface``, an editor and a
     migration all agree; in a dependency map it reads as an empty set.
     """
-    return not any(isinstance(binding, Sources) for binding in node.bindings.values())
+    return not any(isinstance(binding, Edges) for binding in node.bindings.values())
 
 
 def lock_problems(nodes: Mapping[str, GraphNode], rosters: Mapping[str, Roster]) -> tuple[Problem, ...]:
@@ -60,12 +60,12 @@ def lock_problems(nodes: Mapping[str, GraphNode], rosters: Mapping[str, Roster])
 
 
 def derive_interface(
-    flow: Flow,
+    graph: Graph,
     rosters: Mapping[str, Roster],
     versions: Mapping[str, NodeVersion | GraphVersion],
     dependencies: Mapping[str, frozenset[str]],
 ) -> Interface:
-    """What this flow takes and returns, derived from its nodes.
+    """What this graph takes and returns, derived from its nodes.
 
     An **input node** (no wire into any input) offers its unlocked,
     handle-bearing inputs; an **output node** (nothing wired out of any
@@ -74,9 +74,9 @@ def derive_interface(
     rule is per node, so ordinary editing does not shift the interface by
     accident.
 
-    Each flow-level ``Input`` / ``Output`` is the placement's own record,
+    Each graph-level ``Input`` / ``Output`` is the placement's own record,
     whole, under its address ``Ref(node_id, field)`` as its name and
-    wearing the placement's title. ``returns`` is ``Mapping`` (a flow
+    wearing the placement's title. ``returns`` is ``Mapping`` (a graph
     returns its outputs by address); ``needs`` is the union of what the
     placements' versions need, by parameter name.
 
@@ -89,7 +89,7 @@ def derive_interface(
     consumed = frozenset().union(*dependencies.values())
     inputs: list[Input] = []
     outputs: list[Output] = []
-    for node in flow.nodes:
+    for node in graph.nodes:
         if node.id not in rosters:
             continue
         roster = rosters[node.id]

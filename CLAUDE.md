@@ -20,9 +20,9 @@ conductor/
 │       ├── errors.py           # Exception hierarchy
 │       ├── _sentinel.py        # SKIPPED
 │       ├── registry/           # NodeRegistry, runner_for, discover_nodes
-│       ├── graph/              # model (GraphNode/Flow), binding (Sources/Static), views (dependencies, interface), topology, compiler, dynamic_inputs/outputs
+│       ├── graph/              # model (GraphNode/Graph), binding (Edges/Static), views (dependencies, interface), topology, compiler, dynamic_inputs/outputs
 │       ├── execution/          # engine (eager+parallel), retry, state, resolver, events
-│       ├── flow_format/        # YAML / JSON flow file format (Flow ↔ dict)
+│       ├── flow_format/        # YAML / JSON flow file format (Graph ↔ dict)
 │       └── about/              # Runnable library context: `python -m conductor.about`
 ├── packages/conductor-nodes/   # Standard node library (text, math, logic, json_ops, regex_ops, decision) + its types
 │   └── src/conductor_nodes/    # Each module exposes NODES and register(registry); top-level register_all()
@@ -110,7 +110,7 @@ class Upper(NodeDefinition):
 
 Each input of a placement holds at most one binding (`GraphNode.bindings`):
 
-1. **`Sources(refs=(...))`** — the value arrives from other placements' outputs; `refs` is in operand order and several refs into a `Series[X]` input gather into one series. `InputResolver` reads the outputs by name.
+1. **`Edges(refs=(...))`** — the value arrives from other placements' outputs; `refs` is in operand order and several refs into a `Series[X]` input gather into one series. `InputResolver` reads the outputs by name.
 2. **`Static(value=...)`** — the author typed the value in. `GraphNode.data` is the typed-in values as a dict.
 3. **No binding** — the parameter's default.
 
@@ -125,7 +125,7 @@ Every control is a frozen, keyword-only dataclass with a `kind` discriminator; `
 ### Eager parallel execution
 
 The engine uses a dependency-driven scheduler (`_run_eager` in `execution/engine.py`):
-- Each schedulable node tracks an in-degree counter (unfinished deps from its `Sources` bindings).
+- Each schedulable node tracks an in-degree counter (unfinished deps from its `Edges` bindings).
 - When in-degree hits 0, `asyncio.create_task` dispatches the node via `asyncio.to_thread` so sync `run` methods don't block the loop.
 - Node events flow through an `asyncio.Queue`; the main loop yields them to the caller.
 - Failures cancel all running tasks.
@@ -155,11 +155,11 @@ All exceptions inherit from `ConductorError` (see `errors.py`):
 
 ### The persisted graph
 
-`Flow` is `nodes` and `display`. A `GraphNode` is behaviour (`type`, `version`, `bindings`, `locked`), content (`title`, `description`, one `FieldContent` per field) and chrome (`display`, stored and returned, never parsed). An id refuses `.` (a `Ref` reads `node.field`) and accepts `/`. What the flow takes and returns is derived, never stored: `graph/views.py`'s `derive_interface(flow, rosters, versions)` returns an `Interface` whose inputs are the unlocked handle-bearing inputs of the input nodes and whose outputs are every output of the nodes nothing consumes, each named by its address. A failed node fails the run; there is no saga.
+`Graph` is `nodes` and `display`. A `GraphNode` is behaviour (`type`, `version`, `bindings`, `locked`), content (`title`, `description`, one `FieldContent` per field) and chrome (`display`, stored and returned, never parsed). An id refuses `.` (a `Ref` reads `node.field`) and accepts `/`. What the flow takes and returns is derived, never stored: `graph/views.py`'s `derive_interface(flow, rosters, versions)` returns an `Interface` whose inputs are the unlocked handle-bearing inputs of the input nodes and whose outputs are every output of the nodes nothing consumes, each named by its address. A failed node fails the run; there is no saga.
 
 ### YAML / JSON flow format (`conductor.flow_format`)
 
-The record is the schema: the module wraps `TypeAdapter(Flow)` — `load_flow` / `flow_to_dict`, and YAML/JSON files via `yaml_to_flow` / `flow_to_yaml` / `load_flow_from_path` / `dump_flow`. A ref stores as its address, `"node.field"`. Requires PyYAML (optional extra: `syv-conductor[yaml]`).
+The record is the schema: the module wraps `TypeAdapter(Graph)` — `load_flow` / `flow_to_dict`, and YAML/JSON files via `yaml_to_flow` / `flow_to_yaml` / `load_flow_from_path` / `dump_flow`. A ref stores as its address, `"node.field"`. Requires PyYAML (optional extra: `syv-conductor[yaml]`).
 
 ### Documentation maintenance
 
@@ -203,7 +203,7 @@ registry.register(MyNode)     # ids are unique; registering a second class under
 
 ### Building and running a flow
 ```python
-compiled = compile(Flow(nodes=[GraphNode("n1", "my-node", 1, bindings={"text": Static(value="hello")})]), registry)
+compiled = compile(Graph(nodes=[GraphNode("n1", "my-node", 1, bindings={"text": Static(value="hello")})]), registry)
 results = execute_sync(compiled)     # results["n1"]["result"] == "HELLO"
 ```
 
@@ -229,7 +229,7 @@ palette = [cls.describe() for cls in registry.definitions()]     # NodeDescripti
 
 ## Conventions
 
-- A placement is `GraphNode(id, type, version, bindings)`; `type` is the node id and `version` the pinned version. There is no `"id@version"` string anywhere, and no edge record: a wire is a `Sources` on the target's input.
+- A placement is `GraphNode(id, type, version, bindings)`; `type` is the node id and `version` the pinned version. There is no `"id@version"` string anywhere, and no edge record: a wire is a `Edges` on the target's input.
 - A result is `results[node_id][output_name]`; a single output is named `result`.
 - `SKIPPED` propagates — if every wired value is `SKIPPED`, the node is skipped.
 - A `run` returns values of its declared dtypes (`Text(...)`, never a bare `str`), because a value arrives downstream as the type the wire carried.

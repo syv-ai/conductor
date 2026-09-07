@@ -27,11 +27,11 @@ from conductor.execution.checkpoint import FlowCheckpoint
 from conductor.execution.engine import execute, execute_sync, resume, resume_sync
 from conductor.execution.retry import RetryConfig
 from conductor.execution.store import FlowStore
-from conductor.graph.binding import Binding, Sources, Static
+from conductor.graph.binding import Binding, Edges, Static
 from conductor.graph.compiler import CompiledGraph, compile
 from conductor.graph.dynamic_inputs import resolve_graph_inputs
 from conductor.graph.dynamic_outputs import resolve_graph_outputs
-from conductor.graph.model import FieldContent, Flow, GraphNode
+from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.topology import dependencies_of
 from conductor.graph.views import is_input_node
 from conductor.interface import Interface, Provided
@@ -59,9 +59,9 @@ __all__ = [
     "runner_for",
     "GraphNode",
     "FieldContent",
-    "Flow",
+    "Graph",
     "Binding",
-    "Sources",
+    "Edges",
     "Static",
     "dependencies_of",
     "is_input_node",

@@ -9,28 +9,29 @@ from conductor import NodeRegistry
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
 from conductor.execution.engine import execute_sync
-from conductor.graph.binding import Ref, Sources, Static, static_values
+from conductor.graph.binding import Edges, Static, static_values
 from conductor.graph.compiler import compile as compile_graph
-from conductor.graph.model import FieldContent, Flow, GraphNode
+from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.topology import dependencies_of
 from conductor.graph.views import derive_interface, is_input_node, lock_problems
 from conductor.interface import Interface, Provided
 from conductor.metadata import Output, Roster
 from conductor.node import NodeDefinition
+from conductor.ref import Ref
 from conductor.returns import Result
 from conductor.widgets import Textarea
 from pydantic import TypeAdapter
 
 
 def test_a_wire_carries_ordered_refs():
-    wire = Sources(refs=(Ref("a", "result"), Ref("b", "result")))
+    wire = Edges(refs=(Ref("a", "result"), Ref("b", "result")))
 
     assert [r.node_id for r in wire.refs] == ["a", "b"]
 
 
 def test_wire_order_is_operand_order():
-    first = Sources(refs=(Ref("a", "r"), Ref("b", "r")))
-    second = Sources(refs=(Ref("b", "r"), Ref("a", "r")))
+    first = Edges(refs=(Ref("a", "r"), Ref("b", "r")))
+    second = Edges(refs=(Ref("b", "r"), Ref("a", "r")))
     assert first != second
 
 
@@ -41,7 +42,7 @@ def test_there_are_exactly_two_variants():
 
     assert not hasattr(bindings, "Port")
     assert not hasattr(bindings, "Guard")
-    assert not hasattr(Sources(refs=()), "when")
+    assert not hasattr(Edges(refs=()), "when")
 
 
 def test_absence_means_the_declared_default_applies():
@@ -55,7 +56,7 @@ def test_static_values_extracts_only_static_bindings():
     bindings = {
         "text": Static(value="hi"),
         "number": Static(value=3),
-        "source": Sources(refs=(Ref("a", "result"),)),
+        "source": Edges(refs=(Ref("a", "result"),)),
     }
     assert static_values(bindings) == {"text": "hi", "number": 3}
 
@@ -88,7 +89,7 @@ def test_a_node_stores_bindings_and_derives_data():
         version=1,
         bindings={
             "text": Static(value="hi"),
-            "source": Sources(refs=(Ref("n0", "result"),)),
+            "source": Edges(refs=(Ref("n0", "result"),)),
         },
     )
     assert node.data == {"text": "hi"}
@@ -102,7 +103,7 @@ def test_a_node_is_behaviour_content_and_chrome():
 
 
 def test_a_flow_is_nodes_and_display():
-    names = [f.name for f in dataclasses.fields(Flow)]
+    names = [f.name for f in dataclasses.fields(Graph)]
 
     assert names == ["nodes", "display"]
 
@@ -114,10 +115,10 @@ def test_chrome_is_opaque():
 
 
 def test_the_record_is_the_schema():
-    """A Flow dumps and loads through pydantic, bindings included. A
-    Static whose value happens to look like a Sources comes back a Static,
+    """A Graph dumps and loads through pydantic, bindings included. A
+    Static whose value happens to look like a Edges comes back a Static,
     because Static nests its payload under `value`."""
-    flow = Flow(
+    flow = Graph(
         nodes=[
             GraphNode(
                 id="a",
@@ -128,17 +129,17 @@ def test_the_record_is_the_schema():
                 title="A",
                 fields={"x": FieldContent(title="X")},
             ),
-            GraphNode(id="b", type="t", version=2, bindings={"y": Sources(refs=(Ref("a", "result"),))}),
+            GraphNode(id="b", type="t", version=2, bindings={"y": Edges(refs=(Ref("a", "result"),))}),
         ],
         display={"zoom": 1},
     )
-    adapter = TypeAdapter(Flow)
+    adapter = TypeAdapter(Graph)
 
     assert adapter.validate_python(adapter.dump_python(flow, mode="json")) == flow
 def test_a_node_depends_on_every_node_its_wires_name():
     nodes = [
         GraphNode(id="a", type="t", version=1),
-        GraphNode(id="b", type="t", version=1, bindings={"x": Sources(refs=(Ref("a", "result"),))}),
+        GraphNode(id="b", type="t", version=1, bindings={"x": Edges(refs=(Ref("a", "result"),))}),
     ]
 
     assert dependencies_of(nodes) == {"a": frozenset(), "b": frozenset({"a"})}
@@ -154,7 +155,7 @@ def test_two_refs_on_one_input_are_one_dependency_each():
     nodes = [
         GraphNode(
             id="b", type="t", version=1,
-            bindings={"x": Sources(refs=(Ref("a", "result"), Ref("c", "result")))},
+            bindings={"x": Edges(refs=(Ref("a", "result"), Ref("c", "result")))},
         )
     ]
 
@@ -166,7 +167,7 @@ def test_two_wires_from_the_same_node_are_one_dependency():
     nodes = [
         GraphNode(
             id="b", type="t", version=1,
-            bindings={"x": Sources(refs=(Ref("a", "result"),)), "y": Sources(refs=(Ref("a", "other"),))},
+            bindings={"x": Edges(refs=(Ref("a", "result"),)), "y": Edges(refs=(Ref("a", "other"),))},
         )
     ]
 
@@ -256,7 +257,7 @@ def _flow(application_locked=(), language_bindings=None):
     """Two value holders and one summariser wired from the first:
     `application` and `language` are input nodes; `language` and `summary`
     are output nodes (nothing consumes them); `application` is consumed."""
-    return Flow(
+    return Graph(
         nodes=[
             GraphNode(
                 id="application", type="text-input", version=1, title="Application",
@@ -272,7 +273,7 @@ def _flow(application_locked=(), language_bindings=None):
             GraphNode(
                 id="summary", type="summarise", version=1, title="Opsummering",
                 fields={"text": FieldContent(title="Text"), "result": FieldContent(title="Result")},
-                bindings={"text": Sources(refs=(Ref("application", "result"),))},
+                bindings={"text": Edges(refs=(Ref("application", "result"),))},
             ),
         ],
     )
@@ -319,9 +320,9 @@ def test_a_flow_level_name_is_the_address_a_ref_spells():
 
 def test_needs_is_the_union_of_the_placements_needs():
     """What a run must provide to the flow is what its nodes need, by name."""
-    flow = Flow(nodes=[
+    flow = Graph(nodes=[
         GraphNode(id="a", type="stamped", version=1),
-        GraphNode(id="b", type="stamped", version=1, bindings={"text": Sources(refs=(Ref("a", "result"),))}),
+        GraphNode(id="b", type="stamped", version=1, bindings={"text": Edges(refs=(Ref("a", "result"),))}),
         GraphNode(id="c", type="text-input", version=1),
     ])
 
@@ -354,13 +355,13 @@ def test_a_roster_is_the_two_tuples_a_nodes_hooks_answer():
 
 def test_nodes_order_decides_the_order():
     flow = _flow()
-    reordered = Flow(nodes=[flow.nodes[1], flow.nodes[0], flow.nodes[2]])
+    reordered = Graph(nodes=[flow.nodes[1], flow.nodes[0], flow.nodes[2]])
 
     assert [i.name for i in _interface(reordered).inputs] == ["language.value", "application.value"]
 
 
 def test_is_input_node_is_the_one_home_of_the_predicate():
-    """A Static does not disqualify a placement; any Sources does."""
+    """A Static does not disqualify a placement; any Edges does."""
     flow = _flow()
     assert is_input_node(flow.nodes[0]) and is_input_node(flow.nodes[1])
     assert not is_input_node(flow.nodes[2])
@@ -369,7 +370,7 @@ def test_is_input_node_is_the_one_home_of_the_predicate():
 def test_a_wire_into_any_field_makes_the_whole_node_static():
     """The rule is node-level: one wire in, and every other field of the
     placement is author config — not offered, not fillable."""
-    flow = _flow(language_bindings={"value": Sources(refs=(Ref("application", "result"),))})
+    flow = _flow(language_bindings={"value": Edges(refs=(Ref("application", "result"),))})
 
     assert [i.name for i in _interface(flow).inputs] == ["application.value"]
 
@@ -405,7 +406,7 @@ def test_a_field_with_no_handle_is_never_an_input():
 
     reg = _registry()
     reg.register(Script)
-    flow = Flow(
+    flow = Graph(
         nodes=[GraphNode(id="s", type="script", version=1, title="Python",
                          fields={"code": FieldContent(title="Kode"), "result": FieldContent(title="Result")})],
     )
@@ -433,8 +434,8 @@ def test_a_stale_lock_reports_on_a_wired_placement_too():
     sits, so it reports there as it would anywhere."""
     import dataclasses
 
-    flow = _flow(language_bindings={"value": Sources(refs=(Ref("application", "result"),))})
-    flow = Flow(nodes=[
+    flow = _flow(language_bindings={"value": Edges(refs=(Ref("application", "result"),))})
+    flow = Graph(nodes=[
         dataclasses.replace(node, locked=("ghost",)) if node.id == "language" else node
         for node in flow.nodes
     ])
@@ -451,7 +452,7 @@ def test_a_column_a_node_computed_is_derivable():
     # `GraphNode.fields` is a `Mapping`, so the placement is *built* with the
     # authored entry.
     flow = _flow()
-    flow = Flow(nodes=[
+    flow = Graph(nodes=[
         dataclasses.replace(node, fields={**node.fields, "name": FieldContent(title="Name")})
         if node.id == "summary" else node
         for node in flow.nodes
@@ -485,7 +486,7 @@ def test_an_unauthored_field_reads_the_declarations_title():
     """A hand-built graph (no editor copying titles) carries no
     `fields` entries; with nothing authored, the declaration's own title
     is the one value there is — no chain, nothing resolved."""
-    flow = Flow(nodes=[GraphNode(id="x", type="text-input", version=1, title="X")])
+    flow = Graph(nodes=[GraphNode(id="x", type="text-input", version=1, title="X")])
 
     interface = _interface(flow)
 
@@ -509,13 +510,13 @@ def _echo_registry():
 
 
 def test_a_flow_of_bindings_compiles_and_runs():
-    flow = Flow(
+    flow = Graph(
         nodes=[
             GraphNode(id="a", type="echo", version=1, bindings={"x": Static(value="hi")}),
-            GraphNode(id="b", type="echo", version=1, bindings={"x": Sources(refs=(Ref("a", "result"),))}),
+            GraphNode(id="b", type="echo", version=1, bindings={"x": Edges(refs=(Ref("a", "result"),))}),
         ],
     )
-    results = execute_sync(compile_graph(flow=flow, registry=_echo_registry()))
+    results = execute_sync(compile_graph(graph=flow, registry=_echo_registry()))
 
     assert results["a"]["result"] == "HI"
     assert results["b"]["result"] == "HI"
@@ -523,9 +524,9 @@ def test_a_flow_of_bindings_compiles_and_runs():
 
 def test_an_unbound_input_falls_back_to_its_declared_default():
     """Absence is the only "nothing binds this" state there is."""
-    flow = Flow(nodes=[GraphNode(id="a", type="echo", version=1)])
+    flow = Graph(nodes=[GraphNode(id="a", type="echo", version=1)])
 
-    assert execute_sync(compile_graph(flow=flow, registry=_echo_registry()))["a"]["result"] == ""
+    assert execute_sync(compile_graph(graph=flow, registry=_echo_registry()))["a"]["result"] == ""
 
 
 def test_a_branch_not_taken_is_skipped_downstream():
@@ -549,23 +550,23 @@ def test_a_branch_not_taken_is_skipped_downstream():
 
     registry = _echo_registry()
     registry.register(Gate)
-    flow = Flow(
+    flow = Graph(
         nodes=[
             GraphNode(id="g", type="gate", version=1, bindings={"x": Static(value="hi")}),
-            GraphNode(id="yes", type="echo", version=1, bindings={"x": Sources(refs=(Ref("g", "yes"),))}),
-            GraphNode(id="no", type="echo", version=1, bindings={"x": Sources(refs=(Ref("g", "no"),))}),
+            GraphNode(id="yes", type="echo", version=1, bindings={"x": Edges(refs=(Ref("g", "yes"),))}),
+            GraphNode(id="no", type="echo", version=1, bindings={"x": Edges(refs=(Ref("g", "no"),))}),
         ],
     )
-    results = execute_sync(compile_graph(flow=flow, registry=registry))
+    results = execute_sync(compile_graph(graph=flow, registry=registry))
 
     assert results["yes"]["result"] == "HI"
     # The aggregated results of ``execute_sync`` omit a skipped node.
     assert "no" not in results
 
 
-def test_compile_takes_a_flow_and_a_registry_and_nothing_else_positional():
+def test_compile_takes_a_graph_and_a_registry_and_nothing_else_positional():
     params = inspect.signature(compile_graph).parameters
 
-    assert list(params)[:2] == ["flow", "registry"]
+    assert list(params)[:2] == ["graph", "registry"]
     for gone in ("nodes", "edges", "extension_resolver", "subprocess_registry"):
         assert gone not in params, gone

@@ -15,8 +15,8 @@ from conductor import (
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
 from conductor.errors import NodeExecutionError
-from conductor.graph.binding import Sources, Static
-from conductor.graph.model import Flow
+from conductor.graph.binding import Edges, Static
+from conductor.graph.model import Graph
 from conductor.node import NodeDefinition, Policy, version
 from conductor.ref import Ref
 from conductor.returns import Result
@@ -126,10 +126,10 @@ class TestDecisionCombinations:
 
     def test_decision_branch_failure_does_not_affect_other_branch(self):
         """The branch not taken holds a failing node that never runs."""
-        compiled = compile(Flow(nodes=[
+        compiled = compile(Graph(nodes=[
                 GraphNode("d", "decide", 1, bindings={"value": Static(value=100)}),
-                GraphNode("a", "record", 1, bindings={"label": Static(value="A"), "_": Sources(refs=(Ref('d', 'high'),))}),
-                GraphNode("b", "always-fail", 1, bindings={"_": Sources(refs=(Ref('d', 'low'),))}),
+                GraphNode("a", "record", 1, bindings={"label": Static(value="A"), "_": Edges(refs=(Ref('d', 'high'),))}),
+                GraphNode("b", "always-fail", 1, bindings={"_": Edges(refs=(Ref('d', 'low'),))}),
             ]), _registry())
         r = execute_sync(compiled)
         # A ran; B was skipped so it never failed
@@ -167,7 +167,7 @@ class TestRetry:
                     raise NodeExecutionError("transient", node_id="flaky")
                 return Txt("ok")
 
-        compiled = compile(Flow(nodes=[GraphNode("n1", "flaky", 1)]), _registry(Flaky))
+        compiled = compile(Graph(nodes=[GraphNode("n1", "flaky", 1)]), _registry(Flaky))
         r = execute_sync(compiled)
         assert r["n1"]["result"] == "ok"
         assert calls == 2  # one failure + one success
@@ -207,10 +207,10 @@ class TestEdgeCases:
     """Shapes that once caught bugs."""
 
     def test_decision_routes_only_the_taken_branch(self):
-        compiled = compile(Flow(nodes=[
+        compiled = compile(Graph(nodes=[
                 GraphNode("d", "decide", 1, bindings={"value": Static(value=100)}),
-                GraphNode("taken", "echo", 1, bindings={"text": Static(value="TAKEN"), "_": Sources(refs=(Ref('d', 'high'),))}),
-                GraphNode("other", "echo", 1, bindings={"text": Static(value="OTHER"), "_": Sources(refs=(Ref('d', 'low'),))}),
+                GraphNode("taken", "echo", 1, bindings={"text": Static(value="TAKEN"), "_": Edges(refs=(Ref('d', 'high'),))}),
+                GraphNode("other", "echo", 1, bindings={"text": Static(value="OTHER"), "_": Edges(refs=(Ref('d', 'low'),))}),
             ]), _registry())
         r = execute_sync(compiled)
         assert "taken" in r
@@ -219,11 +219,11 @@ class TestEdgeCases:
     def test_skip_propagates_through_decision_else_branch(self):
         """A deciding node fed by a wire routes the taken branch; the else branch is skipped."""
 
-        compiled = compile(Flow(nodes=[
+        compiled = compile(Graph(nodes=[
                 GraphNode("source", "echo", 1, bindings={"text": Static(value="data")}),
-                GraphNode("d", "route", 1, bindings={"text": Sources(refs=(Ref('source', 'result'),))}),
-                GraphNode("taken", "echo", 1, bindings={"text": Static(value="TAKEN"), "_": Sources(refs=(Ref('d', 'match'),))}),
-                GraphNode("else_b", "echo", 1, bindings={"text": Static(value="ELSE"), "_": Sources(refs=(Ref('d', 'other'),))}),
+                GraphNode("d", "route", 1, bindings={"text": Edges(refs=(Ref('source', 'result'),))}),
+                GraphNode("taken", "echo", 1, bindings={"text": Static(value="TAKEN"), "_": Edges(refs=(Ref('d', 'match'),))}),
+                GraphNode("else_b", "echo", 1, bindings={"text": Static(value="ELSE"), "_": Edges(refs=(Ref('d', 'other'),))}),
             ]), _registry(Route))
         r = execute_sync(compiled)
         assert r["taken"]["result"] == "TAKEN"

@@ -14,8 +14,8 @@ from conductor.dtype import DType
 from conductor.errors import FlowExecutionException
 from conductor.execution.engine import execute, execute_sync
 from conductor.execution.retry import RetryConfig
-from conductor.graph.binding import Sources, Static
-from conductor.graph.model import Flow
+from conductor.graph.binding import Edges, Static
+from conductor.graph.model import Graph
 from conductor.node import NodeDefinition, Policy, version
 from conductor.ref import Ref
 from conductor.returns import Result
@@ -105,12 +105,12 @@ class TestEagerScheduling:
         # A(0.3s) -> C(0.3s) --+
         #                      +--> E
         # B(0.3s) -> D(0.3s) --+
-        compiled = compile(Flow(nodes=[
+        compiled = compile(Graph(nodes=[
                 GraphNode("a", "slow", 1, bindings={"text": Static(value="hello")}),
                 GraphNode("b", "slow", 1, bindings={"text": Static(value="world")}),
-                GraphNode("c", "slow", 1, bindings={"text": Sources(refs=(Ref('a', 'result'),))}),
-                GraphNode("d", "slow", 1, bindings={"text": Sources(refs=(Ref('b', 'result'),))}),
-                GraphNode("e", "join", 1, bindings={"a": Sources(refs=(Ref('c', 'result'),)), "b": Sources(refs=(Ref('d', 'result'),))}),
+                GraphNode("c", "slow", 1, bindings={"text": Edges(refs=(Ref('a', 'result'),))}),
+                GraphNode("d", "slow", 1, bindings={"text": Edges(refs=(Ref('b', 'result'),))}),
+                GraphNode("e", "join", 1, bindings={"a": Edges(refs=(Ref('c', 'result'),)), "b": Edges(refs=(Ref('d', 'result'),))}),
             ]), _registry(Slow, Join))
 
         start = time.monotonic()
@@ -122,16 +122,16 @@ class TestEagerScheduling:
         assert results["e"]["result"] == "HELLO+WORLD"
 
     def test_linear_chain_still_works(self):
-        compiled = compile(Flow(nodes=[
+        compiled = compile(Graph(nodes=[
                 GraphNode("n1", "echo", 1, bindings={"text": Static(value="hello")}),
-                GraphNode("n2", "upper", 1, bindings={"text": Sources(refs=(Ref('n1', 'result'),))}),
-                GraphNode("n3", "echo", 1, bindings={"text": Sources(refs=(Ref('n2', 'result'),))}),
+                GraphNode("n2", "upper", 1, bindings={"text": Edges(refs=(Ref('n1', 'result'),))}),
+                GraphNode("n3", "echo", 1, bindings={"text": Edges(refs=(Ref('n2', 'result'),))}),
             ]), _registry(Echo, Upper))
 
         assert execute_sync(compiled)["n3"]["result"] == "HELLO"
 
     async def test_events_emitted_for_parallel_nodes(self):
-        compiled = compile(Flow(nodes=[
+        compiled = compile(Graph(nodes=[
                 GraphNode("a", "echo", 1, bindings={"text": Static(value="x")}),
                 GraphNode("b", "echo", 1, bindings={"text": Static(value="y")}),
             ]), _registry(Echo))
@@ -144,7 +144,7 @@ class TestEagerScheduling:
         assert "flow_complete" in types
 
     def test_single_node_works(self):
-        compiled = compile(Flow(nodes=[GraphNode("n1", "echo", 1, bindings={"text": Static(value="hi")})]), _registry(Echo))
+        compiled = compile(Graph(nodes=[GraphNode("n1", "echo", 1, bindings={"text": Static(value="hi")})]), _registry(Echo))
 
         assert execute_sync(compiled)["n1"]["result"] == "hi"
 
@@ -167,14 +167,14 @@ class TestRetry:
                     raise RuntimeError(f"Attempt {calls} failed")
                 return Txt(f"ok:{text}")
 
-        compiled = compile(Flow(nodes=[GraphNode("n1", "flaky", 1, bindings={"text": Static(value="hello")})]), _registry(Flaky))
+        compiled = compile(Graph(nodes=[GraphNode("n1", "flaky", 1, bindings={"text": Static(value="hello")})]), _registry(Flaky))
 
         results = execute_sync(compiled, retry=RetryConfig(max_retries=3, delay=0.05))
         assert results["n1"]["result"] == "ok:hello"
         assert calls == 3
 
     def test_global_retry_exhausted_raises(self):
-        compiled = compile(Flow(nodes=[GraphNode("n1", "always-fails", 1, bindings={"text": Static(value="hello")})]), _registry(AlwaysFails))
+        compiled = compile(Graph(nodes=[GraphNode("n1", "always-fails", 1, bindings={"text": Static(value="hello")})]), _registry(AlwaysFails))
 
         with pytest.raises(FlowExecutionException):
             execute_sync(compiled, retry=RetryConfig(max_retries=2, delay=0.01))
@@ -197,7 +197,7 @@ class TestRetry:
                     raise RuntimeError("not yet")
                 return Txt("done")
 
-        compiled = compile(Flow(nodes=[GraphNode("n1", "flaky", 1, bindings={"text": Static(value="x")})]), _registry(Flaky))
+        compiled = compile(Graph(nodes=[GraphNode("n1", "flaky", 1, bindings={"text": Static(value="x")})]), _registry(Flaky))
 
         # The run says no retry, the version says 3 — the version wins.
         results = execute_sync(compiled, retry=RetryConfig(max_retries=0))
@@ -205,7 +205,7 @@ class TestRetry:
         assert calls == 3
 
     def test_no_retry_by_default(self):
-        compiled = compile(Flow(nodes=[GraphNode("n1", "always-fails", 1, bindings={"text": Static(value="x")})]), _registry(AlwaysFails))
+        compiled = compile(Graph(nodes=[GraphNode("n1", "always-fails", 1, bindings={"text": Static(value="x")})]), _registry(AlwaysFails))
 
         with pytest.raises(FlowExecutionException):
             execute_sync(compiled)
@@ -228,7 +228,7 @@ class TestRetry:
                 calls += 1
                 return num
 
-        compiled = compile(Flow(nodes=[GraphNode("n1", "typed", 1, bindings={"num": Static(value="not-a-number")})]), _registry(Typed))
+        compiled = compile(Graph(nodes=[GraphNode("n1", "typed", 1, bindings={"num": Static(value="not-a-number")})]), _registry(Typed))
 
         with pytest.raises(FlowExecutionException):
             execute_sync(compiled)
@@ -251,7 +251,7 @@ class TestRetry:
                     raise RuntimeError("first try fails")
                 return Txt("ok")
 
-        compiled = compile(Flow(nodes=[GraphNode("n1", "flaky", 1, bindings={"text": Static(value="x")})]), _registry(Flaky))
+        compiled = compile(Graph(nodes=[GraphNode("n1", "flaky", 1, bindings={"text": Static(value="x")})]), _registry(Flaky))
 
         events = [
             event
@@ -296,10 +296,10 @@ class TestRetryWithParallel:
                 calls["b"] += 1
                 return Txt(f"B:{text}")
 
-        compiled = compile(Flow(nodes=[
+        compiled = compile(Graph(nodes=[
                 GraphNode("n1", "flaky-a", 1, bindings={"text": Static(value="x")}),
                 GraphNode("n2", "fast-b", 1, bindings={"text": Static(value="y")}),
-                GraphNode("n3", "join", 1, bindings={"a": Sources(refs=(Ref('n1', 'result'),)), "b": Sources(refs=(Ref('n2', 'result'),))}),
+                GraphNode("n3", "join", 1, bindings={"a": Edges(refs=(Ref('n1', 'result'),)), "b": Edges(refs=(Ref('n2', 'result'),))}),
             ]), _registry(FlakyA, FastB, Join))
 
         results = execute_sync(compiled)

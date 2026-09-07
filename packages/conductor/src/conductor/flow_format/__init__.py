@@ -1,4 +1,4 @@
-"""Author-facing YAML / JSON flow format — the wrappers around TypeAdapter(Flow)."""
+"""Author-facing YAML / JSON flow format — the wrappers around TypeAdapter(Graph)."""
 
 from conductor.flow_format.loader import (
     dump_flow,

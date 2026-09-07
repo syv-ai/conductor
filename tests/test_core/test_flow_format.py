@@ -1,16 +1,16 @@
 """A flow file is the record, dumped."""
 
 from conductor.flow_format import flow_to_dict, flow_to_yaml, load_flow, yaml_to_flow
-from conductor.graph.binding import Sources, Static
-from conductor.graph.model import FieldContent, Flow, GraphNode
+from conductor.graph.binding import Edges, Static
+from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.ref import Ref
 
 
 def _flow():
-    return Flow(
+    return Graph(
         nodes=[
             GraphNode(id="a", type="echo", version=1, bindings={"x": Static(value="hi")}, locked=("x",), title="A", fields={"x": FieldContent(title="X")}),
-            GraphNode(id="b", type="echo", version=1, bindings={"x": Sources(refs=(Ref("a", "result"),))}, display={"x": 1}),
+            GraphNode(id="b", type="echo", version=1, bindings={"x": Edges(refs=(Ref("a", "result"),))}, display={"x": 1}),
         ],
     )
 

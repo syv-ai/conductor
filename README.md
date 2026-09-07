@@ -28,7 +28,7 @@ Built to be the shared core behind visual flow builders — declare a node once 
 - **Shared references** — per-placement produce/consume bindings let one node feed another without an edge.
 - **Compensation** — a placement names the node that undoes its work if the flow fails later.
 - **Auto-discovery** — import a package and every node it registers is in the registry.
-- **YAML / JSON flow format** — `conductor.flow_format` round-trips `Flow` ↔ YAML/JSON/dict.
+- **YAML / JSON flow format** — `conductor.flow_format` round-trips `Graph` ↔ YAML/JSON/dict.
 - **Zero app dependencies** — no FastAPI, no database, no auth in the core; pydantic is the one hard dependency.
 - **Standard node library** — `conductor-nodes` ships text, math, logic, JSON and regex nodes and a decision gate, declared in a four-word vocabulary of its own.
 - **Framework adapters** — `conductor_providers.react` translates graphs to/from ReactFlow JSON and builds the palette; `conductor_providers.fastapi` mounts `/nodes`, `/compile`, `/execute` and `/execute-stream`.
@@ -111,15 +111,15 @@ The class is checked the moment it is defined: a missing `id`, `title`, `descrip
 
 ### 2. Build and execute a flow
 
-A placement pins a node by `type` and `version` and says, per input, where its value comes from: a `Sources` binding names other placements' outputs (a cable), a `Static` binding holds a typed-in value, and an input with no binding takes its declared default. There is no edge list — a flow is its nodes.
+A placement pins a node by `type` and `version` and says, per input, where its value comes from: a `Edges` binding names other placements' outputs (a cable), a `Static` binding holds a typed-in value, and an input with no binding takes its declared default. There is no edge list — a flow is its nodes.
 
 ```python
-from conductor import Flow, GraphNode, Ref, Sources, Static, compile
+from conductor import Graph, GraphNode, Ref, Edges, Static, compile
 from conductor.execution.engine import execute_sync
 
-flow = Flow(nodes=[
+flow = Graph(nodes=[
     GraphNode("n1", "echo", 1, bindings={"text": Static(value="hello world")}),
-    GraphNode("n2", "uppercase", 1, bindings={"text": Sources(refs=(Ref("n1", "result"),))}),
+    GraphNode("n2", "uppercase", 1, bindings={"text": Edges(refs=(Ref("n1", "result"),))}),
 ])
 compiled = compile(flow, registry)
 
@@ -164,7 +164,7 @@ conductor/
 │   │       ├── errors.py           # Exception hierarchy (ConductorError, NodeError, …)
 │   │       ├── _sentinel.py        # SKIPPED
 │   │       ├── registry/           # NodeRegistry, runner_for, discover_nodes
-│   │       ├── graph/              # GraphNode/Flow, the Binding variants, the derived views, topology, compile(), roster resolution
+│   │       ├── graph/              # GraphNode/Graph, the Binding variants, the derived views, topology, compile(), roster resolution
 │   │       ├── execution/          # execute(), execute_sync(), the eager scheduler, retry, events
 │   │       ├── flow_format/        # YAML / JSON flow files
 │   │       └── about/              # Runnable library reference: python -m conductor.about
@@ -403,13 +403,13 @@ Raise `NodeConnectionError` from `run` to mark a failure as transient and retry-
 
 ### Bindings
 
-One input holds one binding, so a cable and a typed value can never both claim the same input. `Sources(refs=(Ref("a", "result"), Ref("b", "result")))` is in operand order — into a `Series[X]` input several refs gather into one series. `Static(value=...)` is what the author typed. An absent binding means the declared default applies. A flow's dependencies (`dependencies_of`) and which placements are its input nodes (`is_input_node`, no cable into any input) are read off the bindings; nothing stores them. A failed node fails the run.
+One input holds one binding, so a cable and a typed value can never both claim the same input. `Edges(refs=(Ref("a", "result"), Ref("b", "result")))` is in operand order — into a `Series[X]` input several refs gather into one series. `Static(value=...)` is what the author typed. An absent binding means the declared default applies. A flow's dependencies (`dependencies_of`) and which placements are its input nodes (`is_input_node`, no cable into any input) are read off the bindings; nothing stores them. A failed node fails the run.
 
 A host that loads definitions the static registry lacks builds them and hands compile `registry.extended_with({...})` — a new registry per run in which a registered type wins over a loaded one.
 
 ### YAML / JSON flow format
 
-`conductor.flow_format` round-trips a `Flow` to and from a dict, YAML or a file: `load_flow`, `flow_to_dict`, `yaml_to_flow`, `flow_to_yaml`, `load_flow_from_path`, `dump_flow`. The record is the schema — the module wraps `TypeAdapter(Flow)` and a ref stores as its address, `"node.field"`. Requires PyYAML (`syv-conductor[yaml]`).
+`conductor.flow_format` round-trips a `Graph` to and from a dict, YAML or a file: `load_flow`, `flow_to_dict`, `yaml_to_flow`, `flow_to_yaml`, `load_flow_from_path`, `dump_flow`. The record is the schema — the module wraps `TypeAdapter(Graph)` and a ref stores as its address, `"node.field"`. Requires PyYAML (`syv-conductor[yaml]`).
 
 ## Widgets
 
@@ -519,8 +519,8 @@ Framework adapters. Each provider is a subpackage translating between conductor'
 from conductor_providers import react
 
 palette = react.palette_from_registry(registry)   # [cls.describe() for every definition]
-flow_json = react.graph_to_react(flow)            # Flow → ReactFlow JSON (the placement record under each node's data; cables derived; positions laid out if a placement has none)
-flow2 = react.react_to_graph(flow_json)           # ReactFlow JSON → Flow
+flow_json = react.graph_to_react(flow)            # Graph → ReactFlow JSON (the placement record under each node's data; cables derived; positions laid out if a placement has none)
+flow2 = react.react_to_graph(flow_json)           # ReactFlow JSON → Graph
 ```
 
 `conductor_providers.fastapi.conductor_router(registry)` returns an APIRouter with `GET /nodes` (the palette), `POST /compile`, `POST /execute`, `POST /execute-stream` (server-sent events) and `GET /entities/{kind}` for `EntityDropdown` choices.
@@ -552,7 +552,7 @@ From `1.0.0` onward, conductor follows [Semantic Versioning](https://semver.org/
 
 **Public API.** A name is part of the public API if it is exported from a package's `__init__` or documented in this README / `docs/`. Anything else — `_`-prefixed names, modules not re-exported from a public surface — is internal and may change in any release without warning. The public surface:
 
-- Top-level `conductor`: the node contract (`NodeDefinition`, `NodeVersion`, `GraphVersion`, `Policy`, `Deprecation`, `NodeDescription`, `version`, `upgrade`, `deprecated`, `Interface`, `Provided`, `Input`, `Output`, `Roster`, `AnyWidget`), the type vocabulary (`DType`, `DTypeRef`, `Single`, `dtype_of`, `registered_dtypes`, `Series`, `Index`, `Ref`, `Result`), the registry (`NodeRegistry`, `runner_for`), the graph (`Flow`, `GraphNode`, `FieldContent`, `Binding`, `Sources`, `Static`, `dependencies_of`, `is_input_node`, `compile`, `CompiledGraph`, `resolve_graph_inputs`, `resolve_graph_outputs`), execution (`execute`, `execute_sync`, `RetryConfig`, `SKIPPED`) and the error classes
+- Top-level `conductor`: the node contract (`NodeDefinition`, `NodeVersion`, `GraphVersion`, `Policy`, `Deprecation`, `NodeDescription`, `version`, `upgrade`, `deprecated`, `Interface`, `Provided`, `Input`, `Output`, `Roster`, `AnyWidget`), the type vocabulary (`DType`, `DTypeRef`, `Single`, `dtype_of`, `registered_dtypes`, `Series`, `Index`, `Ref`, `Result`), the registry (`NodeRegistry`, `runner_for`), the graph (`Graph`, `GraphNode`, `FieldContent`, `Binding`, `Edges`, `Static`, `dependencies_of`, `is_input_node`, `compile`, `CompiledGraph`, `resolve_graph_inputs`, `resolve_graph_outputs`), execution (`execute`, `execute_sync`, `RetryConfig`, `SKIPPED`) and the error classes
 - `conductor.widgets`, `conductor.metadata`, `conductor.errors`, `conductor.execution.events` (the `*Event` `TypedDict`s), `conductor.registry.discovery` (`discover_nodes`), `conductor.flow_format`
 - `conductor_nodes` (`register_all`, `get_default_registry`, the category modules, `conductor_nodes.types`) and `conductor_providers.react` / `conductor_providers.fastapi`
 
