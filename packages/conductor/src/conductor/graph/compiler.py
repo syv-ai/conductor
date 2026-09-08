@@ -13,22 +13,25 @@ resolve.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from functools import cache
 from typing import Any
 
 from pydantic import TypeAdapter, ValidationError
 
+from conductor.dtype import DType
 from conductor.graph.binding import Edges, many, static_values
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.graph.problem import (
     Problem,
     cycle,
+    stale_binding,
     unknown_node_type,
     unknown_node_version,
 )
 from conductor.graph.topology import dependencies_of, order_of
-from conductor.graph.views import derive_interface
+from conductor.graph.views import derive_interface, lock_problems
 from conductor.metadata import Input, Roster
 from conductor.node import GraphVersion, NodeVersion
 from conductor.registry import NodeRegistry
@@ -39,20 +42,23 @@ from conductor.widgets import ConnectionList
 def compile_graph(graph: Graph, registry: NodeRegistry) -> CompiledGraph:
     """Compile ``graph`` against ``registry``.
 
-    Four passes, each reading the one before: the nodes (duplicate ids),
+    Five passes, each reading the one before: the nodes (duplicate ids),
     pins (which version each node uses), rosters (what each node's hooks
-    say its inputs are, with the statics typed), and order (cycles);
-    then the graph's interface, read off the rosters. A node that fails
-    a pass carries a fatal ``Problem`` and drops out of the passes after
-    it.
+    say its inputs are, with the statics typed), bindings (do the stored
+    bindings fit the rosters), and order (cycles); then the two roster
+    rules on every roster, and the graph's interface, read off the
+    rosters. A node that fails a pass carries a fatal ``Problem`` and
+    drops out of the passes after it.
     """
     problems: list[Problem] = []
     nodes = _placements(graph, problems)
     versions = _pins(nodes, registry, problems)
     rosters, statics = _rosters(nodes, versions, registry, problems)
+    _check_bindings(nodes, rosters, problems)
     dependencies = dependencies_of(nodes.values())
     order, cyclic = order_of(dependencies)
     problems.extend(cycle(node_id) for node_id in sorted(cyclic))
+    problems.extend(_roster_rules(rosters))
     interface = derive_interface(graph, rosters, versions, dependencies)
     return CompiledGraph(
         _nodes=nodes,
@@ -242,3 +248,88 @@ def _typed_static(inp: Any, value: Any) -> Any:
         if many(value):
             return [_adapter(inp.dtype).validate_python(v) for v in value]
         raise
+
+
+def _check_bindings(
+    nodes: dict[str, GraphNode], rosters: dict[str, Roster], problems: list[Problem]
+) -> frozenset[str]:
+    """Check the stored bindings against the rosters.
+
+    Reports a lock on a field the node does not have (``unknown_locked_field``,
+    not fatal), a binding on a field the node does not have (``stale_binding``,
+    not fatal), an edge into an input without a handle, an edge from a node
+    that does not exist, and a required input nothing binds
+    (``unbound_required``). A parameter typed ``Any`` is typed by its edge
+    and nothing else, so with no connect it is ``unbound_required`` as well.
+    Returns the ids of the nodes whose edges are wrong; nothing about
+    their shape is derived afterwards.
+    """
+    broken: set[str] = set()
+    problems.extend(lock_problems(nodes, rosters))
+    for node_id, roster in rosters.items():
+        node = nodes[node_id]
+        declared = {i.name: i for i in roster.inputs}
+
+        for name, binding in node.bindings.items():
+            if name not in declared:
+                problems.append(stale_binding(node_id, name))
+                continue
+            if not isinstance(binding, Edges):
+                continue
+            target = declared[name]
+            if not target.show_handle:
+                broken.add(node_id)
+                problems.append(_at(node_id, name, code="edge_into_closed_handle",
+                    message=f"Field '{name}' has no handle, so nothing can be connected to it."))
+            for ref in binding.refs:
+                if ref.node_id not in nodes:
+                    broken.add(node_id)
+                    problems.append(_at(node_id, name, code="unknown_ref_node",
+                        message=f"Field '{name}' is connected to '{ref.node_id}', which is not in the flow.",
+                        details={"source_node": ref.node_id}))
+
+        for inp in roster.inputs:
+            if inp.dtype is Any:
+                if not isinstance(node.bindings.get(inp.name), Edges):
+                    broken.add(node_id)
+                    problems.append(_at(node_id, inp.name, code="unbound_required",
+                        message="Nothing is connected to the field."))
+            elif not inp.optional and inp.name not in node.bindings:
+                broken.add(node_id)
+                problems.append(_at(node_id, inp.name, code="unbound_required",
+                    message="Nothing is connected to the field."))
+    return frozenset(broken)
+
+
+def _at(node_id: str, field: str, *, code: str, message: str, fatal: bool = True, details: Mapping[str, Any] | None = None) -> Problem:
+    return Problem(code=code, message=message, fatal=fatal, node_id=node_id, field=field, details=details or {})
+
+
+def _roster_rules(rosters: dict[str, Roster]) -> list[Problem]:
+    """Two rules checked on every completed roster, after the edges pass.
+
+    A field name is unique within a node across inputs and outputs: a
+    ``Ref`` must name one field, and a roster a hook computed can break
+    that just as a declaration could (``Interface.of`` refuses the
+    latter). And every field with a handle — every output, and every input
+    not closed with ``show_handle=False`` — must carry a ``DType`` or
+    ``Any``, or nothing could connect it (``handle_needs_dtype``). An ``Any``
+    still untyped is not a violation: unconnected, it is ``unbound_required``,
+    already reported.
+    """
+    found: list[Problem] = []
+    for node_id, roster in rosters.items():
+        seen: set[str] = set()
+        for declared in (*roster.inputs, *roster.outputs):
+            if declared.name in seen:
+                found.append(_at(node_id, declared.name, code="duplicate_field_name",
+                    message=f"The node has two fields named '{declared.name}'."))
+            seen.add(declared.name)
+        handles = (*(inp for inp in roster.inputs if inp.show_handle), *roster.outputs)
+        for declared in handles:
+            if declared.dtype is not Any and not (
+                isinstance(declared.dtype, type) and issubclass(declared.dtype, DType)
+            ):
+                found.append(_at(node_id, declared.name, code="handle_needs_dtype",
+                    message=f"Field '{declared.name}' has a handle but no type that can travel on an edge."))
+    return found
