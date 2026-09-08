@@ -10,6 +10,7 @@ from conductor.graph.binding import Edges, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.compiler import compile_graph
 from conductor.graph.model import FieldContent, Graph, GraphNode
+from conductor.graph.problem import Problem
 from conductor.interface import Interface, Provided, model_of
 from conductor.metadata import Output, Roster
 from conductor.node import NodeDefinition, Policy, version
@@ -377,3 +378,46 @@ def test_dependencies_are_read_off_the_wires():
     ])
 
     assert compiled.dependencies("b") == frozenset({"a"})
+
+
+# --- the artifact is a value ------------------------------------------------
+
+
+def test_compiling_the_same_flow_twice_gives_the_same_answers():
+    def build():
+        return Graph(nodes=[
+            GraphNode(id="a", type="echo", version=1, bindings={"x": Static(value="hi")}),
+            GraphNode(id="b", type="echo", version=1, bindings={"x": Edges(refs=(Ref("a", "result"),))}),
+        ])
+
+    first = compile_graph(build(), _registry())
+    second = compile_graph(build(), _registry())
+
+    assert first.execution_order() == second.execution_order()
+    assert first.problems_for() == second.problems_for()
+    assert first.value_source("b", "x") == second.value_source("b", "x")
+    assert first.interface == second.interface
+    assert first.roster("b") == second.roster("b")
+    assert first.carried(Ref("b", "result")) == second.carried(Ref("b", "result"))
+
+
+def test_compiling_does_not_mutate_the_flow():
+    import copy
+
+    flow = Graph(nodes=[GraphNode(id="a", type="echo", version=1, bindings={"x": Static(value="hi")})])
+    before = copy.deepcopy(flow)
+    compile_graph(flow, _registry())
+
+    assert flow == before
+
+
+def test_the_artifact_and_its_diagnostics_are_importable_from_the_root():
+    import conductor
+
+    assert conductor.CompiledGraph is CompiledGraph
+    assert conductor.Carried is not None
+    assert conductor.Problem is Problem
+    assert conductor.Condition is not None and conductor.Atom is not None
+    assert callable(conductor.compile_graph)
+    for gone in ("compile", "resolve_graph_outputs", "FOR_EACH"):
+        assert not hasattr(conductor, gone), gone
