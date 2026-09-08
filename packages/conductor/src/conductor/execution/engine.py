@@ -748,8 +748,8 @@ def _build_state(
 ) -> FlowRunState:
     """The run's state — or the refusal: a graph compile found not runnable
     raises ``CompilationError`` with its problems, and a graph with a
-    lifted node raises ``NotImplementedError``, since this engine runs
-    scalar nodes only (the rows are plan 4's)."""
+    node that would run once per row raises ``NotImplementedError``, since
+    this engine does not yet run a node per row."""
     if not compiled.is_runnable:
         raise CompilationError(compiled.problems_for())
     lifted = [node_id for node_id in compiled.execution_order() if compiled.lifted_on(node_id) is not None]

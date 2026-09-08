@@ -1,24 +1,26 @@
-"""Inline an embedded flow under its placement's name.
+"""Inline an embedded flow as its inner nodes, under the name of the node that embeds it.
 
-In the palette and in a flow's interface an embedded flow is one node. Its
-version declares a ``graph`` instead of a ``run``, and compile inlines
-that graph here: every inner node becomes ``placement/inner``, inner
-edges are re-pointed accordingly, the placement's own bindings move onto
-the inner fields they name, and outer edges into the placement are
-re-pointed at the inner field they reach. The engine then runs one flat
-graph.
+A node's version may be a graph rather than a ``run`` (``GraphVersion``).
+The node is then an embedded flow: one node in the editor and in the
+graph's interface, many nodes when it runs. This module calls such a node
+a *placement*. Compile inlines its graph here: every inner node becomes
+``placement/inner``, inner edges are re-pointed accordingly, the
+placement's own bindings move onto the inner fields they name, and edges
+from outside into the placement are re-pointed at the inner field they
+reach. The engine then runs one flat graph.
 
 ``/`` separates namespace levels inside a node id (an editor never mints
 one) and ``.`` stays the address separator, so an expanded address reads
 ``approve/check.amount``. The inverse — ``approve`` plus ``check.amount``
-— is how a problem found inside surfaces on the placement the author can
-see, and how ``CompiledGraph`` answers a question asked with a
-placement-side address.
+— is how a problem found inside is reported on the node the author can
+see, and how ``CompiledGraph`` answers a question asked with the
+placement's own address.
 
 The expanded order is the authored order with each placement replaced by
 its inner order, recursively. That is a topological order of the expanded
-graph with one extra property the lifting pass relies on: every edge that
-crosses into a placement's block is derived before the block starts.
+graph with one extra property ``lifting.derive`` relies on: every edge
+that crosses into a placement's inner nodes is walked before the first
+inner node is.
 """
 
 from __future__ import annotations
@@ -45,17 +47,15 @@ SEPARATOR = "/"
 
 @dataclass(frozen=True)
 class Expansion:
-    """What ``expand`` returns: the expanded graph and its shape.
+    """What ``expand`` returns: the expanded graph and how it was made.
 
     ``nodes`` holds every node the engine will run, by expanded id — no
-    placement is among them. ``order`` is the expanded execution order.
-    ``placement_of`` names, for each expanded node, the innermost
-    placement it came from (``None`` for an authored node). ``members``
-    lists, for each placement, every expanded node under it, nested ones
-    included. ``versions`` is the ``NodeVersion`` each expanded node pins.
-
-    Its sibling is ``Lifting``, the other pass result; ``compile_graph``
-    reads both into the ``CompiledGraph``.
+    placement is among them, only their inner nodes. ``order`` is the
+    expanded execution order. ``placement_of`` names, for each node, the
+    innermost placement it came from (``None`` for a node the author
+    placed). ``members`` lists, for each placement, every node under it,
+    nested ones included. ``versions`` is the ``NodeVersion`` each node
+    uses. ``compile_graph`` reads all of it into the ``CompiledGraph``.
     """
 
     nodes: dict[str, GraphNode]
@@ -63,8 +63,8 @@ class Expansion:
     placement_of: dict[str, str | None]
     members: dict[str, tuple[str, ...]]
     versions: dict[str, NodeVersion]
-    #: The ``GraphVersion`` each placement pinned, authored and nested alike;
-    #: its interface becomes the placement's roster.
+    #: The ``GraphVersion`` of each placement, authored and nested alike; its
+    #: interface is what the placement shows as inputs and outputs.
     placement_versions: dict[str, GraphVersion]
 
 
@@ -77,10 +77,11 @@ def expand(
 ) -> Expansion:
     """Inline every node in ``authored`` whose version is a ``GraphVersion``.
 
-    ``order`` is the authored order; a node in a cycle is not in it and
-    already carries a problem, as does a node absent from ``versions``. An
-    inner node whose type or version the registry lacks is a problem too,
-    reported on the expanded id and surfaced on the placement later.
+    ``order`` is the authored execution order; a node in a cycle is not in
+    it and already carries a problem, as does a node absent from
+    ``versions``. An inner node whose type or version the registry lacks
+    is a problem too, reported on the expanded id and moved onto the
+    placement by ``surfaced``.
     """
     nodes: dict[str, GraphNode] = {}
     expanded_order: list[str] = []
@@ -156,7 +157,7 @@ def expanded_ref(ref: Ref, placements: frozenset[str] | set[str]) -> Ref:
 
 
 def surfaced(problem: Problem, nodes: Mapping[str, GraphNode]) -> Problem:
-    """Move a problem found inside a placement onto the placement.
+    """Move a problem found inside a placement onto the placement, where the author can see it.
 
     The author sees ``approve``, not ``approve/check``: the node becomes
     the placement, the field becomes the inner address the authored graph
@@ -184,9 +185,10 @@ def surfaced(problem: Problem, nodes: Mapping[str, GraphNode]) -> Problem:
 
 
 def _namespaced(placement: str, inner: GraphNode) -> GraphNode:
-    """``inner`` under the placement's name: id prefixed, inner edges
-    re-pointed, locks dropped (a lock narrows callers, and the placement's
-    own locks were read by the interface before expansion)."""
+    """``inner`` renamed under the placement: id prefixed, inner edges
+    re-pointed, locks dropped (a lock hides an input from callers of the
+    flow, and the placement's own locks were already read by the
+    interface)."""
     return replace(
         inner,
         id=f"{placement}{SEPARATOR}{inner.id}",
@@ -205,7 +207,7 @@ def _moved(
     """The placement's bindings, moved onto the inner fields they name.
 
     A binding on ``check.amount`` replaces whatever the inner ``check``
-    held on ``amount`` — the inner author's static or an inner edge — for
+    held on ``amount`` — a value its author typed or an inner edge — for
     this placement. A key naming no inner node is a stale binding,
     reported on the placement.
     """

@@ -18,9 +18,9 @@ it appears when *any* source did — that is where a disjunction comes
 from. A conjunction naming one decision twice with different outputs is
 dropped, since it can never hold.
 
-Only a decision on a node that is not lifted gates anything. A lifted
-decision produces both branches as sparse series and masks rows instead;
-it contributes no atom.
+Only a decision on a node that runs once gates anything. A node that runs
+once per row (see ``lifting``) produces both branches as series with
+gaps and picks rows instead; it contributes no atom.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ class Atom:
     """One way one decision went: output ``output`` of the ``choice`` group on ``node_id``.
 
     Made by ``conditions_of`` for every output with a ``choice`` on a node
-    that is not lifted, and only ever used inside a ``Condition``. The
+    that runs once, and only ever used inside a ``Condition``. The
     engine never sees one: it propagates ``SKIPPED`` without knowing which
     decision caused it.
     """
@@ -61,12 +61,12 @@ def conditions_of(
     rosters: Mapping[str, Roster],
     lifted: Mapping[str, Index | None],
 ) -> dict[Ref, Condition]:
-    """The condition of every output of every node in ``lifted`` — the nodes that have a shape.
+    """The condition of every output of every node in ``lifted`` — the nodes the edge walk resolved.
 
     Walks ``nodes`` in topological order. A node's own condition is the
     conjunction over its connected inputs, each input being the disjunction of
-    its sources' conditions. An output with a ``choice`` on a node that is
-    not lifted adds its own atom.
+    its sources' conditions. An output with a ``choice`` on a node that
+    runs once adds its own atom.
     """
     conditions: dict[Ref, Condition] = {}
     for node in nodes:

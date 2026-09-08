@@ -1,27 +1,38 @@
-"""``CompiledGraph`` — everything known about a flow before it runs, as one value.
+"""``CompiledGraph`` — everything compile learned about a graph, as one immutable value.
 
-``compile_graph`` builds it from a ``Flow`` and a ``NodeRegistry``; everyone
-else asks it questions: which version each node pins, which inputs and
-outputs it actually has, where each input's value comes from, what type
-travels on every field and on which index, which nodes run once per row,
-in what order, under which condition each output appears, and what is
-wrong. Callers never read the binding table themselves — the engine is
-one more caller.
+``compile_graph`` builds it from a ``Graph`` and a ``NodeRegistry``.
+Everyone else asks it questions and never reads the nodes' bindings
+themselves: which version each node uses, which inputs and outputs it
+actually has, where each input's value comes from, what type travels on
+every field, which nodes run once per row and in what order, under which
+condition each output appears, and what is wrong. The engine is one more
+caller.
 
-Two views of the graph meet here. The **authored** graph is what the
-editor drew; an embedded flow is one node there, and its fields are
-addressed through it: ``Ref("approve", "check.amount")``. The
-**expanded** graph is what runs: the embedded flow's inner nodes, named
-``approve/check``. ``execution_order``, ``node``, ``runner``,
-``dependencies`` and ``lifted_on`` answer over the expanded graph;
-problems, rosters and the interface are about the authored one. A
-question about a field may use either address — ``carried(Ref("approve",
-"check.amount"))`` and ``carried(Ref("approve/check", "amount"))`` are
-the same question.
+Three words this module uses throughout:
 
-It is a plain value: immutable, no I/O, no session. The same flow and the
-same registry always give the same ``CompiledGraph``, so it can be cached,
-and "compile this and assert what it says" is a complete test.
+* A **roster** is the list of inputs and outputs one node actually has —
+  usually what its version declares, but a node may add or drop fields
+  depending on the values it holds and the types connected to it.
+* A **series** is a value with many rows, and an **index** names where
+  those rows come from. A node that receives a series on a scalar input
+  runs once per row; we say it is **lifted** on that index.
+* A **placement** is a node whose version is itself a graph — an embedded
+  flow. Compile inlines it, so the graph the author drew (the *authored*
+  graph) and the graph that runs (the *expanded* graph) differ: in the
+  authored graph the embedded flow is one node, ``approve``, whose fields
+  are addressed through it, ``Ref("approve", "check.amount")``; in the
+  expanded graph its inner nodes are nodes of the run, named
+  ``approve/check``.
+
+``execution_order``, ``node``, ``runner``, ``dependencies`` and
+``lifted_on`` answer over the expanded graph; problems, rosters and the
+interface are about the authored one. A question about a field may use
+either address: ``carried(Ref("approve", "check.amount"))`` and
+``carried(Ref("approve/check", "amount"))`` are the same question.
+
+It is a plain value: immutable, no I/O, no session. The same graph and
+the same registry always give the same ``CompiledGraph``, so it can be
+cached, and "compile this and assert what it says" is a complete test.
 """
 
 from __future__ import annotations
@@ -48,20 +59,21 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class Carried:
-    """What travels on one field: its type, and its index if it is a series.
+    """The type on one field and, when the field carries a series, the index its rows come from.
 
-    Produced by the lifting pass for every field of every node that has a
-    shape, and read through ``CompiledGraph.carried`` — by the engine to
-    know which index a value sits on, and by an editor to colour a handle
-    or refuse an edge. ``Roster`` says *which* fields a node has; this says
+    Compile records one for every field of every node it could resolve,
+    and ``CompiledGraph.carried`` serves them. The engine reads it to know
+    which index a value sits on; an editor reads it to colour a handle or
+    refuse an edge. ``Roster`` says *which* fields a node has; this says
     what arrives at one of them.
 
-    At an output: what the node produces there once lifting is applied — a
-    lifted node's scalar output carries ``Series[X]`` on the lift index. At
-    an input: what arrives before the engine slices it per row — a lifted
-    scalar input carries the series that lifted it; a ``Series[X]`` input
-    carries the series it receives whole, or the fresh index a gather
-    lands on. ``index`` is ``None`` for a scalar.
+    At an output it is what the node produces there after lifting: a node
+    that runs once per row produces ``Series[X]`` on that index even where
+    its declaration says ``X``. At an input it is what arrives before the
+    engine slices it per row: a scalar input fed a series carries that
+    series; a ``Series[X]`` input carries the series it receives whole, or
+    the fresh index that several sources are gathered onto. ``index`` is
+    ``None`` for a plain scalar.
     """
 
     dtype: Any
@@ -70,7 +82,7 @@ class Carried:
 
 @dataclass(frozen=True)
 class CompiledGraph:
-    """The result of compiling one flow. Ask it; do not read through it.
+    """The result of compiling one graph. Ask it; do not read through it.
 
     ``compile_graph`` is the only writer. Readers: the engine
     (``execution_order``, ``runner``, ``roster``, ``lifted_on``), an
@@ -79,9 +91,10 @@ class CompiledGraph:
     (``is_runnable``).
 
     Every field but ``interface`` is private, and every public name is a
-    question. A node that did not resolve — unknown type or version — has a
-    fatal ``Problem`` and no roster, version, lift index or carried fields;
-    asking about one raises, because the answer is in ``problems_for``.
+    question. A node compile could not resolve — unknown type or version —
+    has a fatal ``Problem`` and no roster, version, index or carried
+    fields; asking about one raises, because the answer is in
+    ``problems_for``.
     """
 
     _nodes: Mapping[str, GraphNode]
@@ -94,31 +107,34 @@ class CompiledGraph:
     _lifted: Mapping[str, Index | None]
     _carried: Mapping[Ref, Carried]
     _conditions: Mapping[Ref, Condition]
-    #: Every placement whose version is a graph, by expanded id — authored
-    #: ones and nested ones alike.
+    #: Every node whose version is a graph, by expanded id — the ones the
+    #: author placed and the ones nested inside them alike.
     _placements: frozenset[str]
-    #: For every expanded node, the innermost placement it came from.
+    #: For every node of the expanded graph, the innermost embedded flow it
+    #: came from, or ``None`` for a node the author placed.
     _placement_of: Mapping[str, str | None]
-    #: What this flow takes and returns, in the record a node version
-    #: declares: ``inputs`` are the handle-bearing, unlocked fields of the
-    #: input nodes (each declaration whole, titled by its placement),
-    #: ``outputs`` every field of the output nodes' rosters, both named by
-    #: address (``"node.field"``); ``returns`` is ``Mapping``.
+    #: What this graph takes and returns, in the same record a node version
+    #: declares: ``inputs`` are the unlocked, connectable fields of the nodes
+    #: nothing feeds into (each declaration whole, titled as the author
+    #: titled it on that node), ``outputs`` every field of the nodes nothing
+    #: reads from, both named by address (``"node.field"``); ``returns`` is
+    #: ``Mapping``.
     interface: Interface
     _problems: tuple[Problem, ...]
 
     # -- the two graphs ------------------------------------------------------
 
     def expanded(self, ref: Ref) -> Ref:
-        """A placement-side address read through to the expanded node:
-        ``Ref("emb", "all.result")`` → ``Ref("emb/all", "result")``. A host
-        reads engine results by expanded address, since the engine knows
-        only the expanded graph."""
+        """An address on the authored graph, read through to the node that
+        runs: ``Ref("emb", "all.result")`` becomes ``Ref("emb/all", "result")``.
+        A host reads engine results by the expanded address, since the
+        engine knows only the expanded graph."""
         return expanded_ref(ref, self._placements)
 
     def placement_of(self, node_id: str) -> str | None:
-        """The placement an expanded node came from — ``"approve"`` for
-        ``"approve/check"`` — or ``None`` for a node the author placed."""
+        """The embedded flow a node of the expanded graph came from —
+        ``"approve"`` for ``"approve/check"`` — or ``None`` for a node the
+        author placed."""
         return self._placement_of[node_id]
 
     # -- edges -----------------------------------------------------------
@@ -133,7 +149,7 @@ class CompiledGraph:
         ref = self.expanded(Ref(node_id, input_name))
         node = self.node(ref.node_id)
         if ref.field not in {i.name for i in self.roster(ref.node_id).inputs}:
-            raise KeyError(f"{node.type!r} has no input {ref.field!r} on this placement")
+            raise KeyError(f"{node.type!r} has no input {ref.field!r} on this node")
         return node.bindings.get(ref.field)
 
     def dependencies(self, node_id: str) -> frozenset[str]:
@@ -143,31 +159,30 @@ class CompiledGraph:
     # -- one node ------------------------------------------------------------
 
     def node(self, node_id: str) -> GraphNode:
-        """One node the engine runs, by expanded id. A placement whose version
-        is a graph is not among them; its inner nodes are."""
+        """One node the engine runs, by expanded id. A node whose version is
+        a graph is not among them; its inner nodes are."""
         return self._nodes[node_id]
 
     def version(self, node_id: str) -> NodeVersion | GraphVersion:
-        """The version this node pins: its ``run``, interface and policy — or,
+        """The version this node uses: its ``run``, interface and policy — or,
         for an embedded flow, its interface and its graph."""
         return self._versions[node_id]
 
     def roster(self, node_id: str) -> Roster:
-        """This node's effective inputs and outputs: what its hooks answered,
-        with every type bound by the edges — not merely what the version
-        declared.
+        """The inputs and outputs this node actually has, with every type
+        the edges gave it — not merely what its version declared.
 
         The one place anything asks what a node has: the engine validates
         a call against it and an editor draws the rows from it. For an
-        embedded placement, its version's interface."""
+        embedded flow, its version's interface."""
         return self._rosters[node_id]
 
     def statics(self, node_id: str) -> Mapping[str, Any]:
-        """The author's typed values for this node, by field.
+        """The values the author typed into this node, by field.
 
-        Each ``Static`` validated through the field's declared type — the
-        value, never its JSON form. A value is a ``list`` exactly when the
-        static holds many values.
+        Each read through the field's declared type — the value, never its
+        JSON form. A value is a ``list`` exactly when the author typed
+        many values.
         """
         return self._statics[node_id]
 
@@ -178,29 +193,32 @@ class CompiledGraph:
 
     def lifted_on(self, node_id: str) -> Index | None:
         """The index this node runs once per row of, or ``None`` when it runs
-        once. Derived from its edges; nothing stores it. For an embedded
-        placement, the index its inner nodes lift on where a series
-        entered."""
+        once. Read off its edges — a series arriving on a scalar input is
+        what makes a node run per row — and stored nowhere. For an embedded
+        flow, the index its inner nodes run per row of, where a series
+        entered it."""
         return self._lifted[node_id]
 
     # -- one field -------------------------------------------------------------
 
     def carried(self, ref: Ref) -> Carried:
-        """What travels on this field — see ``Carried``. A placement-side
-        address reads through to the inner field it names."""
+        """The type on this field and, for a series, its index — see
+        ``Carried``. An address on an embedded flow reads through to the
+        inner field it names."""
         return self._carried[self.expanded(ref)]
 
     def condition(self, ref: Ref) -> Condition:
-        """The condition under which this output appears: a boolean formula
-        over the upstream decisions (see ``conductor.graph.conditions``),
+        """Under which condition this output appears: a boolean formula over
+        the decisions upstream (see ``conductor.graph.conditions``),
         ``ALWAYS`` when nothing gates it. Derived from ``choice`` groups
         and edges; the engine never reads it."""
         return self._conditions[self.expanded(ref)]
 
     def decisions(self) -> dict[str, dict[str, tuple[str, ...]]]:
-        """Every decision a caller could observe: for each node that is not
-        lifted and declares a ``choice`` group, the group's alternatives in
-        roster order, keyed by expanded node id."""
+        """Every decision a caller could observe: for each node that runs
+        once and declares a ``choice`` group, the group's alternatives in
+        roster order, keyed by expanded node id. A node that runs per row is
+        left out: its decision picks rows and gates nothing downstream."""
         found: dict[str, dict[str, tuple[str, ...]]] = {}
         for node_id in self._order:
             if self._lifted.get(node_id, None) is not None:
@@ -229,7 +247,8 @@ class CompiledGraph:
         """Every problem, or those about one node or one of its fields.
 
         Anchored on the authored graph: a problem found inside an embedded
-        flow sits on its placement, with the inner address as the field."""
+        flow sits on the node the author placed, with the inner address as
+        the field."""
         found = self._problems
         if node_id is not None:
             found = tuple(p for p in found if p.node_id == node_id)
