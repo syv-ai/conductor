@@ -22,6 +22,7 @@ from pydantic import TypeAdapter, ValidationError
 from conductor.dtype import DType
 from conductor.graph.binding import Edges, many, static_values
 from conductor.graph.compiled import CompiledGraph
+from conductor.graph.expand import expand, surfaced
 from conductor.graph.lifting import derive
 from conductor.graph.model import Graph, GraphNode
 from conductor.graph.problem import (
@@ -43,47 +44,55 @@ from conductor.widgets import ConnectionList
 def compile_graph(graph: Graph, registry: NodeRegistry) -> CompiledGraph:
     """Compile ``graph`` against ``registry``.
 
-    Six passes, each reading the one before: the nodes (duplicate ids),
-    pins (which version each node uses), rosters (what each node's hooks
-    say its inputs are, with the statics typed), bindings (do the stored
-    bindings fit the rosters), order (cycles), and edges (what arrives on
-    every field, lifting, outputs completed); then the two roster rules
-    on every completed roster, and the graph's interface, read off them.
-    A node that fails a pass carries a fatal ``Problem`` and drops out of
-    the passes after it.
+    Seven passes, each reading the one before: the nodes (duplicate ids),
+    pins (which version each node uses), order (cycles), expansion
+    (embedded flows inlined under their placement's name), rosters (what
+    each node's hooks say its inputs are, with the statics typed),
+    bindings (do the stored bindings fit the rosters), edges (what arrives
+    on every field, lifting, outputs completed); then the two roster rules
+    on every completed roster, and finally the flow's interface. A node
+    that fails a pass carries a fatal ``Problem`` and drops out of the
+    passes after it. A problem found inside an embedded flow is surfaced
+    on its placement.
     """
     problems: list[Problem] = []
-    nodes = _placements(graph, problems)
-    versions = _pins(nodes, registry, problems)
+    authored = _placements(graph, problems)
+    pinned = _pins(authored, registry, problems)
+    authored_dependencies = dependencies_of(authored.values())
+    authored_order, cyclic = order_of(authored_dependencies)
+    problems.extend(cycle(node_id) for node_id in sorted(cyclic))
+    expansion = expand(authored, authored_order, pinned, registry, problems)
+    nodes, versions = expansion.nodes, expansion.versions
     rosters, statics = _rosters(nodes, versions, registry, problems)
     broken = _check_bindings(nodes, rosters, problems)
     dependencies = dependencies_of(nodes.values())
-    order, cyclic = order_of(dependencies)
-    problems.extend(cycle(node_id) for node_id in sorted(cyclic))
-    order = tuple(node_id for node_id in order if node_id in versions)
     lifting = derive(
-        [nodes[node_id] for node_id in order if node_id in rosters and node_id not in broken],
+        [nodes[node_id] for node_id in expansion.order if node_id in rosters and node_id not in broken],
         rosters, versions, registry, statics,
+        placement_of=expansion.placement_of, members=expansion.members,
     )
     problems.extend(lifting.problems)
     rosters = {**rosters, **lifting.rosters}
     problems.extend(_roster_rules(rosters))
-    interface = derive_interface(graph, rosters, versions, dependencies)
+    placements = frozenset(expansion.placement_versions)
+    for placement, version in expansion.placement_versions.items():
+        rosters[placement] = Roster(inputs=version.interface.inputs, outputs=version.interface.outputs)
+    interface = derive_interface(graph, {n: rosters[n] for n in authored if n in rosters}, pinned, authored_dependencies)
     return CompiledGraph(
         _nodes=nodes,
         _registry=registry,
-        _versions=versions,
+        _versions={**versions, **expansion.placement_versions},
         _rosters=rosters,
         _statics=statics,
         _dependencies=dependencies,
-        _order=order,
+        _order=expansion.order,
         _lifted=lifting.lifted,
         _carried=lifting.carried,
         _conditions={},
-        _placements=frozenset(),
-        _placement_of={node_id: None for node_id in nodes},
+        _placements=placements,
+        _placement_of=expansion.placement_of,
         interface=interface,
-        _problems=tuple(problems),
+        _problems=tuple(surfaced(problem, nodes) for problem in problems),
     )
 
 
