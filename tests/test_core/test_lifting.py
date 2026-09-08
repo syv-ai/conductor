@@ -578,3 +578,211 @@ def test_a_hook_reads_a_defaulted_static_nothing_bound():
 
     assert compiled.is_runnable, compiled.problems_for()
     assert [o.name for o in compiled.roster("s").outputs] == ["out"]
+
+
+
+def test_two_series_on_one_index_align():
+    compiled = _compiled([
+        GraphNode(id="docs", type="docs", version=1),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
+        GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("up", "result")), "b": _edge(("docs", "filenames"))}),
+    ])
+
+    assert compiled.is_runnable
+    assert compiled.lifted_on("p") == Index("docs")
+
+
+def test_two_series_on_unrelated_indexes_are_a_fatal_problem_naming_both():
+    """Same length is never the test: compile cannot know lengths."""
+    compiled = _compiled([
+        GraphNode(id="a", type="docs", version=1),
+        GraphNode(id="b", type="docs", version=1),
+        GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("a", "texts")), "b": _edge(("b", "texts"))}),
+    ])
+
+    (problem,) = compiled.problems_for()
+    assert (problem.code, problem.fatal, problem.node_id, problem.field) == ("misaligned", True, "p", None)
+    assert "p.a" in problem.message and "p.b" in problem.message
+    assert problem.details == {"a": "p.a", "b": "p.b"}
+    with pytest.raises(KeyError):
+        compiled.lifted_on("p")
+
+
+# --- reduction ---------------------------------------------------------------------
+
+
+def test_a_reduction_on_a_root_yields_a_scalar_and_is_not_lifted():
+    compiled = _compiled([
+        GraphNode(id="docs", type="docs", version=1),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("up", "result"))}),
+    ])
+
+    assert compiled.is_runnable
+    assert compiled.lifted_on("j") is None
+    assert compiled.carried(Ref("j", "texts")).index == Index("docs")
+    assert compiled.carried(Ref("j", "result")) == compiled.carried(Ref("j", "result"))
+    assert compiled.carried(Ref("j", "result")).dtype is Txt
+    assert compiled.carried(Ref("j", "result")).index is None
+
+
+def test_a_lifted_node_returning_a_series_gives_birth_to_a_child_index():
+    """An unfold with no special node: one text in, many lines out, each
+    line knowing which document it came from."""
+    compiled = _compiled([
+        GraphNode(id="docs", type="docs", version=1),
+        GraphNode(id="lines", type="lines", version=1, bindings={"text": _edge(("docs", "texts"))}),
+    ])
+
+    lines = compiled.carried(Ref("lines", "result"))
+    assert compiled.lifted_on("lines") == Index("docs")
+    assert lines.dtype is Series[Txt]
+    assert lines.index == Index("lines")
+    assert lines.index.parent == Index("docs")
+
+
+def test_a_reduction_on_a_child_is_a_lift_on_the_parent():
+    """One per document again: the index supplies the grouping, and there
+    is no key column to pick."""
+    compiled = _compiled([
+        GraphNode(id="docs", type="docs", version=1),
+        GraphNode(id="lines", type="lines", version=1, bindings={"text": _edge(("docs", "texts"))}),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("lines", "result"))}),
+    ])
+
+    assert compiled.lifted_on("j") == Index("docs")
+    assert compiled.carried(Ref("j", "result")).dtype is Series[Txt]
+    assert compiled.carried(Ref("j", "result")).index == Index("docs")
+
+
+def test_a_parent_index_series_broadcasts_down_to_a_child_index_node():
+    """The firma is the same for each of its employees."""
+    compiled = _compiled([
+        GraphNode(id="docs", type="docs", version=1),
+        GraphNode(id="lines", type="lines", version=1, bindings={"text": _edge(("docs", "texts"))}),
+        GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("lines", "result")), "b": _edge(("docs", "filenames"))}),
+    ])
+
+    assert compiled.is_runnable
+    assert compiled.lifted_on("p") == Index("lines")
+
+
+def test_two_children_of_one_parent_do_not_align():
+    compiled = _compiled([
+        GraphNode(id="docs", type="docs", version=1),
+        GraphNode(id="l1", type="lines", version=1, bindings={"text": _edge(("docs", "texts"))}),
+        GraphNode(id="l2", type="lines", version=1, bindings={"text": _edge(("docs", "filenames"))}),
+        GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("l1", "result")), "b": _edge(("l2", "result"))}),
+    ])
+
+    assert [p.code for p in compiled.problems_for()] == ["misaligned"]
+
+
+# --- gather ---------------------------------------------------------------------------
+
+
+def test_n_scalar_refs_into_a_series_input_gather_onto_a_fresh_index():
+    compiled = _compiled([
+        GraphNode(id="a", type="upper", version=1, bindings={"text": Static(value="a")}),
+        GraphNode(id="b", type="upper", version=1, bindings={"text": Static(value="b")}),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("a", "result"), ("b", "result"))}),
+    ])
+
+    texts = compiled.carried(Ref("j", "texts"))
+    assert compiled.lifted_on("j") is None
+    assert texts.dtype is Series[Txt]
+    assert texts.index == Index("j.texts")
+    assert texts.index.parent is None
+
+
+def test_n_series_refs_concatenate_and_lineage_is_gone():
+    compiled = _compiled([
+        GraphNode(id="a", type="docs", version=1),
+        GraphNode(id="b", type="docs", version=1),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("a", "texts"), ("b", "texts"))}),
+    ])
+
+    assert compiled.is_runnable
+    assert compiled.lifted_on("j") is None
+    assert compiled.carried(Ref("j", "texts")).index == Index("j.texts")
+
+
+def test_two_refs_on_one_index_into_a_scalar_input_are_a_union_on_it():
+    """A merge is edges. The node lifts on the shared index and reads per row."""
+    compiled = _compiled([
+        GraphNode(id="docs", type="docs", version=1),
+        GraphNode(id="a", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
+        GraphNode(id="b", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
+        GraphNode(id="m", type="upper", version=1, bindings={"text": _edge(("a", "result"), ("b", "result"))}),
+    ])
+
+    assert compiled.is_runnable, compiled.problems_for()
+    assert compiled.lifted_on("m") == Index("docs")
+    carried = compiled.carried(Ref("m", "result"))
+    assert (carried.dtype, carried.index) == (Series[Txt], Index("docs"))
+
+
+def test_two_refs_on_different_indexes_into_a_scalar_input_is_fatal():
+    compiled = _compiled([
+        GraphNode(id="a", type="docs", version=1),
+        GraphNode(id="b", type="docs", version=1),
+        GraphNode(id="m", type="upper", version=1, bindings={"text": _edge(("a", "texts"), ("b", "texts"))}),
+    ])
+
+    (problem,) = compiled.problems_for(node_id="m")
+    assert (problem.code, problem.field) == ("union_needs_one_index", "text")
+
+
+def test_two_series_refs_on_one_index_into_a_series_input_read_that_index_not_a_pile():
+    compiled = _compiled([
+        GraphNode(id="docs", type="docs", version=1),
+        GraphNode(id="a", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
+        GraphNode(id="b", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("a", "result"), ("b", "result"))}),
+    ])
+
+    assert compiled.lifted_on("j") is None
+    assert compiled.carried(Ref("j", "texts")).index == Index("docs")
+
+
+def test_one_scalar_ref_into_a_series_input_is_a_gather_of_one():
+    compiled = _compiled([
+        GraphNode(id="a", type="upper", version=1, bindings={"text": Static(value="a")}),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("a", "result"))}),
+    ])
+
+    assert compiled.carried(Ref("j", "texts")).index == Index("j.texts")
+
+
+def test_a_typed_list_and_a_default_live_on_the_inputs_own_index():
+    compiled = _compiled([
+        GraphNode(id="typed", type="join", version=1, bindings={"texts": Static(value=["a", "b"])}),
+        GraphNode(id="absent", type="join", version=1),
+    ])
+
+    assert compiled.carried(Ref("typed", "texts")).index == Index("typed.texts")
+    assert compiled.carried(Ref("absent", "texts")).index == Index("absent.texts")
+
+
+def test_a_gathered_series_judges_each_ref_by_the_element():
+    compiled = _compiled([
+        GraphNode(id="a", type="upper", version=1, bindings={"text": Static(value="a")}),
+        GraphNode(id="n", type="count", version=1, bindings={"text": Static(value="a")}),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("a", "result"), ("n", "result"))}),
+    ])
+
+    assert [p.code for p in compiled.problems_for()] == ["type_mismatch"]
+
+
+# --- compile knows which index, never which rows ----------------------------------
+
+
+def test_compile_stores_no_rows_and_no_mask():
+    compiled = _compiled([
+        GraphNode(id="docs", type="docs", version=1),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
+    ])
+
+    assert not hasattr(compiled.lifted_on("up"), "rows")
+    assert not hasattr(compiled, "rows")
+    assert not hasattr(compiled, "mask")
