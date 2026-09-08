@@ -22,6 +22,7 @@ from pydantic import TypeAdapter, ValidationError
 from conductor.dtype import DType
 from conductor.graph.binding import Edges, many, static_values
 from conductor.graph.compiled import CompiledGraph
+from conductor.graph.lifting import derive
 from conductor.graph.model import Graph, GraphNode
 from conductor.graph.problem import (
     Problem,
@@ -42,22 +43,30 @@ from conductor.widgets import ConnectionList
 def compile_graph(graph: Graph, registry: NodeRegistry) -> CompiledGraph:
     """Compile ``graph`` against ``registry``.
 
-    Five passes, each reading the one before: the nodes (duplicate ids),
+    Six passes, each reading the one before: the nodes (duplicate ids),
     pins (which version each node uses), rosters (what each node's hooks
     say its inputs are, with the statics typed), bindings (do the stored
-    bindings fit the rosters), and order (cycles); then the two roster
-    rules on every roster, and the graph's interface, read off the
-    rosters. A node that fails a pass carries a fatal ``Problem`` and
-    drops out of the passes after it.
+    bindings fit the rosters), order (cycles), and edges (what arrives on
+    every field, lifting, outputs completed); then the two roster rules
+    on every completed roster, and the graph's interface, read off them.
+    A node that fails a pass carries a fatal ``Problem`` and drops out of
+    the passes after it.
     """
     problems: list[Problem] = []
     nodes = _placements(graph, problems)
     versions = _pins(nodes, registry, problems)
     rosters, statics = _rosters(nodes, versions, registry, problems)
-    _check_bindings(nodes, rosters, problems)
+    broken = _check_bindings(nodes, rosters, problems)
     dependencies = dependencies_of(nodes.values())
     order, cyclic = order_of(dependencies)
     problems.extend(cycle(node_id) for node_id in sorted(cyclic))
+    order = tuple(node_id for node_id in order if node_id in versions)
+    lifting = derive(
+        [nodes[node_id] for node_id in order if node_id in rosters and node_id not in broken],
+        rosters, versions, registry, statics,
+    )
+    problems.extend(lifting.problems)
+    rosters = {**rosters, **lifting.rosters}
     problems.extend(_roster_rules(rosters))
     interface = derive_interface(graph, rosters, versions, dependencies)
     return CompiledGraph(
@@ -67,9 +76,9 @@ def compile_graph(graph: Graph, registry: NodeRegistry) -> CompiledGraph:
         _rosters=rosters,
         _statics=statics,
         _dependencies=dependencies,
-        _order=tuple(node_id for node_id in order if node_id in versions),
-        _lifted={},
-        _carried={},
+        _order=order,
+        _lifted=lifting.lifted,
+        _carried=lifting.carried,
         _conditions={},
         _placements=frozenset(),
         _placement_of={node_id: None for node_id in nodes},
