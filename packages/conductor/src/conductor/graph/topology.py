@@ -1,16 +1,15 @@
-"""The edge facts of a graph, derived once from the bindings.
+"""The edges facts of a graph: the dependency map, read once, and an order over it.
 
-``dependencies_of`` is the dependency map — which nodes each node waits
-for — and the one graph-wide reading of the edges; everything that needs
-a whole-graph fact (the execution order, which nodes nothing consumes)
-reads that map rather than walking the bindings again. ``edge_maps`` is
-the per-input view the old engine's resolver and skip check still key on.
+``dependencies_of`` is the one graph-wide reading of the edges; everything
+that needs a whole-graph fact — the order, which nodes nothing consumes —
+reads the map rather than walking the bindings again.
 """
 
-from collections import defaultdict, deque
+from __future__ import annotations
+
+from collections import deque
 from collections.abc import Iterable, Mapping
 
-from conductor.errors import CycleDetectionError
 from conductor.graph.binding import Edges
 from conductor.graph.model import GraphNode
 
@@ -33,56 +32,33 @@ def dependencies_of(nodes: Iterable[GraphNode]) -> dict[str, frozenset[str]]:
     }
 
 
-def topological_sort(dependencies: Mapping[str, frozenset[str]]) -> list[str]:
-    """Node ids in an order where every dependency precedes its dependent.
+def order_of(
+    dependencies: Mapping[str, frozenset[str]],
+) -> tuple[tuple[str, ...], frozenset[str]]:
+    """A topological order of ``dependencies`` (Kahn's algorithm).
 
-    Kahn's algorithm over the dependency map. Raises
-    ``CycleDetectionError`` if the graph contains cycles. A dependency on
-    an id the map does not hold is ignored here; compile reports it on
-    the binding that names it.
+    Returns ``(order, cyclic)``: the ids in an order where every dependency
+    precedes its dependent, and the ids that could not be placed because
+    they lie on a cycle. A cycle is a state an editor can be in, so it is
+    returned rather than raised; compile turns each id into a ``Problem``.
+    A dependency on an id the map does not hold is ignored here — compile
+    reports it on the field that holds the dangling reference.
     """
     ids = set(dependencies)
-    in_degree = {i: len(deps & ids) for i, deps in dependencies.items()}
-    dependents: dict[str, list[str]] = defaultdict(list)
+    pending = {i: len(deps & ids) for i, deps in dependencies.items()}
+    dependents: dict[str, list[str]] = {i: [] for i in ids}
     for i, deps in dependencies.items():
         for dep in deps & ids:
             dependents[dep].append(i)
 
-    queue = deque(i for i, degree in in_degree.items() if degree == 0)
-    result: list[str] = []
-    while queue:
-        i = queue.popleft()
-        result.append(i)
-        for dependent in dependents.get(i, []):
-            in_degree[dependent] -= 1
-            if in_degree[dependent] == 0:
-                queue.append(dependent)
+    ready = deque(i for i, n in pending.items() if n == 0)
+    order: list[str] = []
+    while ready:
+        i = ready.popleft()
+        order.append(i)
+        for dependent in dependents[i]:
+            pending[dependent] -= 1
+            if pending[dependent] == 0:
+                ready.append(dependent)
 
-    if len(result) != len(ids):
-        raise CycleDetectionError(f"Cycle detected involving nodes: {ids - set(result)}")
-
-    return result
-
-
-def edge_maps(
-    nodes: Iterable[GraphNode],
-) -> tuple[dict[tuple[str, str], list[tuple[str, str, str]]], dict[str, list[tuple[str, str, str, str]]]]:
-    """The two per-input views of the edges the engine reads, from one pass.
-
-    ``edge_map`` is ``(target_id, target_handle) -> [(source_id,
-    source_handle, edge_id), ...]`` and ``incoming_map`` its inversion,
-    ``target_id -> [(target_handle, source_id, source_handle, edge_id),
-    ...]``, in ref order. The edge id is ``"source.handle->target.handle"``,
-    derived and stored nowhere; the resolver's skip bookkeeping keys on it.
-    """
-    edge_map: dict[tuple[str, str], list[tuple[str, str, str]]] = defaultdict(list)
-    incoming: dict[str, list[tuple[str, str, str, str]]] = defaultdict(list)
-    for node in nodes:
-        for handle, binding in node.bindings.items():
-            if not isinstance(binding, Edges):
-                continue
-            for ref in binding.refs:
-                edge_id = f"{ref.node_id}.{ref.field}->{node.id}.{handle}"
-                edge_map[(node.id, handle)].append((ref.node_id, ref.field, edge_id))
-                incoming[node.id].append((handle, ref.node_id, ref.field, edge_id))
-    return dict(edge_map), dict(incoming)
+    return tuple(order), frozenset(ids - set(order))

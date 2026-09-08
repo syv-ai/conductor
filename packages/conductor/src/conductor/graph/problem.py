@@ -67,3 +67,76 @@ class Problem:
     #: the message names nothing beyond the anchor. (``dataclasses.field``
     #: by its module name: this record's own ``field`` shadows it here.)
     details: Mapping[str, Any] = dataclasses.field(default_factory=dict)
+
+
+#: Every ``code`` compile itself emits, declared once. A host that
+#: translates problems by code covers exactly these; a code a host's own
+#: hook raised (``Refuses``, ``refuses_whole``) is the host's and is not
+#: here. A test pins this set to the literals at the emitting sites.
+CODES: frozenset[str] = frozenset({
+    "cycle",
+    "duplicate_field_name",
+    "duplicate_node_id",
+    "handle_needs_dtype",
+    "invalid_static",
+    "misaligned",
+    "no_outputs",
+    "one_edge_per_parameter",
+    "parameter_name_invalid",
+    "stale_binding",
+    "type_mismatch",
+    "unbound_required",
+    "union_needs_one_index",
+    "unknown_locked_field",
+    "unknown_node_type",
+    "unknown_node_version",
+    "unknown_ref_node",
+    "unknown_ref_output",
+    "edge_into_closed_handle",
+})
+
+
+def unknown_node_type(node_id: str, node_type: str) -> Problem:
+    """The registry has no definition for ``node_type``. A catalog can lose
+    a type after a graph was stored; an editor shows where."""
+    return Problem(
+        code="unknown_node_type",
+        message=f"Node type '{node_type}' does not exist.",
+        fatal=True,
+        node_id=node_id,
+        details={"node_type": node_type},
+    )
+
+
+def unknown_node_version(node_id: str, node_type: str, pinned: int) -> Problem:
+    """The definition exists, but not in the version this node pins."""
+    return Problem(
+        code="unknown_node_version",
+        message=f"'{node_type}' has no version {pinned}.",
+        fatal=True,
+        node_id=node_id,
+        details={"node_type": node_type, "version": pinned},
+    )
+
+
+def cycle(node_id: str) -> Problem:
+    """The node lies on a cycle of edges, so no execution order can place it."""
+    return Problem(
+        code="cycle",
+        message="The node is part of a cycle, so the flow cannot run.",
+        fatal=True,
+        node_id=node_id,
+    )
+
+
+def stale_binding(node_id: str, field: str) -> Problem:
+    """The binding names a field this node does not have — typically a
+    static left behind by a version upgrade. Nothing reads it, so it is
+    not fatal."""
+    return Problem(
+        code="stale_binding",
+        message=f"Field '{field}' no longer exists on the node.",
+        fatal=False,
+        node_id=node_id,
+        field=field,
+    )

@@ -28,9 +28,9 @@ from conductor.execution.engine import execute, execute_sync, resume, resume_syn
 from conductor.execution.retry import RetryConfig
 from conductor.execution.store import FlowStore
 from conductor.graph.binding import Binding, Edges, Static
-from conductor.graph.compiler import CompiledGraph, compile
+from conductor.graph.compiled import CompiledGraph
+from conductor.graph.compiler import compile_graph
 from conductor.graph.dynamic_inputs import resolve_graph_inputs
-from conductor.graph.dynamic_outputs import resolve_graph_outputs
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.topology import dependencies_of
 from conductor.graph.views import is_input_node
@@ -65,10 +65,9 @@ __all__ = [
     "Static",
     "dependencies_of",
     "is_input_node",
-    "compile",
+    "compile_graph",
     "CompiledGraph",
     "resolve_graph_inputs",
-    "resolve_graph_outputs",
     # Execution
     "execute",
     "execute_sync",

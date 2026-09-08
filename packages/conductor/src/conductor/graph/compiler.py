@@ -1,92 +1,244 @@
-"""Graph compilation — validate and produce an immutable execution plan."""
+"""``compile_graph`` — from a ``Graph`` and a registry to a ``CompiledGraph``.
+
+Pure: no session, no I/O, no loading. Every definition the graph names
+must already be in the registry; a host that had to load one built it
+and called ``NodeRegistry.extended_with`` first.
+
+Everything wrong with the graph comes back as a ``Problem`` on the
+result rather than raising, so an editor can show a half-finished graph
+with its faults marked. What raises is a caller asking something no
+graph can produce — an input a node does not have, a node that did not
+resolve.
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from functools import cache
+from typing import Any
 
-from conductor.errors import CompilationError
-from conductor.graph.dynamic_inputs import resolve_node_inputs
-from conductor.graph.dynamic_outputs import _resolve_in_order
+from pydantic import TypeAdapter, ValidationError
+
+from conductor.graph.binding import Edges, many, static_values
+from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
-from conductor.graph.topology import dependencies_of, edge_maps, topological_sort
-from conductor.metadata import Input, Output
-
-if TYPE_CHECKING:
-    from conductor.registry import NodeRegistry
-
-
-@dataclass(frozen=True)
-class CompiledGraph:
-    """Immutable, validated, ready-to-execute graph."""
-
-    execution_order: tuple[str, ...]
-    edge_map: dict[tuple[str, str], list[tuple[str, str, str]]]
-    node_map: dict[str, GraphNode]
-    registry: Any  # NodeRegistry
-    # target_id -> [(target_handle, source_id, source_handle, edge_id), ...]
-    # Inverted edge view — faster than scanning edge_map per node.
-    incoming_map: dict[str, list[tuple[str, str, str, str]]] = field(default_factory=dict)
-    # Resolved outputs per node id — populated for every node in
-    # ``execution_order``. For nodes without a ``compute_outputs`` hook
-    # this is a copy of ``NodeDefinition.outputs``; for hook-driven nodes
-    # it carries the dynamically derived shape.
-    node_outputs: dict[str, tuple[Output, ...]] = field(default_factory=dict)
-    # Resolved inputs per node id — populated for every node. For nodes
-    # without a ``compute_inputs`` hook this is a copy of
-    # ``NodeDefinition.inputs``; for hook-driven nodes it carries the
-    # dynamically derived roster.
-    # The input resolver and validation-error labelling consult this in
-    # preference to the static schema.
-    node_inputs: dict[str, tuple[Input, ...]] = field(default_factory=dict)
+from conductor.graph.problem import (
+    Problem,
+    cycle,
+    unknown_node_type,
+    unknown_node_version,
+)
+from conductor.graph.topology import dependencies_of, order_of
+from conductor.graph.views import derive_interface
+from conductor.metadata import Input, Roster
+from conductor.node import GraphVersion, NodeVersion
+from conductor.registry import NodeRegistry
+from conductor.series import Series
+from conductor.widgets import ConnectionList
 
 
-def compile(graph: Graph, registry: "NodeRegistry") -> CompiledGraph:
-    """Validate and compile a graph into an immutable execution plan.
+def compile_graph(graph: Graph, registry: NodeRegistry) -> CompiledGraph:
+    """Compile ``graph`` against ``registry``.
 
-    Every definition the graph names must be in ``registry``; a host that
-    had to load one built it and called ``NodeRegistry.extended_with``.
+    Four passes, each reading the one before: the nodes (duplicate ids),
+    pins (which version each node uses), rosters (what each node's hooks
+    say its inputs are, with the statics typed), and order (cycles);
+    then the graph's interface, read off the rosters. A node that fails
+    a pass carries a fatal ``Problem`` and drops out of the passes after
+    it.
     """
-    nodes = graph.nodes
-    node_map = {n.id: n for n in nodes}
-
-    # 1. Validate node types
-    for node in nodes:
-        if not registry.contains(node.type):
-            raise CompilationError(f"Unknown node type: '{node.type}'")
-
-    # 2. Read the edges once; every edge must name an existing node
-    dependencies = dependencies_of(nodes)
-    for node_id, deps in dependencies.items():
-        for missing in sorted(deps - node_map.keys()):
-            raise CompilationError(f"'{node_id}' is connected from non-existent node: '{missing}'")
-
-    # 3. Resolve dynamic inputs. Order-free — an input roster depends on
-    #    the node's own typed values alone.
-    node_inputs = {
-        node.id: resolve_node_inputs(node=node, node_def=registry.get(node.type))
-        for node in nodes
-    }
-
-    # 4. Topological sort over the dependency map
-    order = topological_sort(dependencies)
-
-    # 5. Build edge maps — forward (for resolver) and inverted (for fast
-    #    per-node incoming lookup).
-    edge_map, incoming_map = edge_maps(nodes)
-
-    # 6. Resolve dynamic outputs in topological order. Each node sees its
-    #    producers' already-resolved shapes (which may themselves be hook-
-    #    driven). Nodes without a hook get a verbatim copy of their static
-    #    ``NodeDefinition.outputs``.
-    node_outputs = _resolve_in_order(order=order, node_map=node_map, lookup=registry)
-
+    problems: list[Problem] = []
+    nodes = _placements(graph, problems)
+    versions = _pins(nodes, registry, problems)
+    rosters, statics = _rosters(nodes, versions, registry, problems)
+    dependencies = dependencies_of(nodes.values())
+    order, cyclic = order_of(dependencies)
+    problems.extend(cycle(node_id) for node_id in sorted(cyclic))
+    interface = derive_interface(graph, rosters, versions, dependencies)
     return CompiledGraph(
-        execution_order=tuple(order),
-        edge_map=edge_map,
-        node_map=node_map,
-        registry=registry,
-        incoming_map=incoming_map,
-        node_outputs=node_outputs,
-        node_inputs=node_inputs,
+        _nodes=nodes,
+        _registry=registry,
+        _versions=versions,
+        _rosters=rosters,
+        _statics=statics,
+        _dependencies=dependencies,
+        _order=tuple(node_id for node_id in order if node_id in versions),
+        _lifted={},
+        _carried={},
+        _conditions={},
+        _placements=frozenset(),
+        _placement_of={node_id: None for node_id in nodes},
+        interface=interface,
+        _problems=tuple(problems),
     )
+
+
+def _placements(graph: Graph, problems: list[Problem]) -> dict[str, GraphNode]:
+    """Every authored node by id. Two nodes with one id is a fatal problem:
+    the second would silently shadow the first everywhere else."""
+    nodes: dict[str, GraphNode] = {}
+    for node in graph.nodes:
+        if node.id in nodes:
+            problems.append(Problem(
+                code="duplicate_node_id",
+                message=f"Two nodes have the id '{node.id}'.",
+                fatal=True,
+                node_id=node.id,
+            ))
+            continue
+        nodes[node.id] = node
+    return nodes
+
+
+def _pins(
+    nodes: dict[str, GraphNode], registry: NodeRegistry, problems: list[Problem]
+) -> dict[str, NodeVersion | GraphVersion]:
+    """The version each node pins, resolved here and nowhere else.
+
+    ``registry.get(node.type)`` gives the definition and
+    ``versions[node.version]`` the version; reading ``versions[cls.current]``
+    instead would silently re-point every stored graph at the newest
+    signature. Both misses are graph states — a catalog can lose a type, a
+    class can drop a version — and become problems. A version may be a
+    ``GraphVersion``; expansion inlines it.
+    """
+    versions: dict[str, NodeVersion | GraphVersion] = {}
+    for node in nodes.values():
+        definition = registry.get(node.type)
+        if definition is None:
+            problems.append(unknown_node_type(node.id, node.type))
+            continue
+        version = definition.versions.get(node.version)
+        if version is None:
+            problems.append(unknown_node_version(node.id, node.type, node.version))
+            continue
+        versions[node.id] = version
+    return versions
+
+
+def _rosters(
+    nodes: dict[str, GraphNode],
+    versions: dict[str, NodeVersion],
+    registry: NodeRegistry,
+    problems: list[Problem],
+) -> tuple[dict[str, Roster], dict[str, dict[str, Any]]]:
+    """Ask each node which inputs it has, once, on a fresh instance.
+
+    ``values`` are the author's statics, typed by ``_typed_statics`` over
+    the declaration's defaults, so a hook that reads a table's columns or
+    a schema's fields off a value parses nothing. Only the inputs are
+    asked here; the outputs stay as declared until the edges pass, which
+    can tell ``compute_outputs`` what arrives.
+
+    On a version whose interface is open (``**inputs``), every connected name
+    that is not a declared parameter becomes an ``Input``: typed ``Any`` or
+    ``Series[Any]`` until the edges pass binds it, edited by edges,
+    titled by its name.
+
+    Nothing else is asked of the node. A static its type cannot read is
+    the ``invalid_static`` problem ``_typed_statics`` reports; edges
+    problems are compile's own; two fields sharing a name is
+    ``duplicate_field_name``, checked once every roster is complete.
+    """
+    rosters: dict[str, Roster] = {}
+    statics: dict[str, dict[str, Any]] = {}
+    for node_id, version in versions.items():
+        node = nodes[node_id]
+        instance = registry.get(node.type)()
+        defaults = {i.name: i.default for i in version.interface.inputs if i.optional}
+        values = {**defaults, **_typed_statics(version.interface.inputs, node, problems)}
+        inputs = instance.compute_inputs(version.interface.inputs, values)
+        added = tuple(i for i in inputs if i.name not in {d.name for d in version.interface.inputs})
+        if added:
+            values = {**values, **_typed_statics(added, node, problems)}
+        if version.interface.open is not None:
+            # One Input per edge: `Series[Any]` when each edge is a reduction
+            # ("series"), `Any` when each is received whole ("single"). The
+            # edges pass types it from what arrives.
+            shape = Series[Any] if version.interface.open == "series" else Any
+            named = {i.name for i in inputs}
+            inputs = (*inputs, *(
+                Input(name=name, dtype=shape, title=name, widget=ConnectionList(title=name))
+                for name, binding in node.bindings.items()
+                if name not in named and isinstance(binding, Edges)
+            ))
+        rosters[node_id] = Roster(inputs=inputs, outputs=version.interface.outputs)
+        statics[node_id] = values
+    return rosters, statics
+
+
+@cache
+def _adapter(dtype: type) -> TypeAdapter[Any]:
+    return TypeAdapter(dtype)
+
+
+def _typed_statics(
+    inputs: tuple[Any, ...], node: GraphNode, problems: list[Problem]
+) -> dict[str, Any]:
+    """Every static on ``node``, read through its field's declared type.
+
+    A stored ``Static`` holds JSON — a file comes back as a dict, an
+    authored schema as a list — and every reader downstream wants the
+    value, not its JSON form, so each static is typed once here. A
+    sequence the declared type cannot read as one value is read as a
+    sequence of values, which keeps a list-shaped scalar (a schema) one
+    value while three uploaded files are three rows. A value the type
+    cannot read at all is a fatal ``invalid_static``, carrying whatever
+    the type's constructor said. A static on a parameter typed ``Any`` is
+    skipped: only an edge can type it, and the bindings pass reports it.
+
+    The invariant every reader relies on: a typed static is a ``list``
+    exactly when it carries many values.
+    """
+    declared = {i.name: i for i in inputs}
+    typed: dict[str, Any] = {}
+    for name, value in static_values(node.bindings).items():
+        inp = declared.get(name)
+        if inp is None or inp.dtype is Any:
+            continue  # a stale binding, or a static where only an edge binds; the bindings pass reports it
+        try:
+            typed[name] = _typed_static(inp, value)
+        except (ValidationError, TypeError, ValueError) as invalid:
+            said = _what_the_type_said(invalid)
+            problems.append(Problem(
+                code="invalid_static",
+                message=f"The value in '{name}' cannot be read as the field's type."
+                + (f" {said}" if said else ""),
+                fatal=True,
+                node_id=node.id,
+                field=name,
+                details={"reason": said} if said else {},
+            ))
+    return typed
+
+
+def _what_the_type_said(invalid: Exception) -> str:
+    """The sentence the type's own constructor raised, if it raised one.
+
+    A type's constraints live in its constructor, and a constructor
+    written for people says something specific — "the field must not be
+    empty", "every row needs three cells". That sentence is the one thing
+    that tells an author what to change, so it is appended to the generic
+    ``invalid_static`` message. pydantic keeps a validator's ``ValueError``
+    under ``ctx["error"]``; anything pydantic says on its own is about
+    JSON shape and is not shown.
+    """
+    if isinstance(invalid, ValidationError):
+        errors = invalid.errors()
+        cause = errors[0].get("ctx", {}).get("error") if errors else None
+        return str(cause) if isinstance(cause, ValueError) else ""
+    return str(invalid) if isinstance(invalid, ValueError) else ""
+
+
+def _typed_static(inp: Any, value: Any) -> Any:
+    element = getattr(inp.dtype, "element", None)
+    if element is not None:
+        # A Series[X] input takes the whole sequence, each element typed.
+        if not many(value):
+            raise TypeError("a Series input takes a sequence")
+        return [_adapter(element).validate_python(v) for v in value]
+    try:
+        return _adapter(inp.dtype).validate_python(value)
+    except ValidationError:
+        if many(value):
+            return [_adapter(inp.dtype).validate_python(v) for v in value]
+        raise
