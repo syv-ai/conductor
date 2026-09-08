@@ -78,7 +78,7 @@ Slash command: `/docs-audit` — runs a docs review against the last N commits a
 Three phases: `declare → compile → execute`.
 
 1. **Declare** — a node is a `NodeDefinition` subclass. `__init_subclass__` checks `id`, `title`, `description`, `category` and derives one `NodeVersion` per `@version` method (an undecorated `run` is version 1) by reading the signature once with `Interface.of`. `NodeRegistry.register(cls)` files the class under its id and checks the catalogue rules (versions numbered from 1 with no holes, a deprecated current version pointing somewhere, an `alternative` that exists).
-2. **Compile** — `compile(flow, registry)` validates node types, that every edge names an existing node, and cycles (over `dependencies_of(flow.nodes)`), and asks each placement's `compute_inputs` / `compute_outputs` for its roster. Returns an immutable `CompiledGraph`. Every definition the flow names must be in the registry; a host that loads one calls `registry.extended_with(...)` first.
+2. **Compile** — `compile_graph(graph, registry)` resolves each node's pin, asks `compute_inputs` on the typed statics, validates the stored bindings, expands an embedded flow under its node's name, walks the edges once in order — typing every unconstrained field from what arrives, asking `accepts`, lifting a node fed a series onto that series' index, asking `compute_outputs` with what arrives — and derives the condition under which each output appears. Returns an immutable `CompiledGraph` that callers ask (`roster`, `carried`, `lifted_on`, `value_source`, `condition`, `problems_for`, `interface`, `is_runnable`); everything wrong with the graph is an anchored `Problem` on it, never an exception. Every definition the graph names must be in the registry; a host that loads one calls `registry.extended_with(...)` first.
 3. **Execute** — `execute(compiled)` is an async generator yielding `ExecutionEvent`s. Nodes are scheduled eagerly: as soon as all dependencies complete, a node's task is created — independent branches run concurrently. A call is validated through `model_of(roster)` and dispatched through `runner_for(registry, type, version)`, a fresh instance per call. `execute_sync()` is a blocking wrapper.
 
 ### The node contract
@@ -143,14 +143,12 @@ Retries live on the version's `Policy` (`retries`, `delay`, `timeout`, `concurre
 
 All exceptions inherit from `ConductorError` (see `errors.py`):
 
-- `CompilationError` — graph structure invalid
-  - `CycleDetectionError`
+- `CompilationError` — a run was started on a graph compile found not runnable; carries `problems`
 - `NodeError` — carries `node_id`, `node_type`, `original`
   - `NodeValidationError` (pydantic failure, never retried; renders one line per failed field)
   - `NodeExecutionError` (`run` raised)
   - `NodeTimeoutError`
   - `NodeConnectionError` (raise from node code for transient network/API failures)
-- `InputResolutionError` — could not resolve inputs from the edges
 - `FlowExecutionError` — raised by `execute_sync` when the flow fails
 
 ### The persisted graph
@@ -203,7 +201,7 @@ registry.register(MyNode)     # ids are unique; registering a second class under
 
 ### Building and running a flow
 ```python
-compiled = compile(Graph(nodes=[GraphNode("n1", "my-node", 1, bindings={"text": Static(value="hello")})]), registry)
+compiled = compile_graph(Graph(nodes=[GraphNode("n1", "my-node", 1, bindings={"text": Static(value="hello")})]), registry)
 results = execute_sync(compiled)     # results["n1"]["result"] == "HELLO"
 ```
 

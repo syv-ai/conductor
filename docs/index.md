@@ -20,7 +20,7 @@ A reusable, host-agnostic graph execution engine for building DAG-based workflow
 
 ```python
 from typing import Annotated
-from conductor import Graph, GraphNode, NodeDefinition, NodeRegistry, Policy, Result, Static, compile, version
+from conductor import Graph, GraphNode, NodeDefinition, NodeRegistry, Policy, Result, Static, compile_graph, version
 from conductor.execution.engine import execute_sync
 from conductor.widgets import Text as TextWidget
 from conductor_nodes.types import Text          # or a DType of your own
@@ -38,7 +38,7 @@ class Fetch(NodeDefinition):
 registry = NodeRegistry()
 registry.register(Fetch)
 
-compiled = compile(
+compiled = compile_graph(
     Graph(nodes=[GraphNode("n1", "fetch", 1, bindings={"url": Static(value="https://example.com")})]),
     registry,
 )
@@ -95,14 +95,12 @@ Dependencies, cycle detection and the flow's own inputs and outputs are all read
 
 ```
 ConductorError
-├── CompilationError
-│   └── CycleDetectionError
+├── CompilationError                # a run started on a graph compile found not runnable; carries its problems
 ├── NodeError                       # carries node_id, node_type, original
 │   ├── NodeValidationError         # pydantic — never retried
 │   ├── NodeExecutionError          # run() raised — retried per policy
 │   ├── NodeTimeoutError
 │   └── NodeConnectionError         # transient network/API — retried
-├── InputResolutionError
 └── FlowExecutionError              # raised by execute_sync
 ```
 

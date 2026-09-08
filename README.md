@@ -114,14 +114,14 @@ The class is checked the moment it is defined: a missing `id`, `title`, `descrip
 A placement pins a node by `type` and `version` and says, per input, where its value comes from: an `Edges` binding names other placements' outputs (an edge), a `Static` binding holds a typed-in value, and an input with no binding takes its declared default. There is no edge list — a flow is its nodes.
 
 ```python
-from conductor import Graph, GraphNode, Ref, Edges, Static, compile
+from conductor import Graph, GraphNode, Ref, Edges, Static, compile_graph
 from conductor.execution.engine import execute_sync
 
 flow = Graph(nodes=[
     GraphNode("n1", "echo", 1, bindings={"text": Static(value="hello world")}),
     GraphNode("n2", "uppercase", 1, bindings={"text": Edges(refs=(Ref("n1", "result"),))}),
 ])
-compiled = compile(flow, registry)
+compiled = compile_graph(flow, registry)
 
 results = execute_sync(compiled)
 print(results["n2"]["result"])  # "HELLO WORLD"
@@ -164,7 +164,7 @@ conductor/
 │   │       ├── errors.py           # Exception hierarchy (ConductorError, NodeError, …)
 │   │       ├── _sentinel.py        # SKIPPED
 │   │       ├── registry/           # NodeRegistry, runner_for, discover_nodes
-│   │       ├── graph/              # GraphNode/Graph, the Binding variants, the derived views, topology, compile(), roster resolution
+│   │       ├── graph/              # GraphNode/Graph, the Binding variants, the derived views, topology, compile_graph() and the CompiledGraph it returns, lifting, expansion, conditions, Problem
 │   │       ├── execution/          # execute(), execute_sync(), the eager scheduler, retry, events
 │   │       ├── flow_format/        # YAML / JSON flow files
 │   │       └── about/              # Runnable library reference: python -m conductor.about
@@ -331,7 +331,7 @@ def compute_inputs(self, declared, values) -> tuple[Input, ...]: ...
 def compute_outputs(self, declared, values, arriving) -> tuple[Output, ...]: ...
 ```
 
-`declared` is the pinned version's declaration, `values` what the author typed, `arriving` the type on each connected input where the compiler has recorded one. The default returns `declared`. The compiler asks a fresh instance once per placement and stores the answers on `CompiledGraph.node_inputs` / `node_outputs`. Nothing is checked here: a hook that returns the wrong shape is a node bug and raises where it is found.
+`declared` is the pinned version's declaration, `values` what the author typed, `arriving` the type on each connected input where the compiler has recorded one. The default returns `declared`. The compiler asks a fresh instance once per node — `compute_inputs` on the typed statics, `compute_outputs` in the edges pass with what arrives — and `CompiledGraph.roster(node_id)` serves the answers. Nothing is checked here: a hook that returns the wrong shape is a node bug and raises where it is found.
 
 ### Provided parameters
 
@@ -388,14 +388,12 @@ All exceptions inherit from `ConductorError` and are importable from `conductor.
 
 ```
 ConductorError                     # Base — catch-all for any engine error
-├── CompilationError                # Graph structure is invalid
-│   └── CycleDetectionError         # Graph contains a cycle
+├── CompilationError                # A run was started on a graph compile found not runnable; carries its problems
 ├── NodeError                       # Something went wrong with a specific node
 │   ├── NodeValidationError         # Input validation failed (pydantic) — never retried
 │   ├── NodeExecutionError          # run() raised — retried if the policy says so
 │   ├── NodeTimeoutError            # Node exceeded its policy's timeout
 │   └── NodeConnectionError         # External service / network failure inside a node
-├── InputResolutionError            # Could not resolve inputs from the edges
 └── FlowExecutionError              # Flow-level failure (raised by execute_sync)
 ```
 
@@ -552,7 +550,7 @@ From `1.0.0` onward, conductor follows [Semantic Versioning](https://semver.org/
 
 **Public API.** A name is part of the public API if it is exported from a package's `__init__` or documented in this README / `docs/`. Anything else — `_`-prefixed names, modules not re-exported from a public surface — is internal and may change in any release without warning. The public surface:
 
-- Top-level `conductor`: the node contract (`NodeDefinition`, `NodeVersion`, `GraphVersion`, `Policy`, `Deprecation`, `NodeDescription`, `version`, `upgrade`, `deprecated`, `Interface`, `Provided`, `Input`, `Output`, `Roster`, `AnyWidget`), the type vocabulary (`DType`, `DTypeRef`, `Single`, `dtype_of`, `registered_dtypes`, `Series`, `Index`, `Ref`, `Result`), the registry (`NodeRegistry`, `runner_for`), the graph (`Graph`, `GraphNode`, `FieldContent`, `Binding`, `Edges`, `Static`, `dependencies_of`, `is_input_node`, `compile`, `CompiledGraph`, `resolve_graph_inputs`, `resolve_graph_outputs`), execution (`execute`, `execute_sync`, `RetryConfig`, `SKIPPED`) and the error classes
+- Top-level `conductor`: the node contract (`NodeDefinition`, `NodeVersion`, `GraphVersion`, `Policy`, `Deprecation`, `NodeDescription`, `version`, `upgrade`, `deprecated`, `Interface`, `Provided`, `Input`, `Output`, `Roster`, `AnyWidget`), the type vocabulary (`DType`, `DTypeRef`, `Single`, `dtype_of`, `registered_dtypes`, `Series`, `Index`, `Ref`, `Result`), the registry (`NodeRegistry`, `runner_for`), the graph (`Graph`, `GraphNode`, `FieldContent`, `Binding`, `Edges`, `Static`, `dependencies_of`, `is_input_node`, `compile_graph`, `CompiledGraph`, `Carried`, `Problem`, `Condition`, `Atom`, `ALWAYS`), execution (`execute`, `execute_sync`, `RetryConfig`, `SKIPPED`) and the error classes
 - `conductor.widgets`, `conductor.metadata`, `conductor.errors`, `conductor.execution.events` (the `*Event` `TypedDict`s), `conductor.registry.discovery` (`discover_nodes`), `conductor.flow_format`
 - `conductor_nodes` (`register_all`, `get_default_registry`, the category modules, `conductor_nodes.types`) and `conductor_providers.react` / `conductor_providers.fastapi`
 
