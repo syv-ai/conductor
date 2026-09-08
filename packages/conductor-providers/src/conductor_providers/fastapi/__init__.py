@@ -2,7 +2,7 @@
 
 Mount conductor's core endpoints (``/nodes``, ``/execute``, ``/execute-stream``,
 ``/compile``) as a FastAPI ``APIRouter`` without hand-rolling the pydantic
-payloads, SSE framing, or compile-result plumbing in every host.
+payloads or SSE framing in every host.
 
 Usage::
 
@@ -33,7 +33,6 @@ Requires ``fastapi`` installed (declared as an optional extra:
 ``pip install conductor-providers[fastapi]``).
 """
 
-from conductor_providers.fastapi.compile import CompileResult
 from conductor_providers.fastapi.models import ExecuteRequest
 from conductor_providers.fastapi.router import conductor_router
 from conductor_providers.fastapi.sse import sse_frame
@@ -41,6 +40,5 @@ from conductor_providers.fastapi.sse import sse_frame
 __all__ = [
     "conductor_router",
     "ExecuteRequest",
-    "CompileResult",
     "sse_frame",
 ]

@@ -1,124 +1,72 @@
-"""Input resolution — resolve node inputs from edges and static data."""
+"""Input resolution — what one node receives, read off ``CompiledGraph``."""
 
-from collections import defaultdict
+from collections.abc import Mapping
 from typing import Any
 
 from conductor._sentinel import is_skipped
-from conductor.errors import InputResolutionError
 from conductor.execution.results import extract_output
-from conductor.graph.model import GraphNode
-from conductor.metadata import Input
-from conductor.registry import NodeRegistry
-from conductor.series import Index, Series
+from conductor.graph.binding import Edges, Static
+from conductor.graph.compiled import CompiledGraph
+from conductor.ref import Ref
+from conductor.series import Series
 from conductor.types import NodeResult
 
 
 class InputResolver:
-    """Resolves all inputs for a node from edges and static data."""
+    """Resolves a node's inputs from its bindings and the producers' results.
 
-    def __init__(
-        self,
-        registry: NodeRegistry,
-        node_inputs: dict[str, tuple[Input, ...]] | None = None,
-    ) -> None:
-        self._registry = registry
-        # Resolved per-instance input rosters (``CompiledGraph.node_inputs``).
-        # Only nodes with a ``compute_inputs`` hook differ from their static
-        # schema, but the map covers every node.
-        self._node_inputs = node_inputs
+    Iterates the node's roster, never the binding table: a binding on a
+    field the node does not have (``stale_binding``) is not a value
+    anything receives. A ``Static`` is the author's typed value; an
+    ``Edges`` is read off the producers' results with skipped values
+    dropped — one series is received whole, a ``Series[X]`` input gathers
+    what arrives into one series on the index compile named, otherwise
+    exactly one value arrives. An input nothing binds is left to its
+    declared default. A producer missing from ``results`` is the engine's
+    bug and raises.
+    """
 
-    def resolve(
-        self,
-        node: GraphNode,
-        edge_map: dict[tuple[str, str], list[tuple[str, str, str]]],
-        results: dict[str, NodeResult],
-        node_map: dict[str, GraphNode],
-        skipped_edges: set[str] | None = None,
-        incoming_map: dict[str, list[tuple[str, str, str, str]]] | None = None,
-    ) -> dict[str, Any]:
-        """Resolve all inputs for a node.
+    def __init__(self, compiled: CompiledGraph) -> None:
+        self._compiled = compiled
 
-        Precedence (first match wins):
-            1. Explicit edges targeting this input (edges in ``skipped_edges``
-               are treated as absent)
-            2. The values the author typed into the node
-            3. Widget default (not materialized here; handled by Pydantic)
-
-        A ``Series`` input fed by one edge carrying a series receives it
-        whole; fed by several edges, it gathers their values as one series
-        on a fresh index. A scalar input fed by more than one edge is an
-        error, since no other shape exists for it.
-        """
-        skipped_edges = skipped_edges or set()
-        inputs: dict[str, Any] = dict(node.data)
-
-        # (1) Edge-based resolution. Gather all incoming (source, handle, edge_id)
-        # per target_handle in one pass.
-        by_handle: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
-        if incoming_map is not None:
-            for target_handle, source_id, source_handle, edge_id in incoming_map.get(node.id, ()):
-                if not target_handle:
-                    continue
-                if edge_id and edge_id in skipped_edges:
-                    continue
-                by_handle[target_handle].append((source_id, source_handle, edge_id))
-        else:
-            for (target_id, target_handle), sources in edge_map.items():
-                if target_id != node.id or not target_handle:
-                    continue
-                for sid, shandle, eid in sources:
-                    if eid and eid in skipped_edges:
-                        continue
-                    by_handle[target_handle].append((sid, shandle, eid))
-
-        for target_handle, live_sources in by_handle.items():
-            values = self._collect_values(live_sources, results)
+    def resolve(self, node_id: str, results: Mapping[str, NodeResult]) -> dict[str, Any]:
+        compiled = self._compiled
+        node = compiled.node(node_id)
+        statics = compiled.statics(node_id)
+        inputs: dict[str, Any] = {}
+        for inp in compiled.roster(node_id).inputs:
+            binding = node.bindings.get(inp.name)
+            if binding is None:
+                continue
+            if isinstance(binding, Static):
+                inputs[inp.name] = statics[inp.name]
+                continue
+            values = _delivered(binding, results)
             if not values:
                 continue
-            declared = self._declared_input(node, target_handle)
-            if declared is not None and _is_series(declared.dtype):
-                inputs[target_handle] = (
+            if _is_series(inp.dtype):
+                inputs[inp.name] = (
                     values[0]
                     if len(values) == 1 and isinstance(values[0], Series)
-                    else Series(Index.fresh(), values)
+                    else Series(compiled.carried(Ref(node_id, inp.name)).index, values)
                 )
-            elif len(values) == 1:
-                inputs[target_handle] = values[0]
             else:
-                raise InputResolutionError(
-                    f"{node.id}.{target_handle} is a scalar input fed by {len(values)} edges",
-                    node_id=node.id,
-                )
-
+                (inputs[inp.name],) = values
         return inputs
 
-    def _collect_values(
-        self,
-        sources: list[tuple[str, str, str]],
-        results: dict[str, NodeResult],
-    ) -> list[Any]:
-        values: list[Any] = []
-        for source_id, source_handle, _edge_id in sources:
-            source_result = results.get(source_id)
-            if source_result is None or is_skipped(source_result):
-                continue
-            value = extract_output(source_result, source_handle)
-            if is_skipped(value):
-                continue
-            values.append(value)
-        return values
 
-    def _declared_input(self, node: GraphNode, name: str) -> Input | None:
-        """The ``Input`` this node declares under ``name``, or ``None``
-        for a handle no declaration names (a computed handle received through
-        ``**kwargs``)."""
-        roster = self._node_inputs.get(node.id) if self._node_inputs is not None else None
-        if roster is None:
-            node_def = self._registry.get(node.type)
-            roster = (
-                node_def.versions[node.version].interface.inputs if node_def is not None else ()
-            )
-        return next((inp for inp in roster if inp.name == name), None)
+def _delivered(binding: Edges, results: Mapping[str, NodeResult]) -> list[Any]:
+    """The values the edges deliver, in ref order, skipped ones dropped."""
+    values: list[Any] = []
+    for ref in binding.refs:
+        result = results[ref.node_id]
+        if is_skipped(result):
+            continue
+        value = extract_output(result, ref.field)
+        if is_skipped(value):
+            continue
+        values.append(value)
+    return values
 
 
 def _is_series(dtype: Any) -> bool:

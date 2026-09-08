@@ -5,7 +5,7 @@ from conductor import NodeRegistry
 from conductor.dtype import DType
 from conductor.execution.engine import execute_sync
 from conductor.graph.binding import Static
-from conductor.graph.compiler import compile as compile_graph
+from conductor.graph.compiler import compile_graph
 from conductor.graph.model import Graph, GraphNode
 from conductor.metadata import Input, Output
 from conductor.node import (

@@ -6,14 +6,12 @@ meaningful messages, log to observability tools, or route to error handlers.
 
 Hierarchy:
     ConductorError                     # Base — catch-all for any engine error
-    ├── CompilationError                # Graph structure is invalid
-    │   └── CycleDetectionError         # Graph contains a cycle
+    ├── CompilationError                # A run was started on a graph compile found not runnable
     ├── NodeError                       # Something went wrong with a specific node
     │   ├── NodeValidationError         # Input validation failed (Pydantic)
     │   ├── NodeExecutionError          # Node function raised during execution
     │   ├── NodeTimeoutError            # Node exceeded its timeout
     │   └── NodeConnectionError         # External service / network failure inside a node
-    ├── InputResolutionError            # Could not resolve inputs from edges
     ├── FlowExecutionError              # Flow-level failure (used by execute_sync)
     ├── FlowPausedError                 # Flow paused for human input (carries checkpoint)
     └── HumanInputRequired              # Signal raised by nodes to request human input
@@ -22,6 +20,8 @@ Hierarchy:
 from __future__ import annotations
 
 from typing import Any
+
+from conductor.graph.problem import Problem
 
 # =============================================================================
 # Base
@@ -38,11 +38,18 @@ class ConductorError(Exception):
 
 
 class CompilationError(ConductorError):
-    """Raised when graph compilation fails (unknown types, invalid edges, etc.)."""
+    """A run was started on a graph that compile found not runnable.
 
+    Compile itself never raises: everything wrong with a graph is a
+    ``Problem`` on the ``CompiledGraph``, and ``is_runnable`` says whether
+    a run may start. This is the transport for a caller that ignored it;
+    ``problems`` carries every problem the graph has, fatal or not.
+    """
 
-class CycleDetectionError(CompilationError):
-    """Raised when a cycle is detected in the graph."""
+    def __init__(self, problems: tuple[Problem, ...]):
+        self.problems = problems
+        fatal = ", ".join(p.code for p in problems if p.fatal)
+        super().__init__(f"The graph is not runnable: {fatal}")
 
 
 # =============================================================================
@@ -119,19 +126,6 @@ class NodeConnectionError(NodeError):
                     node_id="auto",  # engine fills this in
                 ) from e
     """
-
-
-# =============================================================================
-# Input resolution
-# =============================================================================
-
-
-class InputResolutionError(ConductorError):
-    """Raised when node input resolution fails (missing source, bad handle)."""
-
-    def __init__(self, message: str, *, node_id: str | None = None):
-        self.node_id = node_id
-        super().__init__(message)
 
 
 # =============================================================================
@@ -224,46 +218,6 @@ class SignalRequired(ConductorError):
         self.timeout_seconds = timeout_seconds
         self.node_id = node_id
         super().__init__(f"Waiting for signal {signal_name!r}")
-
-
-# =============================================================================
-# Loop / subprocess errors
-# =============================================================================
-
-
-class LoopRunawayError(ConductorError):
-    """Raised when a ``while`` compound exceeds its ``max_iterations`` cap."""
-
-    def __init__(self, node_id: str, iterations: int, cap: int):
-        self.node_id = node_id
-        self.iterations = iterations
-        self.cap = cap
-        super().__init__(
-            f"While loop on '{node_id}' exceeded max_iterations={cap} "
-            f"(ran {iterations} iterations)"
-        )
-
-
-class SubprocessFailedError(NodeError):
-    """A sub-flow failed while executing inside a caller.
-
-    Carries the inner node id so error messages remain useful across
-    subprocess boundaries.
-    """
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        node_id: str | None = None,
-        node_type: str | None = None,
-        inner_node_id: str | None = None,
-        original: Exception | None = None,
-    ):
-        self.inner_node_id = inner_node_id
-        super().__init__(
-            message, node_id=node_id, node_type=node_type, original=original,
-        )
 
 
 # =============================================================================

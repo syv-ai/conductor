@@ -10,7 +10,7 @@ from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
 from conductor.execution.engine import execute_sync
 from conductor.graph.binding import Edges, Static, static_values
-from conductor.graph.compiler import compile as compile_graph
+from conductor.graph.compiler import compile_graph
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.topology import dependencies_of
 from conductor.graph.views import derive_interface, is_input_node, lock_problems

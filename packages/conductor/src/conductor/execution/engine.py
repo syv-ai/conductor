@@ -10,12 +10,14 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Any
 
+from pydantic import ValidationError
+
 from conductor._sentinel import SKIPPED, is_skipped
 from conductor.errors import (
+    CompilationError,
     FlowExecutionException,
     FlowPausedException,
     HumanInputRequired,
-    InputResolutionError,
     NodeConnectionError,
     NodeExecutionError,
     NodeTimeoutError,
@@ -24,7 +26,6 @@ from conductor.errors import (
 )
 from conductor.execution.checkpoint import FlowCheckpoint
 from conductor.execution.events import (
-    EventSink,
     ExecutionEvent,
     FlowCancelledEvent,
     FlowCompleteEvent,
@@ -44,49 +45,15 @@ from conductor.execution.retry import NO_RETRY, RetryConfig
 from conductor.execution.skip import should_skip_node
 from conductor.execution.state import FlowRunState
 from conductor.execution.store import FlowStore
-from conductor.graph.compiler import CompiledGraph
+from conductor.graph.compiled import CompiledGraph
 from conductor.interface import model_of
 from conductor.metadata import Output
-from conductor.registry import runner_for
 from conductor.returns import unpack
 from conductor.series import Index, Series
 
 # Internal sentinel pushed into the event queue when all work is done
 _DONE = object()
 _FATAL = object()
-
-# How often a running node's event sink is polled so the events it emits
-# mid-execution stream to the host live instead of arriving in a burst
-# once the node finishes. Small enough to feel live, large enough not to
-# busy-spin the event loop.
-_SINK_DRAIN_INTERVAL = 0.05
-
-
-async def _drain_sink_live(
-    sink: Any, event_queue: asyncio.Queue, interval: float = _SINK_DRAIN_INTERVAL
-) -> None:
-    """Forward events from a node's sink to ``event_queue`` while it runs.
-
-    A node may push events to ``state._event_sink`` from its worker thread
-    while it runs. Without a concurrent drainer those events sit in the
-    sink until the node completes and the post-dispatch tail-drain flushes
-    them — so a host sees nothing until then. This coroutine
-    runs alongside the dispatch task and pumps the sink on a short
-    interval; the caller cancels it once dispatch returns, and the
-    existing tail-drain flushes anything emitted after the final poll.
-    """
-    try:
-        while True:
-            while (evt := sink.pop()) is not None:
-                await event_queue.put(evt)
-            await asyncio.sleep(interval)
-    except asyncio.CancelledError:
-        # Final sweep so events emitted between the last poll and
-        # cancellation aren't left for the tail-drain to reorder after
-        # the parent's node_complete.
-        while (evt := sink.pop()) is not None:
-            await event_queue.put(evt)
-        raise
 
 
 # =========================================================================
@@ -107,6 +74,9 @@ async def execute(
 
     Nodes start as soon as all their dependencies are done — independent
     branches run concurrently. Retry is configurable per-node or globally.
+    Refuses a graph that is not runnable (``CompilationError`` carrying
+    its problems) and, until the engine runs rows, a graph with a lifted
+    node (``NotImplementedError`` naming the ids).
 
     ``store_data`` pre-seeds the ``FlowStore`` before the first node runs.
     Useful for hosts that inject per-request context (user, session,
@@ -144,7 +114,6 @@ async def resume(
     )
     state.results = dict(checkpoint.results)
     state.store = FlowStore(dict(checkpoint.store_data))
-    state.skipped_edges = set(checkpoint.skipped_edges)
     state.completed_order = list(checkpoint.completed_node_ids)
 
     # Inject response as the waiting node's result
@@ -180,10 +149,9 @@ async def _run_eager(
     compiled = state.compiled
     event_queue: asyncio.Queue = asyncio.Queue()
 
-    # Build dependency graph from edge_map
     deps, dependents = _build_dep_graph(compiled)
 
-    schedulable = set(compiled.execution_order)
+    schedulable = set(compiled.execution_order())
 
     # Track in-degree (number of unfinished deps). Nodes with in-degree 0
     # feed a ready_queue — O(1) dispatch instead of re-scanning every tick.
@@ -343,44 +311,24 @@ async def _execute_node_async(
     retry: RetryConfig,
 ) -> None:
     """Execute a single node with retry, pushing events to the queue."""
-    node = compiled.node_map[node_id]
-    sink = state._event_sink
-    node_cls = compiled.registry.get(node.type)
-    policy = node_cls.versions[node.version].policy if node_cls is not None else None
+    node = compiled.node(node_id)
+    policy = compiled.version(node_id).policy
 
     # Skip propagation
-    if should_skip_node(
-        node, compiled.edge_map, state.results,
-        state.skipped_edges, compiled.incoming_map,
-    ):
+    if should_skip_node(compiled, node_id, state.results):
         state.results[node_id] = SKIPPED
         state.completed_order.append(node_id)
         await event_queue.put(NodeSkippedEvent(type="node_skipped", node_id=node_id))
         await event_queue.put(_NodeDone(node_id=node_id))
         return
 
-    try:
-        inputs = state.resolver.resolve(
-            node, compiled.edge_map, state.results, compiled.node_map,
-            state.skipped_edges, compiled.incoming_map,
-        )
-    except InputResolutionError as e:
-        # Raised before the try below; without this the task would end
-        # with no ``_NodeDone`` and the scheduler would wait forever.
-        await event_queue.put(_NodeDone(
-            node_id=node_id,
-            error=True,
-            error_event=NodeErrorEvent(
-                type="node_error", node_id=node_id, error=str(e), is_validation=False,
-            ),
-        ))
-        return
+    inputs = state.resolver.resolve(node_id, state.results)
 
     start_event: NodeStartEvent = NodeStartEvent(type="node_start", node_id=node_id)
     await event_queue.put(start_event)
 
-    # Determine retry config: the version's policy overrides the run-level default
-    if policy is not None and policy.retries > 0:
+    # The version's policy overrides the run-level default when it retries at all
+    if policy.retries > 0:
         max_retries = policy.retries
         base_delay = policy.delay
         backoff = 2.0
@@ -390,7 +338,7 @@ async def _execute_node_async(
         backoff = retry.backoff_factor
 
     # Determine node timeout budget — node-level wins over flow-level
-    node_timeout = policy.timeout if policy is not None else None
+    node_timeout = policy.timeout
 
     attempt = 0
     last_error: Exception | None = None
@@ -408,36 +356,15 @@ async def _execute_node_async(
             ))
             await asyncio.sleep(delay)
 
-            inputs = state.resolver.resolve(
-                node, compiled.edge_map, state.results, compiled.node_map,
-                state.skipped_edges, compiled.incoming_map,
-            )
+            inputs = state.resolver.resolve(node_id, state.results)
 
         try:
             remaining = state.remaining_seconds()
             effective_timeout = _effective_timeout(remaining, node_timeout)
-            # Run dispatch and a live sink-drainer concurrently so events
-            # pushed into the sink mid-execution stream to the host. The
-            # drainer is cancelled as soon as dispatch settles; the
-            # tail-drain below flushes any final stragglers.
-            dispatch = asyncio.ensure_future(
-                asyncio.to_thread(
-                    _dispatch_node, node.type, node_id, inputs, state, compiled,
-                )
+            result = await asyncio.wait_for(
+                asyncio.to_thread(_dispatch_node, node_id, inputs, state, compiled),
+                timeout=effective_timeout,
             )
-            drainer = asyncio.ensure_future(
-                _drain_sink_live(sink, event_queue)
-            )
-            try:
-                result = await asyncio.wait_for(
-                    dispatch, timeout=effective_timeout
-                )
-            finally:
-                drainer.cancel()
-                try:
-                    await drainer
-                except asyncio.CancelledError:
-                    pass
 
             state.results[node_id] = result
             state.completed_order.append(node_id)
@@ -445,10 +372,6 @@ async def _execute_node_async(
                 type="node_complete", node_id=node_id,
                 result=filter_skipped(result),
             ))
-
-            while (evt := sink.pop()) is not None:
-                await event_queue.put(evt)
-
             await event_queue.put(_NodeDone(node_id=node_id))
             return
 
@@ -501,7 +424,6 @@ async def _execute_node_async(
                 prompt=e.prompt,
                 input_schema=e.schema,
                 execution_index=-1,
-                skipped_edges=list(state.skipped_edges),
             )
             await event_queue.put(_NodeDone(
                 node_id=node_id,
@@ -527,7 +449,6 @@ async def _execute_node_async(
                 prompt=f"Waiting for signal '{e.signal_name}'",
                 input_schema=None,
                 execution_index=-1,
-                skipped_edges=list(state.skipped_edges),
                 signal_name=e.signal_name,
                 correlation=e.correlation,
                 signal_timeout_seconds=e.timeout_seconds,
@@ -634,43 +555,31 @@ def _effective_timeout(
 
 
 def _dispatch_node(
-    node_type: str,
     node_id: str,
     inputs: dict[str, Any],
     state: FlowRunState,
     compiled: CompiledGraph,
 ) -> dict[str, Any]:
     """Validate ``inputs`` against the node's roster and run the node; the answer is ``{output name: value}``."""
-    node_def = compiled.registry.get(node_type)
-    if node_def is None:
-        raise NodeExecutionError(
-            f"Node type '{node_type}' not found in registry",
-            node_id=node_id, node_type=node_type,
-        )
+    node = compiled.node(node_id)
+    roster = compiled.roster(node_id)
 
     # Coerce the raw inputs through the node's roster before anything
     # else touches them.
-    from pydantic import ValidationError
-
-    pinned = compiled.node_map[node_id].version
-    roster = compiled.node_inputs.get(
-        node_id, node_def.versions[pinned].interface.inputs
-    )
     try:
-        validated = model_of(roster)(**inputs)
+        validated = model_of(roster.inputs)(**inputs)
     except ValidationError as e:
         raise NodeValidationError(
-            _format_validation_error(e, roster),
-            node_id=node_id, node_type=node_type, original=e,
+            _format_validation_error(e, roster.inputs),
+            node_id=node_id, node_type=node.type, original=e,
         ) from e
 
     # The validated instances themselves, not a dump: ``run`` receives the
     # declared dtypes and nothing is re-serialised on the way in.
-    inputs = {name: getattr(validated, name) for name in type(validated).model_fields}
+    inputs = dict(validated)
 
-    runner = runner_for(compiled.registry, node_type, pinned)
+    runner = compiled.runner(node_id)
     inputs = _inject_store(runner, inputs, state)
-    inputs = _filter_to_signature(runner, inputs)
 
     try:
         value = runner(**inputs)
@@ -679,12 +588,10 @@ def _dispatch_node(
         raise
     except Exception as e:
         raise NodeExecutionError(
-            f"Execution failed for {node_type}: {type(e).__name__}: {e}",
-            node_id=node_id, node_type=node_type, original=e,
+            f"Execution failed for {node.type}: {type(e).__name__}: {e}",
+            node_id=node_id, node_type=node.type, original=e,
         ) from e
-    return _outputs_of(
-        node_def.versions[pinned].interface.returns, compiled.node_outputs[node_id], value
-    )
+    return _outputs_of(compiled.version(node_id).interface.returns, roster.outputs, value)
 
 
 def _outputs_of(returns: Any, outputs: tuple[Output, ...], value: Any) -> dict[str, Any]:
@@ -791,27 +698,6 @@ def _inject_store(func: Any, inputs: dict[str, Any], state: FlowRunState) -> dic
 
 
 
-def _filter_to_signature(func: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
-    """Drop keys that the callable can't accept as keyword arguments.
-
-    The input resolver overlays a node's static ``data`` onto the resolved
-    inputs, so a saved flow can carry stray keys (host metadata, migration
-    breadcrumbs) that aren't parameters of the node function. Forwarding
-    those verbatim raises ``TypeError: got an unexpected keyword argument``.
-
-    A function that declares ``**kwargs`` (``VAR_KEYWORD``) accepts any key,
-    so nothing is filtered — this preserves the nodes that
-    legitimately receive extra connected handles.
-    """
-    try:
-        params = inspect.signature(func).parameters
-    except (TypeError, ValueError):
-        return kwargs
-    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
-        return kwargs
-    return {k: v for k, v in kwargs.items() if k in params}
-
-
 # =========================================================================
 # Sync wrappers
 # =========================================================================
@@ -860,11 +746,21 @@ def _build_state(
     timeout_seconds: int,
     context: dict[str, Any] | None,
 ) -> FlowRunState:
+    """The run's state — or the refusal: a graph compile found not runnable
+    raises ``CompilationError`` with its problems, and a graph with a
+    lifted node raises ``NotImplementedError``, since this engine runs
+    scalar nodes only (the rows are plan 4's)."""
+    if not compiled.is_runnable:
+        raise CompilationError(compiled.problems_for())
+    lifted = [node_id for node_id in compiled.execution_order() if compiled.lifted_on(node_id) is not None]
+    if lifted:
+        raise NotImplementedError(
+            f"This engine runs scalar nodes only; these nodes are lifted: {', '.join(lifted)}"
+        )
     return FlowRunState(
         compiled=compiled,
-        resolver=InputResolver(compiled.registry, node_inputs=compiled.node_inputs),
+        resolver=InputResolver(compiled),
         results={},
-        _event_sink=EventSink(),
         _started_at=time.monotonic(),
         _timeout_seconds=timeout_seconds,
         context=context or {},
@@ -878,8 +774,8 @@ def _build_dep_graph(
     deps: dict[str, set[str]] = defaultdict(set)
     dependents: dict[str, set[str]] = defaultdict(set)
 
-    for target_id, entries in compiled.incoming_map.items():
-        for _target_handle, source_id, _source_handle, _edge_id in entries:
+    for target_id in compiled.execution_order():
+        for source_id in compiled.dependencies(target_id):
             deps[target_id].add(source_id)
             dependents[source_id].add(target_id)
 

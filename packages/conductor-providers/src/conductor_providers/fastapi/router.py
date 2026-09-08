@@ -6,14 +6,13 @@ from collections.abc import Callable, Sequence
 from typing import Any
 
 from conductor import NodeRegistry
-from conductor.errors import CompilationError
 from conductor.execution.engine import execute, execute_sync
 from conductor.graph import compiler
+from conductor.graph.problem import Problem
 from conductor.node import NodeDescription
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
-from conductor_providers.fastapi.compile import CompileResult
 from conductor_providers.fastapi.models import ExecuteRequest
 from conductor_providers.fastapi.sse import sse_frame
 
@@ -36,8 +35,8 @@ def conductor_router(
     - ``GET  {prefix}/nodes``           — every definition's ``describe()``
     - ``POST {prefix}/execute``         — sync execution, returns aggregated results
     - ``POST {prefix}/execute-stream``  — SSE stream of ``ExecutionEvent`` frames
-    - ``POST {prefix}/compile``         — validation without executing; returns
-      ``CompileResult`` with the compilation errors
+    - ``POST {prefix}/compile``         — compile without executing; returns
+      every ``Problem`` the graph has
 
     Args:
         registry: The populated ``NodeRegistry`` to serve.
@@ -71,7 +70,7 @@ def conductor_router(
     @router.post("/execute")
     def execute_flow(req: ExecuteRequest, request: Request) -> dict[str, Any]:
         """Run a flow synchronously and return the aggregated results dict."""
-        compiled = compiler.compile(req.graph, registry)
+        compiled = compiler.compile_graph(req.graph, registry)
         results = execute_sync(
             compiled, store_data=_store_data(request), cache=req.cache or None
         )
@@ -82,7 +81,7 @@ def conductor_router(
         req: ExecuteRequest, request: Request
     ) -> StreamingResponse:
         """Run a flow and stream ``ExecutionEvent``s as Server-Sent Events."""
-        compiled = compiler.compile(req.graph, registry)
+        compiled = compiler.compile_graph(req.graph, registry)
         store_data = _store_data(request)
 
         async def event_stream() -> Any:
@@ -115,18 +114,16 @@ def conductor_router(
             )
         return entity_resolver(kind, request)
 
-    @router.post("/compile")
-    def compile_graph(req: ExecuteRequest) -> CompileResult:
-        """Validate a graph without executing. Returns the compilation errors.
+    @router.post("/compile", response_model=list[Problem])
+    def compile_graph(req: ExecuteRequest) -> list[Problem]:
+        """Compile a graph without executing it. Returns every problem the
+        graph has, fatal or not, each anchored on a node; an empty list
+        means the graph runs.
 
         Debounce-friendly (~10-30 ms): hosts can poll this on every graph
         edit to paint type mismatches and cycles in real time.
         """
-        try:
-            compiler.compile(req.graph, registry)
-        except CompilationError as e:
-            return CompileResult(status="error", errors=[str(e)])
-        return CompileResult(status="ok", errors=[])
+        return list(compiler.compile_graph(req.graph, registry).problems_for())
 
     return router
 

@@ -21,7 +21,7 @@ import time
 from typing import Annotated
 
 import pytest
-from conductor import GraphNode, NodeRegistry, compile
+from conductor import GraphNode, NodeRegistry, compile_graph
 from conductor.errors import NodeExecutionError
 from conductor.execution.engine import execute, execute_sync
 from conductor.graph.binding import Edges, Static
@@ -73,7 +73,7 @@ def test_500_node_linear_chain_compile_and_execute() -> None:
         ))
 
     t0 = time.monotonic()
-    compiled = compile(Graph(nodes=nodes), registry)
+    compiled = compile_graph(Graph(nodes=nodes), registry)
     compile_seconds = time.monotonic() - t0
     assert compile_seconds < 5.0, (
         f"compile took {compile_seconds:.2f}s; expected <5s"
@@ -122,7 +122,7 @@ async def test_cancellation_honored_during_retry_sleep() -> None:
     registry = NodeRegistry()
     registry.register(AlwaysFlaky)
 
-    compiled = compile(Graph(nodes=[GraphNode("n1", "always-flaky", 1, bindings={"text": Static(value="x")})]), registry)
+    compiled = compile_graph(Graph(nodes=[GraphNode("n1", "always-flaky", 1, bindings={"text": Static(value="x")})]), registry)
 
     # Capture the live ``FlowRunState`` so the cancellation flag can be
     # flipped from outside. ``execute()`` builds state internally via

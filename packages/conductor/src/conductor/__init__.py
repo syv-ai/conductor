@@ -14,14 +14,12 @@ from conductor.errors import (
     FlowExecutionError,
     FlowPausedError,
     HumanInputRequired,
-    LoopRunawayError,
     NodeConnectionError,
     NodeError,
     NodeExecutionError,
     NodeTimeoutError,
     NodeValidationError,
     SignalRequired,
-    SubprocessFailedError,
 )
 from conductor.execution.checkpoint import FlowCheckpoint
 from conductor.execution.engine import execute, execute_sync, resume, resume_sync
@@ -30,7 +28,6 @@ from conductor.execution.store import FlowStore
 from conductor.graph.binding import Binding, Edges, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.compiler import compile_graph
-from conductor.graph.dynamic_inputs import resolve_graph_inputs
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.topology import dependencies_of
 from conductor.graph.views import is_input_node
@@ -67,7 +64,6 @@ __all__ = [
     "is_input_node",
     "compile_graph",
     "CompiledGraph",
-    "resolve_graph_inputs",
     # Execution
     "execute",
     "execute_sync",
@@ -116,8 +112,6 @@ __all__ = [
     "HumanInputRequired",
     "FlowPausedError",
     "SignalRequired",
-    "LoopRunawayError",
-    "SubprocessFailedError",
     # Submodules re-exported for namespace access (`conductor.widgets.Text`, etc.)
     "widgets",
     "errors",

@@ -1,14 +1,13 @@
-"""Graph model, topological sort, cycle detection, compilation."""
+"""Graph model and the order over the dependency map."""
 
 from typing import Annotated
 
 import pytest
 from conductor.dtype import DType
-from conductor.errors import CompilationError, CycleDetectionError
 from conductor.graph.binding import Edges, Static
-from conductor.graph.compiler import compile
+from conductor.graph.compiler import compile_graph
 from conductor.graph.model import Graph, GraphNode
-from conductor.graph.topology import topological_sort
+from conductor.graph.topology import order_of
 from conductor.node import NodeDefinition
 from conductor.ref import Ref
 from conductor.returns import Result
@@ -48,17 +47,18 @@ class TestGraphModel:
         assert node.data == {}
 
 
-class TestTopologicalSort:
+class TestOrderOf:
     def test_linear_chain(self):
-        order = topological_sort({"a": frozenset(), "b": frozenset({"a"}), "c": frozenset({"b"})})
+        order, cyclic = order_of({"a": frozenset(), "b": frozenset({"a"}), "c": frozenset({"b"})})
         assert order.index("a") < order.index("b") < order.index("c")
+        assert cyclic == frozenset()
 
     def test_diamond_graph(self):
         """
         A -> B -> D
         A -> C -> D
         """
-        order = topological_sort({
+        order, _ = order_of({
             "a": frozenset(), "b": frozenset({"a"}), "c": frozenset({"a"}), "d": frozenset({"b", "c"}),
         })
         assert order.index("a") < order.index("b")
@@ -67,19 +67,20 @@ class TestTopologicalSort:
         assert order.index("c") < order.index("d")
 
     def test_single_node(self):
-        assert topological_sort({"a": frozenset()}) == ["a"]
+        assert order_of({"a": frozenset()}) == (("a",), frozenset())
 
     def test_disconnected_nodes(self):
-        order = topological_sort({x: frozenset() for x in ["a", "b", "c"]})
+        order, _ = order_of({x: frozenset() for x in ["a", "b", "c"]})
         assert set(order) == {"a", "b", "c"}
 
-    def test_cycle_detected(self):
-        with pytest.raises(CycleDetectionError):
-            topological_sort({"a": frozenset({"b"}), "b": frozenset({"a"})})
+    def test_a_cycle_is_returned_not_raised(self):
+        """A cycle is a state an editor can be in; compile anchors a problem on each node in it."""
+        order, cyclic = order_of({"a": frozenset({"b"}), "b": frozenset({"a"}), "c": frozenset()})
+        assert order == ("c",)
+        assert cyclic == frozenset({"a", "b"})
 
-    def test_self_loop_detected(self):
-        with pytest.raises(CycleDetectionError):
-            topological_sort({"a": frozenset({"a"})})
+    def test_self_loop_is_a_cycle(self):
+        assert order_of({"a": frozenset({"a"})}) == ((), frozenset({"a"}))
 
 
 class TestCompile:
@@ -90,29 +91,29 @@ class TestCompile:
             GraphNode("n2", "echo", 1, bindings={"text": Edges(refs=(Ref('n1', 'result'),))}),
         ]
 
-        compiled = compile(Graph(nodes=nodes), registry)
-        assert compiled is not None
-        assert "n1" in compiled.execution_order
-        assert "n2" in compiled.execution_order
-        assert compiled.execution_order.index("n1") < compiled.execution_order.index("n2")
+        compiled = compile_graph(Graph(nodes=nodes), registry)
+        assert compiled.is_runnable, compiled.problems_for()
+        assert compiled.execution_order() == ("n1", "n2")
 
-    def test_compile_unknown_node_type_raises(self, registry):
+    def test_compile_unknown_node_type_is_a_problem(self, registry):
         nodes = [GraphNode("n1", "nonexistent", 1)]
-        with pytest.raises(CompilationError):
-            compile(Graph(nodes=nodes), registry)
+        compiled = compile_graph(Graph(nodes=nodes), registry)
+        assert [p.code for p in compiled.problems_for()] == ["unknown_node_type"]
+        assert not compiled.is_runnable
 
-    def test_compile_edge_from_a_missing_node_raises(self, registry):
+    def test_compile_edge_from_a_missing_node_is_a_problem(self, registry):
         registry.register(Echo)
         nodes = [GraphNode("n1", "echo", 1, bindings={"text": Edges(refs=(Ref("n_missing", "result"),))})]
 
-        with pytest.raises(CompilationError):
-            compile(Graph(nodes=nodes), registry)
+        compiled = compile_graph(Graph(nodes=nodes), registry)
+        assert [p.code for p in compiled.problems_for()] == ["unknown_ref_node"]
 
-    def test_compile_cycle_raises(self, registry):
+    def test_compile_cycle_is_a_problem_on_each_node_in_it(self, registry):
         registry.register(Echo)
         nodes = [
             GraphNode("n1", "echo", 1, bindings={"text": Edges(refs=(Ref('n2', 'result'),))}),
             GraphNode("n2", "echo", 1, bindings={"text": Edges(refs=(Ref('n1', 'result'),))}),
         ]
-        with pytest.raises((CycleDetectionError, CompilationError)):
-            compile(Graph(nodes=nodes), registry)
+        compiled = compile_graph(Graph(nodes=nodes), registry)
+        assert [(p.code, p.node_id) for p in compiled.problems_for()] == [("cycle", "n1"), ("cycle", "n2")]
+        assert not compiled.is_runnable
