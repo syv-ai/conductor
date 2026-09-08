@@ -6,7 +6,7 @@ node's fields fall in three groups:
 
 * **behaviour** — ``type``, ``version``, ``bindings``, ``locked`` — is what
   the runtime reads and branches on;
-* **content** — the placement's ``title``, ``description`` and one
+* **content** — the node's ``title``, ``description`` and one
   ``FieldContent`` per field — is shown to people and emitted in events,
   never branched on;
 * **chrome** — ``display`` — is stored and returned and never parsed.
@@ -27,7 +27,7 @@ from conductor.graph.binding import Binding, static_values
 
 @dataclass(frozen=True)
 class FieldContent:
-    """The title and description a person reads for one field of one placement.
+    """The title and description a person reads for one field of one node.
 
     Copied from the node's declaration when the node is placed, and edited
     freely afterwards; nothing resolves it against the declaration again,
@@ -73,8 +73,8 @@ class GraphNode:
     type: str
     version: int
     bindings: Mapping[str, Binding] = field(default_factory=dict)
-    #: Inputs of this placement no caller may fill. Only matters on a
-    #: placement with no edge into it, since only those offer inputs to a
+    #: Inputs of this node no caller may fill. Only matters on a
+    #: node with no edge into it, since only those offer inputs to a
     #: caller.
     locked: tuple[str, ...] = ()
     #: Content.

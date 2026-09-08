@@ -640,7 +640,7 @@ def _dispatch_node(
     state: FlowRunState,
     compiled: CompiledGraph,
 ) -> dict[str, Any]:
-    """Validate ``inputs`` against the placement's roster and run the node; the answer is ``{output name: value}``."""
+    """Validate ``inputs`` against the node's roster and run the node; the answer is ``{output name: value}``."""
     node_def = compiled.registry.get(node_type)
     if node_def is None:
         raise NodeExecutionError(
@@ -648,7 +648,7 @@ def _dispatch_node(
             node_id=node_id, node_type=node_type,
         )
 
-    # Coerce the raw inputs through the placement's roster before anything
+    # Coerce the raw inputs through the node's roster before anything
     # else touches them.
     from pydantic import ValidationError
 
@@ -688,7 +688,7 @@ def _dispatch_node(
 
 
 def _outputs_of(returns: Any, outputs: tuple[Output, ...], value: Any) -> dict[str, Any]:
-    """What ``run`` returned, split across the placement's outputs by name.
+    """What ``run`` returned, split across the node's outputs by name.
 
     ``unpack`` reads the return declaration. A series output is returned by
     the node as a plain sequence and lands here on a fresh root index: its

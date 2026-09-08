@@ -8,7 +8,7 @@ from typing import Any
 from conductor import NodeRegistry
 from conductor.errors import CompilationError
 from conductor.execution.engine import execute, execute_sync
-from conductor.graph.compiler import compile as compile_graph
+from conductor.graph import compiler
 from conductor.node import NodeDescription
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
@@ -71,7 +71,7 @@ def conductor_router(
     @router.post("/execute")
     def execute_flow(req: ExecuteRequest, request: Request) -> dict[str, Any]:
         """Run a flow synchronously and return the aggregated results dict."""
-        compiled = compile_graph(req.graph, registry)
+        compiled = compiler.compile(req.graph, registry)
         results = execute_sync(
             compiled, store_data=_store_data(request), cache=req.cache or None
         )
@@ -82,7 +82,7 @@ def conductor_router(
         req: ExecuteRequest, request: Request
     ) -> StreamingResponse:
         """Run a flow and stream ``ExecutionEvent``s as Server-Sent Events."""
-        compiled = compile_graph(req.graph, registry)
+        compiled = compiler.compile(req.graph, registry)
         store_data = _store_data(request)
 
         async def event_stream() -> Any:
@@ -116,14 +116,14 @@ def conductor_router(
         return entity_resolver(kind, request)
 
     @router.post("/compile")
-    def compile_flow(req: ExecuteRequest) -> CompileResult:
+    def compile_graph(req: ExecuteRequest) -> CompileResult:
         """Validate a graph without executing. Returns the compilation errors.
 
         Debounce-friendly (~10-30 ms): hosts can poll this on every graph
         edit to paint type mismatches and cycles in real time.
         """
         try:
-            compile_graph(req.graph, registry)
+            compiler.compile(req.graph, registry)
         except CompilationError as e:
             return CompileResult(status="error", errors=[str(e)])
         return CompileResult(status="ok", errors=[])

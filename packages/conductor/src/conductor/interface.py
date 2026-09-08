@@ -67,7 +67,7 @@ class Interface:
     Derived, never written by hand. ``Interface.of`` builds one from a
     ``run`` signature when a node class is defined, and the compiler builds
     one for a whole flow, with inputs named by address and wearing their
-    placements' titles. Frozen, so the derivation is the only writer.
+    nodes' titles. Frozen, so the derivation is the only writer.
 
     Not what a particular *placement* of the node ends up with — a
     placement's roster may be reshaped by the values it holds. Not stored,
@@ -215,7 +215,7 @@ def _extract_outputs(hints: dict[str, Any]) -> tuple[Any, tuple[Output, ...]]:
 
     A ``run`` with no return annotation is an error, not a node with no
     outputs: the engine would have nowhere to put what it returns. A
-    ``Mapping`` return declares no outputs here; the placement's computed
+    ``Mapping`` return declares no outputs here; the node's computed
     roster supplies them.
     """
     if "return" not in hints:

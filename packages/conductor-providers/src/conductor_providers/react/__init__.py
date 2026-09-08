@@ -8,7 +8,7 @@ Wire format produced by ``graph_to_react``:
           "id": "n1",
           "type": "text-uppercase",
           "position": {"x": 0, "y": 0},
-          "data": {                    # the placement record, dumped
+          "data": {                    # the node record, dumped
             "id": "n1",
             "type": "text-uppercase",
             "version": 1,
@@ -31,7 +31,7 @@ Wire format produced by ``graph_to_react``:
 Notes:
 - ReactFlow uses camelCase for ``sourceHandle`` / ``targetHandle``.
 - Positions are ReactFlow's; ``graph_to_react`` reads one from the
-  placement's ``display`` and lays out the rest, ``react_to_graph`` writes
+  node's ``display`` and lays out the rest, ``react_to_graph`` writes
   the canvas's back into ``display``.
 - The palette (node-type metadata for a sidebar) is available via
   ``palette_from_registry``.

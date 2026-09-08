@@ -118,7 +118,7 @@ def test_the_record_is_the_schema():
     """A Graph dumps and loads through pydantic, bindings included. A
     Static whose value happens to look like a Edges comes back a Static,
     because Static nests its payload under `value`."""
-    flow = Graph(
+    graph = Graph(
         nodes=[
             GraphNode(
                 id="a",
@@ -135,7 +135,7 @@ def test_the_record_is_the_schema():
     )
     adapter = TypeAdapter(Graph)
 
-    assert adapter.validate_python(adapter.dump_python(flow, mode="json")) == flow
+    assert adapter.validate_python(adapter.dump_python(graph, mode="json")) == graph
 def test_a_node_depends_on_every_node_its_edges_name():
     nodes = [
         GraphNode(id="a", type="t", version=1),
@@ -238,7 +238,7 @@ def _registry():
     return reg
 
 
-def _resolved(flow, registry=None):
+def _resolved(graph, registry=None):
     """What the compiler hands `derive_interface`: each placement's
     effective roster, and the version its pin resolved to. Here the roster
     is the declaration read through the pin — none of these nodes shapes
@@ -246,14 +246,14 @@ def _resolved(flow, registry=None):
     registry = registry or _registry()
     rosters = {}
     versions = {}
-    for node in flow.nodes:
+    for node in graph.nodes:
         version = registry.get(node.type).versions[node.version]
         versions[node.id] = version
         rosters[node.id] = Roster(inputs=version.interface.inputs, outputs=version.interface.outputs)
     return rosters, versions
 
 
-def _flow(application_locked=(), language_bindings=None):
+def _graph(application_locked=(), language_bindings=None):
     """Two value holders and one summariser connected from the first:
     `application` and `language` are input nodes; `language` and `summary`
     are output nodes (nothing consumes them); `application` is consumed."""
@@ -279,21 +279,21 @@ def _flow(application_locked=(), language_bindings=None):
     )
 
 
-def _interface(flow, registry=None):
-    return derive_interface(flow, *_resolved(flow, registry), dependencies_of(flow.nodes))
+def _interface(graph, registry=None):
+    return derive_interface(graph, *_resolved(graph, registry), dependencies_of(graph.nodes))
 
 
-def _locks(flow, registry=None):
-    rosters, _ = _resolved(flow, registry)
-    return lock_problems({n.id: n for n in flow.nodes}, rosters)
+def _locks(graph, registry=None):
+    rosters, _ = _resolved(graph, registry)
+    return lock_problems({n.id: n for n in graph.nodes}, rosters)
 
 
 def test_the_interface_is_derived_node_level():
     """Input nodes' unlocked handle-bearing fields in; output
     nodes' rosters out, each under its address. Nothing is stored."""
-    interface = _interface(_flow())
+    interface = _interface(_graph())
 
-    assert _locks(_flow()) == ()
+    assert _locks(_graph()) == ()
     assert [i.name for i in interface.inputs] == ["application.value", "language.value"]
     assert [o.name for o in interface.outputs] == ["language.result", "summary.result"]
 
@@ -301,7 +301,7 @@ def test_the_interface_is_derived_node_level():
 def test_the_interface_is_the_record_a_node_version_declares():
     """One type at both scales. A flow returns a computed roster by
     address, so `returns` is `Mapping`; these nodes need nothing provided."""
-    interface = _interface(_flow())
+    interface = _interface(_graph())
 
     assert isinstance(interface, Interface)
     assert interface.returns is Mapping
@@ -311,7 +311,7 @@ def test_the_interface_is_the_record_a_node_version_declares():
 def test_a_flow_level_name_is_the_address_a_ref_spells():
     """The name *is* the `Ref`, not a rendering of it: one value, one
     writer, and the key on every edge and in every caller's payload."""
-    interface = _interface(_flow())
+    interface = _interface(_graph())
 
     assert interface.inputs[0].name == Ref("application", "value")
     assert interface.inputs[0].name == "application.value"
@@ -320,19 +320,19 @@ def test_a_flow_level_name_is_the_address_a_ref_spells():
 
 def test_needs_is_the_union_of_the_placements_needs():
     """What a run must provide to the flow is what its nodes need, by name."""
-    flow = Graph(nodes=[
+    graph = Graph(nodes=[
         GraphNode(id="a", type="stamped", version=1),
         GraphNode(id="b", type="stamped", version=1, bindings={"text": Edges(refs=(Ref("a", "result"),))}),
         GraphNode(id="c", type="text-input", version=1),
     ])
 
-    assert _interface(flow).needs == {"clock": Clock}
+    assert _interface(graph).needs == {"clock": Clock}
 
 
 def test_a_field_reports_the_title_its_placement_carries():
     """The placement's title is the title. Nothing else changes: the
     declaration comes through whole, under its address."""
-    interface = _interface(_flow())
+    interface = _interface(_graph())
 
     declared = interface.inputs[0]
     assert declared.name == "application.value"
@@ -344,7 +344,7 @@ def test_a_field_reports_the_title_its_placement_carries():
 
 
 def test_an_output_reports_the_title_its_placement_carries():
-    assert _interface(_flow()).outputs[1].title == "Result"
+    assert _interface(_graph()).outputs[1].title == "Result"
 
 
 def test_a_roster_is_the_two_tuples_a_nodes_hooks_answer():
@@ -354,39 +354,39 @@ def test_a_roster_is_the_two_tuples_a_nodes_hooks_answer():
 
 
 def test_nodes_order_decides_the_order():
-    flow = _flow()
-    reordered = Graph(nodes=[flow.nodes[1], flow.nodes[0], flow.nodes[2]])
+    graph = _graph()
+    reordered = Graph(nodes=[graph.nodes[1], graph.nodes[0], graph.nodes[2]])
 
     assert [i.name for i in _interface(reordered).inputs] == ["language.value", "application.value"]
 
 
 def test_is_input_node_is_the_one_home_of_the_predicate():
     """A Static does not disqualify a placement; any Edges does."""
-    flow = _flow()
-    assert is_input_node(flow.nodes[0]) and is_input_node(flow.nodes[1])
-    assert not is_input_node(flow.nodes[2])
+    graph = _graph()
+    assert is_input_node(graph.nodes[0]) and is_input_node(graph.nodes[1])
+    assert not is_input_node(graph.nodes[2])
 
 
 def test_an_edge_into_any_field_makes_the_whole_node_static():
     """The rule is node-level: one edge in, and every other field of the
     placement is author config — not offered, not fillable."""
-    flow = _flow(language_bindings={"value": Edges(refs=(Ref("application", "result"),))})
+    graph = _graph(language_bindings={"value": Edges(refs=(Ref("application", "result"),))})
 
-    assert [i.name for i in _interface(flow).inputs] == ["application.value"]
+    assert [i.name for i in _interface(graph).inputs] == ["application.value"]
 
 
 def test_a_locked_field_is_not_an_input():
     """The lock is the author's narrowing, and the derivation reads it."""
-    flow = _flow(application_locked=("value",))
+    graph = _graph(application_locked=("value",))
 
-    assert _locks(flow) == ()
-    assert [i.name for i in _interface(flow).inputs] == ["language.value"]
+    assert _locks(graph) == ()
+    assert [i.name for i in _interface(graph).inputs] == ["language.value"]
 
 
 def test_a_partly_consumed_node_offers_no_outputs():
     """`application` feeds the summariser, so it is an intermediate step:
     its leftover handle is a byproduct, not a result."""
-    assert not any(o.name == "application.result" for o in _interface(_flow()).outputs)
+    assert not any(o.name == "application.result" for o in _interface(_graph()).outputs)
 
 
 def test_a_field_with_no_handle_is_never_an_input():
@@ -406,12 +406,12 @@ def test_a_field_with_no_handle_is_never_an_input():
 
     reg = _registry()
     reg.register(Script)
-    flow = Graph(
+    graph = Graph(
         nodes=[GraphNode(id="s", type="script", version=1, title="Python",
                          fields={"code": FieldContent(title="Kode"), "result": FieldContent(title="Result")})],
     )
 
-    interface = _interface(flow, reg)
+    interface = _interface(graph, reg)
 
     assert interface.inputs == ()
     assert [o.name for o in interface.outputs] == ["s.result"]
@@ -422,10 +422,10 @@ def test_a_locked_name_the_node_does_not_declare_is_a_problem():
     mid-edit can be in, so it reports rather than raises. Non-fatal:
     it narrows nothing and blocks nothing, and the interface is derived
     without it."""
-    flow = _flow(application_locked=("ghost",))
+    graph = _graph(application_locked=("ghost",))
 
-    assert [(p.code, p.node_id, p.fatal) for p in _locks(flow)] == [("unknown_locked_field", "application", False)]
-    assert [i.name for i in _interface(flow).inputs] == ["application.value", "language.value"]
+    assert [(p.code, p.node_id, p.fatal) for p in _locks(graph)] == [("unknown_locked_field", "application", False)]
+    assert [i.name for i in _interface(graph).inputs] == ["application.value", "language.value"]
 
 
 def test_a_stale_lock_reports_on_a_connected_placement_too():
@@ -434,14 +434,14 @@ def test_a_stale_lock_reports_on_a_connected_placement_too():
     sits, so it reports there as it would anywhere."""
     import dataclasses
 
-    flow = _flow(language_bindings={"value": Edges(refs=(Ref("application", "result"),))})
-    flow = Graph(nodes=[
+    graph = _graph(language_bindings={"value": Edges(refs=(Ref("application", "result"),))})
+    graph = Graph(nodes=[
         dataclasses.replace(node, locked=("ghost",)) if node.id == "language" else node
-        for node in flow.nodes
+        for node in graph.nodes
     ])
 
-    assert [(p.code, p.node_id, p.fatal) for p in _locks(flow)] == [("unknown_locked_field", "language", False)]
-    assert [i.name for i in _interface(flow).inputs] == ["application.value"]
+    assert [(p.code, p.node_id, p.fatal) for p in _locks(graph)] == [("unknown_locked_field", "language", False)]
+    assert [i.name for i in _interface(graph).inputs] == ["application.value"]
 
 
 def test_a_column_a_node_computed_is_derivable():
@@ -451,20 +451,20 @@ def test_a_column_a_node_computed_is_derivable():
 
     # `GraphNode.fields` is a `Mapping`, so the placement is *built* with the
     # authored entry.
-    flow = _flow()
-    flow = Graph(nodes=[
+    graph = _graph()
+    graph = Graph(nodes=[
         dataclasses.replace(node, fields={**node.fields, "name": FieldContent(title="Name")})
         if node.id == "summary" else node
-        for node in flow.nodes
+        for node in graph.nodes
     ])
-    rosters, versions = _resolved(flow)
+    rosters, versions = _resolved(graph)
     declared = rosters["summary"]
     rosters["summary"] = Roster(
         inputs=declared.inputs,
         outputs=(*declared.outputs, Output(name="name", dtype=Txt, title="Name")),
     )
 
-    interface = derive_interface(flow, rosters, versions, dependencies_of(flow.nodes))
+    interface = derive_interface(graph, rosters, versions, dependencies_of(graph.nodes))
 
     assert [o.name for o in interface.outputs] == ["language.result", "summary.result", "summary.name"]
 
@@ -473,11 +473,11 @@ def test_a_field_on_a_placement_compile_could_not_resolve_contributes_nothing():
     """The placement carries its own fatal problem; a second one
     on the field would anchor the same fact twice. A pin that resolved to
     nothing is in neither map."""
-    flow = _flow()
-    rosters, versions = _resolved(flow)
+    graph = _graph()
+    rosters, versions = _resolved(graph)
     del rosters["application"], versions["application"]
 
-    interface = derive_interface(flow, rosters, versions, dependencies_of(flow.nodes))
+    interface = derive_interface(graph, rosters, versions, dependencies_of(graph.nodes))
 
     assert [i.name for i in interface.inputs] == ["language.value"]
 
@@ -486,9 +486,9 @@ def test_an_unauthored_field_reads_the_declarations_title():
     """A hand-built graph (no editor copying titles) carries no
     `fields` entries; with nothing authored, the declaration's own title
     is the one value there is — no chain, nothing resolved."""
-    flow = Graph(nodes=[GraphNode(id="x", type="text-input", version=1, title="X")])
+    graph = Graph(nodes=[GraphNode(id="x", type="text-input", version=1, title="X")])
 
-    interface = _interface(flow)
+    interface = _interface(graph)
 
     assert [(i.name, i.title) for i in interface.inputs] == [("x.value", "Text")]
     assert [(o.name, o.title) for o in interface.outputs] == [("x.result", "Text")]
@@ -510,13 +510,13 @@ def _echo_registry():
 
 
 def test_a_flow_of_bindings_compiles_and_runs():
-    flow = Graph(
+    graph = Graph(
         nodes=[
             GraphNode(id="a", type="echo", version=1, bindings={"x": Static(value="hi")}),
             GraphNode(id="b", type="echo", version=1, bindings={"x": Edges(refs=(Ref("a", "result"),))}),
         ],
     )
-    results = execute_sync(compile_graph(graph=flow, registry=_echo_registry()))
+    results = execute_sync(compile_graph(graph=graph, registry=_echo_registry()))
 
     assert results["a"]["result"] == "HI"
     assert results["b"]["result"] == "HI"
@@ -524,9 +524,9 @@ def test_a_flow_of_bindings_compiles_and_runs():
 
 def test_an_unbound_input_falls_back_to_its_declared_default():
     """Absence is the only "nothing binds this" state there is."""
-    flow = Graph(nodes=[GraphNode(id="a", type="echo", version=1)])
+    graph = Graph(nodes=[GraphNode(id="a", type="echo", version=1)])
 
-    assert execute_sync(compile_graph(graph=flow, registry=_echo_registry()))["a"]["result"] == ""
+    assert execute_sync(compile_graph(graph=graph, registry=_echo_registry()))["a"]["result"] == ""
 
 
 def test_a_branch_not_taken_is_skipped_downstream():
@@ -550,14 +550,14 @@ def test_a_branch_not_taken_is_skipped_downstream():
 
     registry = _echo_registry()
     registry.register(Gate)
-    flow = Graph(
+    graph = Graph(
         nodes=[
             GraphNode(id="g", type="gate", version=1, bindings={"x": Static(value="hi")}),
             GraphNode(id="yes", type="echo", version=1, bindings={"x": Edges(refs=(Ref("g", "yes"),))}),
             GraphNode(id="no", type="echo", version=1, bindings={"x": Edges(refs=(Ref("g", "no"),))}),
         ],
     )
-    results = execute_sync(compile_graph(graph=flow, registry=registry))
+    results = execute_sync(compile_graph(graph=graph, registry=registry))
 
     assert results["yes"]["result"] == "HI"
     # The aggregated results of ``execute_sync`` omit a skipped node.

@@ -1,6 +1,6 @@
 """Simple topological layout for ReactFlow positions.
 
-ReactFlow requires every node to have a position. When a placement's
+ReactFlow requires every node to have a position. When a node's
 ``display`` holds none, this module assigns coordinates so the result
 renders as a readable left-to-right DAG.
 

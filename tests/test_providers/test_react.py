@@ -85,11 +85,11 @@ class TestGraphToReact:
         assert len({e["id"] for e in edges}) == 2
 
     def test_a_position_on_the_placement_is_kept(self, sample_flow):
-        flow = Graph(nodes=[
+        graph = Graph(nodes=[
             GraphNode("n1", "build-pair", 1, display={"position": {"x": 999, "y": 111}}),
             *sample_flow.nodes[1:],
         ])
-        out = react.graph_to_react(flow)
+        out = react.graph_to_react(graph)
         assert next(n for n in out["nodes"] if n["id"] == "n1")["position"] == {"x": 999, "y": 111}
         # Unpositioned nodes still get the layout.
         assert next(n for n in out["nodes"] if n["id"] == "n3")["position"] != {"x": 0, "y": 0}
@@ -139,20 +139,20 @@ class TestReactToGraph:
             "edges": [],
             "viewport": {"x": 0, "y": 0, "zoom": 1},
         }
-        flow = react.react_to_graph(wire)
-        assert flow.nodes[0].data == {"text": "hi"}
+        graph = react.react_to_graph(wire)
+        assert graph.nodes[0].data == {"text": "hi"}
 
 
 class TestEndToEnd:
     def test_wire_format_can_be_compiled_and_executed(self, registry):
-        flow_in = Graph(nodes=[
+        graph_in = Graph(nodes=[
             GraphNode("src", "text-uppercase", 1, bindings={"text": Static(value="hello")}),
             GraphNode("down", "text-reverse", 1, bindings={"text": Edges(refs=(Ref("src", "result"),))}),
         ])
 
-        wire = react.graph_to_react(flow_in)
+        wire = react.graph_to_react(graph_in)
         back = json.loads(json.dumps(wire))  # simulate network
-        flow_out = react.react_to_graph(back)
+        graph_out = react.react_to_graph(back)
 
-        results = execute_sync(compile(flow_out, registry))
+        results = execute_sync(compile(graph_out, registry))
         assert results["down"]["result"] == "OLLEH"

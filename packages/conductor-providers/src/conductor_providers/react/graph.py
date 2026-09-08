@@ -1,6 +1,6 @@
 """A ``Graph`` to ReactFlow JSON and back.
 
-Each ReactFlow node carries the placement record whole under ``data``
+Each ReactFlow node carries the node record whole under ``data``
 (``TypeAdapter(GraphNode)`` is the schema), a ``position`` the canvas
 needs, and the canvas's own ``type``. The edges are derived from the
 bindings, one per ref, for the canvas to draw; reading back ignores them,
@@ -23,7 +23,7 @@ _NODE = TypeAdapter(GraphNode)
 def graph_to_react(graph: Graph) -> dict[str, Any]:
     """Serialize ``graph`` to a ReactFlow-compatible dict.
 
-    A placement whose ``display`` holds a ``position`` keeps it; the rest
+    A node whose ``display`` holds a ``position`` keeps it; the rest
     are laid out left to right by ``topological_positions``.
     """
     auto = topological_positions(graph)
@@ -55,8 +55,8 @@ def graph_to_react(graph: Graph) -> dict[str, Any]:
 def react_to_graph(wire: dict[str, Any]) -> Graph:
     """Parse a ReactFlow dict back into a ``Graph``.
 
-    Each node's ``data`` is the placement record; the canvas's ``position``
-    lands in the placement's ``display``. Keys the canvas added beside
+    Each node's ``data`` is the node record; the canvas's ``position``
+    lands in the node's ``display``. Keys the canvas added beside
     those are ignored, so a host can decorate the wire without breaking
     the round trip.
     """

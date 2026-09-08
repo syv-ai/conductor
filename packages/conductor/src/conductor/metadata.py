@@ -67,7 +67,7 @@ class Input(Field):
     parameter's ``default``. ``Interface.of`` builds one per ``run``
     parameter, copying ``title``, ``description`` and ``show_handle`` off
     the widget annotation onto the record; ``compute_inputs`` may build
-    more for a placement whose fields depend on its values::
+    more for a node whose fields depend on its values::
 
         Input(name="text", dtype=Text, title="Text", widget=Textarea(title="Text"))
 

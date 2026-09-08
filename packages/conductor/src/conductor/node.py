@@ -23,7 +23,7 @@ The parts, by when they exist:
 * declared when the class is defined — ``NodeVersion`` (a signature, a
   ``Policy`` and the callable), ``GraphVersion`` (a version a host hands
   over by value, whose body is a graph), ``Deprecation``;
-* answered per placement when a flow is compiled — the two roster hooks,
+* answered per node when a flow is compiled — the two roster hooks,
   ``compute_inputs`` and ``compute_outputs``;
 * derived on demand for a palette — ``NodeDescription`` and
   ``VersionDescription``, built by ``describe()``.
@@ -52,7 +52,7 @@ class Refuses(Exception):
     """Raised by a roster hook that cannot answer for the values it was given.
 
     ``code`` and ``message`` are the host's, and the compiler reports them
-    as the placement's problem — the same shape as ``DType.refuses_whole``.
+    as the node's problem — the same shape as ``DType.refuses_whole``.
     """
 
     def __init__(self, code: str, message: str) -> None:
@@ -144,7 +144,7 @@ class NodeVersion:
     keyed by number, which is why there is no ``number`` field here.
     ``interface`` is derived from ``run``'s signature by ``Interface.of``.
     Read by the registry's numbering check, by the compiler when a
-    placement pins a version, and by the engine, which calls ``run`` under
+    node pins a version, and by the engine, which calls ``run`` under
     ``policy``. A version whose body is a graph rather than a ``run`` is a
     ``GraphVersion``.
     """
@@ -163,7 +163,7 @@ class GraphVersion:
 
     A host builds one from data — an embedded flow's approved version,
     say. ``interface`` is that flow's interface (inputs named by address,
-    ``returns`` a ``Mapping``) and ``graph`` the placements the compiler
+    ``returns`` a ``Mapping``) and ``graph`` the nodes the compiler
     expands under the placing node's name, so the inner nodes run as
     nodes of the outer flow. Nothing runs it as one unit: ``runner_for``
     refuses it and it carries no policy. A sibling of ``NodeVersion``
@@ -171,7 +171,7 @@ class GraphVersion:
     half-filled.
     """
 
-    #: The placements this version expands to. Edges live in their
+    #: The nodes this version expands to. Edges live in their
     #: bindings, so the nodes are the whole graph.
     graph: tuple[GraphNode, ...]
     interface: Interface
@@ -290,7 +290,7 @@ class NodeDefinition(ABC):
     id: ClassVar[str]
 
     # --- what a person reads ---------------------------------------------
-    #: What a person sees in the palette. A placement copies these when it
+    #: What a person sees in the palette. A node copies these when it
     #: is added to a flow and may edit its own copy.
     title: ClassVar[str]
     description: ClassVar[str]

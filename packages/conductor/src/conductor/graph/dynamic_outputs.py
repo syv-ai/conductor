@@ -1,7 +1,7 @@
-"""Compile-time resolution of a placement's outputs through compute_outputs.
+"""Compile-time resolution of a node's outputs through compute_outputs.
 
 Walks each node in topological order and asks a fresh instance of its
-definition for the outputs this placement has, given the pinned version's
+definition for the outputs this node has, given the pinned version's
 declared outputs and the values the author typed. What arrives on each
 connected input is not recorded yet, so the hook is handed an empty
 arriving; the compiler records arrivals when it derives bindings. The
@@ -38,7 +38,7 @@ def resolve_node_outputs(
     node: "GraphNode",
     node_def: "type[NodeDefinition]",
 ) -> tuple[Output, ...]:
-    """The outputs this placement actually exposes."""
+    """The outputs this node actually exposes."""
     declared = node_def.versions[node.version].interface.outputs
     return tuple(node_def().compute_outputs(declared, node.data, {}))
 

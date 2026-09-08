@@ -134,7 +134,7 @@ def runner_for(
 ) -> Callable[..., Any]:
     """The callable for one registered version, for the engine to dispatch.
 
-    ``node_id`` and ``version`` are the two facts a placement stores. An
+    ``node_id`` and ``version`` are the two facts a node stores. An
     unknown id or version is a ``KeyError``: the compiler has resolved
     every pin before the engine asks, so a miss is a bug. A
     ``GraphVersion`` is a ``TypeError``: the compiler expands it, so the

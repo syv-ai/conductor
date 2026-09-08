@@ -14,7 +14,7 @@ The return type *is* the output declaration. Three shapes are read::
         ...   # one output per field: "head" and "tail"
 
     def run(self, **inputs: Single) -> Mapping[str, Any]:
-        ...   # the outputs were computed for the placement; returned by name
+        ...   # the outputs were computed for the node; returned by name
 
 ``outputs_of`` turns the annotation into ``Output`` records and ``unpack``
 splits a returned value across those outputs by name. Nothing is
@@ -80,7 +80,7 @@ def outputs_of(return_hint: Any) -> tuple[Any, tuple[Output, ...]]:
     ``Mapping`` — and is what ``unpack`` later switches on. A ``DType``
     return declares one output named ``"result"``; a frozen dataclass
     declares one output per field; ``Mapping`` declares none (the
-    placement's computed outputs are used). Anything else is a
+    node's computed outputs are used). Anything else is a
     ``TypeError``, as is a ``DType`` or a field without a ``Result``.
     """
     declared = get_args(return_hint)[0] if get_origin(return_hint) is Annotated else return_hint

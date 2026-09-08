@@ -1,6 +1,6 @@
-"""Compile-time resolution of a placement's inputs through compute_inputs.
+"""Compile-time resolution of a node's inputs through compute_inputs.
 
-Every placement is asked once, on a fresh instance of its definition,
+Every node is asked once, on a fresh instance of its definition,
 with the pinned version's declared inputs and the values the author
 typed. A node with no override answers with the declaration. Nothing is
 checked here: a hook that returns the wrong shape is a node bug and
@@ -23,7 +23,7 @@ def resolve_node_inputs(
     node: GraphNode,
     node_def: type[NodeDefinition],
 ) -> tuple[Input, ...]:
-    """The input roster this placement actually exposes."""
+    """The input roster this node actually exposes."""
     declared = node_def.versions[node.version].interface.inputs
     return tuple(node_def().compute_inputs(declared, node.data))
 

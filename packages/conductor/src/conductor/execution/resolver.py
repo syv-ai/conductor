@@ -109,7 +109,7 @@ class InputResolver:
         return values
 
     def _declared_input(self, node: GraphNode, name: str) -> Input | None:
-        """The ``Input`` this placement declares under ``name``, or ``None``
+        """The ``Input`` this node declares under ``name``, or ``None``
         for a handle no declaration names (a computed handle received through
         ``**kwargs``)."""
         roster = self._node_inputs.get(node.id) if self._node_inputs is not None else None
