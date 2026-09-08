@@ -24,14 +24,14 @@ lockstep from this monorepo.
   `concurrency`); `@upgrade(a, b)` rewrites saved values; `@deprecated` retires
   a node or a version. `NodeRegistry` holds classes by id; `describe()` is the
   one serialisation of a node.
-- **A placement pins `type` and `version`** as two fields on `GraphNode`; the
+- **A node pins `type` and `version`** as two fields on `GraphNode`; the
   `"id@version"` string is gone.
 - **`Series[X]` is the one collection.** A parameter declared `Series[X]`
   receives the whole series; a series output is returned as a plain sequence
   and lands on a fresh index. `list[T]` is not a wire type.
 - **Branching is a value.** A node returns `SKIPPED` on the branch it did not
   take; outputs that are exclusive alternatives share a `choice`. The
-  `decision` node takes a wired-in `Flag` and routes an `Any` value; there is
+  `decision` node takes a connected `Flag` and routes an `Any` value; there is
   no expression on an edge.
 - **Widgets are frozen records** with a `kind` discriminator; `title`,
   `description` and `show_handle` on the widget belong to the field. There is
@@ -40,7 +40,7 @@ lockstep from this monorepo.
   ships `Text`, `Number`, `Flag`, `Json`, and `StdlibNode` pins each node's
   `category` to the package's `Category` literal.
 - **The engine unpacks a record return by its declared outputs**, lands a
-  series output on a fresh root index, passes one series wire through whole,
+  series output on a fresh root index, passes one series edge through whole,
   hands `run` the validated dtype instances, and ends a node whose inputs
   cannot be resolved with a `node_error` instead of hanging the run.
 

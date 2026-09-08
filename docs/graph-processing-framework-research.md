@@ -608,7 +608,7 @@ Based on this research, the ideal execution framework for AKA Flows would combin
 
 ---
 
-## Sources
+## Edges
 
 ### Papers
 - Malewicz et al., "Pregel: A System for Large-Scale Graph Processing," SIGMOD 2010. https://doi.org/10.1145/1807167.1807184

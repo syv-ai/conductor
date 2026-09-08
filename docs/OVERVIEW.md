@@ -1,7 +1,7 @@
 # Conductor — architecture at a glance
 ## What it is
 
-Conductor is a Python library for building DAG-based workflow and agent execution systems. Any tool where users wire nodes together — visually in a flow builder, programmatically in a script — can sit on top of it. The core is host-agnostic: no FastAPI, no database, no auth. The only hard dependency is pydantic.
+Conductor is a Python library for building DAG-based workflow and agent execution systems. Any tool where users connect nodes together — visually in a flow builder, programmatically in a script — can sit on top of it. The core is host-agnostic: no FastAPI, no database, no auth. The only hard dependency is pydantic.
 
 Three uv-workspace packages ship today:
 
@@ -30,7 +30,7 @@ class Uppercase(NodeDefinition):
 
 That one declaration drives three things: **execution** (the method runs as-is, a fresh instance per call), **validation** (a pydantic model is built from the `Input` records) and **rendering** (`describe()` is the palette entry — dtype, widget, title, choices — dumped through pydantic for the UI). No parallel schemas, no framework coupling, no sync points to forget.
 
-Every value on a wire has a `DType`. Conductor declares none: a host says what `Text`, `Number` or `Document` is, and `target.accepts(source)` is the one wiring question. `Series[X]` is the one collection.
+Every value on an edge has a `DType`. Conductor declares none: a host says what `Text`, `Number` or `Document` is, and `target.accepts(source)` is the one edge question. `Series[X]` is the one collection.
 
 Several versions live in one class (`@version(2)` on the method named `run`, `@version(1)` on an older one), each with its own signature and `Policy`; `@upgrade(1, 2)` rewrites saved values; `@deprecated` retires a node or a version. A placement pins `type` and `version`, so existing flows keep working across library evolution.
 
@@ -47,7 +47,7 @@ Full catalog: [`widgets.md`](widgets.md). Hands-on tour: [`examples/08_widgets.i
 Each phase fails fast on problems the next can't handle.
 
 - **Declaring** a node checks it at import: a missing `id`, `title`, `description` or `category`, a parameter without a widget or a `DType`, a return without a `Result` fail with the traceback at the class. `NodeRegistry.register(cls)` adds the catalogue rules (versions from 1 with no holes, a deprecated version pointing somewhere).
-- **`compile(nodes, edges, registry)`** validates node types, edge endpoints, cycles and shared-reference bindings, and asks each placement's roster hooks. Returns an immutable `CompiledGraph`. Nothing runs yet.
+- **`compile(flow, registry)`** validates node types, that every edge names an existing node, and cycles, and asks each placement's roster hooks. Returns an immutable `CompiledGraph`. Nothing runs yet.
 - **`execute(compiled)`** is an async generator yielding events: `node_start`, `node_complete`, `node_retry`, `node_skipped`, `flow_complete`, … . `execute_sync(compiled)` is a blocking wrapper; `collect(execute(...))` is the notebook idiom.
 
 ## Execution — eager parallel with retry
@@ -76,17 +76,17 @@ ConductorError
 
 **Branching** is a value. A node returns `SKIPPED` on the branch it did not take, downstream nodes fed only `SKIPPED` are skipped in turn, and outputs that are exclusive alternatives share a `choice` so an editor knows exactly one arrives. There is no role or flag on the class telling the engine what to do.
 
-## Shared references — fan-out without an edge
+## Bindings — one input, one source
 
-A placement can bind one of its inputs to another placement's output without an edge. The library author doesn't decide what's shareable; the flow builder does, per placement:
+A flow is its nodes and nothing else; there is no edge list. Each placement says per input where the value comes from:
 
 ```python
-GraphNode("mapper",   "build-map", 1, ..., produces={"result": "pseudonym map"})
-GraphNode("redactor", "redact",    1, ..., consumes={"mapping": ("mapper", "result")})
-# no edge between them — the consume binding is the dependency
+GraphNode("mapper",   "build-map", 1, bindings={"seed": Static(value="x")})
+GraphNode("redactor", "redact",    1, bindings={"mapping": Edges(refs=(Ref("mapper", "result"),))})
+# the Edges binding is the edge and the dependency
 ```
 
-Reference identity is `(producer id, output name)`; the label is UI-only so renames never break subscribers.
+A `Edges` holds refs in operand order; a `Static` is what the author typed; an absent binding means the declared default. Dependencies, cycle detection and what the flow itself takes and returns are derived from the bindings.
 
 ## Standard nodes + frontend providers
 
@@ -105,8 +105,8 @@ Its nodes are declared in `conductor_nodes.types` — `Text`, `Number`, `Flag`, 
 from conductor_providers import react
 
 palette = react.palette_from_registry(registry)  # [cls.describe() ...]
-flow    = react.graph_to_react(nodes, edges)     # conductor → ReactFlow
-nodes2, edges2 = react.react_to_graph(flow)      # ReactFlow → conductor
+flow_json = react.graph_to_react(flow)           # conductor → ReactFlow
+flow2 = react.react_to_graph(flow_json)          # ReactFlow → conductor
 ```
 
 `conductor_providers.fastapi.conductor_router(registry)` mounts `/nodes`, `/compile`, `/execute`, `/execute-stream` and `/entities/{kind}`. New providers (Svelte, Vue, Gradio, …) are sibling subpackages — no abstract base class to satisfy.

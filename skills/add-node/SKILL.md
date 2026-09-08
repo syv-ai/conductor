@@ -48,15 +48,15 @@ registry.register(Greet)
 Rules:
 
 - `id`, `title`, `description` and `category` are required; the class is checked the moment it is defined.
-- Every parameter a cable can reach declares a `DType` (or `Any`) **and** a widget inside `Annotated[...]`. There is no default widget for any type. A default value makes the input optional.
+- Every parameter an edge can reach declares a `DType` (or `Any`) **and** a widget inside `Annotated[...]`. There is no default widget for any type. A default value makes the input optional.
 - Parameter order is UI order.
 - The return annotation declares the output. A `DType` with a `Result` is one output named `result`.
-- Return a value of the declared type — `Text(...)`, never a bare `str` — because a value arrives downstream as the type the wire carried.
-- `title` and `description` on the widget are the field's; `show_handle=False` closes an input to cables (it may then declare any pydantic-validatable type).
+- Return a value of the declared type — `Text(...)`, never a bare `str` — because a value arrives downstream as the type the edge carried.
+- `title` and `description` on the widget are the field's; `show_handle=False` closes an input to edges (it may then declare any pydantic-validatable type).
 
 ## The type vocabulary
 
-Every wire value has a `DType`. Conductor declares none — the host does, once, and every node imports them:
+Every edge value has a `DType`. Conductor declares none — the host does, once, and every node imports them:
 
 ```python
 from conductor import DType
@@ -101,7 +101,7 @@ class Split(NodeDefinition):
 
 ## Branching
 
-A node that takes one of two branches returns `SKIPPED` on the other; whatever is wired to that output does not run. Outputs that are exclusive alternatives share a `choice`, so an editor knows exactly one arrives:
+A node that takes one of two branches returns `SKIPPED` on the other; whatever is connected to that output does not run. Outputs that are exclusive alternatives share a `choice`, so an editor knows exactly one arrives:
 
 ```python
 from conductor import SKIPPED

@@ -40,7 +40,7 @@ class NodeProgressEvent(TypedDict):
 class RuntimeWarningEvent(TypedDict, total=False):
     """Non-fatal runtime warning surfaced by the engine or a compound node.
 
-    Currently emitted by the for-each compound when multiple wired source
+    Currently emitted by the for-each compound when multiple connected source
     lists differ in length and the loop truncates to ``min(len)``. The
     ``payload`` field carries warning-specific structured data (e.g. the
     per-source lengths and the truncation point). ``warning`` is a stable
@@ -94,26 +94,6 @@ class NodeRetryEvent(TypedDict):
     delay: float
 
 
-class CompensationStartEvent(TypedDict):
-    type: Literal["compensation_start"]
-    node_id: str
-    compensation_node_id: str
-
-
-class CompensationCompleteEvent(TypedDict):
-    type: Literal["compensation_complete"]
-    node_id: str
-    compensation_node_id: str
-    result: Any
-
-
-class CompensationFailedEvent(TypedDict):
-    type: Literal["compensation_failed"]
-    node_id: str
-    compensation_node_id: str
-    error: str
-
-
 class SignalWaitingEvent(TypedDict, total=False):
     type: Literal["signal_waiting"]
     node_id: str
@@ -136,9 +116,6 @@ ExecutionEvent = (
     | FlowTimeoutEvent
     | FlowPausedEvent
     | NodeRetryEvent
-    | CompensationStartEvent
-    | CompensationCompleteEvent
-    | CompensationFailedEvent
     | SignalWaitingEvent
 )
 

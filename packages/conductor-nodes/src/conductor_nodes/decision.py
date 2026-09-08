@@ -2,13 +2,13 @@
 
 The node sends ``value`` to its ``if_true`` or ``if_false`` output
 according to ``when`` and returns ``SKIPPED`` on the other, so whatever is
-wired to the branch not taken does not run. The engine treats ``SKIPPED``
+connected to the branch not taken does not run. The engine treats ``SKIPPED``
 like any other value; the node has no special role. A choice between more
 than two branches is a chain of decisions.
 
 ``when`` is a ``Flag``, not an expression to parse: the catalog already
 produces booleans (``text-contains``, ``regex-match``, ``logic-not``), so
-the condition is wired in rather than written in a language this node
+the condition is connected in rather than written in a language this node
 would have to own.
 
 ``value`` is declared ``Any`` because the node routes it without reading
@@ -68,7 +68,7 @@ class Decision(StdlibNode):
         values: Mapping[str, Any],
         arriving: Mapping[str, "type[DType]"],
     ) -> tuple[Output, ...]:
-        """Give both outputs the type that arrives on ``value`` (``Any`` until wired)."""
+        """Give both outputs the type that arrives on ``value`` (``Any`` until connected)."""
         dtype = arriving.get("value", Any)
         return tuple(replace(out, dtype=dtype) for out in declared)
 

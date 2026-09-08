@@ -15,7 +15,7 @@ does — a dict key, a JSON object key, a pydantic field name — with nothing
 to encode on the way out or decode on the way in. ``node_id`` and
 ``field`` are the only place the string is split.
 
-The node part is the placement's **id**, never its title. Titles are for
+The node part is the node's **id**, never its title. Titles are for
 people and may be edited; an id is minted when the node is placed and
 never changes. That is the reason an address deserves a type: renaming a
 node does not move anything that points at it.
@@ -62,7 +62,7 @@ class Ref(str):
         node from field).
         """
         if field is not None and "." in node_id:
-            raise ValueError(f"placement {node_id!r} contains '.'; an address reads 'node.field'")
+            raise ValueError(f"node id {node_id!r} contains '.'; an address reads 'node.field'")
         address = node_id if field is None else f"{node_id}.{field}"
         head, dot, tail = address.partition(".")
         if not dot or not head or not tail:

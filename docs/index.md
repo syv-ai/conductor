@@ -9,7 +9,7 @@ A reusable, host-agnostic graph execution engine for building DAG-based workflow
 ## Highlights
 
 - **One node contract** — a `NodeDefinition` subclass; the signature of `run` is the interface, read once into `Input` and `Output` records that drive validation, execution and the palette.
-- **A type vocabulary the host owns** — every wire value is a `DType`; conductor ships the mechanism (`DType`, `Series[X]`, `accepts`) and no vocabulary.
+- **A type vocabulary the host owns** — every edge value is a `DType`; conductor ships the mechanism (`DType`, `Series[X]`, `accepts`) and no vocabulary.
 - **Versions with a policy** — `@version(n, policy=Policy(retries=..., timeout=...))`, `@upgrade(1, 2)`, `@deprecated`.
 - **Eager parallel scheduling** — independent branches in a DAG run concurrently with no configuration.
 - **Retry** — on the version's `Policy` or a run-level `RetryConfig`; a clean `node_retry` event on every attempt.
@@ -20,7 +20,7 @@ A reusable, host-agnostic graph execution engine for building DAG-based workflow
 
 ```python
 from typing import Annotated
-from conductor import GraphNode, NodeDefinition, NodeRegistry, Policy, Result, compile, version
+from conductor import Graph, GraphNode, NodeDefinition, NodeRegistry, Policy, Result, Static, compile, version
 from conductor.execution.engine import execute_sync
 from conductor.widgets import Text as TextWidget
 from conductor_nodes.types import Text          # or a DType of your own
@@ -39,9 +39,8 @@ registry = NodeRegistry()
 registry.register(Fetch)
 
 compiled = compile(
-    nodes=[GraphNode("n1", "fetch", 1, {"url": "https://example.com"})],
-    edges=[],
-    registry=registry,
+    Graph(nodes=[GraphNode("n1", "fetch", 1, bindings={"url": Static(value="https://example.com")})]),
+    registry,
 )
 
 results = execute_sync(compiled)     # results["n1"]["result"]
@@ -76,24 +75,21 @@ execute_sync(compiled, retry=RetryConfig(max_retries=2, delay=1.0, backoff_facto
 - Each attempt emits a `node_retry` event: `{attempt, max_retries, error, delay}`
 - `Policy(timeout=...)` bounds one attempt; expiry is `NodeTimeoutError`
 
-## Shared references (produce / consume)
+## Bindings — one input, one source
 
-An alternative to drawn edges for fan-out. Declared per placement on `GraphNode`; participates in scheduling and cycle detection like an edge.
+A flow is its nodes; there is no edge list. Each placement says per input where the value comes from: an `Edges` binding names other placements' outputs in operand order (an edge), a `Static` binding holds a typed-in value, and an input with no binding takes its declared default.
 
 ```python
-compiled = compile(
-    nodes=[
-        GraphNode("mapper", "build-map", 1, {"seed": "x"},
-                  produces={"result": "pseudonym map"}),
-        GraphNode("redactor", "redact", 1, {"text": "Alice met Bob."},
-                  consumes={"mapping": ("mapper", "result")}),
-    ],
-    edges=[],     # no edge needed
-    registry=registry,
-)
+flow = Graph(nodes=[
+    GraphNode("mapper", "build-map", 1, bindings={"seed": Static(value="x")}),
+    GraphNode("redactor", "redact", 1, bindings={
+        "text": Static(value="Alice met Bob."),
+        "mapping": Edges(refs=(Ref("mapper", "result"),)),
+    }),
+])
 ```
 
-Reference identity is `(producer node id, output name)`; the label is UI-only so renames never break subscribers.
+Dependencies, cycle detection and the flow's own inputs and outputs are all read off the bindings, so an edge has exactly one representation.
 
 ## Error hierarchy
 

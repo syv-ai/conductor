@@ -30,7 +30,7 @@ def test_what_is_not_an_address_is_refused():
         Ref("result")
     with pytest.raises(ValueError, match="address"):
         Ref("n1.")
-    with pytest.raises(ValueError, match="placement"):
+    with pytest.raises(ValueError, match="node id"):
         Ref("a.b", "c")
 
 

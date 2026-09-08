@@ -15,7 +15,7 @@ because a parameter has one annotation object; ``Interface.of`` copies
 them onto the ``Input`` and they are left out of the widget's own dump, so
 each travels once. Nothing downstream reads ``widget.title``.
 
-A widget does not decide whether a cable can reach the input:
+A widget does not decide whether an edge can reach the input:
 ``show_handle`` defaults to ``True`` on the base and no control overrides
 it. A node closes one input by writing ``show_handle=False`` on that
 input's annotation. Nor does a widget change how the engine runs: a pause
@@ -41,7 +41,7 @@ _Lifted = Field(exclude=True)
 
 @dataclass(frozen=True, kw_only=True)
 class Widget(ABC):
-    """What every control has in common: a title, a description, and whether a cable can reach the field.
+    """What every control has in common: a title, a description, and whether an edge can reach the field.
 
     Never subclassed outside this module: ``AnyWidget`` is built from the
     subclasses declared here, and a control the host's frontend cannot
@@ -136,7 +136,7 @@ class FileUpload(Widget):
 
 @dataclass(frozen=True, kw_only=True)
 class ConnectionList(Widget):
-    """Edited by wiring only: the value comes down a cable, so there is nothing to type.
+    """Edited by connecting only: the value comes down an edge, so there is nothing to type.
 
     The control for a ``Series[X]`` input, an ``Any`` input and an open
     roster's rows.

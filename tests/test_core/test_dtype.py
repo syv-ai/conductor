@@ -40,7 +40,7 @@ def test_a_dtype_declares_no_widget():
 
 
 def test_a_dtype_has_no_conversions():
-    """A value arrives as the type the wire carried."""
+    """A value arrives as the type the edge carried."""
     assert not hasattr(Text, "converts_to")
     assert not hasattr(Text, "convert")
 
@@ -138,8 +138,8 @@ def test_a_type_refuses_nothing_whole_unless_it_says_so():
 
 
 def test_the_base_has_no_id():
-    """Nothing on a wire ever carries "could not say". A pass-through
-    declares ``Any``, which compile types from the wire — so the base is an
+    """Nothing on an edge ever carries "could not say". A pass-through
+    declares ``Any``, which compile types from the edge — so the base is an
     ABC and nothing more, and a subclass that forgets its id inherits none."""
     assert not hasattr(DType, "id")
     with pytest.raises(TypeError, match="id"):
@@ -165,8 +165,8 @@ def test_a_type_rejects_an_unrelated_type():
 
 
 def test_there_are_two_answers():
-    """Nothing on a wire says "could not say" — a pass-through declares
-    ``Any`` and compile types it from the wire — so the answer is a bool,
+    """Nothing on an edge says "could not say" — a pass-through declares
+    ``Any`` and compile types it from the edge — so the answer is a bool,
     never a verdict with a third state."""
     assert isinstance(Text.accepts(Text), bool)
     assert isinstance(Text.accepts(Colour), bool)

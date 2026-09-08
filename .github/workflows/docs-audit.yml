@@ -67,7 +67,6 @@ jobs:
               CLAUDE.md
               README.md
               packages/conductor/src/conductor/about/llms.txt
-              docs/shared-references.md
               docs/index.md
 
           Look for drift:
@@ -88,17 +87,13 @@ jobs:
           Constraints:
             - Only edit CLAUDE.md, README.md,
               packages/conductor/src/conductor/about/llms.txt,
-              docs/shared-references.md, docs/index.md. No code, tests,
+              docs/index.md. No code, tests,
               or examples.
             - Do not run `git commit` or `git push`; the workflow handles
               that outside this turn.
             - If a commit message describes something not present in the
               code, trust the code and skip that commit. Note it in the
               final summary.
-            - If a change would touch the behavioral contract in a design
-              doc (docs/shared-references.md), only update descriptive
-              wording — do not add or remove design decisions. Flag any
-              such change at the end instead.
             - If nothing is out of sync, say so explicitly and exit
               without edits.
 

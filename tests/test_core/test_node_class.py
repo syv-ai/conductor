@@ -4,8 +4,9 @@ import pytest
 from conductor import NodeRegistry
 from conductor.dtype import DType
 from conductor.execution.engine import execute_sync
+from conductor.graph.binding import Static
 from conductor.graph.compiler import compile as compile_graph
-from conductor.graph.model import GraphNode
+from conductor.graph.model import Graph, GraphNode
 from conductor.metadata import Input, Output
 from conductor.node import (
     Deprecation,
@@ -666,7 +667,7 @@ def test_a_node_with_no_shaping_declares_none():
 
 def test_the_hook_contract_is_two_methods():
     """A value's constraints are its dtype's constructor rules, and a
-    wiring problem is the compiler's — so a node has no `validate` and no
+    an edge problem is the compiler's — so a node has no `validate` and no
     `Problem` channel of its own."""
     assert not hasattr(NodeDefinition, "validate")
 
@@ -962,11 +963,7 @@ def test_a_class_node_executes_in_a_graph():
     registry = NodeRegistry()
     registry.register(Shout)
 
-    compiled = compile_graph(
-        nodes=[GraphNode(id="a", type="shout", version=1, data={"text": "hi"})],
-        edges=[],
-        registry=registry,
-    )
+    compiled = compile_graph(Graph(nodes=[GraphNode(id="a", type="shout", version=1, bindings={"text": Static(value="hi")})]), registry)
     results = execute_sync(compiled)
     assert results["a"]["result"] == "HI!"
 
@@ -994,11 +991,7 @@ def test_two_versions_of_one_class_execute_independently():
     registry.register(Suffix)
 
     for pinned, expected in ((1, "hi"), (2, "hi?")):
-        compiled = compile_graph(
-            nodes=[GraphNode(id="a", type="suffix", version=pinned, data={"text": "hi"})],
-            edges=[],
-            registry=registry,
-        )
+        compiled = compile_graph(Graph(nodes=[GraphNode(id="a", type="suffix", version=pinned, bindings={"text": Static(value="hi")})]), registry)
         assert execute_sync(compiled)["a"]["result"] == expected
 
 
