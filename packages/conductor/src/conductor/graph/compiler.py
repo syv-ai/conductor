@@ -22,6 +22,7 @@ from pydantic import TypeAdapter, ValidationError
 from conductor.dtype import DType
 from conductor.graph.binding import Edges, many, static_values
 from conductor.graph.compiled import CompiledGraph
+from conductor.graph.conditions import conditions_of
 from conductor.graph.expand import expand, surfaced
 from conductor.graph.lifting import derive
 from conductor.graph.model import Graph, GraphNode
@@ -44,16 +45,16 @@ from conductor.widgets import ConnectionList
 def compile_graph(graph: Graph, registry: NodeRegistry) -> CompiledGraph:
     """Compile ``graph`` against ``registry``.
 
-    Seven passes, each reading the one before: the nodes (duplicate ids),
+    Eight passes, each reading the one before: the nodes (duplicate ids),
     pins (which version each node uses), order (cycles), expansion
     (embedded flows inlined under their placement's name), rosters (what
     each node's hooks say its inputs are, with the statics typed),
     bindings (do the stored bindings fit the rosters), edges (what arrives
-    on every field, lifting, outputs completed); then the two roster rules
-    on every completed roster, and finally the flow's interface. A node
-    that fails a pass carries a fatal ``Problem`` and drops out of the
-    passes after it. A problem found inside an embedded flow is surfaced
-    on its placement.
+    on every field, lifting, outputs completed), conditions (under which
+    decisions each output appears), and finally the flow's interface. A
+    node that fails a pass carries a fatal ``Problem`` and drops out of
+    the passes after it. A problem found inside an embedded flow is
+    surfaced on its placement.
     """
     problems: list[Problem] = []
     authored = _placements(graph, problems)
@@ -74,6 +75,9 @@ def compile_graph(graph: Graph, registry: NodeRegistry) -> CompiledGraph:
     problems.extend(lifting.problems)
     rosters = {**rosters, **lifting.rosters}
     problems.extend(_roster_rules(rosters))
+    conditions = conditions_of(
+        [nodes[node_id] for node_id in expansion.order if node_id in lifting.lifted], rosters, lifting.lifted
+    )
     placements = frozenset(expansion.placement_versions)
     for placement, version in expansion.placement_versions.items():
         rosters[placement] = Roster(inputs=version.interface.inputs, outputs=version.interface.outputs)
@@ -88,7 +92,7 @@ def compile_graph(graph: Graph, registry: NodeRegistry) -> CompiledGraph:
         _order=expansion.order,
         _lifted=lifting.lifted,
         _carried=lifting.carried,
-        _conditions={},
+        _conditions=conditions,
         _placements=placements,
         _placement_of=expansion.placement_of,
         interface=interface,
