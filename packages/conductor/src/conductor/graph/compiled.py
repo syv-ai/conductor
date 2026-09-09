@@ -8,25 +8,28 @@ every field, which nodes run once per row and in what order, under which
 condition each output appears, and what is wrong. The engine is one more
 caller.
 
-Three words this module uses throughout:
+Three words this module uses throughout.
 
-* A node's **interface** is the list of inputs and outputs it actually has —
-  usually what its version declares, but a node may add or drop fields
-  depending on the values it holds and the types connected to it.
-* A **series** is a value with many rows, and an **index** names where
-  those rows come from. A node that receives a series on a scalar input
-  runs once per row; we say it **iterates** on that index.
-* A **placement** is a node whose version is itself a graph — an embedded
-  flow. Compile inlines it, so the graph the author drew (the *authored*
-  graph) and the graph that runs (the *expanded* graph) differ: in the
-  authored graph the embedded flow is one node, ``approve``, whose fields
-  are addressed through it, ``Ref("approve", "check.amount")``; in the
-  expanded graph its inner nodes are nodes of the run, named
-  ``approve/check``.
+A node's interface is the list of inputs and outputs it actually has.
+Usually that is what its version declares, but a node may add or drop
+fields depending on the values it holds and the types connected to it.
+
+A series is a value with many rows, and an index names where those rows
+come from: ten uploaded documents are a series of ten rows on the index
+of the node that uploaded them. A scalar input is an input that takes one
+value. A node that receives a series on a scalar input runs once per row
+of the series; we say the node iterates on that index.
+
+A placement is a node whose version is itself a graph, an embedded graph.
+Compile inlines it, so the graph the author drew (the authored graph)
+differs from the graph that runs (the expanded graph). In the authored
+graph the embedded graph is one node, ``approve``, and its fields are
+addressed through it, ``Ref("approve", "check.amount")``. In the expanded
+graph its inner nodes are nodes of the run, named ``approve/check``.
 
 ``execution_order``, ``node``, ``runner``, ``dependencies`` and
-``iterates_on`` answer over the expanded graph; problems, interfaces and the
-interface are about the authored one. A question about a field may use
+``iterates_on`` answer over the expanded graph; the problems, each node's
+interface and the graph's interface are about the authored one. A question about a field may use
 either address: ``type_of(Ref("approve", "check.amount"))`` and
 ``type_of(Ref("approve/check", "amount"))`` are the same question.
 
@@ -66,7 +69,7 @@ class CompiledGraph:
     ``interface``), and anything deciding whether a run may start
     (``is_runnable``).
 
-    Every field but ``interface`` is private, and every public name is a
+    Every attribute but ``interface`` is private, and every public name is a
     question. A node compile could not resolve — unknown type or version —
     has a fatal ``Problem`` and no interface, version, index or types;
     asking about one raises, because the answer is in
@@ -87,7 +90,7 @@ class CompiledGraph:
     #: Every node whose version is a graph, by expanded id — the ones the
     #: author placed and the ones nested inside them alike.
     _placements: frozenset[str]
-    #: For every node of the expanded graph, the innermost embedded flow it
+    #: For every node of the expanded graph, the innermost embedded graph it
     #: came from, or ``None`` for a node the author placed.
     _placement_of: Mapping[str, str | None]
     #: What this graph takes and returns, in the same record a node version
@@ -122,7 +125,7 @@ class CompiledGraph:
         return expanded_ref(ref, self._placements)
 
     def placement_of(self, node_id: str) -> str | None:
-        """The embedded flow a node of the expanded graph came from —
+        """The embedded graph a node of the expanded graph came from —
         ``"approve"`` for ``"approve/check"`` — or ``None`` for a node the
         author placed."""
         return self._placement_of[node_id]
@@ -155,7 +158,7 @@ class CompiledGraph:
 
     def version(self, node_id: str) -> NodeVersion | GraphVersion:
         """The version this node uses: its ``run``, interface and policy — or,
-        for an embedded flow, its interface and its graph."""
+        for an embedded graph, its interface and its graph."""
         return self._versions[node_id]
 
     def interface_of(self, node_id: str) -> Interface:
@@ -164,7 +167,7 @@ class CompiledGraph:
 
         The one place anything asks what a node has: the engine validates
         a call against it and an editor draws the rows from it. For an
-        embedded flow, its version's interface."""
+        embedded graph, its version's interface."""
         return self._interfaces[node_id]
 
     def statics(self, node_id: str) -> Mapping[str, Any]:
@@ -196,7 +199,7 @@ class CompiledGraph:
         it carries. An output of a node that runs once per row carries
         ``Series[X]`` even where its declaration says ``X``; an input fed a
         series carries that series, before the engine slices it per row.
-        An address on an embedded flow reads through to the inner field it
+        An address on an embedded graph reads through to the inner field it
         names."""
         return self._types[self.expanded(ref)]
 

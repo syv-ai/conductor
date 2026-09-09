@@ -2,21 +2,22 @@
 
 Outputs of one node that share a ``choice`` are exclusive alternatives:
 exactly one is produced per run and the others carry ``SKIPPED``. The
-engine propagates the skip without knowing why. A caller reading a flow's
-outputs does need to know why, and this module derives it from the
-``choice`` groups in the interfaces and the edges — nothing else.
+engine does not need to know why a value was skipped; it only passes the
+skip on. A caller reading a flow's outputs does need to know, and this
+module is where it gets the answer, derived from the ``choice`` groups
+in the nodes' interfaces and the edges — nothing else.
 
-A ``Condition`` is a boolean formula in disjunctive normal form: a set of
-conjunctions, each a set of atoms ("the ``choice`` group on node N went
-to output O")::
+A ``Condition`` is a set of alternatives, each a set of decisions that
+must all hold; an ``Atom`` is one decision ("the ``choice`` group on node
+N went to output O"). The output appears when any alternative holds::
 
-    ALWAYS = frozenset({frozenset()})   # one empty conjunction: no gate
-    NEVER = frozenset()                  # no conjunction at all
+    ALWAYS = frozenset({frozenset()})   # one empty alternative: no gate
+    NEVER = frozenset()                  # no alternative at all
 
 An input fed by several edges drops the skipped ones, so what hangs off
-it appears when *any* source did — that is where a disjunction comes
-from. A conjunction naming one decision twice with different outputs is
-dropped, since it can never hold.
+it appears when *any* source did — that is where a second alternative
+comes from. An alternative naming one decision twice with different
+outputs is dropped, since it can never hold.
 
 Only a decision on a node that runs once gates anything. A node that runs
 once per row (see ``iteration``) produces both branches as series with
@@ -63,10 +64,10 @@ def conditions_of(
 ) -> dict[Ref, Condition]:
     """The condition of every output of every node in ``iterated`` — the nodes the edge walk resolved.
 
-    Walks ``nodes`` in topological order. A node's own condition is the
-    conjunction over its connected inputs, each input being the disjunction of
-    its sources' conditions. An output with a ``choice`` on a node that
-    runs once adds its own atom.
+    Walks ``nodes`` in topological order. A node's own condition holds
+    when every connected input's does, and an input's holds when any of
+    its sources' does. An output with a ``choice`` on a node that runs
+    once adds its own decision.
     """
     conditions: dict[Ref, Condition] = {}
     for node in nodes:
@@ -75,35 +76,38 @@ def conditions_of(
         at_node = ALWAYS
         for binding in node.bindings.values():
             if isinstance(binding, Edges) and binding.refs:
-                at_node = _and(at_node, _or(conditions.get(ref, ALWAYS) for ref in binding.refs))
+                at_node = _all_of(at_node, _any_of(conditions.get(ref, ALWAYS) for ref in binding.refs))
         for out in interfaces[node.id].outputs:
             gates = out.choice is not None and iterated[node.id] is None
             conditions[Ref(node.id, out.name)] = (
-                _and(at_node, frozenset({frozenset({Atom(node.id, out.choice, out.name)})})) if gates else at_node
+                _all_of(at_node, frozenset({frozenset({Atom(node.id, out.choice, out.name)})})) if gates else at_node
             )
     return conditions
 
 
-def _or(conditions: Iterable[Condition]) -> Condition:
+def _any_of(conditions: Iterable[Condition]) -> Condition:
+    """Holds when any of ``conditions`` does: their alternatives, pooled."""
     joined: set[frozenset[Atom]] = set()
     for condition in conditions:
         joined |= condition
     return frozenset(joined)
 
 
-def _and(a: Condition, b: Condition) -> Condition:
+def _all_of(a: Condition, b: Condition) -> Condition:
+    """Holds when both ``a`` and ``b`` do: every alternative of one joined
+    with every alternative of the other, the impossible ones dropped."""
     return frozenset(
-        conjunction
+        alternative
         for x in a
         for y in b
-        if (conjunction := x | y) is not None and _consistent(conjunction)
+        if (alternative := x | y) is not None and _consistent(alternative)
     )
 
 
-def _consistent(conjunction: frozenset[Atom]) -> bool:
+def _consistent(alternative: frozenset[Atom]) -> bool:
     """No decision named twice with two different outputs."""
     taken: dict[tuple[str, str], str] = {}
-    for atom in conjunction:
+    for atom in alternative:
         if taken.setdefault((atom.node_id, atom.choice), atom.output) != atom.output:
             return False
     return True

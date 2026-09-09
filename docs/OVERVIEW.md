@@ -47,7 +47,7 @@ Full catalog: [`widgets.md`](widgets.md). Hands-on tour: [`examples/08_widgets.i
 Each phase fails fast on problems the next can't handle.
 
 - **Declaring** a node checks it at import: a missing `id`, `title`, `description` or `category`, a parameter without a widget or a `DType`, a return without a `Result` fail with the traceback at the class. `NodeRegistry.register(cls)` adds the catalogue rules (versions from 1 with no holes, a deprecated version pointing somewhere).
-- **`CompiledGraph.from_graph(graph, registry)`** resolves every node's pin, asks the field hooks, validates the stored bindings, types every field from its edges (a node fed a series iterates on that series' index), expands embedded flows and derives each output's condition. Returns an immutable `CompiledGraph` that is asked, not read; everything wrong with the graph is a `Problem` on it, and a run refuses on the first fatal one. Nothing runs yet.
+- **`CompiledGraph.from_graph(graph, registry)`** resolves every node's pin, asks the field hooks, validates the stored bindings, types every field from its edges (a node fed a series iterates on that series' index), expands embedded graphs and derives each output's condition. Returns an immutable `CompiledGraph` that is asked, not read; everything wrong with the graph is a `Problem` on it, and a run refuses on the first fatal one. Nothing runs yet.
 - **`execute(compiled)`** is an async generator yielding events: `node_start`, `node_complete`, `node_retry`, `node_skipped`, `flow_complete`, … . `execute_sync(compiled)` is a blocking wrapper; `collect(execute(...))` is the notebook idiom.
 
 ## Execution — eager parallel with retry

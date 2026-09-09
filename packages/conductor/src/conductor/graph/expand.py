@@ -1,7 +1,7 @@
-"""Inline an embedded flow as its inner nodes, under the name of the node that embeds it.
+"""Inline an embedded graph as its inner nodes, under the name of the node that embeds it.
 
 A node's version may be a graph rather than a ``run`` (``GraphVersion``).
-The node is then an embedded flow: one node in the editor and in the
+The node is then an embedded graph: one node in the editor and in the
 graph's interface, many nodes when it runs. This module calls such a node
 a *placement*. Compile inlines its graph here: every inner node becomes
 ``placement/inner``, inner edges are re-pointed accordingly, the

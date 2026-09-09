@@ -36,7 +36,7 @@ Anything else feeding the input — several scalars, several series on
 different indexes, a typed-in list, a default — is *gathered* onto a
 fresh index that belongs to the input, and the node runs once.
 
-An embedded flow (a node whose version is a graph, inlined by ``expand``)
+An embedded graph (a node whose version is a graph, inlined by ``expand``)
 has a boundary. Where a series enters it through a scalar field, the
 whole inner graph runs once per row of that index: every inner node is
 iterates on at least that index, every index opened inside it is a child

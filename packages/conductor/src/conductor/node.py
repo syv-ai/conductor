@@ -161,7 +161,7 @@ class NodeVersion:
 class GraphVersion:
     """One version of a definition whose body is a graph rather than a ``run``.
 
-    A host builds one from data — an embedded flow's approved version,
+    A host builds one from data — a stored graph it embeds as a node,
     say. ``interface`` is that flow's interface (inputs named by address,
     ``returns`` a ``Mapping``) and ``graph`` the nodes the compiler
     expands under the placing node's name, so the inner nodes run as

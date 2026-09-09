@@ -117,7 +117,7 @@ flow_json = graph_to_react(flow)                             # conductor → fro
 `CompiledGraph` is immutable and is asked, never read through. The questions worth knowing:
 
 - `problems_for()` / `is_runnable` — every `Problem` (code, message, `node_id`, `field`, `fatal`), whole or by anchor; a run refuses on the first fatal one.
-- `execution_order()` — the node ids in edge order; an embedded flow's inner nodes appear as `placement/inner`.
+- `execution_order()` — the node ids in edge order; an embedded graph's inner nodes appear as `placement/inner`.
 - `interface_of(node_id)` — the node's inputs and outputs as its hooks answered, every type bound by the edges.
 - `type_of(Ref(node_id, field))` — the type that travels on a field; `index_of(Ref(node_id, field))` — for a series, where its rows come from; `iterates_on(node_id)` — the index a node runs once per row of, or `None`.
 - `value_source(node_id, input)` — the `Binding` behind an input, or `None` when the declared default applies.
