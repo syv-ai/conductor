@@ -24,7 +24,7 @@ Built to be the shared core behind visual flow builders — declare a node once 
 - **Structured error hierarchy** — `NodeValidationError`, `NodeExecutionError`, `NodeConnectionError`, `NodeTimeoutError`, and more, all carrying `node_id`/`node_type` context.
 - **Streaming execution** — an async generator yields events (`node_start`, `node_complete`, `node_retry`, `flow_complete`, …).
 - **Branching by value** — a node returns `SKIPPED` on the branch it did not take; outputs that are exclusive alternatives share a `choice`.
-- **Roster hooks** — a node whose inputs or outputs depend on its configuration overrides `compute_inputs` / `compute_outputs`.
+- **Field hooks** — a node whose inputs or outputs depend on its configuration overrides `compute_inputs` / `compute_outputs`.
 - **Shared references** — per-placement produce/consume bindings let one node feed another without an edge.
 - **Compensation** — a placement names the node that undoes its work if the flow fails later.
 - **Auto-discovery** — import a package and every node it registers is in the registry.
@@ -322,7 +322,7 @@ from conductor.registry.discovery import discover_nodes
 discover_nodes("myapp.nodes", registry)    # returns how many definitions were added
 ```
 
-### Roster hooks
+### Field hooks
 
 Two optional methods let a node say what one *placement* of it has, when that depends on configuration:
 
@@ -331,7 +331,7 @@ def compute_inputs(self, declared, values) -> tuple[Input, ...]: ...
 def compute_outputs(self, declared, values, arriving) -> tuple[Output, ...]: ...
 ```
 
-`declared` is the pinned version's declaration, `values` what the author typed, `arriving` the type on each connected input where the compiler has recorded one. The default returns `declared`. The compiler asks a fresh instance once per node — `compute_inputs` on the typed statics, `compute_outputs` in the edges pass with what arrives — and `CompiledGraph.roster(node_id)` serves the answers. Nothing is checked here: a hook that returns the wrong shape is a node bug and raises where it is found.
+`declared` is the pinned version's declaration, `values` what the author typed, `arriving` the type on each connected input where the compiler has recorded one. The default returns `declared`. The compiler asks a fresh instance once per node — `compute_inputs` on the typed statics, `compute_outputs` in the edges pass with what arrives — and `CompiledGraph.interface_of(node_id)` serves the answers. Nothing is checked here: a hook that returns the wrong shape is a node bug and raises where it is found.
 
 ### Provided parameters
 
@@ -550,7 +550,7 @@ From `1.0.0` onward, conductor follows [Semantic Versioning](https://semver.org/
 
 **Public API.** A name is part of the public API if it is exported from a package's `__init__` or documented in this README / `docs/`. Anything else — `_`-prefixed names, modules not re-exported from a public surface — is internal and may change in any release without warning. The public surface:
 
-- Top-level `conductor`: the node contract (`NodeDefinition`, `NodeVersion`, `GraphVersion`, `Policy`, `Deprecation`, `NodeDescription`, `version`, `upgrade`, `deprecated`, `Interface`, `Provided`, `Input`, `Output`, `Roster`, `AnyWidget`), the type vocabulary (`DType`, `DTypeRef`, `Single`, `dtype_of`, `registered_dtypes`, `Series`, `Index`, `Ref`, `Result`), the registry (`NodeRegistry`, `runner_for`), the graph (`Graph`, `GraphNode`, `FieldContent`, `Binding`, `Edges`, `Static`, `dependencies_of`, `is_input_node`, `CompiledGraph`, `Carried`, `Problem`, `Condition`, `Atom`, `ALWAYS`), execution (`execute`, `execute_sync`, `RetryConfig`, `SKIPPED`) and the error classes
+- Top-level `conductor`: the node contract (`NodeDefinition`, `NodeVersion`, `GraphVersion`, `Policy`, `Deprecation`, `NodeDescription`, `version`, `upgrade`, `deprecated`, `Interface`, `Provided`, `Input`, `Output`, `AnyWidget`), the type vocabulary (`DType`, `DTypeRef`, `Single`, `dtype_of`, `registered_dtypes`, `Series`, `Index`, `Ref`, `Result`), the registry (`NodeRegistry`, `runner_for`), the graph (`Graph`, `GraphNode`, `FieldContent`, `Binding`, `Edges`, `Static`, `dependencies_of`, `is_input_node`, `CompiledGraph`, `Carried`, `Problem`, `Condition`, `Atom`, `ALWAYS`), execution (`execute`, `execute_sync`, `RetryConfig`, `SKIPPED`) and the error classes
 - `conductor.widgets`, `conductor.metadata`, `conductor.errors`, `conductor.execution.events` (the `*Event` `TypedDict`s), `conductor.registry.discovery` (`discover_nodes`), `conductor.flow_format`
 - `conductor_nodes` (`register_all`, `get_default_registry`, the category modules, `conductor_nodes.types`) and `conductor_providers.react` / `conductor_providers.fastapi`
 

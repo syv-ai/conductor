@@ -11,7 +11,7 @@ from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.problem import Problem
 from conductor.interface import Interface, Provided, model_of
-from conductor.metadata import Output, Roster
+from conductor.metadata import Output
 from conductor.node import NodeDefinition, Policy, version
 from conductor.ref import Ref
 from conductor.returns import Result
@@ -219,7 +219,7 @@ def test_a_placement_reads_the_version_it_pins():
     every old placement at the newest signature."""
     compiled = _compiled([GraphNode(id="old", type="renamed", version=1)])
 
-    assert [i.name for i in compiled.roster("old").inputs] == ["old"]
+    assert [i.name for i in compiled.interface_of("old").inputs] == ["old"]
     assert compiled.version("old").policy == Policy()
     assert compiled.version("old").run.__name__ == "run_v1"
 
@@ -233,7 +233,7 @@ def test_a_node_type_the_registry_lacks_is_a_fatal_problem():
     assert (problem.code, problem.fatal, problem.node_id) == ("unknown_node_type", True, "a")
     assert not compiled.is_runnable
     with pytest.raises(KeyError):
-        compiled.roster("a")
+        compiled.interface_of("a")
 
 
 def test_a_version_the_class_no_longer_declares_is_a_fatal_problem():
@@ -252,25 +252,25 @@ def test_two_placements_with_one_id_is_a_fatal_problem():
     assert [p.code for p in compiled.problems_for()] == ["duplicate_node_id"]
 
 
-# --- rosters: the hooks are asked, once, on a fresh instance -----------------
+# --- interfaces: the hooks are asked, once, on a fresh instance -----------------
 
 
-def test_a_roster_is_what_the_hooks_answered():
+def test_a_nodes_interface_is_what_the_hooks_answered():
     compiled = _compiled([
         GraphNode(id="m", type="modes", version=1, bindings={"mode": Static(value="a")}),
         GraphNode(id="s", type="open-sheet", version=1, bindings={"header": Static(value="name,email")}),
     ])
 
-    assert isinstance(compiled.roster("m"), Roster)
-    assert [i.name for i in compiled.roster("m").inputs] == ["mode"]
-    assert [o.name for o in compiled.roster("s").outputs] == ["name", "email"]
+    assert isinstance(compiled.interface_of("m"), Interface)
+    assert [i.name for i in compiled.interface_of("m").inputs] == ["mode"]
+    assert [o.name for o in compiled.interface_of("s").outputs] == ["name", "email"]
 
 
-def test_a_node_with_no_opinion_has_its_declaration_as_roster():
+def test_a_node_with_no_opinion_has_its_declaration_as_its_interface():
     compiled = _compiled([GraphNode(id="a", type="echo", version=1)])
 
     declared = Echo.versions[1].interface
-    assert compiled.roster("a") == Roster(inputs=declared.inputs, outputs=declared.outputs)
+    assert compiled.interface_of("a") == declared
 
 
 def test_a_roster_depends_only_on_what_the_author_typed():
@@ -281,7 +281,7 @@ def test_a_roster_depends_only_on_what_the_author_typed():
         GraphNode(id="m", type="modes", version=1, bindings={"mode": Edges(refs=(Ref("src", "result"),))}),
     ])
 
-    assert [i.name for i in compiled.roster("m").inputs] == ["mode"]
+    assert [i.name for i in compiled.interface_of("m").inputs] == ["mode"]
 
 
 def test_a_column_a_node_computed_can_be_a_flow_output():
@@ -396,7 +396,7 @@ def test_compiling_the_same_flow_twice_gives_the_same_answers():
     assert first.problems_for() == second.problems_for()
     assert first.value_source("b", "x") == second.value_source("b", "x")
     assert first.interface == second.interface
-    assert first.roster("b") == second.roster("b")
+    assert first.interface_of("b") == second.interface_of("b")
     assert first.type_of(Ref("b", "result")) is second.type_of(Ref("b", "result"))
     assert first.index_of(Ref("b", "result")) == second.index_of(Ref("b", "result"))
 

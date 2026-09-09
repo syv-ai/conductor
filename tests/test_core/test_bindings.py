@@ -15,7 +15,7 @@ from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.topology import dependencies_of
 from conductor.graph.views import derive_interface, is_input_node, lock_problems
 from conductor.interface import Interface, Provided
-from conductor.metadata import Output, Roster
+from conductor.metadata import Output
 from conductor.node import NodeDefinition
 from conductor.ref import Ref
 from conductor.returns import Result
@@ -240,17 +240,17 @@ def _registry():
 
 def _resolved(graph, registry=None):
     """What the compiler hands `derive_interface`: each placement's
-    effective roster, and the version its pin resolved to. Here the roster
+    computed interface, and the version its pin resolved to. Here it
     is the declaration read through the pin — none of these nodes shapes
     itself."""
     registry = registry or _registry()
-    rosters = {}
+    interfaces = {}
     versions = {}
     for node in graph.nodes:
         version = registry.get(node.type).versions[node.version]
         versions[node.id] = version
-        rosters[node.id] = Roster(inputs=version.interface.inputs, outputs=version.interface.outputs)
-    return rosters, versions
+        interfaces[node.id] = version.interface
+    return interfaces, versions
 
 
 def _graph(application_locked=(), language_bindings=None):
@@ -284,13 +284,13 @@ def _interface(graph, registry=None):
 
 
 def _locks(graph, registry=None):
-    rosters, _ = _resolved(graph, registry)
-    return lock_problems({n.id: n for n in graph.nodes}, rosters)
+    interfaces, _ = _resolved(graph, registry)
+    return lock_problems({n.id: n for n in graph.nodes}, interfaces)
 
 
 def test_the_interface_is_derived_node_level():
     """Input nodes' unlocked handle-bearing fields in; output
-    nodes' rosters out, each under its address. Nothing is stored."""
+    nodes' interfaces out, each under its address. Nothing is stored."""
     interface = _interface(_graph())
 
     assert _locks(_graph()) == ()
@@ -347,10 +347,13 @@ def test_an_output_reports_the_title_its_placement_carries():
     assert _interface(_graph()).outputs[1].title == "Result"
 
 
-def test_a_roster_is_the_two_tuples_a_nodes_hooks_answer():
-    import dataclasses
+def test_a_nodes_computed_interface_is_the_same_record_its_version_declares():
+    """One record at every scale: a version declares an ``Interface``, compile
+    computes one per placed node, and derives one for the graph."""
+    from conductor.interface import Interface
 
-    assert [f.name for f in dataclasses.fields(Roster)] == ["inputs", "outputs"]
+    interfaces, _ = _resolved(_graph())
+    assert all(isinstance(i, Interface) for i in interfaces.values())
 
 
 def test_nodes_order_decides_the_order():
@@ -457,14 +460,13 @@ def test_a_column_a_node_computed_is_derivable():
         if node.id == "summary" else node
         for node in graph.nodes
     ])
-    rosters, versions = _resolved(graph)
-    declared = rosters["summary"]
-    rosters["summary"] = Roster(
-        inputs=declared.inputs,
-        outputs=(*declared.outputs, Output(name="name", dtype=Txt, title="Name")),
+    interfaces, versions = _resolved(graph)
+    declared = interfaces["summary"]
+    interfaces["summary"] = dataclasses.replace(
+        declared, outputs=(*declared.outputs, Output(name="name", dtype=Txt, title="Name")),
     )
 
-    interface = derive_interface(graph, rosters, versions, dependencies_of(graph.nodes))
+    interface = derive_interface(graph, interfaces, versions, dependencies_of(graph.nodes))
 
     assert [o.name for o in interface.outputs] == ["language.result", "summary.result", "summary.name"]
 
@@ -474,10 +476,10 @@ def test_a_field_on_a_placement_compile_could_not_resolve_contributes_nothing():
     on the field would anchor the same fact twice. A pin that resolved to
     nothing is in neither map."""
     graph = _graph()
-    rosters, versions = _resolved(graph)
-    del rosters["application"], versions["application"]
+    interfaces, versions = _resolved(graph)
+    del interfaces["application"], versions["application"]
 
-    interface = derive_interface(graph, rosters, versions, dependencies_of(graph.nodes))
+    interface = derive_interface(graph, interfaces, versions, dependencies_of(graph.nodes))
 
     assert [i.name for i in interface.inputs] == ["language.value"]
 

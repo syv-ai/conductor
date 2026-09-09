@@ -283,8 +283,8 @@ def test_a_pass_through_binds_its_type_from_the_edge():
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("r", "result"))}),
     ])
 
-    assert compiled.roster("r").inputs[0].dtype is Num
-    assert compiled.roster("r").outputs[0].dtype is Num
+    assert compiled.interface_of("r").inputs[0].dtype is Num
+    assert compiled.interface_of("r").outputs[0].dtype is Num
     assert compiled.type_of(Ref("r", "result")) is Num
     # A node aware of the type it inherits: the next edge is checked against the bound type.
     assert [p.code for p in compiled.problems_for()] == ["type_mismatch"]
@@ -312,7 +312,7 @@ def test_a_reduction_over_the_variable_binds_from_the_series_element():
     ])
 
     assert compiled.is_runnable, compiled.problems_for()
-    assert compiled.roster("one").inputs[0].dtype is Series[Txt]
+    assert compiled.interface_of("one").inputs[0].dtype is Series[Txt]
     assert compiled.type_of(Ref("one", "result")) is compiled.type_of(Ref("one", "result"))
     assert compiled.type_of(Ref("one", "result")) is Txt
     assert compiled.lifted_on("one") is None
@@ -415,7 +415,7 @@ def test_an_open_roster_takes_one_input_per_edge_received_whole():
     ])
 
     assert compiled.is_runnable, compiled.problems_for()
-    roster = compiled.roster("s")
+    roster = compiled.interface_of("s")
     assert [(i.name, i.dtype) for i in roster.inputs] == [("code", Txt), ("antal", Num), ("tekster", Series[Txt])]
     assert type(roster.inputs[2].widget).__name__ == "ConnectionList"
     assert compiled.lifted_on("s") is None
@@ -485,7 +485,7 @@ def test_a_node_with_no_outputs_yet_is_the_ordinary_mid_edit_state():
     assert (problem.code, problem.fatal, problem.node_id) == ("no_outputs", False, "s")
     assert compiled.is_runnable
     assert compiled.lifted_on("s") is None
-    assert compiled.roster("s").outputs == ()
+    assert compiled.interface_of("s").outputs == ()
 
 
 # --- alignment is lineage -----------------------------------------------------
@@ -517,9 +517,9 @@ def test_compute_outputs_sees_the_dtype_each_connected_input_receives():
     ]), registry)
 
     assert compiled.is_runnable, compiled.problems_for()
-    assert [o.name for o in compiled.roster("o").outputs] == ["from_lifting-test-txt"]
+    assert [o.name for o in compiled.interface_of("o").outputs] == ["from_lifting-test-txt"]
     assert compiled.index_of(Ref("o", "from_lifting-test-txt")) == Index("docs")
-    assert [o.name for o in compiled.roster("bare").outputs] == ["result"]
+    assert [o.name for o in compiled.interface_of("bare").outputs] == ["result"]
 
 
 def test_a_hook_that_cannot_answer_refuses_and_the_refusal_is_the_placements_problem():
@@ -551,7 +551,7 @@ def test_a_hook_that_cannot_answer_refuses_and_the_refusal_is_the_placements_pro
     (problem,) = compiled.problems_for(node_id="f")
     assert (problem.code, problem.fatal, problem.node_id) == ("wrong_shape", True, "f")
     assert problem.message == "What arrives does not fit."
-    assert compiled.roster("f").outputs == ()
+    assert compiled.interface_of("f").outputs == ()
 
 
 def test_a_hook_reads_a_defaulted_static_nothing_bound():
@@ -577,7 +577,7 @@ def test_a_hook_reads_a_defaulted_static_nothing_bound():
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="s", type="suffixer", version=1)]), registry)
 
     assert compiled.is_runnable, compiled.problems_for()
-    assert [o.name for o in compiled.roster("s").outputs] == ["out"]
+    assert [o.name for o in compiled.interface_of("s").outputs] == ["out"]
 
 
 

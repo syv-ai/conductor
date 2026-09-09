@@ -560,17 +560,17 @@ def _dispatch_node(
     state: FlowRunState,
     compiled: CompiledGraph,
 ) -> dict[str, Any]:
-    """Validate ``inputs`` against the node's roster and run the node; the answer is ``{output name: value}``."""
+    """Validate ``inputs`` against the node's interface and run the node; the answer is ``{output name: value}``."""
     node = compiled.node(node_id)
-    roster = compiled.roster(node_id)
+    interface = compiled.interface_of(node_id)
 
-    # Coerce the raw inputs through the node's roster before anything
+    # Coerce the raw inputs through the node's interface before anything
     # else touches them.
     try:
-        validated = model_of(roster.inputs)(**inputs)
+        validated = model_of(interface.inputs)(**inputs)
     except ValidationError as e:
         raise NodeValidationError(
-            _format_validation_error(e, roster.inputs),
+            _format_validation_error(e, interface.inputs),
             node_id=node_id, node_type=node.type, original=e,
         ) from e
 
@@ -591,7 +591,7 @@ def _dispatch_node(
             f"Execution failed for {node.type}: {type(e).__name__}: {e}",
             node_id=node_id, node_type=node.type, original=e,
         ) from e
-    return _outputs_of(compiled.version(node_id).interface.returns, roster.outputs, value)
+    return _outputs_of(compiled.version(node_id).interface.returns, interface.outputs, value)
 
 
 def _outputs_of(returns: Any, outputs: tuple[Output, ...], value: Any) -> dict[str, Any]:
@@ -617,7 +617,7 @@ def _outputs_of(returns: Any, outputs: tuple[Output, ...], value: Any) -> dict[s
     }
 
 
-def _format_validation_error(e: Any, roster: Any) -> str:
+def _format_validation_error(e: Any, inputs: Any) -> str:
     """Collapse a pydantic ``ValidationError`` into a one-line-per-field
     summary suitable for end-user surfaces.
 
@@ -650,7 +650,7 @@ def _format_validation_error(e: Any, roster: Any) -> str:
 
     # Build a {field_title: message} map preserving insertion order.
     seen: dict[str, str] = {}
-    label_by_name = {inp.name: inp.title for inp in roster}
+    label_by_name = {inp.name: inp.title for inp in inputs}
 
     for err in e.errors():
         loc = [seg for seg in err.get("loc", ()) if not _is_union_arm(seg)]

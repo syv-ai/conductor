@@ -20,6 +20,7 @@ a fault.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from functools import cache
 from typing import Any
 
@@ -35,7 +36,8 @@ from conductor.graph.model import Graph, GraphNode
 from conductor.graph.problem import Problem, problem
 from conductor.graph.topology import dependencies_of, order_of
 from conductor.graph.views import derive_interface, lock_problems
-from conductor.metadata import Input, Roster
+from conductor.interface import Interface
+from conductor.metadata import Input
 from conductor.node import GraphVersion, NodeVersion
 from conductor.registry import NodeRegistry
 from conductor.series import Series
@@ -66,7 +68,7 @@ class _Compilation:
         self.expansion: Expansion
         #: Each node's inputs and outputs, and the values the author typed, by
         #: expanded id (pass 5; the walk over the edges completes them).
-        self.rosters: dict[str, Roster] = {}
+        self.interfaces: dict[str, Interface] = {}
         self.statics: dict[str, dict[str, Any]] = {}
         #: Nodes whose stored edges are wrong; the edge walk leaves them out (pass 6).
         self.broken: frozenset[str] = frozenset()
@@ -111,7 +113,7 @@ class _Compilation:
             _nodes=expansion.nodes,
             _registry=self.registry,
             _versions={**expansion.versions, **expansion.placement_versions},
-            _rosters=self.rosters,
+            _interfaces=self.interfaces,
             _statics=self.statics,
             _dependencies=dependencies_of(expansion.nodes.values()),
             _order=expansion.order,
@@ -216,7 +218,7 @@ class _Compilation:
                     for name, binding in node.bindings.items()
                     if name not in named and isinstance(binding, Edges)
                 ))
-            self.rosters[node_id] = Roster(inputs=inputs, outputs=version.interface.outputs)
+            self.interfaces[node_id] = replace(version.interface, inputs=inputs)
             self.statics[node_id] = values
 
     def check_bindings(self) -> None:
@@ -234,10 +236,10 @@ class _Compilation:
         """
         nodes = self.expansion.nodes
         broken: set[str] = set()
-        self.problems.extend(lock_problems(nodes, self.rosters))
-        for node_id, roster in self.rosters.items():
+        self.problems.extend(lock_problems(nodes, self.interfaces))
+        for node_id, interface in self.interfaces.items():
             node = nodes[node_id]
-            declared = {i.name: i for i in roster.inputs}
+            declared = {i.name: i for i in interface.inputs}
 
             for name, binding in node.bindings.items():
                 if name not in declared:
@@ -254,7 +256,7 @@ class _Compilation:
                         broken.add(node_id)
                         self.problems.append(problem("unknown_ref_node", node_id, name, source_node=ref.node_id))
 
-            for inp in roster.inputs:
+            for inp in interface.inputs:
                 if inp.dtype is Any:
                     if not isinstance(node.bindings.get(inp.name), Edges):
                         broken.add(node_id)
@@ -274,13 +276,13 @@ class _Compilation:
             [
                 expansion.nodes[node_id]
                 for node_id in expansion.order
-                if node_id in self.rosters and node_id not in self.broken
+                if node_id in self.interfaces and node_id not in self.broken
             ],
-            self.rosters, expansion.versions, self.registry, self.statics,
+            self.interfaces, expansion.versions, self.registry, self.statics,
             placement_of=expansion.placement_of, members=expansion.members,
         )
         self.problems.extend(self.lifting.problems)
-        self.rosters = {**self.rosters, **self.lifting.rosters}
+        self.interfaces = {**self.interfaces, **self.lifting.interfaces}
 
     def field_rules(self) -> None:
         """Two rules checked on every node's completed inputs and outputs, after the edge walk.
@@ -295,13 +297,13 @@ class _Compilation:
         not a violation here: unconnected, it is ``unbound_required``, already
         reported.
         """
-        for node_id, roster in self.rosters.items():
+        for node_id, interface in self.interfaces.items():
             seen: set[str] = set()
-            for declared in (*roster.inputs, *roster.outputs):
+            for declared in (*interface.inputs, *interface.outputs):
                 if declared.name in seen:
                     self.problems.append(problem("duplicate_field_name", node_id, declared.name))
                 seen.add(declared.name)
-            handles = (*(inp for inp in roster.inputs if inp.show_handle), *roster.outputs)
+            handles = (*(inp for inp in interface.inputs if inp.show_handle), *interface.outputs)
             for declared in handles:
                 if declared.dtype is not Any and not (
                     isinstance(declared.dtype, type) and issubclass(declared.dtype, DType)
@@ -314,7 +316,7 @@ class _Compilation:
         expansion, lifting = self.expansion, self.lifting
         return conditions_of(
             [expansion.nodes[node_id] for node_id in expansion.order if node_id in lifting.lifted],
-            self.rosters, lifting.lifted,
+            self.interfaces, lifting.lifted,
         )
 
     def interface(self) -> Any:
@@ -322,10 +324,10 @@ class _Compilation:
         (``derive_interface``). An embedded graph shows its version's
         interface as its fields from here on."""
         for placement, version in self.expansion.placement_versions.items():
-            self.rosters[placement] = Roster(inputs=version.interface.inputs, outputs=version.interface.outputs)
+            self.interfaces[placement] = version.interface
         return derive_interface(
             self.graph,
-            {n: self.rosters[n] for n in self.authored if n in self.rosters},
+            {n: self.interfaces[n] for n in self.authored if n in self.interfaces},
             self.pinned,
             self.authored_dependencies,
         )

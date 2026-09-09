@@ -12,13 +12,13 @@ from conductor.graph.compiled import CompiledGraph
 def should_skip_node(compiled: CompiledGraph, node_id: str, results: Mapping[str, Any]) -> bool:
     """Is every value this node's edges deliver ``SKIPPED``?
 
-    A node with no edges never skips. Read off the roster, so a stale
+    A node with no edges never skips. Read off the node's interface, so a stale
     binding delivers nothing. A producer missing from ``results`` is the
     engine's bug and raises.
     """
     node = compiled.node(node_id)
     delivered = False
-    for inp in compiled.roster(node_id).inputs:
+    for inp in compiled.interface_of(node_id).inputs:
         binding = node.bindings.get(inp.name)
         if not isinstance(binding, Edges):
             continue

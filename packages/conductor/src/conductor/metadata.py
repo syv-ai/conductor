@@ -94,19 +94,3 @@ class Input(Field):
     #: Whether the parameter has a default at all. Kept separately because
     #: ``None`` is a legitimate default value.
     optional: bool = False
-
-@dataclass(frozen=True, kw_only=True)
-class Roster:
-    """The inputs and outputs one node in a graph actually has.
-
-    Usually exactly what the node's version declared. A node whose fields
-    depend on the values it holds — a table's columns, a template's
-    placeholders, an open roster's connected names — answers through
-    ``compute_inputs`` / ``compute_outputs``, and this record is that
-    answer. Compile asks once per node and hands it to ``derive_interface``
-    and to the compiled graph. Not an ``Interface``: that is what a version
-    declares; this is what one node has.
-    """
-
-    inputs: tuple[Input, ...]
-    outputs: tuple[Output, ...]

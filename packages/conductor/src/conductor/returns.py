@@ -123,7 +123,7 @@ def unpack(returns: Any, value: Any, outputs: tuple[Output, ...]) -> dict[str, A
         names = {output.name for output in outputs}
         if not isinstance(value, Mapping) or set(value) != names:
             raise ValueError(
-                f"run() must return exactly the outputs its roster names, {sorted(names)} — got {value!r}"
+                f"run() must return exactly the outputs its interface names, {sorted(names)} — got {value!r}"
             )
         return dict(value)
     if not isinstance(value, returns):

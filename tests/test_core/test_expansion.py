@@ -178,7 +178,7 @@ def test_a_placement_is_a_node_in_the_interface_named_by_inner_address():
 
     assert [(i.name, i.title) for i in compiled.interface.inputs] == [("emb.holder.value", "Application")]
     assert [(o.name, o.title) for o in compiled.interface.outputs] == [("emb.join.result", "Answer")]
-    assert [i.name for i in compiled.roster("emb").inputs] == ["holder.value"]
+    assert [i.name for i in compiled.interface_of("emb").inputs] == ["holder.value"]
 
 
 def test_a_question_about_a_placements_field_reads_through_to_the_inner_field():

@@ -4,7 +4,7 @@ Outputs of one node that share a ``choice`` are exclusive alternatives:
 exactly one is produced per run and the others carry ``SKIPPED``. The
 engine propagates the skip without knowing why. A caller reading a flow's
 outputs does need to know why, and this module derives it from the
-``choice`` groups in the rosters and the edges — nothing else.
+``choice`` groups in the interfaces and the edges — nothing else.
 
 A ``Condition`` is a boolean formula in disjunctive normal form: a set of
 conjunctions, each a set of atoms ("the ``choice`` group on node N went
@@ -30,7 +30,7 @@ from dataclasses import dataclass
 
 from conductor.graph.binding import Edges
 from conductor.graph.model import GraphNode
-from conductor.metadata import Roster
+from conductor.interface import Interface
 from conductor.ref import Ref
 from conductor.series import Index
 
@@ -58,7 +58,7 @@ NEVER: Condition = frozenset()
 
 def conditions_of(
     nodes: Sequence[GraphNode],
-    rosters: Mapping[str, Roster],
+    interfaces: Mapping[str, Interface],
     lifted: Mapping[str, Index | None],
 ) -> dict[Ref, Condition]:
     """The condition of every output of every node in ``lifted`` — the nodes the edge walk resolved.
@@ -76,7 +76,7 @@ def conditions_of(
         for binding in node.bindings.values():
             if isinstance(binding, Edges) and binding.refs:
                 at_node = _and(at_node, _or(conditions.get(ref, ALWAYS) for ref in binding.refs))
-        for out in rosters[node.id].outputs:
+        for out in interfaces[node.id].outputs:
             gates = out.choice is not None and lifted[node.id] is None
             conditions[Ref(node.id, out.name)] = (
                 _and(at_node, frozenset({frozenset({Atom(node.id, out.choice, out.name)})})) if gates else at_node

@@ -78,8 +78,8 @@ Slash command: `/docs-audit` — runs a docs review against the last N commits a
 Three phases: `declare → compile → execute`.
 
 1. **Declare** — a node is a `NodeDefinition` subclass. `__init_subclass__` checks `id`, `title`, `description`, `category` and derives one `NodeVersion` per `@version` method (an undecorated `run` is version 1) by reading the signature once with `Interface.of`. `NodeRegistry.register(cls)` files the class under its id and checks the catalogue rules (versions numbered from 1 with no holes, a deprecated current version pointing somewhere, an `alternative` that exists).
-2. **Compile** — `CompiledGraph.from_graph(graph, registry)` resolves each node's pin, asks `compute_inputs` on the typed statics, validates the stored bindings, expands an embedded flow under its node's name, walks the edges once in order — typing every unconstrained field from what arrives, asking `accepts`, lifting a node fed a series onto that series' index, asking `compute_outputs` with what arrives — and derives the condition under which each output appears. Returns an immutable `CompiledGraph` that callers ask (`roster`, `carried`, `lifted_on`, `value_source`, `condition`, `problems_for`, `interface`, `is_runnable`); everything wrong with the graph is an anchored `Problem` on it, never an exception. Every definition the graph names must be in the registry; a host that loads one calls `registry.extended_with(...)` first.
-3. **Execute** — `execute(compiled)` is an async generator yielding `ExecutionEvent`s. Nodes are scheduled eagerly: as soon as all dependencies complete, a node's task is created — independent branches run concurrently. A call is validated through `model_of(roster)` and dispatched through `runner_for(registry, type, version)`, a fresh instance per call. `execute_sync()` is a blocking wrapper.
+2. **Compile** — `CompiledGraph.from_graph(graph, registry)` resolves each node's pin, asks `compute_inputs` on the typed statics, validates the stored bindings, expands an embedded flow under its node's name, walks the edges once in order — typing every unconstrained field from what arrives, asking `accepts`, lifting a node fed a series onto that series' index, asking `compute_outputs` with what arrives — and derives the condition under which each output appears. Returns an immutable `CompiledGraph` that callers ask (`interface_of`, `type_of`, `index_of`, `lifted_on`, `value_source`, `condition`, `problems_for`, `interface`, `is_runnable`); everything wrong with the graph is an anchored `Problem` on it, never an exception. Every definition the graph names must be in the registry; a host that loads one calls `registry.extended_with(...)` first.
+3. **Execute** — `execute(compiled)` is an async generator yielding `ExecutionEvent`s. Nodes are scheduled eagerly: as soon as all dependencies complete, a node's task is created — independent branches run concurrently. A call is validated through `model_of(interface.inputs)` and dispatched through `runner_for(registry, type, version)`, a fresh instance per call. `execute_sync()` is a blocking wrapper.
 
 ### The node contract
 
@@ -95,7 +95,7 @@ class Upper(NodeDefinition):
 ```
 
 - Every parameter with a handle declares a `DType` (or `Any`) and a widget in `Annotated[...]`; `title`, `description` and `show_handle` are written on the widget and lifted onto the `Input`. A default makes the input optional. `show_handle=False` closes an input to edges; it may then declare any pydantic-validatable type.
-- The return annotation is the output declaration: a `DType` with a `Result` is one output named `result`; a frozen dataclass of `Annotated[DType, Result(...)]` fields is one output per field, names = field names; `Mapping[str, Any]` means the placement's computed roster names the outputs.
+- The return annotation is the output declaration: a `DType` with a `Result` is one output named `result`; a frozen dataclass of `Annotated[DType, Result(...)]` fields is one output per field, names = field names; `Mapping[str, Any]` means the placed node's computed interface names the outputs.
 - `Any` is for a value the node routes without reading; an `Any` output requires a `compute_outputs` override (refused at definition otherwise).
 - `Series[X]` is the one collection. A `Series[X]` parameter receives the whole series; a series output is returned as a plain list.
 - `SKIPPED` is a value a `run` returns on a branch not taken; outputs that are exclusive alternatives share a `choice`. There is no role, flag or marker on the class that tells the engine what to do.
@@ -116,7 +116,7 @@ Each input of a placement holds at most one binding (`GraphNode.bindings`):
 
 There is no per-edge record: a canvas derives its edges from the bindings, and `dependencies_of(nodes)` derives what each node waits for.
 
-The call is validated through the placement's roster with pydantic (`extra="ignore"`, so stray data keys are dropped), and `run` receives instances of the declared dtypes.
+The call is validated through the placed node's own interface with pydantic (`extra="ignore"`, so stray data keys are dropped), and `run` receives instances of the declared dtypes.
 
 ### Widgets
 
@@ -153,7 +153,7 @@ All exceptions inherit from `ConductorError` (see `errors.py`):
 
 ### The persisted graph
 
-`Graph` is `nodes` and `display`. A `GraphNode` is behaviour (`type`, `version`, `bindings`, `locked`), content (`title`, `description`, one `FieldContent` per field) and chrome (`display`, stored and returned, never parsed). An id refuses `.` (a `Ref` reads `node.field`) and accepts `/`. What the flow takes and returns is derived, never stored: `graph/views.py`'s `derive_interface(graph, rosters, versions, dependencies)` returns an `Interface` whose inputs are the unlocked handle-bearing inputs of the input nodes and whose outputs are every output of the nodes nothing consumes, each named by its address. A failed node fails the run; there is no saga.
+`Graph` is `nodes` and `display`. A `GraphNode` is behaviour (`type`, `version`, `bindings`, `locked`), content (`title`, `description`, one `FieldContent` per field) and chrome (`display`, stored and returned, never parsed). An id refuses `.` (a `Ref` reads `node.field`) and accepts `/`. What the flow takes and returns is derived, never stored: `graph/views.py`'s `derive_interface(graph, interfaces, versions, dependencies)` returns an `Interface` whose inputs are the unlocked handle-bearing inputs of the input nodes and whose outputs are every output of the nodes nothing consumes, each named by its address. A failed node fails the run; there is no saga.
 
 ### YAML / JSON flow format (`conductor.flow_format`)
 

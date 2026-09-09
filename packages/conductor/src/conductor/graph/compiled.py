@@ -10,7 +10,7 @@ caller.
 
 Three words this module uses throughout:
 
-* A **roster** is the list of inputs and outputs one node actually has —
+* A node's **interface** is the list of inputs and outputs it actually has —
   usually what its version declares, but a node may add or drop fields
   depending on the values it holds and the types connected to it.
 * A **series** is a value with many rows, and an **index** names where
@@ -25,7 +25,7 @@ Three words this module uses throughout:
   ``approve/check``.
 
 ``execution_order``, ``node``, ``runner``, ``dependencies`` and
-``lifted_on`` answer over the expanded graph; problems, rosters and the
+``lifted_on`` answer over the expanded graph; problems, interfaces and the
 interface are about the authored one. A question about a field may use
 either address: ``type_of(Ref("approve", "check.amount"))`` and
 ``type_of(Ref("approve/check", "amount"))`` are the same question.
@@ -51,7 +51,6 @@ if TYPE_CHECKING:
     from conductor.graph.conditions import Condition
     from conductor.graph.model import Graph, GraphNode
     from conductor.interface import Interface
-    from conductor.metadata import Roster
     from conductor.node import GraphVersion, NodeVersion
     from conductor.registry import NodeRegistry
     from conductor.series import Index
@@ -62,14 +61,14 @@ class CompiledGraph:
     """The result of compiling one graph. Ask it; do not read through it.
 
     Built by ``from_graph`` and read by the engine
-    (``execution_order``, ``runner``, ``roster``, ``lifted_on``), an
+    (``execution_order``, ``runner``, ``interface_of``, ``lifted_on``), an
     editor's compile endpoint (``problems_for``, ``type_of``,
     ``interface``), and anything deciding whether a run may start
     (``is_runnable``).
 
     Every field but ``interface`` is private, and every public name is a
     question. A node compile could not resolve — unknown type or version —
-    has a fatal ``Problem`` and no roster, version, index or types;
+    has a fatal ``Problem`` and no interface, version, index or types;
     asking about one raises, because the answer is in
     ``problems_for``.
     """
@@ -77,7 +76,7 @@ class CompiledGraph:
     _nodes: Mapping[str, GraphNode]
     _registry: NodeRegistry
     _versions: Mapping[str, NodeVersion | GraphVersion]
-    _rosters: Mapping[str, Roster]
+    _interfaces: Mapping[str, Interface]
     _statics: Mapping[str, Mapping[str, Any]]
     _dependencies: Mapping[str, frozenset[str]]
     _order: tuple[str, ...]
@@ -139,7 +138,7 @@ class CompiledGraph:
         """
         ref = self.expanded(Ref(node_id, input_name))
         node = self.node(ref.node_id)
-        if ref.field not in {i.name for i in self.roster(ref.node_id).inputs}:
+        if ref.field not in {i.name for i in self.interface_of(ref.node_id).inputs}:
             raise KeyError(f"{node.type!r} has no input {ref.field!r} on this node")
         return node.bindings.get(ref.field)
 
@@ -159,14 +158,14 @@ class CompiledGraph:
         for an embedded flow, its interface and its graph."""
         return self._versions[node_id]
 
-    def roster(self, node_id: str) -> Roster:
+    def interface_of(self, node_id: str) -> Interface:
         """The inputs and outputs this node actually has, with every type
         the edges gave it — not merely what its version declared.
 
         The one place anything asks what a node has: the engine validates
         a call against it and an editor draws the rows from it. For an
         embedded flow, its version's interface."""
-        return self._rosters[node_id]
+        return self._interfaces[node_id]
 
     def statics(self, node_id: str) -> Mapping[str, Any]:
         """The values the author typed into this node, by field.
@@ -218,14 +217,14 @@ class CompiledGraph:
     def decisions(self) -> dict[str, dict[str, tuple[str, ...]]]:
         """Every decision a caller could observe: for each node that runs
         once and declares a ``choice`` group, the group's alternatives in
-        roster order, keyed by expanded node id. A node that runs per row is
+        field order, keyed by expanded node id. A node that runs per row is
         left out: its decision picks rows and gates nothing downstream."""
         found: dict[str, dict[str, tuple[str, ...]]] = {}
         for node_id in self._order:
             if self._lifted.get(node_id, None) is not None:
                 continue
             groups: dict[str, list[str]] = {}
-            for out in self._rosters[node_id].outputs:
+            for out in self._interfaces[node_id].outputs:
                 if out.choice is not None:
                     groups.setdefault(out.choice, []).append(out.name)
             if groups:

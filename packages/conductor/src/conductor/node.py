@@ -23,7 +23,7 @@ The parts, by when they exist:
 * declared when the class is defined — ``NodeVersion`` (a signature, a
   ``Policy`` and the callable), ``GraphVersion`` (a version a host hands
   over by value, whose body is a graph), ``Deprecation``;
-* answered per node when a flow is compiled — the two roster hooks,
+* answered per node when a flow is compiled — the two field hooks,
   ``compute_inputs`` and ``compute_outputs``;
 * derived on demand for a palette — ``NodeDescription`` and
   ``VersionDescription``, built by ``describe()``.
@@ -49,7 +49,7 @@ if TYPE_CHECKING:
 
 
 class Refuses(Exception):
-    """Raised by a roster hook that cannot answer for the values it was given.
+    """Raised by a field hook that cannot answer for the values it was given.
 
     ``code`` and ``message`` are the host's, and the compiler reports them
     as the node's problem — the same shape as ``DType.refuses_whole``.
@@ -236,12 +236,12 @@ def upgrade_methods(cls: type) -> dict[tuple[int, int], Callable[..., Any]]:
 
 @dataclass(frozen=True, kw_only=True)
 class VersionDescription:
-    """One version as a palette reads it: fields, policy, roster shape and notice.
+    """One version as a palette reads it: fields, policy, open shape and notice.
 
     One per entry in ``NodeDescription.versions``, built by ``describe()``
     from the ``NodeVersion`` (or ``GraphVersion``) with the callable left
     out. ``policy`` is ``None`` for a graph-bodied version, which nothing
-    runs as one unit; ``open`` is the open roster's shape or ``None``.
+    runs as one unit; ``open`` is the shape of an open interface or ``None``.
     """
 
     inputs: tuple[Input, ...]
@@ -376,7 +376,7 @@ class NodeDefinition(ABC):
     ) -> tuple[Input, ...]:
         """The inputs one placement of this node actually has.
 
-        Override when the roster depends on configuration — a mode
+        Override when the node's fields depend on configuration — a mode
         dropdown that changes which fields exist. The default returns
         ``declared``. ``declared`` is passed in rather than read off the
         class because the placement pins a version, which may not be the

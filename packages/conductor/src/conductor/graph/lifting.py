@@ -68,7 +68,8 @@ from conductor.dtype_ref import description_of
 from conductor.graph.binding import Edges, many
 from conductor.graph.model import GraphNode
 from conductor.graph.problem import Problem, problem
-from conductor.metadata import Input, Output, Roster
+from conductor.interface import Interface
+from conductor.metadata import Input, Output
 from conductor.node import NodeVersion, Refuses
 from conductor.ref import Ref
 from conductor.registry import NodeRegistry
@@ -83,21 +84,21 @@ class Lifting:
     ``None`` when it runs once; for each embedded graph, the index its
     inner nodes run per row of. ``types``: the type that travels on every
     field; ``indexes``: for a field carrying a series, where its rows come
-    from (``None`` otherwise). ``rosters``: each node's inputs and outputs
-    with the types the edges gave them — what ``CompiledGraph.roster``
+    from (``None`` otherwise). ``interfaces``: each node's inputs and outputs
+    with the types the edges gave them — what ``CompiledGraph.interface_of``
     serves from then on. ``problems``: what went wrong.
     """
 
     lifted: Mapping[str, Index | None]
     types: Mapping[Ref, Any]
     indexes: Mapping[Ref, Index | None]
-    rosters: Mapping[str, Roster]
+    interfaces: Mapping[str, Interface]
     problems: tuple[Problem, ...]
 
 
 def derive(
     nodes: Sequence[GraphNode],
-    rosters: Mapping[str, Roster],
+    interfaces: Mapping[str, Interface],
     versions: Mapping[str, NodeVersion],
     registry: NodeRegistry,
     statics: Mapping[str, Mapping[str, Any]],
@@ -127,7 +128,7 @@ def derive(
     The index an embedded graph runs per row of is found when its first
     node is reached.
     """
-    walk = _Walk(nodes, rosters, versions, registry, statics, placement_of, members)
+    walk = _Walk(nodes, interfaces, versions, registry, statics, placement_of, members)
     for node in nodes:
         walk.visit(node)
     return walk.result()
@@ -175,7 +176,7 @@ class _Walk:
     def __init__(
         self,
         nodes: Sequence[GraphNode],
-        rosters: Mapping[str, Roster],
+        interfaces: Mapping[str, Interface],
         versions: Mapping[str, NodeVersion],
         registry: NodeRegistry,
         statics: Mapping[str, Mapping[str, Any]],
@@ -183,7 +184,7 @@ class _Walk:
         members: Mapping[str, Sequence[str]],
     ) -> None:
         self.nodes = {node.id: node for node in nodes}
-        self.rosters = rosters
+        self.interfaces = interfaces
         self.versions = versions
         self.registry = registry
         self.statics = statics
@@ -195,7 +196,7 @@ class _Walk:
         #: What every field of every visited node carries.
         self.carried: dict[Ref, _Carried] = {}
         #: Each visited node's inputs and outputs, completed.
-        self.completed: dict[str, Roster] = {}
+        self.completed: dict[str, Interface] = {}
         self.problems: list[Problem] = []
         #: The index each embedded graph's inner nodes run per row of, found
         #: when the walk reaches its first inner node.
@@ -206,7 +207,7 @@ class _Walk:
             lifted=self.lifted,
             types={ref: c.dtype for ref, c in self.carried.items()},
             indexes={ref: c.index for ref, c in self.carried.items()},
-            rosters=self.completed,
+            interfaces=self.completed,
             problems=tuple(self.problems),
         )
 
@@ -246,12 +247,12 @@ class _Walk:
         anything else gathers onto a fresh index. Stops at the first input
         that cannot be read and says so in ``broken``.
         """
-        roster = self.rosters[node.id]
+        interface = self.interfaces[node.id]
         version = self.versions[node.id]
         declared_names = {i.name for i in version.interface.inputs}
         found = _Arrivals()
 
-        for inp in roster.inputs:
+        for inp in interface.inputs:
             ref = Ref(node.id, inp.name)
             binding = node.bindings.get(inp.name)
             whole = version.interface.open == "single" and inp.name not in declared_names
@@ -330,17 +331,17 @@ class _Walk:
         """Every input read: complete the node's fields, ask its outputs,
         decide the index it runs per row of, and record what each output
         carries."""
-        roster = self.rosters[node.id]
-        inputs = tuple(_typed(inp, arrived.bound) for inp in roster.inputs)
+        interface = self.interfaces[node.id]
+        inputs = tuple(_typed(inp, arrived.bound) for inp in interface.inputs)
         answered = self._outputs(node, arrived.receives)
         if isinstance(answered, Problem):
             # The refusal is the node's problem: fatal, with no `no_outputs`
             # beside it, and nothing is derived past it.
             self.problems.append(answered)
-            self.completed[node.id] = Roster(inputs=inputs, outputs=())
+            self.completed[node.id] = replace(self.versions[node.id].interface, inputs=inputs, outputs=())
             return
         outputs = answered
-        self.completed[node.id] = Roster(inputs=inputs, outputs=outputs)
+        self.completed[node.id] = replace(self.versions[node.id].interface, inputs=inputs, outputs=outputs)
         if not outputs:
             self.problems.append(problem("no_outputs", node.id))
         lift_index, disagreeing = _lift_index(arrived.demands)
@@ -374,8 +375,9 @@ class _Walk:
             # The broken source carries the fault; a refusal about its missing
             # arrival would report the same fact twice.
             answered = ()
-        self.completed[node.id] = Roster(
-            inputs=tuple(_typed(inp, arrived.bound) for inp in self.rosters[node.id].inputs),
+        self.completed[node.id] = replace(
+            self.versions[node.id].interface,
+            inputs=tuple(_typed(inp, arrived.bound) for inp in self.interfaces[node.id].inputs),
             outputs=answered,
         )
 
@@ -391,7 +393,7 @@ class _Walk:
         compile only records which node it belongs to.
         """
         version = self.versions[node.id]
-        declared = (*version.interface.inputs, *self.rosters[node.id].inputs)
+        declared = (*version.interface.inputs, *self.interfaces[node.id].inputs)
         values = {**{i.name: i.default for i in declared if i.optional}, **self.statics[node.id]}
         try:
             return self.registry.get(node.type)().compute_outputs(version.interface.outputs, values, receives)
@@ -413,7 +415,7 @@ class _Walk:
             if node_id not in self.nodes:
                 continue  # a broken edge; the node carries its own problem and was left out of the walk
             node = self.nodes[node_id]
-            for inp in self.rosters[node_id].inputs:
+            for inp in self.interfaces[node_id].inputs:
                 binding = node.bindings.get(inp.name)
                 if not isinstance(binding, Edges) or getattr(inp.dtype, "element", None) is not None:
                     continue

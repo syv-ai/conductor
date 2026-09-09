@@ -33,7 +33,7 @@ from conductor.graph.problem import Problem
 from conductor.graph.topology import dependencies_of
 from conductor.graph.views import is_input_node
 from conductor.interface import Interface, Provided
-from conductor.metadata import Input, Output, Roster
+from conductor.metadata import Input, Output
 from conductor.node import (
     Deprecation,
     GraphVersion,
@@ -88,7 +88,6 @@ __all__ = [
     "Provided",
     "Input",
     "Output",
-    "Roster",
     "AnyWidget",
     "version",
     "upgrade",

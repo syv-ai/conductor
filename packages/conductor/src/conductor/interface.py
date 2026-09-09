@@ -20,10 +20,10 @@ Three things the walk understands beyond ``Annotated[DType, Widget]``:
 * ``Any`` in place of a ``DType`` — the input accepts whatever is connected to
   it. The type that actually arrives is recorded when the flow is
   compiled, and the node's ``compute_outputs`` types its outputs from it.
-* ``**inputs: Single`` (or ``**inputs: Series``) — an open roster: every
+* ``**inputs: Single`` (or ``**inputs: Series``) — an open interface: every
   name connected to the node becomes an input, received as one value (or, for
-  ``Series``, as a whole series). The interface records only that the
-  roster is open and in which shape; the inputs themselves are made from
+  ``Series``, as a whole series). The interface records only that it
+  is open and in which shape; the inputs themselves are made from
   the edges when the flow is compiled.
 * A parameter whose widget says ``show_handle=False`` cannot be connected, so
   it may declare any pydantic-validatable type (a schema, a list of
@@ -70,7 +70,7 @@ class Interface:
     nodes' titles. Frozen, so the derivation is the only writer.
 
     Not what a particular *placement* of the node ends up with — a
-    placement's roster may be reshaped by the values it holds. Not stored,
+    placed node's interface may be reshaped by the values it holds. Not stored,
     and not shared between versions: a version is a signature, so two
     versions are two interfaces.
     """
@@ -85,7 +85,7 @@ class Interface:
     #: ``Provided`` parameter. ``execute`` refuses to start a flow whose
     #: nodes need a type it was not given.
     needs: dict[str, type] = field(default_factory=dict)
-    #: The shape of an open roster, or ``None`` for a closed one:
+    #: The shape of an open interface, or ``None`` for a closed one:
     #: ``"single"`` for ``**inputs: Single`` (each connected name received as
     #: one value), ``"series"`` for ``**inputs: Series`` (each received as a
     #: whole series). The inputs themselves are made from the edges when
@@ -97,7 +97,7 @@ class Interface:
         """Read ``func``'s signature into an ``Interface``. A leading ``self`` is skipped."""
         signature = inspect.signature(func)
         hints = get_type_hints(func, include_extras=True)
-        inputs, needs, open_roster = _extract_inputs(signature, hints)
+        inputs, needs, open_shape = _extract_inputs(signature, hints)
         returns, outputs = _extract_outputs(hints)
         taken = {i.name for i in inputs} & {o.name for o in outputs}
         if taken:
@@ -105,14 +105,14 @@ class Interface:
                 f"{sorted(taken)} named on both sides: a field name is unique within a node, "
                 "because a Ref (node_id, field) is an address on either side"
             )
-        return cls(inputs=inputs, outputs=outputs, returns=returns, needs=needs, open=open_roster)
+        return cls(inputs=inputs, outputs=outputs, returns=returns, needs=needs, open=open_shape)
 
 
 def model_of(inputs: tuple[Input, ...]) -> type[BaseModel]:
     """The pydantic model that validates a call against ``inputs``.
 
     A function rather than a field on ``Interface``: the inputs a call is
-    validated against are usually a placement's roster rather than the bare
+    validated against are usually a placed node's own interface rather than the bare
     declaration, and a model class held on a frozen record would make two
     interfaces derived from one signature compare unequal. An ``Any`` input
     validates anything; the compiler has already established what arrives
@@ -132,25 +132,25 @@ def _extract_inputs(
     signature: inspect.Signature, hints: dict[str, Any]
 ) -> tuple[tuple[Input, ...], dict[str, type], Literal["single", "series"] | None]:
     """One walk over the parameters: the ``Input`` records, the ``Provided``
-    needs by parameter name, and the open roster's shape (``"single"``,
+    needs by parameter name, and the shape of an open interface (``"single"``,
     ``"series"`` or ``None``)."""
     inputs: list[Input] = []
     needs: dict[str, type] = {}
-    open_roster: Literal["single", "series"] | None = None
+    open_shape: Literal["single", "series"] | None = None
     for name, param in signature.parameters.items():
         if name == "self":
             continue
         annotation = hints.get(name, param.annotation)
         if param.kind is inspect.Parameter.VAR_KEYWORD:
             if annotation is Single:
-                # ``**inputs: Single``: an open roster, every connected name
+                # ``**inputs: Single``: an open interface, every connected name
                 # received as one value. Only the shape is recorded; the
                 # inputs are made from the edges at compile time.
-                open_roster = "single"
+                open_shape = "single"
             elif annotation is Series:
-                # ``**inputs: Series``: an open roster, every edge a
+                # ``**inputs: Series``: an open interface, every edge a
                 # reduction.
-                open_roster = "series"
+                open_shape = "series"
             # Any other ``**values``: the inputs this node's ``compute_inputs``
             # adds arrive here by name. The hook declares them, not the signature.
             continue
@@ -202,7 +202,7 @@ def _extract_inputs(
                 optional=has_default,
             )
         )
-    return tuple(inputs), needs, open_roster
+    return tuple(inputs), needs, open_shape
 
 
 def _declared(hint: Any) -> Any:
@@ -216,7 +216,7 @@ def _extract_outputs(hints: dict[str, Any]) -> tuple[Any, tuple[Output, ...]]:
     A ``run`` with no return annotation is an error, not a node with no
     outputs: the engine would have nowhere to put what it returns. A
     ``Mapping`` return declares no outputs here; the node's computed
-    roster supplies them.
+    node's interface supplies them.
     """
     if "return" not in hints:
         raise TypeError("run() must declare a return type")
