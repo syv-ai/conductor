@@ -80,70 +80,114 @@ def expand(
     is a problem too, reported on the expanded id and moved onto the
     placement by ``surfaced``.
     """
-    problems: list[Problem] = []
-    nodes: dict[str, GraphNode] = {}
-    expanded_order: list[str] = []
-    placement_of: dict[str, str | None] = {}
-    members: dict[str, list[str]] = {}
-    resolved: dict[str, NodeVersion] = {}
-    placement_versions: dict[str, GraphVersion] = {}
-    placements: set[str] = set()
+    expander = _Expander(registry)
+    for node_id in order:
+        if node_id in versions:
+            expander.inline(authored[node_id], versions[node_id], enclosing=None)
+    expander.reconnect()
+    return expander.result()
 
-    def inline(node: GraphNode, version: NodeVersion | GraphVersion, enclosing: str | None) -> None:
+
+class _Expander:
+    """The expanded graph as it is being built, one node at a time.
+
+    ``inline`` adds one authored node: a plain node goes in as it is; a
+    node whose version is a graph is entered and its inner nodes are added
+    under its name, recursively. ``reconnect`` then re-points every edge
+    that names a placement's field at the inner field it reaches, and
+    ``result`` freezes the whole into an ``Expansion``.
+    """
+
+    def __init__(self, registry: NodeRegistry) -> None:
+        self.registry = registry
+        self.problems: list[Problem] = []
+        self.nodes: dict[str, GraphNode] = {}
+        self.order: list[str] = []
+        self.placement_of: dict[str, str | None] = {}
+        self.members: dict[str, list[str]] = {}
+        self.versions: dict[str, NodeVersion] = {}
+        self.placement_versions: dict[str, GraphVersion] = {}
+        self.placements: set[str] = set()
+
+    def inline(self, node: GraphNode, version: NodeVersion | GraphVersion, enclosing: str | None) -> None:
+        """Add ``node`` to the expanded graph — itself, or its inner nodes
+        under its name when ``version`` is a graph. ``enclosing`` is the
+        innermost placement the node sits in, ``None`` at the top."""
         if isinstance(version, NodeVersion):
-            nodes[node.id] = node
-            expanded_order.append(node.id)
-            placement_of[node.id] = enclosing
-            resolved[node.id] = version
+            self.nodes[node.id] = node
+            self.order.append(node.id)
+            self.placement_of[node.id] = enclosing
+            self.versions[node.id] = version
             for placement in _enclosing(node.id):
-                members.setdefault(placement, []).append(node.id)
+                self.members.setdefault(placement, []).append(node.id)
             return
-        placements.add(node.id)
-        placement_versions[node.id] = version
-        members.setdefault(node.id, [])
+        self.placements.add(node.id)
+        self.placement_versions[node.id] = version
+        self.members.setdefault(node.id, [])
         inner_nodes = {namespaced.id: namespaced for namespaced in (_namespaced(node.id, inner) for inner in version.graph)}
-        moved = _moved(node, inner_nodes, problems)
+        moved = self._moved(node, inner_nodes)
         inner_versions: dict[str, NodeVersion | GraphVersion] = {}
         for inner_id, inner in inner_nodes.items():
-            definition = registry.get(inner.type)
+            definition = self.registry.get(inner.type)
             if definition is None:
-                problems.append(problem("unknown_node_type", inner_id, node_type=inner.type))
+                self.problems.append(problem("unknown_node_type", inner_id, node_type=inner.type))
                 continue
             inner_version = definition.versions.get(inner.version)
             if inner_version is None:
-                problems.append(problem("unknown_node_version", inner_id, node_type=inner.type, version=inner.version))
+                self.problems.append(
+                    problem("unknown_node_version", inner_id, node_type=inner.type, version=inner.version)
+                )
                 continue
             inner_versions[inner_id] = inner_version
         inner_order, cyclic = order_of(dependencies_of(inner_nodes.values()))
-        problems.extend(problem("cycle", inner_id) for inner_id in sorted(cyclic))
+        self.problems.extend(problem("cycle", inner_id) for inner_id in sorted(cyclic))
         for inner_id in inner_order:
             if inner_id in inner_versions:
-                inline(moved.get(inner_id, inner_nodes[inner_id]), inner_versions[inner_id], node.id)
+                self.inline(moved.get(inner_id, inner_nodes[inner_id]), inner_versions[inner_id], enclosing=node.id)
 
-    for node_id in order:
-        if node_id in versions:
-            inline(authored[node_id], versions[node_id], None)
+    def _moved(self, placement: GraphNode, inner_nodes: Mapping[str, GraphNode]) -> dict[str, GraphNode]:
+        """The placement's bindings, moved onto the inner fields they name.
 
-    # Every edge that names a placement's field now names the inner field
-    # it reaches — outer edges into a placement, and inner edges into a
-    # nested one alike.
-    for node_id, node in list(nodes.items()):
-        reconnected = {
-            name: Edges(refs=tuple(expanded_ref(ref, placements) for ref in binding.refs))
-            if isinstance(binding, Edges) else binding
-            for name, binding in node.bindings.items()
+        A binding on ``check.amount`` replaces whatever the inner ``check``
+        held on ``amount`` — a value its author typed or an inner edge — for
+        this placement. A key naming no inner node is a stale binding,
+        reported on the placement.
+        """
+        moved: dict[str, dict[str, Binding]] = {}
+        for key, binding in placement.bindings.items():
+            first, _, field = key.partition(".")
+            inner = f"{placement.id}{SEPARATOR}{first}"
+            if not field or inner not in inner_nodes:
+                self.problems.append(problem("stale_binding", placement.id, key))
+                continue
+            moved.setdefault(inner, {})[field] = binding
+        return {
+            inner: replace(inner_nodes[inner], bindings={**inner_nodes[inner].bindings, **bindings})
+            for inner, bindings in moved.items()
         }
-        nodes[node_id] = replace(node, bindings=reconnected)
 
-    return Expansion(
-        nodes=nodes,
-        order=tuple(expanded_order),
-        placement_of=placement_of,
-        members={placement: tuple(ids) for placement, ids in members.items()},
-        versions=resolved,
-        placement_versions=placement_versions,
-        problems=tuple(problems),
-    )
+    def reconnect(self) -> None:
+        """Every edge that names a placement's field now names the inner
+        field it reaches — outer edges into a placement, and inner edges
+        into a nested one alike."""
+        for node_id, node in list(self.nodes.items()):
+            reconnected = {
+                name: Edges(refs=tuple(expanded_ref(ref, self.placements) for ref in binding.refs))
+                if isinstance(binding, Edges) else binding
+                for name, binding in node.bindings.items()
+            }
+            self.nodes[node_id] = replace(node, bindings=reconnected)
+
+    def result(self) -> Expansion:
+        return Expansion(
+            nodes=self.nodes,
+            order=tuple(self.order),
+            placement_of=self.placement_of,
+            members={placement: tuple(ids) for placement, ids in self.members.items()},
+            versions=self.versions,
+            placement_versions=self.placement_versions,
+            problems=tuple(self.problems),
+        )
 
 
 def expanded_ref(ref: Ref, placements: frozenset[str] | set[str]) -> Ref:
@@ -198,30 +242,6 @@ def _namespaced(placement: str, inner: GraphNode) -> GraphNode:
         },
         locked=(),
     )
-
-
-def _moved(
-    placement: GraphNode, inner_nodes: Mapping[str, GraphNode], problems: list[Problem]
-) -> dict[str, GraphNode]:
-    """The placement's bindings, moved onto the inner fields they name.
-
-    A binding on ``check.amount`` replaces whatever the inner ``check``
-    held on ``amount`` — a value its author typed or an inner edge — for
-    this placement. A key naming no inner node is a stale binding,
-    reported on the placement.
-    """
-    moved: dict[str, dict[str, Binding]] = {}
-    for key, binding in placement.bindings.items():
-        first, _, field = key.partition(".")
-        inner = f"{placement.id}{SEPARATOR}{first}"
-        if not field or inner not in inner_nodes:
-            problems.append(problem("stale_binding", placement.id, key))
-            continue
-        moved.setdefault(inner, {})[field] = binding
-    return {
-        inner: replace(inner_nodes[inner], bindings={**inner_nodes[inner].bindings, **bindings})
-        for inner, bindings in moved.items()
-    }
 
 
 def _enclosing(expanded_id: str) -> list[str]:

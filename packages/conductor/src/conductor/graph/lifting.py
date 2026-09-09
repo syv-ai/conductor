@@ -43,7 +43,7 @@ lifted on at least that index, every index opened inside it is a child
 of it, and an inner reduction over the entering index receives one row
 at a time — so the inner flow behaves exactly as it would standalone,
 once per outer row. That index is found once, when the walk reaches the
-first inner node, from the edges crossing in (``_scope``).
+first inner node, from the edges crossing in (``_Walk._entering_index``).
 
 A scalar input holding a typed-in sequence (a multi-file upload, a list
 typed by hand) is a series on an index of its own and lifts the node as
@@ -58,6 +58,7 @@ index, never about how many rows.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
@@ -80,7 +81,7 @@ class Lifting:
     """What ``derive`` returns.
 
     ``lifted``: for each node, the index it runs once per row of, or
-    ``None`` when it runs once; for each embedded flow, the index its
+    ``None`` when it runs once; for each embedded graph, the index its
     inner nodes run per row of. ``carried``: the type on every field and,
     for a series, its index. ``rosters``: each node's inputs and outputs
     with the types the edges gave them — what ``CompiledGraph.roster``
@@ -121,63 +122,160 @@ def derive(
     ``Refuses`` makes its code and message the node's one fatal problem.
 
     ``placement_of`` and ``members`` come from ``expand``: which embedded
-    flow each node belongs to, and which nodes each embedded flow holds.
-    The index an embedded flow runs per row of is found when its first
+    graph each node belongs to, and which nodes each embedded graph holds.
+    The index an embedded graph runs per row of is found when its first
     node is reached.
     """
-    lifted: dict[str, Index | None] = {}
-    carried: dict[Ref, Carried] = {}
-    completed: dict[str, Roster] = {}
-    problems: list[Problem] = []
-    scopes: dict[str, Index | None] = {}
-
+    walk = _Walk(nodes, rosters, versions, registry, statics, placement_of, members)
     for node in nodes:
-        placement = placement_of.get(node.id)
-        if placement is not None and placement not in scopes:
-            scopes[placement] = _scope(placement, members[placement], rosters, nodes, carried, problems)
-            lifted[placement] = scopes[placement]
-        scope = scopes.get(placement) if placement is not None else None
+        walk.visit(node)
+    return walk.result()
 
-        roster = rosters[node.id]
-        declared_names = {i.name for i in versions[node.id].interface.inputs}
-        arrivals: dict[str, Carried] = {}
-        receives: dict[str, Any] = {}
-        demands: list[tuple[Index, Ref]] = []
-        bound: dict[str, Any] = {}
+
+@dataclass
+class _Arrivals:
+    """What one node's inputs receive, gathered while its edges are read.
+
+    ``arrivals``: per input, what it carries — the type, and the index for
+    a series. ``receives``: per connected input, the type the node sees
+    per call (an element, where a series is sliced per row). ``demands``:
+    the indexes the node must run per row of, each with the input that
+    demands it. ``bound``: the types the edges gave to inputs that had
+    none of their own. ``broken`` is set when a source cannot be read and
+    the walk stopped at that input.
+    """
+
+    arrivals: dict[str, Carried] = dataclasses.field(default_factory=dict)
+    receives: dict[str, Any] = dataclasses.field(default_factory=dict)
+    demands: list[tuple[Index, Ref]] = dataclasses.field(default_factory=list)
+    bound: dict[str, Any] = dataclasses.field(default_factory=dict)
+    broken: bool = False
+
+
+class _Walk:
+    """The walk over the edges, one node at a time in execution order.
+
+    ``visit`` reads what arrives on a node's inputs, decides whether it
+    runs once per row, completes its inputs and outputs and records what
+    every field carries; later nodes read those records as their sources.
+    ``result`` freezes what was found into a ``Lifting``.
+    """
+
+    def __init__(
+        self,
+        nodes: Sequence[GraphNode],
+        rosters: Mapping[str, Roster],
+        versions: Mapping[str, NodeVersion],
+        registry: NodeRegistry,
+        statics: Mapping[str, Mapping[str, Any]],
+        placement_of: Mapping[str, str | None],
+        members: Mapping[str, Sequence[str]],
+    ) -> None:
+        self.nodes = {node.id: node for node in nodes}
+        self.rosters = rosters
+        self.versions = versions
+        self.registry = registry
+        self.statics = statics
+        self.placement_of = placement_of
+        self.members = members
+        #: The index each visited node runs once per row of (``None``: once);
+        #: each embedded graph's, under its placement id.
+        self.lifted: dict[str, Index | None] = {}
+        #: What every field of every visited node carries.
+        self.carried: dict[Ref, Carried] = {}
+        #: Each visited node's inputs and outputs, completed.
+        self.completed: dict[str, Roster] = {}
+        self.problems: list[Problem] = []
+        #: The index each embedded graph's inner nodes run per row of, found
+        #: when the walk reaches its first inner node.
+        self.scopes: dict[str, Index | None] = {}
+
+    def result(self) -> Lifting:
+        return Lifting(
+            lifted=self.lifted, carried=self.carried, rosters=self.completed, problems=tuple(self.problems)
+        )
+
+    def visit(self, node: GraphNode) -> None:
+        """Read ``node``'s inputs, then either derive everything about it or,
+        when a source could not be read, complete its fields from what did
+        arrive and derive nothing."""
+        scope = self._scope_of(node)
+        arrived = self._read_inputs(node, scope)
+        if arrived.broken:
+            self._complete_without_deriving(node, arrived)
+        else:
+            self._derive(node, arrived, scope)
+
+    def _scope_of(self, node: GraphNode) -> Index | None:
+        """The index the embedded graph ``node`` sits in runs per row of, or
+        ``None`` when it sits at the top or the graph runs once. Found on
+        the first inner node visited and recorded for the placement."""
+        placement = self.placement_of.get(node.id)
+        if placement is None:
+            return None
+        if placement not in self.scopes:
+            self.scopes[placement] = self._entering_index(placement)
+            self.lifted[placement] = self.scopes[placement]
+        return self.scopes[placement]
+
+    def _read_inputs(self, node: GraphNode, scope: Index | None) -> _Arrivals:
+        """What arrives on each input of ``node``, and whether it may.
+
+        An input nothing feeds carries what the author typed (a scalar, or a
+        series on an index of its own). A connected input is checked: every
+        source must have been visited and have that output; a ``**inputs``
+        parameter takes one edge whole; an input with no type of its own
+        takes its first edge's; ``accepts`` judges every edge; a scalar input
+        fed a series demands its index, a ``Series[X]`` input fed one series
+        reduces on the parent index or receives the series whole, and fed
+        anything else gathers onto a fresh index. Stops at the first input
+        that cannot be read and says so in ``broken``.
+        """
+        roster = self.rosters[node.id]
+        version = self.versions[node.id]
+        declared_names = {i.name for i in version.interface.inputs}
+        found = _Arrivals()
 
         for inp in roster.inputs:
             ref = Ref(node.id, inp.name)
             binding = node.bindings.get(inp.name)
-            whole = versions[node.id].interface.open == "single" and inp.name not in declared_names
+            whole = version.interface.open == "single" and inp.name not in declared_names
             if not isinstance(binding, Edges):
-                arrivals[inp.name] = _originates(inp, ref, statics[node.id].get(inp.name), scope)
-                if getattr(inp.dtype, "element", None) is None and arrivals[inp.name].index is not None:
-                    demands.append((arrivals[inp.name].index, ref))
+                found.arrivals[inp.name] = _originates(inp, ref, self.statics[node.id].get(inp.name), scope)
+                if getattr(inp.dtype, "element", None) is None and found.arrivals[inp.name].index is not None:
+                    found.demands.append((found.arrivals[inp.name].index, ref))
                 continue
-            missing = [source for source in binding.refs if source not in carried]
+            missing = [source for source in binding.refs if source not in self.carried]
             if missing:
                 # A source that was resolved but has no such field: the ref names
                 # an output it does not have. A source that was never resolved
                 # carries its own problem and is not reported again here.
-                problems.extend(problem("unknown_ref_output", node.id, inp.name, source=str(source)) for source in missing if source.node_id in lifted)
-                break
-            sources = [carried[source] for source in binding.refs]
+                self.problems.extend(
+                    problem("unknown_ref_output", node.id, inp.name, source=str(source))
+                    for source in missing if source.node_id in self.lifted
+                )
+                found.broken = True
+                return found
+            sources = [self.carried[source] for source in binding.refs]
             if whole:
                 # A `**inputs` parameter takes what arrives, whole. It is passed
                 # as a keyword argument, so its name must be an identifier.
                 if not inp.name.isidentifier():
-                    problems.append(problem("parameter_name_invalid", node.id, inp.name))
-                    break
+                    self.problems.append(problem("parameter_name_invalid", node.id, inp.name))
+                    found.broken = True
+                    return found
                 if len(sources) > 1:
-                    problems.append(problem("one_edge_per_parameter", node.id, inp.name))
-                    break
+                    self.problems.append(problem("one_edge_per_parameter", node.id, inp.name))
+                    found.broken = True
+                    return found
                 refused = _refuses_whole(node.id, inp.name, sources[0].dtype)
                 if refused is not None:
-                    problems.append(refused)
-                    break
-                bound[inp.name] = sources[0].dtype
-                receives[inp.name] = sources[0].dtype
-                arrivals[inp.name] = sources[0]
+                    self.problems.append(refused)
+                    found.broken = True
+                    return found
+                found.bound[inp.name] = sources[0].dtype
+                found.receives[inp.name] = sources[0].dtype
+                found.arrivals[inp.name] = sources[0]
                 continue
             target = inp.dtype
             if target is Any or getattr(target, "element", None) is Any:
@@ -185,82 +283,133 @@ def derive(
                 # edge; the other edges are checked against it.
                 element = sources[0].dtype.element or sources[0].dtype
                 target = Series[element] if getattr(inp.dtype, "element", None) is not None else element
-                bound[inp.name] = target
+                found.bound[inp.name] = target
             for source_ref, source in zip(binding.refs, sources, strict=True):
-                problems.extend(_admit(target, ref, source_ref, source))
+                self.problems.extend(_admit(target, ref, source_ref, source))
             if target.element is None:
                 if len(sources) > 1 and not _one_index(sources):
-                    problems.append(problem("union_needs_one_index", node.id, inp.name))
-                    break
+                    self.problems.append(problem("union_needs_one_index", node.id, inp.name))
+                    found.broken = True
+                    return found
                 arriving = sources[0]  # one ref, or a union of several on one index
-                receives[inp.name] = arriving.dtype.element or arriving.dtype
+                found.receives[inp.name] = arriving.dtype.element or arriving.dtype
                 if arriving.index is not None:
-                    demands.append((arriving.index, ref))
+                    found.demands.append((arriving.index, ref))
             elif _one_index(sources):
                 arriving = sources[0]  # one series, or a union of several on one index
-                receives[inp.name] = arriving.dtype
+                found.receives[inp.name] = arriving.dtype
                 if scope is not None and arriving.index == scope:
-                    # The series entered this embedded flow from outside, so the
+                    # The series entered this embedded graph from outside, so the
                     # reduction runs once per outer row and receives the one row
                     # under it.
-                    demands.append((arriving.index, ref))
+                    found.demands.append((arriving.index, ref))
                 elif arriving.index.parent is not None:
-                    demands.append((arriving.index.parent, ref))
+                    found.demands.append((arriving.index.parent, ref))
             else:
                 arriving = Carried(target, Index(ref, parent=scope))
-                receives[inp.name] = target
-            arrivals[inp.name] = arriving
-        else:
-            inputs = tuple(_typed(inp, bound) for inp in roster.inputs)
-            answered = _outputs(node, versions[node.id].interface.outputs, registry, receives, _hook_values((*versions[node.id].interface.inputs, *roster.inputs), statics[node.id]))
-            if isinstance(answered, Problem):
-                # The refusal is the node's problem: fatal, with no `no_outputs`
-                # beside it, and nothing is derived past it.
-                problems.append(answered)
-                completed[node.id] = Roster(inputs=inputs, outputs=())
-                continue
-            outputs = answered
-            completed[node.id] = Roster(inputs=inputs, outputs=outputs)
-            if not outputs:
-                problems.append(problem("no_outputs", node.id))
-            lift_index, disagreeing = _lift_index(demands)
-            if disagreeing is not None:
-                problems.append(_misaligned(node.id, *disagreeing))
-                continue
-            # Inside an embedded flow that runs per row, every node runs at least
-            # once per outer row: that index is one more demand on the same line
-            # of descent. A node nothing from outside reaches runs per row of it;
-            # a node fed from a shallower index repeats its value down to it.
-            if scope is not None and (lift_index is None or scope not in _lineage(lift_index)):
-                lift_index = scope
-            lifted[node.id] = lift_index
-            carried.update({Ref(node.id, name): c for name, c in arrivals.items()})
-            node_index: Index | None = None
-            for out in outputs:
-                ref = Ref(node.id, out.name)
-                if getattr(out.dtype, "element", None) is not None:
-                    node_index = node_index or Index(node.id, parent=lift_index or scope)
-                    carried[ref] = Carried(out.dtype, node_index)
-                elif lift_index is not None:
-                    carried[ref] = Carried(Series[out.dtype], lift_index)
-                else:
-                    carried[ref] = Carried(out.dtype, None)
-            continue
-        # A source was broken: complete the inputs and outputs from what arrived, derive nothing.
-        answered = _outputs(
-            node, versions[node.id].interface.outputs,
-            registry, receives, _hook_values((*versions[node.id].interface.inputs, *roster.inputs), statics[node.id]),
-        )
+                found.receives[inp.name] = target
+            found.arrivals[inp.name] = arriving
+        return found
+
+    def _derive(self, node: GraphNode, arrived: _Arrivals, scope: Index | None) -> None:
+        """Every input read: complete the node's fields, ask its outputs,
+        decide the index it runs per row of, and record what each output
+        carries."""
+        roster = self.rosters[node.id]
+        inputs = tuple(_typed(inp, arrived.bound) for inp in roster.inputs)
+        answered = self._outputs(node, arrived.receives)
+        if isinstance(answered, Problem):
+            # The refusal is the node's problem: fatal, with no `no_outputs`
+            # beside it, and nothing is derived past it.
+            self.problems.append(answered)
+            self.completed[node.id] = Roster(inputs=inputs, outputs=())
+            return
+        outputs = answered
+        self.completed[node.id] = Roster(inputs=inputs, outputs=outputs)
+        if not outputs:
+            self.problems.append(problem("no_outputs", node.id))
+        lift_index, disagreeing = _lift_index(arrived.demands)
+        if disagreeing is not None:
+            self.problems.append(_misaligned(node.id, *disagreeing))
+            return
+        # Inside an embedded graph that runs per row, every node runs at least
+        # once per outer row: that index is one more demand on the same line
+        # of descent. A node nothing from outside reaches runs per row of it;
+        # a node fed from a shallower index repeats its value down to it.
+        if scope is not None and (lift_index is None or scope not in _lineage(lift_index)):
+            lift_index = scope
+        self.lifted[node.id] = lift_index
+        self.carried.update({Ref(node.id, name): c for name, c in arrived.arrivals.items()})
+        node_index: Index | None = None
+        for out in outputs:
+            ref = Ref(node.id, out.name)
+            if getattr(out.dtype, "element", None) is not None:
+                node_index = node_index or Index(node.id, parent=lift_index or scope)
+                self.carried[ref] = Carried(out.dtype, node_index)
+            elif lift_index is not None:
+                self.carried[ref] = Carried(Series[out.dtype], lift_index)
+            else:
+                self.carried[ref] = Carried(out.dtype, None)
+
+    def _complete_without_deriving(self, node: GraphNode, arrived: _Arrivals) -> None:
+        """A source was broken: complete the inputs and outputs from what
+        arrived so an editor can draw the node, and derive nothing."""
+        answered = self._outputs(node, arrived.receives)
         if isinstance(answered, Problem):
             # The broken source carries the fault; a refusal about its missing
             # arrival would report the same fact twice.
             answered = ()
-        completed[node.id] = Roster(
-            inputs=tuple(_typed(inp, bound) for inp in roster.inputs),
+        self.completed[node.id] = Roster(
+            inputs=tuple(_typed(inp, arrived.bound) for inp in self.rosters[node.id].inputs),
             outputs=answered,
         )
 
-    return Lifting(lifted=lifted, carried=carried, rosters=completed, problems=tuple(problems))
+    def _outputs(self, node: GraphNode, receives: Mapping[str, Any]) -> tuple[Output, ...] | Problem:
+        """Ask the node's ``compute_outputs`` now that it can be told what
+        arrives, with the values the author typed laid over the
+        declaration's defaults (so a hook indexes ``values[...]`` without a
+        guard).
+
+        A hook that cannot answer for these values and arrivals raises
+        ``Refuses(code, message)``, and the refusal comes back as the node's
+        one fatal ``Problem`` — the hook chose the code and the message,
+        compile only records which node it belongs to.
+        """
+        version = self.versions[node.id]
+        declared = (*version.interface.inputs, *self.rosters[node.id].inputs)
+        values = {**{i.name: i.default for i in declared if i.optional}, **self.statics[node.id]}
+        try:
+            return self.registry.get(node.type)().compute_outputs(version.interface.outputs, values, receives)
+        except Refuses as refusal:
+            return Problem(code=refusal.code, message=refusal.message, fatal=True, node_id=node.id)
+
+    def _entering_index(self, placement: str) -> Index | None:
+        """The index an embedded graph's inner nodes run once per row of: the
+        deepest index among the series that enter it from outside through a
+        scalar field, or ``None`` when no series enters that way (the inner
+        nodes then run once each, as if the graph were flat). Two entering
+        series on unrelated indexes are reported as ``misaligned`` on the
+        embedded graph's node, exactly as they would be on a single node.
+        """
+        block = self.members[placement]
+        inside = set(block)
+        demands: list[tuple[Index, Ref]] = []
+        for node_id in block:
+            if node_id not in self.nodes:
+                continue  # a broken edge; the node carries its own problem and was left out of the walk
+            node = self.nodes[node_id]
+            for inp in self.rosters[node_id].inputs:
+                binding = node.bindings.get(inp.name)
+                if not isinstance(binding, Edges) or getattr(inp.dtype, "element", None) is not None:
+                    continue
+                for source in binding.refs:
+                    if source.node_id not in inside and source in self.carried and self.carried[source].index is not None:
+                        demands.append((self.carried[source].index, Ref(node_id, inp.name)))
+        index, disagreeing = _lift_index(demands)
+        if disagreeing is not None:
+            self.problems.append(_misaligned(placement, *disagreeing))
+            return None
+        return index
 
 
 def _typed(field: Any, bound: Mapping[str, Any]) -> Any:
@@ -268,67 +417,6 @@ def _typed(field: Any, bound: Mapping[str, Any]) -> Any:
     if field.name in bound:
         return replace(field, dtype=bound[field.name])
     return field
-
-
-def _scope(
-    placement: str,
-    block: Sequence[str],
-    rosters: Mapping[str, Roster],
-    nodes: Sequence[GraphNode],
-    carried: Mapping[Ref, Carried],
-    problems: list[Problem],
-) -> Index | None:
-    """The index an embedded flow's inner nodes run once per row of: the
-    deepest index among the series that enter it from outside through a
-    scalar field, or ``None`` when no series enters that way (the inner
-    nodes then run once each, as if the flow were flat). Two entering
-    series on unrelated indexes are reported as ``misaligned`` on the
-    embedded flow's node, exactly as they would be on a single node.
-    """
-    inside = set(block)
-    by_id = {node.id: node for node in nodes}
-    demands: list[tuple[Index, Ref]] = []
-    for node_id in block:
-        if node_id not in by_id:
-            continue  # a broken edge; the node carries its own problem and was left out of the walk
-        node = by_id[node_id]
-        for inp in rosters[node_id].inputs:
-            binding = node.bindings.get(inp.name)
-            if not isinstance(binding, Edges) or getattr(inp.dtype, "element", None) is not None:
-                continue
-            for source in binding.refs:
-                if source.node_id not in inside and source in carried and carried[source].index is not None:
-                    demands.append((carried[source].index, Ref(node_id, inp.name)))
-    index, disagreeing = _lift_index(demands)
-    if disagreeing is not None:
-        problems.append(_misaligned(placement, *disagreeing))
-        return None
-    return index
-
-
-def _hook_values(inputs: Sequence[Input], statics: Mapping[str, Any]) -> dict[str, Any]:
-    """What ``compute_outputs`` reads as ``values``: what the author typed,
-    laid over the declaration's defaults. An input nothing binds falls
-    back to what the declaration states, so a hook indexes ``values[...]``
-    without a guard.
-    """
-    return {**{i.name: i.default for i in inputs if i.optional}, **statics}
-
-
-def _outputs(
-    node: GraphNode, declared: tuple[Output, ...], registry: NodeRegistry, receives: Mapping[str, Any], values: Mapping[str, Any]
-) -> tuple[Output, ...] | Problem:
-    """Ask the node's ``compute_outputs`` now that it can be told what arrives.
-
-    A hook that cannot answer for these values and arrivals raises
-    ``Refuses(code, message)``, and the refusal comes back as the node's
-    one fatal ``Problem`` — the hook chose the code and the message,
-    compile only records which node it belongs to.
-    """
-    try:
-        return registry.get(node.type)().compute_outputs(declared, values, receives)
-    except Refuses as refusal:
-        return Problem(code=refusal.code, message=refusal.message, fatal=True, node_id=node.id)
 
 
 def _one_index(sources: Sequence[Carried]) -> bool:
