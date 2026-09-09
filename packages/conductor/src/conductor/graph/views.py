@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 
 from conductor.graph.binding import Edges
 from conductor.graph.model import GraphNode
-from conductor.graph.problem import Problem
+from conductor.graph.problem import Problem, problem
 from conductor.interface import Interface
 from conductor.ref import Ref
 
@@ -53,13 +53,7 @@ def lock_problems(nodes: Mapping[str, GraphNode], rosters: Mapping[str, Roster])
     it carries its own problem.
     """
     return tuple(
-        Problem(
-            code="unknown_locked_field",
-            message=f"The lock on '{node_id}.{name}' points at a field the node does not have.",
-            fatal=False,
-            node_id=node_id,
-            field=name,
-        )
+        problem("unknown_locked_field", node_id, name)
         for node_id, roster in rosters.items()
         for name in nodes[node_id].locked
         if name not in {i.name for i in roster.inputs}

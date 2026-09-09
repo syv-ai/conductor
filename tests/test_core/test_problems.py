@@ -411,23 +411,22 @@ def test_a_non_fatal_problem_leaves_the_flow_runnable():
 # --- the codes compile emits are declared once ------------------------------------
 
 
-def test_every_code_compile_emits_is_declared_once():
-    """``CODES`` is what a host translating by code has to cover, so it must
-    equal the literals at the emitting sites — nothing emitted undeclared,
-    nothing declared that nothing emits. Read off the source with ``ast``,
-    so a code in a docstring example does not count."""
-    import ast
-    from pathlib import Path
+def test_every_code_is_declared_once_in_the_catalogue():
+    """``CODES`` is what a host translating by code has to cover: the keys of
+    the one table every emitting site reads. A site naming a code the table
+    lacks raises where it is written, so nothing can be emitted undeclared."""
+    from conductor.graph.problem import CATALOGUE, CODES, problem
 
-    import conductor.graph as graph
-    from conductor.graph.problem import CODES
+    assert CODES == frozenset(CATALOGUE)
+    with pytest.raises(KeyError):
+        problem("no_such_code", "n")
 
-    emitted: set[str] = set()
-    for path in Path(graph.__file__).parent.glob("*.py"):
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.Call):
-                for keyword in node.keywords:
-                    if keyword.arg == "code" and isinstance(keyword.value, ast.Constant) and isinstance(keyword.value.value, str):
-                        emitted.add(keyword.value.value)
 
-    assert emitted == CODES
+def test_a_problem_is_formatted_from_its_details_and_keeps_them():
+    from conductor.graph.problem import problem
+
+    p = problem("unknown_ref_node", "b", "text", source_node="a")
+    assert p.message == "Field 'text' is connected to 'a', which is not in the flow."
+    assert p.details == {"source_node": "a"}
+    assert p.fatal is True
+    assert problem("stale_binding", "b", "old").fatal is False

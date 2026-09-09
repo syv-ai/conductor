@@ -258,7 +258,7 @@ def test_a_mismatched_edge_is_a_fatal_problem_on_the_target_field():
     (problem,) = compiled.problems_for()
     assert (problem.code, problem.fatal, problem.node_id, problem.field) == ("type_mismatch", True, "up", "text")
     assert problem.details["source"] == "n.result"
-    assert set(problem.details) == {"source", "source_type", "target_type"}
+    assert set(problem.details) == {"source", "source_type", "target_type", "source_said", "target_said"}
     assert "id" in problem.details["target_type"]  # a description record, not a name
     assert not compiled.is_runnable
 

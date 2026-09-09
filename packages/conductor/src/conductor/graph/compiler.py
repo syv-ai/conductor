@@ -17,7 +17,6 @@ nothing is guessed about a node downstream of a fault.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from functools import cache
 from typing import Any
 
@@ -30,13 +29,7 @@ from conductor.graph.conditions import conditions_of
 from conductor.graph.expand import expand, surfaced
 from conductor.graph.lifting import derive
 from conductor.graph.model import Graph, GraphNode
-from conductor.graph.problem import (
-    Problem,
-    cycle,
-    stale_binding,
-    unknown_node_type,
-    unknown_node_version,
-)
+from conductor.graph.problem import Problem, problem
 from conductor.graph.topology import dependencies_of, order_of
 from conductor.graph.views import derive_interface, lock_problems
 from conductor.metadata import Input, Roster
@@ -65,7 +58,7 @@ def compile_graph(graph: Graph, registry: NodeRegistry) -> CompiledGraph:
     pinned = _pinned_versions(authored, registry, problems)
     authored_dependencies = dependencies_of(authored.values())
     authored_order, cyclic = order_of(authored_dependencies)
-    problems.extend(cycle(node_id) for node_id in sorted(cyclic))
+    problems.extend(problem("cycle", node_id) for node_id in sorted(cyclic))
     expansion = expand(authored, authored_order, pinned, registry, problems)
     nodes, versions = expansion.nodes, expansion.versions
     rosters, statics = _rosters(nodes, versions, registry, problems)
@@ -110,12 +103,7 @@ def _nodes_by_id(graph: Graph, problems: list[Problem]) -> dict[str, GraphNode]:
     nodes: dict[str, GraphNode] = {}
     for node in graph.nodes:
         if node.id in nodes:
-            problems.append(Problem(
-                code="duplicate_node_id",
-                message=f"Two nodes have the id '{node.id}'.",
-                fatal=True,
-                node_id=node.id,
-            ))
+            problems.append(problem("duplicate_node_id", node.id))
             continue
         nodes[node.id] = node
     return nodes
@@ -137,11 +125,11 @@ def _pinned_versions(
     for node in nodes.values():
         definition = registry.get(node.type)
         if definition is None:
-            problems.append(unknown_node_type(node.id, node.type))
+            problems.append(problem("unknown_node_type", node.id, node_type=node.type))
             continue
         version = definition.versions.get(node.version)
         if version is None:
-            problems.append(unknown_node_version(node.id, node.type, node.version))
+            problems.append(problem("unknown_node_version", node.id, node_type=node.type, version=node.version))
             continue
         versions[node.id] = version
     return versions
@@ -234,15 +222,7 @@ def _typed_statics(
             typed[name] = _typed_static(inp, value)
         except (ValidationError, TypeError, ValueError) as invalid:
             said = _what_the_type_said(invalid)
-            problems.append(Problem(
-                code="invalid_static",
-                message=f"The value in '{name}' cannot be read as the field's type."
-                + (f" {said}" if said else ""),
-                fatal=True,
-                node_id=node.id,
-                field=name,
-                details={"reason": said} if said else {},
-            ))
+            problems.append(problem("invalid_static", node.id, name, **({"reason": said} if said else {})))
     return typed
 
 
@@ -302,37 +282,28 @@ def _check_bindings(
 
         for name, binding in node.bindings.items():
             if name not in declared:
-                problems.append(stale_binding(node_id, name))
+                problems.append(problem("stale_binding", node_id, name))
                 continue
             if not isinstance(binding, Edges):
                 continue
             target = declared[name]
             if not target.show_handle:
                 broken.add(node_id)
-                problems.append(_at(node_id, name, code="edge_into_closed_handle",
-                    message=f"Field '{name}' has no handle, so nothing can be connected to it."))
+                problems.append(problem("edge_into_closed_handle", node_id, name))
             for ref in binding.refs:
                 if ref.node_id not in nodes:
                     broken.add(node_id)
-                    problems.append(_at(node_id, name, code="unknown_ref_node",
-                        message=f"Field '{name}' is connected to '{ref.node_id}', which is not in the flow.",
-                        details={"source_node": ref.node_id}))
+                    problems.append(problem("unknown_ref_node", node_id, name, source_node=ref.node_id))
 
         for inp in roster.inputs:
             if inp.dtype is Any:
                 if not isinstance(node.bindings.get(inp.name), Edges):
                     broken.add(node_id)
-                    problems.append(_at(node_id, inp.name, code="unbound_required",
-                        message="Nothing is connected to the field."))
+                    problems.append(problem("unbound_required", node_id, inp.name))
             elif not inp.optional and inp.name not in node.bindings:
                 broken.add(node_id)
-                problems.append(_at(node_id, inp.name, code="unbound_required",
-                    message="Nothing is connected to the field."))
+                problems.append(problem("unbound_required", node_id, inp.name))
     return frozenset(broken)
-
-
-def _at(node_id: str, field: str, *, code: str, message: str, fatal: bool = True, details: Mapping[str, Any] | None = None) -> Problem:
-    return Problem(code=code, message=message, fatal=fatal, node_id=node_id, field=field, details=details or {})
 
 
 def _roster_rules(rosters: dict[str, Roster]) -> list[Problem]:
@@ -353,14 +324,12 @@ def _roster_rules(rosters: dict[str, Roster]) -> list[Problem]:
         seen: set[str] = set()
         for declared in (*roster.inputs, *roster.outputs):
             if declared.name in seen:
-                found.append(_at(node_id, declared.name, code="duplicate_field_name",
-                    message=f"The node has two fields named '{declared.name}'."))
+                found.append(problem("duplicate_field_name", node_id, declared.name))
             seen.add(declared.name)
         handles = (*(inp for inp in roster.inputs if inp.show_handle), *roster.outputs)
         for declared in handles:
             if declared.dtype is not Any and not (
                 isinstance(declared.dtype, type) and issubclass(declared.dtype, DType)
             ):
-                found.append(_at(node_id, declared.name, code="handle_needs_dtype",
-                    message=f"Field '{declared.name}' has a handle but no type that can travel on an edge."))
+                found.append(problem("handle_needs_dtype", node_id, declared.name))
     return found

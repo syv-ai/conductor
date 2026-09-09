@@ -67,7 +67,7 @@ from conductor.dtype_ref import description_of
 from conductor.graph.binding import Edges, many
 from conductor.graph.compiled import Carried
 from conductor.graph.model import GraphNode
-from conductor.graph.problem import Problem
+from conductor.graph.problem import Problem, problem
 from conductor.metadata import Input, Output, Roster
 from conductor.node import NodeVersion, Refuses
 from conductor.ref import Ref
@@ -159,17 +159,17 @@ def derive(
                 # A source that was resolved but has no such field: the ref names
                 # an output it does not have. A source that was never resolved
                 # carries its own problem and is not reported again here.
-                problems.extend(_unknown_output(node.id, inp.name, source) for source in missing if source.node_id in lifted)
+                problems.extend(problem("unknown_ref_output", node.id, inp.name, source=str(source)) for source in missing if source.node_id in lifted)
                 break
             sources = [carried[source] for source in binding.refs]
             if whole:
                 # A `**inputs` parameter takes what arrives, whole. It is passed
                 # as a keyword argument, so its name must be an identifier.
                 if not inp.name.isidentifier():
-                    problems.append(_not_a_parameter_name(node.id, inp.name))
+                    problems.append(problem("parameter_name_invalid", node.id, inp.name))
                     break
                 if len(sources) > 1:
-                    problems.append(_one_edge(node.id, inp.name))
+                    problems.append(problem("one_edge_per_parameter", node.id, inp.name))
                     break
                 refused = _refuses_whole(node.id, inp.name, sources[0].dtype)
                 if refused is not None:
@@ -190,7 +190,7 @@ def derive(
                 problems.extend(_admit(target, ref, source_ref, source))
             if target.element is None:
                 if len(sources) > 1 and not _one_index(sources):
-                    problems.append(_union_needs_one_index(node.id, inp.name))
+                    problems.append(problem("union_needs_one_index", node.id, inp.name))
                     break
                 arriving = sources[0]  # one ref, or a union of several on one index
                 receives[inp.name] = arriving.dtype.element or arriving.dtype
@@ -222,7 +222,7 @@ def derive(
             outputs = answered
             completed[node.id] = Roster(inputs=inputs, outputs=outputs)
             if not outputs:
-                problems.append(_no_outputs(node.id))
+                problems.append(problem("no_outputs", node.id))
             lift_index, disagreeing = _lift_index(demands)
             if disagreeing is not None:
                 problems.append(_misaligned(node.id, *disagreeing))
@@ -353,60 +353,6 @@ def _refuses_whole(node_id: str, field: str, dtype: type[DType]) -> Problem | No
     )
 
 
-def _union_needs_one_index(node_id: str, field: str) -> Problem:
-    return Problem(
-        code="union_needs_one_index",
-        message=f"Field '{field}' has several edges; that only works when they are all rows of one table.",
-        fatal=True,
-        node_id=node_id,
-        field=field,
-    )
-
-
-def _not_a_parameter_name(node_id: str, field: str) -> Problem:
-    return Problem(
-        code="parameter_name_invalid",
-        message=f"'{field}' cannot be a parameter name; use letters, digits and underscores, and start with a letter.",
-        fatal=True,
-        node_id=node_id,
-        field=field,
-    )
-
-
-def _one_edge(node_id: str, field: str) -> Problem:
-    return Problem(
-        code="one_edge_per_parameter",
-        message=f"Parameter '{field}' takes one edge; an extra edge is an extra parameter.",
-        fatal=True,
-        node_id=node_id,
-        field=field,
-    )
-
-
-def _unknown_output(node_id: str, field: str, source: Ref) -> Problem:
-    return Problem(
-        code="unknown_ref_output",
-        message=f"Field '{field}' is connected to '{source}', which is not an output of that node.",
-        fatal=True,
-        node_id=node_id,
-        field=field,
-        details={"source": str(source)},
-    )
-
-
-def _no_outputs(node_id: str) -> Problem:
-    """The ordinary state of a node mid-edit whose outputs depend on a value
-    the author has not yet given — not fatal: the node runs, produces
-    nothing, and nothing can be connected from it yet.
-    """
-    return Problem(
-        code="no_outputs",
-        message="The node has no fields to pass on, so nothing can be connected from it.",
-        fatal=False,
-        node_id=node_id,
-    )
-
-
 def _originates(inp: Input, ref: Ref, static: Any, scope: Index | None) -> Carried:
     """What a field carries when no edge feeds it: a scalar, or a series on
     an index of the field's own — always for a ``Series[X]`` input, and for
@@ -428,17 +374,13 @@ def _originates(inp: Input, ref: Ref, static: Any, scope: Index | None) -> Carri
 def _admit(target: Any, ref: Ref, source_ref: Ref, source: Carried) -> list[Problem]:
     """May what arrives land on ``ref``? ``target.accepts`` decides."""
     if not target.accepts(source.dtype):
-        return [Problem(
-            code="type_mismatch",
-            message=f"'{source_ref}' is {_say(source.dtype)}, but '{ref}' takes {_say(target)}.",
-            fatal=True,
-            node_id=ref.node_id,
-            field=ref.field,
-            details={
-                "source": str(source_ref),
-                "source_type": description_of(source.dtype),
-                "target_type": description_of(target),
-            },
+        return [problem(
+            "type_mismatch", ref.node_id, ref.field,
+            source=str(source_ref),
+            source_type=description_of(source.dtype),
+            target_type=description_of(target),
+            source_said=_say(source.dtype),
+            target_said=_say(target),
         )]
     return []
 
@@ -479,10 +421,4 @@ def _lineage(index: Index) -> list[Index]:
 
 
 def _misaligned(node_id: str, a: Ref, b: Ref) -> Problem:
-    return Problem(
-        code="misaligned",
-        message=f"'{a}' and '{b}' get their rows from different sources, so the node cannot run per row.",
-        fatal=True,
-        node_id=node_id,
-        details={"a": str(a), "b": str(b)},
-    )
+    return problem("misaligned", node_id, a=str(a), b=str(b))

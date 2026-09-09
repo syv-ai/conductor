@@ -30,13 +30,7 @@ from dataclasses import dataclass, replace
 
 from conductor.graph.binding import Binding, Edges
 from conductor.graph.model import GraphNode
-from conductor.graph.problem import (
-    Problem,
-    cycle,
-    stale_binding,
-    unknown_node_type,
-    unknown_node_version,
-)
+from conductor.graph.problem import Problem, problem
 from conductor.graph.topology import dependencies_of, order_of
 from conductor.node import GraphVersion, NodeVersion
 from conductor.ref import Ref
@@ -109,15 +103,15 @@ def expand(
         for inner_id, inner in inner_nodes.items():
             definition = registry.get(inner.type)
             if definition is None:
-                problems.append(unknown_node_type(inner_id, inner.type))
+                problems.append(problem("unknown_node_type", inner_id, node_type=inner.type))
                 continue
             inner_version = definition.versions.get(inner.version)
             if inner_version is None:
-                problems.append(unknown_node_version(inner_id, inner.type, inner.version))
+                problems.append(problem("unknown_node_version", inner_id, node_type=inner.type, version=inner.version))
                 continue
             inner_versions[inner_id] = inner_version
         inner_order, cyclic = order_of(dependencies_of(inner_nodes.values()))
-        problems.extend(cycle(inner_id) for inner_id in sorted(cyclic))
+        problems.extend(problem("cycle", inner_id) for inner_id in sorted(cyclic))
         for inner_id in inner_order:
             if inner_id in inner_versions:
                 inline(moved.get(inner_id, inner_nodes[inner_id]), inner_versions[inner_id], node.id)
@@ -216,7 +210,7 @@ def _moved(
         first, _, field = key.partition(".")
         inner = f"{placement.id}{SEPARATOR}{first}"
         if not field or inner not in inner_nodes:
-            problems.append(stale_binding(placement.id, key))
+            problems.append(problem("stale_binding", placement.id, key))
             continue
         moved.setdefault(inner, {})[field] = binding
     return {

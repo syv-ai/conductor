@@ -1,19 +1,24 @@
 """``Problem`` — something wrong with a graph, as data rather than an exception.
 
-Compiling a flow yields a list of problems. An editor shows every one,
+Compiling a graph yields a list of problems. An editor shows every one,
 pointing at the node (and field) it is about, so an author can be
 mid-edit with a broken graph and still see what to fix; a run refuses to
 start on the first ``fatal`` one. Because the same list serves both,
 compile never raises for a problem in the graph::
 
-    Problem(code="unknown_input", message="The node has no such field.",
-            fatal=True, node_id="letter", field="template")
+    problem("unknown_ref_node", "letter", "template", source_node="ghost")
 
 ``code`` is stable and is what a frontend keys on. ``message`` is English
 and for a person; ``details`` holds what the message was formatted from
-(the field, the node type, the source ref) under stable keys, so a host
-can say the same thing in its own language from ``code`` and ``details``
-without parsing the message.
+(the source ref, the node type) under stable keys, so a host can say the
+same thing in its own language from ``code`` and ``details`` without
+parsing the message.
+
+Every code compile emits is declared once, in ``CATALOGUE`` below, with
+its message and whether it is fatal; ``problem`` builds one from a row.
+The two problems whose code a *host* chose — a hook raising ``Refuses``,
+a type refusing to be handed over whole — are built as a ``Problem``
+directly where they arise, with the host's own text.
 """
 
 from __future__ import annotations
@@ -34,7 +39,8 @@ class Problem:
 
         Problem(code="unknown_ref_node", message="Field 'text' is connected to 'a', which is not in the flow.",
                 fatal=True, node_id="b", field="text", details={"source_node": "a"})
-    There is no graph-level problem — an empty flow is not broken, it is
+
+    There is no graph-level problem — an empty graph is not broken, it is
     empty — so readers never have to handle a missing anchor.
 
     The anchor is a plain node id and field name rather than a ``Ref``,
@@ -42,7 +48,7 @@ class Problem:
     (a binding to a removed input, a reference to an unknown output), and
     a ``Ref`` is meant to resolve.
 
-    A node failing while a flow *runs* is an exception carrying its own
+    A node failing while a graph *runs* is an exception carrying its own
     cause, not a ``Problem``: this record is about a graph that cannot run.
     """
 
@@ -52,7 +58,7 @@ class Problem:
     #: For a person, in English. Never parsed; a host translates by ``code``.
     message: str
 
-    #: Whether this stops the flow from running. A plain boolean rather than
+    #: Whether this stops the graph from running. A plain boolean rather than
     #: a severity level.
     fatal: bool
 
@@ -69,74 +75,58 @@ class Problem:
     details: Mapping[str, Any] = dataclasses.field(default_factory=dict)
 
 
-#: Every ``code`` compile itself emits, declared once. A host that
-#: translates problems by code covers exactly these; a code a host's own
-#: hook raised (``Refuses``, ``refuses_whole``) is the host's and is not
-#: here. A test pins this set to the literals at the emitting sites.
-CODES: frozenset[str] = frozenset({
-    "cycle",
-    "duplicate_field_name",
-    "duplicate_node_id",
-    "handle_needs_dtype",
-    "invalid_static",
-    "misaligned",
-    "no_outputs",
-    "one_edge_per_parameter",
-    "parameter_name_invalid",
-    "stale_binding",
-    "type_mismatch",
-    "unbound_required",
-    "union_needs_one_index",
-    "unknown_locked_field",
-    "unknown_node_type",
-    "unknown_node_version",
-    "unknown_ref_node",
-    "unknown_ref_output",
-    "edge_into_closed_handle",
-})
+#: Every code compile itself emits: its message, with ``{node_id}``,
+#: ``{field}`` and the ``details`` keys as slots, and whether it is fatal.
+#: The non-fatal ones are states an author can leave a graph in and still
+#: run it: a binding or a lock on a field the node no longer has (nothing
+#: reads it), a node whose outputs wait on a value the author has not
+#: typed yet. A host that translates problems by code covers exactly
+#: these keys; a code a host's own hook raised is the host's and is not
+#: here.
+CATALOGUE: Mapping[str, tuple[str, bool]] = {
+    "cycle": ("The node is part of a cycle, so the flow cannot run.", True),
+    "duplicate_field_name": ("The node has two fields named '{field}'.", True),
+    "duplicate_node_id": ("Two nodes have the id '{node_id}'.", True),
+    "edge_into_closed_handle": ("Field '{field}' has no handle, so nothing can be connected to it.", True),
+    "handle_needs_dtype": ("Field '{field}' has a handle but no type that can travel on an edge.", True),
+    "invalid_static": ("The value in '{field}' cannot be read as the field's type. {reason}", True),
+    "misaligned": ("'{a}' and '{b}' get their rows from different sources, so the node cannot run per row.", True),
+    "no_outputs": ("The node has no fields to pass on, so nothing can be connected from it.", False),
+    "one_edge_per_parameter": ("Parameter '{field}' takes one edge; an extra edge is an extra parameter.", True),
+    "parameter_name_invalid": (
+        "'{field}' cannot be a parameter name; use letters, digits and underscores, and start with a letter.", True,
+    ),
+    "stale_binding": ("Field '{field}' no longer exists on the node.", False),
+    "type_mismatch": ("'{source}' is {source_said}, but '{node_id}.{field}' takes {target_said}.", True),
+    "unbound_required": ("Nothing is connected to the field.", True),
+    "union_needs_one_index": (
+        "Field '{field}' has several edges; that only works when they are all rows of one table.", True,
+    ),
+    "unknown_locked_field": ("The lock on '{node_id}.{field}' points at a field the node does not have.", False),
+    "unknown_node_type": ("Node type '{node_type}' does not exist.", True),
+    "unknown_node_version": ("'{node_type}' has no version {version}.", True),
+    "unknown_ref_node": ("Field '{field}' is connected to '{source_node}', which is not in the flow.", True),
+    "unknown_ref_output": ("Field '{field}' is connected to '{source}', which is not an output of that node.", True),
+}
+
+#: The codes a host translating by code has to cover.
+CODES: frozenset[str] = frozenset(CATALOGUE)
 
 
-def unknown_node_type(node_id: str, node_type: str) -> Problem:
-    """The registry has no definition for ``node_type``. A catalog can lose
-    a type after a graph was stored; an editor shows where."""
-    return Problem(
-        code="unknown_node_type",
-        message=f"Node type '{node_type}' does not exist.",
-        fatal=True,
-        node_id=node_id,
-        details={"node_type": node_type},
-    )
+class _Slots(dict[str, Any]):
+    """Formatting slots: a key the caller gave no value for renders empty, so
+    a message can end in an optional clause (``invalid_static``'s reason)."""
+
+    def __missing__(self, key: str) -> str:
+        return ""
 
 
-def unknown_node_version(node_id: str, node_type: str, pinned: int) -> Problem:
-    """The definition exists, but not in the version this node pins."""
-    return Problem(
-        code="unknown_node_version",
-        message=f"'{node_type}' has no version {pinned}.",
-        fatal=True,
-        node_id=node_id,
-        details={"node_type": node_type, "version": pinned},
-    )
+def problem(code: str, node_id: str, field: str | None = None, **details: Any) -> Problem:
+    """The problem ``code`` on ``node_id`` (and ``field``), its message
+    formatted from ``details``, which the record keeps.
 
-
-def cycle(node_id: str) -> Problem:
-    """The node lies on a cycle of edges, so no execution order can place it."""
-    return Problem(
-        code="cycle",
-        message="The node is part of a cycle, so the flow cannot run.",
-        fatal=True,
-        node_id=node_id,
-    )
-
-
-def stale_binding(node_id: str, field: str) -> Problem:
-    """The binding names a field this node does not have — typically a
-    static left behind by a version upgrade. Nothing reads it, so it is
-    not fatal."""
-    return Problem(
-        code="stale_binding",
-        message=f"Field '{field}' no longer exists on the node.",
-        fatal=False,
-        node_id=node_id,
-        field=field,
-    )
+    A code not in ``CATALOGUE`` is a programming error and raises.
+    """
+    template, fatal = CATALOGUE[code]
+    message = template.format_map(_Slots(node_id=node_id, field=field, **details)).rstrip()
+    return Problem(code=code, message=message, fatal=fatal, node_id=node_id, field=field, details=details)
