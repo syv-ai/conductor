@@ -397,7 +397,8 @@ def test_compiling_the_same_flow_twice_gives_the_same_answers():
     assert first.value_source("b", "x") == second.value_source("b", "x")
     assert first.interface == second.interface
     assert first.roster("b") == second.roster("b")
-    assert first.carried(Ref("b", "result")) == second.carried(Ref("b", "result"))
+    assert first.type_of(Ref("b", "result")) is second.type_of(Ref("b", "result"))
+    assert first.index_of(Ref("b", "result")) == second.index_of(Ref("b", "result"))
 
 
 def test_compiling_does_not_mutate_the_flow():
@@ -414,7 +415,7 @@ def test_the_artifact_and_its_diagnostics_are_importable_from_the_root():
     import conductor
 
     assert conductor.CompiledGraph is CompiledGraph
-    assert conductor.Carried is not None
+    assert not hasattr(conductor, "Carried")
     assert conductor.Problem is Problem
     assert conductor.Condition is not None and conductor.Atom is not None
     assert callable(conductor.CompiledGraph.from_graph)

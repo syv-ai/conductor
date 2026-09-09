@@ -27,8 +27,8 @@ Three words this module uses throughout:
 ``execution_order``, ``node``, ``runner``, ``dependencies`` and
 ``lifted_on`` answer over the expanded graph; problems, rosters and the
 interface are about the authored one. A question about a field may use
-either address: ``carried(Ref("approve", "check.amount"))`` and
-``carried(Ref("approve/check", "amount"))`` are the same question.
+either address: ``type_of(Ref("approve", "check.amount"))`` and
+``type_of(Ref("approve/check", "amount"))`` are the same question.
 
 It is a plain value: immutable, no I/O, no session. The same graph and
 the same registry always give the same ``CompiledGraph``, so it can be
@@ -57,43 +57,20 @@ if TYPE_CHECKING:
     from conductor.series import Index
 
 
-@dataclass(frozen=True, slots=True)
-class Carried:
-    """The type on one field and, when the field carries a series, the index its rows come from.
-
-    Compile records one for every field of every node it could resolve,
-    and ``CompiledGraph.carried`` serves them. The engine reads it to know
-    which index a value sits on; an editor reads it to colour a handle or
-    refuse an edge. ``Roster`` says *which* fields a node has; this says
-    what arrives at one of them.
-
-    At an output it is what the node produces there after lifting: a node
-    that runs once per row produces ``Series[X]`` on that index even where
-    its declaration says ``X``. At an input it is what arrives before the
-    engine slices it per row: a scalar input fed a series carries that
-    series; a ``Series[X]`` input carries the series it receives whole, or
-    the fresh index that several sources are gathered onto. ``index`` is
-    ``None`` for a plain scalar.
-    """
-
-    dtype: Any
-    index: Index | None
-
-
 @dataclass(frozen=True)
 class CompiledGraph:
     """The result of compiling one graph. Ask it; do not read through it.
 
     Built by ``from_graph`` and read by the engine
     (``execution_order``, ``runner``, ``roster``, ``lifted_on``), an
-    editor's compile endpoint (``problems_for``, ``carried``,
+    editor's compile endpoint (``problems_for``, ``type_of``,
     ``interface``), and anything deciding whether a run may start
     (``is_runnable``).
 
     Every field but ``interface`` is private, and every public name is a
     question. A node compile could not resolve — unknown type or version —
-    has a fatal ``Problem`` and no roster, version, index or carried
-    fields; asking about one raises, because the answer is in
+    has a fatal ``Problem`` and no roster, version, index or types;
+    asking about one raises, because the answer is in
     ``problems_for``.
     """
 
@@ -105,7 +82,8 @@ class CompiledGraph:
     _dependencies: Mapping[str, frozenset[str]]
     _order: tuple[str, ...]
     _lifted: Mapping[str, Index | None]
-    _carried: Mapping[Ref, Carried]
+    _indexes: Mapping[Ref, Index | None]
+    _types: Mapping[Ref, Any]
     _conditions: Mapping[Ref, Condition]
     #: Every node whose version is a graph, by expanded id — the ones the
     #: author placed and the ones nested inside them alike.
@@ -214,11 +192,21 @@ class CompiledGraph:
 
     # -- one field -------------------------------------------------------------
 
-    def carried(self, ref: Ref) -> Carried:
-        """The type on this field and, for a series, its index — see
-        ``Carried``. An address on an embedded flow reads through to the
-        inner field it names."""
-        return self._carried[self.expanded(ref)]
+    def type_of(self, ref: Ref) -> Any:
+        """The type that travels on this field: what an edge from it or into
+        it carries. An output of a node that runs once per row carries
+        ``Series[X]`` even where its declaration says ``X``; an input fed a
+        series carries that series, before the engine slices it per row.
+        An address on an embedded flow reads through to the inner field it
+        names."""
+        return self._types[self.expanded(ref)]
+
+    def index_of(self, ref: Ref) -> Index | None:
+        """Where the rows of the series on this field come from, or ``None``
+        for a field that carries one value. For an input fed several series
+        gathered together, the fresh index they were gathered onto. Read
+        by the engine to lay values out per row."""
+        return self._indexes[self.expanded(ref)]
 
     def condition(self, ref: Ref) -> Condition:
         """Under which condition this output appears: a boolean formula over

@@ -66,7 +66,6 @@ from typing import Any
 from conductor.dtype import DType
 from conductor.dtype_ref import description_of
 from conductor.graph.binding import Edges, many
-from conductor.graph.compiled import Carried
 from conductor.graph.model import GraphNode
 from conductor.graph.problem import Problem, problem
 from conductor.metadata import Input, Output, Roster
@@ -82,14 +81,16 @@ class Lifting:
 
     ``lifted``: for each node, the index it runs once per row of, or
     ``None`` when it runs once; for each embedded graph, the index its
-    inner nodes run per row of. ``carried``: the type on every field and,
-    for a series, its index. ``rosters``: each node's inputs and outputs
+    inner nodes run per row of. ``types``: the type that travels on every
+    field; ``indexes``: for a field carrying a series, where its rows come
+    from (``None`` otherwise). ``rosters``: each node's inputs and outputs
     with the types the edges gave them — what ``CompiledGraph.roster``
     serves from then on. ``problems``: what went wrong.
     """
 
     lifted: Mapping[str, Index | None]
-    carried: Mapping[Ref, Carried]
+    types: Mapping[Ref, Any]
+    indexes: Mapping[Ref, Index | None]
     rosters: Mapping[str, Roster]
     problems: tuple[Problem, ...]
 
@@ -110,8 +111,8 @@ def derive(
 
     ``nodes`` holds only nodes whose edges all point at existing nodes
     (compile leaves the rest out). A node fed by a node that was
-    left out or could not be resolved gets no entry in ``lifted`` or
-    ``carried`` — the broken source carries the problem, and nothing
+    left out or could not be resolved gets no entry in ``lifted``,
+    ``types`` or ``indexes`` — the broken source carries the problem, and nothing
     downstream of a fault is guessed at — but its inputs and outputs are
     still completed from what did arrive, so an editor can draw its
     handles.
@@ -132,6 +133,16 @@ def derive(
     return walk.result()
 
 
+@dataclass(frozen=True, slots=True)
+class _Carried:
+    """What one field carries, while the walk works: its type, and the index
+    its rows come from when it is a series (``None`` otherwise). Split into
+    ``types`` and ``indexes`` when the walk ends."""
+
+    dtype: Any
+    index: Index | None
+
+
 @dataclass
 class _Arrivals:
     """What one node's inputs receive, gathered while its edges are read.
@@ -145,7 +156,7 @@ class _Arrivals:
     the walk stopped at that input.
     """
 
-    arrivals: dict[str, Carried] = dataclasses.field(default_factory=dict)
+    arrivals: dict[str, _Carried] = dataclasses.field(default_factory=dict)
     receives: dict[str, Any] = dataclasses.field(default_factory=dict)
     demands: list[tuple[Index, Ref]] = dataclasses.field(default_factory=list)
     bound: dict[str, Any] = dataclasses.field(default_factory=dict)
@@ -182,7 +193,7 @@ class _Walk:
         #: each embedded graph's, under its placement id.
         self.lifted: dict[str, Index | None] = {}
         #: What every field of every visited node carries.
-        self.carried: dict[Ref, Carried] = {}
+        self.carried: dict[Ref, _Carried] = {}
         #: Each visited node's inputs and outputs, completed.
         self.completed: dict[str, Roster] = {}
         self.problems: list[Problem] = []
@@ -192,7 +203,11 @@ class _Walk:
 
     def result(self) -> Lifting:
         return Lifting(
-            lifted=self.lifted, carried=self.carried, rosters=self.completed, problems=tuple(self.problems)
+            lifted=self.lifted,
+            types={ref: c.dtype for ref, c in self.carried.items()},
+            indexes={ref: c.index for ref, c in self.carried.items()},
+            rosters=self.completed,
+            problems=tuple(self.problems),
         )
 
     def visit(self, node: GraphNode) -> None:
@@ -306,7 +321,7 @@ class _Walk:
                 elif arriving.index.parent is not None:
                     found.demands.append((arriving.index.parent, ref))
             else:
-                arriving = Carried(target, Index(ref, parent=scope))
+                arriving = _Carried(target, Index(ref, parent=scope))
                 found.receives[inp.name] = target
             found.arrivals[inp.name] = arriving
         return found
@@ -345,11 +360,11 @@ class _Walk:
             ref = Ref(node.id, out.name)
             if getattr(out.dtype, "element", None) is not None:
                 node_index = node_index or Index(node.id, parent=lift_index or scope)
-                self.carried[ref] = Carried(out.dtype, node_index)
+                self.carried[ref] = _Carried(out.dtype, node_index)
             elif lift_index is not None:
-                self.carried[ref] = Carried(Series[out.dtype], lift_index)
+                self.carried[ref] = _Carried(Series[out.dtype], lift_index)
             else:
-                self.carried[ref] = Carried(out.dtype, None)
+                self.carried[ref] = _Carried(out.dtype, None)
 
     def _complete_without_deriving(self, node: GraphNode, arrived: _Arrivals) -> None:
         """A source was broken: complete the inputs and outputs from what
@@ -419,7 +434,7 @@ def _typed(field: Any, bound: Mapping[str, Any]) -> Any:
     return field
 
 
-def _one_index(sources: Sequence[Carried]) -> bool:
+def _one_index(sources: Sequence[_Carried]) -> bool:
     """Do all sources carry a series on one and the same index? Then the edges are a union of rows."""
     return all(s.index is not None for s in sources) and len({s.index for s in sources}) == 1
 
@@ -441,7 +456,7 @@ def _refuses_whole(node_id: str, field: str, dtype: type[DType]) -> Problem | No
     )
 
 
-def _originates(inp: Input, ref: Ref, static: Any, scope: Index | None) -> Carried:
+def _originates(inp: Input, ref: Ref, static: Any, scope: Index | None) -> _Carried:
     """What a field carries when no edge feeds it: a scalar, or a series on
     an index of the field's own — always for a ``Series[X]`` input, and for
     a scalar input when the author typed many values. Inside an embedded
@@ -453,13 +468,13 @@ def _originates(inp: Input, ref: Ref, static: Any, scope: Index | None) -> Carri
     own JSON form happens to be a list never makes the node run per row.
     """
     if getattr(inp.dtype, "element", None) is not None:  # only a Series type has an element
-        return Carried(inp.dtype, Index(ref, parent=scope))
+        return _Carried(inp.dtype, Index(ref, parent=scope))
     if many(static):
-        return Carried(Series[inp.dtype], Index(ref, parent=scope))
-    return Carried(inp.dtype, None)
+        return _Carried(Series[inp.dtype], Index(ref, parent=scope))
+    return _Carried(inp.dtype, None)
 
 
-def _admit(target: Any, ref: Ref, source_ref: Ref, source: Carried) -> list[Problem]:
+def _admit(target: Any, ref: Ref, source_ref: Ref, source: _Carried) -> list[Problem]:
     """May what arrives land on ``ref``? ``target.accepts`` decides."""
     if not target.accepts(source.dtype):
         return [problem(

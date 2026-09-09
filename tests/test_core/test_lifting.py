@@ -177,24 +177,24 @@ def test_a_scalar_node_fed_scalars_is_not_lifted():
     ])
 
     assert compiled.lifted_on("b") is None
-    assert compiled.carried(Ref("b", "result")).dtype is Txt
-    assert compiled.carried(Ref("b", "result")).index is None
+    assert compiled.type_of(Ref("b", "result")) is Txt
+    assert compiled.index_of(Ref("b", "result")) is None
 
 
 def test_a_series_is_born_at_the_node_that_produces_it():
     compiled = _compiled([GraphNode(id="docs", type="docs", version=1)])
 
-    texts = compiled.carried(Ref("docs", "texts"))
-    assert texts.dtype is Series[Txt]
-    assert texts.index == Index("docs")
-    assert texts.index.parent is None
+    texts_type, texts_index = compiled.type_of(Ref("docs", "texts")), compiled.index_of(Ref("docs", "texts"))
+    assert texts_type is Series[Txt]
+    assert texts_index == Index("docs")
+    assert texts_index.parent is None
 
 
 def test_every_series_a_node_produces_shares_its_index():
     """One node, one index: its series outputs are columns of one table."""
     compiled = _compiled([GraphNode(id="docs", type="docs", version=1)])
 
-    assert compiled.carried(Ref("docs", "texts")).index == compiled.carried(Ref("docs", "filenames")).index
+    assert compiled.index_of(Ref("docs", "texts")) == compiled.index_of(Ref("docs", "filenames"))
 
 
 def test_a_series_into_a_scalar_input_lifts_the_node():
@@ -205,7 +205,7 @@ def test_a_series_into_a_scalar_input_lifts_the_node():
 
     assert compiled.is_runnable
     assert compiled.lifted_on("up") == Index("docs")
-    assert compiled.carried(Ref("up", "text")).index == Index("docs")
+    assert compiled.index_of(Ref("up", "text")) == Index("docs")
 
 
 def test_a_lifted_nodes_outputs_are_series_on_the_same_index():
@@ -214,9 +214,9 @@ def test_a_lifted_nodes_outputs_are_series_on_the_same_index():
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
     ])
 
-    result = compiled.carried(Ref("up", "result"))
-    assert result.dtype is Series[Txt]
-    assert result.index == Index("docs")
+    result_type, result_index = compiled.type_of(Ref("up", "result")), compiled.index_of(Ref("up", "result"))
+    assert result_type is Series[Txt]
+    assert result_index == Index("docs")
 
 
 def test_lifting_is_contagious_and_needs_no_construct():
@@ -229,7 +229,7 @@ def test_lifting_is_contagious_and_needs_no_construct():
     ])
 
     assert compiled.lifted_on("n") == Index("docs")
-    assert compiled.carried(Ref("n", "result")).dtype is Series[Num]
+    assert compiled.type_of(Ref("n", "result")) is Series[Num]
 
 
 def test_a_scalar_beside_a_series_broadcasts():
@@ -242,8 +242,8 @@ def test_a_scalar_beside_a_series_broadcasts():
 
     assert compiled.is_runnable
     assert compiled.lifted_on("p") == Index("docs")
-    assert compiled.carried(Ref("p", "a")).index is None
-    assert compiled.carried(Ref("p", "b")).index == Index("docs")
+    assert compiled.index_of(Ref("p", "a")) is None
+    assert compiled.index_of(Ref("p", "b")) == Index("docs")
 
 
 # --- admission: the one type question, asked here ---------------------------------
@@ -285,7 +285,7 @@ def test_a_pass_through_binds_its_type_from_the_edge():
 
     assert compiled.roster("r").inputs[0].dtype is Num
     assert compiled.roster("r").outputs[0].dtype is Num
-    assert compiled.carried(Ref("r", "result")).dtype is Num
+    assert compiled.type_of(Ref("r", "result")) is Num
     # A node aware of the type it inherits: the next edge is checked against the bound type.
     assert [p.code for p in compiled.problems_for()] == ["type_mismatch"]
 
@@ -300,7 +300,7 @@ def test_a_lifted_pass_through_binds_the_element_and_lifts():
     ])
 
     assert compiled.is_runnable, compiled.problems_for()
-    assert compiled.carried(Ref("r", "result")).dtype is Series[Txt]
+    assert compiled.type_of(Ref("r", "result")) is Series[Txt]
     assert compiled.lifted_on("r") == Index("docs")
     assert compiled.lifted_on("up") == Index("docs")
 
@@ -313,8 +313,8 @@ def test_a_reduction_over_the_variable_binds_from_the_series_element():
 
     assert compiled.is_runnable, compiled.problems_for()
     assert compiled.roster("one").inputs[0].dtype is Series[Txt]
-    assert compiled.carried(Ref("one", "result")) == compiled.carried(Ref("one", "result"))
-    assert compiled.carried(Ref("one", "result")).dtype is Txt
+    assert compiled.type_of(Ref("one", "result")) is compiled.type_of(Ref("one", "result"))
+    assert compiled.type_of(Ref("one", "result")) is Txt
     assert compiled.lifted_on("one") is None
 
 
@@ -398,7 +398,7 @@ def test_a_source_may_refuse_to_be_received_whole_naming_the_fix():
     (problem,) = read.problems_for(node_id="r")
     assert (problem.code, problem.fatal, problem.field) == ("columns_unknown", True, "x")
     assert "state them" in problem.message
-    assert routed.is_runnable and routed.carried(Ref("r", "result")).dtype is Half
+    assert routed.is_runnable and routed.type_of(Ref("r", "result")) is Half
 
 
 def test_an_open_roster_takes_one_input_per_edge_received_whole():
@@ -419,7 +419,7 @@ def test_an_open_roster_takes_one_input_per_edge_received_whole():
     assert [(i.name, i.dtype) for i in roster.inputs] == [("code", Txt), ("antal", Num), ("tekster", Series[Txt])]
     assert type(roster.inputs[2].widget).__name__ == "ConnectionList"
     assert compiled.lifted_on("s") is None
-    assert compiled.carried(Ref("s", "tekster")).index == Index("docs")
+    assert compiled.index_of(Ref("s", "tekster")) == Index("docs")
 
 
 def test_an_open_roster_parameter_takes_one_edge():
@@ -453,7 +453,7 @@ def test_a_node_with_a_broken_edge_has_no_shape_and_says_so_once():
     with pytest.raises(KeyError):
         compiled.lifted_on("b")
     with pytest.raises(KeyError):
-        compiled.carried(Ref("c", "result"))
+        compiled.type_of(Ref("c", "result"))
 
 
 def test_a_node_with_no_outputs_yet_is_the_ordinary_mid_edit_state():
@@ -518,7 +518,7 @@ def test_compute_outputs_sees_the_dtype_each_connected_input_receives():
 
     assert compiled.is_runnable, compiled.problems_for()
     assert [o.name for o in compiled.roster("o").outputs] == ["from_lifting-test-txt"]
-    assert compiled.carried(Ref("o", "from_lifting-test-txt")).index == Index("docs")
+    assert compiled.index_of(Ref("o", "from_lifting-test-txt")) == Index("docs")
     assert [o.name for o in compiled.roster("bare").outputs] == ["result"]
 
 
@@ -620,10 +620,10 @@ def test_a_reduction_on_a_root_yields_a_scalar_and_is_not_lifted():
 
     assert compiled.is_runnable
     assert compiled.lifted_on("j") is None
-    assert compiled.carried(Ref("j", "texts")).index == Index("docs")
-    assert compiled.carried(Ref("j", "result")) == compiled.carried(Ref("j", "result"))
-    assert compiled.carried(Ref("j", "result")).dtype is Txt
-    assert compiled.carried(Ref("j", "result")).index is None
+    assert compiled.index_of(Ref("j", "texts")) == Index("docs")
+    assert compiled.type_of(Ref("j", "result")) is compiled.type_of(Ref("j", "result"))
+    assert compiled.type_of(Ref("j", "result")) is Txt
+    assert compiled.index_of(Ref("j", "result")) is None
 
 
 def test_a_lifted_node_returning_a_series_gives_birth_to_a_child_index():
@@ -634,11 +634,11 @@ def test_a_lifted_node_returning_a_series_gives_birth_to_a_child_index():
         GraphNode(id="lines", type="lines", version=1, bindings={"text": _edge(("docs", "texts"))}),
     ])
 
-    lines = compiled.carried(Ref("lines", "result"))
+    lines_type, lines_index = compiled.type_of(Ref("lines", "result")), compiled.index_of(Ref("lines", "result"))
     assert compiled.lifted_on("lines") == Index("docs")
-    assert lines.dtype is Series[Txt]
-    assert lines.index == Index("lines")
-    assert lines.index.parent == Index("docs")
+    assert lines_type is Series[Txt]
+    assert lines_index == Index("lines")
+    assert lines_index.parent == Index("docs")
 
 
 def test_a_reduction_on_a_child_is_a_lift_on_the_parent():
@@ -651,8 +651,8 @@ def test_a_reduction_on_a_child_is_a_lift_on_the_parent():
     ])
 
     assert compiled.lifted_on("j") == Index("docs")
-    assert compiled.carried(Ref("j", "result")).dtype is Series[Txt]
-    assert compiled.carried(Ref("j", "result")).index == Index("docs")
+    assert compiled.type_of(Ref("j", "result")) is Series[Txt]
+    assert compiled.index_of(Ref("j", "result")) == Index("docs")
 
 
 def test_a_parent_index_series_broadcasts_down_to_a_child_index_node():
@@ -688,11 +688,11 @@ def test_n_scalar_refs_into_a_series_input_gather_onto_a_fresh_index():
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("a", "result"), ("b", "result"))}),
     ])
 
-    texts = compiled.carried(Ref("j", "texts"))
+    texts_type, texts_index = compiled.type_of(Ref("j", "texts")), compiled.index_of(Ref("j", "texts"))
     assert compiled.lifted_on("j") is None
-    assert texts.dtype is Series[Txt]
-    assert texts.index == Index("j.texts")
-    assert texts.index.parent is None
+    assert texts_type is Series[Txt]
+    assert texts_index == Index("j.texts")
+    assert texts_index.parent is None
 
 
 def test_n_series_refs_concatenate_and_lineage_is_gone():
@@ -704,7 +704,7 @@ def test_n_series_refs_concatenate_and_lineage_is_gone():
 
     assert compiled.is_runnable
     assert compiled.lifted_on("j") is None
-    assert compiled.carried(Ref("j", "texts")).index == Index("j.texts")
+    assert compiled.index_of(Ref("j", "texts")) == Index("j.texts")
 
 
 def test_two_refs_on_one_index_into_a_scalar_input_are_a_union_on_it():
@@ -718,8 +718,7 @@ def test_two_refs_on_one_index_into_a_scalar_input_are_a_union_on_it():
 
     assert compiled.is_runnable, compiled.problems_for()
     assert compiled.lifted_on("m") == Index("docs")
-    carried = compiled.carried(Ref("m", "result"))
-    assert (carried.dtype, carried.index) == (Series[Txt], Index("docs"))
+    assert (compiled.type_of(Ref("m", "result")), compiled.index_of(Ref("m", "result"))) == (Series[Txt], Index("docs"))
 
 
 def test_two_refs_on_different_indexes_into_a_scalar_input_is_fatal():
@@ -742,7 +741,7 @@ def test_two_series_refs_on_one_index_into_a_series_input_read_that_index_not_a_
     ])
 
     assert compiled.lifted_on("j") is None
-    assert compiled.carried(Ref("j", "texts")).index == Index("docs")
+    assert compiled.index_of(Ref("j", "texts")) == Index("docs")
 
 
 def test_one_scalar_ref_into_a_series_input_is_a_gather_of_one():
@@ -751,7 +750,7 @@ def test_one_scalar_ref_into_a_series_input_is_a_gather_of_one():
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("a", "result"))}),
     ])
 
-    assert compiled.carried(Ref("j", "texts")).index == Index("j.texts")
+    assert compiled.index_of(Ref("j", "texts")) == Index("j.texts")
 
 
 def test_a_typed_list_and_a_default_live_on_the_inputs_own_index():
@@ -760,8 +759,8 @@ def test_a_typed_list_and_a_default_live_on_the_inputs_own_index():
         GraphNode(id="absent", type="join", version=1),
     ])
 
-    assert compiled.carried(Ref("typed", "texts")).index == Index("typed.texts")
-    assert compiled.carried(Ref("absent", "texts")).index == Index("absent.texts")
+    assert compiled.index_of(Ref("typed", "texts")) == Index("typed.texts")
+    assert compiled.index_of(Ref("absent", "texts")) == Index("absent.texts")
 
 
 def test_a_gathered_series_judges_each_ref_by_the_element():

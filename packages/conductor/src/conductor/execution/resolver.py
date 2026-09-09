@@ -48,7 +48,7 @@ class InputResolver:
                 inputs[inp.name] = (
                     values[0]
                     if len(values) == 1 and isinstance(values[0], Series)
-                    else Series(compiled.carried(Ref(node_id, inp.name)).index, values)
+                    else Series(compiled.index_of(Ref(node_id, inp.name)), values)
                 )
             else:
                 (inputs[inp.name],) = values

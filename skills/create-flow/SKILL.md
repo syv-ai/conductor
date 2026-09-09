@@ -119,7 +119,7 @@ flow_json = graph_to_react(flow)                             # conductor → fro
 - `problems_for()` / `is_runnable` — every `Problem` (code, message, `node_id`, `field`, `fatal`), whole or by anchor; a run refuses on the first fatal one.
 - `execution_order()` — the node ids in edge order; an embedded flow's inner nodes appear as `placement/inner`.
 - `roster(node_id)` — the node's inputs and outputs as its hooks answered, every type bound by the edges.
-- `carried(Ref(node_id, field))` — the type on a field and, for a series, its `Index`; `lifted_on(node_id)` — the index a node runs once per row of, or `None`.
+- `type_of(Ref(node_id, field))` — the type that travels on a field; `index_of(Ref(node_id, field))` — for a series, where its rows come from; `lifted_on(node_id)` — the index a node runs once per row of, or `None`.
 - `value_source(node_id, input)` — the `Binding` behind an input, or `None` when the declared default applies.
 - `condition(Ref(...))` / `decisions()` — under which upstream decisions an output appears.
 - `interface` — what the graph takes and returns, named by address.
@@ -135,7 +135,7 @@ flow_json = graph_to_react(flow)                             # conductor → fro
 
 1. Stream with `execute` (not `execute_sync`) and log every event — reveals scheduling and skip behavior.
 2. For node-level errors, catch `FlowExecutionError` (sync) or check `flow_error` events (async); `error.node_id` and `error.original` pinpoint the failure. A `NodeValidationError` names the field and its title.
-3. For resolver confusion, ask `compiled.value_source(node_id, input)` and `compiled.carried(Ref(node_id, input))` for the problem field.
+3. For resolver confusion, ask `compiled.value_source(node_id, input)` and `compiled.type_of(Ref(node_id, input))` for the problem field.
 
 ## When your advice diverges from the installed version
 

@@ -187,7 +187,8 @@ def test_a_question_about_a_placements_field_reads_through_to_the_inner_field():
         GraphNode(id="emb", type="inner-flow", version=1, bindings={"holder.value": Edges(refs=(Ref("src", "result"),))}),
     ])
 
-    assert compiled.carried(Ref("emb", "join.result")) == compiled.carried(Ref("emb/join", "result"))
+    assert compiled.type_of(Ref("emb", "join.result")) is compiled.type_of(Ref("emb/join", "result"))
+    assert compiled.index_of(Ref("emb", "join.result")) == compiled.index_of(Ref("emb/join", "result"))
     assert compiled.value_source("emb", "holder.value") == compiled.value_source("emb/holder", "value")
 
 
@@ -241,8 +242,7 @@ def test_an_inner_reduction_over_the_entering_series_is_a_fold_of_one():
     ])
 
     assert compiled.lifted_on("emb/join") == Index("docs")
-    joined = compiled.carried(Ref("emb", "join.result"))
-    assert (joined.dtype, joined.index) == (Series[Txt], Index("docs"))
+    assert (compiled.type_of(Ref("emb", "join.result")), compiled.index_of(Ref("emb", "join.result"))) == (Series[Txt], Index("docs"))
 
 
 def test_a_series_born_inside_reduces_to_the_outer_row_by_lineage_alone():
@@ -268,7 +268,7 @@ def test_a_series_born_inside_reduces_to_the_outer_row_by_lineage_alone():
     )
 
     assert compiled.is_runnable, compiled.problems_for()
-    born = compiled.carried(Ref("emb/lines", "result")).index
+    born = compiled.index_of(Ref("emb/lines", "result"))
     assert (born, born.parent) == (Index("emb/lines"), Index("docs"))
     assert compiled.lifted_on("emb/join") == Index("docs")
 
@@ -294,7 +294,7 @@ def test_a_series_born_inside_reduces_to_the_outer_row_by_lineage_alone():
         _registry(unfed, Lines),
     )
     assert compiled.is_runnable, compiled.problems_for()
-    born = compiled.carried(Ref("emb/lines", "result")).index
+    born = compiled.index_of(Ref("emb/lines", "result"))
     assert (born, born.parent) == (Index("emb/lines"), Index("docs"))
     # The nodes the entering series never reaches still run once per outer row.
     assert compiled.lifted_on("emb/holder") == Index("docs")
@@ -338,7 +338,7 @@ def test_two_crossings_on_one_lineage_lift_the_whole_block_on_the_deeper():
     assert compiled.lifted_on("emb/a") == per_line
     assert compiled.lifted_on("emb/ua") == per_line
     assert compiled.lifted_on("emb/b") == per_line
-    assert compiled.carried(Ref("emb", "ua.result")).index == per_line
+    assert compiled.index_of(Ref("emb", "ua.result")) == per_line
 
 
 def test_a_series_entering_a_series_field_is_read_whole_and_the_block_expands_flat():
@@ -361,7 +361,7 @@ def test_a_series_entering_a_series_field_is_read_whole_and_the_block_expands_fl
     assert compiled.is_runnable, compiled.problems_for()
     assert compiled.lifted_on("emb") is None
     assert compiled.lifted_on("emb/join") is None
-    assert compiled.carried(Ref("emb", "join.result")).dtype is Txt
+    assert compiled.type_of(Ref("emb", "join.result")) is Txt
 
 
 def test_two_unrelated_series_entering_one_placement_are_its_misaligned():
@@ -414,4 +414,4 @@ def test_a_nested_placement_expands_under_both_names():
     assert compiled.placement_of("top/inner/up") == "top/inner"
     assert compiled.placement_of("top/pre") == "top"
     assert compiled.value_source("after", "text") == Edges(refs=(Ref("top/inner/join", "result"),))
-    assert compiled.carried(Ref("top", "inner.join.result")).dtype is Txt
+    assert compiled.type_of(Ref("top", "inner.join.result")) is Txt
