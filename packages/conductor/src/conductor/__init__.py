@@ -27,7 +27,6 @@ from conductor.execution.retry import RetryConfig
 from conductor.execution.store import FlowStore
 from conductor.graph.binding import Binding, Edges, Static
 from conductor.graph.compiled import Carried, CompiledGraph
-from conductor.graph.compiler import compile_graph
 from conductor.graph.conditions import ALWAYS, Atom, Condition
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.problem import Problem
@@ -64,7 +63,6 @@ __all__ = [
     "Static",
     "dependencies_of",
     "is_input_node",
-    "compile_graph",
     "CompiledGraph",
     "Carried",
     "Problem",

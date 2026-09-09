@@ -8,7 +8,6 @@ from conductor import NodeRegistry
 from conductor.dtype import DType
 from conductor.graph.binding import Edges, Static
 from conductor.graph.compiled import CompiledGraph
-from conductor.graph.compiler import compile_graph
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.problem import Problem
 from conductor.interface import Interface, Provided, model_of
@@ -139,7 +138,7 @@ def _registry(*extra):
 
 
 def _compiled(nodes, registry=None, **kw):
-    return compile_graph(Graph(nodes=nodes, **kw), registry or _registry())
+    return CompiledGraph.from_graph(Graph(nodes=nodes, **kw), registry or _registry())
 
 
 def _exposed(node_id="besked", value="hej"):
@@ -390,8 +389,8 @@ def test_compiling_the_same_flow_twice_gives_the_same_answers():
             GraphNode(id="b", type="echo", version=1, bindings={"x": Edges(refs=(Ref("a", "result"),))}),
         ])
 
-    first = compile_graph(build(), _registry())
-    second = compile_graph(build(), _registry())
+    first = CompiledGraph.from_graph(build(), _registry())
+    second = CompiledGraph.from_graph(build(), _registry())
 
     assert first.execution_order() == second.execution_order()
     assert first.problems_for() == second.problems_for()
@@ -406,7 +405,7 @@ def test_compiling_does_not_mutate_the_flow():
 
     flow = Graph(nodes=[GraphNode(id="a", type="echo", version=1, bindings={"x": Static(value="hi")})])
     before = copy.deepcopy(flow)
-    compile_graph(flow, _registry())
+    CompiledGraph.from_graph(flow, _registry())
 
     assert flow == before
 
@@ -418,6 +417,6 @@ def test_the_artifact_and_its_diagnostics_are_importable_from_the_root():
     assert conductor.Carried is not None
     assert conductor.Problem is Problem
     assert conductor.Condition is not None and conductor.Atom is not None
-    assert callable(conductor.compile_graph)
+    assert callable(conductor.CompiledGraph.from_graph)
     for gone in ("compile", "resolve_graph_outputs", "FOR_EACH"):
         assert not hasattr(conductor, gone), gone

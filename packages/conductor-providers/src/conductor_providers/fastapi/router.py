@@ -7,7 +7,7 @@ from typing import Any
 
 from conductor import NodeRegistry
 from conductor.execution.engine import execute, execute_sync
-from conductor.graph import compiler
+from conductor.graph.compiled import CompiledGraph
 from conductor.graph.problem import Problem
 from conductor.node import NodeDescription
 from fastapi import APIRouter, Depends, Request
@@ -70,7 +70,7 @@ def conductor_router(
     @router.post("/execute")
     def execute_flow(req: ExecuteRequest, request: Request) -> dict[str, Any]:
         """Run a flow synchronously and return the aggregated results dict."""
-        compiled = compiler.compile_graph(req.graph, registry)
+        compiled = CompiledGraph.from_graph(req.graph, registry)
         results = execute_sync(
             compiled, store_data=_store_data(request), cache=req.cache or None
         )
@@ -81,7 +81,7 @@ def conductor_router(
         req: ExecuteRequest, request: Request
     ) -> StreamingResponse:
         """Run a flow and stream ``ExecutionEvent``s as Server-Sent Events."""
-        compiled = compiler.compile_graph(req.graph, registry)
+        compiled = CompiledGraph.from_graph(req.graph, registry)
         store_data = _store_data(request)
 
         async def event_stream() -> Any:
@@ -123,7 +123,7 @@ def conductor_router(
         Debounce-friendly (~10-30 ms): hosts can poll this on every graph
         edit to paint type mismatches and cycles in real time.
         """
-        return list(compiler.compile_graph(req.graph, registry).problems_for())
+        return list(CompiledGraph.from_graph(req.graph, registry).problems_for())
 
     return router
 

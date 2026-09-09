@@ -1,6 +1,6 @@
 """``CompiledGraph`` — everything compile learned about a graph, as one immutable value.
 
-``compile_graph`` builds it from a ``Graph`` and a ``NodeRegistry``.
+``CompiledGraph.from_graph`` builds it from a ``Graph`` and a ``NodeRegistry``.
 Everyone else asks it questions and never reads the nodes' bindings
 themselves: which version each node uses, which inputs and outputs it
 actually has, where each input's value comes from, what type travels on
@@ -49,7 +49,7 @@ from conductor.registry import runner_for
 
 if TYPE_CHECKING:
     from conductor.graph.conditions import Condition
-    from conductor.graph.model import GraphNode
+    from conductor.graph.model import Graph, GraphNode
     from conductor.interface import Interface
     from conductor.metadata import Roster
     from conductor.node import GraphVersion, NodeVersion
@@ -84,7 +84,7 @@ class Carried:
 class CompiledGraph:
     """The result of compiling one graph. Ask it; do not read through it.
 
-    ``compile_graph`` is the only writer. Readers: the engine
+    Built by ``from_graph`` and read by the engine
     (``execution_order``, ``runner``, ``roster``, ``lifted_on``), an
     editor's compile endpoint (``problems_for``, ``carried``,
     ``interface``), and anything deciding whether a run may start
@@ -121,6 +121,19 @@ class CompiledGraph:
     #: ``Mapping``.
     interface: Interface
     _problems: tuple[Problem, ...]
+
+    @classmethod
+    def from_graph(cls, graph: Graph, registry: NodeRegistry) -> CompiledGraph:
+        """Compile ``graph`` against ``registry``: the one way to get a ``CompiledGraph``.
+
+        Pure — the same graph and registry always give the same result.
+        Every definition the graph names must already be in the registry.
+        Nothing raises for a fault in the graph; ask ``problems_for`` and
+        ``is_runnable``. The passes are ``compiler._Compilation.build``'s.
+        """
+        from conductor.graph.compiler import _Compilation
+
+        return _Compilation(graph, registry).build()
 
     # -- the two graphs ------------------------------------------------------
 

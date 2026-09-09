@@ -7,7 +7,7 @@ from conductor import NodeRegistry
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
 from conductor.graph.binding import Edges, Static
-from conductor.graph.compiler import compile_graph
+from conductor.graph.compiled import CompiledGraph
 from conductor.graph.conditions import ALWAYS, Atom
 from conductor.graph.model import Graph, GraphNode
 from conductor.node import NodeDefinition
@@ -106,7 +106,7 @@ def _compiled(nodes):
     registry = NodeRegistry()
     for node_cls in (Gate, Holder, Upper, Docs, Single):
         registry.register(node_cls)
-    return compile_graph(Graph(nodes=nodes), registry)
+    return CompiledGraph.from_graph(Graph(nodes=nodes), registry)
 
 
 def _edge(*refs):

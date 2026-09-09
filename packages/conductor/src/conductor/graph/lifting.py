@@ -1,6 +1,6 @@
 """One walk over the edges: what arrives on every field, and whether it may.
 
-Called by ``compile_graph`` once every node's inputs are known. It walks
+Called by compile once every node's inputs are known. It walks
 the nodes in execution order and, for each edge into each input, answers
 three questions that turn out to be one:
 
@@ -108,7 +108,7 @@ def derive(
     inputs and outputs.
 
     ``nodes`` holds only nodes whose edges all point at existing nodes
-    (``compile_graph`` leaves the rest out). A node fed by a node that was
+    (compile leaves the rest out). A node fed by a node that was
     left out or could not be resolved gets no entry in ``lifted`` or
     ``carried`` — the broken source carries the problem, and nothing
     downstream of a fault is guessed at — but its inputs and outputs are

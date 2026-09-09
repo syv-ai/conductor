@@ -49,7 +49,10 @@ class Expansion:
     innermost placement it came from (``None`` for a node the author
     placed). ``members`` lists, for each placement, every node under it,
     nested ones included. ``versions`` is the ``NodeVersion`` each node
-    uses. ``compile_graph`` reads all of it into the ``CompiledGraph``.
+    uses. ``problems`` is what went wrong inside: an inner node whose
+    type or version the registry lacks, an inner cycle, a binding on the
+    placement naming no inner field. Compile reads all of it into the
+    ``CompiledGraph``.
     """
 
     nodes: dict[str, GraphNode]
@@ -60,6 +63,7 @@ class Expansion:
     #: The ``GraphVersion`` of each placement, authored and nested alike; its
     #: interface is what the placement shows as inputs and outputs.
     placement_versions: dict[str, GraphVersion]
+    problems: tuple[Problem, ...]
 
 
 def expand(
@@ -67,7 +71,6 @@ def expand(
     order: Sequence[str],
     versions: Mapping[str, NodeVersion | GraphVersion],
     registry: NodeRegistry,
-    problems: list[Problem],
 ) -> Expansion:
     """Inline every node in ``authored`` whose version is a ``GraphVersion``.
 
@@ -77,6 +80,7 @@ def expand(
     is a problem too, reported on the expanded id and moved onto the
     placement by ``surfaced``.
     """
+    problems: list[Problem] = []
     nodes: dict[str, GraphNode] = {}
     expanded_order: list[str] = []
     placement_of: dict[str, str | None] = {}
@@ -138,6 +142,7 @@ def expand(
         members={placement: tuple(ids) for placement, ids in members.items()},
         versions=resolved,
         placement_versions=placement_versions,
+        problems=tuple(problems),
     )
 
 

@@ -5,7 +5,7 @@ from typing import Annotated
 import pytest
 from conductor.dtype import DType
 from conductor.graph.binding import Edges, Static
-from conductor.graph.compiler import compile_graph
+from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.graph.topology import order_of
 from conductor.node import NodeDefinition
@@ -91,13 +91,13 @@ class TestCompile:
             GraphNode("n2", "echo", 1, bindings={"text": Edges(refs=(Ref('n1', 'result'),))}),
         ]
 
-        compiled = compile_graph(Graph(nodes=nodes), registry)
+        compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry)
         assert compiled.is_runnable, compiled.problems_for()
         assert compiled.execution_order() == ("n1", "n2")
 
     def test_compile_unknown_node_type_is_a_problem(self, registry):
         nodes = [GraphNode("n1", "nonexistent", 1)]
-        compiled = compile_graph(Graph(nodes=nodes), registry)
+        compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry)
         assert [p.code for p in compiled.problems_for()] == ["unknown_node_type"]
         assert not compiled.is_runnable
 
@@ -105,7 +105,7 @@ class TestCompile:
         registry.register(Echo)
         nodes = [GraphNode("n1", "echo", 1, bindings={"text": Edges(refs=(Ref("n_missing", "result"),))})]
 
-        compiled = compile_graph(Graph(nodes=nodes), registry)
+        compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry)
         assert [p.code for p in compiled.problems_for()] == ["unknown_ref_node"]
 
     def test_compile_cycle_is_a_problem_on_each_node_in_it(self, registry):
@@ -114,6 +114,6 @@ class TestCompile:
             GraphNode("n1", "echo", 1, bindings={"text": Edges(refs=(Ref('n2', 'result'),))}),
             GraphNode("n2", "echo", 1, bindings={"text": Edges(refs=(Ref('n1', 'result'),))}),
         ]
-        compiled = compile_graph(Graph(nodes=nodes), registry)
+        compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry)
         assert [(p.code, p.node_id) for p in compiled.problems_for()] == [("cycle", "n1"), ("cycle", "n2")]
         assert not compiled.is_runnable

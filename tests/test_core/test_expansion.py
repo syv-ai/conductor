@@ -7,7 +7,7 @@ import pytest
 from conductor import NodeRegistry
 from conductor.dtype import DType
 from conductor.graph.binding import Edges, Static
-from conductor.graph.compiler import compile_graph
+from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.interface import Interface
 from conductor.metadata import Input, Output
@@ -121,7 +121,7 @@ def _inner_definition():
 
 
 def _compiled(nodes, *extra):
-    return compile_graph(Graph(nodes=nodes), _registry(_inner_definition(), *extra))
+    return CompiledGraph.from_graph(Graph(nodes=nodes), _registry(_inner_definition(), *extra))
 
 
 # --- expansion ---------------------------------------------------------------
@@ -259,7 +259,7 @@ def test_a_series_born_inside_reduces_to_the_outer_row_by_lineage_alone():
         inputs=(Input(name="holder.value", dtype=Txt, title="Text", widget=Textarea(title="Text"), default=Txt(""), optional=True),),
         outputs=(Output(name="join.result", dtype=Txt, title="Result"),),
     )
-    compiled = compile_graph(
+    compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="docs", type="docs", version=1),
             GraphNode(id="emb", type="splitter", version=1, bindings={"holder.value": Edges(refs=(Ref("docs", "result"),))}),
@@ -286,7 +286,7 @@ def test_a_series_born_inside_reduces_to_the_outer_row_by_lineage_alone():
         inputs=(Input(name="entered.value", dtype=Txt, title="Text", widget=Textarea(title="Text"), default=Txt(""), optional=True),),
         outputs=(Output(name="join.result", dtype=Txt, title="Result"),),
     )
-    compiled = compile_graph(
+    compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="docs", type="docs", version=1),
             GraphNode(id="emb", type="splitter-unfed", version=1, bindings={"entered.value": Edges(refs=(Ref("docs", "result"),))}),
@@ -320,7 +320,7 @@ def test_two_crossings_on_one_lineage_lift_the_whole_block_on_the_deeper():
         ),
         outputs=(Output(name="ua.result", dtype=Txt, title="A upper"), Output(name="b.result", dtype=Txt, title="B")),
     )
-    compiled = compile_graph(
+    compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="docs", type="docs", version=1),
             GraphNode(id="lines", type="lines", version=1, bindings={"text": Edges(refs=(Ref("docs", "result"),))}),
@@ -350,7 +350,7 @@ def test_a_series_entering_a_series_field_is_read_whole_and_the_block_expands_fl
         inputs=(Input(name="join.texts", dtype=Series[Txt], title="Texts", widget=ConnectionList(title="Texts"), default=(), optional=True),),
         outputs=(Output(name="join.result", dtype=Txt, title="Result"),),
     )
-    compiled = compile_graph(
+    compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="docs", type="docs", version=1),
             GraphNode(id="emb", type="joiner", version=1, bindings={"join.texts": Edges(refs=(Ref("docs", "result"),))}),
@@ -377,7 +377,7 @@ def test_two_unrelated_series_entering_one_placement_are_its_misaligned():
         ),
         outputs=(Output(name="a.result", dtype=Txt, title="A"), Output(name="b.result", dtype=Txt, title="B")),
     )
-    compiled = compile_graph(
+    compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="d1", type="docs", version=1),
             GraphNode(id="d2", type="docs", version=1),
@@ -401,7 +401,7 @@ def test_a_nested_placement_expands_under_both_names():
         inputs=(Input(name="pre.value", dtype=Txt, title="Text", widget=Textarea(title="Text"), default=Txt("x"), optional=True),),
         outputs=(Output(name="inner.join.result", dtype=Txt, title="Result"),),
     )
-    compiled = compile_graph(
+    compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="top", type="outer-flow", version=1),
             GraphNode(id="after", type="upper", version=1, bindings={"text": Edges(refs=(Ref("top", "inner.join.result"),))}),

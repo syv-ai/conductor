@@ -7,7 +7,7 @@ import pytest
 from conductor import NodeRegistry
 from conductor.dtype import DType, Single
 from conductor.graph.binding import Edges, Static
-from conductor.graph.compiler import compile_graph
+from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.metadata import Output
 from conductor.node import NodeDefinition
@@ -160,7 +160,7 @@ def _registry():
 
 
 def _compiled(nodes, **kw):
-    return compile_graph(Graph(nodes=nodes, **kw), _registry())
+    return CompiledGraph.from_graph(Graph(nodes=nodes, **kw), _registry())
 
 
 def _edge(*refs):
@@ -392,8 +392,8 @@ def test_a_source_may_refuse_to_be_received_whole_naming_the_fix():
     for node_cls in (Halves, Reads, Routes):
         registry.register(node_cls)
     edge = {"h": GraphNode(id="h", type="halves", version=1)}
-    read = compile_graph(Graph(nodes=[edge["h"], GraphNode(id="r", type="reads", version=1, bindings={"x": Edges(refs=(Ref("h", "result"),))})]), registry)
-    routed = compile_graph(Graph(nodes=[edge["h"], GraphNode(id="r", type="routes", version=1, bindings={"value": Edges(refs=(Ref("h", "result"),))})]), registry)
+    read = CompiledGraph.from_graph(Graph(nodes=[edge["h"], GraphNode(id="r", type="reads", version=1, bindings={"x": Edges(refs=(Ref("h", "result"),))})]), registry)
+    routed = CompiledGraph.from_graph(Graph(nodes=[edge["h"], GraphNode(id="r", type="routes", version=1, bindings={"value": Edges(refs=(Ref("h", "result"),))})]), registry)
 
     (problem,) = read.problems_for(node_id="r")
     assert (problem.code, problem.fatal, problem.field) == ("columns_unknown", True, "x")
@@ -479,7 +479,7 @@ def test_a_node_with_no_outputs_yet_is_the_ordinary_mid_edit_state():
 
     registry = _registry()
     registry.register(Sheet)
-    compiled = compile_graph(Graph(nodes=[GraphNode(id="s", type="sheet", version=1)]), registry)
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="s", type="sheet", version=1)]), registry)
 
     (problem,) = compiled.problems_for()
     assert (problem.code, problem.fatal, problem.node_id) == ("no_outputs", False, "s")
@@ -510,7 +510,7 @@ def test_compute_outputs_sees_the_dtype_each_connected_input_receives():
 
     registry = _registry()
     registry.register(Opener)
-    compiled = compile_graph(Graph(nodes=[
+    compiled = CompiledGraph.from_graph(Graph(nodes=[
         GraphNode(id="docs", type="docs", version=1),
         GraphNode(id="o", type="opener", version=1, bindings={"value": _edge(("docs", "texts"))}),
         GraphNode(id="bare", type="opener", version=1),
@@ -543,7 +543,7 @@ def test_a_hook_that_cannot_answer_refuses_and_the_refusal_is_the_placements_pro
 
     registry = _registry()
     registry.register(Fussy)
-    compiled = compile_graph(Graph(nodes=[
+    compiled = CompiledGraph.from_graph(Graph(nodes=[
         GraphNode(id="docs", type="docs", version=1),
         GraphNode(id="f", type="fussy", version=1, bindings={"value": _edge(("docs", "texts"))}),
     ]), registry)
@@ -574,7 +574,7 @@ def test_a_hook_reads_a_defaulted_static_nothing_bound():
 
     registry = _registry()
     registry.register(Suffixer)
-    compiled = compile_graph(Graph(nodes=[GraphNode(id="s", type="suffixer", version=1)]), registry)
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="s", type="suffixer", version=1)]), registry)
 
     assert compiled.is_runnable, compiled.problems_for()
     assert [o.name for o in compiled.roster("s").outputs] == ["out"]

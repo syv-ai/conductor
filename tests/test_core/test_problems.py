@@ -6,7 +6,7 @@ import pytest
 from conductor import NodeRegistry
 from conductor.dtype import DType
 from conductor.graph.binding import Edges, Static
-from conductor.graph.compiler import compile_graph
+from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.graph.problem import Problem
 from conductor.metadata import Output
@@ -177,7 +177,7 @@ def _registry():
 
 
 def _problems(nodes, **kw):
-    return compile_graph(Graph(nodes=nodes, **kw), _registry()).problems_for()
+    return CompiledGraph.from_graph(Graph(nodes=nodes, **kw), _registry()).problems_for()
 
 
 def _codes(nodes, **kw):
@@ -261,7 +261,7 @@ def test_a_computed_field_with_a_handle_needs_an_edge_type():
 
     registry = _registry()
     registry.register(Odd)
-    problems = compile_graph(Graph(nodes=[GraphNode(id="o", type="odd", version=1)]), registry).problems_for()
+    problems = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="o", type="odd", version=1)]), registry).problems_for()
 
     assert [(p.code, p.fatal, p.field) for p in problems] == [("handle_needs_dtype", True, "raw")]
 
@@ -361,7 +361,7 @@ def test_an_any_input_with_no_edge_is_unbound_required():
 
     registry = _registry()
     registry.register(Route)
-    problems = compile_graph(Graph(nodes=[GraphNode(id="r", type="route-p", version=1)]), registry).problems_for()
+    problems = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="r", type="route-p", version=1)]), registry).problems_for()
 
     assert [(p.code, p.fatal, p.field) for p in problems] == [("unbound_required", True, "value")]
     assert problems[0].message == "Nothing is connected to the field."
@@ -372,7 +372,7 @@ def test_a_required_input_with_a_static_is_fine():
 
 
 def test_a_cycle_is_a_fatal_problem_on_each_node_in_it():
-    compiled = compile_graph(
+    compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="a", type="echo", version=1, bindings={"x": Edges(refs=(Ref("b", "result"),))}),
             GraphNode(id="b", type="echo", version=1, bindings={"x": Edges(refs=(Ref("a", "result"),))}),
@@ -387,7 +387,7 @@ def test_a_cycle_is_a_fatal_problem_on_each_node_in_it():
 
 
 def test_problems_can_be_read_whole_or_by_anchor():
-    compiled = compile_graph(
+    compiled = CompiledGraph.from_graph(
         Graph(
             nodes=[GraphNode(id="a", type="echo", version=1, locked=("ghost",), bindings={"z": Static(value=1), "w": Static(value=2)})],
         ),
@@ -401,7 +401,7 @@ def test_problems_can_be_read_whole_or_by_anchor():
 
 
 def test_a_non_fatal_problem_leaves_the_flow_runnable():
-    compiled = compile_graph(
+    compiled = CompiledGraph.from_graph(
         Graph(nodes=[GraphNode(id="a", type="echo", version=1, bindings={"z": Static(value=1)})]), _registry()
     )
 

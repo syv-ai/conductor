@@ -1,6 +1,6 @@
 ---
 name: create-flow
-description: Use when building or running a conductor flow — placing nodes with GraphNode, connecting them through Edges bindings, calling compile_graph()/execute(), streaming events, or debugging a run. Triggers on phrases like "create a flow", "build a graph", "run a flow", "connect these nodes together", "stream execution events".
+description: Use when building or running a conductor flow — placing nodes with GraphNode, connecting them through Edges bindings, calling CompiledGraph.from_graph()/execute(), streaming events, or debugging a run. Triggers on phrases like "create a flow", "build a graph", "run a flow", "connect these nodes together", "stream execution events".
 ---
 
 # Creating and running a conductor flow
@@ -21,7 +21,7 @@ Programmatic: `from conductor.about import get_content, list_sections, get_secti
 ## Three phases: declare → compile → execute
 
 ```python
-from conductor import Graph, GraphNode, NodeRegistry, Ref, Edges, Static, compile_graph
+from conductor import Graph, GraphNode, NodeRegistry, Ref, Edges, Static, CompiledGraph
 from conductor.execution.engine import execute_sync
 
 # 1. declare — node classes registered at import (see add-node)
@@ -34,7 +34,7 @@ flow = Graph(nodes=[
     GraphNode(id="a", type="greet", version=1, bindings={"name": Static(value="Ada")}),
     GraphNode(id="b", type="shout", version=1, bindings={"text": Edges(refs=(Ref("a", "result"),))}),
 ])
-compiled = compile_graph(flow, registry)
+compiled = CompiledGraph.from_graph(flow, registry)
 
 # 3. execute
 results = execute_sync(compiled)
@@ -126,7 +126,7 @@ flow_json = graph_to_react(flow)                             # conductor → fro
 
 ## Checklist before running a flow
 
-- [ ] Every `GraphNode.type` is registered on the registry passed to `compile_graph`, and its `version` exists — otherwise `problems_for()` says so.
+- [ ] Every `GraphNode.type` is registered on the registry passed to `CompiledGraph.from_graph`, and its `version` exists — otherwise `problems_for()` says so.
 - [ ] Every `Ref` in an `Edges` names an existing node and one of its outputs, and the bindings key names an input.
 - [ ] `Static` values are the declared types (pydantic coerces builtins into the host's dtypes).
 - [ ] If long-running, the caller owns cancellation and/or `timeout_seconds`.

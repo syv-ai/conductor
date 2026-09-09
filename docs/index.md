@@ -20,7 +20,7 @@ A reusable, host-agnostic graph execution engine for building DAG-based workflow
 
 ```python
 from typing import Annotated
-from conductor import Graph, GraphNode, NodeDefinition, NodeRegistry, Policy, Result, Static, compile_graph, version
+from conductor import Graph, GraphNode, NodeDefinition, NodeRegistry, Policy, Result, Static, CompiledGraph, version
 from conductor.execution.engine import execute_sync
 from conductor.widgets import Text as TextWidget
 from conductor_nodes.types import Text          # or a DType of your own
@@ -38,7 +38,7 @@ class Fetch(NodeDefinition):
 registry = NodeRegistry()
 registry.register(Fetch)
 
-compiled = compile_graph(
+compiled = CompiledGraph.from_graph(
     Graph(nodes=[GraphNode("n1", "fetch", 1, bindings={"url": Static(value="https://example.com")})]),
     registry,
 )

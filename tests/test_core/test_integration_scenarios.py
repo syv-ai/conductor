@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from typing import Annotated
 
 from conductor import (
+    CompiledGraph,
     GraphNode,
     NodeRegistry,
-    compile_graph,
     execute,
     execute_sync,
 )
@@ -146,7 +146,7 @@ class TestDecisionCombinations:
 
     def test_decision_branch_failure_does_not_affect_other_branch(self):
         """The branch not taken holds a failing node that never runs."""
-        compiled = compile_graph(Graph(nodes=[
+        compiled = CompiledGraph.from_graph(Graph(nodes=[
                 GraphNode("d", "decide", 1, bindings={"value": Static(value=100)}),
                 GraphNode("a", "tally", 1, bindings={"label": Static(value="A"), "number": Edges(refs=(Ref('d', 'high'),))}),
                 GraphNode("b", "always-fail", 1, bindings={"number": Edges(refs=(Ref('d', 'low'),))}),
@@ -187,7 +187,7 @@ class TestRetry:
                     raise NodeExecutionError("transient", node_id="flaky")
                 return Txt("ok")
 
-        compiled = compile_graph(Graph(nodes=[GraphNode("n1", "flaky", 1)]), _registry(Flaky))
+        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode("n1", "flaky", 1)]), _registry(Flaky))
         r = execute_sync(compiled)
         assert r["n1"]["result"] == "ok"
         assert calls == 2  # one failure + one success
@@ -227,7 +227,7 @@ class TestEdgeCases:
     """Shapes that once caught bugs."""
 
     def test_decision_routes_only_the_taken_branch(self):
-        compiled = compile_graph(Graph(nodes=[
+        compiled = CompiledGraph.from_graph(Graph(nodes=[
                 GraphNode("d", "decide", 1, bindings={"value": Static(value=100)}),
                 GraphNode("taken", "tally", 1, bindings={"label": Static(value="TAKEN"), "number": Edges(refs=(Ref('d', 'high'),))}),
                 GraphNode("other", "tally", 1, bindings={"label": Static(value="OTHER"), "number": Edges(refs=(Ref('d', 'low'),))}),
@@ -239,7 +239,7 @@ class TestEdgeCases:
     def test_skip_propagates_through_decision_else_branch(self):
         """A deciding node fed by an edge routes the taken branch; the else branch is skipped."""
 
-        compiled = compile_graph(Graph(nodes=[
+        compiled = CompiledGraph.from_graph(Graph(nodes=[
                 GraphNode("source", "echo", 1, bindings={"text": Static(value="data")}),
                 GraphNode("d", "route", 1, bindings={"text": Edges(refs=(Ref('source', 'result'),))}),
                 GraphNode("taken", "echo", 1, bindings={"text": Edges(refs=(Ref('d', 'match'),))}),

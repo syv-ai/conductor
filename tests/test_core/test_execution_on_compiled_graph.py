@@ -19,7 +19,7 @@ from conductor.dtype import DType
 from conductor.errors import CompilationError
 from conductor.execution.engine import execute, execute_sync
 from conductor.graph.binding import Edges, Static
-from conductor.graph.compiler import compile_graph
+from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.node import NodeDefinition, Policy, version
 from conductor.ref import Ref
@@ -107,7 +107,7 @@ def _registry():
 
 
 def _run(nodes):
-    return execute_sync(compile_graph(Graph(nodes=nodes), _registry()))
+    return execute_sync(CompiledGraph.from_graph(Graph(nodes=nodes), _registry()))
 
 
 def test_a_flow_of_bindings_compiles_and_runs():
@@ -163,7 +163,7 @@ def test_policy_is_read_off_the_pinned_version():
 
 
 def test_a_flow_compile_rejected_is_refused_with_its_problems():
-    compiled = compile_graph(Graph(nodes=[GraphNode(id="a", type="gone", version=1)]), _registry())
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="gone", version=1)]), _registry())
 
     with pytest.raises(CompilationError) as raised:
         execute_sync(compiled)
@@ -173,7 +173,7 @@ def test_a_flow_compile_rejected_is_refused_with_its_problems():
 def test_this_engine_refuses_a_lifted_node():
     """This engine runs scalar nodes only. The limit is stated, not
     papered over."""
-    compiled = compile_graph(
+    compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="docs", type="docs", version=1),
             GraphNode(id="up", type="upper", version=1, bindings={"text": Edges(refs=(Ref("docs", "result"),))}),
@@ -187,7 +187,7 @@ def test_this_engine_refuses_a_lifted_node():
 
 
 def test_events_carry_the_placement_title():
-    compiled = compile_graph(
+    compiled = CompiledGraph.from_graph(
         Graph(nodes=[GraphNode(id="a", type="upper", version=1, title="Shout", bindings={"text": Static(value="hi")})]),
         _registry(),
     )
