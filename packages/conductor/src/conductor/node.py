@@ -236,7 +236,8 @@ def upgrade_methods(cls: type) -> dict[tuple[int, int], Callable[..., Any]]:
 
 @dataclass(frozen=True, kw_only=True)
 class VersionDescription:
-    """One version as a palette reads it: fields, policy, open shape and notice.
+    """One version as a palette reads it: its fields, its policy, whether its
+    inputs are open (and in which shape) and its deprecation notice.
 
     One per entry in ``NodeDescription.versions``, built by ``describe()``
     from the ``NodeVersion`` (or ``GraphVersion``) with the callable left

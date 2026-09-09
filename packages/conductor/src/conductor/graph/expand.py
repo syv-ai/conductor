@@ -1,9 +1,10 @@
 """Inline an embedded graph as its inner nodes, under the name of the node that embeds it.
 
 A node's version may be a graph rather than a ``run`` (``GraphVersion``).
-The node is then an embedded graph: one node in the editor and in the
-graph's interface, many nodes when it runs. This module calls such a node
-a *placement*. Compile inlines its graph here: every inner node becomes
+The node then embeds a graph: one node in the editor and in the graph's
+interface, many nodes when it runs. Any placed node is a placement of its
+definition (``GraphNode``); in this module "the placement" means the
+node that embeds a graph. Compile inlines its graph here: every inner node becomes
 ``placement/inner``, inner edges are re-pointed accordingly, the
 placement's own bindings move onto the inner fields they name, and edges
 from outside into the placement are re-pointed at the inner field they
@@ -51,7 +52,7 @@ class Expansion:
     nested ones included. ``versions`` is the ``NodeVersion`` each node
     uses. ``problems`` is what went wrong inside: an inner node whose
     type or version the registry lacks, an inner cycle, a binding on the
-    placement naming no inner field. Compile reads all of it into the
+    placement naming no inner field. The compiler reads all of it into the
     ``CompiledGraph``.
     """
 

@@ -1,4 +1,4 @@
-"""An embedded flow expands under its placement's name, and its boundary is an index scope."""
+"""An embedded graph expands under its placement's name, and its boundary is an index scope."""
 
 from collections.abc import Mapping
 from typing import Annotated, ClassVar
@@ -79,7 +79,7 @@ class Lines(NodeDefinition):
 
 
 def _inner_graph():
-    """The embedded flow: a holder, uppercased, then joined. Standalone it
+    """The embedded graph: a holder, uppercased, then joined. Standalone it
     takes one text at `holder.value` and returns `join.result`."""
     return (
         GraphNode(id="holder", type="holder", version=1, title="Text", bindings={"value": Static(value="inner")}),
@@ -167,7 +167,7 @@ def test_an_unconnected_placement_keeps_the_inner_statics_and_expands_flat():
 
 
 def test_a_placement_is_a_node_in_the_interface_named_by_inner_address():
-    """At the interface the embedded flow is one node
+    """At the interface the embedded graph is one node
     whose fields are its flow's, under the placement's name."""
     compiled = _compiled([
         GraphNode(

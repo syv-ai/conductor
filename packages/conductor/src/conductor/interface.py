@@ -62,17 +62,19 @@ class Provided:
 
 @dataclass(frozen=True)
 class Interface:
-    """What one version of a node declares: its inputs, outputs and needs.
+    """A node's inputs, outputs and needs.
 
-    Derived, never written by hand. ``Interface.of`` builds one from a
-    ``run`` signature when a node class is defined, and the compiler builds
-    one for a whole flow, with inputs named by address and wearing their
-    nodes' titles. Frozen, so the derivation is the only writer.
+    Three things carry one. What one version declares: ``Interface.of``
+    reads it off the ``run`` signature when a node class is defined. What
+    one placed node actually has once the compiler has asked its hooks and
+    typed its edges: ``CompiledGraph.interface_of``, the same record with
+    ``returns``, ``needs`` and ``open`` copied from the version. What a
+    whole graph takes and returns: ``CompiledGraph.interface``, with
+    inputs named by address and wearing their nodes' titles. Derived,
+    never written by hand; frozen, so the derivation is the only writer.
 
-    Not what a particular *placement* of the node ends up with — a
-    placed node's interface may be reshaped by the values it holds. Not stored,
-    and not shared between versions: a version is a signature, so two
-    versions are two interfaces.
+    Not stored, and not shared between versions: a version is a
+    signature, so two versions are two interfaces.
     """
 
     inputs: tuple[Input, ...]
@@ -215,8 +217,8 @@ def _extract_outputs(hints: dict[str, Any]) -> tuple[Any, tuple[Output, ...]]:
 
     A ``run`` with no return annotation is an error, not a node with no
     outputs: the engine would have nowhere to put what it returns. A
-    ``Mapping`` return declares no outputs here; the node's computed
-    node's interface supplies them.
+    ``Mapping`` return declares no outputs here; ``compute_outputs``
+    supplies them when the graph is compiled.
     """
     if "return" not in hints:
         raise TypeError("run() must declare a return type")

@@ -70,7 +70,7 @@ A widget does not decide whether an edge can reach the input: `show_handle` defa
 
 ### Special
 
-- **`ConnectionList`** — edited by edges only: the value comes down an edge, so there is nothing to type. The control for a `Series[X]` input, an `Any` input and an open interface's rows.
+- **`ConnectionList`** — edited by edges only: the value comes down an edge, so there is nothing to type. The control for a `Series[X]` input, an `Any` input and each connected name of an open interface.
 
 The vocabulary inside a control — a dropdown's choices, a builder's operators, a table's column types — is the host's, declared on the widget where it declares the input, so it travels as data and no frontend list has to agree with a host table by hand.
 

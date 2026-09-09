@@ -15,7 +15,7 @@ from conductor.types import NodeResult
 class InputResolver:
     """Resolves a node's inputs from its bindings and the producers' results.
 
-    Iterates the node's interface, never the binding table: a binding on a
+    Walks the node's interface, never the binding table: a binding on a
     field the node does not have (``stale_binding``) is not a value
     anything receives. A ``Static`` is the author's typed value; an
     ``Edges`` is read off the producers' results with skipped values

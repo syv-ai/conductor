@@ -75,8 +75,8 @@ async def execute(
     Nodes start as soon as all their dependencies are done — independent
     branches run concurrently. Retry is configurable per-node or globally.
     Refuses a graph that is not runnable (``CompilationError`` carrying
-    its problems) and, until the engine runs rows, a graph with an iterating
-    node (``NotImplementedError`` naming the ids).
+    its problems) and, until the engine runs rows, a graph with a node that
+    would run once per row (``NotImplementedError`` naming the ids).
 
     ``store_data`` pre-seeds the ``FlowStore`` before the first node runs.
     Useful for hosts that inject per-request context (user, session,

@@ -188,8 +188,9 @@ class _Compilation:
         A node's inputs may depend on the values the author typed into it (a
         mode dropdown that adds fields), so ``compute_inputs`` is called with
         those values, each read through its declared type by ``_typed_statics``
-        and laid over the declaration's defaults; a hook that reads a table's
-        columns or a schema's fields off a value parses nothing. Only the
+        and laid over the declaration's defaults, so a hook that reads a table's
+        columns or a schema's fields gets the typed value and never parses JSON
+        itself. Only the
         inputs are asked here. The outputs stay as declared until the walk over
         the edges, which can tell ``compute_outputs`` what type arrives on each
         connected input.

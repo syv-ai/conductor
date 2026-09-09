@@ -56,7 +56,7 @@ class TextInput(NodeDefinition):
 
 
 class Modes(NodeDefinition):
-    """A roster that depends on what the author typed."""
+    """An interface that depends on what the author typed."""
 
     id = "modes"
     title = "Modes"
@@ -274,7 +274,7 @@ def test_a_node_with_no_opinion_has_its_declaration_as_its_interface():
 
 
 def test_a_roster_depends_only_on_what_the_author_typed():
-    """A connected input has no value until the flow runs, so the roster falls
+    """A connected input has no value until the flow runs, so the node's interface falls
     back to the declaration for it."""
     compiled = _compiled([
         GraphNode(id="src", type="text-input", version=1, bindings={"value": Static(value="b")}),
@@ -312,7 +312,7 @@ def test_the_derived_interface_comes_through_compiled():
 
 def test_the_interface_is_an_interface_and_types_a_call_by_address():
     """The flow's surface is the record a node version declares, one
-    scale out; a flow returns a computed roster by address, and `model_of`
+    scale out; a flow returns a computed interface by address, and `model_of`
     types a caller's answers under the addresses — pydantic takes a dotted
     field name outright."""
     compiled = _compiled([_exposed()])

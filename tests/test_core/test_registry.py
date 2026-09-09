@@ -203,7 +203,7 @@ def test_a_registered_type_cannot_be_shadowed():
 
 
 def test_a_loaded_definition_need_not_number_from_one():
-    """An embedded flow is one FlowVersion, loaded because a graph pinned it;
+    """An embedded graph is one FlowVersion, loaded because a graph pinned it;
     its versions are {3} and nothing is missing. `register()` refuses that;
     `extended_with` does not, because the catalog rule is the catalog's."""
     from conductor.node import version

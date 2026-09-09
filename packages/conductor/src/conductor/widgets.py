@@ -138,8 +138,8 @@ class FileUpload(Widget):
 class ConnectionList(Widget):
     """Edited by connecting only: the value comes down an edge, so there is nothing to type.
 
-    The control for a ``Series[X]`` input, an ``Any`` input and the rows of
-    an open interface.
+    The control for a ``Series[X]`` input, an ``Any`` input and each
+    connected name of an open interface.
     """
 
     kind: Literal["connection-list"] = "connection-list"

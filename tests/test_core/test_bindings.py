@@ -72,7 +72,7 @@ def test_a_placement_id_contains_no_dot():
 
 
 def test_a_slash_is_the_namespace_separator():
-    """The compiler inlines an embedded flow under its placement's name —
+    """The compiler inlines an embedded graph under its placement's name —
     `approve/check` — so `/` is legal in an id and a Ref still reads one way:
     the split is at the first dot, and there is none in the namespace."""
     inner = GraphNode(id="approve/check", type="upper", version=1)
@@ -299,7 +299,7 @@ def test_the_interface_is_derived_node_level():
 
 
 def test_the_interface_is_the_record_a_node_version_declares():
-    """One type at both scales. A flow returns a computed roster by
+    """One type at both scales. A flow returns a computed interface by
     address, so `returns` is `Mapping`; these nodes need nothing provided."""
     interface = _interface(_graph())
 
@@ -421,7 +421,7 @@ def test_a_field_with_no_handle_is_never_an_input():
 
 
 def test_a_locked_name_the_node_does_not_declare_is_a_problem():
-    """A stale lock — the roster moved under it — is a state an editor
+    """A stale lock — the node's interface moved under it — is a state an editor
     mid-edit can be in, so it reports rather than raises. Non-fatal:
     it narrows nothing and blocks nothing, and the interface is derived
     without it."""
@@ -448,7 +448,7 @@ def test_a_stale_lock_reports_on_a_connected_placement_too():
 
 
 def test_a_column_a_node_computed_is_derivable():
-    """The roster is what the node answers, and a column on no
+    """The interface is what the node answers, and a column on no
     declaration is as real a field of the surface as one it declared."""
     import dataclasses
 

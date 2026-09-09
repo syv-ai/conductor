@@ -1,4 +1,4 @@
-"""``CompiledGraph`` — everything compile learned about a graph, as one immutable value.
+"""``CompiledGraph`` — everything the compiler learned about a graph, as one immutable value.
 
 ``CompiledGraph.from_graph`` builds it from a ``Graph`` and a ``NodeRegistry``.
 Everyone else asks it questions and never reads the nodes' bindings
@@ -8,7 +8,7 @@ every field, which nodes run once per row and in what order, under which
 condition each output appears, and what is wrong. The engine is one more
 caller.
 
-Three words this module uses throughout.
+Four words this module uses throughout.
 
 A node's interface is the list of inputs and outputs it actually has.
 Usually that is what its version declares, but a node may add or drop
@@ -20,17 +20,20 @@ of the node that uploaded them. A scalar input is an input that takes one
 value. A node that receives a series on a scalar input runs once per row
 of the series; we say the node iterates on that index.
 
-A placement is a node whose version is itself a graph, an embedded graph.
-Compile inlines it, so the graph the author drew (the authored graph)
-differs from the graph that runs (the expanded graph). In the authored
-graph the embedded graph is one node, ``approve``, and its fields are
-addressed through it, ``Ref("approve", "check.amount")``. In the expanded
-graph its inner nodes are nodes of the run, named ``approve/check``.
+Any node placed in a graph is a placement of its definition (see
+``GraphNode``). Some nodes have a version that is itself a graph; that
+graph is an embedded graph, and below "the placement" means the node
+that embeds it. The compiler inlines the embedded graph's nodes in place
+of that node, so the graph the author drew (the authored graph) differs
+from the graph that runs (the expanded graph). In the authored graph the
+embedded graph is one node, ``approve``, and its fields are addressed
+through it, ``Ref("approve", "check.amount")``. In the expanded graph
+its inner nodes are nodes of the run, named ``approve/check``.
 
 ``execution_order``, ``node``, ``runner``, ``dependencies`` and
-``iterates_on`` answer over the expanded graph; the problems, each node's
-interface and the graph's interface are about the authored one. A question about a field may use
-either address: ``type_of(Ref("approve", "check.amount"))`` and
+``iterates_on`` speak of the expanded graph; ``problems_for`` and
+``interface`` speak of the authored one; ``interface_of`` answers for
+either id. A question about a field may use either address: ``type_of(Ref("approve", "check.amount"))`` and
 ``type_of(Ref("approve/check", "amount"))`` are the same question.
 
 It is a plain value: immutable, no I/O, no session. The same graph and
@@ -166,8 +169,8 @@ class CompiledGraph:
         the edges gave it — not merely what its version declared.
 
         The one place anything asks what a node has: the engine validates
-        a call against it and an editor draws the rows from it. For an
-        embedded graph, its version's interface."""
+        a call against it and an editor draws the fields from it. For a
+        node whose version is a graph, the interface that version declares."""
         return self._interfaces[node_id]
 
     def statics(self, node_id: str) -> Mapping[str, Any]:
@@ -187,9 +190,9 @@ class CompiledGraph:
     def iterates_on(self, node_id: str) -> Index | None:
         """The index this node runs once per row of, or ``None`` when it runs
         once. Read off its edges — a series arriving on a scalar input is
-        what makes a node run per row — and stored nowhere. For an embedded
-        flow, the index its inner nodes run per row of, where a series
-        entered it."""
+        what makes a node run per row — and never stored on the node. For a
+        node whose version is a graph, the index its inner nodes run per row
+        of, where a series entered it."""
         return self._iterated[node_id]
 
     # -- one field -------------------------------------------------------------
@@ -250,7 +253,7 @@ class CompiledGraph:
         """Every problem, or those about one node or one of its fields.
 
         Anchored on the authored graph: a problem found inside an embedded
-        flow sits on the node the author placed, with the inner address as
+        graph sits on the node the author placed, with the inner address as
         the field."""
         found = self._problems
         if node_id is not None:

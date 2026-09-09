@@ -1,59 +1,63 @@
-"""One walk over the edges: what arrives on every field, and whether it may.
+"""One walk over the edges: what arrives on every field, and whether each edge is allowed.
 
-Called by compile once every node's inputs are known. It walks
-the nodes in execution order and, for each edge into each input, answers
-three questions that turn out to be one:
+Called by the compiler once every node's inputs are known. It walks the
+nodes in execution order and, for each edge into each input, answers
+three questions.
 
-* **May this edge land?** ``target.accepts(source)`` decides; a series is
-  judged by its element type. A refusal is the fatal ``type_mismatch``.
-* **Does the node run once, or once per row?** A *series* is a value with
-  many rows, and an *index* names where those rows come from. A series
-  arriving on a scalar input means the node runs once per row of that
-  index — we say the node *iterates* on the index. Its other scalar
-  inputs are the same value every row, every output becomes a series on
-  the same index, and nodes downstream receive a series and iterate
-  in turn. Nothing is stored or marked to make this happen; "receives a
-  series" is the whole rule.
-* **Do its inputs agree?** A node fed series on several inputs needs their
-  indexes on one line of descent — an index and the indexes opened from
-  its rows. The deepest is the one the node runs per row of; a shallower
-  one is an ancestor whose rows repeat down. Two indexes that are not
-  related are the fatal ``misaligned``.
+May this edge land? ``target.accepts(source)`` decides; a series is
+judged by its element type. A refusal is the fatal ``type_mismatch``.
+
+Does the node run once, or once per row? A series is a value with many
+rows, and an index names where those rows come from. A scalar input is
+an input that takes one value. A series arriving on a scalar input means
+the node runs once per row of that index; we say the node iterates on
+the index. Its other scalar inputs are the same value every row, every
+output becomes a series on the same index, and nodes downstream receive
+a series and iterate in turn. Nothing is stored or marked to make this
+happen; "receives a series" is the whole rule.
+
+Do its inputs agree? A node fed series on several inputs needs their
+indexes to be related: one must be the other, or a child of it (a child
+index is made when a node splits each row into several). The node runs
+once per row of the deepest one; a value on a shallower, parent index is
+the same for every child row under it. Two indexes that are not related
+are the fatal ``misaligned``.
 
 Before those questions, inputs with no type of their own are typed from
 their edges: a parameter declared ``Any`` takes the element type of what
-arrives, and iterates if a series arrives; a ``**inputs`` parameter
-takes what arrives per edge — ``**inputs: Single`` receives each value
-whole, series and all, and never iterates; ``**inputs: Series`` treats
-each as a series to reduce. Once every input is typed, ``compute_outputs``
-is asked with the arriving types and the node's outputs are complete.
+arrives, and the node runs once per row if a series arrives; a
+``**inputs`` parameter takes what arrives per edge — ``**inputs: Single``
+receives each value whole, series and all, and never makes the node run
+per row; ``**inputs: Series`` treats each as a series to reduce. Once
+every input is typed, ``compute_outputs`` is asked with the arriving
+types and the node's outputs are complete.
 
-A ``Series[X]`` input receives a whole series and is read by the index
-that arrives. One series on an index opened from another index's rows is
-a *reduction*: the node runs once per parent row and receives the child
-rows under it. One series on a root index is received whole, once.
-Anything else feeding the input — several scalars, several series on
-different indexes, a typed-in list, a default — is *gathered* onto a
-fresh index that belongs to the input, and the node runs once.
+A ``Series[X]`` input receives a whole series; what it does depends on
+the index that series is on. One series on a child index is a reduction:
+the node runs once per parent row and receives the child rows under it.
+One series on a root index is received whole, once. Anything else
+feeding the input — several scalars, several series on different
+indexes, a typed-in list, a default — is gathered onto a fresh index
+that belongs to the input, and the node runs once.
 
 An embedded graph (a node whose version is a graph, inlined by ``expand``)
 has a boundary. Where a series enters it through a scalar field, the
-whole inner graph runs once per row of that index: every inner node is
-iterates on at least that index, every index opened inside it is a child
-of it, and an inner reduction over the entering index receives one row
-at a time — so the inner flow behaves exactly as it would standalone,
-once per outer row. That index is found once, when the walk reaches the
-first inner node, from the edges crossing in (``_Walk._entering_index``).
+whole inner graph runs once per row of that index: every inner node runs
+at least once per row of it, every index opened inside it is a child of
+it, and an inner reduction over the entering index receives one row at a
+time — so the inner graph behaves exactly as it would standalone, once
+per outer row. That index is found once, when the walk reaches the first
+inner node, from the edges crossing in (``_Walk._entering_index``).
 
 A scalar input holding a typed-in sequence (a multi-file upload, a list
-typed by hand) is a series on an index of its own and makes the node iterate as
-a connected series would.
+typed by hand) is a series on an index of its own, and the node runs once
+per row of it, exactly as it would for a series arriving on an edge.
 
 Indexes are only named here; the engine adds rows to them later. A node's
 series output sits on ``Index(node_id)`` — a root when the node runs
 once, a child of the node's own index when it runs per row; a gathering
-``Series[X]`` input sits on ``Index(ref)``. Compile reasons about *which*
-index, never about how many rows.
+``Series[X]`` input sits on ``Index(ref)``. The compiler reasons about
+which index, never about how many rows.
 """
 
 from __future__ import annotations
@@ -111,7 +115,7 @@ def derive(
     inputs and outputs.
 
     ``nodes`` holds only nodes whose edges all point at existing nodes
-    (compile leaves the rest out). A node fed by a node that was
+    (the compiler leaves the rest out). A node fed by a node that was
     left out or could not be resolved gets no entry in ``iterated``,
     ``types`` or ``indexes`` — the broken source carries the problem, and nothing
     downstream of a fault is guessed at — but its inputs and outputs are
@@ -170,7 +174,7 @@ class _Walk:
     ``visit`` reads what arrives on a node's inputs, decides whether it
     runs once per row, completes its inputs and outputs and records what
     every field carries; later nodes read those records as their sources.
-    ``result`` freezes what was found into a ``Iteration``.
+    ``result`` freezes what was found into an ``Iteration``.
     """
 
     def __init__(
@@ -227,9 +231,10 @@ class _Walk:
             self._derive(node, arrived, scope)
 
     def _scope_of(self, node: GraphNode) -> Index | None:
-        """The index the embedded graph ``node`` sits in runs per row of, or
-        ``None`` when it sits at the top or the graph runs once. Found on
-        the first inner node visited and recorded for the placement."""
+        """The index that the embedded graph containing ``node`` runs once per
+        row of; ``None`` when ``node`` is at the top level or that graph runs
+        once. Found on the first inner node visited and recorded under the
+        id of the node that embeds the graph."""
         placement = self.placement_of.get(node.id)
         if placement is None:
             return None
@@ -239,7 +244,7 @@ class _Walk:
         return self.scopes[placement]
 
     def _read_inputs(self, node: GraphNode, scope: Index | None) -> _Arrivals:
-        """What arrives on each input of ``node``, and whether it may.
+        """What arrives on each input of ``node``, and whether each edge is allowed.
 
         An input nothing feeds carries what the author typed (a scalar, or a
         series on an index of its own). A connected input is checked: every
@@ -441,7 +446,7 @@ def _typed(field: Any, bound: Mapping[str, Any]) -> Any:
 
 
 def _one_index(sources: Sequence[_Carried]) -> bool:
-    """Do all sources carry a series on one and the same index? Then the edges are a union of rows."""
+    """Do all sources carry a series on one and the same index? Then the edges together are one set of rows."""
     return all(s.index is not None for s in sources) and len({s.index for s in sources}) == 1
 
 
@@ -466,7 +471,7 @@ def _originates(inp: Input, ref: Ref, static: Any, scope: Index | None) -> _Carr
     """What a field carries when no edge feeds it: a scalar, or a series on
     an index of the field's own — always for a ``Series[X]`` input, and for
     a scalar input when the author typed many values. Inside an embedded
-    flow that runs per row, that index is a child of the entering one
+    graph that runs per row, that index is a child of the entering one
     (``scope``).
 
     ``static`` is the converted value from ``compiler._typed_statics`` — a

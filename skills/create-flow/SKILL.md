@@ -92,7 +92,7 @@ A node returns `SKIPPED` on the branch it did not take. Whatever is connected to
 
 ## Definitions the registry does not hold
 
-A graph may name a definition the static registry lacks (a host's embedded flows, say). The host builds those `NodeDefinition`s itself and hands compile `registry.extended_with({"loaded-id": Loaded})` — a new registry per run; a registered type wins over a loaded one of the same id.
+A graph may name a definition the static registry lacks (a host's embedded graphs, say). The host builds those `NodeDefinition`s itself and hands compile `registry.extended_with({"loaded-id": Loaded})` — a new registry per run; a registered type wins over a loaded one of the same id.
 
 ## Cancellation and timeout
 

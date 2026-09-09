@@ -151,7 +151,7 @@ class Picky(NodeDefinition):
 
 
 class Twice(NodeDefinition):
-    """A roster naming one field twice: one name on two outputs, and one on both sides."""
+    """An interface naming one field twice: one name on two outputs, and one on both sides."""
 
     id = "twice"
     title = "Twice"
@@ -231,8 +231,8 @@ def test_there_is_no_validate_hook():
 
 
 def test_a_computed_roster_naming_one_field_twice_is_fatal():
-    """`Interface.of` refuses the declaration; a roster a hook computed is
-    compile's to refuse, once, on the finished roster — within a side and
+    """`Interface.of` refuses the declaration; an interface a hook computed is
+    compile's to refuse, once, on the finished interface — within a side and
     across sides alike, because a `Ref` is one address on either side."""
     problems = _problems([GraphNode(id="t", type="twice", version=1)])
 
@@ -245,7 +245,7 @@ def test_a_computed_roster_naming_one_field_twice_is_fatal():
 def test_a_computed_field_with_a_handle_needs_an_edge_type():
     """A DType is required exactly where a handle is. `Interface.of`
     refuses the declaration; a hook can compute an output nothing could
-    edge, and compile refuses that once, on the completed roster."""
+    edge, and compile refuses that once, on the completed interface."""
 
     class Odd(NodeDefinition):
         id = "odd"

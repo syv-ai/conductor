@@ -15,13 +15,15 @@ N went to output O"). The output appears when any alternative holds::
     NEVER = frozenset()                  # no alternative at all
 
 An input fed by several edges drops the skipped ones, so what hangs off
-it appears when *any* source did — that is where a second alternative
-comes from. An alternative naming one decision twice with different
+it appears when any one of its sources appeared — that is where a second
+alternative comes from. An alternative naming one decision twice with different
 outputs is dropped, since it can never hold.
 
 Only a decision on a node that runs once gates anything. A node that runs
-once per row (see ``iteration``) produces both branches as series with
-gaps and picks rows instead; it contributes no atom.
+once per row (see ``iteration``) may take one branch on some rows and the
+other on the rest, so each branch output is a series missing the rows
+that went the other way. Nothing downstream is switched off, so such a
+node contributes no atom.
 """
 
 from __future__ import annotations
@@ -64,7 +66,7 @@ def conditions_of(
 ) -> dict[Ref, Condition]:
     """The condition of every output of every node in ``iterated`` — the nodes the edge walk resolved.
 
-    Walks ``nodes`` in topological order. A node's own condition holds
+    Walks ``nodes`` in execution order. A node's own condition holds
     when every connected input's does, and an input's holds when any of
     its sources' does. An output with a ``choice`` on a node that runs
     once adds its own decision.

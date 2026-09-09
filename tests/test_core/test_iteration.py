@@ -141,7 +141,7 @@ class Only(NodeDefinition):
 
 
 class Script(NodeDefinition):
-    """An open roster: every connected name is a parameter, received whole."""
+    """An open interface: every connected name is a parameter, received whole."""
 
     id = "script"
     title = "Python"
@@ -275,7 +275,7 @@ def test_a_mismatched_series_is_judged_by_its_element():
 
 def test_a_pass_through_binds_its_type_from_the_edge():
     """`Any` in takes what arrived, the hook types the output from
-    `arriving`, and the roster is concrete — nothing downstream sees a
+    `arriving`, and the node's interface is concrete — nothing downstream sees a
     lost type."""
     compiled = _compiled([
         GraphNode(id="n", type="count", version=1, bindings={"text": Static(value="hi")}),
@@ -415,9 +415,9 @@ def test_an_open_roster_takes_one_input_per_edge_received_whole():
     ])
 
     assert compiled.is_runnable, compiled.problems_for()
-    roster = compiled.interface_of("s")
-    assert [(i.name, i.dtype) for i in roster.inputs] == [("code", Txt), ("antal", Num), ("tekster", Series[Txt])]
-    assert type(roster.inputs[2].widget).__name__ == "ConnectionList"
+    interface = compiled.interface_of("s")
+    assert [(i.name, i.dtype) for i in interface.inputs] == [("code", Txt), ("antal", Num), ("tekster", Series[Txt])]
+    assert type(interface.inputs[2].widget).__name__ == "ConnectionList"
     assert compiled.iterates_on("s") is None
     assert compiled.index_of(Ref("s", "tekster")) == Index("docs")
 
@@ -523,7 +523,7 @@ def test_compute_outputs_sees_the_dtype_each_connected_input_receives():
 
 
 def test_a_hook_that_cannot_answer_refuses_and_the_refusal_is_the_placements_problem():
-    """`Refuses(code, message)` from a roster hook — asked once, with real
+    """`Refuses(code, message)` from a field hook — asked once, with real
     arrivals — lands as the node's one fatal `Problem`: the host
     names the code and writes the sentence, compile only anchors it, and
     there is no `no_outputs` echo beside it."""

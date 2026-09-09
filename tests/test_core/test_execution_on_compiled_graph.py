@@ -125,7 +125,7 @@ def test_an_unbound_input_falls_back_to_its_declared_default():
 
 
 def test_a_stale_static_never_reaches_the_node():
-    """The resolver reads the roster, so a binding nothing declares is not
+    """The resolver reads the node's interface, so a binding nothing declares is not
     a value anything receives."""
     results = _run([GraphNode(id="a", type="upper", version=1, bindings={"text": Static(value="x"), "gone": Static(value=1)})])
 
