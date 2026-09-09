@@ -15,7 +15,7 @@ Three words this module uses throughout:
   depending on the values it holds and the types connected to it.
 * A **series** is a value with many rows, and an **index** names where
   those rows come from. A node that receives a series on a scalar input
-  runs once per row; we say it is **lifted** on that index.
+  runs once per row; we say it **iterates** on that index.
 * A **placement** is a node whose version is itself a graph — an embedded
   flow. Compile inlines it, so the graph the author drew (the *authored*
   graph) and the graph that runs (the *expanded* graph) differ: in the
@@ -25,7 +25,7 @@ Three words this module uses throughout:
   ``approve/check``.
 
 ``execution_order``, ``node``, ``runner``, ``dependencies`` and
-``lifted_on`` answer over the expanded graph; problems, interfaces and the
+``iterates_on`` answer over the expanded graph; problems, interfaces and the
 interface are about the authored one. A question about a field may use
 either address: ``type_of(Ref("approve", "check.amount"))`` and
 ``type_of(Ref("approve/check", "amount"))`` are the same question.
@@ -61,7 +61,7 @@ class CompiledGraph:
     """The result of compiling one graph. Ask it; do not read through it.
 
     Built by ``from_graph`` and read by the engine
-    (``execution_order``, ``runner``, ``interface_of``, ``lifted_on``), an
+    (``execution_order``, ``runner``, ``interface_of``, ``iterates_on``), an
     editor's compile endpoint (``problems_for``, ``type_of``,
     ``interface``), and anything deciding whether a run may start
     (``is_runnable``).
@@ -80,7 +80,7 @@ class CompiledGraph:
     _statics: Mapping[str, Mapping[str, Any]]
     _dependencies: Mapping[str, frozenset[str]]
     _order: tuple[str, ...]
-    _lifted: Mapping[str, Index | None]
+    _iterated: Mapping[str, Index | None]
     _indexes: Mapping[Ref, Index | None]
     _types: Mapping[Ref, Any]
     _conditions: Mapping[Ref, Condition]
@@ -181,13 +181,13 @@ class CompiledGraph:
         node = self.node(node_id)
         return runner_for(self._registry, node.type, node.version)
 
-    def lifted_on(self, node_id: str) -> Index | None:
+    def iterates_on(self, node_id: str) -> Index | None:
         """The index this node runs once per row of, or ``None`` when it runs
         once. Read off its edges — a series arriving on a scalar input is
         what makes a node run per row — and stored nowhere. For an embedded
         flow, the index its inner nodes run per row of, where a series
         entered it."""
-        return self._lifted[node_id]
+        return self._iterated[node_id]
 
     # -- one field -------------------------------------------------------------
 
@@ -221,7 +221,7 @@ class CompiledGraph:
         left out: its decision picks rows and gates nothing downstream."""
         found: dict[str, dict[str, tuple[str, ...]]] = {}
         for node_id in self._order:
-            if self._lifted.get(node_id, None) is not None:
+            if self._iterated.get(node_id, None) is not None:
                 continue
             groups: dict[str, list[str]] = {}
             for out in self._interfaces[node_id].outputs:

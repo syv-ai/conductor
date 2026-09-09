@@ -182,7 +182,7 @@ def test_this_engine_refuses_a_lifted_node():
     )
     assert compiled.is_runnable
 
-    with pytest.raises(NotImplementedError, match="lifted"):
+    with pytest.raises(NotImplementedError, match="iterate"):
         execute_sync(compiled)
 
 

@@ -164,7 +164,7 @@ conductor/
 │   │       ├── errors.py           # Exception hierarchy (ConductorError, NodeError, …)
 │   │       ├── _sentinel.py        # SKIPPED
 │   │       ├── registry/           # NodeRegistry, runner_for, discover_nodes
-│   │       ├── graph/              # GraphNode/Graph, the Binding variants, the derived views, topology, CompiledGraph.from_graph() and the CompiledGraph it returns, lifting, expansion, conditions, Problem
+│   │       ├── graph/              # GraphNode/Graph, the Binding variants, the derived views, topology, CompiledGraph.from_graph() and the CompiledGraph it returns, iteration, expansion, conditions, Problem
 │   │       ├── execution/          # execute(), execute_sync(), the eager scheduler, retry, events
 │   │       ├── flow_format/        # YAML / JSON flow files
 │   │       └── about/              # Runnable library reference: python -m conductor.about

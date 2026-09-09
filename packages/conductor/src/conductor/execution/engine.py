@@ -75,7 +75,7 @@ async def execute(
     Nodes start as soon as all their dependencies are done — independent
     branches run concurrently. Retry is configurable per-node or globally.
     Refuses a graph that is not runnable (``CompilationError`` carrying
-    its problems) and, until the engine runs rows, a graph with a lifted
+    its problems) and, until the engine runs rows, a graph with an iterating
     node (``NotImplementedError`` naming the ids).
 
     ``store_data`` pre-seeds the ``FlowStore`` before the first node runs.
@@ -752,10 +752,10 @@ def _build_state(
     this engine does not yet run a node per row."""
     if not compiled.is_runnable:
         raise CompilationError(compiled.problems_for())
-    lifted = [node_id for node_id in compiled.execution_order() if compiled.lifted_on(node_id) is not None]
-    if lifted:
+    iterating = [node_id for node_id in compiled.execution_order() if compiled.iterates_on(node_id) is not None]
+    if iterating:
         raise NotImplementedError(
-            f"This engine runs scalar nodes only; these nodes are lifted: {', '.join(lifted)}"
+            f"This engine runs scalar nodes only; these nodes iterate: {', '.join(iterating)}"
         )
     return FlowRunState(
         compiled=compiled,

@@ -169,7 +169,7 @@ def test_two_decisions_in_series_conjoin_and_a_contradiction_is_dropped():
 
 def test_a_lifted_decision_masks_rows_and_is_not_a_condition():
     """Both branches produce, each sparse, so nothing below a
-    lifted decision is conditional on it — and it is not a dimension."""
+    iterating decision is conditional on it — and it is not a dimension."""
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
         GraphNode(id="g", type="gate", version=1, bindings={"value": _edge(("docs", "result"))}),
@@ -177,6 +177,6 @@ def test_a_lifted_decision_masks_rows_and_is_not_a_condition():
     ])
 
     assert compiled.is_runnable, compiled.problems_for()
-    assert compiled.lifted_on("g") is not None
+    assert compiled.iterates_on("g") is not None
     assert compiled.condition(Ref("yes", "result")) == ALWAYS
     assert compiled.decisions() == {}

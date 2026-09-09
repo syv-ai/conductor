@@ -1,4 +1,4 @@
-"""Lifting, alignment and reduction, derived at compile."""
+"""Iteration, alignment and reduction, derived at compile."""
 
 from dataclasses import dataclass, replace
 from typing import Annotated, Any
@@ -18,12 +18,12 @@ from conductor.widgets import ConnectionList, Textarea
 
 
 class Txt(DType, str):
-    id = "lifting-test-txt"
+    id = "iteration-test-txt"
     title = "Text"
 
 
 class Num(DType, float):
-    id = "lifting-test-num"
+    id = "iteration-test-num"
     title = "Number"
 
 
@@ -85,7 +85,7 @@ class Join(NodeDefinition):
 
 
 class Lines(NodeDefinition):
-    """Opens one text into many: lifted, it is an unfold."""
+    """Opens one text into many: iterating, it is an unfold."""
 
     id = "lines"
     title = "Lines"
@@ -167,7 +167,7 @@ def _edge(*refs):
     return Edges(refs=tuple(Ref(n, f) for n, f in refs))
 
 
-# --- a series into a scalar input lifts the node --------------------------------
+# --- a series into a scalar input makes the node iterate --------------------------------
 
 
 def test_a_scalar_node_fed_scalars_is_not_lifted():
@@ -176,7 +176,7 @@ def test_a_scalar_node_fed_scalars_is_not_lifted():
         GraphNode(id="b", type="upper", version=1, bindings={"text": _edge(("a", "result"))}),
     ])
 
-    assert compiled.lifted_on("b") is None
+    assert compiled.iterates_on("b") is None
     assert compiled.type_of(Ref("b", "result")) is Txt
     assert compiled.index_of(Ref("b", "result")) is None
 
@@ -204,7 +204,7 @@ def test_a_series_into_a_scalar_input_lifts_the_node():
     ])
 
     assert compiled.is_runnable
-    assert compiled.lifted_on("up") == Index("docs")
+    assert compiled.iterates_on("up") == Index("docs")
     assert compiled.index_of(Ref("up", "text")) == Index("docs")
 
 
@@ -221,14 +221,14 @@ def test_a_lifted_nodes_outputs_are_series_on_the_same_index():
 
 def test_lifting_is_contagious_and_needs_no_construct():
     """Per-row over many nodes: each node downstream receives a series and
-    lifts in turn. Nothing is stored, marked or grouped."""
+    iterates in turn. Nothing is stored, marked or grouped."""
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
         GraphNode(id="n", type="count", version=1, bindings={"text": _edge(("up", "result"))}),
     ])
 
-    assert compiled.lifted_on("n") == Index("docs")
+    assert compiled.iterates_on("n") == Index("docs")
     assert compiled.type_of(Ref("n", "result")) is Series[Num]
 
 
@@ -241,7 +241,7 @@ def test_a_scalar_beside_a_series_broadcasts():
     ])
 
     assert compiled.is_runnable
-    assert compiled.lifted_on("p") == Index("docs")
+    assert compiled.iterates_on("p") == Index("docs")
     assert compiled.index_of(Ref("p", "a")) is None
     assert compiled.index_of(Ref("p", "b")) == Index("docs")
 
@@ -291,7 +291,7 @@ def test_a_pass_through_binds_its_type_from_the_edge():
 
 
 def test_a_lifted_pass_through_binds_the_element_and_lifts():
-    """A pass-through fed a series is lifted like any scalar node, and
+    """A pass-through fed a series iterates like any scalar node, and
     takes the element as its type."""
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
@@ -301,8 +301,8 @@ def test_a_lifted_pass_through_binds_the_element_and_lifts():
 
     assert compiled.is_runnable, compiled.problems_for()
     assert compiled.type_of(Ref("r", "result")) is Series[Txt]
-    assert compiled.lifted_on("r") == Index("docs")
-    assert compiled.lifted_on("up") == Index("docs")
+    assert compiled.iterates_on("r") == Index("docs")
+    assert compiled.iterates_on("up") == Index("docs")
 
 
 def test_a_reduction_over_the_variable_binds_from_the_series_element():
@@ -315,7 +315,7 @@ def test_a_reduction_over_the_variable_binds_from_the_series_element():
     assert compiled.interface_of("one").inputs[0].dtype is Series[Txt]
     assert compiled.type_of(Ref("one", "result")) is compiled.type_of(Ref("one", "result"))
     assert compiled.type_of(Ref("one", "result")) is Txt
-    assert compiled.lifted_on("one") is None
+    assert compiled.iterates_on("one") is None
 
 
 def test_an_unconnected_any_input_is_unbound_required_and_the_node_has_no_shape():
@@ -327,7 +327,7 @@ def test_an_unconnected_any_input_is_unbound_required_and_the_node_has_no_shape(
     (problem,) = compiled.problems_for()
     assert (problem.code, problem.fatal, problem.node_id, problem.field) == ("unbound_required", True, "r", "value")
     with pytest.raises(KeyError):
-        compiled.lifted_on("r")
+        compiled.iterates_on("r")
 
 
 def test_a_static_on_an_any_input_is_unbound_too():
@@ -403,7 +403,7 @@ def test_a_source_may_refuse_to_be_received_whole_naming_the_fix():
 
 def test_an_open_roster_takes_one_input_per_edge_received_whole():
     """Two edges, two parameters, each typed by what arrives — a
-    series arrives whole and lifts nothing."""
+    series arrives whole and makes nothing iterate."""
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
         GraphNode(id="n", type="count", version=1, bindings={"text": Static(value="hi")}),
@@ -418,7 +418,7 @@ def test_an_open_roster_takes_one_input_per_edge_received_whole():
     roster = compiled.interface_of("s")
     assert [(i.name, i.dtype) for i in roster.inputs] == [("code", Txt), ("antal", Num), ("tekster", Series[Txt])]
     assert type(roster.inputs[2].widget).__name__ == "ConnectionList"
-    assert compiled.lifted_on("s") is None
+    assert compiled.iterates_on("s") is None
     assert compiled.index_of(Ref("s", "tekster")) == Index("docs")
 
 
@@ -451,7 +451,7 @@ def test_a_node_with_a_broken_edge_has_no_shape_and_says_so_once():
 
     assert [p.code for p in compiled.problems_for()] == ["unknown_ref_node"]
     with pytest.raises(KeyError):
-        compiled.lifted_on("b")
+        compiled.iterates_on("b")
     with pytest.raises(KeyError):
         compiled.type_of(Ref("c", "result"))
 
@@ -484,7 +484,7 @@ def test_a_node_with_no_outputs_yet_is_the_ordinary_mid_edit_state():
     (problem,) = compiled.problems_for()
     assert (problem.code, problem.fatal, problem.node_id) == ("no_outputs", False, "s")
     assert compiled.is_runnable
-    assert compiled.lifted_on("s") is None
+    assert compiled.iterates_on("s") is None
     assert compiled.interface_of("s").outputs == ()
 
 
@@ -517,8 +517,8 @@ def test_compute_outputs_sees_the_dtype_each_connected_input_receives():
     ]), registry)
 
     assert compiled.is_runnable, compiled.problems_for()
-    assert [o.name for o in compiled.interface_of("o").outputs] == ["from_lifting-test-txt"]
-    assert compiled.index_of(Ref("o", "from_lifting-test-txt")) == Index("docs")
+    assert [o.name for o in compiled.interface_of("o").outputs] == ["from_iteration-test-txt"]
+    assert compiled.index_of(Ref("o", "from_iteration-test-txt")) == Index("docs")
     assert [o.name for o in compiled.interface_of("bare").outputs] == ["result"]
 
 
@@ -589,7 +589,7 @@ def test_two_series_on_one_index_align():
     ])
 
     assert compiled.is_runnable
-    assert compiled.lifted_on("p") == Index("docs")
+    assert compiled.iterates_on("p") == Index("docs")
 
 
 def test_two_series_on_unrelated_indexes_are_a_fatal_problem_naming_both():
@@ -605,7 +605,7 @@ def test_two_series_on_unrelated_indexes_are_a_fatal_problem_naming_both():
     assert "p.a" in problem.message and "p.b" in problem.message
     assert problem.details == {"a": "p.a", "b": "p.b"}
     with pytest.raises(KeyError):
-        compiled.lifted_on("p")
+        compiled.iterates_on("p")
 
 
 # --- reduction ---------------------------------------------------------------------
@@ -619,7 +619,7 @@ def test_a_reduction_on_a_root_yields_a_scalar_and_is_not_lifted():
     ])
 
     assert compiled.is_runnable
-    assert compiled.lifted_on("j") is None
+    assert compiled.iterates_on("j") is None
     assert compiled.index_of(Ref("j", "texts")) == Index("docs")
     assert compiled.type_of(Ref("j", "result")) is compiled.type_of(Ref("j", "result"))
     assert compiled.type_of(Ref("j", "result")) is Txt
@@ -635,7 +635,7 @@ def test_a_lifted_node_returning_a_series_gives_birth_to_a_child_index():
     ])
 
     lines_type, lines_index = compiled.type_of(Ref("lines", "result")), compiled.index_of(Ref("lines", "result"))
-    assert compiled.lifted_on("lines") == Index("docs")
+    assert compiled.iterates_on("lines") == Index("docs")
     assert lines_type is Series[Txt]
     assert lines_index == Index("lines")
     assert lines_index.parent == Index("docs")
@@ -650,7 +650,7 @@ def test_a_reduction_on_a_child_is_a_lift_on_the_parent():
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("lines", "result"))}),
     ])
 
-    assert compiled.lifted_on("j") == Index("docs")
+    assert compiled.iterates_on("j") == Index("docs")
     assert compiled.type_of(Ref("j", "result")) is Series[Txt]
     assert compiled.index_of(Ref("j", "result")) == Index("docs")
 
@@ -664,7 +664,7 @@ def test_a_parent_index_series_broadcasts_down_to_a_child_index_node():
     ])
 
     assert compiled.is_runnable
-    assert compiled.lifted_on("p") == Index("lines")
+    assert compiled.iterates_on("p") == Index("lines")
 
 
 def test_two_children_of_one_parent_do_not_align():
@@ -689,7 +689,7 @@ def test_n_scalar_refs_into_a_series_input_gather_onto_a_fresh_index():
     ])
 
     texts_type, texts_index = compiled.type_of(Ref("j", "texts")), compiled.index_of(Ref("j", "texts"))
-    assert compiled.lifted_on("j") is None
+    assert compiled.iterates_on("j") is None
     assert texts_type is Series[Txt]
     assert texts_index == Index("j.texts")
     assert texts_index.parent is None
@@ -703,12 +703,12 @@ def test_n_series_refs_concatenate_and_lineage_is_gone():
     ])
 
     assert compiled.is_runnable
-    assert compiled.lifted_on("j") is None
+    assert compiled.iterates_on("j") is None
     assert compiled.index_of(Ref("j", "texts")) == Index("j.texts")
 
 
 def test_two_refs_on_one_index_into_a_scalar_input_are_a_union_on_it():
-    """A merge is edges. The node lifts on the shared index and reads per row."""
+    """A merge is edges. The node iterates on the shared index and reads per row."""
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
         GraphNode(id="a", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
@@ -717,7 +717,7 @@ def test_two_refs_on_one_index_into_a_scalar_input_are_a_union_on_it():
     ])
 
     assert compiled.is_runnable, compiled.problems_for()
-    assert compiled.lifted_on("m") == Index("docs")
+    assert compiled.iterates_on("m") == Index("docs")
     assert (compiled.type_of(Ref("m", "result")), compiled.index_of(Ref("m", "result"))) == (Series[Txt], Index("docs"))
 
 
@@ -740,7 +740,7 @@ def test_two_series_refs_on_one_index_into_a_series_input_read_that_index_not_a_
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("a", "result"), ("b", "result"))}),
     ])
 
-    assert compiled.lifted_on("j") is None
+    assert compiled.iterates_on("j") is None
     assert compiled.index_of(Ref("j", "texts")) == Index("docs")
 
 
@@ -782,6 +782,6 @@ def test_compile_stores_no_rows_and_no_mask():
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
     ])
 
-    assert not hasattr(compiled.lifted_on("up"), "rows")
+    assert not hasattr(compiled.iterates_on("up"), "rows")
     assert not hasattr(compiled, "rows")
     assert not hasattr(compiled, "mask")

@@ -9,9 +9,9 @@ three questions that turn out to be one:
 * **Does the node run once, or once per row?** A *series* is a value with
   many rows, and an *index* names where those rows come from. A series
   arriving on a scalar input means the node runs once per row of that
-  index — we say the node is *lifted* on the index. Its other scalar
+  index — we say the node *iterates* on the index. Its other scalar
   inputs are the same value every row, every output becomes a series on
-  the same index, and nodes downstream receive a series and are lifted
+  the same index, and nodes downstream receive a series and iterate
   in turn. Nothing is stored or marked to make this happen; "receives a
   series" is the whole rule.
 * **Do its inputs agree?** A node fed series on several inputs needs their
@@ -22,9 +22,9 @@ three questions that turn out to be one:
 
 Before those questions, inputs with no type of their own are typed from
 their edges: a parameter declared ``Any`` takes the element type of what
-arrives, and is lifted if a series arrives; a ``**inputs`` parameter
+arrives, and iterates if a series arrives; a ``**inputs`` parameter
 takes what arrives per edge — ``**inputs: Single`` receives each value
-whole, series and all, and is never lifted; ``**inputs: Series`` treats
+whole, series and all, and never iterates; ``**inputs: Series`` treats
 each as a series to reduce. Once every input is typed, ``compute_outputs``
 is asked with the arriving types and the node's outputs are complete.
 
@@ -39,14 +39,14 @@ fresh index that belongs to the input, and the node runs once.
 An embedded flow (a node whose version is a graph, inlined by ``expand``)
 has a boundary. Where a series enters it through a scalar field, the
 whole inner graph runs once per row of that index: every inner node is
-lifted on at least that index, every index opened inside it is a child
+iterates on at least that index, every index opened inside it is a child
 of it, and an inner reduction over the entering index receives one row
 at a time — so the inner flow behaves exactly as it would standalone,
 once per outer row. That index is found once, when the walk reaches the
 first inner node, from the edges crossing in (``_Walk._entering_index``).
 
 A scalar input holding a typed-in sequence (a multi-file upload, a list
-typed by hand) is a series on an index of its own and lifts the node as
+typed by hand) is a series on an index of its own and makes the node iterate as
 a connected series would.
 
 Indexes are only named here; the engine adds rows to them later. A node's
@@ -77,10 +77,10 @@ from conductor.series import Index, Series
 
 
 @dataclass(frozen=True)
-class Lifting:
+class Iteration:
     """What ``derive`` returns.
 
-    ``lifted``: for each node, the index it runs once per row of, or
+    ``iterated``: for each node, the index it runs once per row of, or
     ``None`` when it runs once; for each embedded graph, the index its
     inner nodes run per row of. ``types``: the type that travels on every
     field; ``indexes``: for a field carrying a series, where its rows come
@@ -89,7 +89,7 @@ class Lifting:
     serves from then on. ``problems``: what went wrong.
     """
 
-    lifted: Mapping[str, Index | None]
+    iterated: Mapping[str, Index | None]
     types: Mapping[Ref, Any]
     indexes: Mapping[Ref, Index | None]
     interfaces: Mapping[str, Interface]
@@ -105,14 +105,14 @@ def derive(
     *,
     placement_of: Mapping[str, str | None] = {},
     members: Mapping[str, Sequence[str]] = {},
-) -> Lifting:
+) -> Iteration:
     """Walk ``nodes`` in execution order and record, for each, whether it
     runs once per row, what type every field carries, and its completed
     inputs and outputs.
 
     ``nodes`` holds only nodes whose edges all point at existing nodes
     (compile leaves the rest out). A node fed by a node that was
-    left out or could not be resolved gets no entry in ``lifted``,
+    left out or could not be resolved gets no entry in ``iterated``,
     ``types`` or ``indexes`` — the broken source carries the problem, and nothing
     downstream of a fault is guessed at — but its inputs and outputs are
     still completed from what did arrive, so an editor can draw its
@@ -170,7 +170,7 @@ class _Walk:
     ``visit`` reads what arrives on a node's inputs, decides whether it
     runs once per row, completes its inputs and outputs and records what
     every field carries; later nodes read those records as their sources.
-    ``result`` freezes what was found into a ``Lifting``.
+    ``result`` freezes what was found into a ``Iteration``.
     """
 
     def __init__(
@@ -192,7 +192,7 @@ class _Walk:
         self.members = members
         #: The index each visited node runs once per row of (``None``: once);
         #: each embedded graph's, under its placement id.
-        self.lifted: dict[str, Index | None] = {}
+        self.iterated: dict[str, Index | None] = {}
         #: What every field of every visited node carries.
         self.carried: dict[Ref, _Carried] = {}
         #: Each visited node's inputs and outputs, completed.
@@ -202,9 +202,9 @@ class _Walk:
         #: when the walk reaches its first inner node.
         self.scopes: dict[str, Index | None] = {}
 
-    def result(self) -> Lifting:
-        return Lifting(
-            lifted=self.lifted,
+    def result(self) -> Iteration:
+        return Iteration(
+            iterated=self.iterated,
             types={ref: c.dtype for ref, c in self.carried.items()},
             indexes={ref: c.index for ref, c in self.carried.items()},
             interfaces=self.completed,
@@ -231,7 +231,7 @@ class _Walk:
             return None
         if placement not in self.scopes:
             self.scopes[placement] = self._entering_index(placement)
-            self.lifted[placement] = self.scopes[placement]
+            self.iterated[placement] = self.scopes[placement]
         return self.scopes[placement]
 
     def _read_inputs(self, node: GraphNode, scope: Index | None) -> _Arrivals:
@@ -268,7 +268,7 @@ class _Walk:
                 # carries its own problem and is not reported again here.
                 self.problems.extend(
                     problem("unknown_ref_output", node.id, inp.name, source=str(source))
-                    for source in missing if source.node_id in self.lifted
+                    for source in missing if source.node_id in self.iterated
                 )
                 found.broken = True
                 return found
@@ -344,7 +344,7 @@ class _Walk:
         self.completed[node.id] = replace(self.versions[node.id].interface, inputs=inputs, outputs=outputs)
         if not outputs:
             self.problems.append(problem("no_outputs", node.id))
-        lift_index, disagreeing = _lift_index(arrived.demands)
+        iteration_index, disagreeing = _iteration_index(arrived.demands)
         if disagreeing is not None:
             self.problems.append(_misaligned(node.id, *disagreeing))
             return
@@ -352,18 +352,18 @@ class _Walk:
         # once per outer row: that index is one more demand on the same line
         # of descent. A node nothing from outside reaches runs per row of it;
         # a node fed from a shallower index repeats its value down to it.
-        if scope is not None and (lift_index is None or scope not in _lineage(lift_index)):
-            lift_index = scope
-        self.lifted[node.id] = lift_index
+        if scope is not None and (iteration_index is None or scope not in _lineage(iteration_index)):
+            iteration_index = scope
+        self.iterated[node.id] = iteration_index
         self.carried.update({Ref(node.id, name): c for name, c in arrived.arrivals.items()})
         node_index: Index | None = None
         for out in outputs:
             ref = Ref(node.id, out.name)
             if getattr(out.dtype, "element", None) is not None:
-                node_index = node_index or Index(node.id, parent=lift_index or scope)
+                node_index = node_index or Index(node.id, parent=iteration_index or scope)
                 self.carried[ref] = _Carried(out.dtype, node_index)
-            elif lift_index is not None:
-                self.carried[ref] = _Carried(Series[out.dtype], lift_index)
+            elif iteration_index is not None:
+                self.carried[ref] = _Carried(Series[out.dtype], iteration_index)
             else:
                 self.carried[ref] = _Carried(out.dtype, None)
 
@@ -422,7 +422,7 @@ class _Walk:
                 for source in binding.refs:
                     if source.node_id not in inside and source in self.carried and self.carried[source].index is not None:
                         demands.append((self.carried[source].index, Ref(node_id, inp.name)))
-        index, disagreeing = _lift_index(demands)
+        index, disagreeing = _iteration_index(demands)
         if disagreeing is not None:
             self.problems.append(_misaligned(placement, *disagreeing))
             return None
@@ -497,7 +497,7 @@ def _say(dtype: Any) -> str:
     return dtype.id
 
 
-def _lift_index(demands: list[tuple[Index, Ref]]) -> tuple[Index | None, tuple[Ref, Ref] | None]:
+def _iteration_index(demands: list[tuple[Index, Ref]]) -> tuple[Index | None, tuple[Ref, Ref] | None]:
     """The index a node runs once per row of, given the indexes its inputs
     demand — or the two fields whose indexes disagree.
 

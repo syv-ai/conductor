@@ -18,7 +18,7 @@ placement's own address.
 
 The expanded order is the authored order with each placement replaced by
 its inner order, recursively. That is a topological order of the expanded
-graph with one extra property ``lifting.derive`` relies on: every edge
+graph with one extra property ``iteration.derive`` relies on: every edge
 that crosses into a placement's inner nodes is walked before the first
 inner node is.
 """

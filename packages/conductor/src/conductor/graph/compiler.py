@@ -31,7 +31,7 @@ from conductor.graph.binding import Edges, many, static_values
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.conditions import conditions_of
 from conductor.graph.expand import Expansion, expand, surfaced
-from conductor.graph.lifting import Lifting, derive
+from conductor.graph.iteration import Iteration, derive
 from conductor.graph.model import Graph, GraphNode
 from conductor.graph.problem import Problem, problem
 from conductor.graph.topology import dependencies_of, order_of
@@ -73,7 +73,7 @@ class _Compilation:
         #: Nodes whose stored edges are wrong; the edge walk leaves them out (pass 6).
         self.broken: frozenset[str] = frozenset()
         #: What the walk over the edges decided (pass 7).
-        self.lifting: Lifting
+        self.iteration: Iteration
 
     def build(self) -> CompiledGraph:
         """The passes, in order. Each reads the one before:
@@ -108,7 +108,7 @@ class _Compilation:
         self.field_rules()
         conditions = self.conditions()
         interface = self.interface()
-        expansion, lifting = self.expansion, self.lifting
+        expansion, iteration = self.expansion, self.iteration
         return CompiledGraph(
             _nodes=expansion.nodes,
             _registry=self.registry,
@@ -117,9 +117,9 @@ class _Compilation:
             _statics=self.statics,
             _dependencies=dependencies_of(expansion.nodes.values()),
             _order=expansion.order,
-            _lifted=lifting.lifted,
-            _indexes=lifting.indexes,
-            _types=lifting.types,
+            _iterated=iteration.iterated,
+            _indexes=iteration.indexes,
+            _types=iteration.types,
             _conditions=conditions,
             _placements=frozenset(expansion.placement_versions),
             _placement_of=expansion.placement_of,
@@ -267,12 +267,12 @@ class _Compilation:
         self.broken = frozenset(broken)
 
     def walk_edges(self) -> None:
-        """One walk over the edges in expanded order (``lifting.derive``):
+        """One walk over the edges in expanded order (``iteration.derive``):
         what type every field carries, which nodes run once per row and on
         which index, and each node's completed outputs. Nodes whose edges
         are broken are left out."""
         expansion = self.expansion
-        self.lifting = derive(
+        self.iteration = derive(
             [
                 expansion.nodes[node_id]
                 for node_id in expansion.order
@@ -281,8 +281,8 @@ class _Compilation:
             self.interfaces, expansion.versions, self.registry, self.statics,
             placement_of=expansion.placement_of, members=expansion.members,
         )
-        self.problems.extend(self.lifting.problems)
-        self.interfaces = {**self.interfaces, **self.lifting.interfaces}
+        self.problems.extend(self.iteration.problems)
+        self.interfaces = {**self.interfaces, **self.iteration.interfaces}
 
     def field_rules(self) -> None:
         """Two rules checked on every node's completed inputs and outputs, after the edge walk.
@@ -313,10 +313,10 @@ class _Compilation:
     def conditions(self) -> Any:
         """The condition under which each output appears, from the ``choice``
         groups of the nodes that run once (``conditions_of``)."""
-        expansion, lifting = self.expansion, self.lifting
+        expansion, iteration = self.expansion, self.iteration
         return conditions_of(
-            [expansion.nodes[node_id] for node_id in expansion.order if node_id in lifting.lifted],
-            self.interfaces, lifting.lifted,
+            [expansion.nodes[node_id] for node_id in expansion.order if node_id in iteration.iterated],
+            self.interfaces, iteration.iterated,
         )
 
     def interface(self) -> Any:

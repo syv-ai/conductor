@@ -19,7 +19,7 @@ from. A conjunction naming one decision twice with different outputs is
 dropped, since it can never hold.
 
 Only a decision on a node that runs once gates anything. A node that runs
-once per row (see ``lifting``) produces both branches as series with
+once per row (see ``iteration``) produces both branches as series with
 gaps and picks rows instead; it contributes no atom.
 """
 
@@ -59,9 +59,9 @@ NEVER: Condition = frozenset()
 def conditions_of(
     nodes: Sequence[GraphNode],
     interfaces: Mapping[str, Interface],
-    lifted: Mapping[str, Index | None],
+    iterated: Mapping[str, Index | None],
 ) -> dict[Ref, Condition]:
-    """The condition of every output of every node in ``lifted`` — the nodes the edge walk resolved.
+    """The condition of every output of every node in ``iterated`` — the nodes the edge walk resolved.
 
     Walks ``nodes`` in topological order. A node's own condition is the
     conjunction over its connected inputs, each input being the disjunction of
@@ -70,14 +70,14 @@ def conditions_of(
     """
     conditions: dict[Ref, Condition] = {}
     for node in nodes:
-        if node.id not in lifted:
+        if node.id not in iterated:
             continue
         at_node = ALWAYS
         for binding in node.bindings.values():
             if isinstance(binding, Edges) and binding.refs:
                 at_node = _and(at_node, _or(conditions.get(ref, ALWAYS) for ref in binding.refs))
         for out in interfaces[node.id].outputs:
-            gates = out.choice is not None and lifted[node.id] is None
+            gates = out.choice is not None and iterated[node.id] is None
             conditions[Ref(node.id, out.name)] = (
                 _and(at_node, frozenset({frozenset({Atom(node.id, out.choice, out.name)})})) if gates else at_node
             )

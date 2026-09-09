@@ -162,8 +162,8 @@ def test_an_unconnected_placement_keeps_the_inner_statics_and_expands_flat():
 
     assert compiled.is_runnable, compiled.problems_for()
     assert compiled.value_source("emb/holder", "value") == Static(value="inner")
-    assert compiled.lifted_on("emb") is None
-    assert all(compiled.lifted_on(node_id) is None for node_id in compiled.execution_order())
+    assert compiled.iterates_on("emb") is None
+    assert all(compiled.iterates_on(node_id) is None for node_id in compiled.execution_order())
 
 
 def test_a_placement_is_a_node_in_the_interface_named_by_inner_address():
@@ -228,9 +228,9 @@ def test_a_series_entering_through_a_scalar_field_lifts_the_placement():
     ])
 
     assert compiled.is_runnable, compiled.problems_for()
-    assert compiled.lifted_on("emb") == Index("docs")
-    assert compiled.lifted_on("emb/holder") == Index("docs")
-    assert compiled.lifted_on("emb/up") == Index("docs")
+    assert compiled.iterates_on("emb") == Index("docs")
+    assert compiled.iterates_on("emb/holder") == Index("docs")
+    assert compiled.iterates_on("emb/up") == Index("docs")
 
 
 def test_an_inner_reduction_over_the_entering_series_is_a_fold_of_one():
@@ -241,12 +241,12 @@ def test_an_inner_reduction_over_the_entering_series_is_a_fold_of_one():
         GraphNode(id="emb", type="inner-flow", version=1, bindings={"holder.value": Edges(refs=(Ref("docs", "result"),))}),
     ])
 
-    assert compiled.lifted_on("emb/join") == Index("docs")
+    assert compiled.iterates_on("emb/join") == Index("docs")
     assert (compiled.type_of(Ref("emb", "join.result")), compiled.index_of(Ref("emb", "join.result"))) == (Series[Txt], Index("docs"))
 
 
 def test_a_series_born_inside_reduces_to_the_outer_row_by_lineage_alone():
-    """A lifted inner unfold births a child of the outer index; an inner
+    """An iterating inner unfold births a child of the outer index; an inner
     reduction over it collapses to the outer row without any scope rule.
     ``Index.__eq__`` reads the id alone, so the parent is asserted by name."""
     inner = _embedded_definition(
@@ -270,10 +270,10 @@ def test_a_series_born_inside_reduces_to_the_outer_row_by_lineage_alone():
     assert compiled.is_runnable, compiled.problems_for()
     born = compiled.index_of(Ref("emb/lines", "result"))
     assert (born, born.parent) == (Index("emb/lines"), Index("docs"))
-    assert compiled.lifted_on("emb/join") == Index("docs")
+    assert compiled.iterates_on("emb/join") == Index("docs")
 
     # The same, when the series is born off an inner *static* the entering
-    # series never touches: the block is lifted, so the birth is a child of
+    # series never touches: the block iterates, so the birth is a child of
     # the entering index all the same — never a root beside the outer rows.
     unfed = _embedded_definition(
         "splitter-unfed",
@@ -297,9 +297,9 @@ def test_a_series_born_inside_reduces_to_the_outer_row_by_lineage_alone():
     born = compiled.index_of(Ref("emb/lines", "result"))
     assert (born, born.parent) == (Index("emb/lines"), Index("docs"))
     # The nodes the entering series never reaches still run once per outer row.
-    assert compiled.lifted_on("emb/holder") == Index("docs")
-    assert compiled.lifted_on("emb/lines") == Index("docs")
-    assert compiled.lifted_on("emb/join") == Index("docs")
+    assert compiled.iterates_on("emb/holder") == Index("docs")
+    assert compiled.iterates_on("emb/lines") == Index("docs")
+    assert compiled.iterates_on("emb/join") == Index("docs")
 
 
 def test_two_crossings_on_one_lineage_lift_the_whole_block_on_the_deeper():
@@ -334,10 +334,10 @@ def test_two_crossings_on_one_lineage_lift_the_whole_block_on_the_deeper():
 
     assert compiled.is_runnable, compiled.problems_for()
     per_line = Index("lines", parent=Index("docs"))
-    assert compiled.lifted_on("emb") == per_line
-    assert compiled.lifted_on("emb/a") == per_line
-    assert compiled.lifted_on("emb/ua") == per_line
-    assert compiled.lifted_on("emb/b") == per_line
+    assert compiled.iterates_on("emb") == per_line
+    assert compiled.iterates_on("emb/a") == per_line
+    assert compiled.iterates_on("emb/ua") == per_line
+    assert compiled.iterates_on("emb/b") == per_line
     assert compiled.index_of(Ref("emb", "ua.result")) == per_line
 
 
@@ -359,8 +359,8 @@ def test_a_series_entering_a_series_field_is_read_whole_and_the_block_expands_fl
     )
 
     assert compiled.is_runnable, compiled.problems_for()
-    assert compiled.lifted_on("emb") is None
-    assert compiled.lifted_on("emb/join") is None
+    assert compiled.iterates_on("emb") is None
+    assert compiled.iterates_on("emb/join") is None
     assert compiled.type_of(Ref("emb", "join.result")) is Txt
 
 
