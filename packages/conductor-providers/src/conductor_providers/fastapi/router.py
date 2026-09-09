@@ -115,7 +115,7 @@ def conductor_router(
         return entity_resolver(kind, request)
 
     @router.post("/compile", response_model=list[Problem])
-    def compile_graph(req: ExecuteRequest) -> list[Problem]:
+    def compile_only(req: ExecuteRequest) -> list[Problem]:
         """Compile a graph without executing it. Returns every problem the
         graph has, fatal or not, each anchored on a node; an empty list
         means the graph runs.
