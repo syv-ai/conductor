@@ -132,7 +132,7 @@ def test_a_branch_appears_when_its_decision_went_that_way():
     assert compiled.decisions() == {"g": {"branches": ("if_true", "if_false")}}
 
 
-def test_a_merge_makes_the_condition_disjunctive():
+def test_a_merge_adds_an_alternative():
     """A `Series[X]` input drops the skipped edges, so past the
     merge the output appears when either branch fired."""
     compiled = _compiled([

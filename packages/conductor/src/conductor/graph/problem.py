@@ -113,19 +113,31 @@ CATALOGUE: Mapping[str, tuple[str, bool]] = {
 CODES: frozenset[str] = frozenset(CATALOGUE)
 
 
+#: The one slot a caller may leave unfilled: the sentence a type's own
+#: constructor raised, which not every constructor gives. Any other slot a
+#: template names must be supplied, or ``problem`` raises where it is
+#: called — a typo in a template or a forgotten keyword is a programming
+#: error, not an empty message.
+OPTIONAL_SLOTS: frozenset[str] = frozenset({"reason"})
+
+
 class _Slots(dict[str, Any]):
-    """Formatting slots: a key the caller gave no value for renders empty, so
-    a message can end in an optional clause (``invalid_static``'s reason)."""
+    """Formatting slots: an optional slot the caller left out renders empty;
+    any other missing slot raises."""
 
     def __missing__(self, key: str) -> str:
-        return ""
+        if key in OPTIONAL_SLOTS:
+            return ""
+        raise KeyError(f"the message for this problem needs {key!r}")
 
 
 def problem(code: str, node_id: str, field: str | None = None, **details: Any) -> Problem:
     """The problem ``code`` on ``node_id`` (and ``field``), its message
     formatted from ``details``, which the record keeps.
 
-    A code not in ``CATALOGUE`` is a programming error and raises.
+    A code not in ``CATALOGUE``, or a slot the template names that
+    ``details`` does not fill (``OPTIONAL_SLOTS`` aside), is a programming
+    error and raises.
     """
     template, fatal = CATALOGUE[code]
     message = template.format_map(_Slots(node_id=node_id, field=field, **details)).rstrip()

@@ -29,7 +29,7 @@ from pydantic import TypeAdapter, ValidationError
 from conductor.dtype import DType
 from conductor.graph.binding import Edges, many, static_values
 from conductor.graph.compiled import CompiledGraph
-from conductor.graph.conditions import conditions_of
+from conductor.graph.conditions import Condition, conditions_of
 from conductor.graph.expand import Expansion, expand, surfaced
 from conductor.graph.iteration import Iteration, derive
 from conductor.graph.model import Graph, GraphNode
@@ -39,6 +39,7 @@ from conductor.graph.views import derive_interface, lock_problems
 from conductor.interface import Interface
 from conductor.metadata import Input
 from conductor.node import GraphVersion, NodeVersion
+from conductor.ref import Ref
 from conductor.registry import NodeRegistry
 from conductor.series import Series
 from conductor.widgets import ConnectionList
@@ -74,6 +75,10 @@ class _Compilation:
         self.broken: frozenset[str] = frozenset()
         #: What the walk over the edges decided (pass 7).
         self.iteration: Iteration
+        #: The condition under which each output appears (pass 9).
+        self.output_conditions: dict[Ref, Condition] = {}
+        #: What the graph takes and returns (pass 10).
+        self.graph_interface: Interface
 
     def build(self) -> CompiledGraph:
         """The passes, in order. Each reads the one before:
@@ -106,8 +111,8 @@ class _Compilation:
         self.check_bindings()
         self.walk_edges()
         self.field_rules()
-        conditions = self.conditions()
-        interface = self.interface()
+        self.conditions()
+        self.interface()
         expansion, iteration = self.expansion, self.iteration
         return CompiledGraph(
             _nodes=expansion.nodes,
@@ -120,10 +125,10 @@ class _Compilation:
             _iterated=iteration.iterated,
             _indexes=iteration.indexes,
             _types=iteration.types,
-            _conditions=conditions,
+            _conditions=self.output_conditions,
             _placements=frozenset(expansion.placement_versions),
             _placement_of=expansion.placement_of,
-            interface=interface,
+            interface=self.graph_interface,
             _problems=tuple(surfaced(found, expansion.nodes) for found in self.problems),
         )
 
@@ -310,22 +315,22 @@ class _Compilation:
                 ):
                     self.problems.append(problem("handle_needs_dtype", node_id, declared.name))
 
-    def conditions(self) -> Any:
+    def conditions(self) -> None:
         """The condition under which each output appears, from the ``choice``
         groups of the nodes that run once (``conditions_of``)."""
         expansion, iteration = self.expansion, self.iteration
-        return conditions_of(
+        self.output_conditions = conditions_of(
             [expansion.nodes[node_id] for node_id in expansion.order if node_id in iteration.iterated],
             self.interfaces, iteration.iterated,
         )
 
-    def interface(self) -> Any:
+    def interface(self) -> None:
         """What the graph takes and returns, read off the authored graph
-        (``derive_interface``). An embedded graph shows its version's
-        interface as its fields from here on."""
+        (``derive_interface``). From here on a node whose version is a graph
+        answers ``interface_of`` with the interface that version declares."""
         for placement, version in self.expansion.placement_versions.items():
             self.interfaces[placement] = version.interface
-        return derive_interface(
+        self.graph_interface = derive_interface(
             self.graph,
             {n: self.interfaces[n] for n in self.authored if n in self.interfaces},
             self.pinned,

@@ -422,6 +422,16 @@ def test_every_code_is_declared_once_in_the_catalogue():
         problem("no_such_code", "n")
 
 
+def test_a_slot_the_details_do_not_fill_raises_unless_it_is_optional():
+    """A template typo or a forgotten keyword is a programming error, caught
+    where the problem is built; only the type's own sentence may be absent."""
+    from conductor.graph.problem import problem
+
+    with pytest.raises(KeyError):
+        problem("unknown_ref_node", "b", "text")  # no source_node
+    assert problem("invalid_static", "b", "text").message == "The value in 'text' cannot be read as the field's type."
+
+
 def test_a_problem_is_formatted_from_its_details_and_keeps_them():
     from conductor.graph.problem import problem
 

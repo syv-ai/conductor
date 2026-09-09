@@ -184,7 +184,9 @@ class _Walk:
         members: Mapping[str, Sequence[str]],
     ) -> None:
         self.nodes = {node.id: node for node in nodes}
-        self.interfaces = interfaces
+        #: Each node's inputs and outputs as the input hook answered them,
+        #: before the walk types them.
+        self.asked = interfaces
         self.versions = versions
         self.registry = registry
         self.statics = statics
@@ -195,7 +197,9 @@ class _Walk:
         self.iterated: dict[str, Index | None] = {}
         #: What every field of every visited node carries.
         self.carried: dict[Ref, _Carried] = {}
-        #: Each visited node's inputs and outputs, completed.
+        #: Each visited node's inputs and outputs, completed: every type the
+        #: edges gave them, and the outputs as ``compute_outputs`` answered.
+        #: What ``Iteration.interfaces`` serves.
         self.completed: dict[str, Interface] = {}
         self.problems: list[Problem] = []
         #: The index each embedded graph's inner nodes run per row of, found
@@ -247,7 +251,7 @@ class _Walk:
         anything else gathers onto a fresh index. Stops at the first input
         that cannot be read and says so in ``broken``.
         """
-        interface = self.interfaces[node.id]
+        interface = self.asked[node.id]
         version = self.versions[node.id]
         declared_names = {i.name for i in version.interface.inputs}
         found = _Arrivals()
@@ -331,7 +335,7 @@ class _Walk:
         """Every input read: complete the node's fields, ask its outputs,
         decide the index it runs per row of, and record what each output
         carries."""
-        interface = self.interfaces[node.id]
+        interface = self.asked[node.id]
         inputs = tuple(_typed(inp, arrived.bound) for inp in interface.inputs)
         answered = self._outputs(node, arrived.receives)
         if isinstance(answered, Problem):
@@ -377,7 +381,7 @@ class _Walk:
             answered = ()
         self.completed[node.id] = replace(
             self.versions[node.id].interface,
-            inputs=tuple(_typed(inp, arrived.bound) for inp in self.interfaces[node.id].inputs),
+            inputs=tuple(_typed(inp, arrived.bound) for inp in self.asked[node.id].inputs),
             outputs=answered,
         )
 
@@ -393,7 +397,7 @@ class _Walk:
         compile only records which node it belongs to.
         """
         version = self.versions[node.id]
-        declared = (*version.interface.inputs, *self.interfaces[node.id].inputs)
+        declared = (*version.interface.inputs, *self.asked[node.id].inputs)
         values = {**{i.name: i.default for i in declared if i.optional}, **self.statics[node.id]}
         try:
             return self.registry.get(node.type)().compute_outputs(version.interface.outputs, values, receives)
@@ -415,7 +419,7 @@ class _Walk:
             if node_id not in self.nodes:
                 continue  # a broken edge; the node carries its own problem and was left out of the walk
             node = self.nodes[node_id]
-            for inp in self.interfaces[node_id].inputs:
+            for inp in self.asked[node_id].inputs:
                 binding = node.bindings.get(inp.name)
                 if not isinstance(binding, Edges) or getattr(inp.dtype, "element", None) is not None:
                     continue

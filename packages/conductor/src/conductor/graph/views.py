@@ -26,7 +26,6 @@ from conductor.ref import Ref
 
 if TYPE_CHECKING:
     from conductor.graph.model import Graph
-    from conductor.interface import Interface
     from conductor.metadata import Input, Output
     from conductor.node import GraphVersion, NodeVersion
 
