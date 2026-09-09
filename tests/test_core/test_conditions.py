@@ -116,7 +116,7 @@ def _edge(*refs):
 def test_an_output_nothing_gates_appears_always():
     compiled = _compiled([GraphNode(id="h", type="holder", version=1, bindings={"value": Static(value="x")})])
 
-    assert compiled.condition(Ref("h", "result")) == ALWAYS
+    assert compiled.field(Ref("h", "result")).condition == ALWAYS
 
 
 def test_a_branch_appears_when_its_decision_went_that_way():
@@ -126,9 +126,9 @@ def test_a_branch_appears_when_its_decision_went_that_way():
         GraphNode(id="yes", type="upper", version=1, bindings={"text": _edge(("g", "if_true"))}),
     ])
 
-    assert compiled.is_runnable, compiled.problems_for()
-    assert compiled.condition(Ref("g", "if_true")) == frozenset({frozenset({Atom("g", "branches", "if_true")})})
-    assert compiled.condition(Ref("yes", "result")) == frozenset({frozenset({Atom("g", "branches", "if_true")})})
+    assert compiled.is_runnable, compiled.problems
+    assert compiled.field(Ref("g", "if_true")).condition == frozenset({frozenset({Atom("g", "branches", "if_true")})})
+    assert compiled.field(Ref("yes", "result")).condition == frozenset({frozenset({Atom("g", "branches", "if_true")})})
     assert compiled.decisions() == {"g": {"branches": ("if_true", "if_false")}}
 
 
@@ -143,8 +143,8 @@ def test_a_merge_adds_an_alternative():
         GraphNode(id="m", type="single", version=1, bindings={"values": _edge(("a", "result"), ("b", "result"))}),
     ])
 
-    assert compiled.is_runnable, compiled.problems_for()
-    assert compiled.condition(Ref("m", "result")) == frozenset({
+    assert compiled.is_runnable, compiled.problems
+    assert compiled.field(Ref("m", "result")).condition == frozenset({
         frozenset({Atom("g", "branches", "if_true")}), frozenset({Atom("g", "branches", "if_false")}),
     })
 
@@ -157,11 +157,11 @@ def test_two_decisions_in_series_conjoin_and_a_contradiction_is_dropped():
         GraphNode(id="both", type="single", version=1, bindings={"values": _edge(("g2", "if_true"), ("g1", "if_false"))}),
     ])
 
-    assert compiled.is_runnable, compiled.problems_for()
-    assert compiled.condition(Ref("g2", "if_true")) == frozenset({
+    assert compiled.is_runnable, compiled.problems
+    assert compiled.field(Ref("g2", "if_true")).condition == frozenset({
         frozenset({Atom("g1", "branches", "if_true"), Atom("g2", "branches", "if_true")}),
     })
-    assert compiled.condition(Ref("both", "result")) == frozenset({
+    assert compiled.field(Ref("both", "result")).condition == frozenset({
         frozenset({Atom("g1", "branches", "if_true"), Atom("g2", "branches", "if_true")}),
         frozenset({Atom("g1", "branches", "if_false")}),
     })
@@ -176,7 +176,7 @@ def test_a_lifted_decision_masks_rows_and_is_not_a_condition():
         GraphNode(id="yes", type="upper", version=1, bindings={"text": _edge(("g", "if_true"))}),
     ])
 
-    assert compiled.is_runnable, compiled.problems_for()
-    assert compiled.iterates_on("g") is not None
-    assert compiled.condition(Ref("yes", "result")) == ALWAYS
+    assert compiled.is_runnable, compiled.problems
+    assert compiled.node("g").iterates_on is not None
+    assert compiled.field(Ref("yes", "result")).condition == ALWAYS
     assert compiled.decisions() == {}

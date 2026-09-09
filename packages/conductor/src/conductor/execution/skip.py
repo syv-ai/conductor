@@ -7,6 +7,7 @@ from conductor._sentinel import is_skipped
 from conductor.execution.results import extract_output
 from conductor.graph.binding import Edges
 from conductor.graph.compiled import CompiledGraph
+from conductor.ref import Ref
 
 
 def should_skip_node(compiled: CompiledGraph, node_id: str, results: Mapping[str, Any]) -> bool:
@@ -16,10 +17,9 @@ def should_skip_node(compiled: CompiledGraph, node_id: str, results: Mapping[str
     binding delivers nothing. A producer missing from ``results`` is the
     engine's bug and raises.
     """
-    node = compiled.node(node_id)
     delivered = False
-    for inp in compiled.interface_of(node_id).inputs:
-        binding = node.bindings.get(inp.name)
+    for inp in compiled.node(node_id).interface.inputs:
+        binding = compiled.field(Ref(node_id, inp.name)).binding
         if not isinstance(binding, Edges):
             continue
         for ref in binding.refs:

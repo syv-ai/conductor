@@ -89,7 +89,7 @@ class Iteration:
     inner nodes run per row of. ``types``: the type that travels on every
     field; ``indexes``: for a field carrying a series, where its rows come
     from (``None`` otherwise). ``interfaces``: each node's inputs and outputs
-    with the types the edges gave them — what ``CompiledGraph.interface_of``
+    with the types the edges gave them — what ``CompiledGraph.node(...).interface``
     serves from then on. ``problems``: what went wrong.
     """
 

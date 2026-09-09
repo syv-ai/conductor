@@ -134,12 +134,12 @@ def test_the_inner_nodes_are_nodes_of_the_one_run_under_the_placements_name():
         GraphNode(id="after", type="upper", version=1, bindings={"text": Edges(refs=(Ref("emb", "join.result"),))}),
     ])
 
-    assert compiled.is_runnable, compiled.problems_for()
+    assert compiled.is_runnable, compiled.problems
     assert compiled.execution_order() == ("src", "emb/holder", "emb/up", "emb/join", "after")
-    assert compiled.placement_of("emb/up") == "emb"
-    assert compiled.placement_of("src") is None
+    assert compiled.node("emb/up").embedded_in == "emb"
+    assert compiled.node("src").embedded_in is None
     with pytest.raises(KeyError):
-        compiled.node("emb")
+        compiled.node("emb").graph_node  # the placement is not a node of the run; its inner nodes are
 
 
 def test_the_placements_bindings_move_onto_the_inner_fields_they_name():
@@ -151,19 +151,19 @@ def test_the_placements_bindings_move_onto_the_inner_fields_they_name():
         GraphNode(id="after", type="upper", version=1, bindings={"text": Edges(refs=(Ref("emb", "join.result"),))}),
     ])
 
-    assert compiled.value_source("emb/holder", "value") == Edges(refs=(Ref("src", "result"),))
-    assert compiled.value_source("after", "text") == Edges(refs=(Ref("emb/join", "result"),))
-    assert compiled.dependencies("emb/holder") == frozenset({"src"})
-    assert compiled.dependencies("after") == frozenset({"emb/join"})
+    assert compiled.field(Ref("emb/holder", "value")).binding == Edges(refs=(Ref("src", "result"),))
+    assert compiled.field(Ref("after", "text")).binding == Edges(refs=(Ref("emb/join", "result"),))
+    assert compiled.node("emb/holder").dependencies == frozenset({"src"})
+    assert compiled.node("after").dependencies == frozenset({"emb/join"})
 
 
 def test_an_unconnected_placement_keeps_the_inner_statics_and_expands_flat():
     compiled = _compiled([GraphNode(id="emb", type="inner-flow", version=1)])
 
-    assert compiled.is_runnable, compiled.problems_for()
-    assert compiled.value_source("emb/holder", "value") == Static(value="inner")
-    assert compiled.iterates_on("emb") is None
-    assert all(compiled.iterates_on(node_id) is None for node_id in compiled.execution_order())
+    assert compiled.is_runnable, compiled.problems
+    assert compiled.field(Ref("emb/holder", "value")).binding == Static(value="inner")
+    assert compiled.node("emb").iterates_on is None
+    assert all(compiled.node(node_id).iterates_on is None for node_id in compiled.execution_order())
 
 
 def test_a_placement_is_a_node_in_the_interface_named_by_inner_address():
@@ -178,7 +178,7 @@ def test_a_placement_is_a_node_in_the_interface_named_by_inner_address():
 
     assert [(i.name, i.title) for i in compiled.interface.inputs] == [("emb.holder.value", "Application")]
     assert [(o.name, o.title) for o in compiled.interface.outputs] == [("emb.join.result", "Answer")]
-    assert [i.name for i in compiled.interface_of("emb").inputs] == ["holder.value"]
+    assert [i.name for i in compiled.node("emb").interface.inputs] == ["holder.value"]
 
 
 def test_a_question_about_a_placements_field_reads_through_to_the_inner_field():
@@ -187,9 +187,9 @@ def test_a_question_about_a_placements_field_reads_through_to_the_inner_field():
         GraphNode(id="emb", type="inner-flow", version=1, bindings={"holder.value": Edges(refs=(Ref("src", "result"),))}),
     ])
 
-    assert compiled.type_of(Ref("emb", "join.result")) is compiled.type_of(Ref("emb/join", "result"))
-    assert compiled.index_of(Ref("emb", "join.result")) == compiled.index_of(Ref("emb/join", "result"))
-    assert compiled.value_source("emb", "holder.value") == compiled.value_source("emb/holder", "value")
+    assert compiled.field(Ref("emb", "join.result")).type is compiled.field(Ref("emb/join", "result")).type
+    assert compiled.field(Ref("emb", "join.result")).index == compiled.field(Ref("emb/join", "result")).index
+    assert compiled.field(Ref("emb", "holder.value")).binding == compiled.field(Ref("emb/holder", "value")).binding
 
 
 def test_a_problem_found_inside_surfaces_on_the_placement():
@@ -200,21 +200,24 @@ def test_a_problem_found_inside_surfaces_on_the_placement():
         GraphNode(id="emb", type="inner-flow", version=1, bindings={"holder.value": Edges(refs=(Ref("ghost", "result"),))}),
     ])
 
-    problems = compiled.problems_for(node_id="emb")
+    problems = compiled.node("emb").problems
     assert [(p.code, p.field) for p in problems] == [("unknown_ref_node", "holder.value")]
+    assert compiled.field(Ref("emb", "holder.value")).problems == problems  # by either address
+    assert compiled.field(Ref("emb/holder", "value")).problems == problems
+    assert compiled.node("emb/holder").problems == ()  # anchored on the node the author placed
     assert problems[0].message.startswith("In 'Text':")
     assert problems[0].details == {
         "placement": "Text",
         "inner_message": "Field 'value' is connected to 'ghost', which is not in the flow.",
         "inner_details": {"source_node": "ghost"},
     }
-    assert not any("/" in (p.node_id or "") for p in compiled.problems_for())
+    assert not any("/" in (p.node_id or "") for p in compiled.problems)
 
 
 def test_a_stale_key_on_the_placement_is_reported_on_the_placement():
     compiled = _compiled([GraphNode(id="emb", type="inner-flow", version=1, bindings={"nope.value": Static(value=1)})])
 
-    (problem,) = compiled.problems_for()
+    (problem,) = compiled.problems
     assert (problem.code, problem.fatal, problem.node_id, problem.field) == ("stale_binding", False, "emb", "nope.value")
 
 
@@ -227,10 +230,10 @@ def test_a_series_entering_through_a_scalar_field_lifts_the_placement():
         GraphNode(id="emb", type="inner-flow", version=1, bindings={"holder.value": Edges(refs=(Ref("docs", "result"),))}),
     ])
 
-    assert compiled.is_runnable, compiled.problems_for()
-    assert compiled.iterates_on("emb") == Index("docs")
-    assert compiled.iterates_on("emb/holder") == Index("docs")
-    assert compiled.iterates_on("emb/up") == Index("docs")
+    assert compiled.is_runnable, compiled.problems
+    assert compiled.node("emb").iterates_on == Index("docs")
+    assert compiled.node("emb/holder").iterates_on == Index("docs")
+    assert compiled.node("emb/up").iterates_on == Index("docs")
 
 
 def test_an_inner_reduction_over_the_entering_series_is_a_fold_of_one():
@@ -241,8 +244,8 @@ def test_an_inner_reduction_over_the_entering_series_is_a_fold_of_one():
         GraphNode(id="emb", type="inner-flow", version=1, bindings={"holder.value": Edges(refs=(Ref("docs", "result"),))}),
     ])
 
-    assert compiled.iterates_on("emb/join") == Index("docs")
-    assert (compiled.type_of(Ref("emb", "join.result")), compiled.index_of(Ref("emb", "join.result"))) == (Series[Txt], Index("docs"))
+    assert compiled.node("emb/join").iterates_on == Index("docs")
+    assert (compiled.field(Ref("emb", "join.result")).type, compiled.field(Ref("emb", "join.result")).index) == (Series[Txt], Index("docs"))
 
 
 def test_a_series_born_inside_reduces_to_the_outer_row_by_lineage_alone():
@@ -267,10 +270,10 @@ def test_a_series_born_inside_reduces_to_the_outer_row_by_lineage_alone():
         _registry(inner, Lines),
     )
 
-    assert compiled.is_runnable, compiled.problems_for()
-    born = compiled.index_of(Ref("emb/lines", "result"))
+    assert compiled.is_runnable, compiled.problems
+    born = compiled.field(Ref("emb/lines", "result")).index
     assert (born, born.parent) == (Index("emb/lines"), Index("docs"))
-    assert compiled.iterates_on("emb/join") == Index("docs")
+    assert compiled.node("emb/join").iterates_on == Index("docs")
 
     # The same, when the series is born off an inner *static* the entering
     # series never touches: the block iterates, so the birth is a child of
@@ -293,13 +296,13 @@ def test_a_series_born_inside_reduces_to_the_outer_row_by_lineage_alone():
         ]),
         _registry(unfed, Lines),
     )
-    assert compiled.is_runnable, compiled.problems_for()
-    born = compiled.index_of(Ref("emb/lines", "result"))
+    assert compiled.is_runnable, compiled.problems
+    born = compiled.field(Ref("emb/lines", "result")).index
     assert (born, born.parent) == (Index("emb/lines"), Index("docs"))
     # The nodes the entering series never reaches still run once per outer row.
-    assert compiled.iterates_on("emb/holder") == Index("docs")
-    assert compiled.iterates_on("emb/lines") == Index("docs")
-    assert compiled.iterates_on("emb/join") == Index("docs")
+    assert compiled.node("emb/holder").iterates_on == Index("docs")
+    assert compiled.node("emb/lines").iterates_on == Index("docs")
+    assert compiled.node("emb/join").iterates_on == Index("docs")
 
 
 def test_two_crossings_on_one_lineage_lift_the_whole_block_on_the_deeper():
@@ -332,13 +335,13 @@ def test_two_crossings_on_one_lineage_lift_the_whole_block_on_the_deeper():
         _registry(inner, Lines),
     )
 
-    assert compiled.is_runnable, compiled.problems_for()
+    assert compiled.is_runnable, compiled.problems
     per_line = Index("lines", parent=Index("docs"))
-    assert compiled.iterates_on("emb") == per_line
-    assert compiled.iterates_on("emb/a") == per_line
-    assert compiled.iterates_on("emb/ua") == per_line
-    assert compiled.iterates_on("emb/b") == per_line
-    assert compiled.index_of(Ref("emb", "ua.result")) == per_line
+    assert compiled.node("emb").iterates_on == per_line
+    assert compiled.node("emb/a").iterates_on == per_line
+    assert compiled.node("emb/ua").iterates_on == per_line
+    assert compiled.node("emb/b").iterates_on == per_line
+    assert compiled.field(Ref("emb", "ua.result")).index == per_line
 
 
 def test_a_series_entering_a_series_field_is_read_whole_and_the_block_expands_flat():
@@ -358,10 +361,10 @@ def test_a_series_entering_a_series_field_is_read_whole_and_the_block_expands_fl
         _registry(inner),
     )
 
-    assert compiled.is_runnable, compiled.problems_for()
-    assert compiled.iterates_on("emb") is None
-    assert compiled.iterates_on("emb/join") is None
-    assert compiled.type_of(Ref("emb", "join.result")) is Txt
+    assert compiled.is_runnable, compiled.problems
+    assert compiled.node("emb").iterates_on is None
+    assert compiled.node("emb/join").iterates_on is None
+    assert compiled.field(Ref("emb", "join.result")).type is Txt
 
 
 def test_two_unrelated_series_entering_one_placement_are_its_misaligned():
@@ -388,7 +391,7 @@ def test_two_unrelated_series_entering_one_placement_are_its_misaligned():
         _registry(inner),
     )
 
-    assert [(p.code, p.node_id) for p in compiled.problems_for()] == [("misaligned", "emb")]
+    assert [(p.code, p.node_id) for p in compiled.problems] == [("misaligned", "emb")]
 
 
 def test_a_nested_placement_expands_under_both_names():
@@ -409,9 +412,9 @@ def test_a_nested_placement_expands_under_both_names():
         _registry(_inner_definition(), outer),
     )
 
-    assert compiled.is_runnable, compiled.problems_for()
+    assert compiled.is_runnable, compiled.problems
     assert compiled.execution_order() == ("top/pre", "top/inner/holder", "top/inner/up", "top/inner/join", "after")
-    assert compiled.placement_of("top/inner/up") == "top/inner"
-    assert compiled.placement_of("top/pre") == "top"
-    assert compiled.value_source("after", "text") == Edges(refs=(Ref("top/inner/join", "result"),))
-    assert compiled.type_of(Ref("top", "inner.join.result")) is Txt
+    assert compiled.node("top/inner/up").embedded_in == "top/inner"
+    assert compiled.node("top/pre").embedded_in == "top"
+    assert compiled.field(Ref("after", "text")).binding == Edges(refs=(Ref("top/inner/join", "result"),))
+    assert compiled.field(Ref("top", "inner.join.result")).type is Txt

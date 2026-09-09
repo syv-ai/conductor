@@ -129,7 +129,7 @@ class _Compilation:
             _placements=frozenset(expansion.placement_versions),
             _placement_of=expansion.placement_of,
             interface=self.graph_interface,
-            _problems=tuple(surfaced(found, expansion.nodes) for found in self.problems),
+            problems=tuple(surfaced(found, expansion.nodes) for found in self.problems),
         )
 
     # -- the passes -------------------------------------------------------------
@@ -328,7 +328,8 @@ class _Compilation:
     def interface(self) -> None:
         """What the graph takes and returns, read off the authored graph
         (``derive_interface``). From here on a node whose version is a graph
-        answers ``interface_of`` with the interface that version declares."""
+        answers ``CompiledGraph.node(...).interface`` with the interface that
+        version declares."""
         for placement, version in self.expansion.placement_versions.items():
             self.interfaces[placement] = version.interface
         self.graph_interface = derive_interface(

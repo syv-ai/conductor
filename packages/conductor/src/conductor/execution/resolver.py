@@ -32,14 +32,14 @@ class InputResolver:
     def resolve(self, node_id: str, results: Mapping[str, NodeResult]) -> dict[str, Any]:
         compiled = self._compiled
         node = compiled.node(node_id)
-        statics = compiled.statics(node_id)
         inputs: dict[str, Any] = {}
-        for inp in compiled.interface_of(node_id).inputs:
-            binding = node.bindings.get(inp.name)
+        for inp in node.interface.inputs:
+            field = compiled.field(Ref(node_id, inp.name))
+            binding = field.binding
             if binding is None:
                 continue
             if isinstance(binding, Static):
-                inputs[inp.name] = statics[inp.name]
+                inputs[inp.name] = node.statics[inp.name]
                 continue
             values = _delivered(binding, results)
             if not values:
@@ -48,7 +48,7 @@ class InputResolver:
                 inputs[inp.name] = (
                     values[0]
                     if len(values) == 1 and isinstance(values[0], Series)
-                    else Series(compiled.index_of(Ref(node_id, inp.name)), values)
+                    else Series(field.index, values)
                 )
             else:
                 (inputs[inp.name],) = values

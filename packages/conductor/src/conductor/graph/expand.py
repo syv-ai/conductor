@@ -46,9 +46,9 @@ class Expansion:
 
     ``nodes`` holds every node the engine will run, by expanded id — no
     placement is among them, only their inner nodes. ``order`` is the
-    expanded execution order. ``placement_of`` names, for each node, the
-    innermost placement it came from (``None`` for a node the author
-    placed). ``members`` lists, for each placement, every node under it,
+    expanded execution order. ``placement_of`` names, for each node and
+    each placement, the innermost placement it came from (``None`` for one
+    the author placed). ``members`` lists, for each placement, every node under it,
     nested ones included. ``versions`` is the ``NodeVersion`` each node
     uses. ``problems`` is what went wrong inside: an inner node whose
     type or version the registry lacks, an inner cycle, a binding on the
@@ -122,6 +122,7 @@ class _Expander:
             for placement in _enclosing(node.id):
                 self.members.setdefault(placement, []).append(node.id)
             return
+        self.placement_of[node.id] = enclosing
         self.placements.add(node.id)
         self.placement_versions[node.id] = version
         self.members.setdefault(node.id, [])
@@ -200,6 +201,16 @@ def expanded_ref(ref: Ref, placements: frozenset[str] | set[str]) -> Ref:
     return Ref(node_id, field)
 
 
+def authored_ref(ref: Ref) -> Ref:
+    """``Ref("approve/check", "amount")`` → ``Ref("approve", "check.amount")``:
+    the inverse of ``expanded_ref``, the address the author sees. An
+    address with no ``/`` in its node id is already the author's."""
+    if SEPARATOR not in ref.node_id:
+        return ref
+    placement, inner = ref.node_id.split(SEPARATOR, 1)
+    return Ref(placement, f"{inner.replace(SEPARATOR, '.')}.{ref.field}")
+
+
 def surfaced(problem: Problem, nodes: Mapping[str, GraphNode]) -> Problem:
     """Move a problem found inside a placement onto the placement, where the author can see it.
 
@@ -218,7 +229,7 @@ def surfaced(problem: Problem, nodes: Mapping[str, GraphNode]) -> Problem:
     return replace(
         problem,
         node_id=placement,
-        field=f"{inner_address}.{problem.field}" if problem.field else inner_address,
+        field=authored_ref(Ref(problem.node_id, problem.field)).field if problem.field else inner_address,
         message=f"In '{title or inner_address}': {problem.message}",
         details={
             "placement": title or inner_address,

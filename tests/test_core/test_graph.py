@@ -92,13 +92,13 @@ class TestCompile:
         ]
 
         compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry)
-        assert compiled.is_runnable, compiled.problems_for()
+        assert compiled.is_runnable, compiled.problems
         assert compiled.execution_order() == ("n1", "n2")
 
     def test_compile_unknown_node_type_is_a_problem(self, registry):
         nodes = [GraphNode("n1", "nonexistent", 1)]
         compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry)
-        assert [p.code for p in compiled.problems_for()] == ["unknown_node_type"]
+        assert [p.code for p in compiled.problems] == ["unknown_node_type"]
         assert not compiled.is_runnable
 
     def test_compile_edge_from_a_missing_node_is_a_problem(self, registry):
@@ -106,7 +106,7 @@ class TestCompile:
         nodes = [GraphNode("n1", "echo", 1, bindings={"text": Edges(refs=(Ref("n_missing", "result"),))})]
 
         compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry)
-        assert [p.code for p in compiled.problems_for()] == ["unknown_ref_node"]
+        assert [p.code for p in compiled.problems] == ["unknown_ref_node"]
 
     def test_compile_cycle_is_a_problem_on_each_node_in_it(self, registry):
         registry.register(Echo)
@@ -115,5 +115,5 @@ class TestCompile:
             GraphNode("n2", "echo", 1, bindings={"text": Edges(refs=(Ref('n1', 'result'),))}),
         ]
         compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry)
-        assert [(p.code, p.node_id) for p in compiled.problems_for()] == [("cycle", "n1"), ("cycle", "n2")]
+        assert [(p.code, p.node_id) for p in compiled.problems] == [("cycle", "n1"), ("cycle", "n2")]
         assert not compiled.is_runnable

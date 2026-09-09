@@ -26,7 +26,7 @@ from conductor.execution.engine import execute, execute_sync, resume, resume_syn
 from conductor.execution.retry import RetryConfig
 from conductor.execution.store import FlowStore
 from conductor.graph.binding import Binding, Edges, Static
-from conductor.graph.compiled import CompiledGraph
+from conductor.graph.compiled import CompiledField, CompiledGraph, CompiledNode
 from conductor.graph.conditions import ALWAYS, Atom, Condition
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.problem import Problem
@@ -64,6 +64,8 @@ __all__ = [
     "dependencies_of",
     "is_input_node",
     "CompiledGraph",
+    "CompiledNode",
+    "CompiledField",
     "Problem",
     "Condition",
     "Atom",

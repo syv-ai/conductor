@@ -177,7 +177,7 @@ def _registry():
 
 
 def _problems(nodes, **kw):
-    return CompiledGraph.from_graph(Graph(nodes=nodes, **kw), _registry()).problems_for()
+    return CompiledGraph.from_graph(Graph(nodes=nodes, **kw), _registry()).problems
 
 
 def _codes(nodes, **kw):
@@ -261,7 +261,7 @@ def test_a_computed_field_with_a_handle_needs_an_edge_type():
 
     registry = _registry()
     registry.register(Odd)
-    problems = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="o", type="odd", version=1)]), registry).problems_for()
+    problems = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="o", type="odd", version=1)]), registry).problems
 
     assert [(p.code, p.fatal, p.field) for p in problems] == [("handle_needs_dtype", True, "raw")]
 
@@ -361,7 +361,7 @@ def test_an_any_input_with_no_edge_is_unbound_required():
 
     registry = _registry()
     registry.register(Route)
-    problems = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="r", type="route-p", version=1)]), registry).problems_for()
+    problems = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="r", type="route-p", version=1)]), registry).problems
 
     assert [(p.code, p.fatal, p.field) for p in problems] == [("unbound_required", True, "value")]
     assert problems[0].message == "Nothing is connected to the field."
@@ -381,12 +381,15 @@ def test_a_cycle_is_a_fatal_problem_on_each_node_in_it():
         _registry(),
     )
 
-    assert [(p.code, p.node_id) for p in compiled.problems_for()] == [("cycle", "a"), ("cycle", "b")]
+    assert [(p.code, p.node_id) for p in compiled.problems] == [("cycle", "a"), ("cycle", "b")]
     assert compiled.execution_order() == ("c",)
     assert not compiled.is_runnable
 
 
-def test_problems_can_be_read_whole_or_by_anchor():
+def test_problems_can_be_read_whole_or_by_node():
+    """Every problem here is about a field the node does not have — a lock
+    and two bindings naming nothing — so the node carries them and no
+    field view exists to ask."""
     compiled = CompiledGraph.from_graph(
         Graph(
             nodes=[GraphNode(id="a", type="echo", version=1, locked=("ghost",), bindings={"z": Static(value=1), "w": Static(value=2)})],
@@ -394,10 +397,12 @@ def test_problems_can_be_read_whole_or_by_anchor():
         _registry(),
     )
 
-    assert len(compiled.problems_for()) == 3
-    assert len(compiled.problems_for(node_id="a")) == 3
-    assert len(compiled.problems_for(node_id="a", field="z")) == 1
-    assert [p.code for p in compiled.problems_for(node_id="a", field="ghost")] == ["unknown_locked_field"]
+    assert len(compiled.problems) == 3
+    assert len(compiled.node("a").problems) == 3
+    assert [p.code for p in compiled.node("a").problems if p.field == "ghost"] == ["unknown_locked_field"]
+    assert [p.code for p in compiled.node("a").problems if p.field == "z"] == ["stale_binding"]
+    with pytest.raises(KeyError):
+        compiled.field(Ref("a", "z"))
 
 
 def test_a_non_fatal_problem_leaves_the_flow_runnable():

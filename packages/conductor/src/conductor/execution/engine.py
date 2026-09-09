@@ -311,8 +311,8 @@ async def _execute_node_async(
     retry: RetryConfig,
 ) -> None:
     """Execute a single node with retry, pushing events to the queue."""
-    node = compiled.node(node_id)
-    policy = compiled.version(node_id).policy
+    node = compiled.node(node_id).graph_node
+    policy = compiled.node(node_id).version.policy
 
     # Skip propagation
     if should_skip_node(compiled, node_id, state.results):
@@ -562,7 +562,7 @@ def _dispatch_node(
 ) -> dict[str, Any]:
     """Validate ``inputs`` against the node's interface and run the node; the answer is ``{output name: value}``."""
     node = compiled.node(node_id)
-    interface = compiled.interface_of(node_id)
+    interface = node.interface
 
     # Coerce the raw inputs through the node's interface before anything
     # else touches them.
@@ -571,14 +571,14 @@ def _dispatch_node(
     except ValidationError as e:
         raise NodeValidationError(
             _format_validation_error(e, interface.inputs),
-            node_id=node_id, node_type=node.type, original=e,
+            node_id=node_id, node_type=node.graph_node.type, original=e,
         ) from e
 
     # The validated instances themselves, not a dump: ``run`` receives the
     # declared dtypes and nothing is re-serialised on the way in.
     inputs = dict(validated)
 
-    runner = compiled.runner(node_id)
+    runner = node.runner
     inputs = _inject_store(runner, inputs, state)
 
     try:
@@ -588,10 +588,10 @@ def _dispatch_node(
         raise
     except Exception as e:
         raise NodeExecutionError(
-            f"Execution failed for {node.type}: {type(e).__name__}: {e}",
-            node_id=node_id, node_type=node.type, original=e,
+            f"Execution failed for {node.graph_node.type}: {type(e).__name__}: {e}",
+            node_id=node_id, node_type=node.graph_node.type, original=e,
         ) from e
-    return _outputs_of(compiled.version(node_id).interface.returns, interface.outputs, value)
+    return _outputs_of(node.version.interface.returns, interface.outputs, value)
 
 
 def _outputs_of(returns: Any, outputs: tuple[Output, ...], value: Any) -> dict[str, Any]:
@@ -751,8 +751,8 @@ def _build_state(
     node that would run once per row raises ``NotImplementedError``, since
     this engine does not yet run a node per row."""
     if not compiled.is_runnable:
-        raise CompilationError(compiled.problems_for())
-    iterating = [node_id for node_id in compiled.execution_order() if compiled.iterates_on(node_id) is not None]
+        raise CompilationError(compiled.problems)
+    iterating = [node_id for node_id in compiled.execution_order() if compiled.node(node_id).iterates_on is not None]
     if iterating:
         raise NotImplementedError(
             f"This engine runs scalar nodes only; these nodes iterate: {', '.join(iterating)}"
@@ -775,7 +775,7 @@ def _build_dep_graph(
     dependents: dict[str, set[str]] = defaultdict(set)
 
     for target_id in compiled.execution_order():
-        for source_id in compiled.dependencies(target_id):
+        for source_id in compiled.node(target_id).dependencies:
             deps[target_id].add(source_id)
             dependents[source_id].add(target_id)
 

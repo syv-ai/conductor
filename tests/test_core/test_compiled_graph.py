@@ -162,7 +162,7 @@ def test_compile_flow_returns_an_asked_artifact():
     assert isinstance(compiled, CompiledGraph)
     assert compiled.execution_order() == ("a",)
     assert compiled.is_runnable
-    assert compiled.problems_for() == ()
+    assert compiled.problems == ()
 
 
 def test_callers_never_touch_a_binding_table():
@@ -181,17 +181,17 @@ def test_execution_order_follows_the_edges():
     assert compiled.execution_order() == ("a", "b")
 
 
-# --- value_source ---------------------------------------------------------
+# --- a field's binding ----------------------------------------------------
 
 
-def test_value_source_answers_where_an_input_comes_from():
+def test_binding_answers_where_an_input_comes_from():
     compiled = _compiled([
         GraphNode(id="a", type="echo", version=1, bindings={"x": Static(value="hi")}),
         GraphNode(id="b", type="echo", version=1, bindings={"x": Edges(refs=(Ref("a", "result"),))}),
     ])
 
-    assert isinstance(compiled.value_source("a", "x"), Static)
-    assert isinstance(compiled.value_source("b", "x"), Edges)
+    assert isinstance(compiled.field(Ref("a", "x")).binding, Static)
+    assert isinstance(compiled.field(Ref("b", "x")).binding, Edges)
 
 
 def test_an_unbound_input_reads_as_None_once_compiled():
@@ -199,15 +199,15 @@ def test_an_unbound_input_reads_as_None_once_compiled():
     only "nothing binds this" state there is."""
     compiled = _compiled([GraphNode(id="a", type="echo", version=1)])
 
-    assert compiled.value_source("a", "y") is None
+    assert compiled.field(Ref("a", "y")).binding is None
 
 
-def test_value_source_for_an_input_the_node_does_not_declare_raises():
+def test_a_field_the_node_does_not_have_has_no_view():
     """A programming error, not a state of the graph."""
     compiled = _compiled([GraphNode(id="a", type="echo", version=1)])
 
     with pytest.raises(KeyError, match="nonexistent"):
-        compiled.value_source("a", "nonexistent")
+        compiled.field(Ref("a", "nonexistent"))
 
 
 # --- the pin is resolved once, here ------------------------------------------
@@ -219,9 +219,9 @@ def test_a_placement_reads_the_version_it_pins():
     every old placement at the newest signature."""
     compiled = _compiled([GraphNode(id="old", type="renamed", version=1)])
 
-    assert [i.name for i in compiled.interface_of("old").inputs] == ["old"]
-    assert compiled.version("old").policy == Policy()
-    assert compiled.version("old").run.__name__ == "run_v1"
+    assert [i.name for i in compiled.node("old").interface.inputs] == ["old"]
+    assert compiled.node("old").version.policy == Policy()
+    assert compiled.node("old").version.run.__name__ == "run_v1"
 
 
 def test_a_node_type_the_registry_lacks_is_a_fatal_problem():
@@ -229,17 +229,17 @@ def test_a_node_type_the_registry_lacks_is_a_fatal_problem():
     the editor needs to show where."""
     compiled = _compiled([GraphNode(id="a", type="gone", version=1)])
 
-    (problem,) = compiled.problems_for()
+    (problem,) = compiled.problems
     assert (problem.code, problem.fatal, problem.node_id) == ("unknown_node_type", True, "a")
     assert not compiled.is_runnable
     with pytest.raises(KeyError):
-        compiled.interface_of("a")
+        compiled.node("a").interface
 
 
 def test_a_version_the_class_no_longer_declares_is_a_fatal_problem():
     compiled = _compiled([GraphNode(id="a", type="renamed", version=7)])
 
-    (problem,) = compiled.problems_for()
+    (problem,) = compiled.problems
     assert (problem.code, problem.node_id) == ("unknown_node_version", "a")
 
 
@@ -249,7 +249,7 @@ def test_two_placements_with_one_id_is_a_fatal_problem():
         GraphNode(id="a", type="echo", version=1),
     ])
 
-    assert [p.code for p in compiled.problems_for()] == ["duplicate_node_id"]
+    assert [p.code for p in compiled.problems] == ["duplicate_node_id"]
 
 
 # --- interfaces: the hooks are asked, once, on a fresh instance -----------------
@@ -261,16 +261,16 @@ def test_a_nodes_interface_is_what_the_hooks_answered():
         GraphNode(id="s", type="open-sheet", version=1, bindings={"header": Static(value="name,email")}),
     ])
 
-    assert isinstance(compiled.interface_of("m"), Interface)
-    assert [i.name for i in compiled.interface_of("m").inputs] == ["mode"]
-    assert [o.name for o in compiled.interface_of("s").outputs] == ["name", "email"]
+    assert isinstance(compiled.node("m").interface, Interface)
+    assert [i.name for i in compiled.node("m").interface.inputs] == ["mode"]
+    assert [o.name for o in compiled.node("s").interface.outputs] == ["name", "email"]
 
 
 def test_a_node_with_no_opinion_has_its_declaration_as_its_interface():
     compiled = _compiled([GraphNode(id="a", type="echo", version=1)])
 
     declared = Echo.versions[1].interface
-    assert compiled.interface_of("a") == declared
+    assert compiled.node("a").interface == declared
 
 
 def test_a_roster_depends_only_on_what_the_author_typed():
@@ -281,7 +281,7 @@ def test_a_roster_depends_only_on_what_the_author_typed():
         GraphNode(id="m", type="modes", version=1, bindings={"mode": Edges(refs=(Ref("src", "result"),))}),
     ])
 
-    assert [i.name for i in compiled.interface_of("m").inputs] == ["mode"]
+    assert [i.name for i in compiled.node("m").interface.inputs] == ["mode"]
 
 
 def test_a_column_a_node_computed_can_be_a_flow_output():
@@ -333,7 +333,7 @@ def test_needs_is_the_union_of_the_placements_needs():
         GraphNode(id="c", type="echo", version=1),
     ], _registry(Stamped))
 
-    assert compiled.is_runnable, compiled.problems_for()
+    assert compiled.is_runnable, compiled.problems
     assert compiled.interface.needs == {"clock": Clock}
 
 
@@ -354,7 +354,7 @@ def test_a_placement_that_did_not_resolve_contributes_no_fields():
     placement compile could not resolve rather than anchoring it again."""
     compiled = _compiled([GraphNode(id="a", type="gone", version=1)])
 
-    assert [p.code for p in compiled.problems_for()] == ["unknown_node_type"]
+    assert [p.code for p in compiled.problems] == ["unknown_node_type"]
     assert compiled.interface.inputs == () and compiled.interface.outputs == ()
 
 
@@ -364,10 +364,10 @@ def test_a_placement_that_did_not_resolve_contributes_no_fields():
 def test_the_engine_asks_for_a_placement_its_version_and_its_runner():
     compiled = _compiled([GraphNode(id="old", type="renamed", version=1, bindings={"old": Static(value="hi")})])
 
-    assert compiled.node("old").type == "renamed"
-    assert compiled.version("old").interface.inputs[0].name == "old"
-    assert compiled.runner("old")(old=Txt("hej")) == "hej"
-    assert compiled.dependencies("old") == frozenset()
+    assert compiled.node("old").graph_node.type == "renamed"
+    assert compiled.node("old").version.interface.inputs[0].name == "old"
+    assert compiled.node("old").runner(old=Txt("hej")) == "hej"
+    assert compiled.node("old").dependencies == frozenset()
 
 
 def test_dependencies_are_read_off_the_wires():
@@ -376,7 +376,7 @@ def test_dependencies_are_read_off_the_wires():
         GraphNode(id="b", type="echo", version=1, bindings={"x": Edges(refs=(Ref("a", "result"),)), "y": Edges(refs=(Ref("a", "result"),))}),
     ])
 
-    assert compiled.dependencies("b") == frozenset({"a"})
+    assert compiled.node("b").dependencies == frozenset({"a"})
 
 
 # --- the artifact is a value ------------------------------------------------
@@ -393,12 +393,12 @@ def test_compiling_the_same_flow_twice_gives_the_same_answers():
     second = CompiledGraph.from_graph(build(), _registry())
 
     assert first.execution_order() == second.execution_order()
-    assert first.problems_for() == second.problems_for()
-    assert first.value_source("b", "x") == second.value_source("b", "x")
+    assert first.problems == second.problems
+    assert first.field(Ref("b", "x")).binding == second.field(Ref("b", "x")).binding
     assert first.interface == second.interface
-    assert first.interface_of("b") == second.interface_of("b")
-    assert first.type_of(Ref("b", "result")) is second.type_of(Ref("b", "result"))
-    assert first.index_of(Ref("b", "result")) == second.index_of(Ref("b", "result"))
+    assert first.node("b").interface == second.node("b").interface
+    assert first.field(Ref("b", "result")).type is second.field(Ref("b", "result")).type
+    assert first.field(Ref("b", "result")).index == second.field(Ref("b", "result")).index
 
 
 def test_compiling_does_not_mutate_the_flow():

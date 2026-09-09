@@ -123,7 +123,7 @@ def conductor_router(
         Debounce-friendly (~10-30 ms): hosts can poll this on every graph
         edit to paint type mismatches and cycles in real time.
         """
-        return list(CompiledGraph.from_graph(req.graph, registry).problems_for())
+        return list(CompiledGraph.from_graph(req.graph, registry).problems)
 
     return router
 

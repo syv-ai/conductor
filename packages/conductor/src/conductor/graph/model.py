@@ -64,7 +64,7 @@ class GraphNode:
 
     There is no edge record beside it; a canvas derives edges from
     ``bindings``. What the node's inputs and outputs actually are is
-    answered when the graph is compiled (``CompiledGraph.interface_of``), not stored here.
+    answered when the graph is compiled (``CompiledGraph.node(node_id).interface``), not stored here.
     """
 
     id: str

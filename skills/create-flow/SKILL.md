@@ -116,17 +116,16 @@ flow_json = graph_to_react(flow)                             # conductor → fro
 
 `CompiledGraph` is immutable and is asked, never read through. The questions worth knowing:
 
-- `problems_for()` / `is_runnable` — every `Problem` (code, message, `node_id`, `field`, `fatal`), whole or by anchor; a run refuses on the first fatal one.
+- `problems` / `is_runnable` — every `Problem` (code, message, `node_id`, `field`, `fatal`); a run refuses on the first fatal one.
 - `execution_order()` — the node ids in edge order; an embedded graph's inner nodes appear as `placement/inner`.
-- `interface_of(node_id)` — the node's inputs and outputs as its hooks answered, every type bound by the edges.
-- `type_of(Ref(node_id, field))` — the type that travels on a field; `index_of(Ref(node_id, field))` — for a series, where its rows come from; `iterates_on(node_id)` — the index a node runs once per row of, or `None`.
-- `value_source(node_id, input)` — the `Binding` behind an input, or `None` when the declared default applies.
-- `condition(Ref(...))` / `decisions()` — under which upstream decisions an output appears.
+- `node(node_id)` — one node as compile left it (`CompiledNode`): `interface` (its inputs and outputs as its hooks answered, every type bound by the edges), `iterates_on` (the index it runs once per row of, or `None`), `statics`, `dependencies`, `version`, `runner`, `embedded_in`, `problems`.
+- `field(Ref(node_id, field))` — one input or output as compile left it (`CompiledField`): `type` (the type that travels on it), `index` (for a series, where its rows come from), `binding` (the `Binding` behind an input, or `None` when the declared default applies), `condition` (under which upstream decisions an output appears), `problems`.
+- `decisions()` — every decision a run makes, by node and `choice` group.
 - `interface` — what the graph takes and returns, named by address.
 
 ## Checklist before running a flow
 
-- [ ] Every `GraphNode.type` is registered on the registry passed to `CompiledGraph.from_graph`, and its `version` exists — otherwise `problems_for()` says so.
+- [ ] Every `GraphNode.type` is registered on the registry passed to `CompiledGraph.from_graph`, and its `version` exists — otherwise `problems` says so.
 - [ ] Every `Ref` in an `Edges` names an existing node and one of its outputs, and the bindings key names an input.
 - [ ] `Static` values are the declared types (pydantic coerces builtins into the host's dtypes).
 - [ ] If long-running, the caller owns cancellation and/or `timeout_seconds`.
@@ -135,7 +134,7 @@ flow_json = graph_to_react(flow)                             # conductor → fro
 
 1. Stream with `execute` (not `execute_sync`) and log every event — reveals scheduling and skip behavior.
 2. For node-level errors, catch `FlowExecutionError` (sync) or check `flow_error` events (async); `error.node_id` and `error.original` pinpoint the failure. A `NodeValidationError` names the field and its title.
-3. For resolver confusion, ask `compiled.value_source(node_id, input)` and `compiled.type_of(Ref(node_id, input))` for the problem field.
+3. For resolver confusion, ask `compiled.field(Ref(node_id, input))` for the problem field: its `binding` and its `type`.
 
 ## When your advice diverges from the installed version
 

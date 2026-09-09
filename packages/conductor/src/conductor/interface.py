@@ -67,7 +67,7 @@ class Interface:
     Three things carry one. What one version declares: ``Interface.of``
     reads it off the ``run`` signature when a node class is defined. What
     one placed node actually has once the compiler has asked its hooks and
-    typed its edges: ``CompiledGraph.interface_of``, the same record with
+    typed its edges: ``CompiledGraph.node(node_id).interface``, the same record with
     ``returns``, ``needs`` and ``open`` copied from the version. What a
     whole graph takes and returns: ``CompiledGraph.interface``, with
     inputs named by address and wearing their nodes' titles. Derived,

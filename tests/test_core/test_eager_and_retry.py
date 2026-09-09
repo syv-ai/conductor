@@ -232,7 +232,7 @@ class TestRetry:
 
         # A value the field's type cannot read is compile's `invalid_static`;
         # the run refuses before any node runs, so there is nothing to retry.
-        assert [p.code for p in compiled.problems_for()] == ["invalid_static"]
+        assert [p.code for p in compiled.problems] == ["invalid_static"]
         with pytest.raises(CompilationError):
             execute_sync(compiled)
 
