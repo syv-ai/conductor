@@ -170,7 +170,7 @@ def test_a_flow_compile_rejected_is_refused_with_its_problems():
     assert [p.code for p in raised.value.problems] == ["unknown_node_type"]
 
 
-def test_this_engine_refuses_a_lifted_node():
+def test_this_engine_refuses_an_iterating_node():
     """This engine runs scalar nodes only. The limit is stated, not
     papered over."""
     compiled = CompiledGraph.from_graph(

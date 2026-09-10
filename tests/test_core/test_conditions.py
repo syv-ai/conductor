@@ -167,7 +167,7 @@ def test_two_decisions_in_series_conjoin_and_a_contradiction_is_dropped():
     })
 
 
-def test_a_lifted_decision_masks_rows_and_is_not_a_condition():
+def test_an_iterating_decision_masks_rows_and_is_not_a_condition():
     """Both branches produce, each sparse, so nothing below a
     iterating decision is conditional on it — and it is not a dimension."""
     compiled = _compiled([

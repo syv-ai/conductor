@@ -224,7 +224,7 @@ def test_a_stale_key_on_the_placement_is_reported_on_the_placement():
 # --- the boundary scope ---------------------------------------------------------
 
 
-def test_a_series_entering_through_a_scalar_field_lifts_the_placement():
+def test_a_series_entering_through_a_scalar_field_makes_the_placement_iterate():
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
         GraphNode(id="emb", type="inner-flow", version=1, bindings={"holder.value": Edges(refs=(Ref("docs", "result"),))}),
@@ -305,7 +305,7 @@ def test_a_series_born_inside_reduces_to_the_outer_row_by_lineage_alone():
     assert compiled.node("emb/join").iterates_on == Index("docs")
 
 
-def test_two_crossings_on_one_lineage_lift_the_whole_block_on_the_deeper():
+def test_two_crossings_on_one_lineage_make_the_whole_block_iterate_on_the_deeper():
     """`docs` → `lines` (a child of `docs`); the block takes one field from
     each. The block folds over the deeper index, and so does every node
     inside it — the one fed from the shallower index broadcasts down;

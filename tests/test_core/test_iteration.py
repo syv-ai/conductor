@@ -170,7 +170,7 @@ def _edge(*refs):
 # --- a series into a scalar input makes the node iterate --------------------------------
 
 
-def test_a_scalar_node_fed_scalars_is_not_lifted():
+def test_a_scalar_node_fed_scalars_does_not_iterate():
     compiled = _compiled([
         GraphNode(id="a", type="upper", version=1, bindings={"text": Static(value="hi")}),
         GraphNode(id="b", type="upper", version=1, bindings={"text": _edge(("a", "result"))}),
@@ -197,7 +197,7 @@ def test_every_series_a_node_produces_shares_its_index():
     assert compiled.field(Ref("docs", "texts")).index == compiled.field(Ref("docs", "filenames")).index
 
 
-def test_a_series_into_a_scalar_input_lifts_the_node():
+def test_a_series_into_a_scalar_input_makes_the_node_iterate():
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
@@ -208,7 +208,7 @@ def test_a_series_into_a_scalar_input_lifts_the_node():
     assert compiled.field(Ref("up", "text")).index == Index("docs")
 
 
-def test_a_lifted_nodes_outputs_are_series_on_the_same_index():
+def test_an_iterating_nodes_outputs_are_series_on_the_same_index():
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
@@ -219,7 +219,7 @@ def test_a_lifted_nodes_outputs_are_series_on_the_same_index():
     assert result_index == Index("docs")
 
 
-def test_lifting_is_contagious_and_needs_no_construct():
+def test_iteration_is_contagious_and_needs_no_construct():
     """Per-row over many nodes: each node downstream receives a series and
     iterates in turn. Nothing is stored, marked or grouped."""
     compiled = _compiled([
@@ -290,7 +290,7 @@ def test_a_pass_through_binds_its_type_from_the_edge():
     assert [p.code for p in compiled.problems] == ["type_mismatch"]
 
 
-def test_a_lifted_pass_through_binds_the_element_and_lifts():
+def test_an_iterating_pass_through_binds_the_element_and_iterates():
     """A pass-through fed a series iterates like any scalar node, and
     takes the element as its type."""
     compiled = _compiled([
@@ -611,7 +611,7 @@ def test_two_series_on_unrelated_indexes_are_a_fatal_problem_naming_both():
 # --- reduction ---------------------------------------------------------------------
 
 
-def test_a_reduction_on_a_root_yields_a_scalar_and_is_not_lifted():
+def test_a_reduction_on_a_root_yields_a_scalar_and_does_not_iterate():
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
@@ -626,7 +626,7 @@ def test_a_reduction_on_a_root_yields_a_scalar_and_is_not_lifted():
     assert compiled.field(Ref("j", "result")).index is None
 
 
-def test_a_lifted_node_returning_a_series_gives_birth_to_a_child_index():
+def test_an_iterating_node_returning_a_series_gives_birth_to_a_child_index():
     """An unfold with no special node: one text in, many lines out, each
     line knowing which document it came from."""
     compiled = _compiled([
@@ -641,7 +641,7 @@ def test_a_lifted_node_returning_a_series_gives_birth_to_a_child_index():
     assert lines_index.parent == Index("docs")
 
 
-def test_a_reduction_on_a_child_is_a_lift_on_the_parent():
+def test_a_reduction_on_a_child_iterates_on_the_parent():
     """One per document again: the index supplies the grouping, and there
     is no key column to pick."""
     compiled = _compiled([
