@@ -42,7 +42,7 @@ Three things a ``DType`` deliberately does not do:
 
 An input that only routes a value it never reads is annotated ``Any``
 instead of a type, and the type of what actually arrives is recorded when
-the flow is compiled. ``Single`` marks an open roster, ``**inputs: Single``:
+the flow is compiled. ``Single`` marks an open interface, ``**inputs: Single``:
 every connected name becomes an input of that node.
 
 Conductor defines no concrete ``DType`` except ``Series``. Which types
@@ -93,7 +93,7 @@ class DType(ABC):
         nearly every type, and the default. Only a type that can be declared
         incompletely (a table whose columns nobody stated) overrides it.
 
-        The compiler asks it of a source type connected into an open roster
+        The compiler asks it of a source type connected into an open interface
         (``**inputs: Single``), where the node will read the value; a
         ``None`` lets the edge through, a pair becomes a fatal problem on
         the field with that code and message. A value only routed through
@@ -227,7 +227,7 @@ class DType(ABC):
 
 
 class Single:
-    """Marker for an open roster: ``def run(self, **inputs: Single)``.
+    """Marker for an open interface: ``def run(self, **inputs: Single)``.
 
     Every name connected into such a node becomes an input, typed by its edge,
     and each is received as one value — a series arrives as a whole series.

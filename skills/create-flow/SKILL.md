@@ -1,6 +1,6 @@
 ---
 name: create-flow
-description: Use when building or running a conductor flow — placing nodes with GraphNode, connecting them through Edges bindings, calling compile()/execute(), streaming events, or debugging a run. Triggers on phrases like "create a flow", "build a graph", "run a flow", "connect these nodes together", "stream execution events".
+description: Use when building or running a conductor flow — placing nodes with GraphNode, connecting them through Edges bindings, calling CompiledGraph.from_graph()/execute(), streaming events, or debugging a run. Triggers on phrases like "create a flow", "build a graph", "run a flow", "connect these nodes together", "stream execution events".
 ---
 
 # Creating and running a conductor flow
@@ -21,7 +21,7 @@ Programmatic: `from conductor.about import get_content, list_sections, get_secti
 ## Three phases: declare → compile → execute
 
 ```python
-from conductor import Graph, GraphNode, NodeRegistry, Ref, Edges, Static, compile
+from conductor import Graph, GraphNode, NodeRegistry, Ref, Edges, Static, CompiledGraph
 from conductor.execution.engine import execute_sync
 
 # 1. declare — node classes registered at import (see add-node)
@@ -34,7 +34,7 @@ flow = Graph(nodes=[
     GraphNode(id="a", type="greet", version=1, bindings={"name": Static(value="Ada")}),
     GraphNode(id="b", type="shout", version=1, bindings={"text": Edges(refs=(Ref("a", "result"),))}),
 ])
-compiled = compile(flow, registry)
+compiled = CompiledGraph.from_graph(flow, registry)
 
 # 3. execute
 results = execute_sync(compiled)
@@ -51,7 +51,7 @@ One input holds at most one binding:
 2. **`Static(value=...)`** — the author typed the value in.
 3. **No binding** — the parameter's default.
 
-There is no edge list and no per-edge record: `dependencies_of(flow.nodes)` derives what each node waits for, and a canvas derives its edges. The call is validated through pydantic against the placement's roster, and `run` receives instances of the declared dtypes.
+There is no edge list and no per-edge record: `dependencies_of(flow.nodes)` derives what each node waits for, and a canvas derives its edges. The call is validated through pydantic against the placed node's own interface, and `run` receives instances of the declared dtypes.
 
 ## Streaming execution
 
@@ -92,7 +92,7 @@ A node returns `SKIPPED` on the branch it did not take. Whatever is connected to
 
 ## Definitions the registry does not hold
 
-A graph may name a definition the static registry lacks (a host's embedded flows, say). The host builds those `NodeDefinition`s itself and hands compile `registry.extended_with({"loaded-id": Loaded})` — a new registry per run; a registered type wins over a loaded one of the same id.
+A graph may name a definition the static registry lacks (a host's embedded graphs, say). The host builds those `NodeDefinition`s itself and hands compile `registry.extended_with({"loaded-id": Loaded})` — a new registry per run; a registered type wins over a loaded one of the same id.
 
 ## Cancellation and timeout
 
@@ -112,19 +112,20 @@ flow_json = graph_to_react(flow)                             # conductor → fro
 
 `conductor_providers.fastapi.conductor_router(registry)` mounts `/nodes`, `/compile`, `/execute`, `/execute-stream` and `/entities/{kind}`.
 
-## Compiled graph — what's inside
+## Compiled graph — what it answers
 
-`CompiledGraph` is immutable. Fields worth knowing:
+`CompiledGraph` is immutable and is asked, never read through. The questions worth knowing:
 
-- `execution_order` — topo-sorted node ids.
-- `edge_map` — `(target id, input) → [(source id, output, edge id), ...]`, derived from the bindings on each compile.
-- `node_inputs` / `node_outputs` — each placement's roster, as its hooks answered.
-
-Treat it as opaque for most use; read it when building custom execution tooling.
+- `problems` / `is_runnable` — every `Problem` (code, message, `node_id`, `field`, `fatal`); a run refuses on the first fatal one.
+- `execution_order()` — the node ids in edge order; an embedded graph's inner nodes appear as `placement/inner`.
+- `node(node_id)` — one node as compile left it (`CompiledNode`): `interface` (its inputs and outputs as its hooks answered, every type bound by the edges), `iterates_on` (the index it runs once per row of, or `None`), `statics`, `dependencies`, `version`, `runner`, `embedded_in`, `problems`.
+- `field(Ref(node_id, field))` — one input or output as compile left it (`CompiledField`): `type` (the type that travels on it), `index` (for a series, where its rows come from), `binding` (the `Binding` behind an input, or `None` when the declared default applies), `condition` (under which upstream decisions an output appears), `problems`.
+- `decisions()` — every decision a run makes, by node and `choice` group.
+- `interface` — what the graph takes and returns, named by address.
 
 ## Checklist before running a flow
 
-- [ ] Every `GraphNode.type` is registered on the registry passed to `compile`, and its `version` exists.
+- [ ] Every `GraphNode.type` is registered on the registry passed to `CompiledGraph.from_graph`, and its `version` exists — otherwise `problems` says so.
 - [ ] Every `Ref` in an `Edges` names an existing node and one of its outputs, and the bindings key names an input.
 - [ ] `Static` values are the declared types (pydantic coerces builtins into the host's dtypes).
 - [ ] If long-running, the caller owns cancellation and/or `timeout_seconds`.
@@ -133,7 +134,7 @@ Treat it as opaque for most use; read it when building custom execution tooling.
 
 1. Stream with `execute` (not `execute_sync`) and log every event — reveals scheduling and skip behavior.
 2. For node-level errors, catch `FlowExecutionError` (sync) or check `flow_error` events (async); `error.node_id` and `error.original` pinpoint the failure. A `NodeValidationError` names the field and its title.
-3. For resolver confusion, print the node's `bindings` and `compiled.edge_map` for the problem node.
+3. For resolver confusion, ask `compiled.field(Ref(node_id, input))` for the problem field: its `binding` and its `type`.
 
 ## When your advice diverges from the installed version
 

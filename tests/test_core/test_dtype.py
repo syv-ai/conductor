@@ -192,7 +192,7 @@ def test_any_is_the_unconstrained_marker_and_is_not_a_type():
 
 
 def test_single_is_a_bare_marker():
-    """``**inputs: Single`` — the open roster. ``Single`` is the whole
+    """``**inputs: Single`` — the open interface. ``Single`` is the whole
     declaration; what it means is ``Interface.of`` to read."""
     assert Single() is not None
 

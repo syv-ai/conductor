@@ -20,13 +20,13 @@ from typing import TYPE_CHECKING
 
 from conductor.graph.binding import Edges
 from conductor.graph.model import GraphNode
-from conductor.graph.problem import Problem
+from conductor.graph.problem import Problem, problem
 from conductor.interface import Interface
 from conductor.ref import Ref
 
 if TYPE_CHECKING:
     from conductor.graph.model import Graph
-    from conductor.metadata import Input, Output, Roster
+    from conductor.metadata import Input, Output
     from conductor.node import GraphVersion, NodeVersion
 
 
@@ -41,34 +41,28 @@ def is_input_node(node: GraphNode) -> bool:
     return not any(isinstance(binding, Edges) for binding in node.bindings.values())
 
 
-def lock_problems(nodes: Mapping[str, GraphNode], rosters: Mapping[str, Roster]) -> tuple[Problem, ...]:
+def lock_problems(nodes: Mapping[str, GraphNode], interfaces: Mapping[str, Interface]) -> tuple[Problem, ...]:
     """Which locks point at a field the node does not have?
 
     A lock (``GraphNode.locked``) is an input the graph's author closed:
     no caller may fill it, so it leaves the graph's inputs. A lock naming
-    a field that is not on the node's roster is stale. It narrows nothing
+    a field that is not on the node's interface is stale. It narrows nothing
     and blocks nothing, so the problem is non-fatal, and it is reported on
     every node, connected or not, because it is repairable wherever it
-    sits. A node absent from ``rosters`` is one compile could not resolve;
+    sits. A node absent from ``interfaces`` is one compile could not resolve;
     it carries its own problem.
     """
     return tuple(
-        Problem(
-            code="unknown_locked_field",
-            message=f"The lock on '{node_id}.{name}' points at a field the node does not have.",
-            fatal=False,
-            node_id=node_id,
-            field=name,
-        )
-        for node_id, roster in rosters.items()
+        problem("unknown_locked_field", node_id, name)
+        for node_id, interface in interfaces.items()
         for name in nodes[node_id].locked
-        if name not in {i.name for i in roster.inputs}
+        if name not in {i.name for i in interface.inputs}
     )
 
 
 def derive_interface(
     graph: Graph,
-    rosters: Mapping[str, Roster],
+    interfaces: Mapping[str, Interface],
     versions: Mapping[str, NodeVersion | GraphVersion],
     dependencies: Mapping[str, frozenset[str]],
 ) -> Interface:
@@ -86,28 +80,28 @@ def derive_interface(
     returns its outputs by address. ``needs`` is the union of what the
     nodes' versions need, by parameter name.
 
-    ``rosters`` holds each node's actual fields (``Roster``) and
+    ``interfaces`` holds each node's actual fields (its computed ``Interface``) and
     ``versions`` the version record each node pinned; a node in neither is
     one compile could not resolve, and contributes nothing.
     ``dependencies`` is the map compile built once; a node in nobody's set
-    is an output node. Fields come in node order, roster order within a
+    is an output node. Fields come in node order, field order within a
     node.
     """
     consumed = frozenset().union(*dependencies.values())
     inputs: list[Input] = []
     outputs: list[Output] = []
     for node in graph.nodes:
-        if node.id not in rosters:
+        if node.id not in interfaces:
             continue
-        roster = rosters[node.id]
+        interface = interfaces[node.id]
         if is_input_node(node):
             inputs.extend(
                 _placed(node, declared)
-                for declared in roster.inputs
+                for declared in interface.inputs
                 if declared.show_handle and declared.name not in node.locked
             )
         if node.id not in consumed:
-            outputs.extend(_placed(node, declared) for declared in roster.outputs)
+            outputs.extend(_placed(node, declared) for declared in interface.outputs)
 
     needs: dict[str, type] = {}
     for version in versions.values():

@@ -5,7 +5,7 @@ from conductor import NodeRegistry
 from conductor.dtype import DType
 from conductor.execution.engine import execute_sync
 from conductor.graph.binding import Static
-from conductor.graph.compiler import compile as compile_graph
+from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.metadata import Input, Output
 from conductor.node import (
@@ -273,7 +273,7 @@ def test_policy_is_declared_per_version():
 
 
 def test_a_gap_in_the_versions_is_the_catalogs_rule_not_the_classs():
-    """Defining {1, 3} is legal — a loaded definition (an embedded flow whose
+    """Defining {1, 3} is legal — a loaded definition (an embedded graph whose
     approved versions skip one) is whole as it is. Registering it is not:
     the catalog promises every version up to the current one."""
 
@@ -599,7 +599,7 @@ def test_a_node_shapes_its_own_outputs_from_its_values():
 
 
 def test_a_node_shapes_its_own_inputs_from_its_values():
-    """A roster that depends on a value is the node's own answer."""
+    """An interface that depends on a value is the node's own answer."""
 
     class Modes(NodeDefinition):
         id = "modes"
@@ -627,7 +627,7 @@ def test_a_node_shapes_its_own_inputs_from_its_values():
 def test_a_hook_shapes_the_version_the_placement_pins_not_the_newest():
     """A fresh instance knows no version. The caller hands the hook the
     declaration of the version it is asking about, so an old placement keeps
-    its old roster."""
+    its old interface."""
     from conductor.node import version
 
     class Two(NodeDefinition):
@@ -673,7 +673,7 @@ def test_the_hook_contract_is_two_methods():
 
 
 def test_a_hook_that_cannot_answer_raises_refuses():
-    """`Refuses(code, message)` is the one refusal a roster hook has: the
+    """`Refuses(code, message)` is the one refusal a field hook has: the
     host names the code and writes the sentence, and the compiler anchors both
     as the placement's fatal `Problem` (the graph plans)."""
     from conductor.node import Refuses
@@ -963,7 +963,7 @@ def test_a_class_node_executes_in_a_graph():
     registry = NodeRegistry()
     registry.register(Shout)
 
-    compiled = compile_graph(Graph(nodes=[GraphNode(id="a", type="shout", version=1, bindings={"text": Static(value="hi")})]), registry)
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="shout", version=1, bindings={"text": Static(value="hi")})]), registry)
     results = execute_sync(compiled)
     assert results["a"]["result"] == "HI!"
 
@@ -991,7 +991,7 @@ def test_two_versions_of_one_class_execute_independently():
     registry.register(Suffix)
 
     for pinned, expected in ((1, "hi"), (2, "hi?")):
-        compiled = compile_graph(Graph(nodes=[GraphNode(id="a", type="suffix", version=pinned, bindings={"text": Static(value="hi")})]), registry)
+        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="suffix", version=pinned, bindings={"text": Static(value="hi")})]), registry)
         assert execute_sync(compiled)["a"]["result"] == expected
 
 
@@ -1041,7 +1041,7 @@ def test_each_call_gets_a_fresh_instance():
 
 
 def test_a_definition_may_carry_its_versions_by_value():
-    """A definition built from data (an embedded flow) sets ``versions`` in
+    """A definition built from data (an embedded graph) sets ``versions`` in
     the class body, each a ``GraphVersion`` holding an interface and the
     placements the compiler expands it to. ``register()`` checks the
     numbering and ``describe()`` reads it, but ``runner_for`` refuses it:

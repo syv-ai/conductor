@@ -1,56 +1,32 @@
-"""Skip propagation logic."""
+"""Skip propagation."""
 
+from collections.abc import Mapping
 from typing import Any
 
 from conductor._sentinel import is_skipped
 from conductor.execution.results import extract_output
-from conductor.graph.model import GraphNode
+from conductor.graph.binding import Edges
+from conductor.graph.compiled import CompiledGraph
+from conductor.ref import Ref
 
 
-def should_skip_node(
-    node: GraphNode,
-    edge_map: dict[tuple[str, str], list[tuple[str, str, str]]],
-    results: dict[str, Any],
-    skipped_edges: set[str] | None = None,
-    incoming_map: dict[str, list[tuple[str, str, str, str]]] | None = None,
-) -> bool:
-    """Determine if a node should be skipped.
+def should_skip_node(compiled: CompiledGraph, node_id: str, results: Mapping[str, Any]) -> bool:
+    """Is every value this node's edges deliver ``SKIPPED``?
 
-    A node is skipped if ALL of its incoming values are SKIPPED. Edges whose ``id`` appears in ``skipped_edges``
-    also count as SKIPPED — this is how decision-node edge guards mark
-    branches as "not taken". A node with no incoming sources is never
-    skipped.
-
-    ``incoming_map`` is an optional pre-built inverted view of the edges
-    (see :func:`conductor.graph.topology.edge_maps`). When
-    provided, lookup is O(1) per node instead of scanning the whole
-    ``edge_map``. The old ``edge_map``-based path is kept for compat
-    with callers that pass a ``None`` incoming_map.
+    A node with no edges never skips. Read off the node's interface, so a stale
+    binding delivers nothing. A producer missing from ``results`` is the
+    engine's bug and raises.
     """
-    incoming_sources: list[tuple[str, str, str]] = []
-    if incoming_map is not None:
-        for _target_handle, source_id, source_handle, edge_id in incoming_map.get(node.id, ()):
-            incoming_sources.append((source_id, source_handle, edge_id))
-    else:
-        for (target_id, _handle), sources in edge_map.items():
-            if target_id == node.id:
-                incoming_sources.extend(sources)
-
-    if not incoming_sources:
-        return False
-
-    skipped_edges = skipped_edges or set()
-
-    for source_id, source_handle, edge_id in incoming_sources:
-        if edge_id and edge_id in skipped_edges:
+    delivered = False
+    for inp in compiled.node(node_id).interface.inputs:
+        binding = compiled.field(Ref(node_id, inp.name)).binding
+        if not isinstance(binding, Edges):
             continue
-        source_result = results.get(source_id)
-        if source_result is None:
-            continue
-        if is_skipped(source_result):
-            continue
-        value = extract_output(source_result, source_handle)
-        if not is_skipped(value):
-            return False
-
-    return True
+        for ref in binding.refs:
+            delivered = True
+            result = results[ref.node_id]
+            if is_skipped(result):
+                continue
+            if not is_skipped(extract_output(result, ref.field)):
+                return False
+    return delivered

@@ -1,7 +1,5 @@
-"""Execution event types and thread-safe EventSink."""
+"""Execution event types."""
 
-import threading
-from collections import deque
 from typing import Any, Literal, TypedDict
 
 
@@ -35,23 +33,6 @@ class NodeProgressEvent(TypedDict):
     node_id: str
     current: int
     total: int
-
-
-class RuntimeWarningEvent(TypedDict, total=False):
-    """Non-fatal runtime warning surfaced by the engine or a compound node.
-
-    Currently emitted by the for-each compound when multiple connected source
-    lists differ in length and the loop truncates to ``min(len)``. The
-    ``payload`` field carries warning-specific structured data (e.g. the
-    per-source lengths and the truncation point). ``warning`` is a stable
-    short identifier callers can switch on.
-    """
-
-    type: Literal["runtime_warning"]
-    node_id: str
-    warning: str
-    message: str
-    payload: dict[str, Any]
 
 
 class FlowCompleteEvent(TypedDict):
@@ -109,7 +90,6 @@ ExecutionEvent = (
     | NodeSkippedEvent
     | NodeErrorEvent
     | NodeProgressEvent
-    | RuntimeWarningEvent
     | FlowCompleteEvent
     | FlowErrorEvent
     | FlowCancelledEvent
@@ -118,19 +98,3 @@ ExecutionEvent = (
     | NodeRetryEvent
     | SignalWaitingEvent
 )
-
-
-class EventSink:
-    """Thread-safe event queue. Compound nodes push; engine drains."""
-
-    def __init__(self) -> None:
-        self._queue: deque[ExecutionEvent] = deque()
-        self._lock = threading.Lock()
-
-    def push(self, event: ExecutionEvent) -> None:
-        with self._lock:
-            self._queue.append(event)
-
-    def pop(self) -> ExecutionEvent | None:
-        with self._lock:
-            return self._queue.popleft() if self._queue else None

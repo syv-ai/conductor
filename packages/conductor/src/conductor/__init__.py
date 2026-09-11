@@ -14,28 +14,26 @@ from conductor.errors import (
     FlowExecutionError,
     FlowPausedError,
     HumanInputRequired,
-    LoopRunawayError,
     NodeConnectionError,
     NodeError,
     NodeExecutionError,
     NodeTimeoutError,
     NodeValidationError,
     SignalRequired,
-    SubprocessFailedError,
 )
 from conductor.execution.checkpoint import FlowCheckpoint
 from conductor.execution.engine import execute, execute_sync, resume, resume_sync
 from conductor.execution.retry import RetryConfig
 from conductor.execution.store import FlowStore
 from conductor.graph.binding import Binding, Edges, Static
-from conductor.graph.compiler import CompiledGraph, compile
-from conductor.graph.dynamic_inputs import resolve_graph_inputs
-from conductor.graph.dynamic_outputs import resolve_graph_outputs
+from conductor.graph.compiled import CompiledField, CompiledGraph, CompiledNode
+from conductor.graph.conditions import ALWAYS, Atom, Condition
 from conductor.graph.model import FieldContent, Graph, GraphNode
+from conductor.graph.problem import Problem
 from conductor.graph.topology import dependencies_of
 from conductor.graph.views import is_input_node
 from conductor.interface import Interface, Provided
-from conductor.metadata import Input, Output, Roster
+from conductor.metadata import Input, Output
 from conductor.node import (
     Deprecation,
     GraphVersion,
@@ -65,10 +63,13 @@ __all__ = [
     "Static",
     "dependencies_of",
     "is_input_node",
-    "compile",
     "CompiledGraph",
-    "resolve_graph_inputs",
-    "resolve_graph_outputs",
+    "CompiledNode",
+    "CompiledField",
+    "Problem",
+    "Condition",
+    "Atom",
+    "ALWAYS",
     # Execution
     "execute",
     "execute_sync",
@@ -89,7 +90,6 @@ __all__ = [
     "Provided",
     "Input",
     "Output",
-    "Roster",
     "AnyWidget",
     "version",
     "upgrade",
@@ -117,8 +117,6 @@ __all__ = [
     "HumanInputRequired",
     "FlowPausedError",
     "SignalRequired",
-    "LoopRunawayError",
-    "SubprocessFailedError",
     # Submodules re-exported for namespace access (`conductor.widgets.Text`, etc.)
     "widgets",
     "errors",

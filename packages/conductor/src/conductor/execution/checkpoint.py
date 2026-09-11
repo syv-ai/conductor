@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import Any
 
 
@@ -24,8 +24,6 @@ class FlowCheckpoint:
         prompt: Human-readable description of what input is needed.
         input_schema: Optional schema describing expected response shape.
         execution_index: Position in execution_order where we paused.
-        skipped_edges: Edge IDs marked skipped by decision nodes. Restored
-            on resume so downstream dependents see the same branches.
         signal_name: If the pause is for an external signal, its name.
         correlation: Optional CEL expression for signal correlation.
         signal_timeout_seconds: Optional timeout for the signal wait.
@@ -40,7 +38,6 @@ class FlowCheckpoint:
     prompt: str
     input_schema: dict[str, Any] | None
     execution_index: int
-    skipped_edges: list[str] = field(default_factory=list)
     signal_name: str | None = None
     correlation: str | None = None
     signal_timeout_seconds: float | None = None
@@ -52,10 +49,7 @@ class FlowCheckpoint:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> FlowCheckpoint:
         """Restore from a plain dict."""
-        # Tolerate older checkpoints that don't have the new fields.
-        known = {f for f in cls.__dataclass_fields__}
-        filtered = {k: v for k, v in data.items() if k in known}
-        return cls(**filtered)
+        return cls(**data)
 
     def matches_signal(
         self,

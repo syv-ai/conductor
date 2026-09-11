@@ -1,6 +1,6 @@
 ---
 name: add-node
-description: Use when adding a new conductor node — any class extending NodeDefinition, or when the user asks how to expose a function to a flow. Covers the typed run signature, widget selection, the type vocabulary, multi-output records, branching, versions with a Policy, and the roster hooks. Triggers on phrases like "add a node", "register a node", "new flow node", "expose X as a node".
+description: Use when adding a new conductor node — any class extending NodeDefinition, or when the user asks how to expose a function to a flow. Covers the typed run signature, widget selection, the type vocabulary, multi-output records, branching, versions with a Policy, and the field hooks. Triggers on phrases like "add a node", "register a node", "new flow node", "expose X as a node".
 ---
 
 # Adding a conductor node
@@ -147,7 +147,7 @@ class Fetch(NodeDefinition):
 
 `NodeValidationError` is never retried. A registered node numbers its versions from 1 with no holes.
 
-## Roster hooks
+## Field hooks
 
 When the inputs or outputs of one *placement* depend on its configuration (a mode dropdown that adds a field, a sheet whose header row names the outputs), override `compute_inputs(self, declared, values)` or `compute_outputs(self, declared, values, arriving)` and return the `Input` / `Output` tuple that placement has. A `run` whose outputs are computed declares `-> Mapping[str, Any]` and returns a dict naming exactly them. This is the only home for placement-specific shape.
 

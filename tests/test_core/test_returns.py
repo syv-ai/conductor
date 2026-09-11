@@ -155,7 +155,7 @@ def test_a_pass_through_return_declares_any():
 
 
 def test_a_mapping_return_declares_no_outputs():
-    """The roster is computed; the declaration only says 'by name'."""
+    """The interface is computed; the declaration only says 'by name'."""
     assert outputs_of(Mapping[str, Any]) == (Mapping, ())
 
 
@@ -190,11 +190,11 @@ def test_unpack_refuses_a_value_that_is_not_the_record():
 
 
 def test_unpack_reads_a_mapping_against_the_roster():
-    roster = (Output(name="name", dtype=Text, title="Name"), Output(name="age", dtype=Num, title="Age"))
+    interface = (Output(name="name", dtype=Text, title="Name"), Output(name="age", dtype=Num, title="Age"))
 
-    assert unpack(Mapping, {"name": "Ida", "age": 3}, roster) == {"name": "Ida", "age": 3}
+    assert unpack(Mapping, {"name": "Ida", "age": 3}, interface) == {"name": "Ida", "age": 3}
     with pytest.raises(ValueError, match="exactly the outputs"):
-        unpack(Mapping, {"name": "Ida"}, roster)
+        unpack(Mapping, {"name": "Ida"}, interface)
 
 
 def test_nothing_is_positional():

@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from typing import Annotated
 
 from conductor import (
+    CompiledGraph,
     GraphNode,
     NodeRegistry,
-    compile,
     execute,
     execute_sync,
 )
@@ -66,8 +66,28 @@ class AlwaysFail(NodeDefinition):
     description = "Fails with the given reason"
     category = "test"
 
-    def run(self, reason: Annotated[Txt, Textarea(title="Why")] = Txt("boom")) -> Out:
+    def run(
+        self,
+        reason: Annotated[Txt, Textarea(title="Why")] = Txt("boom"),
+        number: Annotated[Num, NumberWidget(title="Number")] = Num(0),
+    ) -> Out:
         raise NodeExecutionError(reason, node_id="always_fail")
+
+
+class Tally(NodeDefinition):
+    """Hangs off one branch of a ``Decide``: receives its number, returns its label."""
+
+    id = "tally"
+    title = "Tally"
+    description = "Returns its label once a number arrives"
+    category = "test"
+
+    def run(
+        self,
+        number: Annotated[Num, NumberWidget(title="Number")] = Num(0),
+        label: Annotated[Txt, Textarea(title="Label")] = Txt("hit"),
+    ) -> Out:
+        return label
 
 
 @dataclass(frozen=True)
@@ -96,7 +116,7 @@ class Decide(NodeDefinition):
 
 def _registry(*extra: type[NodeDefinition]) -> NodeRegistry:
     reg = NodeRegistry()
-    for node_cls in (Echo, Record, AlwaysFail, Decide, *extra):
+    for node_cls in (Echo, Record, AlwaysFail, Decide, Tally, *extra):
         reg.register(node_cls)
     return reg
 
@@ -126,10 +146,10 @@ class TestDecisionCombinations:
 
     def test_decision_branch_failure_does_not_affect_other_branch(self):
         """The branch not taken holds a failing node that never runs."""
-        compiled = compile(Graph(nodes=[
+        compiled = CompiledGraph.from_graph(Graph(nodes=[
                 GraphNode("d", "decide", 1, bindings={"value": Static(value=100)}),
-                GraphNode("a", "record", 1, bindings={"label": Static(value="A"), "_": Edges(refs=(Ref('d', 'high'),))}),
-                GraphNode("b", "always-fail", 1, bindings={"_": Edges(refs=(Ref('d', 'low'),))}),
+                GraphNode("a", "tally", 1, bindings={"label": Static(value="A"), "number": Edges(refs=(Ref('d', 'high'),))}),
+                GraphNode("b", "always-fail", 1, bindings={"number": Edges(refs=(Ref('d', 'low'),))}),
             ]), _registry())
         r = execute_sync(compiled)
         # A ran; B was skipped so it never failed
@@ -167,7 +187,7 @@ class TestRetry:
                     raise NodeExecutionError("transient", node_id="flaky")
                 return Txt("ok")
 
-        compiled = compile(Graph(nodes=[GraphNode("n1", "flaky", 1)]), _registry(Flaky))
+        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode("n1", "flaky", 1)]), _registry(Flaky))
         r = execute_sync(compiled)
         assert r["n1"]["result"] == "ok"
         assert calls == 2  # one failure + one success
@@ -207,24 +227,24 @@ class TestEdgeCases:
     """Shapes that once caught bugs."""
 
     def test_decision_routes_only_the_taken_branch(self):
-        compiled = compile(Graph(nodes=[
+        compiled = CompiledGraph.from_graph(Graph(nodes=[
                 GraphNode("d", "decide", 1, bindings={"value": Static(value=100)}),
-                GraphNode("taken", "echo", 1, bindings={"text": Static(value="TAKEN"), "_": Edges(refs=(Ref('d', 'high'),))}),
-                GraphNode("other", "echo", 1, bindings={"text": Static(value="OTHER"), "_": Edges(refs=(Ref('d', 'low'),))}),
+                GraphNode("taken", "tally", 1, bindings={"label": Static(value="TAKEN"), "number": Edges(refs=(Ref('d', 'high'),))}),
+                GraphNode("other", "tally", 1, bindings={"label": Static(value="OTHER"), "number": Edges(refs=(Ref('d', 'low'),))}),
             ]), _registry())
         r = execute_sync(compiled)
-        assert "taken" in r
+        assert r["taken"]["result"] == "TAKEN"
         assert "other" not in r
 
     def test_skip_propagates_through_decision_else_branch(self):
         """A deciding node fed by an edge routes the taken branch; the else branch is skipped."""
 
-        compiled = compile(Graph(nodes=[
+        compiled = CompiledGraph.from_graph(Graph(nodes=[
                 GraphNode("source", "echo", 1, bindings={"text": Static(value="data")}),
                 GraphNode("d", "route", 1, bindings={"text": Edges(refs=(Ref('source', 'result'),))}),
-                GraphNode("taken", "echo", 1, bindings={"text": Static(value="TAKEN"), "_": Edges(refs=(Ref('d', 'match'),))}),
-                GraphNode("else_b", "echo", 1, bindings={"text": Static(value="ELSE"), "_": Edges(refs=(Ref('d', 'other'),))}),
+                GraphNode("taken", "echo", 1, bindings={"text": Edges(refs=(Ref('d', 'match'),))}),
+                GraphNode("else_b", "echo", 1, bindings={"text": Edges(refs=(Ref('d', 'other'),))}),
             ]), _registry(Route))
         r = execute_sync(compiled)
-        assert r["taken"]["result"] == "TAKEN"
+        assert r["taken"]["result"] == "data"
         assert "else_b" not in r

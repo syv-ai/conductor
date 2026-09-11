@@ -64,7 +64,7 @@ class GraphNode:
 
     There is no edge record beside it; a canvas derives edges from
     ``bindings``. What the node's inputs and outputs actually are is
-    answered when the graph is compiled (``Roster``), not stored here.
+    answered when the graph is compiled (``CompiledGraph.node(node_id).interface``), not stored here.
     """
 
     id: str
@@ -87,7 +87,7 @@ class GraphNode:
     def __post_init__(self) -> None:
         # ``.`` separates node from field in a ``Ref``, so an id may not
         # contain one. ``/`` may: the compiler uses it to namespace an
-        # embedded flow's nodes under the placing node's id (``approve/check``).
+        # embedded graph's nodes under the placing node's id (``approve/check``).
         if "." in self.id:
             raise ValueError(f"node id {self.id!r} contains '.': a Ref reads as 'node.field' and must read one way")
 

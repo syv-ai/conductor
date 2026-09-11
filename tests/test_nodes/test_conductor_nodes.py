@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import conductor_nodes
 import pytest
-from conductor import GraphNode, NodeRegistry, compile
+from conductor import CompiledGraph, GraphNode, NodeRegistry
 from conductor._sentinel import SKIPPED
 from conductor.errors import FlowExecutionError
 from conductor.execution.engine import execute_sync
@@ -30,7 +30,7 @@ def full_registry() -> NodeRegistry:
 
 
 def _run(reg: NodeRegistry, nodes):
-    compiled = compile(Graph(nodes=nodes), reg)
+    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), reg)
     return execute_sync(compiled)
 
 

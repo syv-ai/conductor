@@ -1,7 +1,7 @@
 """``Series[X]`` — many values of one type, on an ``Index``.
 
 A node is written for one value. When a series reaches an input declared
-with a scalar type, the engine runs the node once per row ("lifting") and
+with a scalar type, the engine runs the node once per row ("iteration") and
 its outputs become series on the same index. When a node declares
 ``Series[X]`` it receives the whole series at once — a reduction. The
 declared type decides; there is no flag on the wire::
@@ -20,7 +20,7 @@ its parent by construction: a value on the parent index broadcasts down to
 the child, and a reduction on the child collapses back up to the parent.
 
 A series may be **sparse** — carry only some of its index's rows — which is
-what a branching node produces when it is lifted. There is no ``NA``.
+what a branching node produces when it iterates. There is no ``NA``.
 
 ``Series[Series[X]]`` is refused: nesting travels as one value on one
 field and is opened one level at a time by a node.

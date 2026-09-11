@@ -53,7 +53,7 @@ def test_the_validator_coerces_into_the_dtype():
 
 def test_there_is_one_validator_and_it_is_over_inputs():
     """`model_of` takes any tuple of inputs — a declaration or a placement's
-    roster — so there is no second spelling on the record."""
+    interface — so there is no second spelling on the record."""
     assert not hasattr(Interface, "model")
 
 
@@ -136,7 +136,7 @@ def test_several_outputs_are_the_fields_of_a_record():
 
 
 def test_a_computed_roster_declares_no_outputs_and_returns_by_name():
-    """The placement's roster says what the outputs are; run hands them back by name."""
+    """The placed node's interface says what the outputs are; run hands them back by name."""
     from collections.abc import Mapping
     from typing import Any
 
@@ -265,7 +265,7 @@ def test_an_any_roster_validates_a_call():
     assert model(x=Text("hi")).x == Text("hi")
 
 
-# --- the open roster -------------------------------------------------------
+# --- the open interface -------------------------------------------------------
 
 
 def test_an_open_roster_is_single_on_the_keyword_parameter():
@@ -292,7 +292,7 @@ def test_an_open_roster_is_single_on_the_keyword_parameter():
 
 
 def test_single_is_spelled_on_the_keyword_parameter_only():
-    """`Single` is the open roster's shape and nothing else's: a
+    """`Single` is the open interface's shape and nothing else's: a
     named parameter declares a DType, or `Any` for whatever arrives."""
 
     def named(x: Annotated[Single, Textarea(title="X")]) -> Annotated[Text, Result(title="R")]:
@@ -319,7 +319,7 @@ def test_self_is_not_an_input():
 
 
 def test_computed_inputs_arrive_as_keyword_arguments():
-    """A node whose roster is computed takes the computed inputs as
+    """A node whose interface is computed takes the computed inputs as
     ``**values``. The signature declares nothing about them."""
     from conductor.metadata import Input
 
@@ -327,8 +327,8 @@ def test_computed_inputs_arrive_as_keyword_arguments():
         return Text(template.format(**values))
 
     assert [i.name for i in Interface.of(templated).inputs] == ["template"]
-    roster = (*Interface.of(templated).inputs, Input(name="name", dtype=Text, title="name", widget=Textarea(title="name")))
-    validated = model_of(roster)(template="Hi {name}", name="Ida")
+    interface = (*Interface.of(templated).inputs, Input(name="name", dtype=Text, title="name", widget=Textarea(title="name")))
+    validated = model_of(interface)(template="Hi {name}", name="Ida")
     assert isinstance(validated.name, Text)
 
 
@@ -376,7 +376,7 @@ def test_the_input_record_publishes_a_json_schema_per_widget():
 
 def test_a_provided_parameter_is_a_need_not_an_input():
     """What the run supplies, by type: no widget, no handle, nothing in the
-    roster. ``execute(provides={Who: …})`` hands it in."""
+    interface. ``execute(provides={Who: …})`` hands it in."""
     from conductor.interface import Provided
 
     class Who:

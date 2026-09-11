@@ -35,7 +35,7 @@ def test_a_dense_root_series_covers_every_row_of_its_index():
 
 
 def test_a_sparse_series_covers_a_subset():
-    """What a lifted decision produces: fewer rows, no holes, same index."""
+    """What an iterating decision produces: fewer rows, no holes, same index."""
     s = Series[Text](Index("docs"), ["a", "c"], rows=((0,), (2,)))
 
     assert s.rows == ((0,), (2,))

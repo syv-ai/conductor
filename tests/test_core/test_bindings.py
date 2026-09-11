@@ -10,12 +10,12 @@ from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
 from conductor.execution.engine import execute_sync
 from conductor.graph.binding import Edges, Static, static_values
-from conductor.graph.compiler import compile as compile_graph
+from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.topology import dependencies_of
 from conductor.graph.views import derive_interface, is_input_node, lock_problems
 from conductor.interface import Interface, Provided
-from conductor.metadata import Output, Roster
+from conductor.metadata import Output
 from conductor.node import NodeDefinition
 from conductor.ref import Ref
 from conductor.returns import Result
@@ -72,7 +72,7 @@ def test_a_placement_id_contains_no_dot():
 
 
 def test_a_slash_is_the_namespace_separator():
-    """The compiler inlines an embedded flow under its placement's name —
+    """The compiler inlines an embedded graph under its placement's name —
     `approve/check` — so `/` is legal in an id and a Ref still reads one way:
     the split is at the first dot, and there is none in the namespace."""
     inner = GraphNode(id="approve/check", type="upper", version=1)
@@ -240,17 +240,17 @@ def _registry():
 
 def _resolved(graph, registry=None):
     """What the compiler hands `derive_interface`: each placement's
-    effective roster, and the version its pin resolved to. Here the roster
+    computed interface, and the version its pin resolved to. Here it
     is the declaration read through the pin — none of these nodes shapes
     itself."""
     registry = registry or _registry()
-    rosters = {}
+    interfaces = {}
     versions = {}
     for node in graph.nodes:
         version = registry.get(node.type).versions[node.version]
         versions[node.id] = version
-        rosters[node.id] = Roster(inputs=version.interface.inputs, outputs=version.interface.outputs)
-    return rosters, versions
+        interfaces[node.id] = version.interface
+    return interfaces, versions
 
 
 def _graph(application_locked=(), language_bindings=None):
@@ -284,13 +284,13 @@ def _interface(graph, registry=None):
 
 
 def _locks(graph, registry=None):
-    rosters, _ = _resolved(graph, registry)
-    return lock_problems({n.id: n for n in graph.nodes}, rosters)
+    interfaces, _ = _resolved(graph, registry)
+    return lock_problems({n.id: n for n in graph.nodes}, interfaces)
 
 
 def test_the_interface_is_derived_node_level():
     """Input nodes' unlocked handle-bearing fields in; output
-    nodes' rosters out, each under its address. Nothing is stored."""
+    nodes' interfaces out, each under its address. Nothing is stored."""
     interface = _interface(_graph())
 
     assert _locks(_graph()) == ()
@@ -299,7 +299,7 @@ def test_the_interface_is_derived_node_level():
 
 
 def test_the_interface_is_the_record_a_node_version_declares():
-    """One type at both scales. A flow returns a computed roster by
+    """One type at both scales. A flow returns a computed interface by
     address, so `returns` is `Mapping`; these nodes need nothing provided."""
     interface = _interface(_graph())
 
@@ -347,10 +347,13 @@ def test_an_output_reports_the_title_its_placement_carries():
     assert _interface(_graph()).outputs[1].title == "Result"
 
 
-def test_a_roster_is_the_two_tuples_a_nodes_hooks_answer():
-    import dataclasses
+def test_a_nodes_computed_interface_is_the_same_record_its_version_declares():
+    """One record at every scale: a version declares an ``Interface``, compile
+    computes one per placed node, and derives one for the graph."""
+    from conductor.interface import Interface
 
-    assert [f.name for f in dataclasses.fields(Roster)] == ["inputs", "outputs"]
+    interfaces, _ = _resolved(_graph())
+    assert all(isinstance(i, Interface) for i in interfaces.values())
 
 
 def test_nodes_order_decides_the_order():
@@ -418,7 +421,7 @@ def test_a_field_with_no_handle_is_never_an_input():
 
 
 def test_a_locked_name_the_node_does_not_declare_is_a_problem():
-    """A stale lock — the roster moved under it — is a state an editor
+    """A stale lock — the node's interface moved under it — is a state an editor
     mid-edit can be in, so it reports rather than raises. Non-fatal:
     it narrows nothing and blocks nothing, and the interface is derived
     without it."""
@@ -445,7 +448,7 @@ def test_a_stale_lock_reports_on_a_connected_placement_too():
 
 
 def test_a_column_a_node_computed_is_derivable():
-    """The roster is what the node answers, and a column on no
+    """The interface is what the node answers, and a column on no
     declaration is as real a field of the surface as one it declared."""
     import dataclasses
 
@@ -457,14 +460,13 @@ def test_a_column_a_node_computed_is_derivable():
         if node.id == "summary" else node
         for node in graph.nodes
     ])
-    rosters, versions = _resolved(graph)
-    declared = rosters["summary"]
-    rosters["summary"] = Roster(
-        inputs=declared.inputs,
-        outputs=(*declared.outputs, Output(name="name", dtype=Txt, title="Name")),
+    interfaces, versions = _resolved(graph)
+    declared = interfaces["summary"]
+    interfaces["summary"] = dataclasses.replace(
+        declared, outputs=(*declared.outputs, Output(name="name", dtype=Txt, title="Name")),
     )
 
-    interface = derive_interface(graph, rosters, versions, dependencies_of(graph.nodes))
+    interface = derive_interface(graph, interfaces, versions, dependencies_of(graph.nodes))
 
     assert [o.name for o in interface.outputs] == ["language.result", "summary.result", "summary.name"]
 
@@ -474,10 +476,10 @@ def test_a_field_on_a_placement_compile_could_not_resolve_contributes_nothing():
     on the field would anchor the same fact twice. A pin that resolved to
     nothing is in neither map."""
     graph = _graph()
-    rosters, versions = _resolved(graph)
-    del rosters["application"], versions["application"]
+    interfaces, versions = _resolved(graph)
+    del interfaces["application"], versions["application"]
 
-    interface = derive_interface(graph, rosters, versions, dependencies_of(graph.nodes))
+    interface = derive_interface(graph, interfaces, versions, dependencies_of(graph.nodes))
 
     assert [i.name for i in interface.inputs] == ["language.value"]
 
@@ -516,7 +518,7 @@ def test_a_flow_of_bindings_compiles_and_runs():
             GraphNode(id="b", type="echo", version=1, bindings={"x": Edges(refs=(Ref("a", "result"),))}),
         ],
     )
-    results = execute_sync(compile_graph(graph=graph, registry=_echo_registry()))
+    results = execute_sync(CompiledGraph.from_graph(graph=graph, registry=_echo_registry()))
 
     assert results["a"]["result"] == "HI"
     assert results["b"]["result"] == "HI"
@@ -526,7 +528,7 @@ def test_an_unbound_input_falls_back_to_its_declared_default():
     """Absence is the only "nothing binds this" state there is."""
     graph = Graph(nodes=[GraphNode(id="a", type="echo", version=1)])
 
-    assert execute_sync(compile_graph(graph=graph, registry=_echo_registry()))["a"]["result"] == ""
+    assert execute_sync(CompiledGraph.from_graph(graph=graph, registry=_echo_registry()))["a"]["result"] == ""
 
 
 def test_a_branch_not_taken_is_skipped_downstream():
@@ -557,7 +559,7 @@ def test_a_branch_not_taken_is_skipped_downstream():
             GraphNode(id="no", type="echo", version=1, bindings={"x": Edges(refs=(Ref("g", "no"),))}),
         ],
     )
-    results = execute_sync(compile_graph(graph=graph, registry=registry))
+    results = execute_sync(CompiledGraph.from_graph(graph=graph, registry=registry))
 
     assert results["yes"]["result"] == "HI"
     # The aggregated results of ``execute_sync`` omit a skipped node.
@@ -565,7 +567,7 @@ def test_a_branch_not_taken_is_skipped_downstream():
 
 
 def test_compile_takes_a_graph_and_a_registry_and_nothing_else_positional():
-    params = inspect.signature(compile_graph).parameters
+    params = inspect.signature(CompiledGraph.from_graph).parameters
 
     assert list(params)[:2] == ["graph", "registry"]
     for gone in ("nodes", "edges", "extension_resolver", "subprocess_registry"):
