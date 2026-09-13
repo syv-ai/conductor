@@ -32,7 +32,7 @@ from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.problem import Problem
 from conductor.graph.topology import dependencies_of
 from conductor.graph.views import is_input_node
-from conductor.interface import Interface, Provided
+from conductor.interface import FromRun, Interface
 from conductor.metadata import Input, Output
 from conductor.node import (
     Deprecation,
@@ -87,7 +87,7 @@ __all__ = [
     "Deprecation",
     "NodeDescription",
     "Interface",
-    "Provided",
+    "FromRun",
     "Input",
     "Output",
     "AnyWidget",
