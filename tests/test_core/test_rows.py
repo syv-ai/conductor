@@ -15,6 +15,7 @@ from conductor.errors import (
     CompilationError,
     ErrorCause,
     GraphExecutionError,
+    GraphPendingError,
     NodeExecutionError,
 )
 from conductor.execution.engine import execute, execute_sync
@@ -527,6 +528,12 @@ class AskNode(NodeDefinition):
         return Asks(questions=(Input(name="result", dtype=Txt, title="Answer", widget=Textarea(title="Answer"), default=proposal, optional=True),))
 
 
+def test_a_run_that_may_ask_says_so_and_still_declares_its_outputs():
+    """`-> Out | Asks` is the truthful annotation: the pause is read past, the
+    record declares the one output the person's answer lands on."""
+    interface = AskNode.versions[1].interface
+    assert [(out.name, out.dtype) for out in interface.outputs] == [("result", Txt)]
+    assert interface.returns is Txt  # `Out` is one Txt output; the union declared nothing
 
 
 def _registry_with_asks(*extra):
@@ -541,6 +548,113 @@ def _leg(compiled, **kwargs):
         return [e async for e in execute(compiled, **kwargs)]
 
     return asyncio.run(collect_all())
+
+
+def test_a_node_that_asks_ends_the_leg_pending_with_its_question_named_by_address():
+    """The leg runs to quiescence — the independent node completes in
+    the same leg — and ends pending with the question, not paused at it."""
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[
+            GraphNode(id="ask", type="asks", version=1, bindings={"proposal": Static(value="proposal")}),
+            GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("ask", "result"))}),
+            GraphNode(id="other", type="upper", version=1, bindings={"text": Static(value="x")}),
+        ]),
+        _registry_with_asks(),
+    )
+    events = _leg(compiled)
+
+    assert events[-1]["type"] == "graph_pending"
+    (waiting,) = events[-1]["pending"]
+    assert (waiting["node_id"], waiting["row"]) == ("ask", None)
+    (question,) = waiting["questions"]
+    assert question.name == "ask.result" and question.default == "proposal"
+    assert events[-1]["results"]["other"]["result"] == "X"
+    assert "up" not in events[-1]["results"]
+    assert not any(e["type"] == "node_start" and e["node_id"] == "up" for e in events)
+
+
+def test_answering_is_the_next_leg_from_the_cells_and_the_cache():
+    """The answer is the asking node's output in ``cache``; the cells carry
+    what the first leg produced, so nothing done is done twice."""
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[
+            GraphNode(id="ask", type="asks", version=1, bindings={"proposal": Static(value="proposal")}),
+            GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("ask", "result"))}),
+            GraphNode(id="other", type="upper", version=1, bindings={"text": Static(value="x")}),
+        ]),
+        _registry_with_asks(),
+    )
+    first = _leg(compiled)[-1]
+
+    second = _leg(compiled, cells=first["cells"], cache={"ask": {"result": Txt("yes")}})
+
+    assert second[-1]["type"] == "graph_complete"
+    assert second[-1]["results"]["up"]["result"] == "YES"
+    assert second[-1]["results"]["ask"]["result"] == "yes"
+    assert not any(e["type"] == "node_start" and e["node_id"] in ("other", "ask") for e in second)
+
+
+def test_an_iterating_asking_node_pends_once_per_row_and_is_answered_as_a_series():
+    """Ten units blocked are ten questions in one set; the answer is
+    the node's output — a series on its iteration index — in one cache entry."""
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[
+            _docs("a,b"),
+            GraphNode(id="ask", type="asks", version=1, bindings={"proposal": _edge(("docs", "texts"))}),
+            GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("ask", "result"))}),
+        ]),
+        _registry_with_asks(),
+    )
+    first = _leg(compiled)[-1]
+
+    assert first["type"] == "graph_pending"
+    assert [(w["node_id"], w["row"]) for w in first["pending"]] == [("ask", [0]), ("ask", [1])]
+    assert [w["questions"][0].default for w in first["pending"]] == ["a", "b"]
+
+    second = _leg(compiled, cells=first["cells"], cache={"ask": {"result": Series(Index("docs"), [Txt("x"), Txt("y")])}})
+
+    assert list(second[-1]["results"]["up"]["result"]) == ["X", "Y"]
+
+
+def test_two_asking_nodes_in_parallel_are_one_pending_set():
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[
+            GraphNode(id="a", type="asks", version=1, bindings={"proposal": Static(value="1")}),
+            GraphNode(id="b", type="asks", version=1, bindings={"proposal": Static(value="2")}),
+        ]),
+        _registry_with_asks(),
+    )
+    (ending,) = [e for e in _leg(compiled) if e["type"] == "graph_pending"]
+
+    assert sorted(w["node_id"] for w in ending["pending"]) == ["a", "b"]
+
+
+def test_execute_sync_hands_the_pending_leg_back_as_an_error():
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[GraphNode(id="ask", type="asks", version=1, bindings={"proposal": Static(value="p")})]),
+        _registry_with_asks(),
+    )
+
+    with pytest.raises(GraphPendingError) as pending:
+        execute_sync(compiled)
+    assert [w["node_id"] for w in pending.value.pending] == ["ask"]
+
+    answered = _leg(compiled, cells=pending.value.cells, cache={"ask": {"result": Txt("yes")}})
+    assert answered[-1]["type"] == "graph_complete"
+    assert answered[-1]["results"]["ask"]["result"] == "yes"
+
+
+def test_nothing_checkpoints_and_nothing_resumes():
+    """A pause is a leg boundary; nothing checkpoints and nothing resumes."""
+    import conductor.errors as errors
+    import conductor.execution.engine as engine
+
+    for gone in ("resume", "resume_sync"):
+        assert not hasattr(engine, gone), gone
+    for gone in ("HumanInputRequired", "SignalRequired", "FlowPausedError"):
+        assert not hasattr(errors, gone), gone
+    with pytest.raises(ModuleNotFoundError):
+        __import__("conductor.execution.checkpoint")
 
 
 # --- an embedded flow runs as nodes of the one run --------------------------------
