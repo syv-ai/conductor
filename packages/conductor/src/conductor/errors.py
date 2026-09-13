@@ -15,14 +15,14 @@ belonged to which failure.
     │   ├── NodeExecutionError      its body raised
     │   ├── NodeTimeoutError        it exceeded its policy's timeout
     │   └── NodeConnectionError     an external call failed (retried)
-    ├── FlowExecutionError      execute_sync: the flow did not complete
-    └── FlowPendingError        execute_sync: the run stopped to wait for a person; carries the questions and the record so far
+    ├── GraphExecutionError      execute_sync: the flow did not complete
+    └── GraphPendingError        execute_sync: the run stopped to wait for a person; carries the questions and the record so far
 
 A pause is not an error and nothing raises for one: a node returns
 ``Asks`` (the value that says a person must answer before the flow can
 continue) and the leg ends pending — a leg being one call of ``execute``;
 a run takes several when a person must answer in between.
-``FlowPendingError`` exists only so the synchronous wrapper has a way to
+``GraphPendingError`` exists only so the synchronous wrapper has a way to
 hand that back.
 """
 
@@ -74,7 +74,7 @@ class ErrorCause:
     """Why a node failed, in a shape a caller can act on.
 
     Created by the engine where the failure is known and carried two ways:
-    on the ``NodeError`` and on the ``node_error`` / ``flow_error`` events.
+    on the ``NodeError`` and on the ``node_error`` / ``graph_error`` events.
     A host reads it to decide what to say and serialises it at its own
     edge. ``Problem`` is the compile-time counterpart: that one is about a
     graph that cannot run, this one about a run that went wrong::
@@ -137,7 +137,7 @@ class NodeConnectionError(NodeError):
     """An external call inside a node failed — worth retrying."""
 
 
-class FlowExecutionError(ConductorError):
+class GraphExecutionError(ConductorError):
     """``execute_sync``: the flow did not complete."""
 
     def __init__(self, message: str, *, node_id: str | None = None, cause: ErrorCause | None = None) -> None:
@@ -146,7 +146,7 @@ class FlowExecutionError(ConductorError):
         super().__init__(message)
 
 
-class FlowPendingError(ConductorError):
+class GraphPendingError(ConductorError):
     """Raised by ``execute_sync`` when the leg ended waiting on a person.
 
     Carries the questions of every node — or every row of a node that
