@@ -1,789 +1,422 @@
-"""Execution engine — eager-scheduled, parallel, with retry support."""
+"""Run a compiled flow: every ready unit, as soon as it is ready.
+
+A unit is ``(node, row)``: a node that runs once is one unit with row
+``None``; a node that runs once per row of a series — a value with many
+rows, whose *index* names where the rows come from — is one unit per
+row. The loop asks the ledger (the run's record of every value produced
+so far, ``conductor.execution.ledger``) which units are ready, starts
+each under its node's concurrency limit, records what comes back and
+asks again — a unit finishing is what makes other units ready. Row 1 of
+a chain can finish before row 10 of the first node has started; a node
+that receives a whole group of rows at once (a reduction) has its unit
+ready once the whole group is.
+
+A failed unit fails the run: the other units are cancelled and the cause,
+with the row, goes out on the event stream.
+
+**A run has legs.** One call of ``execute`` is one leg, and it runs until
+nothing is runnable and nothing is in flight. A unit whose node returned
+``Asks`` is neither done nor failed: it waits, everything that reads it
+waits, and the rest of the flow runs on. If anything is waiting when the
+leg goes quiet, the leg ends with ``graph_pending`` carrying every waiting
+unit's questions, plus what the leg completed and the ledger's cells (its
+whole record, row by row). The next leg is ``execute`` again, with
+``cells`` restoring the ledger and the
+answers in ``cache`` as the asking node's outputs. Nothing is checkpointed
+and nothing resumes: a leg is an ordinary run over a ledger that already
+holds what earlier legs produced.
+
+**Every ending has one shape.** ``graph_complete``, ``graph_pending``,
+``graph_error``, ``graph_cancelled`` and ``graph_timeout`` all carry the
+results so far and the ledger's cells beside their reason, so a host can
+start a new run from any of them.
+"""
 
 from __future__ import annotations
 
 import asyncio
-import inspect
 import time
-from collections import defaultdict, deque
-from collections.abc import AsyncGenerator
-from dataclasses import dataclass
+from collections.abc import AsyncGenerator, Mapping
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from pydantic import ValidationError
 
-from conductor._sentinel import SKIPPED, is_skipped
+from conductor._sentinel import is_asking
 from conductor.errors import (
     CompilationError,
-    FlowExecutionException,
-    FlowPausedException,
-    HumanInputRequired,
-    NodeConnectionError,
+    ErrorCause,
+    GraphExecutionError,
+    GraphPendingError,
+    NodeError,
     NodeExecutionError,
     NodeTimeoutError,
     NodeValidationError,
-    SignalRequired,
 )
-from conductor.execution.checkpoint import FlowCheckpoint
 from conductor.execution.events import (
     ExecutionEvent,
-    FlowCancelledEvent,
-    FlowCompleteEvent,
-    FlowErrorEvent,
-    FlowPausedEvent,
-    FlowTimeoutEvent,
+    GraphCancelledEvent,
+    GraphCompleteEvent,
+    GraphErrorEvent,
+    GraphPendingEvent,
+    GraphTimeoutEvent,
     NodeCompleteEvent,
     NodeErrorEvent,
+    NodeProgressEvent,
     NodeRetryEvent,
     NodeSkippedEvent,
     NodeStartEvent,
-    SignalWaitingEvent,
 )
-from conductor.execution.resolver import InputResolver
-from conductor.execution.results import filter_all_skipped, filter_skipped, normalize_result
-from conductor.execution.retry import NO_RETRY, RetryConfig
-from conductor.execution.skip import should_skip_node
-from conductor.execution.state import FlowRunState
-from conductor.execution.store import FlowStore
+from conductor.execution.ledger import Ledger, Skip, Unit
 from conductor.graph.compiled import CompiledGraph
 from conductor.interface import model_of
-from conductor.metadata import Output
 from conductor.returns import unpack
-from conductor.series import Index, Series
-
-# Internal sentinel pushed into the event queue when all work is done
-_DONE = object()
-_FATAL = object()
 
 
-# =========================================================================
-# Primary entry point
-# =========================================================================
+@dataclass
+class _Run:
+    """One leg in flight: what the loop and its unit coroutines share.
+
+    Created by ``execute`` at the start of a leg and discarded when it
+    ends; the ledger outlives it as ``cells``. ``started`` (nodes that have
+    emitted ``node_start``) and ``gates`` (one semaphore per node, sized by
+    its policy's concurrency) are the mutable state. Nothing reaches a node
+    from here that its signature does not name.
+    """
+
+    compiled: CompiledGraph
+    ledger: Ledger
+    from_run: Mapping[type, Any]
+    timeout_seconds: int
+    cancel: asyncio.Event
+    started_at: float = field(default_factory=time.monotonic)
+    started: set[str] = field(default_factory=set)
+    gates: dict[str, asyncio.Semaphore] = field(default_factory=dict)
+
+    def remaining(self) -> float:
+        return max(0.0, self.timeout_seconds - (time.monotonic() - self.started_at))
+
+    def gate(self, node_id: str) -> asyncio.Semaphore:
+        if node_id not in self.gates:
+            self.gates[node_id] = asyncio.Semaphore(self.compiled.node(node_id).version.policy.concurrency)
+        return self.gates[node_id]
+
+
+@dataclass
+class _UnitDone:
+    """A unit finished, so the loop should dispatch again.
+
+    The only thing a unit coroutine puts on the queue besides events.
+    ``error`` is set when the unit failed, which fails the leg.
+    """
+
+    unit: Unit
+    error: NodeErrorEvent | None = None
+
+
+# -- entry points ---------------------------------------------------------------
 
 
 async def execute(
     compiled: CompiledGraph,
     *,
     timeout_seconds: int = 300,
-    context: dict[str, Any] | None = None,
-    cache: dict[str, Any] | None = None,
-    retry: RetryConfig | None = None,
-    store_data: dict[str, Any] | None = None,
+    from_run: Mapping[type, Any] | None = None,
+    cache: dict[str, dict[str, Any]] | None = None,
+    cells: dict[str, Any] | None = None,
+    cancel: asyncio.Event | None = None,
 ) -> AsyncGenerator[ExecutionEvent, None]:
-    """Execute a compiled graph with eager parallel scheduling.
+    """Run one leg of ``compiled`` and yield events as it goes.
 
-    Nodes start as soon as all their dependencies are done — independent
-    branches run concurrently. Retry is configurable per-node or globally.
-    Refuses a graph that is not runnable (``CompilationError`` carrying
-    its problems) and, until the engine runs rows, a graph with a node that
-    would run once per row (``NotImplementedError`` naming the ids).
+    ``from_run`` supplies values to nodes by type: a ``run`` parameter
+    annotated ``Annotated[X, FromRun()]`` receives ``from_run[X]``. A flow
+    needing a type the host did not provide is refused before anything
+    runs. ``cells`` restores the ledger of an earlier leg, cell by cell.
+    ``cache`` pre-seeds nodes with complete outputs by node id — a person's
+    answers to a pending unit, or an earlier run's results a caller reuses;
+    they are reported as ``node_complete`` (``cached=True``) and not run.
+    ``cancel`` is an event the host sets to stop the leg::
 
-    ``store_data`` pre-seeds the ``FlowStore`` before the first node runs.
-    Useful for hosts that inject per-request context (user, session,
-    tenant id, …) via the ``store: FlowStore`` parameter on node
-    functions. Separate from ``context`` which is kept for checkpoint
-    serialization metadata.
+        async for event in execute(compiled, from_run={Clock: clock}):
+            ...
     """
-    state = _build_state(compiled, timeout_seconds, context)
-    if store_data:
-        state.store = FlowStore(dict(store_data))
-    async for event in _run_eager(state, cache=cache or {}, retry=retry or NO_RETRY):
+    if not compiled.is_runnable:
+        raise CompilationError("the flow cannot run", problems=compiled.problems)
+    run = _Run(
+        compiled=compiled,
+        ledger=Ledger(compiled) if cells is None else Ledger.restore(compiled, cells),
+        from_run=_from_run(compiled, from_run or {}),
+        timeout_seconds=timeout_seconds,
+        cancel=cancel or asyncio.Event(),
+    )
+    run.started.update(node_id for node_id in compiled.execution_order() if run.ledger.complete(node_id))
+    for node_id, outputs in (cache or {}).items():
+        run.ledger.inject(node_id, outputs)
+        run.started.add(node_id)
+        yield NodeCompleteEvent(type="node_complete", node_id=node_id, result=outputs, cached=True)
+    async for event in _run(run):
         yield event
 
 
-# =========================================================================
-# Resume from checkpoint
-# =========================================================================
+def _from_run(compiled: CompiledGraph, from_run: Mapping[type, Any]) -> Mapping[type, Any]:
+    """``from_run`` as a dict, after checking that every value a node asks the
+    host for (its interface's ``needs``: the ``FromRun`` parameters, by type)
+    was supplied."""
+    for node_id in compiled.execution_order():
+        for name, needed in compiled.node(node_id).version.interface.needs.items():
+            if needed not in from_run:
+                raise TypeError(
+                    f"'{node_id}' needs a {needed.__name__} for '{name}', and execute() was not given one"
+                )
+    return dict(from_run)
 
 
-async def resume(
-    compiled: CompiledGraph,
-    checkpoint: FlowCheckpoint | dict[str, Any],
-    response: Any,
-    *,
-    timeout_seconds: int = 300,
-    context: dict[str, Any] | None = None,
-    retry: RetryConfig | None = None,
-) -> AsyncGenerator[ExecutionEvent, None]:
-    """Resume a paused flow with a human's response or external signal."""
-    if isinstance(checkpoint, dict):
-        checkpoint = FlowCheckpoint.from_dict(checkpoint)
-
-    state = _build_state(
-        compiled, timeout_seconds, context or checkpoint.context,
-    )
-    state.results = dict(checkpoint.results)
-    state.store = FlowStore(dict(checkpoint.store_data))
-    state.completed_order = list(checkpoint.completed_node_ids)
-
-    # Inject response as the waiting node's result
-    state.results[checkpoint.waiting_node_id] = normalize_result(response)
-    state.completed_order.append(checkpoint.waiting_node_id)
-
-    yield NodeCompleteEvent(
-        type="node_complete",
-        node_id=checkpoint.waiting_node_id,
-        result=normalize_result(response),
-    )
-
-    async for event in _run_eager(state, cache={}, retry=retry or NO_RETRY):
-        yield event
+# -- the loop -------------------------------------------------------------------------
 
 
-# =========================================================================
-# Eager scheduler
-# =========================================================================
+async def _run(run: _Run) -> AsyncGenerator[ExecutionEvent, None]:
+    queue: asyncio.Queue[ExecutionEvent | _UnitDone] = asyncio.Queue()
+    running: dict[Unit, asyncio.Task[None]] = {}
 
-
-async def _run_eager(
-    state: FlowRunState,
-    *,
-    cache: dict[str, Any],
-    retry: RetryConfig,
-) -> AsyncGenerator[ExecutionEvent, None]:
-    """Eager-scheduled execution loop.
-
-    Nodes are dispatched as soon as all dependencies complete.
-    Independent branches run concurrently.
-    """
-    compiled = state.compiled
-    event_queue: asyncio.Queue = asyncio.Queue()
-
-    deps, dependents = _build_dep_graph(compiled)
-
-    schedulable = set(compiled.execution_order())
-
-    # Track in-degree (number of unfinished deps). Nodes with in-degree 0
-    # feed a ready_queue — O(1) dispatch instead of re-scanning every tick.
-    in_degree: dict[str, int] = {}
-    for node_id in schedulable:
-        node_deps = deps.get(node_id, set())
-        in_degree[node_id] = len(node_deps & schedulable)
-
-    ready_queue: deque[str] = deque()
-
-    def _satisfy(node_id: str) -> None:
-        """Mark ``node_id`` as completed — decrement dependents' in-degrees and
-        enqueue any that reach zero."""
-        for dep_id in dependents.get(node_id, ()):
-            if dep_id not in in_degree:
+    def dispatch() -> None:
+        for node_id in run.compiled.execution_order():
+            if run.ledger.complete(node_id):
                 continue
-            in_degree[dep_id] -= 1
-            if in_degree[dep_id] <= 0:
-                ready_queue.append(dep_id)
+            for unit in run.ledger.units(node_id):
+                if unit in running or run.ledger.is_done(unit) or run.ledger.is_pending(unit) or not run.ledger.ready(unit):
+                    continue
+                running[unit] = asyncio.create_task(_run_unit(unit, run, queue), name=f"unit-{unit}")
 
-    # Pre-satisfy nodes already in results (resume/cache). These do not enter
-    # the ready queue themselves; they just unlock their dependents.
-    for node_id in list(state.results.keys()):
-        if node_id in in_degree:
-            in_degree.pop(node_id)
-            _satisfy(node_id)
+    def stop() -> None:
+        for task in running.values():
+            task.cancel()
+        running.clear()
 
-    # Apply cache — emit a node_complete event for each cached node, then
-    # treat it as satisfied.
-    for node_id, cached_result in cache.items():
-        if node_id in in_degree:
-            state.results[node_id] = cached_result
-            state.completed_order.append(node_id)
-            await event_queue.put(NodeCompleteEvent(
-                type="node_complete", node_id=node_id,
-                result=filter_skipped(cached_result) if isinstance(cached_result, dict) else cached_result,
-                cached=True,
-            ))
-            in_degree.pop(node_id)
-            _satisfy(node_id)
-
-    # Seed the ready queue with nodes that started at in_degree 0.
-    for nid, deg in in_degree.items():
-        if deg == 0:
-            ready_queue.append(nid)
-
-    running: dict[str, asyncio.Task] = {}
-
-    def _dispatch_ready() -> None:
-        while ready_queue:
-            node_id = ready_queue.popleft()
-            # Guard against the same id being enqueued twice, or against a
-            # cached node re-appearing: skip if already running/completed.
-            if node_id in running or node_id in state.results:
-                continue
-            if node_id not in in_degree:
-                continue
-            task = asyncio.create_task(
-                _execute_node_async(
-                    node_id, state, compiled, event_queue, retry,
-                ),
-                name=f"node-{node_id}",
+    dispatch()
+    while running:
+        if run.cancel.is_set():
+            stop()
+            yield GraphCancelledEvent(type="graph_cancelled", results=run.ledger.results(), cells=run.ledger.cells())
+            return
+        if run.remaining() == 0:
+            stop()
+            yield GraphTimeoutEvent(
+                type="graph_timeout",
+                results=run.ledger.results(),
+                cells=run.ledger.cells(),
+                elapsed_seconds=time.monotonic() - run.started_at,
+                timeout_seconds=run.timeout_seconds,
             )
-            running[node_id] = task
+            return
+        try:
+            message = await asyncio.wait_for(queue.get(), timeout=0.5)
+        except TimeoutError:
+            continue
+        if not isinstance(message, _UnitDone):
+            yield message
+            continue
+        running.pop(message.unit, None)
+        if message.error is not None:
+            stop()
+            yield message.error
+            yield GraphErrorEvent(
+                type="graph_error",
+                node_id=message.error["node_id"],
+                error=message.error["error"],
+                cause=message.error["cause"],
+                results=run.ledger.results(),
+                cells=run.ledger.cells(),
+            )
+            return
+        dispatch()
 
-    _dispatch_ready()
-
-    if not running and not ready_queue:
-        yield FlowCompleteEvent(
-            type="flow_complete",
-            results=filter_all_skipped(state.results),
+    # Quiescence: nothing runnable, nothing in flight.
+    pending = run.ledger.pending()
+    if pending:
+        yield GraphPendingEvent(
+            type="graph_pending", pending=pending, results=run.ledger.results(), cells=run.ledger.cells()
         )
         return
-
-    while running or ready_queue:
-        if state.is_cancelled():
-            _cancel_all(running)
-            yield FlowCancelledEvent(
-                type="flow_cancelled",
-                completed_nodes=list(state.results.keys()),
-            )
-            return
-
-        if state.is_timed_out():
-            _cancel_all(running)
-            yield FlowTimeoutEvent(
-                type="flow_timeout",
-                completed_nodes=list(state.results.keys()),
-                elapsed_seconds=time.monotonic() - state._started_at,
-                timeout_seconds=state._timeout_seconds,
-            )
-            return
-
-        _dispatch_ready()
-
-        if not running:
-            break
-
-        try:
-            event = await asyncio.wait_for(event_queue.get(), timeout=0.5)
-        except asyncio.TimeoutError:
-            continue
-
-        if isinstance(event, _NodeDone):
-            running.pop(event.node_id, None)
-
-            if event.error:
-                _cancel_all(running)
-                if event.error_event:
-                    yield event.error_event
-                    yield FlowErrorEvent(
-                        type="flow_error",
-                        error=event.error_event["error"],
-                        is_validation=event.error_event.get("is_validation", False),
-                    )
-                return
-
-            if event.paused:
-                _cancel_all(running)
-                yield event.pause_event
-                return
-
-            # Success or skip — unlock dependents via the ready queue.
-            _satisfy(event.node_id)
-            _dispatch_ready()
-            continue
-
-        yield event
-
-    yield FlowCompleteEvent(
-        type="flow_complete",
-        results=filter_all_skipped(state.results),
-    )
+    unfinished = [node_id for node_id in run.compiled.execution_order() if not run.ledger.complete(node_id)]
+    if unfinished:
+        raise RuntimeError(f"nothing left to run, but {unfinished} did not complete — an engine bug")
+    yield GraphCompleteEvent(type="graph_complete", results=run.ledger.results(), cells=run.ledger.cells())
 
 
-# =========================================================================
-# Per-node async execution (runs as a task)
-# =========================================================================
+# -- one unit ------------------------------------------------------------------------------
 
 
-@dataclass
-class _NodeDone:
-    """Internal sentinel pushed when a node task finishes."""
-    node_id: str
-    error: bool = False
-    error_event: dict | None = None
-    paused: bool = False
-    pause_event: dict | None = None
+async def _run_unit(unit: Unit, run: _Run, queue: asyncio.Queue[Any]) -> None:
+    """One unit, start to finish. Any exception reaches the queue as a
+    failure, since a task that died silently would leave the loop waiting."""
+    node_id, row = unit
+    try:
+        await _run_unit_body(unit, run, queue)
+    except Exception as raised:  # an engine defect, reported rather than hung on
+        failure = NodeExecutionError(
+            f"{type(raised).__name__}: {raised}", node_id=node_id, original=raised,
+            cause=_cause(code="engine_error", message="An error in the engine stopped the run.", row=row),
+        )
+        await queue.put(_UnitDone(unit, error=_error_event(node_id, failure, row)))
 
 
-
-async def _execute_node_async(
-    node_id: str,
-    state: FlowRunState,
-    compiled: CompiledGraph,
-    event_queue: asyncio.Queue,
-    retry: RetryConfig,
-) -> None:
-    """Execute a single node with retry, pushing events to the queue."""
-    node = compiled.node(node_id).graph_node
-    policy = compiled.node(node_id).version.policy
-
-    # Skip propagation
-    if should_skip_node(compiled, node_id, state.results):
-        state.results[node_id] = SKIPPED
-        state.completed_order.append(node_id)
-        await event_queue.put(NodeSkippedEvent(type="node_skipped", node_id=node_id))
-        await event_queue.put(_NodeDone(node_id=node_id))
+async def _run_unit_body(unit: Unit, run: _Run, queue: asyncio.Queue[Any]) -> None:
+    node_id, row = unit
+    compiled, ledger = run.compiled, run.ledger
+    try:
+        inputs = ledger.inputs_for(unit)
+    except NodeError as failure:  # two edges into one input both supplied this row
+        await queue.put(_UnitDone(unit, error=_error_event(node_id, failure, row)))
+        return
+    if isinstance(inputs, Skip):
+        ledger.record(unit, inputs)
+        await _after(unit, run, queue)
+        await queue.put(_UnitDone(unit))
         return
 
-    inputs = state.resolver.resolve(node_id, state.results)
+    if node_id not in run.started:
+        run.started.add(node_id)
+        await queue.put(NodeStartEvent(type="node_start", node_id=node_id))
 
-    start_event: NodeStartEvent = NodeStartEvent(type="node_start", node_id=node_id)
-    await event_queue.put(start_event)
-
-    # The version's policy overrides the run-level default when it retries at all
-    if policy.retries > 0:
-        max_retries = policy.retries
-        base_delay = policy.delay
-        backoff = 2.0
-    else:
-        max_retries = retry.max_retries
-        base_delay = retry.delay
-        backoff = retry.backoff_factor
-
-    # Determine node timeout budget — node-level wins over flow-level
-    node_timeout = policy.timeout
-
+    version = compiled.node(node_id).version
+    policy = version.policy
     attempt = 0
-    last_error: Exception | None = None
-
-    while attempt <= max_retries:
-        if attempt > 0:
-            delay = base_delay * (backoff ** (attempt - 1))
-            await event_queue.put(NodeRetryEvent(
-                type="node_retry",
-                node_id=node_id,
-                attempt=attempt,
-                max_retries=max_retries,
-                error=str(last_error),
-                delay=delay,
+    async with run.gate(node_id):
+        while True:
+            try:
+                budget = run.remaining() if policy.timeout is None else min(run.remaining(), policy.timeout)
+                value = await asyncio.wait_for(asyncio.to_thread(_call, unit, inputs, run), timeout=max(0.05, budget))
+                break
+            except TimeoutError:
+                if run.remaining() == 0:
+                    return  # the loop reports the flow timeout
+                failure: NodeError = NodeTimeoutError(
+                    f"'{node_id}' exceeded its time limit of {policy.timeout}s", node_id=node_id,
+                    cause=_cause(code="timeout", message="The node did not answer in time.", row=row, details={"seconds": policy.timeout}),
+                )
+            except NodeError as raised:
+                failure = raised
+            if not failure.retryable or attempt >= policy.retries:
+                await queue.put(_UnitDone(unit, error=_error_event(node_id, failure, row)))
+                return
+            attempt += 1
+            delay = policy.delay * (2 ** (attempt - 1))
+            await queue.put(NodeRetryEvent(
+                type="node_retry", node_id=node_id, row=None if row is None else list(row),
+                attempt=attempt, retries=policy.retries, error=str(failure), delay=delay,
             ))
             await asyncio.sleep(delay)
 
-            inputs = state.resolver.resolve(node_id, state.results)
-
-        try:
-            remaining = state.remaining_seconds()
-            effective_timeout = _effective_timeout(remaining, node_timeout)
-            result = await asyncio.wait_for(
-                asyncio.to_thread(_dispatch_node, node_id, inputs, state, compiled),
-                timeout=effective_timeout,
-            )
-
-            state.results[node_id] = result
-            state.completed_order.append(node_id)
-            await event_queue.put(NodeCompleteEvent(
-                type="node_complete", node_id=node_id,
-                result=filter_skipped(result),
-            ))
-            await event_queue.put(_NodeDone(node_id=node_id))
-            return
-
-        except (asyncio.TimeoutError, TimeoutError):
-            # Distinguish per-node timeout from flow-wide timeout by looking
-            # at which budget was smaller (and whichever was actually hit).
-            flow_remaining = state.remaining_seconds()
-            node_was_tighter = (
-                node_timeout is not None
-                and (flow_remaining is None or node_timeout < flow_remaining + 0.01)
-            )
-
-            if node_was_tighter and not state.is_timed_out():
-                last_error = NodeTimeoutError(
-                    f"Node '{node_id}' exceeded its timeout of {node_timeout}s",
-                    node_id=node_id, node_type=node.type,
-                )
-                attempt += 1
-                if attempt > max_retries:
-                    await event_queue.put(_NodeDone(
-                        node_id=node_id,
-                        error=True,
-                        error_event=NodeErrorEvent(
-                            type="node_error", node_id=node_id,
-                            error=str(last_error), is_validation=False,
-                            is_timeout=True,
-                        ),
-                    ))
-                    return
-                continue
-
-            # Flow-level timeout
-            await event_queue.put(FlowTimeoutEvent(
-                type="flow_timeout",
-                completed_nodes=list(state.results.keys()),
-                elapsed_seconds=time.monotonic() - state._started_at,
-                timeout_seconds=state._timeout_seconds,
-            ))
-            await event_queue.put(_NodeDone(node_id=node_id, error=True, error_event=None))
-            return
-
-        except HumanInputRequired as e:
-            cp = FlowCheckpoint(
-                completed_node_ids=list(state.completed_order),
-                waiting_node_id=node_id,
-                waiting_node_type=node.type,
-                results=dict(state.results),
-                store_data=state.store.to_dict(),
-                context=dict(state.context),
-                prompt=e.prompt,
-                input_schema=e.schema,
-                execution_index=-1,
-            )
-            await event_queue.put(_NodeDone(
-                node_id=node_id,
-                paused=True,
-                pause_event=FlowPausedEvent(
-                    type="flow_paused",
-                    node_id=node_id,
-                    prompt=e.prompt,
-                    schema=e.schema,
-                    checkpoint=cp.to_dict(),
-                ),
-            ))
-            return
-
-        except SignalRequired as e:
-            cp = FlowCheckpoint(
-                completed_node_ids=list(state.completed_order),
-                waiting_node_id=node_id,
-                waiting_node_type=node.type,
-                results=dict(state.results),
-                store_data=state.store.to_dict(),
-                context=dict(state.context),
-                prompt=f"Waiting for signal '{e.signal_name}'",
-                input_schema=None,
-                execution_index=-1,
-                signal_name=e.signal_name,
-                correlation=e.correlation,
-                signal_timeout_seconds=e.timeout_seconds,
-            )
-            state.pending_signals[node_id] = {
-                "name": e.signal_name,
-                "correlation": e.correlation,
-                "timeout_seconds": e.timeout_seconds,
-            }
-            await event_queue.put(SignalWaitingEvent(
-                type="signal_waiting",
-                node_id=node_id,
-                signal_name=e.signal_name,
-                correlation=e.correlation,
-                timeout_seconds=e.timeout_seconds,
-                checkpoint=cp.to_dict(),
-            ))
-            await event_queue.put(_NodeDone(
-                node_id=node_id,
-                paused=True,
-                pause_event=FlowPausedEvent(
-                    type="flow_paused",
-                    node_id=node_id,
-                    prompt=f"Waiting for signal '{e.signal_name}'",
-                    schema=None,
-                    checkpoint=cp.to_dict(),
-                ),
-            ))
-            return
-
-        except NodeValidationError as e:
-            await event_queue.put(_NodeDone(
-                node_id=node_id,
-                error=True,
-                error_event=NodeErrorEvent(
-                    type="node_error", node_id=node_id,
-                    error=str(e), is_validation=True,
-                ),
-            ))
-            return
-
-        except (NodeExecutionError, NodeConnectionError, NodeTimeoutError) as e:
-            # Respect the per-error retryable classification (see
-            # ``errors.py``). Subclasses can opt out of retry by setting
-            # ``retryable = False`` on the class, and individual
-            # instances may pass ``retryable=False`` to override on a
-            # case-by-case basis. Anything fatal short-circuits out of
-            # the retry loop without consuming an attempt.
-            if not getattr(e, "retryable", True):
-                await event_queue.put(_NodeDone(
-                    node_id=node_id,
-                    error=True,
-                    error_event=NodeErrorEvent(
-                        type="node_error", node_id=node_id,
-                        error=str(e),
-                        is_validation=isinstance(e, NodeValidationError),
-                    ),
-                ))
-                return
-            last_error = e
-            attempt += 1
-            if attempt > max_retries:
-                await event_queue.put(_NodeDone(
-                    node_id=node_id,
-                    error=True,
-                    error_event=NodeErrorEvent(
-                        type="node_error", node_id=node_id,
-                        error=str(e), is_validation=False,
-                    ),
-                ))
-                return
-
-        except Exception as e:
-            # Any other error (a bug in a node, a runaway loop) surfaces as
-            # a node_error and aborts the flow. Retry does not
-            # apply to non-recognized exceptions.
-            await event_queue.put(_NodeDone(
-                node_id=node_id,
-                error=True,
-                error_event=NodeErrorEvent(
-                    type="node_error", node_id=node_id,
-                    error=f"{type(e).__name__}: {e}",
-                    is_validation=False,
-                ),
-            ))
-            return
+    if is_asking(value):
+        # A person must answer. The unit waits; the rest of the leg runs
+        # on and the leg ends pending once quiet.
+        ledger.pend(unit, value.questions, value.prompt)
+        await queue.put(_UnitDone(unit))
+        return
+    outputs = unpack(version.interface.returns, value, compiled.node(node_id).interface.outputs)
+    ledger.record(unit, outputs)
+    await _after(unit, run, queue)
+    await queue.put(_UnitDone(unit))
 
 
-def _effective_timeout(
-    remaining: float | None,
-    node_timeout: float | None,
-) -> float | None:
-    """Min of flow-remaining and node-specific timeout."""
-    candidates = [x for x in (remaining, node_timeout) if x is not None]
-    if not candidates:
-        return None
-    return max(0.05, min(candidates))
+def _call(unit: Unit, inputs: dict[str, Any], run: _Run) -> Any:
+    """Validate the inputs against the node's interface, then call the node.
 
-
-
-# =========================================================================
-# Node dispatch
-# =========================================================================
-
-
-def _dispatch_node(
-    node_id: str,
-    inputs: dict[str, Any],
-    state: FlowRunState,
-    compiled: CompiledGraph,
-) -> dict[str, Any]:
-    """Validate ``inputs`` against the node's interface and run the node; the answer is ``{output name: value}``."""
-    node = compiled.node(node_id)
-    interface = node.interface
-
-    # Coerce the raw inputs through the node's interface before anything
-    # else touches them.
+    The interface is the list of inputs the node actually has, which can be
+    more than its declaration: a ``compute_inputs`` hook may add some.
+    Validating against the interface rather than the declaration means those
+    added inputs are validated like any other. ``FromRun`` parameters
+    (values the host supplies by type) come from the run. Runs in a
+    worker thread. A ``NodeError`` the node raises passes through; any
+    other exception becomes a ``NodeExecutionError`` with the row in its
+    cause.
+    """
+    node_id, row = unit
+    node = run.compiled.node(node_id)
+    version = node.version
     try:
-        validated = model_of(interface.inputs)(**inputs)
-    except ValidationError as e:
+        validated = model_of(node.interface.inputs)(**inputs)
+    except ValidationError as invalid:
+        reason = _describe(invalid, node.interface.inputs)
         raise NodeValidationError(
-            _format_validation_error(e, interface.inputs),
-            node_id=node_id, node_type=node.graph_node.type, original=e,
-        ) from e
-
-    # The validated instances themselves, not a dump: ``run`` receives the
-    # declared dtypes and nothing is re-serialised on the way in.
-    inputs = dict(validated)
-
+            reason, node_id=node_id, original=invalid,
+            cause=_cause(code="invalid_input", message="The node received a value it cannot use.", row=row, details={"reason": reason}),
+        ) from invalid
+    kwargs = {name: getattr(validated, name) for name in type(validated).model_fields}
+    kwargs.update({name: run.from_run[needed] for name, needed in version.interface.needs.items()})
     runner = node.runner
-    inputs = _inject_store(runner, inputs, state)
-
     try:
-        value = runner(**inputs)
-    except (NodeValidationError, NodeExecutionError, NodeConnectionError,
-            HumanInputRequired, SignalRequired):
+        return runner(**kwargs)
+    except NodeError:
         raise
-    except Exception as e:
+    except Exception as raised:
         raise NodeExecutionError(
-            f"Execution failed for {node.graph_node.type}: {type(e).__name__}: {e}",
-            node_id=node_id, node_type=node.graph_node.type, original=e,
-        ) from e
-    return _outputs_of(node.version.interface.returns, interface.outputs, value)
+            f"{type(raised).__name__}: {raised}", node_id=node_id, original=raised,
+            cause=_cause(code="execution_failed", message=str(raised), row=row),
+        ) from raised
 
 
-def _outputs_of(returns: Any, outputs: tuple[Output, ...], value: Any) -> dict[str, Any]:
-    """What ``run`` returned, split across the node's outputs by name.
-
-    ``unpack`` reads the return declaration. A series output is returned by
-    the node as a plain sequence and lands here on a fresh root index: its
-    rows came from nowhere the engine tracks. ``SKIPPED`` on an output
-    passes through as the value it is.
-    """
-    values = unpack(returns, value, outputs)
-    series_outputs = {
-        out.name for out in outputs
-        if isinstance(out.dtype, type) and issubclass(out.dtype, Series)
-    }
-    return {
-        name: (
-            Series(Index.fresh(), v)
-            if name in series_outputs and not is_skipped(v) and not isinstance(v, Series)
-            else v
-        )
-        for name, v in values.items()
-    }
+async def _after(unit: Unit, run: _Run, queue: asyncio.Queue[Any]) -> None:
+    """Report progress, and completion when this was the node's last unit."""
+    node_id, row = unit
+    ledger = run.ledger
+    if row is not None:
+        done, total = ledger.progress(node_id)
+        await queue.put(NodeProgressEvent(type="node_progress", node_id=node_id, done=done, total=total))
+    if not ledger.complete(node_id):
+        return
+    result = ledger.result_of(node_id)
+    if result is None:
+        await queue.put(NodeSkippedEvent(type="node_skipped", node_id=node_id))
+        return
+    await queue.put(NodeCompleteEvent(type="node_complete", node_id=node_id, result=result))
 
 
-def _format_validation_error(e: Any, inputs: Any) -> str:
-    """Collapse a pydantic ``ValidationError`` into a one-line-per-field
-    summary suitable for end-user surfaces.
-
-    Pydantic's default ``str(e)`` enumerates every union arm × every nested
-    field, producing 7+ lines for a single bad input — unreadable in a
-    UI toast. This helper:
-
-      * deduplicates by field path (after stripping union-arm segments
-        like ``"list[union[float,int]]"`` from ``loc``),
-      * picks the most specific message per field (prefers
-        ``"Field required"`` and ``"Input should be ..."`` over generic
-        ``"Input should be a valid …"`` from union fan-out),
-      * resolves field ids to their declared ``title``.
-
-    Hosts that want structured access can still read ``e.original`` (the
-    pydantic ``ValidationError``) off the raised ``NodeValidationError``.
-    """
-    # Discriminate pydantic union-arm tags from real path segments. Arm
-    # tags are produced by pydantic's smart union mode and look like
-    # ``"int"``, ``"float"``, ``"list[union[...]]"``, ``"dict[...,...]"``.
-    def _is_union_arm(seg: Any) -> bool:
-        if not isinstance(seg, str):
-            return False
-        if seg.startswith(("list[", "dict[", "tuple[", "union[")):
-            return True
-        return seg in {
-            "int", "float", "str", "bool", "bytes",
-            "nonetype", "none", "any",
-        }
-
-    # Build a {field_title: message} map preserving insertion order.
-    seen: dict[str, str] = {}
-    label_by_name = {inp.name: inp.title for inp in inputs}
-
-    for err in e.errors():
-        loc = [seg for seg in err.get("loc", ()) if not _is_union_arm(seg)]
-        if not loc:
-            continue
-        root = loc[0]
-        label = label_by_name.get(root, str(root))
-        sub_path = ".".join(str(s) for s in loc[1:])
-        key = f"{label}.{sub_path}" if sub_path else label
-
-        msg = str(err.get("msg", ""))
-        # Strip pydantic's "Value error, " prefix from validator-raised errors.
-        if msg.startswith("Value error, "):
-            msg = msg[len("Value error, ") :]
-
-        if key in seen:
-            # Prefer "Field required" / non-generic messages when collapsing.
-            current = seen[key]
-            if current.startswith("Input should be a valid"):
-                seen[key] = msg
-            continue
-        seen[key] = msg
-
-    if not seen:
-        return str(e)
-
-    parts = [f"'{k}': {v}" for k, v in seen.items()]
-    return "Invalid inputs — " + "; ".join(parts)
+def _cause(*, code: str, message: str, row: Any, details: Mapping[str, Any] | None = None) -> ErrorCause:
+    return ErrorCause(code=code, message=message, details=details or {}, row=row)
 
 
-def _inject_store(func: Any, inputs: dict[str, Any], state: FlowRunState) -> dict[str, Any]:
-    """If the callable declares a ``FlowStore`` parameter, inject it.
-
-    Read off the signature rather than resolved type hints, because a
-    class node's runner carries the method's signature and nothing else.
-    """
-    try:
-        params = inspect.signature(func).parameters
-    except (TypeError, ValueError):
-        return inputs
-    for name, param in params.items():
-        if param.annotation is FlowStore or param.annotation == "FlowStore":
-            return {**inputs, name: state.store}
-    return inputs
+def _error_event(node_id: str, failure: NodeError, row: Any) -> NodeErrorEvent:
+    cause = failure.cause if failure.cause is not None else _cause(code="failed", message=str(failure), row=row)
+    if cause.row is None and row is not None:
+        cause = replace(cause, row=row)
+    return NodeErrorEvent(type="node_error", node_id=node_id, error=str(failure), cause=cause)
 
 
+def _describe(invalid: ValidationError, inputs: tuple[Any, ...]) -> str:
+    """A validation error as one line per field, using the field's title."""
+    titles = {inp.name: inp.title for inp in inputs}
+    parts = []
+    for err in invalid.errors():
+        loc = [segment for segment in err.get("loc", ()) if isinstance(segment, str)]
+        name = loc[0] if loc else "?"
+        parts.append(f"{titles.get(name, name)}: {err.get('msg', '')}")
+    return "Invalid input — " + "; ".join(parts)
 
-# =========================================================================
-# Sync wrappers
-# =========================================================================
+
+# -- sync wrappers ---------------------------------------------------------------------------
 
 
-async def collect(events: AsyncGenerator[ExecutionEvent, None]) -> dict[str, Any]:
-    """Consume all events, return final results."""
-    results: dict[str, Any] = {}
-    last_node_error: str | None = None
+async def collect(events: AsyncGenerator[ExecutionEvent, None]) -> dict[str, dict[str, Any]]:
+    """Drain an event stream and return the results, or raise for the ending that stopped it."""
     async for event in events:
-        et = event["type"]
-        if et == "flow_complete":
-            results = event["results"]
-        elif et == "flow_paused":
-            raise FlowPausedException(event["checkpoint"])
-        elif et == "node_error":
-            last_node_error = event.get("error")
-        elif et in ("flow_error", "flow_cancelled", "flow_timeout"):
-            msg = event.get("error") or last_node_error or "Flow did not complete"
-            raise FlowExecutionException(msg)
-    return results
+        kind = event["type"]
+        if kind == "graph_complete":
+            return event["results"]
+        if kind == "graph_pending":
+            raise GraphPendingError(event["pending"], event["cells"])
+        if kind == "graph_error":
+            raise GraphExecutionError(event["error"], node_id=event.get("node_id"), cause=event.get("cause"))
+        if kind in ("graph_cancelled", "graph_timeout"):
+            raise GraphExecutionError(f"The flow was stopped ({kind}).")
+    raise GraphExecutionError("The flow ended without a result.")
 
 
-def execute_sync(compiled: CompiledGraph, **kwargs: Any) -> dict[str, Any]:
-    """Blocking entry point."""
+def execute_sync(compiled: CompiledGraph, **kwargs: Any) -> dict[str, dict[str, Any]]:
+    """Run one leg synchronously and return ``{node_id: {output: value}}``.
+
+    A convenience for tests and scripts. A leg that ends pending raises
+    ``GraphPendingError`` with the questions and the cells; the caller
+    answers and calls again with ``cells`` and ``cache``.
+    """
     return asyncio.run(collect(execute(compiled, **kwargs)))
-
-
-def resume_sync(
-    compiled: CompiledGraph,
-    checkpoint: FlowCheckpoint | dict[str, Any],
-    response: Any,
-    **kwargs: Any,
-) -> dict[str, Any]:
-    """Blocking resume."""
-    return asyncio.run(collect(resume(compiled, checkpoint, response, **kwargs)))
-
-
-# =========================================================================
-# Internal helpers
-# =========================================================================
-
-
-def _build_state(
-    compiled: CompiledGraph,
-    timeout_seconds: int,
-    context: dict[str, Any] | None,
-) -> FlowRunState:
-    """The run's state — or the refusal: a graph compile found not runnable
-    raises ``CompilationError`` with its problems, and a graph with a
-    node that would run once per row raises ``NotImplementedError``, since
-    this engine does not yet run a node per row."""
-    if not compiled.is_runnable:
-        raise CompilationError(compiled.problems)
-    iterating = [node_id for node_id in compiled.execution_order() if compiled.node(node_id).iterates_on is not None]
-    if iterating:
-        raise NotImplementedError(
-            f"This engine runs scalar nodes only; these nodes iterate: {', '.join(iterating)}"
-        )
-    return FlowRunState(
-        compiled=compiled,
-        resolver=InputResolver(compiled),
-        results={},
-        _started_at=time.monotonic(),
-        _timeout_seconds=timeout_seconds,
-        context=context or {},
-    )
-
-
-def _build_dep_graph(
-    compiled: CompiledGraph,
-) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
-    """Build deps (node -> deps) and dependents (node -> nodes that depend on it)."""
-    deps: dict[str, set[str]] = defaultdict(set)
-    dependents: dict[str, set[str]] = defaultdict(set)
-
-    for target_id in compiled.execution_order():
-        for source_id in compiled.node(target_id).dependencies:
-            deps[target_id].add(source_id)
-            dependents[source_id].add(target_id)
-
-    return dict(deps), dict(dependents)
-
-
-def _cancel_all(running: dict[str, asyncio.Task]) -> None:
-    """Cancel all running tasks."""
-    for task in running.values():
-        task.cancel()
-    running.clear()

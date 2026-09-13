@@ -1,0 +1,587 @@
+"""The engine runs rows."""
+
+import asyncio
+import threading
+import time
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Annotated, Any, ClassVar
+
+import pytest
+from conductor import NodeRegistry
+from conductor._sentinel import SKIPPED, Asks
+from conductor.dtype import DType
+from conductor.errors import (
+    CompilationError,
+    ErrorCause,
+    GraphExecutionError,
+    NodeExecutionError,
+)
+from conductor.execution.engine import execute, execute_sync
+from conductor.graph.binding import Edges, Static
+from conductor.graph.compiled import CompiledGraph
+from conductor.graph.model import Graph, GraphNode
+from conductor.interface import Interface
+from conductor.metadata import Input, Output
+from conductor.node import GraphVersion, NodeDefinition, Policy, version
+from conductor.ref import Ref
+from conductor.returns import Result
+from conductor.series import Index, Series
+from conductor.widgets import ConnectionList, Textarea
+
+
+class Txt(DType, str):
+    id = "rows-test-txt"
+    title = "Tekst"
+
+
+Out = Annotated[Txt, Result(title="Result")]
+
+
+@dataclass(frozen=True)
+class Documents:
+    texts: Annotated[Series[Txt], Result(title="Texts")]
+    names: Annotated[Series[Txt], Result(title="Navne")]
+
+
+@dataclass(frozen=True)
+class Length:
+    long: Annotated[Txt, Result(title="If long")]
+    short: Annotated[Txt, Result(title="If short")]
+
+
+class Docs(NodeDefinition):
+    id = "docs"
+    title = "Docs"
+    description = "d"
+    category = "test"
+
+    def run(self, text: Annotated[Txt, Textarea(title="Texts")] = Txt("")) -> Documents:
+        parts = [Txt(p) for p in text.split(",")] if text else []
+        return Documents(texts=parts, names=[Txt(f"doc{i}") for i in range(len(parts))])
+
+
+class Upper(NodeDefinition):
+    id = "upper"
+    title = "Upper"
+    description = "d"
+    category = "test"
+
+    def run(self, text: Annotated[Txt, Textarea(title="Text")] = Txt("")) -> Out:
+        return Txt(text.upper())
+
+
+class Pair(NodeDefinition):
+    id = "pair"
+    title = "Pair"
+    description = "d"
+    category = "test"
+
+    def run(self, a: Annotated[Txt, Textarea(title="A")] = Txt(""), b: Annotated[Txt, Textarea(title="B")] = Txt("")) -> Out:
+        return Txt(f"{a}:{b}")
+
+
+class Lines(NodeDefinition):
+    id = "lines"
+    title = "Lines"
+    description = "d"
+    category = "test"
+
+    def run(self, text: Annotated[Txt, Textarea(title="Text")] = Txt("")) -> Annotated[Series[Txt], Result(title="Lines")]:
+        return [Txt(p) for p in text.split("/")]
+
+
+class Join(NodeDefinition):
+    id = "join"
+    title = "Join"
+    description = "d"
+    category = "test"
+
+    def run(self, texts: Annotated[Series[Txt], ConnectionList(title="Texts")] = ()) -> Out:
+        return Txt("+".join(texts))
+
+
+class LongOnly(NodeDefinition):
+    """A decision: keeps a text on `If long` when it has more than two characters."""
+
+    id = "long-only"
+    title = "Long only"
+    description = "d"
+    category = "test"
+
+    def run(self, text: Annotated[Txt, Textarea(title="Text")] = Txt("")) -> Length:
+        return Length(long=text, short=SKIPPED) if len(text) > 2 else Length(long=SKIPPED, short=text)
+
+
+class FailsOn(NodeDefinition):
+    id = "fails-on"
+    title = "Fails on"
+    description = "d"
+    category = "test"
+
+    def run(self, text: Annotated[Txt, Textarea(title="Text")] = Txt("")) -> Out:
+        if text == "boom":
+            raise NodeExecutionError("kunne ikke", cause=ErrorCause(code="boom", message="Boom."))
+        return text
+
+
+class Slow(NodeDefinition):
+    id = "slow"
+    title = "Slow"
+    description = "d"
+    category = "test"
+    seen: list = []
+    lock = threading.Lock()
+    active = 0
+    peak = 0
+
+    @version(1, policy=Policy(concurrency=1))
+    def run(self, text: Annotated[Txt, Textarea(title="Text")] = Txt("")) -> Out:
+        with Slow.lock:
+            Slow.active += 1
+            Slow.peak = max(Slow.peak, Slow.active)
+        time.sleep(0.02)
+        with Slow.lock:
+            Slow.active -= 1
+            Slow.seen.append(text)
+        return text
+
+
+class Wide(NodeDefinition):
+    id = "wide"
+    title = "Wide"
+    description = "d"
+    category = "test"
+    lock = threading.Lock()
+    active = 0
+    peak = 0
+
+    def run(self, text: Annotated[Txt, Textarea(title="Text")] = Txt("")) -> Out:
+        with Wide.lock:
+            Wide.active += 1
+            Wide.peak = max(Wide.peak, Wide.active)
+        time.sleep(0.02)
+        with Wide.lock:
+            Wide.active -= 1
+        return text
+
+
+class Columns(NodeDefinition):
+    """The unfold shape: the author names the columns; each is an output
+    on the interface and nothing else. run hands them back by name."""
+
+    id = "columns"
+    title = "Columns"
+    description = "d"
+    category = "test"
+
+    def compute_outputs(self, declared, values, arriving):
+        spec = values.get("spec", "")
+        return tuple(Output(name=name, dtype=Txt, title=name.title()) for name in spec.split(",") if name)
+
+    def run(self, text: Annotated[Txt, Textarea(title="Text")] = Txt(""), spec: Annotated[Txt, Textarea(title="Kolonner")] = Txt("")) -> Mapping[str, Any]:
+        return {name: Txt(f"{name}:{text}") for name in spec.split(",") if name}
+
+
+def _registry():
+    registry = NodeRegistry()
+    for node_cls in (Docs, Upper, Pair, Lines, Join, LongOnly, FailsOn, Slow, Wide, Columns):
+        registry.register(node_cls)
+    return registry
+
+
+def _edge(*refs):
+    return Edges(refs=tuple(Ref(n, f) for n, f in refs))
+
+
+def _docs(texts):
+    return GraphNode(id="docs", type="docs", version=1, bindings={"text": Static(value=texts)})
+
+
+def _run(nodes):
+    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), _registry())
+    assert compiled.is_runnable, compiled.problems
+    return execute_sync(compiled)
+
+
+def _events(nodes):
+    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), _registry())
+
+    async def collect():
+        return [e async for e in execute(compiled)]
+
+    return asyncio.run(collect())
+
+
+# --- a computed interface, by name -----------------------------------------------------
+
+
+def test_a_computed_roster_runs_by_name_and_edges_like_any_field():
+    results = _run([
+        _docs("a,b"),
+        GraphNode(id="c", type="columns", version=1, bindings={"text": _edge(("docs", "texts")), "spec": Static(value="navn,email")}),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("c", "email"))}),
+    ])
+
+    assert list(results["c"]["navn"]) == ["navn:a", "navn:b"]
+    assert results["c"]["email"].index == Index("docs")
+    assert list(results["up"]["result"]) == ["EMAIL:A", "EMAIL:B"]
+
+
+def test_a_computed_roster_with_no_outputs_is_compiles_problem():
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="c", type="columns", version=1, bindings={"spec": Static(value="")})]), _registry())
+
+    assert [(p.code, p.node_id, p.fatal) for p in compiled.problems] == [("no_outputs", "c", False)]
+    assert compiled.is_runnable
+
+
+# --- iteration end to end -----------------------------------------------------------
+
+
+def test_an_iterating_chain_runs_per_row_and_a_reduction_collapses_it():
+    results = _run([
+        _docs("a,b,c"),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("up", "result"))}),
+    ])
+
+    up = results["up"]["result"]
+    assert isinstance(up, Series)
+    assert up.index == Index("docs")
+    assert up.rows == ((0,), (1,), (2,))
+    assert list(up) == ["A", "B", "C"]
+    assert results["j"]["result"] == "A+B+C"
+
+
+def test_a_scalar_broadcasts_beside_a_series():
+    results = _run([
+        _docs("a,b"),
+        GraphNode(id="prefix", type="upper", version=1, bindings={"text": Static(value="p")}),
+        GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("prefix", "result")), "b": _edge(("docs", "texts"))}),
+    ])
+
+    assert list(results["p"]["result"]) == ["P:a", "P:b"]
+
+
+def test_an_iterating_node_returning_a_series_unfolds_and_a_reduction_refolds():
+    """Unfold and gather with no special node: lines per document, then
+    one text per document again."""
+    results = _run([
+        _docs("a/b,c"),
+        GraphNode(id="lines", type="lines", version=1, bindings={"text": _edge(("docs", "texts"))}),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("lines", "result"))}),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("up", "result"))}),
+    ])
+
+    lines = results["lines"]["result"]
+    assert lines.index == Index("lines", parent=Index("docs"))
+    assert lines.rows == ((0, 0), (0, 1), (1, 0))
+    assert results["up"]["result"].rows == ((0, 0), (0, 1), (1, 0))
+    per_doc = results["j"]["result"]
+    assert per_doc.index == Index("docs")
+    assert list(per_doc) == ["A+B", "C"]
+
+
+def test_a_parent_series_broadcasts_down_to_a_child_row():
+    results = _run([
+        _docs("a/b,c"),
+        GraphNode(id="lines", type="lines", version=1, bindings={"text": _edge(("docs", "texts"))}),
+        GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("lines", "result")), "b": _edge(("docs", "names"))}),
+    ])
+
+    assert list(results["p"]["result"]) == ["a:doc0", "b:doc0", "c:doc1"]
+
+
+def test_a_gather_of_scalars_arrives_as_a_series():
+    results = _run([
+        GraphNode(id="a", type="upper", version=1, bindings={"text": Static(value="a")}),
+        GraphNode(id="b", type="upper", version=1, bindings={"text": Static(value="b")}),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("a", "result"), ("b", "result"))}),
+    ])
+
+    assert results["j"]["result"] == "A+B"
+
+
+# --- sparse series and skip ---------------------------------------------
+
+
+def test_an_iterating_gate_masks_rows_and_downstream_runs_on_fewer():
+    results = _run([
+        _docs("abc,d,efg"),
+        GraphNode(id="g", type="long-only", version=1, bindings={"text": _edge(("docs", "texts"))}),
+        GraphNode(id="long", type="upper", version=1, bindings={"text": _edge(("g", "long"))}),
+        GraphNode(id="short", type="upper", version=1, bindings={"text": _edge(("g", "short"))}),
+    ])
+
+    assert results["long"]["result"].rows == ((0,), (2,))
+    assert list(results["long"]["result"]) == ["ABC", "EFG"]
+    assert results["short"]["result"].rows == ((1,),)
+
+
+def test_a_reduction_over_a_sparse_series_sees_only_the_rows_present():
+    results = _run([
+        _docs("abc,d,efg"),
+        GraphNode(id="g", type="long-only", version=1, bindings={"text": _edge(("docs", "texts"))}),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("g", "long"))}),
+    ])
+
+    assert results["j"]["result"] == "abc+efg"
+
+
+def test_a_skipped_scalar_skips_what_hangs_off_it():
+    results = _run([
+        GraphNode(id="g", type="long-only", version=1, bindings={"text": Static(value="hey")}),
+        GraphNode(id="long", type="upper", version=1, bindings={"text": _edge(("g", "long"))}),
+        GraphNode(id="short", type="upper", version=1, bindings={"text": _edge(("g", "short"))}),
+    ])
+
+    assert results["long"]["result"] == "HEY"
+    assert "short" not in results
+
+
+def test_two_branches_merge_back_by_wiring_and_the_chain_stays_on_the_index():
+    """Merging by edges, end to end: a decision running per row, each branch through its own node, both connected into one input."""
+    results = _run([
+        _docs("hey,x,world"),
+        GraphNode(id="g", type="long-only", version=1, bindings={"text": _edge(("docs", "texts"))}),
+        GraphNode(id="long", type="upper", version=1, bindings={"text": _edge(("g", "long"))}),
+        GraphNode(id="short", type="pair", version=1, bindings={"a": _edge(("g", "short")), "b": Static(value="!")}),
+        GraphNode(id="all", type="upper", version=1, bindings={"text": _edge(("long", "result"), ("short", "result"))}),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("all", "result"))}),
+    ])
+
+    assert list(results["all"]["result"]) == ["HEY", "X:!", "WORLD"]
+    assert results["all"]["result"].rows == ((0,), (1,), (2,))
+    assert results["j"]["result"] == "HEY+X:!+WORLD"
+
+
+def test_a_skipped_node_skips_the_series_it_would_have_born():
+    results = _run([
+        GraphNode(id="g", type="long-only", version=1, bindings={"text": Static(value="hey")}),
+        GraphNode(id="docs", type="docs", version=1, bindings={"text": _edge(("g", "short"))}),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("up", "result"))}),
+    ])
+
+    assert "docs" not in results
+    assert "up" not in results
+    assert "j" not in results
+
+
+# --- failure -------------------------------------------------------------------
+
+
+def test_a_failed_row_fails_the_node_and_the_cause_names_the_row():
+    events = _events([
+        _docs("ok,boom,ok"),
+        GraphNode(id="f", type="fails-on", version=1, bindings={"text": _edge(("docs", "texts"))}),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("f", "result"))}),
+    ])
+
+    (error,) = [e for e in events if e["type"] == "node_error"]
+    assert error["node_id"] == "f"
+    assert error["cause"].code == "boom"
+    assert error["cause"].row == (1,)
+    assert events[-1]["type"] == "graph_error"
+    assert not any(e["type"] == "node_start" and e["node_id"] == "j" for e in events)
+
+
+def test_execute_sync_raises_with_the_cause():
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[_docs("boom"), GraphNode(id="f", type="fails-on", version=1, bindings={"text": _edge(("docs", "texts"))})]),
+        _registry(),
+    )
+
+    with pytest.raises(GraphExecutionError) as raised:
+        execute_sync(compiled)
+    assert raised.value.node_id == "f"
+    assert raised.value.cause.row == (0,)
+
+
+def test_a_flow_compile_rejected_is_refused_with_its_problems():
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="gone", version=1)]), _registry())
+
+    with pytest.raises(CompilationError) as raised:
+        execute_sync(compiled)
+    assert [p.code for p in raised.value.problems] == ["unknown_node_type"]
+
+
+# --- scheduling -----------------------------------------------------------------
+
+
+def test_rows_run_concurrently_under_the_engines_cap():
+    Wide.peak = 0
+    _run([_docs("a,b,c,d"), GraphNode(id="w", type="wide", version=1, bindings={"text": _edge(("docs", "texts"))})])
+
+    assert Wide.peak > 1
+
+
+def test_a_policy_of_one_runs_rows_one_at_a_time():
+    Slow.peak, Slow.seen = 0, []
+    _run([_docs("a,b,c"), GraphNode(id="s", type="slow", version=1, bindings={"text": _edge(("docs", "texts"))})])
+
+    assert Slow.peak == 1
+    assert sorted(Slow.seen) == ["a", "b", "c"]
+
+
+def test_progress_is_per_row_and_the_total_is_known_once_the_index_is_sealed():
+    events = _events([_docs("a,b,c"), GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))})])
+
+    progress = [(e["done"], e["total"]) for e in events if e["type"] == "node_progress" and e["node_id"] == "up"]
+    assert progress == [(1, 3), (2, 3), (3, 3)]
+    assert [e["type"] for e in events if e.get("node_id") == "up"][0] == "node_start"
+    assert [e["type"] for e in events if e.get("node_id") == "up"][-1] == "node_complete"
+
+
+def test_computed_inputs_reach_the_node_as_keywords():
+    """End to end: the template's placeholders are inputs the author
+    edges, and the node receives them by name."""
+    import re
+
+    from conductor.metadata import Input
+    from conductor.widgets import Text as TextWidget
+
+    class Template(NodeDefinition):
+        id = "template"
+        title = "Template"
+        description = "d"
+        category = "test"
+
+        def run(self, template: Annotated[Txt, Textarea(title="Template", show_handle=False)] = Txt(""), **values: Txt) -> Out:
+            return Txt(re.sub(r"\{(\w+)\}", lambda m: str(values[m.group(1)]), template))
+
+        def compute_inputs(self, declared, values):
+            names = re.findall(r"\{(\w+)\}", str(values.get("template", "")))
+            return (*declared, *(Input(name=n, dtype=Txt, title=n, widget=TextWidget(title=n)) for n in dict.fromkeys(names)))
+
+    registry = _registry()
+    registry.register(Template)
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[
+            _docs("Ida,Bo"),
+            GraphNode(id="case", type="upper", version=1, bindings={"text": Static(value="24-1")}),
+            GraphNode(id="t", type="template", version=1, bindings={
+                "template": Static(value="Dear {name} ({case})"),
+                "name": _edge(("docs", "texts")),
+                "case": _edge(("case", "result")),
+            }),
+        ]),
+        registry,
+    )
+    assert compiled.is_runnable, compiled.problems
+
+    assert list(execute_sync(compiled)["t"]["result"]) == ["Dear Ida (24-1)", "Dear Bo (24-1)"]
+
+
+def test_node_complete_carries_the_series():
+    events = _events([_docs("a,b"), GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))})])
+
+    (done,) = [e for e in events if e["type"] == "node_complete" and e["node_id"] == "up"]
+    assert list(done["result"]["result"]) == ["A", "B"]
+    assert events[-1]["type"] == "graph_complete"
+
+
+# --- every ending is one shape ----------------------------------------------------
+
+
+def test_a_cancelled_leg_carries_its_results_and_cells():
+    """`graph_cancelled` and `graph_timeout` end a leg the way `graph_complete`
+    and `graph_pending` do — the results so far and the ledger's cells beside
+    their reason — so a host can start a new run from any ending."""
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[
+            GraphNode(id="a", type="upper", version=1, bindings={"text": Static(value="a")}),
+            GraphNode(id="b", type="upper", version=1, bindings={"text": Static(value="b")}),
+        ]),
+        _registry(),
+    )
+    stop = asyncio.Event()
+    stop.set()
+
+    async def leg(**kwargs):
+        return [e async for e in execute(compiled, **kwargs)]
+
+    (ending,) = [e for e in asyncio.run(leg(cache={"a": {"result": Txt("klar")}}, cancel=stop)) if e["type"] == "graph_cancelled"]
+    assert ending["results"]["a"]["result"] == "klar"
+    assert "completed_nodes" not in ending
+
+    seeded = asyncio.run(leg(cells=ending["cells"]))
+    assert seeded[-1]["type"] == "graph_complete"
+    assert seeded[-1]["results"]["b"]["result"] == "B"
+    assert not any(e["type"] == "node_start" and e["node_id"] == "a" for e in seeded)
+
+
+# --- a leg ends pending ---------------------------------------------------
+
+
+class AskNode(NodeDefinition):
+    """An asking node: packages its proposal into the question and
+    returns Asks. Its output is what the person supplies."""
+
+    id = "asks"
+    title = "Ask"
+    description = "d"
+    category = "test"
+
+    def run(self, proposal: Annotated[Txt, Textarea(title="Proposal")] = Txt("")) -> Out | Asks:
+        return Asks(questions=(Input(name="result", dtype=Txt, title="Answer", widget=Textarea(title="Answer"), default=proposal, optional=True),))
+
+
+
+
+def _registry_with_asks(*extra):
+    registry = _registry()
+    for node_cls in (AskNode, *extra):
+        registry.register(node_cls)
+    return registry
+
+
+def _leg(compiled, **kwargs):
+    async def collect_all():
+        return [e async for e in execute(compiled, **kwargs)]
+
+    return asyncio.run(collect_all())
+
+
+# --- an embedded flow runs as nodes of the one run --------------------------------
+
+
+def test_an_inner_reduction_over_the_entering_series_runs_once_per_outer_row():
+    """Gathering end to end: three texts in, three joined texts out —
+    the ledger groups by the iteration index's depth, so the fold of one is one
+    rule, not a second kind of index."""
+
+    class Embedded(NodeDefinition):
+        id = "inner-flow"
+        title = "Indlejret"
+        description = "d"
+        category = "test"
+        versions: ClassVar[dict[int, GraphVersion]] = {
+            1: GraphVersion(
+                graph=(
+                    GraphNode(id="holder", type="upper", version=1, bindings={"text": Static(value="inner")}),
+                    GraphNode(id="gather", type="join", version=1, bindings={"texts": _edge(("holder", "result"))}),
+                ),
+                interface=Interface(
+                    inputs=(Input(name="holder.text", dtype=Txt, title="Text", widget=Textarea(title="Text"), default=Txt("inner"), optional=True),),
+                    outputs=(Output(name="gather.result", dtype=Txt, title="Result"),),
+                    returns=Mapping,
+                ),
+            )
+        }
+
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[
+            _docs("a,b,c"),
+            GraphNode(id="emb", type="inner-flow", version=1, bindings={"holder.text": _edge(("docs", "texts"))}),
+            GraphNode(id="after", type="join", version=1, bindings={"texts": _edge(("emb", "gather.result"))}),
+        ]),
+        _registry_with_asks(Embedded),
+    )
+    assert compiled.is_runnable, compiled.problems
+    results = execute_sync(compiled)
+
+    assert list(results["emb/holder"]["result"]) == ["A", "B", "C"]
+    assert list(results["emb/gather"]["result"]) == ["A", "B", "C"]
+    assert results["emb/gather"]["result"].index == Index("docs")
+    assert results["after"]["result"] == "A+B+C"

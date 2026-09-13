@@ -26,14 +26,23 @@ the wrong shape raises at the point of disagreement.
 several exclusive branches, its ``choice`` group. ``Output`` is the record
 the node ends up with. A return may be ``Any`` in place of a ``DType``
 when the node passes a value through without reading it.
+
+A ``run`` that may return ``Asks`` — the value a node returns when a
+person must answer before the flow can continue — says so in the same
+place, as a union: ``-> Annotated[Text, Result(...)] | Asks``. The union
+member declares no output; ``outputs_of`` reads the declaration past it.
+It is the one thing a class says about asking, and it is a fact about the
+return, not a capability: the engine still acts on the value alone.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, fields, is_dataclass
-from typing import Annotated, Any, get_args, get_origin, get_type_hints
+from types import UnionType
+from typing import Annotated, Any, Union, get_args, get_origin, get_type_hints
 
+from conductor._sentinel import Asks
 from conductor.dtype import DType, dtype_of
 from conductor.metadata import Output
 
@@ -82,7 +91,14 @@ def outputs_of(return_hint: Any) -> tuple[Any, tuple[Output, ...]]:
     declares one output per field; ``Mapping`` declares none (the
     node's computed outputs are used). Anything else is a
     ``TypeError``, as is a ``DType`` or a field without a ``Result``.
+
+    ``X | Asks`` is read as ``X``: a node that pauses to ask a person
+    declares no output for it.
     """
+    if get_origin(return_hint) in (Union, UnionType):
+        members = tuple(member for member in get_args(return_hint) if member is not Asks)
+        if len(members) == 1 and Asks in get_args(return_hint):
+            return outputs_of(members[0])
     declared = get_args(return_hint)[0] if get_origin(return_hint) is Annotated else return_hint
     dtype = dtype_of(declared)
     if dtype is not None:
