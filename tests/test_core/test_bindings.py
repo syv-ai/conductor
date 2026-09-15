@@ -14,7 +14,7 @@ from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.topology import dependencies_of
 from conductor.graph.views import derive_interface, is_input_node, lock_problems
-from conductor.interface import Interface, Provided
+from conductor.interface import FromRun, Interface
 from conductor.metadata import Output
 from conductor.node import NodeDefinition
 from conductor.ref import Ref
@@ -185,7 +185,7 @@ class Txt(DType, str):
 
 
 class Clock:
-    """Something the run supplies, not the flow (`Provided`)."""
+    """Something the run supplies, not the flow (`FromRun`)."""
 
 
 class TextInput(NodeDefinition):
@@ -224,7 +224,7 @@ class Stamped(NodeDefinition):
 
     def run(
         self,
-        clock: Annotated[Clock, Provided()],
+        clock: Annotated[Clock, FromRun()],
         text: Annotated[Txt, Textarea(title="Text")] = Txt(""),
     ) -> Annotated[Txt, Result(title="Result")]:
         return text

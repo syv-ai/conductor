@@ -141,7 +141,7 @@ class TestEagerScheduling:
         types = [e["type"] for e in events]
         assert types.count("node_start") == 2
         assert types.count("node_complete") == 2
-        assert "flow_complete" in types
+        assert "graph_complete" in types
 
     def test_single_node_works(self):
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode("n1", "echo", 1, bindings={"text": Static(value="hi")})]), _registry(Echo))
@@ -264,7 +264,7 @@ class TestRetry:
         types = [e["type"] for e in events]
         assert "node_retry" in types
         assert "node_complete" in types
-        assert "flow_complete" in types
+        assert "graph_complete" in types
 
         retry_event = next(e for e in events if e["type"] == "node_retry")
         assert retry_event["attempt"] == 1

@@ -939,7 +939,7 @@ def test_the_contract_is_importable_from_the_package_root():
 
     for name in (
         "NodeDefinition", "NodeVersion", "GraphVersion", "Policy", "Deprecation",
-        "NodeDescription", "Input", "Interface", "Provided", "AnyWidget",
+        "NodeDescription", "Input", "Interface", "FromRun", "AnyWidget",
     ):
         assert getattr(conductor, name) is not None
     assert callable(conductor.version)

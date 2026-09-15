@@ -10,7 +10,7 @@ from conductor.graph.binding import Edges, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.problem import Problem
-from conductor.interface import Interface, Provided, model_of
+from conductor.interface import FromRun, Interface, model_of
 from conductor.metadata import Output
 from conductor.node import NodeDefinition, Policy, version
 from conductor.ref import Ref
@@ -111,7 +111,7 @@ class Renamed(NodeDefinition):
 
 
 class Clock:
-    """Something the run supplies, not the flow (`Provided`)."""
+    """Something the run supplies, not the flow (`FromRun`)."""
 
 
 class Stamped(NodeDefinition):
@@ -124,7 +124,7 @@ class Stamped(NodeDefinition):
 
     def run(
         self,
-        clock: Annotated[Clock, Provided()],
+        clock: Annotated[Clock, FromRun()],
         x: Annotated[Txt, Textarea(title="X")] = Txt(""),
     ) -> Out:
         return x

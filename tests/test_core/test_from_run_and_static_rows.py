@@ -64,7 +64,7 @@ def _registry():
     return r
 
 
-def test_a_provided_parameter_is_a_need_not_an_input():
+def test_a_from_run_parameter_is_a_need_not_an_input():
     iface = Interface.of(Greet.run)
     assert [i.name for i in iface.inputs] == ["text"]
     assert iface.needs == {"who": Who}

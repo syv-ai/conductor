@@ -15,7 +15,7 @@ import pytest
 from conductor import CompiledGraph, GraphNode, NodeRegistry
 from conductor.dtype import DType
 from conductor.errors import (
-    FlowExecutionError,
+    GraphExecutionError,
     NodeExecutionError,
     NodeValidationError,
 )
@@ -63,7 +63,7 @@ def test_validation_errors_not_retried():
     reg.register(RaiseValidation)
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode("n1", "raise-validation", 1, bindings={"text": Static(value="x")})]), reg)
 
-    with pytest.raises(FlowExecutionError):
+    with pytest.raises(GraphExecutionError):
         execute_sync(compiled, retry=RetryConfig(max_retries=3, delay=0.01))
 
     # Exactly one invocation — no retries.
@@ -99,7 +99,7 @@ def test_node_execution_error_with_retryable_false_not_retried():
     reg.register(RaiseFatal)
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode("n1", "raise-fatal", 1, bindings={"text": Static(value="x")})]), reg)
 
-    with pytest.raises(FlowExecutionError):
+    with pytest.raises(GraphExecutionError):
         execute_sync(compiled)
 
     assert len(calls) == 1, (

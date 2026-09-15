@@ -122,7 +122,7 @@ def _registry(*extra: type[NodeDefinition]) -> NodeRegistry:
 
 
 async def _events(compiled) -> list[dict]:
-    """Every event of one run, including those after a ``flow_error``."""
+    """Every event of one run, including those after a ``graph_error``."""
     return [event async for event in execute(compiled)]
 
 

@@ -13,7 +13,7 @@ import conductor_nodes
 import pytest
 from conductor import CompiledGraph, GraphNode, NodeRegistry
 from conductor._sentinel import SKIPPED
-from conductor.errors import FlowExecutionError
+from conductor.errors import GraphExecutionError
 from conductor.execution.engine import execute_sync
 from conductor.graph.binding import Edges, Static
 from conductor.graph.model import Graph
@@ -179,7 +179,7 @@ class TestMath:
         assert r["n"]["result"] == 2.5
 
     def test_divide_by_zero_raises(self, full_registry):
-        with pytest.raises(FlowExecutionError):
+        with pytest.raises(GraphExecutionError):
             _run(
                 full_registry,
                 [GraphNode("n", "math-divide", 1, bindings={"a": Static(value=1), "b": Static(value=0)})],
