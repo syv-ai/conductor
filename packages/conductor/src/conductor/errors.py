@@ -1,74 +1,106 @@
-"""Exception hierarchy for conductor.
+"""What goes wrong at run time, and how it is reported.
 
-All exceptions carry structured context (node_id, node_type) so errors
-propagate upward with enough information for the host app to display
-meaningful messages, log to observability tools, or route to error handlers.
+Two kinds of wrong, kept apart. A graph that says something impossible is
+data — a ``Problem`` on the ``CompiledGraph``, the record of everything
+compile learned about the graph — so an editor can show it mid-edit. A
+run that goes wrong raises, and what it raises carries an ``ErrorCause``
+— a stable code, a message for a person and whatever details the failure
+knows — so a host can act on it without guessing which diagnostic
+belonged to which failure.
 
-Hierarchy:
-    ConductorError                     # Base — catch-all for any engine error
-    ├── CompilationError                # A run was started on a graph compile found not runnable
-    ├── NodeError                       # Something went wrong with a specific node
-    │   ├── NodeValidationError         # Input validation failed (Pydantic)
-    │   ├── NodeExecutionError          # Node function raised during execution
-    │   ├── NodeTimeoutError            # Node exceeded its timeout
-    │   └── NodeConnectionError         # External service / network failure inside a node
-    ├── FlowExecutionError              # Flow-level failure (used by execute_sync)
-    ├── FlowPausedError                 # Flow paused for human input (carries checkpoint)
-    └── HumanInputRequired              # Signal raised by nodes to request human input
+    ConductorError
+    ├── CompilationError        a caller asked to run a flow compile rejected
+    ├── NodeError               one node failed; carries node_id and a cause
+    │   ├── NodeValidationError     its inputs were wrong (not retried)
+    │   ├── NodeExecutionError      its body raised
+    │   ├── NodeTimeoutError        it exceeded its policy's timeout
+    │   └── NodeConnectionError     an external call failed (retried)
+    ├── FlowExecutionError      execute_sync: the flow did not complete
+    └── FlowPendingError        execute_sync: the run stopped to wait for a person; carries the questions and the record so far
+
+A pause is not an error and nothing raises for one: a node returns
+``Asks`` (the value that says a person must answer before the flow can
+continue) and the leg ends pending — a leg being one call of ``execute``;
+a run takes several when a person must answer in between.
+``FlowPendingError`` exists only so the synchronous wrapper has a way to
+hand that back.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
-from conductor.graph.problem import Problem
+from conductor.series import Row
 
-# =============================================================================
-# Base
-# =============================================================================
+if TYPE_CHECKING:
+    from conductor.graph.problem import Problem
 
 
 class ConductorError(Exception):
-    """Base exception for all conductor errors."""
-
-
-# =============================================================================
-# Compilation errors
-# =============================================================================
+    """Base for every engine error."""
 
 
 class CompilationError(ConductorError):
-    """A run was started on a graph that compile found not runnable.
+    """A caller asked the engine to run a flow that compile rejected.
 
-    Compile itself never raises: everything wrong with a graph is a
-    ``Problem`` on the ``CompiledGraph``, and ``is_runnable`` says whether
-    a run may start. This is the transport for a caller that ignored it;
-    ``problems`` carries every problem the graph has, fatal or not.
+    Compile itself never raises this; what is wrong with a graph is data on
+    the ``CompiledGraph``. ``execute`` raises it when a caller ignored
+    ``is_runnable``, with the problems attached.
     """
 
-    def __init__(self, problems: tuple[Problem, ...]):
+    def __init__(self, message: str, *, problems: tuple[Problem, ...] = ()) -> None:
         self.problems = problems
-        fatal = ", ".join(p.code for p in problems if p.fatal)
-        super().__init__(f"The graph is not runnable: {fatal}")
+        super().__init__(message)
 
 
-# =============================================================================
-# Node errors — always carry node_id and node_type for context
-# =============================================================================
+#: Every ``ErrorCause.code`` the engine itself emits, declared once. A host
+#: that translates causes by code covers exactly these; a code a node
+#: raised with its own cause is the node's. A test checks this set against
+#: the literals at the sites that raise them.
+CODES: frozenset[str] = frozenset({
+    "engine_error",
+    "execution_failed",
+    "failed",
+    "invalid_input",
+    "row_covered_twice",
+    "timeout",
+})
+
+
+@dataclass(frozen=True)
+class ErrorCause:
+    """Why a node failed, in a shape a caller can act on.
+
+    Created by the engine where the failure is known and carried two ways:
+    on the ``NodeError`` and on the ``node_error`` / ``flow_error`` events.
+    A host reads it to decide what to say and serialises it at its own
+    edge. ``Problem`` is the compile-time counterpart: that one is about a
+    graph that cannot run, this one about a run that went wrong::
+
+        ErrorCause(code="rate_limited", message="The model rejected the call.",
+                   details={"retry_after": 30}, row=(2, 0))
+
+    ``code`` is stable and what a frontend keys on; ``message`` is for a
+    person; ``details`` is whatever else the failure knows — a retry delay,
+    a rejected field, an upstream request id; ``row`` is the row a node
+    running once per row was on when it failed, as a path of positions:
+    ``(2,)`` for the third row, ``(2, 0)`` for the first row nested under
+    that one.
+    """
+
+    code: str
+    message: str
+    details: Mapping[str, Any] = field(default_factory=dict)
+    row: Row | None = None
 
 
 class NodeError(ConductorError):
-    """Base for all node-level errors. Carries node context for upstream reporting.
+    """One node failed. Carries which node (``node_id``) and why (``cause``).
 
-    Attributes:
-        node_id: Instance ID of the node that failed (e.g., "n3").
-        node_type: Registry type of the node (e.g., "llm-chat@2").
-        original: The original exception that caused this error, if any.
-        retryable: Whether the engine should retry the node when this
-            error is raised. Defaults to ``True``; subclasses for fatal
-            errors (e.g. :class:`NodeValidationError`) override to
-            ``False``. Concrete instances may override this on
-            construction for one-off cases.
+    ``retryable`` is read by the engine's retry loop: a subclass for a
+    failure retrying cannot fix sets it ``False``; an instance may override it.
     """
 
     retryable: bool = True
@@ -78,155 +110,52 @@ class NodeError(ConductorError):
         message: str,
         *,
         node_id: str | None = None,
-        node_type: str | None = None,
         original: Exception | None = None,
-    ):
+        cause: ErrorCause | None = None,
+    ) -> None:
         self.node_id = node_id
-        self.node_type = node_type
         self.original = original
+        self.cause = cause
         super().__init__(message)
 
 
 class NodeValidationError(NodeError):
-    """Input validation failed (Pydantic rejected the inputs).
-
-    Not retried — the inputs themselves are wrong, retrying won't help.
-    """
+    """The inputs themselves were wrong. Retrying cannot help."""
 
     retryable: bool = False
 
 
 class NodeExecutionError(NodeError):
-    """The node function raised an exception during execution.
-
-    Retried if retry is configured on the node or globally.
-    """
+    """The node's body raised."""
 
 
 class NodeTimeoutError(NodeError):
-    """The node exceeded its execution timeout."""
+    """The node exceeded its policy's timeout."""
 
 
 class NodeConnectionError(NodeError):
-    """An external service call inside a node failed (network, API, database).
-
-    Raise this from node functions to distinguish transient failures
-    (worth retrying) from logic errors (not worth retrying).
-
-    Example:
-        @version(1, policy=Policy(retries=3))
-        def fetch_api(url):
-            try:
-                resp = requests.get(url, timeout=10)
-                resp.raise_for_status()
-                return resp.text
-            except requests.RequestException as e:
-                raise NodeConnectionError(
-                    f"API call failed: {e}",
-                    node_id="auto",  # engine fills this in
-                ) from e
-    """
-
-
-# =============================================================================
-# Flow-level errors
-# =============================================================================
+    """An external call inside a node failed — worth retrying."""
 
 
 class FlowExecutionError(ConductorError):
-    """Raised by execute_sync when a flow does not complete successfully.
+    """``execute_sync``: the flow did not complete."""
 
-    Attributes:
-        node_id: The node that caused the failure, if applicable.
-        node_error: The underlying NodeError, if the failure was node-level.
-    """
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        node_id: str | None = None,
-        node_error: NodeError | None = None,
-    ):
+    def __init__(self, message: str, *, node_id: str | None = None, cause: ErrorCause | None = None) -> None:
         self.node_id = node_id
-        self.node_error = node_error
+        self.cause = cause
         super().__init__(message)
 
 
-# =============================================================================
-# Human-in-the-loop
-# =============================================================================
+class FlowPendingError(ConductorError):
+    """Raised by ``execute_sync`` when the leg ended waiting on a person.
 
-
-class HumanInputRequired(ConductorError):
-    """Raised by a node to pause execution and request human input.
-
-    The engine catches this, checkpoints state, and yields a flow_paused event.
-    Execution can be resumed later via resume() with the human's response.
+    Carries the questions of every node — or every row of a node that
+    runs per row — that is waiting (``pending``), and the record of
+    everything the run has produced so far (``cells``); the caller answers
+    and calls again with both.
     """
 
-    def __init__(
-        self,
-        prompt: str,
-        *,
-        schema: dict[str, Any] | None = None,
-        node_id: str | None = None,
-    ):
-        self.prompt = prompt
-        self.schema = schema
-        self.node_id = node_id
-        super().__init__(prompt)
-
-
-class FlowPausedError(ConductorError):
-    """Raised by execute_sync when a flow pauses for human input.
-
-    Contains the checkpoint needed to resume execution later.
-    """
-
-    def __init__(self, checkpoint: dict[str, Any]):
-        self.checkpoint = checkpoint
-        super().__init__("Flow paused — human input required")
-
-
-# =============================================================================
-# Signal / external event waits
-# =============================================================================
-
-
-class SignalRequired(ConductorError):
-    """Raised by a signal node to pause execution until an external event arrives.
-
-    Attributes:
-        signal_name: The name of the signal to wait for.
-        correlation: Optional CEL expression string that the host uses to
-            match incoming signals against this waiting flow.
-        timeout_seconds: Optional wall-clock timeout after which the flow
-            should follow its ``on_timeout`` path.
-    """
-
-    def __init__(
-        self,
-        signal_name: str,
-        *,
-        correlation: str | None = None,
-        timeout_seconds: float | None = None,
-        node_id: str | None = None,
-    ):
-        self.signal_name = signal_name
-        self.correlation = correlation
-        self.timeout_seconds = timeout_seconds
-        self.node_id = node_id
-        super().__init__(f"Waiting for signal {signal_name!r}")
-
-
-# =============================================================================
-# Backward compatibility aliases
-# =============================================================================
-
-# These map old names to new names so existing code doesn't break.
-# They'll be removed in a future version.
-NodeValidationException = NodeValidationError
-NodeExecutionException = NodeExecutionError
-FlowExecutionException = FlowExecutionError
-FlowPausedException = FlowPausedError
+    def __init__(self, pending: list[dict[str, Any]], cells: dict[str, Any]) -> None:
+        self.pending = pending
+        self.cells = cells
+        super().__init__("The flow is waiting for an answer.")
