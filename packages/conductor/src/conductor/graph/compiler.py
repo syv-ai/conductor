@@ -365,11 +365,29 @@ class _Compilation:
             if inp is None or inp.dtype is Any:
                 continue  # a field the node lacks, or one only an edge can type; check_bindings reports both
             try:
-                typed[name] = _typed_static(inp, value)
+                typed[name] = self._typed_static(inp, value)
             except (ValidationError, TypeError, ValueError) as invalid:
                 said = _what_the_type_said(invalid)
                 self.problems.append(problem("invalid_static", node.id, name, **({"reason": said} if said else {})))
         return typed
+
+    @staticmethod
+    def _typed_static(inp: Any, value: Any) -> Any:
+        """``value`` read through ``inp``'s declared type: a sequence element by
+        element for a ``Series[X]`` input; one value, or a sequence of values
+        when the type refuses the whole, for anything else."""
+        element = getattr(inp.dtype, "element", None)
+        if element is not None:
+            # A Series[X] input takes the whole sequence, each element typed.
+            if not many(value):
+                raise TypeError("a Series input takes a sequence")
+            return [_adapter(element).validate_python(v) for v in value]
+        try:
+            return _adapter(inp.dtype).validate_python(value)
+        except ValidationError:
+            if many(value):
+                return [_adapter(inp.dtype).validate_python(v) for v in value]
+            raise
 
 
 @cache
@@ -393,21 +411,3 @@ def _what_the_type_said(invalid: Exception) -> str:
         cause = errors[0].get("ctx", {}).get("error") if errors else None
         return str(cause) if isinstance(cause, ValueError) else ""
     return str(invalid) if isinstance(invalid, ValueError) else ""
-
-
-def _typed_static(inp: Any, value: Any) -> Any:
-    """``value`` read through ``inp``'s declared type: a sequence element by
-    element for a ``Series[X]`` input; one value, or a sequence of values
-    when the type refuses the whole, for anything else."""
-    element = getattr(inp.dtype, "element", None)
-    if element is not None:
-        # A Series[X] input takes the whole sequence, each element typed.
-        if not many(value):
-            raise TypeError("a Series input takes a sequence")
-        return [_adapter(element).validate_python(v) for v in value]
-    try:
-        return _adapter(inp.dtype).validate_python(value)
-    except ValidationError:
-        if many(value):
-            return [_adapter(inp.dtype).validate_python(v) for v in value]
-        raise

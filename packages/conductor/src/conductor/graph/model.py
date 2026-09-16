@@ -101,12 +101,12 @@ class GraphNode:
 class Graph:
     """The persisted graph: its nodes and its chrome.
 
-    What a host stores for one version of a flow. There is no edge list,
+    What a host stores for one version of a graph. There is no edge list,
     no trigger and no settings block: edges live in each node's
     ``bindings``. What the graph takes and returns is derived when it is
     compiled (``derive_interface``), never stored.
     """
 
     nodes: list[GraphNode]
-    #: Chrome, at flow level.
+    #: Chrome, at graph level.
     display: Mapping[str, Any] = field(default_factory=dict)

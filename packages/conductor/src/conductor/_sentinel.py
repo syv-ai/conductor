@@ -14,7 +14,7 @@ of a series (a value with many rows), the skip applies to that row alone
 and the series it produces is sparse.
 
 ``Asks``, returned where a result would be, means a person must answer
-before the flow can continue. It carries the questions, one ``Input`` (the
+before the graph can continue. It carries the questions, one ``Input`` (the
 record that describes one field a node takes) per value the person
 supplies. The engine reports them and ends the leg pending — a leg is one
 call of ``execute``, and a run takes several when a person must answer in

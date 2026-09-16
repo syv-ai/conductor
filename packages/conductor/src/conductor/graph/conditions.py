@@ -3,7 +3,7 @@
 Outputs of one node that share a ``choice`` are exclusive alternatives:
 exactly one is produced per run and the others carry ``SKIPPED``. The
 engine does not need to know why a value was skipped; it only passes the
-skip on. A caller reading a flow's outputs does need to know, and this
+skip on. A caller reading a graph's outputs does need to know, and this
 module is where it gets the answer, derived from the ``choice`` groups
 in the nodes' interfaces and the edges — nothing else.
 

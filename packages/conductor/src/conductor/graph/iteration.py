@@ -266,7 +266,7 @@ class _Walk:
             binding = node.bindings.get(inp.name)
             whole = version.interface.open == "single" and inp.name not in declared_names
             if not isinstance(binding, Edges):
-                found.arrivals[inp.name] = _originates(inp, ref, self.statics[node.id].get(inp.name), scope)
+                found.arrivals[inp.name] = self._originates(inp, ref, self.statics[node.id].get(inp.name), scope)
                 if getattr(inp.dtype, "element", None) is None and found.arrivals[inp.name].index is not None:
                     found.demands.append((found.arrivals[inp.name].index, ref))
                 continue
@@ -293,7 +293,7 @@ class _Walk:
                     self.problems.append(problem("one_edge_per_parameter", node.id, inp.name))
                     found.broken = True
                     return found
-                refused = _refuses_whole(node.id, inp.name, sources[0].dtype)
+                refused = self._refuses_whole(node.id, inp.name, sources[0].dtype)
                 if refused is not None:
                     self.problems.append(refused)
                     found.broken = True
@@ -310,9 +310,9 @@ class _Walk:
                 target = Series[element] if getattr(inp.dtype, "element", None) is not None else element
                 found.bound[inp.name] = target
             for source_ref, source in zip(binding.refs, sources, strict=True):
-                self.problems.extend(_admit(target, ref, source_ref, source))
+                self.problems.extend(self._admit(target, ref, source_ref, source))
             if target.element is None:
-                if len(sources) > 1 and not _one_index(sources):
+                if len(sources) > 1 and not self._one_index(sources):
                     self.problems.append(problem("union_needs_one_index", node.id, inp.name))
                     found.broken = True
                     return found
@@ -320,7 +320,7 @@ class _Walk:
                 found.receives[inp.name] = arriving.dtype.element or arriving.dtype
                 if arriving.index is not None:
                     found.demands.append((arriving.index, ref))
-            elif _one_index(sources):
+            elif self._one_index(sources):
                 arriving = sources[0]  # one series, or a union of several on one index
                 found.receives[inp.name] = arriving.dtype
                 if scope is not None and arriving.index == scope:
@@ -341,7 +341,7 @@ class _Walk:
         decide the index it runs per row of, and record what each output
         carries."""
         interface = self.asked[node.id]
-        inputs = tuple(_typed(inp, arrived.bound) for inp in interface.inputs)
+        inputs = tuple(self._typed(inp, arrived.bound) for inp in interface.inputs)
         answered = self._outputs(node, arrived.receives)
         if isinstance(answered, Problem):
             # The refusal is the node's problem: fatal, with no `no_outputs`
@@ -353,9 +353,9 @@ class _Walk:
         self.completed[node.id] = replace(self.versions[node.id].interface, inputs=inputs, outputs=outputs)
         if not outputs:
             self.problems.append(problem("no_outputs", node.id))
-        iteration_index, disagreeing = _iteration_index(arrived.demands)
+        iteration_index, disagreeing = self._iteration_index(arrived.demands)
         if disagreeing is not None:
-            self.problems.append(_misaligned(node.id, *disagreeing))
+            self.problems.append(self._misaligned(node.id, *disagreeing))
             return
         # Inside an embedded graph that runs per row, every node runs at least
         # once per outer row: that index is one more demand on the same line
@@ -386,7 +386,7 @@ class _Walk:
             answered = ()
         self.completed[node.id] = replace(
             self.versions[node.id].interface,
-            inputs=tuple(_typed(inp, arrived.bound) for inp in self.asked[node.id].inputs),
+            inputs=tuple(self._typed(inp, arrived.bound) for inp in self.asked[node.id].inputs),
             outputs=answered,
         )
 
@@ -431,72 +431,94 @@ class _Walk:
                 for source in binding.refs:
                     if source.node_id not in inside and source in self.carried and self.carried[source].index is not None:
                         demands.append((self.carried[source].index, Ref(node_id, inp.name)))
-        index, disagreeing = _iteration_index(demands)
+        index, disagreeing = self._iteration_index(demands)
         if disagreeing is not None:
-            self.problems.append(_misaligned(placement, *disagreeing))
+            self.problems.append(self._misaligned(placement, *disagreeing))
             return None
         return index
 
+    @staticmethod
+    def _typed(field: Any, bound: Mapping[str, Any]) -> Any:
+        """``field`` with the type its edge gave it, if an edge gave one."""
+        if field.name in bound:
+            return replace(field, dtype=bound[field.name])
+        return field
 
-def _typed(field: Any, bound: Mapping[str, Any]) -> Any:
-    """``field`` with the type its edge gave it, if an edge gave one."""
-    if field.name in bound:
-        return replace(field, dtype=bound[field.name])
-    return field
+    @staticmethod
+    def _one_index(sources: Sequence[_Carried]) -> bool:
+        """Do all sources carry a series on one and the same index? Then the edges together are one set of rows."""
+        return all(s.index is not None for s in sources) and len({s.index for s in sources}) == 1
 
+    @staticmethod
+    def _refuses_whole(node_id: str, field: str, dtype: type[DType]) -> Problem | None:
+        """A source type that says it cannot be handed over whole — a table whose
+        columns nobody stated — is refused on the field, fatal, with the type's
+        own message. Asked only where a node will *read* the value, a
+        ``**inputs`` parameter; an ``Any`` input only passes the value on, and
+        nothing is asked.
+        """
+        refusal = (dtype.element or dtype).refuses_whole()
+        if refusal is None:
+            return None
+        code, message = refusal
+        return Problem(
+            code=code, message=f"Field '{field}': {message}", fatal=True, node_id=node_id, field=field,
+            details={"inner_message": message},
+        )
 
-def _one_index(sources: Sequence[_Carried]) -> bool:
-    """Do all sources carry a series on one and the same index? Then the edges together are one set of rows."""
-    return all(s.index is not None for s in sources) and len({s.index for s in sources}) == 1
+    @staticmethod
+    def _originates(inp: Input, ref: Ref, static: Any, scope: Index | None) -> _Carried:
+        """What a field carries when no edge feeds it: a scalar, or a series on
+        an index of the field's own — always for a ``Series[X]`` input, and for
+        a scalar input when the author typed many values. Inside an embedded
+        graph that runs per row, that index is a child of the entering one
+        (``scope``).
 
+        ``static`` is the converted value from ``_Compilation._typed_statics`` — a
+        ``list`` exactly when the author typed many — so a scalar type whose
+        own JSON form happens to be a list never makes the node run per row.
+        """
+        if getattr(inp.dtype, "element", None) is not None:  # only a Series type has an element
+            return _Carried(inp.dtype, Index(ref, parent=scope))
+        if many(static):
+            return _Carried(Series[inp.dtype], Index(ref, parent=scope))
+        return _Carried(inp.dtype, None)
 
-def _refuses_whole(node_id: str, field: str, dtype: type[DType]) -> Problem | None:
-    """A source type that says it cannot be handed over whole — a table whose
-    columns nobody stated — is refused on the field, fatal, with the type's
-    own message. Asked only where a node will *read* the value, a
-    ``**inputs`` parameter; an ``Any`` input only passes the value on, and
-    nothing is asked.
-    """
-    refusal = (dtype.element or dtype).refuses_whole()
-    if refusal is None:
-        return None
-    code, message = refusal
-    return Problem(
-        code=code, message=f"Field '{field}': {message}", fatal=True, node_id=node_id, field=field,
-        details={"inner_message": message},
-    )
+    @staticmethod
+    def _admit(target: Any, ref: Ref, source_ref: Ref, source: _Carried) -> list[Problem]:
+        """May what arrives land on ``ref``? ``target.accepts`` decides."""
+        if not target.accepts(source.dtype):
+            return [problem(
+                "type_mismatch", ref.node_id, ref.field,
+                source=str(source_ref),
+                source_type=description_of(source.dtype),
+                target_type=description_of(target),
+                source_said=_say(source.dtype),
+                target_said=_say(target),
+            )]
+        return []
 
+    @staticmethod
+    def _iteration_index(demands: list[tuple[Index, Ref]]) -> tuple[Index | None, tuple[Ref, Ref] | None]:
+        """The index a node runs once per row of, given the indexes its inputs
+        demand — or the two fields whose indexes disagree.
 
-def _originates(inp: Input, ref: Ref, static: Any, scope: Index | None) -> _Carried:
-    """What a field carries when no edge feeds it: a scalar, or a series on
-    an index of the field's own — always for a ``Series[X]`` input, and for
-    a scalar input when the author typed many values. Inside an embedded
-    graph that runs per row, that index is a child of the entering one
-    (``scope``).
+        Every demanded index must lie on one line of descent: an index and the
+        indexes opened from its rows. The deepest is the answer; a shallower
+        one is an ancestor whose rows repeat down to it.
+        """
+        if not demands:
+            return None, None
+        deepest, deepest_ref = max(demands, key=lambda demand: len(_lineage(demand[0])))
+        lineage = set(_lineage(deepest))
+        for index, ref in demands:
+            if index not in lineage:
+                return None, (deepest_ref, ref)
+        return deepest, None
 
-    ``static`` is the converted value from ``compiler._typed_statics`` — a
-    ``list`` exactly when the author typed many — so a scalar type whose
-    own JSON form happens to be a list never makes the node run per row.
-    """
-    if getattr(inp.dtype, "element", None) is not None:  # only a Series type has an element
-        return _Carried(inp.dtype, Index(ref, parent=scope))
-    if many(static):
-        return _Carried(Series[inp.dtype], Index(ref, parent=scope))
-    return _Carried(inp.dtype, None)
-
-
-def _admit(target: Any, ref: Ref, source_ref: Ref, source: _Carried) -> list[Problem]:
-    """May what arrives land on ``ref``? ``target.accepts`` decides."""
-    if not target.accepts(source.dtype):
-        return [problem(
-            "type_mismatch", ref.node_id, ref.field,
-            source=str(source_ref),
-            source_type=description_of(source.dtype),
-            target_type=description_of(target),
-            source_said=_say(source.dtype),
-            target_said=_say(target),
-        )]
-    return []
+    @staticmethod
+    def _misaligned(node_id: str, a: Ref, b: Ref) -> Problem:
+        return problem("misaligned", node_id, a=str(a), b=str(b))
 
 
 def _say(dtype: Any) -> str:
@@ -504,24 +526,6 @@ def _say(dtype: Any) -> str:
     if dtype.element is not None:
         return f"a series of {dtype.element.id}"
     return dtype.id
-
-
-def _iteration_index(demands: list[tuple[Index, Ref]]) -> tuple[Index | None, tuple[Ref, Ref] | None]:
-    """The index a node runs once per row of, given the indexes its inputs
-    demand — or the two fields whose indexes disagree.
-
-    Every demanded index must lie on one line of descent: an index and the
-    indexes opened from its rows. The deepest is the answer; a shallower
-    one is an ancestor whose rows repeat down to it.
-    """
-    if not demands:
-        return None, None
-    deepest, deepest_ref = max(demands, key=lambda demand: len(_lineage(demand[0])))
-    lineage = set(_lineage(deepest))
-    for index, ref in demands:
-        if index not in lineage:
-            return None, (deepest_ref, ref)
-    return deepest, None
 
 
 def _lineage(index: Index) -> list[Index]:
@@ -532,7 +536,3 @@ def _lineage(index: Index) -> list[Index]:
         found.append(current)
         current = current.parent
     return found
-
-
-def _misaligned(node_id: str, a: Ref, b: Ref) -> Problem:
-    return problem("misaligned", node_id, a=str(a), b=str(b))

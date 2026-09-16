@@ -17,7 +17,6 @@ from conductor.node import (
     upgrade,
     version,
 )
-from conductor.registry import runner_for
 from conductor.returns import Result
 from conductor.series import Series
 from conductor.widgets import Choice, ConnectionList, Dropdown, Switch, Textarea
@@ -905,6 +904,22 @@ def test_a_missing_upgrade_path_is_none_not_an_error():
     assert registry.upgrade_path("plain", 1, 2) is None
 
 
+def test_a_class_that_sets_its_own_upgrades_is_refused():
+    """``upgrades`` is collected from ``@upgrade`` methods, never given, so a
+    class body that sets it would be silently overwritten; it is refused."""
+    with pytest.raises(TypeError, match="upgrades"):
+
+        class Given(NodeDefinition):
+            id = "given"
+            title = "Given"
+            description = "d"
+            category = "test"
+            upgrades = {}
+
+            def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+                return x
+
+
 def test_there_is_exactly_one_way_to_declare_a_node():
     """Gone, so they cannot come back by habit."""
     import conductor
@@ -1012,9 +1027,9 @@ def test_a_version_a_class_does_not_declare_is_refused():
     registry.register(Once)
 
     with pytest.raises(KeyError):
-        runner_for(registry, "once-exec", 2)
+        registry.runner_for("once-exec", 2)
     with pytest.raises(KeyError):
-        runner_for(registry, "never-registered", 1)
+        registry.runner_for("never-registered", 1)
 
 
 def test_each_call_gets_a_fresh_instance():
@@ -1033,7 +1048,7 @@ def test_each_call_gets_a_fresh_instance():
 
     registry = NodeRegistry()
     registry.register(Counting)
-    runner = runner_for(registry, "counting", 1)
+    runner = registry.runner_for("counting", 1)
     runner(x=Txt("a"))
     runner(x=Txt("b"))
 
@@ -1044,7 +1059,7 @@ def test_a_definition_may_carry_its_versions_by_value():
     """A definition built from data (an embedded graph) sets ``versions`` in
     the class body, each a ``GraphVersion`` holding an interface and the
     placements the compiler expands it to. ``register()`` checks the
-    numbering and ``describe()`` reads it, but ``runner_for`` refuses it:
+    numbering and ``describe()`` reads it, but ``registry.runner_for`` refuses it:
     there is nothing to run, the compiler expanded it."""
     from collections.abc import Mapping
 
@@ -1084,4 +1099,4 @@ def test_a_definition_may_carry_its_versions_by_value():
     registry = NodeRegistry()
     registry.register(Loaded)
     with pytest.raises(TypeError, match="graph"):
-        runner_for(registry, "loaded", 1)
+        registry.runner_for("loaded", 1)

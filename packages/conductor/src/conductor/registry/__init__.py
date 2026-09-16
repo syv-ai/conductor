@@ -14,7 +14,7 @@ import inspect
 from collections.abc import Mapping
 from typing import Any, Callable
 
-from conductor.node import NodeDefinition, NodeVersion, upgrade_methods
+from conductor.node import NodeDefinition, NodeVersion
 
 
 class NodeRegistry:
@@ -28,7 +28,6 @@ class NodeRegistry:
     def __init__(self) -> None:
         #: The classes, by id, in registration order.
         self._nodes: dict[str, type[NodeDefinition]] = {}
-        self._upgrades: dict[str, dict[tuple[int, int], Callable[..., Any]]] = {}
 
     def register(self, node_cls: type[NodeDefinition]) -> None:
         if not (isinstance(node_cls, type) and issubclass(node_cls, NodeDefinition)):
@@ -66,7 +65,6 @@ class NodeRegistry:
                     "registered here; register the replacement before the node it replaces"
                 )
         self._nodes[node_cls.id] = node_cls
-        self._upgrades[node_cls.id] = upgrade_methods(node_cls)
 
     def get(self, node_id: str) -> type[NodeDefinition] | None:
         """The class registered under ``node_id``, or ``None``."""
@@ -86,7 +84,8 @@ class NodeRegistry:
         self, node_id: str, from_version: int, to_version: int
     ) -> Callable[..., Any] | None:
         """The ``@upgrade`` function for one version step, or ``None``."""
-        return self._upgrades.get(node_id, {}).get((from_version, to_version))
+        node_cls = self._nodes.get(node_id)
+        return None if node_cls is None else node_cls.upgrades.get((from_version, to_version))
 
 
     def extended_with(
@@ -103,51 +102,45 @@ class NodeRegistry:
         """
         extended = NodeRegistry()
         extended._nodes = {**definitions, **self._nodes}
-        extended._upgrades = {
-            **{node_id: upgrade_methods(cls) for node_id, cls in definitions.items()},
-            **self._upgrades,
-        }
         return extended
 
-def _class_runner(
-    node_cls: type[NodeDefinition], method: Callable[..., Any]
-) -> Callable[..., Any]:
-    """A plain callable for one version's method: a fresh instance per call.
+    def runner_for(self, node_id: str, version: int) -> Callable[..., Any]:
+        """The callable for one registered version, for the engine to dispatch.
 
-    ``__signature__`` is the method's minus ``self``, so the engine's
-    keyword filtering sees the node's parameters.
-    """
+        ``node_id`` and ``version`` are the two facts a node stores. An
+        unknown id or version is a ``KeyError``: the compiler has resolved
+        every pin before the engine asks, so a miss is a bug. A
+        ``GraphVersion`` is a ``TypeError``: the compiler expands it, so the
+        engine never runs it as one unit. Nothing is cached, so a reloaded
+        module runs its new definition.
+        """
+        node_cls = self.get(node_id)
+        if node_cls is None:
+            raise KeyError(f"no definition registered under {node_id!r}")
+        declared = node_cls.versions[version]
+        if not isinstance(declared, NodeVersion):
+            raise TypeError(
+                f"{node_id!r} version {version} declares a graph, not a run; compile "
+                "expands it under the placement's name"
+            )
+        return self._class_runner(node_cls, declared.run)
 
-    def runner(**kwargs: Any) -> Any:
-        return method(node_cls(), **kwargs)
+    @staticmethod
+    def _class_runner(
+        node_cls: type[NodeDefinition], method: Callable[..., Any]
+    ) -> Callable[..., Any]:
+        """A plain callable for one version's method: a fresh instance per call.
 
-    signature = inspect.signature(method)
-    runner.__signature__ = signature.replace(
-        parameters=[p for name, p in signature.parameters.items() if name != "self"]
-    )
-    runner.__name__ = f"{node_cls.__name__}.{method.__name__}"
-    return runner
+        ``__signature__`` is the method's minus ``self``, so the engine's
+        keyword filtering sees the node's parameters.
+        """
 
+        def runner(**kwargs: Any) -> Any:
+            return method(node_cls(), **kwargs)
 
-def runner_for(
-    registry: "NodeRegistry", node_id: str, version: int
-) -> Callable[..., Any]:
-    """The callable for one registered version, for the engine to dispatch.
-
-    ``node_id`` and ``version`` are the two facts a node stores. An
-    unknown id or version is a ``KeyError``: the compiler has resolved
-    every pin before the engine asks, so a miss is a bug. A
-    ``GraphVersion`` is a ``TypeError``: the compiler expands it, so the
-    engine never runs it as one unit. Nothing is cached, so a reloaded
-    module runs its new definition.
-    """
-    node_cls = registry.get(node_id)
-    if node_cls is None:
-        raise KeyError(f"no definition registered under {node_id!r}")
-    declared = node_cls.versions[version]
-    if not isinstance(declared, NodeVersion):
-        raise TypeError(
-            f"{node_id!r} version {version} declares a graph, not a run; compile "
-            "expands it under the placement's name"
+        signature = inspect.signature(method)
+        runner.__signature__ = signature.replace(
+            parameters=[p for name, p in signature.parameters.items() if name != "self"]
         )
-    return _class_runner(node_cls, declared.run)
+        runner.__name__ = f"{node_cls.__name__}.{method.__name__}"
+        return runner

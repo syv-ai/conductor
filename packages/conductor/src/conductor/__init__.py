@@ -22,7 +22,7 @@ from conductor.node import (
     version,
 )
 from conductor.ref import Ref
-from conductor.registry import NodeRegistry, runner_for
+from conductor.registry import NodeRegistry
 from conductor.returns import Result
 from conductor.series import Index, Series
 from conductor.widgets import AnyWidget
