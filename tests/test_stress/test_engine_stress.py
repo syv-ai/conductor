@@ -11,7 +11,7 @@ Scenarios covered:
    count and a value propagates end-to-end.
 2. **Cancel mid-retry.** Setting the cancellation flag while a node is
    asleep between retry attempts honours the cancel: no further attempt
-   runs and ``flow_cancelled`` is emitted.
+   runs and ``graph_cancelled`` is emitted.
 """
 
 from __future__ import annotations
@@ -99,7 +99,7 @@ async def test_cancellation_honored_during_retry_sleep() -> None:
     the engine spends most of its time in ``await asyncio.sleep(delay)``
     between attempts. Once a ``node_retry`` event has been observed, the
     cancellation flag is set. The engine's main loop polls cancellation
-    every 500ms, so within ~1s ``flow_cancelled`` follows and no further
+    every 500ms, so within ~1s ``graph_cancelled`` follows and no further
     attempt runs.
     """
     call_count = 0
@@ -185,12 +185,12 @@ async def test_cancellation_honored_during_retry_sleep() -> None:
     assert "node_retry" in event_types, (
         f"expected at least one node_retry before cancel; got {event_types}"
     )
-    assert "flow_cancelled" in event_types, (
-        f"expected flow_cancelled; got {event_types}"
+    assert "graph_cancelled" in event_types, (
+        f"expected graph_cancelled; got {event_types}"
     )
-    # ``flow_cancelled`` comes *after* at least one ``node_retry`` —
+    # ``graph_cancelled`` comes *after* at least one ``node_retry`` —
     # cancellation interrupted the retry sleep, not the first attempt.
-    cancel_idx = event_types.index("flow_cancelled")
+    cancel_idx = event_types.index("graph_cancelled")
     retry_idx = event_types.index("node_retry")
     assert retry_idx < cancel_idx, (
         f"expected retry before cancel in {event_types}"

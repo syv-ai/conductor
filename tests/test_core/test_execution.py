@@ -166,7 +166,7 @@ class TestStreamingExecution:
         event_types = [e["type"] for e in events]
         assert "node_start" in event_types
         assert "node_complete" in event_types
-        assert "flow_complete" in event_types
+        assert "graph_complete" in event_types
 
     async def test_linear_chain_results(self, three_node_registry):
         """echo('hello') -> upper -> 'HELLO'."""
@@ -252,7 +252,7 @@ class TestErrorHandling:
 
         event_types = [e["type"] for e in events]
         assert "node_error" in event_types
-        assert "flow_error" in event_types
+        assert "graph_error" in event_types
 
     def test_execute_sync_raises_on_error(self, registry):
         registry.register(Fail)
@@ -286,7 +286,7 @@ class TestTimeout:
             events.append(event)
 
         event_types = [e["type"] for e in events]
-        assert "flow_timeout" in event_types
+        assert "graph_timeout" in event_types
 
 
 # ---------------------------------------------------------------------------

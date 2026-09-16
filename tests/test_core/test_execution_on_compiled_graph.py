@@ -196,4 +196,4 @@ def test_events_carry_the_placement_title():
         return [e async for e in execute(compiled)]
 
     events = asyncio.run(collect())
-    assert [e["type"] for e in events] == ["node_start", "node_complete", "flow_complete"]
+    assert [e["type"] for e in events] == ["node_start", "node_complete", "graph_complete"]

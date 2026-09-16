@@ -46,12 +46,12 @@ from conductor.widgets import Widget
 
 
 @dataclass(frozen=True)
-class Provided:
+class FromRun:
     """Marks a parameter that the caller of the flow supplies, not the flow.
 
-    ``identity: Annotated[RunnerIdentity, Provided()]`` says: this is not an
+    ``identity: Annotated[RunnerIdentity, FromRun()]`` says: this is not an
     input — no widget, no handle, no binding — but a value the host hands
-    to ``execute(provides={RunnerIdentity: ...})``, which the engine passes
+    to ``execute(from_run={RunnerIdentity: ...})``, which the engine passes
     in by type. ``Interface.of`` collects such parameters into
     ``Interface.needs``, and ``execute`` refuses to start a flow whose
     nodes need a type it was not given.
@@ -84,7 +84,7 @@ class Interface:
     #: uses to split ``run``'s return across the outputs.
     returns: Any
     #: The types the caller must provide, by parameter name, from every
-    #: ``Provided`` parameter. ``execute`` refuses to start a flow whose
+    #: ``FromRun`` parameter. ``execute`` refuses to start a flow whose
     #: nodes need a type it was not given.
     needs: dict[str, type] = field(default_factory=dict)
     #: The shape of an open interface, or ``None`` for a closed one:
@@ -133,7 +133,7 @@ def model_of(inputs: tuple[Input, ...]) -> type[BaseModel]:
 def _extract_inputs(
     signature: inspect.Signature, hints: dict[str, Any]
 ) -> tuple[tuple[Input, ...], dict[str, type], Literal["single", "series"] | None]:
-    """One walk over the parameters: the ``Input`` records, the ``Provided``
+    """One walk over the parameters: the ``Input`` records, the ``FromRun``
     needs by parameter name, and the shape of an open interface (``"single"``,
     ``"series"`` or ``None``)."""
     inputs: list[Input] = []
@@ -161,7 +161,7 @@ def _extract_inputs(
                 f"parameter {name!r}: Single is spelled on **inputs only; "
                 "a named parameter declares a DType, or Any for whatever arrives"
             )
-        if _annotation_of(annotation, Provided) is not None:
+        if _annotation_of(annotation, FromRun) is not None:
             needs[name] = get_args(annotation)[0]
             continue
         widget = _annotation_of(annotation, Widget)

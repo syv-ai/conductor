@@ -1,18 +1,42 @@
-"""SKIPPED sentinel for conditional branch propagation."""
+"""The two values a node's ``run`` may return that are not results: ``SKIPPED`` and ``Asks``.
 
-from typing import Any
+The engine acts on the returned value itself. Nothing on the node class
+declares that it may skip or ask.
+
+``SKIPPED`` on an output means the node did not take that branch::
+
+    def run(self, text: Txt, short: Boolean) -> Branches:
+        return Branches(if_true=text if short else SKIPPED,
+                        if_false=SKIPPED if short else text)
+
+Nothing that reads a skipped output runs. When the node runs once per row
+of a series (a value with many rows), the skip applies to that row alone
+and the series it produces is sparse.
+
+``Asks``, returned where a result would be, means a person must answer
+before the flow can continue. It carries the questions, one ``Input`` (the
+record that describes one field a node takes) per value the person
+supplies. The engine reports them and ends the leg pending — a leg is one
+call of ``execute``, and a run takes several when a person must answer in
+between. The answers reach the next leg as the node's outputs through
+``execute(cache=...)``, so ``run`` is not called again.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from conductor.metadata import Input
 
 
 class _SkippedType:
-    """Sentinel value indicating an output branch was not taken.
+    """The type of ``SKIPPED``: a falsy singleton whose repr is ``SKIPPED``."""
 
-    Used by conditional nodes (If, Switch) to mark inactive branches.
-    When a node receives only SKIPPED inputs, it is also skipped.
-    """
+    _instance: _SkippedType | None = None
 
-    _instance: "_SkippedType | None" = None
-
-    def __new__(cls) -> "_SkippedType":
+    def __new__(cls) -> _SkippedType:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
@@ -27,6 +51,37 @@ class _SkippedType:
 SKIPPED = _SkippedType()
 
 
+@dataclass(frozen=True)
+class Asks:
+    """A request for a person's input, returned by ``run`` in place of a result.
+
+    ``questions`` are the fields the person fills in, one ``Input`` per
+    output of the node; the engine re-keys them by address (``node.field``)
+    when it reports them. ``prompt`` is optional text for the person; when
+    ``None`` the host shows the node's own title and description::
+
+        def run(self, proposal: Annotated[Txt, Textarea(title="Proposal")] = Txt("")) -> Out | Asks:
+            return Asks(questions=(
+                Input(name="result", dtype=Txt, title="Answer",
+                      widget=Textarea(title="Answer"), default=proposal, optional=True),
+            ))
+
+    The engine is the only reader: ``is_asking`` on the returned value
+    parks the unit — one run of one node, on one row when the node runs
+    per row — through ``Ledger.pend``, and the leg ends ``graph_pending``
+    once nothing else can run; ``execute_sync`` hands the pause back as
+    ``GraphPendingError``. Its sibling is ``SKIPPED``, the other value that
+    is not a result. A ``run`` that may ask says so only in its return
+    annotation, ``-> X | Asks``.
+    """
+
+    questions: tuple[Input, ...]
+    prompt: str | None = None
+
+
 def is_skipped(value: Any) -> bool:
-    """Check if a value is the SKIPPED sentinel."""
     return value is SKIPPED
+
+
+def is_asking(value: Any) -> bool:
+    return isinstance(value, Asks)

@@ -374,15 +374,15 @@ def test_the_input_record_publishes_a_json_schema_per_widget():
     assert "textarea" in widget["discriminator"]["mapping"]
 
 
-def test_a_provided_parameter_is_a_need_not_an_input():
+def test_a_from_run_parameter_is_a_need_not_an_input():
     """What the run supplies, by type: no widget, no handle, nothing in the
-    interface. ``execute(provides={Who: …})`` hands it in."""
-    from conductor.interface import Provided
+    interface. ``execute(from_run={Who: …})`` hands it in."""
+    from conductor.interface import FromRun
 
     class Who:
         pass
 
-    def greet(text: Annotated[Text, Textarea(title="T")], who: Annotated[Who, Provided()]) -> Annotated[Text, Result(title="R")]:
+    def greet(text: Annotated[Text, Textarea(title="T")], who: Annotated[Who, FromRun()]) -> Annotated[Text, Result(title="R")]:
         return Text(f"{text} {who}")
 
     iface = Interface.of(greet)

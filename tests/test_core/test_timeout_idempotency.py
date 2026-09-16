@@ -6,7 +6,7 @@ from typing import Annotated
 import pytest
 from conductor import (
     CompiledGraph,
-    FlowExecutionError,
+    GraphExecutionError,
     GraphNode,
     NodeRegistry,
     execute_sync,
@@ -41,5 +41,5 @@ def test_per_node_timeout_triggers() -> None:
 
     reg.register(Slow)
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode("n1", "slow", 1)]), reg)
-    with pytest.raises(FlowExecutionError):
+    with pytest.raises(GraphExecutionError):
         execute_sync(compiled)

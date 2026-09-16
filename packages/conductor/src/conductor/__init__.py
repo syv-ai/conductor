@@ -1,30 +1,6 @@
-"""conductor — reusable graph execution engine.
-
-The top-level package re-exports the surfaces most projects need. Deeper
-internals (resolver, state, topology, etc.) stay in submodules.
-"""
-
-from conductor import errors, expr, widgets
-from conductor._sentinel import SKIPPED
+from conductor._sentinel import SKIPPED, Asks, is_asking, is_skipped
 from conductor.dtype import DType, Single, dtype_of, registered_dtypes
 from conductor.dtype_ref import DTypeRef
-from conductor.errors import (
-    CompilationError,
-    ConductorError,
-    FlowExecutionError,
-    FlowPausedError,
-    HumanInputRequired,
-    NodeConnectionError,
-    NodeError,
-    NodeExecutionError,
-    NodeTimeoutError,
-    NodeValidationError,
-    SignalRequired,
-)
-from conductor.execution.checkpoint import FlowCheckpoint
-from conductor.execution.engine import execute, execute_sync, resume, resume_sync
-from conductor.execution.retry import RetryConfig
-from conductor.execution.store import FlowStore
 from conductor.graph.binding import Binding, Edges, Static
 from conductor.graph.compiled import CompiledField, CompiledGraph, CompiledNode
 from conductor.graph.conditions import ALWAYS, Atom, Condition
@@ -32,7 +8,7 @@ from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.problem import Problem
 from conductor.graph.topology import dependencies_of
 from conductor.graph.views import is_input_node
-from conductor.interface import Interface, Provided
+from conductor.interface import FromRun, Interface
 from conductor.metadata import Input, Output
 from conductor.node import (
     Deprecation,
@@ -50,75 +26,3 @@ from conductor.registry import NodeRegistry, runner_for
 from conductor.returns import Result
 from conductor.series import Index, Series
 from conductor.widgets import AnyWidget
-
-__all__ = [
-    # Registry + graph
-    "NodeRegistry",
-    "runner_for",
-    "GraphNode",
-    "FieldContent",
-    "Graph",
-    "Binding",
-    "Edges",
-    "Static",
-    "dependencies_of",
-    "is_input_node",
-    "CompiledGraph",
-    "CompiledNode",
-    "CompiledField",
-    "Problem",
-    "Condition",
-    "Atom",
-    "ALWAYS",
-    # Execution
-    "execute",
-    "execute_sync",
-    "resume",
-    "resume_sync",
-    "RetryConfig",
-    "FlowStore",
-    "FlowCheckpoint",
-    "SKIPPED",
-    # The node contract
-    "NodeDefinition",
-    "NodeVersion",
-    "GraphVersion",
-    "Policy",
-    "Deprecation",
-    "NodeDescription",
-    "Interface",
-    "Provided",
-    "Input",
-    "Output",
-    "AnyWidget",
-    "version",
-    "upgrade",
-    "deprecated",
-    # The type vocabulary
-    "DType",
-    "DTypeRef",
-    "Single",
-    "dtype_of",
-    "registered_dtypes",
-    "Ref",
-    "Result",
-    "Index",
-    "Series",
-    # Types / enums
-    # Errors (most commonly raised from node code)
-    "ConductorError",
-    "CompilationError",
-    "NodeError",
-    "NodeValidationError",
-    "NodeExecutionError",
-    "NodeConnectionError",
-    "NodeTimeoutError",
-    "FlowExecutionError",
-    "HumanInputRequired",
-    "FlowPausedError",
-    "SignalRequired",
-    # Submodules re-exported for namespace access (`conductor.widgets.Text`, etc.)
-    "widgets",
-    "errors",
-    "expr",
-]
