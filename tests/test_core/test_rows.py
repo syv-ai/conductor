@@ -399,6 +399,28 @@ def test_execute_sync_raises_with_the_cause():
     assert raised.value.cause.row == (0,)
 
 
+def test_a_defect_in_the_engine_fails_the_leg_instead_of_hanging_it(monkeypatch):
+    """An exception the engine did not expect, raised while running a unit,
+    ends the leg as a failure of that unit. A task that died silently would
+    leave the loop waiting for a unit that never reports."""
+    from conductor.execution.ledger import Ledger
+
+    def broken(self, unit):
+        raise RuntimeError("the ledger lost a cell")
+
+    monkeypatch.setattr(Ledger, "inputs_for", broken)
+    compiled = CompiledGraph.from_graph(Graph(nodes=[_docs("a,b")]), _registry())
+
+    async def collect():
+        return [e async for e in execute(compiled, timeout_seconds=5)]
+
+    events = asyncio.run(collect())
+
+    assert events[-1]["type"] == "graph_error"
+    assert events[-1]["cause"].code == "engine_error"
+    assert "the ledger lost a cell" in events[-1]["error"]
+
+
 def test_a_flow_compile_rejected_is_refused_with_its_problems():
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="gone", version=1)]), _registry())
 
