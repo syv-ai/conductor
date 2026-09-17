@@ -160,7 +160,7 @@ All exceptions inherit from `ConductorError` (see `errors.py`). A run-time failu
 
 ### Saving a graph
 
-`Graph`, and every record a host saves or sends (`GraphNode`, `Edges`, `Static`, `Problem`, `ErrorCause`, `Policy`, `NodeDescription`, `Input`, `Output`, the widgets, `Index`), is a `ConductorModel`: a frozen pydantic model. JSON is pydantic's own (`model_dump_json` / `model_validate_json`); `to_yaml` / `from_yaml` and `to_path` / `from_path` save and load YAML or JSON by suffix. A ref stores as its address, `"node.field"`. YAML needs PyYAML (`syv-conductor[yaml]`). What compile and the engine build per call (`CompiledGraph` and its views, versions, `Interface`, the ledger's records) stays a frozen dataclass.
+`Graph`, and every record a host saves or sends (`GraphNode`, `Edges`, `Static`, `Problem`, `ErrorCause`, `Policy`, `NodeDescription`, `Input`, `Output`, the widgets, `Index`), is a `ConductorModel`: a frozen pydantic model. JSON is pydantic's own (`model_dump_json` / `model_validate_json`); `to_yaml` / `from_yaml` and `to_path` / `from_path` save and load YAML or JSON by suffix. A saved record reads back what it wrote; what describes a node (`NodeDescription`, `VersionDescription`, `Input`, `Output`, the widgets) is written for an editor and not read back — its `dtype` dumps as a description and a widget's title travels on its `Input`. A ref stores as its address, `"node.field"`. YAML needs PyYAML (`syv-conductor[yaml]`). What compile and the engine build per call (`CompiledGraph` and its views, versions, `Interface`, the ledger's records) stays a frozen dataclass.
 
 ### Documentation maintenance
 
