@@ -5,16 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Annotated
 
-from conductor import (
-    CompiledGraph,
-    GraphNode,
-    NodeRegistry,
-    execute,
-    execute_sync,
-)
+from conductor import CompiledGraph, GraphNode, NodeRegistry
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
 from conductor.errors import NodeExecutionError
+from conductor.execution.engine import execute, execute_sync
 from conductor.graph.binding import Edges, Static
 from conductor.graph.model import Graph
 from conductor.node import NodeDefinition, Policy, version
@@ -147,9 +142,9 @@ class TestDecisionCombinations:
     def test_decision_branch_failure_does_not_affect_other_branch(self):
         """The branch not taken holds a failing node that never runs."""
         compiled = CompiledGraph.from_graph(Graph(nodes=[
-                GraphNode("d", "decide", 1, bindings={"value": Static(value=100)}),
-                GraphNode("a", "tally", 1, bindings={"label": Static(value="A"), "number": Edges(refs=(Ref('d', 'high'),))}),
-                GraphNode("b", "always-fail", 1, bindings={"number": Edges(refs=(Ref('d', 'low'),))}),
+                GraphNode(id="d", type="decide", version=1, bindings={"value": Static(value=100)}),
+                GraphNode(id="a", type="tally", version=1, bindings={"label": Static(value="A"), "number": Edges(refs=(Ref('d', 'high'),))}),
+                GraphNode(id="b", type="always-fail", version=1, bindings={"number": Edges(refs=(Ref('d', 'low'),))}),
             ]), _registry())
         r = execute_sync(compiled)
         # A ran; B was skipped so it never failed
@@ -187,7 +182,7 @@ class TestRetry:
                     raise NodeExecutionError("transient", node_id="flaky")
                 return Txt("ok")
 
-        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode("n1", "flaky", 1)]), _registry(Flaky))
+        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="flaky", version=1)]), _registry(Flaky))
         r = execute_sync(compiled)
         assert r["n1"]["result"] == "ok"
         assert calls == 2  # one failure + one success
@@ -228,9 +223,9 @@ class TestEdgeCases:
 
     def test_decision_routes_only_the_taken_branch(self):
         compiled = CompiledGraph.from_graph(Graph(nodes=[
-                GraphNode("d", "decide", 1, bindings={"value": Static(value=100)}),
-                GraphNode("taken", "tally", 1, bindings={"label": Static(value="TAKEN"), "number": Edges(refs=(Ref('d', 'high'),))}),
-                GraphNode("other", "tally", 1, bindings={"label": Static(value="OTHER"), "number": Edges(refs=(Ref('d', 'low'),))}),
+                GraphNode(id="d", type="decide", version=1, bindings={"value": Static(value=100)}),
+                GraphNode(id="taken", type="tally", version=1, bindings={"label": Static(value="TAKEN"), "number": Edges(refs=(Ref('d', 'high'),))}),
+                GraphNode(id="other", type="tally", version=1, bindings={"label": Static(value="OTHER"), "number": Edges(refs=(Ref('d', 'low'),))}),
             ]), _registry())
         r = execute_sync(compiled)
         assert r["taken"]["result"] == "TAKEN"
@@ -240,10 +235,10 @@ class TestEdgeCases:
         """A deciding node fed by an edge routes the taken branch; the else branch is skipped."""
 
         compiled = CompiledGraph.from_graph(Graph(nodes=[
-                GraphNode("source", "echo", 1, bindings={"text": Static(value="data")}),
-                GraphNode("d", "route", 1, bindings={"text": Edges(refs=(Ref('source', 'result'),))}),
-                GraphNode("taken", "echo", 1, bindings={"text": Edges(refs=(Ref('d', 'match'),))}),
-                GraphNode("else_b", "echo", 1, bindings={"text": Edges(refs=(Ref('d', 'other'),))}),
+                GraphNode(id="source", type="echo", version=1, bindings={"text": Static(value="data")}),
+                GraphNode(id="d", type="route", version=1, bindings={"text": Edges(refs=(Ref('source', 'result'),))}),
+                GraphNode(id="taken", type="echo", version=1, bindings={"text": Edges(refs=(Ref('d', 'match'),))}),
+                GraphNode(id="else_b", type="echo", version=1, bindings={"text": Edges(refs=(Ref('d', 'other'),))}),
             ]), _registry(Route))
         r = execute_sync(compiled)
         assert r["taken"]["result"] == "data"

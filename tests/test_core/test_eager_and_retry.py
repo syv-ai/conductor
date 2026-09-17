@@ -1,8 +1,8 @@
 """Eager scheduling and retry.
 
-Independent branches run concurrently; a failing node is re-run under the
-version's ``Policy`` or, when the version declares none, under the run's
-``RetryConfig``; a validation failure is never retried.
+Independent branches run concurrently; a failing node is re-run under its
+version's ``Policy``, and nothing else retries it; a validation failure is
+never retried.
 """
 
 import time
@@ -11,9 +11,8 @@ from typing import Annotated
 import pytest
 from conductor import CompiledGraph, GraphNode, NodeRegistry
 from conductor.dtype import DType
-from conductor.errors import CompilationError, FlowExecutionException
+from conductor.errors import CompilationError, GraphExecutionError
 from conductor.execution.engine import execute, execute_sync
-from conductor.execution.retry import RetryConfig
 from conductor.graph.binding import Edges, Static
 from conductor.graph.model import Graph
 from conductor.node import NodeDefinition, Policy, version
@@ -106,11 +105,11 @@ class TestEagerScheduling:
         #                      +--> E
         # B(0.3s) -> D(0.3s) --+
         compiled = CompiledGraph.from_graph(Graph(nodes=[
-                GraphNode("a", "slow", 1, bindings={"text": Static(value="hello")}),
-                GraphNode("b", "slow", 1, bindings={"text": Static(value="world")}),
-                GraphNode("c", "slow", 1, bindings={"text": Edges(refs=(Ref('a', 'result'),))}),
-                GraphNode("d", "slow", 1, bindings={"text": Edges(refs=(Ref('b', 'result'),))}),
-                GraphNode("e", "join", 1, bindings={"a": Edges(refs=(Ref('c', 'result'),)), "b": Edges(refs=(Ref('d', 'result'),))}),
+                GraphNode(id="a", type="slow", version=1, bindings={"text": Static(value="hello")}),
+                GraphNode(id="b", type="slow", version=1, bindings={"text": Static(value="world")}),
+                GraphNode(id="c", type="slow", version=1, bindings={"text": Edges(refs=(Ref('a', 'result'),))}),
+                GraphNode(id="d", type="slow", version=1, bindings={"text": Edges(refs=(Ref('b', 'result'),))}),
+                GraphNode(id="e", type="join", version=1, bindings={"a": Edges(refs=(Ref('c', 'result'),)), "b": Edges(refs=(Ref('d', 'result'),))}),
             ]), _registry(Slow, Join))
 
         start = time.monotonic()
@@ -123,17 +122,17 @@ class TestEagerScheduling:
 
     def test_linear_chain_still_works(self):
         compiled = CompiledGraph.from_graph(Graph(nodes=[
-                GraphNode("n1", "echo", 1, bindings={"text": Static(value="hello")}),
-                GraphNode("n2", "upper", 1, bindings={"text": Edges(refs=(Ref('n1', 'result'),))}),
-                GraphNode("n3", "echo", 1, bindings={"text": Edges(refs=(Ref('n2', 'result'),))}),
+                GraphNode(id="n1", type="echo", version=1, bindings={"text": Static(value="hello")}),
+                GraphNode(id="n2", type="upper", version=1, bindings={"text": Edges(refs=(Ref('n1', 'result'),))}),
+                GraphNode(id="n3", type="echo", version=1, bindings={"text": Edges(refs=(Ref('n2', 'result'),))}),
             ]), _registry(Echo, Upper))
 
         assert execute_sync(compiled)["n3"]["result"] == "HELLO"
 
     async def test_events_emitted_for_parallel_nodes(self):
         compiled = CompiledGraph.from_graph(Graph(nodes=[
-                GraphNode("a", "echo", 1, bindings={"text": Static(value="x")}),
-                GraphNode("b", "echo", 1, bindings={"text": Static(value="y")}),
+                GraphNode(id="a", type="echo", version=1, bindings={"text": Static(value="x")}),
+                GraphNode(id="b", type="echo", version=1, bindings={"text": Static(value="y")}),
             ]), _registry(Echo))
 
         events = [event async for event in execute(compiled)]
@@ -144,43 +143,34 @@ class TestEagerScheduling:
         assert "graph_complete" in types
 
     def test_single_node_works(self):
-        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode("n1", "echo", 1, bindings={"text": Static(value="hi")})]), _registry(Echo))
+        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="echo", version=1, bindings={"text": Static(value="hi")})]), _registry(Echo))
 
         assert execute_sync(compiled)["n1"]["result"] == "hi"
 
 
 class TestRetry:
-    def test_global_retry_retries_on_failure(self):
-        """The run-level ``RetryConfig`` re-runs a node that declares no policy."""
+    def test_retries_exhausted_fail_the_run(self):
         calls = 0
 
-        class Flaky(NodeDefinition):
-            id = "flaky"
-            title = "Flaky"
-            description = "Fails twice, then succeeds"
+        class Stubborn(NodeDefinition):
+            id = "stubborn"
+            title = "Stubborn"
+            description = "Raises on every attempt"
             category = "test"
 
+            @version(1, policy=Policy(retries=2, delay=0.01))
             def run(self, text: In = Txt("")) -> Out:
                 nonlocal calls
                 calls += 1
-                if calls < 3:
-                    raise RuntimeError(f"Attempt {calls} failed")
-                return Txt(f"ok:{text}")
+                raise RuntimeError("boom")
 
-        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode("n1", "flaky", 1, bindings={"text": Static(value="hello")})]), _registry(Flaky))
+        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="stubborn", version=1, bindings={"text": Static(value="hello")})]), _registry(Stubborn))
 
-        results = execute_sync(compiled, retry=RetryConfig(max_retries=3, delay=0.05))
-        assert results["n1"]["result"] == "ok:hello"
+        with pytest.raises(GraphExecutionError):
+            execute_sync(compiled)
         assert calls == 3
 
-    def test_global_retry_exhausted_raises(self):
-        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode("n1", "always-fails", 1, bindings={"text": Static(value="hello")})]), _registry(AlwaysFails))
-
-        with pytest.raises(FlowExecutionException):
-            execute_sync(compiled, retry=RetryConfig(max_retries=2, delay=0.01))
-
-    def test_node_level_retry_overrides_global(self):
-        """The version's ``Policy`` wins over the run-level ``RetryConfig``."""
+    def test_the_versions_policy_retries_a_failing_node(self):
         calls = 0
 
         class Flaky(NodeDefinition):
@@ -197,17 +187,16 @@ class TestRetry:
                     raise RuntimeError("not yet")
                 return Txt("done")
 
-        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode("n1", "flaky", 1, bindings={"text": Static(value="x")})]), _registry(Flaky))
+        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="flaky", version=1, bindings={"text": Static(value="x")})]), _registry(Flaky))
 
-        # The run says no retry, the version says 3 — the version wins.
-        results = execute_sync(compiled, retry=RetryConfig(max_retries=0))
+        results = execute_sync(compiled)
         assert results["n1"]["result"] == "done"
         assert calls == 3
 
     def test_no_retry_by_default(self):
-        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode("n1", "always-fails", 1, bindings={"text": Static(value="x")})]), _registry(AlwaysFails))
+        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="always-fails", version=1, bindings={"text": Static(value="x")})]), _registry(AlwaysFails))
 
-        with pytest.raises(FlowExecutionException):
+        with pytest.raises(GraphExecutionError):
             execute_sync(compiled)
 
     def test_validation_errors_not_retried(self):
@@ -228,7 +217,7 @@ class TestRetry:
                 calls += 1
                 return num
 
-        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode("n1", "typed", 1, bindings={"num": Static(value="not-a-number")})]), _registry(Typed))
+        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="typed", version=1, bindings={"num": Static(value="not-a-number")})]), _registry(Typed))
 
         # A value the field's type cannot read is compile's `invalid_static`;
         # the run refuses before any node runs, so there is nothing to retry.
@@ -247,6 +236,7 @@ class TestRetry:
             description = "Fails once, then succeeds"
             category = "test"
 
+            @version(1, policy=Policy(retries=2, delay=0.01))
             def run(self, text: In = Txt("")) -> Out:
                 nonlocal calls
                 calls += 1
@@ -254,11 +244,11 @@ class TestRetry:
                     raise RuntimeError("first try fails")
                 return Txt("ok")
 
-        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode("n1", "flaky", 1, bindings={"text": Static(value="x")})]), _registry(Flaky))
+        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="flaky", version=1, bindings={"text": Static(value="x")})]), _registry(Flaky))
 
         events = [
             event
-            async for event in execute(compiled, retry=RetryConfig(max_retries=2, delay=0.01))
+            async for event in execute(compiled)
         ]
 
         types = [e["type"] for e in events]
@@ -300,9 +290,9 @@ class TestRetryWithParallel:
                 return Txt(f"B:{text}")
 
         compiled = CompiledGraph.from_graph(Graph(nodes=[
-                GraphNode("n1", "flaky-a", 1, bindings={"text": Static(value="x")}),
-                GraphNode("n2", "fast-b", 1, bindings={"text": Static(value="y")}),
-                GraphNode("n3", "join", 1, bindings={"a": Edges(refs=(Ref('n1', 'result'),)), "b": Edges(refs=(Ref('n2', 'result'),))}),
+                GraphNode(id="n1", type="flaky-a", version=1, bindings={"text": Static(value="x")}),
+                GraphNode(id="n2", type="fast-b", version=1, bindings={"text": Static(value="y")}),
+                GraphNode(id="n3", type="join", version=1, bindings={"a": Edges(refs=(Ref('n1', 'result'),)), "b": Edges(refs=(Ref('n2', 'result'),))}),
             ]), _registry(FlakyA, FastB, Join))
 
         results = execute_sync(compiled)

@@ -33,7 +33,7 @@ def test_a_problem_names_a_code_a_message_and_a_place():
 
 
 def test_a_problem_about_a_whole_node_names_no_field():
-    p = Problem(code="cycle", message="The flow loops back on itself.", fatal=True, node_id="letter")
+    p = Problem(code="cycle", message="The graph loops back on itself.", fatal=True, node_id="letter")
 
     assert p.node_id == "letter"
     assert p.field is None
@@ -43,7 +43,7 @@ def test_every_problem_is_about_a_node():
     """There is no graph-level problem: a graph is only ever wrong
     somewhere, so the anchor has two states and not three."""
     with pytest.raises(ValidationError, match="node_id"):
-        Problem(code="empty", message="The flow is empty.", fatal=True)
+        Problem(code="empty", message="The graph is empty.", fatal=True)
 
 def test_fatal_is_a_boolean_not_a_two_valued_enum():
     """One fact, once. There are exactly two audiences: the editor
@@ -68,7 +68,7 @@ def test_problems_compare_by_value():
 
 def test_details_carry_what_the_message_names():
     """A host that translates by code needs the values, not the sentence."""
-    p = Problem(code="unknown_ref_node", message="Field 'text' is connected to 'a', which is not in the flow.",
+    p = Problem(code="unknown_ref_node", message="Field 'text' is connected to 'a', which is not in the graph.",
                 fatal=True, node_id="b", field="text", details={"source_node": "a"})
 
     assert p.details == {"source_node": "a"}
@@ -270,7 +270,7 @@ def test_a_computed_field_with_a_handle_needs_an_edge_type():
 # --- the stored bindings, validated -----------------------------------------------
 
 
-def test_a_clean_flow_reports_no_problems():
+def test_a_clean_graph_reports_no_problems():
     assert _codes([
         GraphNode(id="a", type="echo", version=1, bindings={"x": Static(value="hi")}),
         GraphNode(id="b", type="echo", version=1, bindings={"x": Edges(refs=(Ref("a", "result"),))}),
@@ -314,7 +314,7 @@ def test_two_refs_into_a_series_input_is_a_gather_not_a_problem():
     ]) == []
 
 
-def test_a_ref_to_a_node_not_in_the_flow_is_fatal():
+def test_a_ref_to_a_node_not_in_the_graph_is_fatal():
     (problem,) = _problems([GraphNode(id="b", type="echo", version=1, bindings={"x": Edges(refs=(Ref("ghost", "result"),))})])
 
     assert (problem.code, problem.node_id, problem.field) == ("unknown_ref_node", "b", "x")
@@ -332,7 +332,7 @@ def test_a_ref_to_an_output_the_node_does_not_have_is_fatal():
 
 
 def test_a_required_input_with_nothing_bound_is_fatal():
-    """A flow is closed. The caller's answer replaces a value the
+    """A graph is closed. The caller's answer replaces a value the
     author set; it does not fill a hole."""
     (problem,) = _problems([GraphNode(id="n", type="needs", version=1)])
 
@@ -344,7 +344,6 @@ def test_an_any_input_with_no_edge_is_unbound_required():
     """The field's type comes from the edge, so with no edge the field is
     simply unbound — one problem, one code; there is no second code for
     an untyped field."""
-    from dataclasses import replace
     from typing import Any
 
     class Route(NodeDefinition):
@@ -358,7 +357,7 @@ def test_an_any_input_with_no_edge_is_unbound_required():
 
         def compute_outputs(self, declared, values, arriving):
             dtype = arriving.get("value", Any)
-            return tuple(replace(out, dtype=dtype) for out in declared)
+            return tuple(out.model_copy(update={"dtype": dtype}) for out in declared)
 
     registry = _registry()
     registry.register(Route)
@@ -406,7 +405,7 @@ def test_problems_can_be_read_whole_or_by_node():
         compiled.field(Ref("a", "z"))
 
 
-def test_a_non_fatal_problem_leaves_the_flow_runnable():
+def test_a_non_fatal_problem_leaves_the_graph_runnable():
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[GraphNode(id="a", type="echo", version=1, bindings={"z": Static(value=1)})]), _registry()
     )
@@ -442,7 +441,7 @@ def test_a_problem_is_formatted_from_its_details_and_keeps_them():
     from conductor.graph.problem import problem
 
     p = problem("unknown_ref_node", "b", "text", source_node="a")
-    assert p.message == "Field 'text' is connected to 'a', which is not in the flow."
+    assert p.message == "Field 'text' is connected to 'a', which is not in the graph."
     assert p.details == {"source_node": "a"}
     assert p.fatal is True
     assert problem("stale_binding", "b", "old").fatal is False

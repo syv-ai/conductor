@@ -49,9 +49,9 @@ from conductor.widgets import Widget
 class FromRun:
     """Marks a parameter that the caller of the graph supplies, not the graph.
 
-    ``identity: Annotated[RunnerIdentity, FromRun()]`` says: this is not an
+    ``clock: Annotated[Clock, FromRun()]`` says: this is not an
     input — no widget, no handle, no binding — but a value the host hands
-    to ``execute(from_run={RunnerIdentity: ...})``, which the engine passes
+    to ``execute(from_run={Clock: ...})``, which the engine passes
     in by type. ``Interface.of`` collects such parameters into
     ``Interface.needs``, and ``execute`` refuses to start a graph whose
     nodes need a type it was not given.
@@ -100,7 +100,7 @@ class Interface:
         signature = inspect.signature(func)
         hints = get_type_hints(func, include_extras=True)
         inputs, needs, open_shape = cls._extract_inputs(signature, hints)
-        returns, outputs = cls._extract_outputs(hints)
+        returns, outputs = cls._declared_outputs(hints)
         taken = {i.name for i in inputs} & {o.name for o in outputs}
         if taken:
             raise TypeError(
@@ -187,7 +187,7 @@ class Interface:
         return tuple(inputs), needs, open_shape
 
     @staticmethod
-    def _extract_outputs(hints: dict[str, Any]) -> tuple[Any, tuple[Output, ...]]:
+    def _declared_outputs(hints: dict[str, Any]) -> tuple[Any, tuple[Output, ...]]:
         """The declared return type and the outputs it declares.
 
         A ``run`` with no return annotation is an error, not a node with no

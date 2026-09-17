@@ -203,7 +203,7 @@ def test_a_registered_type_cannot_be_shadowed():
 
 
 def test_a_loaded_definition_need_not_number_from_one():
-    """An embedded graph is one FlowVersion, loaded because a graph pinned it;
+    """An embedded graph is one version a host stored, loaded because a graph pinned it;
     its versions are {3} and nothing is missing. `register()` refuses that;
     `extended_with` does not, because the catalog rule is the catalog's."""
     from conductor.node import version
@@ -240,3 +240,14 @@ def test_conductor_names_no_loading_seam():
         assert not hasattr(conductor, gone), gone
         assert not hasattr(registry_pkg, gone), gone
         assert not hasattr(compiler, gone), gone
+
+
+def test_a_registry_lists_its_nodes_as_the_classes_in_registration_order():
+    registry = NodeRegistry()
+    greet, truncate = _node("greet"), _node("truncate")
+    registry.register(greet)
+    registry.register(truncate)
+
+    assert registry.nodes == (greet, truncate)
+    assert [cls.id for cls in registry.nodes] == ["greet", "truncate"]
+    assert not hasattr(registry, "definitions")

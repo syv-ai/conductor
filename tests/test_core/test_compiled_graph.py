@@ -1,4 +1,4 @@
-"""A compiled flow is asked, not traversed."""
+"""A compiled graph is asked, not traversed."""
 
 from collections.abc import Mapping
 from typing import Annotated
@@ -111,7 +111,7 @@ class Renamed(NodeDefinition):
 
 
 class Clock:
-    """Something the run supplies, not the flow (`FromRun`)."""
+    """Something the run supplies, not the graph (`FromRun`)."""
 
 
 class Stamped(NodeDefinition):
@@ -142,7 +142,7 @@ def _compiled(nodes, registry=None, **kw):
 
 
 def _exposed(node_id="besked", value="hej"):
-    """One node whose `value` field a flow can name."""
+    """One node whose `value` field a graph can name."""
     return GraphNode(
         id=node_id,
         type="text-input",
@@ -156,7 +156,7 @@ def _exposed(node_id="besked", value="hej"):
 # --- the artifact ---------------------------------------------------------
 
 
-def test_compile_flow_returns_an_asked_artifact():
+def test_compiling_returns_an_asked_artifact():
     compiled = _compiled([GraphNode(id="a", type="echo", version=1, bindings={"x": Static(value="hi")})])
 
     assert isinstance(compiled, CompiledGraph)
@@ -274,7 +274,7 @@ def test_a_node_with_no_opinion_has_its_declaration_as_its_interface():
 
 
 def test_a_roster_depends_only_on_what_the_author_typed():
-    """A connected input has no value until the flow runs, so the node's interface falls
+    """A connected input has no value until the graph runs, so the node's interface falls
     back to the declaration for it."""
     compiled = _compiled([
         GraphNode(id="src", type="text-input", version=1, bindings={"value": Static(value="b")}),
@@ -284,8 +284,8 @@ def test_a_roster_depends_only_on_what_the_author_typed():
     assert [i.name for i in compiled.node("m").interface.inputs] == ["mode"]
 
 
-def test_a_column_a_node_computed_can_be_a_flow_output():
-    """End to end: the flow names a column that is on no declaration."""
+def test_a_column_a_node_computed_can_be_a_graph_output():
+    """End to end: the graph names a column that is on no declaration."""
     sheet = GraphNode(
         id="s", type="open-sheet", version=1, title="Sheet",
         fields={"header": FieldContent(title="Header"), "name": FieldContent(title="Name"), "email": FieldContent(title="E-mail")},
@@ -298,7 +298,7 @@ def test_a_column_a_node_computed_can_be_a_flow_output():
     assert [o.title for o in compiled.interface.outputs] == ["Name", "E-mail"]
 
 
-# --- what the flow takes and returns ----------------------------------------
+# --- what the graph takes and returns ----------------------------------------
 
 
 def test_the_derived_interface_comes_through_compiled():
@@ -311,8 +311,8 @@ def test_the_derived_interface_comes_through_compiled():
 
 
 def test_the_interface_is_an_interface_and_types_a_call_by_address():
-    """The flow's surface is the record a node version declares, one
-    scale out; a flow returns a computed interface by address, and `model_of`
+    """The graph's surface is the record a node version declares, one
+    scale out; a graph returns a computed interface by address, and `model_of`
     types a caller's answers under the addresses — pydantic takes a dotted
     field name outright."""
     compiled = _compiled([_exposed()])
@@ -324,8 +324,8 @@ def test_the_interface_is_an_interface_and_types_a_call_by_address():
 
 
 def test_needs_is_the_union_of_the_placements_needs():
-    """What the run must provide to this flow is what its nodes need,
-    by parameter name — and `execute` refuses a flow whose needs it was not
+    """What the run must provide to this graph is what its nodes need,
+    by parameter name — and `execute` refuses a graph whose needs it was not
     given."""
     compiled = _compiled([
         GraphNode(id="a", type="stamped", version=1),
@@ -382,7 +382,7 @@ def test_dependencies_are_read_off_the_wires():
 # --- the artifact is a value ------------------------------------------------
 
 
-def test_compiling_the_same_flow_twice_gives_the_same_answers():
+def test_compiling_the_same_graph_twice_gives_the_same_answers():
     def build():
         return Graph(nodes=[
             GraphNode(id="a", type="echo", version=1, bindings={"x": Static(value="hi")}),
@@ -401,14 +401,14 @@ def test_compiling_the_same_flow_twice_gives_the_same_answers():
     assert first.field(Ref("b", "result")).index == second.field(Ref("b", "result")).index
 
 
-def test_compiling_does_not_mutate_the_flow():
+def test_compiling_does_not_mutate_the_graph():
     import copy
 
-    flow = Graph(nodes=[GraphNode(id="a", type="echo", version=1, bindings={"x": Static(value="hi")})])
-    before = copy.deepcopy(flow)
-    CompiledGraph.from_graph(flow, _registry())
+    graph = Graph(nodes=[GraphNode(id="a", type="echo", version=1, bindings={"x": Static(value="hi")})])
+    before = copy.deepcopy(graph)
+    CompiledGraph.from_graph(graph, _registry())
 
-    assert flow == before
+    assert graph == before
 
 
 def test_the_artifact_and_its_diagnostics_are_importable_from_the_root():

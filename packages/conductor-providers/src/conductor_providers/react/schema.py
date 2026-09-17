@@ -15,4 +15,4 @@ def palette_from_registry(registry: "NodeRegistry") -> list["NodeDescription"]:
     Re-exported from the provider package so a frontend calling the
     provider has one import path for everything ReactFlow-related.
     """
-    return [cls.describe() for cls in registry.definitions()]
+    return [cls.describe() for cls in registry.nodes]

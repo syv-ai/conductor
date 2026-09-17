@@ -35,11 +35,12 @@ description is always derived from the live declaration.
 from __future__ import annotations
 
 import inspect
-from abc import ABC, abstractmethod
+from abc import ABC, ABCMeta, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, Literal
 
+from conductor._display import node_repr, nodes_table
 from conductor.interface import Interface
 from conductor.metadata import Input, Output
 from conductor.model import ConductorModel
@@ -241,7 +242,8 @@ class NodeDescription(ConductorModel):
 
     Built by ``NodeDefinition.describe()`` from the class, on demand, and
     read by an editor: a palette is these records dumped through pydantic.
-    Never stored, so there is no copy to keep in step with the class.
+    Never stored and never read back, so there is no copy to keep in step
+    with the class.
 
     Describes the *type*. The titles a particular placement shows live on
     its ``GraphNode``.
@@ -257,7 +259,22 @@ class NodeDescription(ConductorModel):
     versions: dict[int, VersionDescription]
     current: int
 
-class NodeDefinition(ABC):
+class _NodeMeta(ABCMeta):
+    """Gives a node class the repr of what it declares, and a table in a notebook.
+
+    A registry holds classes, so a class is what a person inspects: without
+    this it prints as ``<class '__main__.Greet'>``. A class that declares no
+    node (``NodeDefinition`` itself, an intermediate base) keeps the class repr.
+    """
+
+    def __repr__(cls) -> str:
+        return node_repr(cls) if "versions" in dir(cls) else super().__repr__()
+
+    def _repr_html_(cls) -> str | None:
+        return nodes_table((cls,)) if "versions" in dir(cls) else None
+
+
+class NodeDefinition(ABC, metaclass=_NodeMeta):
     """Base class for every node.
 
     A subclass declares ``id``, ``title``, ``description`` and ``category``
@@ -394,6 +411,22 @@ class NodeDefinition(ABC):
             # An undecorated `run` is version 1 with the default policy.
             methods[1] = cls.run
             policies[1] = Policy()
+        elif getattr(cls.run, "__node_version__", None) is None:
+            # Beside declared versions a plain ``run`` has no number, and
+            # the current version is the method named ``run``.
+            raise TypeError(
+                f"{cls.__name__}: run has no @version, but other methods do; "
+                "mark run with the number of the version it is"
+            )
+
+        for number, fn in methods.items():
+            if inspect.iscoroutinefunction(fn) or inspect.isasyncgenfunction(fn):
+                # The engine calls ``run`` in a worker thread and never awaits
+                # it, so an async one would hand back a coroutine as its result.
+                raise TypeError(
+                    f"{cls.__name__}: version {number} is async; run is a plain "
+                    "function, and the engine gives each call a thread"
+                )
 
         # No contiguity check here: numbering from 1 with no holes is the
         # registry's rule and lives in ``register()``. A definition a host

@@ -458,7 +458,7 @@ def test_a_node_with_a_broken_edge_has_no_shape_and_says_so_once():
 
 def test_a_node_with_no_outputs_yet_is_the_ordinary_mid_edit_state():
     """Outputs born of what the author has not yet given are not a fault:
-    non-fatal, the flow still runs, the node is still derived — there is
+    non-fatal, the graph still runs, the node is still derived — there is
     simply nothing to edge from it yet."""
 
     class Sheet(NodeDefinition):
@@ -552,6 +552,37 @@ def test_a_hook_that_cannot_answer_refuses_and_the_refusal_is_the_placements_pro
     assert (problem.code, problem.fatal, problem.node_id) == ("wrong_shape", True, "f")
     assert problem.message == "What arrives does not fit."
     assert compiled.node("f").interface.outputs == ()
+
+
+def test_an_inputs_hook_that_cannot_answer_refuses_and_compile_does_not_raise():
+    """`Refuses` from `compute_inputs` is the node's one fatal `Problem`
+    too, asked before any edge is walked: compile never raises for a fault
+    in the graph, and a node reading the refused one carries no echo."""
+    from conductor.node import Refuses
+
+    class Fussy(NodeDefinition):
+        id = "fussy-inputs"
+        title = "Fussy"
+        description = "d"
+        category = "test"
+
+        def run(self, value: Annotated[Txt, Textarea(title="Value")] = Txt("")) -> Out:
+            return value
+
+        def compute_inputs(self, declared, values):
+            raise Refuses("wrong_mode", "That mode is not one this node has.")
+
+    registry = _registry()
+    registry.register(Fussy)
+    compiled = CompiledGraph.from_graph(Graph(nodes=[
+        GraphNode(id="f", type="fussy-inputs", version=1, bindings={"value": Static(value="x")}),
+        GraphNode(id="u", type="upper", version=1, bindings={"text": _edge(("f", "result"))}),
+    ]), registry)
+
+    (problem,) = compiled.problems
+    assert (problem.code, problem.fatal, problem.node_id) == ("wrong_mode", True, "f")
+    assert problem.message == "That mode is not one this node has."
+    assert not compiled.is_runnable
 
 
 def test_a_hook_reads_a_defaulted_static_nothing_bound():

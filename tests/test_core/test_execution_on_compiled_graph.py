@@ -1,11 +1,6 @@
-"""Plan 3b Task 5 tests — run against the plan-3b engine (pre-plan-4: scalar nodes only).
-
-Written at tests/test_core/test_execution_on_compiled_graph.py during execution;
-plan 4's engine rewrite supersedes them (test_rows.py). Not in the verifier tree
-because the pre-plan-4 engine is not either.
-
-The engine is one more caller of ``CompiledGraph``: it takes what compile
-produced and runs scalar nodes over it.
+"""The engine is one more caller of ``CompiledGraph``: it takes what compile
+produced and runs it — here, graphs whose nodes each run once. Rows are
+``test_rows.py``'s.
 """
 
 import asyncio
@@ -72,16 +67,6 @@ class Join(NodeDefinition):
         return Txt("+".join(texts))
 
 
-class Docs(NodeDefinition):
-    id = "docs"
-    title = "Docs"
-    description = "d"
-    category = "test"
-
-    def run(self, folder: Annotated[Txt, Textarea(title="Folder")] = Txt("")) -> Annotated[Series[Txt], Result(title="Texts")]:
-        return [Txt("a"), Txt("b")]
-
-
 class Flaky(NodeDefinition):
     id = "flaky"
     title = "Flaky"
@@ -101,7 +86,7 @@ class Flaky(NodeDefinition):
 
 def _registry():
     registry = NodeRegistry()
-    for node_cls in (Upper, Gate, Join, Docs, Flaky):
+    for node_cls in (Upper, Gate, Join, Flaky):
         registry.register(node_cls)
     return registry
 
@@ -110,7 +95,7 @@ def _run(nodes):
     return execute_sync(CompiledGraph.from_graph(Graph(nodes=nodes), _registry()))
 
 
-def test_a_flow_of_bindings_compiles_and_runs():
+def test_a_graph_of_bindings_compiles_and_runs():
     results = _run([
         GraphNode(id="a", type="upper", version=1, bindings={"text": Static(value="hi")}),
         GraphNode(id="b", type="upper", version=1, bindings={"text": Edges(refs=(Ref("a", "result"),))}),
@@ -162,28 +147,12 @@ def test_policy_is_read_off_the_pinned_version():
     assert Flaky.calls == 3
 
 
-def test_a_flow_compile_rejected_is_refused_with_its_problems():
+def test_a_graph_compile_rejected_is_refused_with_its_problems():
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="gone", version=1)]), _registry())
 
     with pytest.raises(CompilationError) as raised:
         execute_sync(compiled)
     assert [p.code for p in raised.value.problems] == ["unknown_node_type"]
-
-
-def test_this_engine_refuses_an_iterating_node():
-    """This engine runs scalar nodes only. The limit is stated, not
-    papered over."""
-    compiled = CompiledGraph.from_graph(
-        Graph(nodes=[
-            GraphNode(id="docs", type="docs", version=1),
-            GraphNode(id="up", type="upper", version=1, bindings={"text": Edges(refs=(Ref("docs", "result"),))}),
-        ]),
-        _registry(),
-    )
-    assert compiled.is_runnable
-
-    with pytest.raises(NotImplementedError, match="iterate"):
-        execute_sync(compiled)
 
 
 def test_events_carry_the_placement_title():
