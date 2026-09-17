@@ -48,5 +48,26 @@ def test_a_pending_units_questions_and_a_failures_cause_are_records():
 def test_a_type_dumps_through_its_own_schema_and_a_value_with_none_raises():
     assert _payload({"type": "node_complete", "result": {"parsed": Json({"a": [1]})}})["result"] == {"parsed": {"a": [1]}}
 
-    with pytest.raises(Exception, match="serialize"):
+    with pytest.raises(TypeError, match="no JSON form"):
         sse_frame({"type": "node_complete", "result": {"x": object()}})
+
+
+def test_what_a_value_holds_dumps_through_its_own_type_too():
+    """An iterating node that returns ``Json`` gives a series of them; the
+    series dumps through its schema and each ``Json`` through its own."""
+    parsed = Series(Index("parts"), [Json({"a": 1}), Json([2])])
+
+    payload = _payload({"type": "graph_complete", "results": {"parse": {"result": parsed}}, "cells": {}})
+
+    assert payload["results"]["parse"]["result"]["values"] == [{"a": 1}, [2]]
+    assert _payload({"type": "node_complete", "result": {"x": Json(Json({"k": Text("t")}))}})["result"] == {"x": {"k": "t"}}
+    with pytest.raises(TypeError, match="no JSON form"):
+        sse_frame({"type": "node_complete", "result": {"x": Series(Index("parts"), [object()])}})
+
+
+def test_a_float_that_is_not_a_number_is_null_everywhere():
+    nan = float("nan")
+
+    payload = _payload({"type": "node_complete", "result": {"n": nan, "s": Series(Index("parts"), [nan])}})
+
+    assert payload["result"] == {"n": None, "s": {"index": {"id": "parts", "parent": None}, "rows": [[0]], "values": [None]}}
