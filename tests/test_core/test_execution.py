@@ -263,7 +263,7 @@ class TestSkipPropagation:
 
 
 # ---------------------------------------------------------------------------
-# Stray data keys: a saved flow may carry keys that are not parameters of
+# Stray data keys: a saved graph may carry keys that are not parameters of
 # the node (host metadata). The engine validates a call with extra="ignore",
 # so every node drops them rather than failing on an unexpected keyword.
 # ---------------------------------------------------------------------------

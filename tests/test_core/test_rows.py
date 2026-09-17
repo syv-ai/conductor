@@ -421,7 +421,7 @@ def test_a_defect_in_the_engine_fails_the_leg_instead_of_hanging_it(monkeypatch)
     assert "the ledger lost a cell" in events[-1]["error"]
 
 
-def test_a_flow_compile_rejected_is_refused_with_its_problems():
+def test_a_graph_compile_rejected_is_refused_with_its_problems():
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="gone", version=1)]), _registry())
 
     with pytest.raises(CompilationError) as raised:
@@ -751,7 +751,7 @@ def test_nothing_checkpoints_and_nothing_resumes():
         __import__("conductor.execution.checkpoint")
 
 
-# --- an embedded flow runs as nodes of the one run --------------------------------
+# --- an embedded graph runs as nodes of the one run --------------------------------
 
 
 class TypedInside(NodeDefinition):
@@ -803,7 +803,7 @@ def test_an_inner_reduction_over_the_entering_series_runs_once_per_outer_row():
     rule, not a second kind of index."""
 
     class Embedded(NodeDefinition):
-        id = "inner-flow"
+        id = "inner-graph"
         title = "Indlejret"
         description = "d"
         category = "test"
@@ -824,7 +824,7 @@ def test_an_inner_reduction_over_the_entering_series_runs_once_per_outer_row():
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             _docs("a,b,c"),
-            GraphNode(id="emb", type="inner-flow", version=1, bindings={"holder.text": _edge(("docs", "texts"))}),
+            GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.text": _edge(("docs", "texts"))}),
             GraphNode(id="after", type="join", version=1, bindings={"texts": _edge(("emb", "gather.result"))}),
         ]),
         _registry_with_asks(Embedded),

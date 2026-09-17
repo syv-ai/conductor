@@ -20,10 +20,12 @@ from conductor.errors import (
     NodeValidationError,
 )
 from conductor.execution.engine import execute_sync
-from conductor.graph.binding import Static
+from conductor.graph.binding import Edges, Static
 from conductor.graph.model import Graph
 from conductor.node import NodeDefinition, Policy, version
+from conductor.ref import Ref
 from conductor.returns import Result
+from conductor.series import Series
 from conductor.widgets import Textarea
 
 
@@ -135,3 +137,47 @@ def test_default_node_execution_error_still_retries():
     results = execute_sync(compiled)
     assert results["n1"]["result"] == "ok"
     assert len(calls) == 3
+
+
+def test_a_failed_row_is_retried_alone():
+    """A node that runs per row retries the row that failed; the rows that
+    completed are not run again."""
+    reg = NodeRegistry()
+    calls: list[str] = []
+
+    class Split(NodeDefinition):
+        id = "retry-split"
+        title = "Split"
+        description = "d"
+        category = "test"
+
+        def run(self, text: Annotated[Txt, Textarea(title="In")] = Txt("")) -> Annotated[Series[Txt], Result(title="Parts")]:
+            return [Txt(part) for part in text.split(",")]
+
+    class FlakyOnB(NodeDefinition):
+        id = "flaky-on-b"
+        title = "Flaky on b"
+        description = "d"
+        category = "test"
+
+        @version(1, policy=Policy(retries=2, delay=0.01))
+        def run(self, text: Annotated[Txt, Textarea(title="In")] = Txt("")) -> Out:
+            calls.append(str(text))
+            if text == "b" and calls.count("b") == 1:
+                raise NodeExecutionError("transient", node_id="rows")
+            return Txt(text.upper())
+
+    reg.register(Split)
+    reg.register(FlakyOnB)
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[
+            GraphNode(id="split", type="retry-split", version=1, bindings={"text": Static(value="a,b,c")}),
+            GraphNode(id="rows", type="flaky-on-b", version=1, bindings={"text": Edges(refs=(Ref("split", "result"),))}),
+        ]),
+        reg,
+    )
+
+    results = execute_sync(compiled)
+
+    assert list(results["rows"]["result"]) == ["A", "B", "C"]
+    assert sorted(calls) == ["a", "b", "b", "c"]

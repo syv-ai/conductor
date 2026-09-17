@@ -1,4 +1,4 @@
-"""Shared fixtures for flow-engine tests."""
+"""Shared fixtures for the engine's tests."""
 
 import pytest
 

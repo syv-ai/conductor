@@ -89,8 +89,8 @@ def _inner_graph():
 
 
 def _embedded_definition(node_id, graph, inputs, outputs):
-    """What a host builds from a FlowVersion: a definition whose one
-    version is a `GraphVersion` — the flow's interface, and the graph."""
+    """What a host builds from a graph it stores: a definition whose one
+    version is a `GraphVersion` — the graph's interface, and its nodes."""
 
     class Embedded(NodeDefinition):
         id = node_id
@@ -113,7 +113,7 @@ def _registry(*extra):
 
 def _inner_definition():
     return _embedded_definition(
-        "inner-flow",
+        "inner-graph",
         _inner_graph(),
         inputs=(Input(name="holder.value", dtype=Txt, title="Text", widget=Textarea(title="Text"), default=Txt("indre"), optional=True),),
         outputs=(Output(name="join.result", dtype=Txt, title="Result"),),
@@ -130,7 +130,7 @@ def _compiled(nodes, *extra):
 def test_the_inner_nodes_are_nodes_of_the_one_run_under_the_placements_name():
     compiled = _compiled([
         GraphNode(id="src", type="holder", version=1, bindings={"value": Static(value="outer")}),
-        GraphNode(id="emb", type="inner-flow", version=1, bindings={"holder.value": Edges(refs=(Ref("src", "result"),))}),
+        GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.value": Edges(refs=(Ref("src", "result"),))}),
         GraphNode(id="after", type="upper", version=1, bindings={"text": Edges(refs=(Ref("emb", "join.result"),))}),
     ])
 
@@ -147,7 +147,7 @@ def test_the_placements_bindings_move_onto_the_inner_fields_they_name():
     an outer edge from `emb.join.result` reads the inner node's output."""
     compiled = _compiled([
         GraphNode(id="src", type="holder", version=1, bindings={"value": Static(value="outer")}),
-        GraphNode(id="emb", type="inner-flow", version=1, bindings={"holder.value": Edges(refs=(Ref("src", "result"),))}),
+        GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.value": Edges(refs=(Ref("src", "result"),))}),
         GraphNode(id="after", type="upper", version=1, bindings={"text": Edges(refs=(Ref("emb", "join.result"),))}),
     ])
 
@@ -158,7 +158,7 @@ def test_the_placements_bindings_move_onto_the_inner_fields_they_name():
 
 
 def test_an_unconnected_placement_keeps_the_inner_statics_and_expands_flat():
-    compiled = _compiled([GraphNode(id="emb", type="inner-flow", version=1)])
+    compiled = _compiled([GraphNode(id="emb", type="inner-graph", version=1)])
 
     assert compiled.is_runnable, compiled.problems
     assert compiled.field(Ref("emb/holder", "value")).binding == Static(value="inner")
@@ -168,10 +168,10 @@ def test_an_unconnected_placement_keeps_the_inner_statics_and_expands_flat():
 
 def test_a_placement_is_a_node_in_the_interface_named_by_inner_address():
     """At the interface the embedded graph is one node
-    whose fields are its flow's, under the placement's name."""
+    whose fields are its graph's, under the placement's name."""
     compiled = _compiled([
         GraphNode(
-            id="emb", type="inner-flow", version=1, title="Approve",
+            id="emb", type="inner-graph", version=1, title="Approve",
             fields={"holder.value": FieldContent(title="Application"), "join.result": FieldContent(title="Answer")},
         ),
     ])
@@ -184,7 +184,7 @@ def test_a_placement_is_a_node_in_the_interface_named_by_inner_address():
 def test_a_question_about_a_placements_field_reads_through_to_the_inner_field():
     compiled = _compiled([
         GraphNode(id="src", type="holder", version=1, bindings={"value": Static(value="outer")}),
-        GraphNode(id="emb", type="inner-flow", version=1, bindings={"holder.value": Edges(refs=(Ref("src", "result"),))}),
+        GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.value": Edges(refs=(Ref("src", "result"),))}),
     ])
 
     assert compiled.field(Ref("emb", "join.result")).type is compiled.field(Ref("emb/join", "result")).type
@@ -197,7 +197,7 @@ def test_a_problem_found_inside_surfaces_on_the_placement():
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
         GraphNode(id="n", type="upper", version=1, bindings={"text": Edges(refs=(Ref("docs", "result"),))}),
-        GraphNode(id="emb", type="inner-flow", version=1, bindings={"holder.value": Edges(refs=(Ref("ghost", "result"),))}),
+        GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.value": Edges(refs=(Ref("ghost", "result"),))}),
     ])
 
     problems = compiled.node("emb").problems
@@ -215,7 +215,7 @@ def test_a_problem_found_inside_surfaces_on_the_placement():
 
 
 def test_a_stale_key_on_the_placement_is_reported_on_the_placement():
-    compiled = _compiled([GraphNode(id="emb", type="inner-flow", version=1, bindings={"nope.value": Static(value=1)})])
+    compiled = _compiled([GraphNode(id="emb", type="inner-graph", version=1, bindings={"nope.value": Static(value=1)})])
 
     (problem,) = compiled.problems
     assert (problem.code, problem.fatal, problem.node_id, problem.field) == ("stale_binding", False, "emb", "nope.value")
@@ -227,7 +227,7 @@ def test_a_stale_key_on_the_placement_is_reported_on_the_placement():
 def test_a_series_entering_through_a_scalar_field_makes_the_placement_iterate():
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="emb", type="inner-flow", version=1, bindings={"holder.value": Edges(refs=(Ref("docs", "result"),))}),
+        GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.value": Edges(refs=(Ref("docs", "result"),))}),
     ])
 
     assert compiled.is_runnable, compiled.problems
@@ -237,11 +237,11 @@ def test_a_series_entering_through_a_scalar_field_makes_the_placement_iterate():
 
 
 def test_an_inner_reduction_over_the_entering_series_is_a_fold_of_one():
-    """The join test: standalone the flow joins one text; embedded and fed
+    """The join test: standalone the graph joins one text; embedded and fed
     three, it joins one text three times — never all three once."""
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="emb", type="inner-flow", version=1, bindings={"holder.value": Edges(refs=(Ref("docs", "result"),))}),
+        GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.value": Edges(refs=(Ref("docs", "result"),))}),
     ])
 
     assert compiled.node("emb/join").iterates_on == Index("docs")
@@ -345,7 +345,7 @@ def test_two_crossings_on_one_lineage_make_the_whole_block_iterate_on_the_deeper
 
 
 def test_a_series_entering_a_series_field_is_read_whole_and_the_block_expands_flat():
-    """The flow declares it takes a series, so a series is one value to it:
+    """The graph declares it takes a series, so a series is one value to it:
     no scalar crossing, no scope, one reduction over the whole pile."""
     inner = _embedded_definition(
         "joiner",
@@ -396,17 +396,17 @@ def test_two_unrelated_series_entering_one_placement_are_its_misaligned():
 
 def test_a_nested_placement_expands_under_both_names():
     outer = _embedded_definition(
-        "outer-flow",
+        "outer-graph",
         (
             GraphNode(id="pre", type="holder", version=1, bindings={"value": Static(value="x")}),
-            GraphNode(id="inner", type="inner-flow", version=1, bindings={"holder.value": Edges(refs=(Ref("pre", "result"),))}),
+            GraphNode(id="inner", type="inner-graph", version=1, bindings={"holder.value": Edges(refs=(Ref("pre", "result"),))}),
         ),
         inputs=(Input(name="pre.value", dtype=Txt, title="Text", widget=Textarea(title="Text"), default=Txt("x"), optional=True),),
         outputs=(Output(name="inner.join.result", dtype=Txt, title="Result"),),
     )
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
-            GraphNode(id="top", type="outer-flow", version=1),
+            GraphNode(id="top", type="outer-graph", version=1),
             GraphNode(id="after", type="upper", version=1, bindings={"text": Edges(refs=(Ref("top", "inner.join.result"),))}),
         ]),
         _registry(_inner_definition(), outer),
