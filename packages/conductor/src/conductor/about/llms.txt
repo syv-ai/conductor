@@ -69,7 +69,7 @@ A node is a `NodeDefinition` subclass with `id`, `title`, `description` and `cat
 - **Open interfaces.** `def run(self, **inputs: Single)` makes every name connected into the node an input, each received as one value; `**inputs: Series` receives each as a whole series.
 - **Values, not markers.** A node returns `SKIPPED` on a branch it did not take, and `Asks` when a person must answer. Nothing on the class declares that it skips or asks, except that a `run` which may ask says so in its return annotation: `-> Annotated[Text, Result(title="Decision")] | Asks`.
 - **Stateless by contract.** Every call is made on a fresh instance. What a run supplies (a clock, a client, the caller's identity) arrives through `FromRun` parameters, never through the instance.
-- The class is checked when it is defined: a missing identity attribute, a parameter without a widget, or a return without a `Result` raises at the class.
+- The class is checked when it is defined: a missing identity attribute, a parameter without a widget, a return without a `Result`, or an `async def run` (the engine calls `run` in a worker thread) raises at the class.
 
 ### Versions and Policies
 
@@ -178,11 +178,11 @@ Answering is the next leg, and it is `execute` again:
 ```python
 first = [event async for event in execute(compiled)]
 ending = first[-1]                                              # type == "graph_pending"
-answers = {"approve": {"result": Text("Approved")}}             # a Series per output for a node on rows
+answers = {"approve": {"result": Text("Approved")}}             # for a node on rows, a Series naming the rows it answers
 second = [event async for event in execute(compiled, cells=ending["cells"], cache=answers)]
 ```
 
-`cells` is the ledger's record of everything earlier legs produced, so nothing done is done twice; `cache` pre-seeds nodes with complete outputs, reported as `node_complete` with `cached=True`. A person's answer and a reused result are the same statement to the engine. Nothing is checkpointed and nothing resumes.
+`cells` is the ledger's record of everything earlier legs produced, so nothing done is done twice; `cache` records a node's outputs without running it. For a node on rows only the rows the series names are recorded, so a row that ran keeps its value and a row left out asks again; a unit already done, or a row not yet produced, raises `ValueError`. A node the cache completes is reported as `node_complete` with `cached=True`, one it only advances as `node_progress`. A person's answer and a reused result are the same statement to the engine. Nothing is checkpointed and nothing resumes.
 
 Values the run supplies arrive by type: a parameter annotated `Annotated[T, FromRun()]` receives the value keyed `T` in `execute(from_run={T: value})`. `Interface.needs` lists them, and a leg that lacks one refuses to start.
 

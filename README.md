@@ -352,7 +352,7 @@ results = execute_sync(compiled, from_run={Clock: SystemClock()})
 
 ### Rows
 
-A node declared for one value runs once per row when a series reaches it. The engine's unit of work is a node on a row, and it starts every unit as soon as what it reads exists, so row 1 can finish a whole chain while row 10 is still being produced; a node's rows run concurrently up to its policy's `concurrency` (8 by default), in threads from the event loop's default executor, which every node shares. A node declaring `Series[X]` receives the series whole — once for a root series, once per parent row for a child one. Independent branches run concurrently without any configuration, and sync `run` methods are offloaded to `asyncio.to_thread`.
+A node declared for one value runs once per row when a series reaches it. The engine's unit of work is a node on a row, and it starts every unit as soon as what it reads exists, so row 1 can finish a whole chain while row 10 is still being produced; a node's rows run concurrently up to its policy's `concurrency` (8 by default), in threads from the event loop's default executor, which every node shares. A node declaring `Series[X]` receives the series whole — once for a root series, once per parent row for a child one. Independent branches run concurrently without any configuration, and `run` is a plain function the engine calls through `asyncio.to_thread`; an `async def run` is refused when the class is defined.
 
 A skip has a depth: `SKIPPED` at one row leaves the series downstream sparse, and `SKIPPED` above a node's rows skips everything under it. A failed row fails the run, and its `ErrorCause` names the row.
 
@@ -384,7 +384,7 @@ except GraphPendingError as pending:
     results = execute_sync(compiled, cells=pending.cells, cache={"approve": {"result": Text("Approved")}})
 ```
 
-`cells` is everything the earlier leg produced, so nothing is done twice; `cache` carries the answers as the asking node's outputs. Every ending of a run carries its `results` and `cells`, so a host can also start a new run from a failed or stopped one.
+`cells` is everything the earlier leg produced, so nothing is done twice; `cache` carries the answers as the asking node's outputs; for a node on rows, a `Series` naming the rows it answers, while a row that ran keeps its value and a row left out asks again. Every ending of a run carries its `results` and `cells`, so a host can also start a new run from a failed or stopped one.
 
 ### Retry
 
