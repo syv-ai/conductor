@@ -179,7 +179,9 @@ class SchemaBuilder(Widget):
     """A schema an author builds field by field — name, type, description."""
 
     #: ``schema`` on the wire and as a keyword; ``schema_`` as an attribute,
-    #: because ``BaseModel.schema`` is taken.
+    #: because ``BaseModel.schema`` is taken: ``builder.schema`` is pydantic's
+    #: deprecated classmethod, not the value. A dump says ``schema`` unless
+    #: asked for ``by_alias=False``.
     model_config = ConfigDict(validate_by_name=True, validate_by_alias=True, serialize_by_alias=True)
 
     kind: Literal["schema-builder"] = "schema-builder"
