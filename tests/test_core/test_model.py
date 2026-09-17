@@ -52,14 +52,19 @@ def test_a_graph_reads_back_what_it_wrote_to_a_path(tmp_path, name):
     assert Graph.from_path(path) == _graph()
 
 
-def test_the_suffix_decides_the_format_and_nothing_else_is_guessed(tmp_path):
+def test_the_suffix_decides_the_format(tmp_path):
     _graph().to_path(tmp_path / "godkend.json")
     assert (tmp_path / "godkend.json").read_text().lstrip().startswith("{")
 
-    with pytest.raises(ValueError, match=".txt"):
-        _graph().to_path(tmp_path / "godkend.txt")
-    with pytest.raises(ValueError, match=".txt"):
-        Graph.from_path(tmp_path / "godkend.txt")
+
+
+@pytest.mark.parametrize("name", ["godkend.txt", "godkend.JSON", "godkend.Yaml", "godkend.yaml.bak", "godkend"])
+def test_a_path_whose_suffix_is_not_exactly_json_yaml_or_yml_is_refused(tmp_path, name):
+    with pytest.raises(ValueError, match=name):
+        _graph().to_path(tmp_path / name)
+    with pytest.raises(ValueError, match=name):
+        Graph.from_path(tmp_path / name)
+    assert not (tmp_path / name).exists()
 
 
 def test_the_dump_is_the_record():

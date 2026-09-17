@@ -29,7 +29,7 @@ def _yaml() -> ModuleType:
     try:
         import yaml
     except ImportError as missing:
-        raise ImportError("reading or writing YAML needs PyYAML: pip install 'syv-conductor[yaml]'") from missing
+        raise ImportError("reading or writing YAML needs PyYAML: uv add 'syv-conductor[yaml]'") from missing
     return yaml
 
 
@@ -39,8 +39,8 @@ class ConductorModel(BaseModel):
     JSON is pydantic's own ``model_dump_json`` / ``model_validate_json``.
     Beside it: ``to_yaml`` and ``from_yaml``, and ``to_path`` and
     ``from_path``, where the suffix decides — ``.json`` is JSON, ``.yaml``
-    and ``.yml`` are YAML, and any other suffix is refused rather than
-    guessed.
+    and ``.yml`` are YAML, and any other suffix, ``.JSON`` included, is
+    refused rather than guessed.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -54,22 +54,19 @@ class ConductorModel(BaseModel):
 
     def to_path(self, path: str | Path) -> None:
         path = Path(path)
-        text = self.model_dump_json(indent=2) if _format(path) == "json" else self.to_yaml()
+        if path.suffix == ".json":
+            text = self.model_dump_json(indent=2)
+        elif path.suffix in (".yaml", ".yml"):
+            text = self.to_yaml()
+        else:
+            raise ValueError(f"{path.name}: a record is saved as .json, .yaml or .yml")
         path.write_text(text, encoding="utf-8")
 
     @classmethod
     def from_path(cls, path: str | Path) -> Self:
         path = Path(path)
-        kind = _format(path)
-        text = path.read_text(encoding="utf-8")
-        return cls.model_validate_json(text) if kind == "json" else cls.from_yaml(text)
-
-
-def _format(path: Path) -> str:
-    """``"json"`` or ``"yaml"`` by the path's suffix; any other suffix is a ``ValueError``."""
-    suffix = path.suffix.lower()
-    if suffix == ".json":
-        return "json"
-    if suffix in (".yaml", ".yml"):
-        return "yaml"
-    raise ValueError(f"{path.name}: a record is saved as .json, .yaml or .yml, not {suffix or 'no suffix'}")
+        if path.suffix == ".json":
+            return cls.model_validate_json(path.read_text(encoding="utf-8"))
+        if path.suffix in (".yaml", ".yml"):
+            return cls.from_yaml(path.read_text(encoding="utf-8"))
+        raise ValueError(f"{path.name}: a record is read from .json, .yaml or .yml")
