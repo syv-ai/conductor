@@ -8,7 +8,8 @@ from its ``run`` signature; the compiler, the engine and the editor read them.
 
 These records are their own schema: ``dtype`` is a ``DTypeRef``, so
 dumping a record through pydantic gives the type's ``describe()``, and a
-palette is simply these records dumped.
+palette is simply these records dumped. They are written and not read
+back: a dumped ``dtype`` is a description, not the class.
 """
 
 from typing import Any

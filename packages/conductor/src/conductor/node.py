@@ -241,7 +241,8 @@ class NodeDescription(ConductorModel):
 
     Built by ``NodeDefinition.describe()`` from the class, on demand, and
     read by an editor: a palette is these records dumped through pydantic.
-    Never stored, so there is no copy to keep in step with the class.
+    Never stored and never read back, so there is no copy to keep in step
+    with the class.
 
     Describes the *type*. The titles a particular placement shows live on
     its ``GraphNode``.

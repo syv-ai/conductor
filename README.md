@@ -157,7 +157,7 @@ conductor/
 │   │       ├── node.py             # NodeDefinition, NodeVersion, Policy, version/upgrade/deprecated, describe()
 │   │       ├── interface.py        # Interface.of(run): the signature read once; FromRun; model_of
 │   │       ├── metadata.py         # Field, Input, Output records
-│   │       ├── model.py            # ConductorModel — records that save and load themselves
+│   │       ├── model.py            # ConductorModel — records that save themselves
 │   │       ├── returns.py          # Result — what an author writes on a return; outputs_of / unpack
 │   │       ├── dtype.py            # DType — a value's type; accepts(); registered_dtypes()
 │   │       ├── series.py           # Series[X] and Index — many values of one type
@@ -433,16 +433,16 @@ A host that loads definitions the static registry lacks builds them and hands co
 
 ### Saving a graph
 
-A `Graph` is a pydantic model and saves itself — and so does every record a host keeps or sends (`Problem`, `ErrorCause`, `Input`, `NodeDescription`, …):
+A `Graph` is a pydantic model and saves itself — and so does every record a host keeps (`Problem`, `ErrorCause`, `Policy`, `Index`, …):
 
 ```python
 graph.to_path("approval.yaml")            # .json, .yaml or .yml, by suffix
 graph = Graph.from_path("approval.yaml")
-graph.to_yaml(); Graph.from_yaml(text)
-graph.model_dump_json(); Graph.model_validate_json(text)
+text = graph.to_yaml(); Graph.from_yaml(text)
+data = graph.model_dump_json(); Graph.model_validate_json(data)
 ```
 
-A ref stores as its address, `"node.field"`.
+A ref stores as its address, `"node.field"`. What describes a node (`NodeDescription`, `Input`, `Output`, the widgets) is a model too, written for an editor and not read back: call `describe()` again rather than loading a palette.
 
 ## Widgets
 
