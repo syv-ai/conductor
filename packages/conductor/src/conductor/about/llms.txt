@@ -195,7 +195,7 @@ Retries live on the version's `Policy` and nowhere else; each unit retries on it
 - `Policy.timeout` bounds one attempt; expiry is `NodeTimeoutError` (code `timeout`) and is final.
 - What people read: a cause the engine writes carries the generic message for its code (`conductor.errors.MESSAGES`); a `NodeError` the node raised keeps the message the node chose. A foreign exception's text is on the wrapping error's `original` and on no event.
 - `Policy.timeout` counts only the time the node's thread ran: the leg owns a thread pool with one worker per unit that may be in flight, so no unit waits for a worker. The thread is never interrupted; a timed-out attempt is final and its thread keeps the node's concurrency slot until it returns.
-- `execute(timeout=None)` by default: the leg runs until it is quiet. `execute(timeout=60)` bounds the leg in seconds and ends it `graph_timeout`; `execute(cancel=asyncio.Event())` stops it with `graph_cancelled` the moment the event is set. Leaving the `async for` early — `break`, `aclose()`, a cancelled task — stops every unit.
+- `execute(timeout=None)` by default: the leg runs until it is quiet. `execute(timeout=60)` bounds the leg in seconds and ends it `graph_timeout`; `execute(cancel=asyncio.Event())` stops it with `graph_cancelled` the moment the event is set. Closing the stream — `aclose()`, or cancelling the task that reads it — stops every unit; a bare `break` leaves the generator open until it is closed or collected, so close it.
 
 ### Errors
 
