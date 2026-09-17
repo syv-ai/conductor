@@ -4,7 +4,7 @@ A graph a host stores, a problem it shows, an input it renders, the cause
 of a failure it reports: each crosses into JSON, so each is a frozen
 pydantic model on this one base, and reads and writes itself::
 
-    graph = Graph.from_path("godkend.yaml")
+    graph = Graph.from_path("approval.yaml")
     graph.to_yaml()
     graph.model_dump_json()          # JSON is pydantic's own, not renamed
 
