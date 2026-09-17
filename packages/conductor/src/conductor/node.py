@@ -394,6 +394,13 @@ class NodeDefinition(ABC):
             # An undecorated `run` is version 1 with the default policy.
             methods[1] = cls.run
             policies[1] = Policy()
+        elif getattr(cls.run, "__node_version__", None) is None:
+            # Beside declared versions a plain ``run`` has no number, and
+            # the current version is the method named ``run``.
+            raise TypeError(
+                f"{cls.__name__}: run has no @version, but other methods do; "
+                "mark run with the number of the version it is"
+            )
 
         for number, fn in methods.items():
             if inspect.iscoroutinefunction(fn) or inspect.isasyncgenfunction(fn):

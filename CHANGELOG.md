@@ -76,7 +76,7 @@ nothing is deprecated first, everything below is gone in 2.0.0.
   `concurrency`); `@upgrade(a, b)` rewrites saved values and the class collects
   them into `cls.upgrades`; `@deprecated` retires a node or a version. A class
   without `id`, `title`, `description` or `category` is refused, and so is an
-  `async def run`.
+  `async def run`, and a `run` with no `@version` beside methods that have one.
 - **Fields are `Input` and `Output`** (1.x's `InputMetadata` / `OutputMetadata`).
   The hooks are `compute_inputs(declared, values)` and
   `compute_outputs(declared, values, arriving)`, with no context object; a hook
