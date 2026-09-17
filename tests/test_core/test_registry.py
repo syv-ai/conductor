@@ -252,3 +252,14 @@ def test_a_registry_shows_what_it_holds():
 
     registry.register(_node("truncate"))
     assert repr(registry) == "NodeRegistry(2 nodes: greet, truncate)"
+
+
+def test_a_registry_lists_its_nodes_as_the_classes_in_registration_order():
+    registry = NodeRegistry()
+    greet, truncate = _node("greet"), _node("truncate")
+    registry.register(greet)
+    registry.register(truncate)
+
+    assert registry.nodes == (greet, truncate)
+    assert [cls.id for cls in registry.nodes] == ["greet", "truncate"]
+    assert not hasattr(registry, "definitions")

@@ -57,7 +57,7 @@ nothing is deprecated first, everything below is gone in 2.0.0.
 - `FromRun`, `Refuses`, `ErrorCause`, `Problem`.
 - `CompiledGraph`, asked at the graph, the node and the field; `GraphVersion`, a version whose
   body is a graph.
-- `registry.extended_with(...)`, `registry.definitions()`, `registry.upgrade_path(...)`,
+- `registry.extended_with(...)`, `registry.nodes`, `registry.upgrade_path(...)`,
   `NodeDescription`.
 - `ConductorModel`: `to_yaml` / `from_yaml` / `to_path` / `from_path` on every saved record.
 - The widgets' `Choice` and `OperatorChoice`.
