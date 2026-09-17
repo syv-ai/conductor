@@ -1,19 +1,18 @@
 # Conductor — architecture at a glance
+
 ## What it is
 
-Conductor is a Python library for building DAG-based workflow and agent execution systems. Any tool where users connect nodes together — visually in a flow builder, programmatically in a script — can sit on top of it. The core is host-agnostic: no FastAPI, no database, no auth. The only hard dependency is pydantic.
+Conductor is a Python library that compiles and runs graphs of typed nodes. Any tool where nodes are connected together, on a canvas or in a script, can sit on top of it. The core is host-agnostic: no FastAPI, no database, no auth, and no vocabulary of its own. The one hard dependency is pydantic.
 
-Three uv-workspace packages ship today:
+Three packages in one uv workspace, released in lockstep:
 
 | Package | What it is |
 |---------|------------|
-| **`conductor`** | The engine: the node contract, the type mechanism, compile, execute, widgets, errors. |
-| **`conductor-nodes`** | Standard-library nodes — `text`, `math`, `logic`, `json_ops`, `regex_ops`, `decision` — in a four-word vocabulary of their own. |
-| **`conductor-providers`** | Framework adapters. `conductor_providers.react` round-trips graphs through ReactFlow JSON and builds the palette; `conductor_providers.fastapi` mounts a router. |
+| **`syv-conductor`** (`conductor`) | The engine: the node contract, the type mechanism, compile, the row engine, widgets, errors. |
+| **`syv-conductor-nodes`** (`conductor_nodes`) | Standard nodes (`text`, `math`, `logic`, `json_ops`, `regex_ops`, `decision`) in a four-type vocabulary of their own. |
+| **`syv-conductor-providers`** (`conductor_providers`) | Adapters. `react` turns a graph into ReactFlow JSON and back and builds the palette; `fastapi` mounts a router. |
 
-Ruff-clean, CI on every PR.
-
-## Design principle — one declaration, three consumers
+## One declaration, three readers
 
 A node is a class whose typed `run` signature is its interface:
 
@@ -28,110 +27,106 @@ class Uppercase(NodeDefinition):
         return Text(text.upper())
 ```
 
-That one declaration drives three things: **execution** (the method runs as-is, a fresh instance per call), **validation** (a pydantic model is built from the `Input` records) and **rendering** (`describe()` is the palette entry — dtype, widget, title, choices — dumped through pydantic for the UI). No parallel schemas, no framework coupling, no sync points to forget.
+That one declaration is read three ways. **Execution** calls the method as it is, on a fresh instance per call. **Validation** builds a pydantic model from the `Input` records. **Rendering** reads `describe()`, the palette entry with each field's type, widget and title, dumped through pydantic for the UI. Nothing is declared twice.
 
-Every value on an edge has a `DType`. Conductor declares none: a host says what `Text`, `Number` or `Document` is, and `target.accepts(source)` is the one edge question. `Series[X]` is the one collection.
+Every value on an edge has a `DType`. Conductor declares none: a host says what `Text`, `Number` or `Document` is, and `target.accepts(source)` is the one edge question. `Series[X]` is the one collection, many values of one type on an `Index`.
 
-Several versions live in one class (`@version(2)` on the method named `run`, `@version(1)` on an older one), each with its own signature and `Policy`; `@upgrade(1, 2)` rewrites saved values; `@deprecated` retires a node or a version. A placement pins `type` and `version`, so existing flows keep working across library evolution.
+Several versions live in one class: `@version(1)` on an older method, `@version(2)` on the one named `run`. Each has its own signature and `Policy`; `@upgrade(1, 2)` rewrites saved values, and `@deprecated` retires a node or a version. A placed node pins `type` and `version`, so a saved graph keeps running as the node evolves.
 
-## Widgets — one class per UI control
+## Widgets
 
-Every control is a frozen record with a `kind` discriminator: `Text`, `Textarea`, `Number`, `Range`, `Dropdown`, `EntityDropdown`, `Switch`, `DatePicker`, `FileUpload`, `List`, `Tags`, `TableInput`, `SchemaBuilder`, `CodeEditor`, `TemplateTextarea`, `IfElseBuilder`, `ConnectionList`. `AnyWidget` is their discriminated union, so a generic frontend can render any registered node by reading the palette.
+Every control is a frozen pydantic model with a `kind`: `Text`, `Textarea`, `TemplateTextarea`, `CodeEditor`, `Dropdown`, `EntityDropdown`, `Number`, `Range`, `Switch`, `DatePicker`, `FileUpload`, `List`, `Tags`, `TableInput`, `SchemaBuilder`, `IfElseBuilder`, `ConnectionList`. `AnyWidget` is their union, so a generic frontend renders any node from the palette.
 
-Conductor ships no default widget for any type: the same `Text` may be a textarea, a single line or a dropdown, so every input declares its own. Vocabulary inside a control — a dropdown's `choices`, a condition builder's `operators` — is the host's, carried as data.
+Conductor ships no default widget for any type, since the same `Text` may be a textarea, a single line or a dropdown. The vocabulary inside a control, a dropdown's `choices` or a condition builder's `operators`, is the host's, carried as data. Full catalog: [`widgets.md`](widgets.md). Hands-on tour: [`examples/08_widgets.ipynb`](../examples/08_widgets.ipynb).
 
-Full catalog: [`widgets.md`](widgets.md). Hands-on tour: [`examples/08_widgets.ipynb`](../examples/08_widgets.ipynb).
+## Declare → compile → execute
 
-## Three phases: declare → compile → execute
+- **Declaring** a node checks it when the class is defined. A missing `id`, `title`, `description` or `category`, a parameter without a widget, a return without a `Result`, an `async def run`: each fails with the traceback at the class. `NodeRegistry.register(cls)` adds the catalogue's rules (versions from 1 with no holes, an `alternative` that exists).
+- **`CompiledGraph.from_graph(graph, registry)`** resolves every pin, validates the bindings, types every field from its edges, decides which nodes run once per row, asks the field hooks and expands embedded graphs. It never raises for a fault in the graph: everything wrong is a `Problem` with a stable `code`, anchored on a node, and `is_runnable` says whether a run may start. The result is asked at three scales: the graph, `compiled.node(node_id)` and `compiled.field(ref)`.
+- **`execute(compiled)`** runs one leg as an async generator of events: `node_start`, `node_progress`, `node_complete`, `node_retry`, `node_skipped`, `node_error`, and an ending, `graph_complete`, `graph_pending`, `graph_error`, `graph_cancelled` or `graph_timeout`. Every ending carries `results` and `cells`. `execute_sync` runs it from a script; in a notebook, `await collect(execute(...))`.
 
-Each phase fails fast on problems the next can't handle.
+## The row engine
 
-- **Declaring** a node checks it at import: a missing `id`, `title`, `description` or `category`, a parameter without a widget or a `DType`, a return without a `Result` fail with the traceback at the class. `NodeRegistry.register(cls)` adds the catalogue rules (versions from 1 with no holes, a deprecated version pointing somewhere).
-- **`CompiledGraph.from_graph(graph, registry)`** resolves every node's pin, asks the field hooks, validates the stored bindings, types every field from its edges (a node fed a series iterates on that series' index), expands embedded graphs and derives each output's condition. Returns an immutable `CompiledGraph` that is asked, not read; everything wrong with the graph is a `Problem` on it, and a run refuses on the first fatal one. Nothing runs yet.
-- **`execute(compiled)`** is an async generator yielding events: `node_start`, `node_complete`, `node_retry`, `node_skipped`, `flow_complete`, … . `execute_sync(compiled)` is a blocking wrapper; `collect(execute(...))` is the notebook idiom.
-
-## Execution — eager parallel with retry
-
-Nodes dispatch the moment their dependencies complete. Independent branches overlap:
+The engine's unit of work is a node on a row. A node that runs once is one unit; a node fed a series on an input declared for one value iterates, one unit per row, and each unit starts as soon as what it reads exists. Row 1 can finish a whole chain while row 10 is still being produced.
 
 ```
-  A ──> C ──┐
-            ├──> E        sequential: 5 × 0.3s = 1.5s
-  B ──> D ──┘             eager:            ≈  0.9s
+  split ──> clean (row 0, 1, 2 …) ──> summarise (row 0, 1, 2 …) ──> join (once)
 ```
 
-Sync `run` methods are offloaded to `asyncio.to_thread` so they don't block the event loop. There is no sequential-execute flag; eager is the only mode.
+A `Series[X]` input is a reduction: it receives the whole series, or the rows under each parent row. A node's rows run at most `Policy.concurrency` at a time, each in a worker thread, and a run's time grows with its rows.
 
-Retries are first-class. A version's `Policy` carries `retries`, `delay`, `timeout` and `concurrency`; a run-level `RetryConfig` covers nodes whose policy sets none. Validation failures are never retried (bad input won't fix itself); `NodeExecutionError` and `NodeConnectionError` are. Every attempt emits a `node_retry` event.
-
-Errors carry structured context (`node_id`, `node_type`, original exception) so host apps can log, display, or route them without re-parsing message strings:
+Retries live on the version's `Policy`, and each unit retries on its own. `NodeValidationError` is never retried. Every failure carries an `ErrorCause` (`code`, `message`, `details`, `row`) on the exception and on the event, so a host routes it by code rather than by parsing a message:
 
 ```
 ConductorError
-├── CompilationError (a run started on a graph compile found not runnable; carries its problems)
+├── CompilationError
 ├── NodeError (Validation, Execution, Timeout, Connection)
-└── FlowExecutionError
+├── GraphExecutionError
+└── GraphPendingError
 ```
 
-**Branching** is a value. A node returns `SKIPPED` on the branch it did not take, downstream nodes fed only `SKIPPED` are skipped in turn, and outputs that are exclusive alternatives share a `choice` so an editor knows exactly one arrives. There is no role or flag on the class telling the engine what to do.
+**Branching** is a value. A node returns `SKIPPED` on the branch it did not take; a skip at a row leaves the series downstream sparse, and a skip above a node's rows skips everything under it. Outputs that are exclusive alternatives share a `choice`, so an editor knows exactly one arrives.
+
+**A person in the loop** is a value too. A node returns `Asks` with its questions; the rest of the graph runs on, and the leg ends `graph_pending` with every question. Answering is the next leg: `execute(compiled, cells=..., cache=...)`, where `cells` is what the earlier leg produced and `cache` holds the answers as the asking node's outputs. Nothing runs twice and nothing is resumed.
 
 ## Bindings — one input, one source
 
-A flow is its nodes and nothing else; there is no edge list. Each placement says per input where the value comes from:
+A graph is its nodes; there is no edge list. Each placed node says per input where the value comes from:
 
 ```python
-GraphNode("mapper",   "build-map", 1, bindings={"seed": Static(value="x")})
-GraphNode("redactor", "redact",    1, bindings={"mapping": Edges(refs=(Ref("mapper", "result"),))})
+GraphNode(id="mapper", type="build-map", version=1, bindings={"seed": Static(value="x")})
+GraphNode(id="redactor", type="redact", version=1, bindings={"mapping": Edges(refs=(Ref("mapper", "result"),))})
 # the Edges binding is the edge and the dependency
 ```
 
-A `Edges` holds refs in operand order; a `Static` is what the author typed; an absent binding means the declared default. Dependencies, cycle detection and what the flow itself takes and returns are derived from the bindings.
+An `Edges` holds refs in operand order, a `Static` is what the author typed, and an absent binding means the declared default. Dependencies, cycles and what the graph takes and returns are derived from the bindings. A `Graph` saves itself: `graph.to_path("approval.yaml")`, `Graph.from_path(...)`.
 
-## Standard nodes + frontend providers
+## Standard nodes and providers
 
-**`conductor-nodes`** ships the usual suspects so downstream flows don't re-author them. Each category module exposes `register(registry)`, which lists its nodes; `register_all(registry)` pulls in everything:
+**`conductor-nodes`** ships the usual nodes so a host need not write them again. Each category module has a `register(registry)` that lists its nodes, and `register_all` pulls in every category or a subset:
 
 ```python
 from conductor_nodes import register_all
-register_all(reg)   # or register_all(reg, categories=["text", "math"])
+register_all(registry)   # or register_all(registry, categories=["text", "math"])
 ```
 
-Its nodes are declared in `conductor_nodes.types` — `Text`, `Number`, `Flag`, `Json` — because a node library has to say what its nodes take. Node ids are category-prefixed (`text-uppercase`, `math-add`, …) so they don't collide with application-level ids.
+The nodes are declared in `conductor_nodes.types` (`Text`, `Number`, `Flag`, `Json`), because a node library has to say what its nodes take. Node ids are prefixed by category (`text-uppercase`, `math-add`), so they don't collide with a host's own.
 
-**`conductor-providers`** is the adapter layer between conductor's Python objects and specific frontend frameworks:
+**`conductor-providers`** sits between conductor's records and a framework:
 
 ```python
 from conductor_providers import react
 
-palette = react.palette_from_registry(registry)  # [cls.describe() ...]
-flow_json = react.graph_to_react(flow)           # conductor → ReactFlow
-flow2 = react.react_to_graph(flow_json)          # ReactFlow → conductor
+palette = react.palette_from_registry(registry)   # [cls.describe() ...]
+wire = react.graph_to_react(graph)                # Graph → ReactFlow JSON
+graph = react.react_to_graph(wire)                # ReactFlow JSON → Graph
 ```
 
-`conductor_providers.fastapi.conductor_router(registry)` mounts `/nodes`, `/compile`, `/execute`, `/execute-stream` and `/entities/{kind}`. New providers (Svelte, Vue, Gradio, …) are sibling subpackages — no abstract base class to satisfy.
+`conductor_providers.fastapi.conductor_router(registry)` mounts `/nodes`, `/compile`, `/execute`, `/execute-stream` and `/entities/{kind}`; a run that asks goes on in legs over HTTP. A new provider is a sibling subpackage, with no base class to satisfy.
 
-## Runnable library reference
+## The reference ships with the library
 
-`python -m conductor.about` prints the packaged reference text from inside the installed wheel:
+`python -m conductor.about` prints the packaged reference from inside the installed wheel:
 
 ```bash
-python -m conductor.about                 # full reference
-python -m conductor.about sections        # list topic slugs
-python -m conductor.about retry           # just that section (prefix match)
+python -m conductor.about                 # the whole reference
+python -m conductor.about sections        # the section slugs
+python -m conductor.about rows            # one section (prefix match)
 ```
 
-Same text programmatically: `from conductor.about import get_content, get_section`.
+The same text in code: `from conductor.about import get_content, get_section`.
 
 ## Working agreements
 
-- **CI runs ruff + pytest on every PR** (`.github/workflows/ci.yml`). Locally: `uvx ruff check .` and `uv run pytest tests/`.
-- **Docs drift is actively audited.** `/docs-audit` Claude Code slash command runs on-demand after feature sessions; a weekly CI audit opens a PR as a safety net. `CLAUDE.md` and `llms.txt` should always match the shipped surface.
-- **Notebook outputs are stripped on commit** by the `nbstripout` pre-commit hook; readers run cells locally to see values.
-- **Duplicate node registration is a clear error**, not a silent overwrite — two classes under one id raise.
+- **CI runs ruff and pytest on every PR** (`.github/workflows/ci.yml`). Locally: `uvx ruff check .` and `uv run pytest tests/`.
+- **Conductor stands alone.** `tests/test_core/test_standalone.py` fails on a host's word ("flow", "app", an access model), a host's import or a type the library declares for itself.
+- **Docs drift is audited.** The `/docs-audit` slash command runs on demand after a feature, and a weekly CI audit opens a PR as a safety net. `CLAUDE.md` and `llms.txt` match the shipped surface.
+- **Notebook outputs are stripped on commit** by the `nbstripout` pre-commit hook; run the cells to see values.
+- **Registering two classes under one id is an error**, not a silent overwrite.
 
 ## Further reading
 
-- [`README.md`](../README.md) — install, quickstart, usage recipes
-- [`CLAUDE.md`](../CLAUDE.md) — architecture + conventions (primary context for agent sessions)
-- [`packages/conductor/src/conductor/about/llms.txt`](../packages/conductor/src/conductor/about/llms.txt) — the packaged reference, accessible via `python -m conductor.about`
-- [`examples/*.ipynb`](../examples/) — tutorial notebooks
+- [`README.md`](../README.md): install, quick start, concepts.
+- [`CLAUDE.md`](../CLAUDE.md): architecture and conventions, the primary context for agent sessions.
+- [`packages/conductor/src/conductor/about/llms.txt`](../packages/conductor/src/conductor/about/llms.txt): the packaged reference.
+- [`examples/*.ipynb`](../examples/): tutorial notebooks.
