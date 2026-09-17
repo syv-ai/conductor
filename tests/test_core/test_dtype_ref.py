@@ -15,7 +15,7 @@ class Text(DType, str):
 
 
 def test_a_dtype_ref_dumps_as_the_description():
-    assert TypeAdapter(DTypeRef).dump_python(Text, mode="json") == {"id": "dtype-ref-test-text", "accepted_as": ["dtype-ref-test-text"]}
+    assert TypeAdapter(DTypeRef).dump_python(Text, mode="json") == {"id": "dtype-ref-test-text"}
 
 
 def test_a_dtype_ref_keeps_the_declared_class_in_python():
