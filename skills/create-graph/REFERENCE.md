@@ -170,7 +170,7 @@ assert Graph.from_yaml(text) == graph
 ```python
 from conductor_providers import react
 
-palette = react.palette_from_registry(registry)   # [cls.describe() for cls in registry.definitions()]
+palette = react.palette_from_registry(registry)   # [cls.describe() for cls in registry.nodes]
 wire = react.graph_to_react(graph)                # the node record under each node's data; edges derived
 assert react.react_to_graph(wire).nodes[0].id == "words"
 ```
