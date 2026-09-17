@@ -246,7 +246,7 @@ text = graph.to_yaml(); Graph.from_yaml(text)
 data = graph.model_dump_json(); Graph.model_validate_json(data)
 ```
 
-A ref stores as its address, `"node.field"`. YAML needs PyYAML (`pip install "syv-conductor[yaml]"`). What compile and the engine build per call — `CompiledGraph`, its views, `NodeVersion`, `GraphVersion`, `Interface` — stays a frozen dataclass. A pydantic model returned from `run` is one value, not one output per field.
+A ref stores as its address, `"node.field"`. YAML needs PyYAML (`uv add "syv-conductor[yaml]"`). What compile and the engine build per call — `CompiledGraph`, its views, `NodeVersion`, `GraphVersion`, `Interface` — stays a frozen dataclass. A pydantic model returned from `run` is one value, not one output per field.
 
 ### The Palette
 
