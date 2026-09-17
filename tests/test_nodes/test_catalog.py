@@ -7,9 +7,9 @@ to one module cannot quietly drop a title, a category or an id.
 from collections import defaultdict
 from typing import Any, get_args
 
+import conductor_nodes
 import pytest
 from conductor.node import NodeDefinition
-from conductor_nodes import get_default_registry
 from conductor_nodes.types import Flag, Json, Number, Text
 
 #: Every node id the catalog is expected to hold, checked in both directions
@@ -35,7 +35,7 @@ VOCABULARY = {Text, Number, Flag, Json}
 
 @pytest.fixture(scope="module")
 def registry():
-    return get_default_registry()
+    return conductor_nodes.registry()
 
 
 def _current(node_cls):
@@ -162,3 +162,13 @@ def test_every_node_describes(registry):
     """``describe()`` builds for every node."""
     for node_cls in registry.definitions():
         assert node_cls.describe().id == node_cls.id
+
+
+def test_a_registry_of_the_standard_nodes_is_one_call():
+    import conductor_nodes
+
+    assert {cls.id for cls in conductor_nodes.registry().definitions()} == EXPECTED_IDS
+    assert {cls.id for cls in conductor_nodes.registry(categories=["logic"]).definitions()} == {
+        "logic-if-empty", "logic-if-equals", "logic-not",
+    }
+    assert not hasattr(conductor_nodes, "get_default_registry")

@@ -525,14 +525,12 @@ uv run mkdocs gh-deploy  # Deploy to GitHub Pages
 A workspace sibling to `conductor` that ships common nodes so downstream graphs don't have to re-author them. Distributed on PyPI as `syv-conductor-nodes`; the Python import path is `conductor_nodes`. Pick the categories you want:
 
 ```python
-from conductor import NodeRegistry
-from conductor_nodes import register_all, get_default_registry, text, math
+import conductor_nodes
 
-reg = NodeRegistry()
-register_all(reg)                                   # everything
-register_all(reg, categories=["text", "math"])      # a subset
-text.register(reg)                                  # or per module
-reg = get_default_registry()                        # a fresh registry holding everything
+registry = conductor_nodes.registry()                              # a fresh registry holding everything
+registry = conductor_nodes.registry(categories=["text", "math"])   # a subset
+conductor_nodes.register_all(my_registry, categories=["logic"])    # added to a registry you already have
+conductor_nodes.text.register(my_registry)                         # or one module
 ```
 
 The library declares the four types its nodes take in `conductor_nodes.types` — `Text`, `Number`, `Flag`, `Json` — because a node library has to say what its nodes take, and conductor itself ships no vocabulary. A host with its own vocabulary declares its own types and does not need these.
@@ -592,7 +590,7 @@ From `1.0.0` onward, conductor follows [Semantic Versioning](https://semver.org/
 
 - Top-level `conductor`: the node contract (`NodeDefinition`, `NodeVersion`, `GraphVersion`, `Policy`, `Deprecation`, `NodeDescription`, `version`, `upgrade`, `deprecated`, `Interface`, `FromRun`, `Input`, `Output`, `AnyWidget`, `SKIPPED`, `Asks`, `is_skipped`, `is_asking`), the type vocabulary (`DType`, `DTypeRef`, `Single`, `dtype_of`, `registered_dtypes`, `Series`, `Index`, `Ref`, `Result`), the registry (`NodeRegistry`), and the graph (`Graph`, `GraphNode`, `FieldContent`, `Binding`, `Edges`, `Static`, `dependencies_of`, `is_input_node`, `CompiledGraph`, `CompiledNode`, `CompiledField`, `Problem`, `Condition`, `Atom`, `ALWAYS`)
 - `conductor.execution.engine` (`execute`, `execute_sync`, `collect`), `conductor.errors` (`ErrorCause` and the error classes), `conductor.model` (`ConductorModel`), `conductor.widgets`, `conductor.metadata`, `conductor.execution.events` (the `*Event` `TypedDict`s), `conductor.registry.discovery` (`discover_nodes`)
-- `conductor_nodes` (`register_all`, `get_default_registry`, the category modules, `conductor_nodes.types`) and `conductor_providers.react` / `conductor_providers.fastapi`
+- `conductor_nodes` (`registry`, `register_all`, the category modules, `conductor_nodes.types`) and `conductor_providers.react` / `conductor_providers.fastapi`
 
 **Compatibility guarantees from `1.0.0`.**
 

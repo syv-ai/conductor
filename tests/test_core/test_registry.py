@@ -240,3 +240,15 @@ def test_conductor_names_no_loading_seam():
         assert not hasattr(conductor, gone), gone
         assert not hasattr(registry_pkg, gone), gone
         assert not hasattr(compiler, gone), gone
+
+
+def test_a_registry_shows_what_it_holds():
+    """A registry printed in a notebook or a log names its node ids, in registration order."""
+    registry = NodeRegistry()
+    assert repr(registry) == "NodeRegistry(no nodes)"
+
+    registry.register(_node("greet"))
+    assert repr(registry) == "NodeRegistry(1 node: greet)"
+
+    registry.register(_node("truncate"))
+    assert repr(registry) == "NodeRegistry(2 nodes: greet, truncate)"
