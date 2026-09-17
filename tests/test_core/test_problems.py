@@ -33,7 +33,7 @@ def test_a_problem_names_a_code_a_message_and_a_place():
 
 
 def test_a_problem_about_a_whole_node_names_no_field():
-    p = Problem(code="cycle", message="The flow loops back on itself.", fatal=True, node_id="letter")
+    p = Problem(code="cycle", message="The graph loops back on itself.", fatal=True, node_id="letter")
 
     assert p.node_id == "letter"
     assert p.field is None
@@ -43,7 +43,7 @@ def test_every_problem_is_about_a_node():
     """There is no graph-level problem: a graph is only ever wrong
     somewhere, so the anchor has two states and not three."""
     with pytest.raises(ValidationError, match="node_id"):
-        Problem(code="empty", message="The flow is empty.", fatal=True)
+        Problem(code="empty", message="The graph is empty.", fatal=True)
 
 def test_fatal_is_a_boolean_not_a_two_valued_enum():
     """One fact, once. There are exactly two audiences: the editor
@@ -270,7 +270,7 @@ def test_a_computed_field_with_a_handle_needs_an_edge_type():
 # --- the stored bindings, validated -----------------------------------------------
 
 
-def test_a_clean_flow_reports_no_problems():
+def test_a_clean_graph_reports_no_problems():
     assert _codes([
         GraphNode(id="a", type="echo", version=1, bindings={"x": Static(value="hi")}),
         GraphNode(id="b", type="echo", version=1, bindings={"x": Edges(refs=(Ref("a", "result"),))}),
@@ -314,7 +314,7 @@ def test_two_refs_into_a_series_input_is_a_gather_not_a_problem():
     ]) == []
 
 
-def test_a_ref_to_a_node_not_in_the_flow_is_fatal():
+def test_a_ref_to_a_node_not_in_the_graph_is_fatal():
     (problem,) = _problems([GraphNode(id="b", type="echo", version=1, bindings={"x": Edges(refs=(Ref("ghost", "result"),))})])
 
     assert (problem.code, problem.node_id, problem.field) == ("unknown_ref_node", "b", "x")
@@ -332,7 +332,7 @@ def test_a_ref_to_an_output_the_node_does_not_have_is_fatal():
 
 
 def test_a_required_input_with_nothing_bound_is_fatal():
-    """A flow is closed. The caller's answer replaces a value the
+    """A graph is closed. The caller's answer replaces a value the
     author set; it does not fill a hole."""
     (problem,) = _problems([GraphNode(id="n", type="needs", version=1)])
 
@@ -405,7 +405,7 @@ def test_problems_can_be_read_whole_or_by_node():
         compiled.field(Ref("a", "z"))
 
 
-def test_a_non_fatal_problem_leaves_the_flow_runnable():
+def test_a_non_fatal_problem_leaves_the_graph_runnable():
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[GraphNode(id="a", type="echo", version=1, bindings={"z": Static(value=1)})]), _registry()
     )

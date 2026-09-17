@@ -95,7 +95,7 @@ def _run(nodes):
     return execute_sync(CompiledGraph.from_graph(Graph(nodes=nodes), _registry()))
 
 
-def test_a_flow_of_bindings_compiles_and_runs():
+def test_a_graph_of_bindings_compiles_and_runs():
     results = _run([
         GraphNode(id="a", type="upper", version=1, bindings={"text": Static(value="hi")}),
         GraphNode(id="b", type="upper", version=1, bindings={"text": Edges(refs=(Ref("a", "result"),))}),
@@ -147,7 +147,7 @@ def test_policy_is_read_off_the_pinned_version():
     assert Flaky.calls == 3
 
 
-def test_a_flow_compile_rejected_is_refused_with_its_problems():
+def test_a_graph_compile_rejected_is_refused_with_its_problems():
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="gone", version=1)]), _registry())
 
     with pytest.raises(CompilationError) as raised:
