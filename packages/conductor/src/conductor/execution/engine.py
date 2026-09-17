@@ -460,14 +460,16 @@ class _Leg:
             return
         try:
             outputs = unpack(version.interface.returns, value, compiled.node(node_id).interface.outputs)
+            ready = ledger.record(unit, outputs)
         except ValueError as invalid:
+            # What the node returned does not fit what it declared — the
+            # wrong type, the wrong shape, series outputs of two lengths.
             failure = NodeExecutionError(
                 MESSAGES["invalid_output"], node_id=node_id, original=invalid,
                 cause=self._cause(code="invalid_output", row=row, details={"reason": str(invalid)}),
             )
             await queue.put(_UnitDone(unit, error=self._error_event(node_id, failure, row)))
             return
-        ready = ledger.record(unit, outputs)
         await self._after(unit)
         await queue.put(_UnitDone(unit, ready))
 
