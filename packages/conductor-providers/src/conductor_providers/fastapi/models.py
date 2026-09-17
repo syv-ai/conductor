@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from conductor.execution.record import RunRecord
 from conductor.graph.model import Graph
 from pydantic import BaseModel, ConfigDict
 
@@ -28,6 +29,6 @@ class ExecuteRequest(BaseModel):
     # dumped in, ``{"rows": [...], "values": [...]}``, naming only the rows it
     # answers. Unset = run all.
     cache: dict[str, Any] | None = None
-    # The ``cells`` of an earlier leg's ending, handed back so this leg goes
+    # The ``record`` of an earlier leg's ending, handed back so this leg goes
     # on from where that one stopped. Unset = a fresh run.
-    cells: dict[str, Any] | None = None
+    record: RunRecord | None = None

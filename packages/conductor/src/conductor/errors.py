@@ -16,7 +16,7 @@ belonged to which failure.
     │   ├── NodeExecutionError      its body raised something that is not a NodeError
     │   └── NodeTimeoutError        the leg stopped waiting for it
     ├── GraphExecutionError      execute_sync: the graph did not complete
-    └── GraphPendingError        execute_sync: the run stopped to wait for a person; carries the questions and the record so far
+    └── GraphPendingError        execute_sync: the run stopped to wait for a person; carries the questions and the run record so far
 
 **Two families.** A node's failure is internal — a bug, bad data, a
 refused schema — unless the outside world caused it: a network error, a
@@ -52,6 +52,7 @@ from conductor.model import ConductorModel
 from conductor.series import Row
 
 if TYPE_CHECKING:
+    from conductor.execution.record import RunRecord
     from conductor.graph.problem import Problem
 
 
@@ -202,11 +203,11 @@ class GraphPendingError(ConductorError):
 
     Carries the questions of every node — or every row of a node that
     runs per row — that is waiting (``pending``), and the record of
-    everything the run has produced so far (``cells``); the caller answers
+    everything the run has produced so far (``record``); the caller answers
     and calls again with both.
     """
 
-    def __init__(self, pending: list[dict[str, Any]], cells: dict[str, Any]) -> None:
+    def __init__(self, pending: list[dict[str, Any]], record: RunRecord) -> None:
         self.pending = pending
-        self.cells = cells
+        self.record = record
         super().__init__("The graph is waiting for an answer.")

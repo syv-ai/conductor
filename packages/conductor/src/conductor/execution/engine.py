@@ -30,16 +30,17 @@ nothing is runnable and nothing is in flight. A unit whose node returned
 ``Asks`` is neither done nor failed: it waits, everything that reads it
 waits, and the rest of the graph runs on. If anything is waiting when the
 leg goes quiet, the leg ends with ``graph_pending`` carrying every waiting
-unit's questions, plus what the leg completed and the ledger's cells (its
-whole record, row by row). The next leg is ``execute`` again, with
-``cells`` restoring the ledger and the
-answers in ``cache`` as the asking node's outputs. Nothing is checkpointed
-and nothing resumes: a leg is an ordinary run over a ledger that already
-holds what earlier legs produced.
+unit's questions, plus what the leg completed and the ledger's record (a
+``RunRecord``: every cell in wire form, and a fingerprint per node). The
+next leg is ``execute`` again, with ``record`` restoring the ledger and
+the answers in ``cache`` as the asking node's outputs. Nothing is
+checkpointed and nothing resumes: a leg is an ordinary run over a ledger
+that already holds what earlier legs produced — and a node the graph has
+changed since, or that reads one, runs again.
 
 **Every ending has one shape.** ``graph_complete``, ``graph_pending``,
 ``graph_error``, ``graph_cancelled`` and ``graph_timeout`` all carry the
-results so far and the ledger's cells beside their reason, so a host can
+results so far and the ledger's record beside their reason, so a host can
 start a new run from any of them.
 """
 
@@ -83,6 +84,7 @@ from conductor.execution.events import (
     NodeStartEvent,
 )
 from conductor.execution.ledger import Ledger, Skip, Unit
+from conductor.execution.record import RunRecord
 from conductor.graph.compiled import CompiledGraph
 from conductor.interface import model_of
 from conductor.returns import unpack
@@ -93,7 +95,7 @@ from conductor.returns import unpack
 async def execute(
     compiled: CompiledGraph,
     *,
-    cells: dict[str, Any] | None = None,
+    record: RunRecord | None = None,
     cache: dict[str, dict[str, Any]] | None = None,
     from_run: Mapping[type, Any] | None = None,
     timeout: float | None = None,
@@ -104,8 +106,9 @@ async def execute(
     ``from_run`` supplies values to nodes by type: a ``run`` parameter
     annotated ``Annotated[X, FromRun()]`` receives ``from_run[X]``. A graph
     needing a type the host did not provide is refused before anything
-    runs. ``cells`` restores the ledger of an earlier leg, cell by cell.
-    ``cache`` records outputs by node id without running the node — a
+    runs. ``record`` restores the ledger of an earlier leg, cell by cell;
+    a node the graph has changed since that leg, and everything reading
+    it, is left out and runs again. ``cache`` records outputs by node id without running the node — a
     person's answers to a pending unit, or an earlier run's results a caller
     reuses. For a node running per row each output is a series, and only
     the rows it names are recorded. A node the cache completes is reported
@@ -128,7 +131,7 @@ async def execute(
         raise CompilationError("the graph cannot run", problems=compiled.problems)
     leg = _Leg(
         compiled,
-        cells=cells,
+        record=record,
         from_run=from_run or {},
         timeout=timeout,
         cancel=cancel or asyncio.Event(),
@@ -151,7 +154,7 @@ async def collect(events: AsyncGenerator[ExecutionEvent, None]) -> dict[str, dic
         if kind == "graph_complete":
             return event["results"]
         if kind == "graph_pending":
-            raise GraphPendingError(event["pending"], event["cells"])
+            raise GraphPendingError(event["pending"], event["record"])
         if kind == "graph_error":
             raise GraphExecutionError(event["error"], node_id=event.get("node_id"), cause=event.get("cause"))
         if kind in ("graph_cancelled", "graph_timeout"):
@@ -163,8 +166,8 @@ def execute_sync(compiled: CompiledGraph, **kwargs: Any) -> dict[str, dict[str, 
     """Run one leg synchronously and return ``{node_id: {output: value}}``.
 
     A convenience for tests and scripts. A leg that ends pending raises
-    ``GraphPendingError`` with the questions and the cells; the caller
-    answers and calls again with ``cells`` and ``cache``.
+    ``GraphPendingError`` with the questions and the record; the caller
+    answers and calls again with ``record`` and ``cache``.
     """
     return asyncio.run(collect(execute(compiled, **kwargs)))
 
@@ -199,7 +202,7 @@ class _Leg:
     """One leg in flight: the loop that starts ready units, and each unit's run.
 
     ``execute`` creates one per call and drops it when the leg ends; the
-    ledger outlives it as the cells every ending carries. It holds what the
+    ledger outlives it as the record every ending carries. It holds what the
     loop and the unit tasks share: the ledger, the thread pool every
     ``run`` is called on (``executor``), one semaphore per node sized by
     its policy's concurrency (``gates``), the nodes that have emitted
@@ -221,13 +224,13 @@ class _Leg:
         self,
         compiled: CompiledGraph,
         *,
-        cells: dict[str, Any] | None,
+        record: RunRecord | None,
         from_run: Mapping[type, Any],
         timeout: float | None,
         cancel: asyncio.Event,
     ) -> None:
         self.compiled = compiled
-        self.ledger = Ledger(compiled) if cells is None else Ledger.restore(compiled, cells)
+        self.ledger = Ledger(compiled) if record is None else Ledger.restore(compiled, record)
         for node_id in compiled.execution_order():
             for name, needed in compiled.node(node_id).version.interface.needs.items():
                 if needed not in from_run:
@@ -273,14 +276,14 @@ class _Leg:
             while self.running:
                 message = await self._next()
                 if message is _Stop.CANCELLED:
-                    yield GraphCancelledEvent(type="graph_cancelled", results=self.ledger.results(), cells=self.ledger.cells())
+                    yield GraphCancelledEvent(type="graph_cancelled", results=self.ledger.results(), record=self.ledger.cells())
                     return
                 if message is _Stop.TIMED_OUT:
                     assert self.timeout is not None
                     yield GraphTimeoutEvent(
                         type="graph_timeout",
                         results=self.ledger.results(),
-                        cells=self.ledger.cells(),
+                        record=self.ledger.cells(),
                         elapsed_seconds=time.monotonic() - self.started_at,
                         timeout_seconds=self.timeout,
                     )
@@ -297,7 +300,7 @@ class _Leg:
                         error=message.error["error"],
                         cause=message.error["cause"],
                         results=self.ledger.results(),
-                        cells=self.ledger.cells(),
+                        record=self.ledger.cells(),
                     )
                     return
                 self._start(message.ready)
@@ -314,13 +317,13 @@ class _Leg:
         pending = self.ledger.pending()
         if pending:
             yield GraphPendingEvent(
-                type="graph_pending", pending=pending, results=self.ledger.results(), cells=self.ledger.cells()
+                type="graph_pending", pending=pending, results=self.ledger.results(), record=self.ledger.cells()
             )
             return
         unfinished = [node_id for node_id in self.compiled.execution_order() if not self.ledger.complete(node_id)]
         if unfinished:
             raise RuntimeError(f"nothing left to run, but {unfinished} did not complete — an engine bug")
-        yield GraphCompleteEvent(type="graph_complete", results=self.ledger.results(), cells=self.ledger.cells())
+        yield GraphCompleteEvent(type="graph_complete", results=self.ledger.results(), record=self.ledger.cells())
 
     async def _next(self) -> ExecutionEvent | _UnitDone | _Stop:
         """The next thing the loop acts on: a message from a unit, or the reason to stop.
@@ -444,7 +447,7 @@ class _Leg:
             attempt += 1
             delay = policy.delay * (2 ** (attempt - 1))
             await queue.put(NodeRetryEvent(
-                type="node_retry", node_id=node_id, row=None if row is None else list(row),
+                type="node_retry", node_id=node_id, row=row,
                 attempt=attempt, retries=policy.retries, error=str(failure), delay=delay,
             ))
             await asyncio.sleep(delay)

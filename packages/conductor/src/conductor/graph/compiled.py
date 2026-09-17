@@ -56,10 +56,15 @@ cached, and "compile this and assert what it says" is a complete test.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from pydantic_core import to_jsonable_python
+
+from conductor.codec import to_wire
 from conductor.graph.binding import Binding
 from conductor.graph.expand import authored_ref, expanded_ref
 from conductor.graph.problem import Problem
@@ -72,6 +77,13 @@ if TYPE_CHECKING:
     from conductor.node import GraphVersion, NodeVersion
     from conductor.registry import NodeRegistry
     from conductor.series import Index
+
+
+def _through_its_type(value: Any) -> Any:
+    """A typed value inside a static, as its own type writes it — what
+    ``CompiledNode.fingerprint`` hashes for a graph built in Python. A
+    value whose type has no JSON form raises pydantic's own error."""
+    return to_wire(value, type(value))
 
 
 @dataclass(frozen=True)
@@ -267,6 +279,25 @@ class CompiledNode:
         """The callable that runs this node, on a fresh instance per call."""
         node = self.graph_node
         return self._graph._registry.runner_for(node.type, node.version)
+
+    @property
+    def fingerprint(self) -> str:
+        """A hash of how the graph places this node: its type, version and
+        bindings. A run record stores one per node, and a leg restored into
+        a graph whose fingerprint differs runs the node again — a static
+        edited, a version bumped, an edge moved all change it; a title or a
+        position does not."""
+        node = self.graph_node
+        placed = {
+            "type": node.type,
+            "version": node.version,
+            "bindings": {name: binding.model_dump() for name, binding in node.bindings.items()},
+        }
+        # A value the author typed is JSON as a stored graph holds it; a graph
+        # built in Python may hold a typed value instead, which goes through
+        # its own type's form so the same value hashes the same either way.
+        as_json = to_jsonable_python(placed, fallback=_through_its_type)
+        return hashlib.sha256(json.dumps(as_json, sort_keys=True).encode("utf-8")).hexdigest()
 
     @property
     def dependencies(self) -> frozenset[str]:
