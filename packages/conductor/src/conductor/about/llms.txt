@@ -1,8 +1,8 @@
 # Conductor
 
-> Compile-then-execute DAG engine for building visual workflow systems.
+> Compile-then-execute DAG engine behind visual node editors.
 
-Conductor is a Python library for graph-based workflow execution. A node is a class whose typed `run` signature is its interface; a graph is a list of placed nodes whose inputs are bound to other nodes' outputs or to typed-in values; compile turns a graph into an immutable `CompiledGraph` that says everything about it, including what is wrong; the engine runs it as a stream of events, once per row wherever a series arrives. Conductor ships every mechanism and no vocabulary: which value types and which nodes exist is the host's decision.
+Conductor is a Python library that compiles and runs graphs of typed nodes. A node is a class whose typed `run` signature is its interface; a graph is a list of placed nodes whose inputs are bound to other nodes' outputs or to typed-in values; compile turns a graph into an immutable `CompiledGraph` that says everything about it, including what is wrong; the engine runs it as a stream of events, once per row wherever a series arrives. Conductor ships every mechanism and no vocabulary: which value types and which nodes exist is the host's decision.
 
 ## Quick Start
 
