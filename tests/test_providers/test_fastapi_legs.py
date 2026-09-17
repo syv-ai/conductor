@@ -103,7 +103,7 @@ def test_a_leg_that_asks_answers_pending_and_the_next_leg_goes_on(client, calls)
     done = client.post("/execute", json={"graph": ONCE, "record": body["record"], "cache": {"ok": {"result": True}}}).json()
 
     assert done["type"] == "graph_complete"
-    assert done["results"]["ok"]["result"] is True
+    assert done["results"]["ok"]["result"] == 1  # a Flag, written as its own type writes it
     assert calls == ["approve"]
 
 

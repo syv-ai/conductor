@@ -12,7 +12,8 @@ value into JSON, so every crossing agrees.
 The form is the type's own pydantic schema, which every ``DType`` has: a
 type built on ``str`` or ``float`` is its plain value, a type with a
 schema of its own (a file, a table) is whatever that schema writes, and
-``Any`` is the value as JSON-ready data. A series is the one form this
+``Any`` is the value as JSON-ready data, a typed value inside it written
+through its own type. A series is the one form this
 module owns outright — ``{"index", "rows", "values"}``, the values each
 through the element type — because a series is the engine's own idea:
 ``Series`` points its pydantic schema at ``series_to_wire`` and
@@ -43,8 +44,8 @@ def to_wire(value: Any, dtype: Any) -> Any:
     caller, who knows which field the value sits on, names it.
     """
     if dtype is Any:
-        return to_jsonable_python(value)
-    return _adapter(dtype).dump_python(value, mode="json")
+        return to_jsonable_python(value, fallback=_by_own_type)
+    return _adapter(dtype).dump_python(value, mode="json", fallback=_by_own_type)
 
 
 def from_wire(data: Any, dtype: Any) -> Any:
@@ -56,6 +57,19 @@ def from_wire(data: Any, dtype: Any) -> Any:
     if dtype is Any:
         return data
     return _adapter(dtype).validate_python(data)
+
+
+def _by_own_type(value: Any) -> Any:
+    """A typed value where the declared type says nothing about it — a slot
+    typed ``Any``, the contents of a bare ``Series`` — written through its
+    own type. A value its own type cannot write raises."""
+
+    def inside(unknown: Any) -> Any:
+        if unknown is value:
+            raise TypeError(f"a {type(value).__name__} has no JSON form")
+        return _by_own_type(unknown)
+
+    return _adapter(type(value)).dump_python(value, mode="json", fallback=inside)
 
 
 @cache

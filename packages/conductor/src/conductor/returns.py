@@ -37,14 +37,16 @@ return, not a capability: the engine still acts on the value alone.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields, is_dataclass
 from types import UnionType
 from typing import Annotated, Any, Union, get_args, get_origin, get_type_hints
 
-from conductor._sentinel import Asks
+from conductor._sentinel import Asks, is_skipped
+from conductor.codec import from_wire
 from conductor.dtype import DType, dtype_of
 from conductor.metadata import Output
+from conductor.series import Series
 
 RESULT_KEY = "result"
 
@@ -126,22 +128,57 @@ def outputs_of(return_hint: Any) -> tuple[Any, tuple[Output, ...]]:
 
 
 def unpack(returns: Any, value: Any, outputs: tuple[Output, ...]) -> dict[str, Any]:
-    """Split what ``run`` returned into ``{output name: value}``.
+    """Split what ``run`` returned into ``{output name: value}``, each checked against its output.
 
     ``returns`` is the ``declared`` half of ``outputs_of``'s answer. A
     ``DType`` (or ``Any``) return lands on ``"result"``; a record is read
     field by field; a ``Mapping`` must name exactly the declared outputs.
-    A value of the wrong shape is a ``ValueError``.
+    Each value is then read as the type its output declares, the way an
+    input is on the way in, so a ``-> Text`` that returns ``42`` fails
+    here and not in the node that reads it. A value of the wrong shape or
+    type is a ``ValueError`` naming the output and never quoting the value.
     """
     if returns is Any or (isinstance(returns, type) and issubclass(returns, DType)):
-        return {RESULT_KEY: value}
-    if returns is Mapping:
+        named = {RESULT_KEY: value}
+    elif returns is Mapping:
         names = {output.name for output in outputs}
         if not isinstance(value, Mapping) or set(value) != names:
-            raise ValueError(
-                f"run() must return exactly the outputs its interface names, {sorted(names)} — got {value!r}"
-            )
-        return dict(value)
-    if not isinstance(value, returns):
-        raise ValueError(f"run() must return a {returns.__name__} — got {value!r}")
-    return {field.name: getattr(value, field.name) for field in fields(returns)}
+            given = sorted(value) if isinstance(value, Mapping) else type(value).__name__
+            raise ValueError(f"run() must return exactly the outputs its interface names, {sorted(names)}, not {given}")
+        named = dict(value)
+    elif not isinstance(value, returns):
+        raise ValueError(f"run() must return a {returns.__name__}, not a {type(value).__name__}")
+    else:
+        named = {field.name: getattr(value, field.name) for field in fields(returns)}
+    return {name: _declared_type(name, given, outputs) for name, given in named.items()}
+
+
+def _declared_type(name: str, value: Any, outputs: tuple[Output, ...]) -> Any:
+    """``value`` as the type output ``name`` declares; ``SKIPPED`` and an
+    ``Any`` output pass as they are, and an output the interface does not
+    name is a ``ValueError``."""
+    output = next((out for out in outputs if out.name == name), None)
+    if output is None:
+        raise ValueError(f"run() returned '{name}', which is not one of its outputs")
+    if is_skipped(value) or output.dtype is Any:
+        return value
+    element = getattr(output.dtype, "element", None)
+    if element is None:
+        return _read_as(name, value, output.dtype)
+    # A series output: each element is read as the element type, and a
+    # skipped element stays skipped — that row is absent downstream.
+    if isinstance(value, Series):
+        return Series(value.index, [_read_as(name, item, element) for item in value.values], rows=value.rows)
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        return [_read_as(name, item, element) for item in value]
+    raise ValueError(f"'{name}' is a series output and must be a sequence, not a {type(value).__name__}")
+
+
+def _read_as(name: str, value: Any, dtype: Any) -> Any:
+    """``value`` as ``dtype``; ``SKIPPED`` and ``Any`` pass; anything the type refuses names the output."""
+    if is_skipped(value) or dtype is Any:
+        return value
+    try:
+        return from_wire(value, dtype)
+    except ValueError as invalid:
+        raise ValueError(f"'{name}' must be a {dtype.__name__}, not a {type(value).__name__}") from invalid
