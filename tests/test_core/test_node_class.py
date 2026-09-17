@@ -297,6 +297,37 @@ def test_a_gap_in_the_versions_is_the_catalogs_rule_not_the_classs():
         NodeRegistry().register(Gapped)
 
 
+def test_an_async_run_is_refused():
+    """The engine calls ``run`` in a worker thread and never awaits it, so an
+    async version would complete with a coroutine for its result."""
+    with pytest.raises(TypeError, match="async"):
+
+        class Waits(NodeDefinition):
+            id = "waits"
+            title = "Waits"
+            description = "d"
+            category = "test"
+
+            async def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+                return x
+
+    with pytest.raises(TypeError, match="version 2 is async"):
+
+        class WaitsLater(NodeDefinition):
+            id = "waits-later"
+            title = "Waits"
+            description = "d"
+            category = "test"
+
+            @version(1)
+            def run_v1(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+                return x
+
+            @version(2)
+            async def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+                return x
+
+
 def test_two_methods_claiming_one_version_are_refused():
     with pytest.raises(TypeError, match="version 1"):
 
