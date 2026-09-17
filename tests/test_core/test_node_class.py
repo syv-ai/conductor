@@ -328,6 +328,43 @@ def test_an_async_run_is_refused():
                 return x
 
 
+def test_an_undecorated_run_beside_versions_is_refused():
+    """Once any method carries ``@version``, every version says its number:
+    a plain ``run`` beside them would otherwise be dropped without a word."""
+    with pytest.raises(TypeError, match="run has no @version"):
+
+        class Forgot(NodeDefinition):
+            id = "forgot"
+            title = "Forgot"
+            description = "d"
+            category = "test"
+
+            @version(1)
+            def run_v1(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+                return x
+
+            def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+                return x
+
+    class Versioned(NodeDefinition):
+        id = "versioned"
+        title = "Versioned"
+        description = "d"
+        category = "test"
+
+        @version(1)
+        def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+            return x
+
+    with pytest.raises(TypeError, match="run has no @version"):
+
+        class Overrides(Versioned):
+            id = "overrides"
+
+            def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+                return x
+
+
 def test_two_methods_claiming_one_version_are_refused():
     with pytest.raises(TypeError, match="version 1"):
 
