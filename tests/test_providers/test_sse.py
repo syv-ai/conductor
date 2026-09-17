@@ -25,7 +25,7 @@ def _payload(event: dict) -> dict:
 def test_a_series_in_a_result_keeps_its_index_and_rows():
     lines = Series(Index("lines", parent=Index("docs")), [Text("a"), Text("b")], rows=((0, 0), (1, 0)))
 
-    payload = _payload({"type": "graph_complete", "results": {"split": {"result": lines}}, "cells": {}})
+    payload = _payload({"type": "graph_complete", "results": {"split": {"result": lines}}, "record": {}})
 
     assert payload["results"]["split"]["result"] == {
         "index": {"id": "lines", "parent": {"id": "docs", "parent": None}},
@@ -37,7 +37,7 @@ def test_a_series_in_a_result_keeps_its_index_and_rows():
 def test_a_pending_units_questions_and_a_failures_cause_are_records():
     question = Input(name="ask.result", dtype=Text, title="Svar", widget=Textarea(title="Svar"), default=Text("forslag"), optional=True)
 
-    pending = _payload({"type": "graph_pending", "pending": [{"node_id": "ask", "row": None, "prompt": None, "questions": (question,)}], "results": {}, "cells": {}})
+    pending = _payload({"type": "graph_pending", "pending": [{"node_id": "ask", "row": None, "prompt": None, "questions": (question,)}], "results": {}, "record": {}})
     failed = _payload({"type": "node_error", "node_id": "n", "error": "boom", "cause": ErrorCause(code="boom", message="Boom.", row=(2,))})
 
     (asked,) = pending["pending"][0]["questions"]
@@ -57,7 +57,7 @@ def test_what_a_value_holds_dumps_through_its_own_type_too():
     series dumps through its schema and each ``Json`` through its own."""
     parsed = Series(Index("parts"), [Json({"a": 1}), Json([2])])
 
-    payload = _payload({"type": "graph_complete", "results": {"parse": {"result": parsed}}, "cells": {}})
+    payload = _payload({"type": "graph_complete", "results": {"parse": {"result": parsed}}, "record": {}})
 
     assert payload["results"]["parse"]["result"]["values"] == [{"a": 1}, [2]]
     assert _payload({"type": "node_complete", "result": {"x": Json(Json({"k": Text("t")}))}})["result"] == {"x": {"k": "t"}}

@@ -43,7 +43,7 @@ Conductor ships no default widget for any type, since the same `Text` may be a t
 
 - **Declaring** a node checks it when the class is defined. A missing `id`, `title`, `description` or `category`, a parameter without a widget, a return without a `Result`, an `async def run`: each fails with the traceback at the class. `NodeRegistry.register(cls)` adds the catalogue's rules (versions from 1 with no holes, an `alternative` that exists).
 - **`CompiledGraph.from_graph(graph, registry)`** resolves every pin, validates the bindings, types every field from its edges, decides which nodes run once per row, asks the field hooks and expands embedded graphs. It never raises for a fault in the graph: everything wrong is a `Problem` with a stable `code`, anchored on a node, and `is_runnable` says whether a run may start. The result is asked at three scales: the graph, `compiled.node(node_id)` and `compiled.field(ref)`.
-- **`execute(compiled)`** runs one leg as an async generator of events: `node_start`, `node_progress`, `node_complete`, `node_retry`, `node_skipped`, `node_error`, and an ending, `graph_complete`, `graph_pending`, `graph_error`, `graph_cancelled` or `graph_timeout`. Every ending carries `results` and `cells`. `execute_sync` runs it from a script; in a notebook, `await collect(execute(...))`.
+- **`execute(compiled)`** runs one leg as an async generator of events: `node_start`, `node_progress`, `node_complete`, `node_retry`, `node_skipped`, `node_error`, and an ending, `graph_complete`, `graph_pending`, `graph_error`, `graph_cancelled` or `graph_timeout`. Every ending carries `results` and `record`. `execute_sync` runs it from a script; in a notebook, `await collect(execute(...))`.
 
 ## The row engine
 

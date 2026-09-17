@@ -64,7 +64,7 @@ assert results["loud"]["result"].rows == ((0,), (1,), (2,))
 
 ## Events
 
-`execute(compiled, *, cells=None, cache=None, from_run=None, timeout=None, cancel=None)` is one **leg**, an async generator of `TypedDict` events:
+`execute(compiled, *, record=None, cache=None, from_run=None, timeout=None, cancel=None)` is one **leg**, an async generator of `TypedDict` events:
 
 | Event | Carries |
 |---|---|
@@ -74,11 +74,11 @@ assert results["loud"]["result"].rows == ((0,), (1,), (2,))
 | `node_skipped` | `node_id` |
 | `node_retry` | `node_id`, `row`, `attempt`, `retries`, `error`, `delay` |
 | `node_error` | `node_id`, `error`, `cause` |
-| `graph_complete` | `results`, `cells` |
-| `graph_pending` | `pending`, `results`, `cells` |
-| `graph_error` | `node_id`, `error`, `cause`, `results`, `cells` |
-| `graph_cancelled` | `results`, `cells` |
-| `graph_timeout` | `results`, `cells`, `elapsed_seconds`, `timeout_seconds` |
+| `graph_complete` | `results`, `record` |
+| `graph_pending` | `pending`, `results`, `record` |
+| `graph_error` | `node_id`, `error`, `cause`, `results`, `record` |
+| `graph_cancelled` | `results`, `record` |
+| `graph_timeout` | `results`, `record`, `elapsed_seconds`, `timeout_seconds` |
 
 ```python
 async def watch(compiled):
@@ -129,11 +129,11 @@ async def legs():
     # The node runs per row, so its answer is a Series on its index, naming the rows it answers.
     index = asking.node("approve").iterates_on
     only_second = Series(index, [Text("Second, approved")], rows=[(1,)])
-    second = [event async for event in execute(asking, cells=first["cells"], cache={"approve": {"result": only_second}})][-1]
+    second = [event async for event in execute(asking, record=first["record"], cache={"approve": {"result": only_second}})][-1]
     assert [unit["row"] for unit in second["pending"]] == [[0]]
 
     only_first = Series(index, [Text("First, approved")], rows=[(0,)])
-    third = [event async for event in execute(asking, cells=second["cells"], cache={"approve": {"result": only_first}})][-1]
+    third = [event async for event in execute(asking, record=second["record"], cache={"approve": {"result": only_first}})][-1]
     return third
 
 
@@ -145,9 +145,9 @@ assert list(done["results"]["approve"]["result"]) == ["First, approved", "Second
 - For a node that runs once, the answer is the value itself: `cache={"approve": {"result": Text("Yes")}}`.
 - A row the answer does not name keeps what it has: done stays done, and a waiting row asks again.
 - Answering a unit already done, or a row the run has not produced, raises `ValueError`.
-- `cells` is JSON-ready: a host stores it with the run and hands it back. Nothing is checkpointed or resumed.
-- Every ending carries `cells`, so a new run can also start from a failed or stopped one.
-- From a script: `except GraphPendingError as pending:` and then `execute_sync(compiled, cells=pending.cells, cache=...)`.
+- `record` is a `RunRecord`, JSON through `model_dump()`: a host stores it with the run and hands it back; a node the graph has changed since, or that reads one, runs again. Nothing is checkpointed or resumed.
+- Every ending carries `record`, so a new run can also start from a failed or stopped one.
+- From a script: `except GraphPendingError as pending:` and then `execute_sync(compiled, record=pending.record, cache=...)`.
 
 **Values the run supplies.** A node parameter `Annotated[T, FromRun()]` receives `from_run[T]`: `execute(compiled, from_run={Caller: caller})`. A leg not given a type some node needs raises `TypeError` before anything runs.
 
@@ -183,12 +183,12 @@ assert react.react_to_graph(wire).nodes[0].id == "words"
 - `POST /execute-stream`: server-sent events.
 - `GET /entities/{kind}`: `EntityDropdown` choices.
 
-The body is `{graph, cells, cache}`. Over HTTP a per-row answer is `{"rows": [[1]], "values": [...]}`.
+The body is `{graph, record, cache}`. Over HTTP a per-row answer is `{"rows": [[1]], "values": [...]}`.
 
 ## Checklist before running a graph
 
 - [ ] Every `type` is in the registry passed to compile, at the pinned `version`; otherwise `problems` says so.
 - [ ] Every `Ref` names a node in the graph and one of its outputs; every bindings key names an input.
 - [ ] `compiled.is_runnable` is checked, and `problems` is shown when it is not.
-- [ ] The host keeps `cells` from a pending ending, and every `from_run` type a node needs is passed.
+- [ ] The host keeps `record` from a pending ending, and every `from_run` type a node needs is passed.
 - [ ] A long run has `timeout=` or a `cancel` event the caller owns; closing the stream (`aclose()`, a cancelled task) stops every unit.

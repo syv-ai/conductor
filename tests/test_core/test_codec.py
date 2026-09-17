@@ -15,6 +15,7 @@ from conductor import CompiledGraph, GraphNode, NodeRegistry
 from conductor.codec import from_wire, to_wire
 from conductor.dtype import DType
 from conductor.execution.ledger import Ledger
+from conductor.execution.record import RunRecord
 from conductor.graph.binding import Edges, Static
 from conductor.graph.model import Graph
 from conductor.node import NodeDefinition
@@ -135,12 +136,12 @@ def test_a_text_that_spells_the_old_skip_marker_is_a_text_after_a_round_trip():
     ledger.record(("up", (1,)), {"result": Txt("X")})
 
     record = ledger.cells()
-    restored = Ledger.restore(compiled, json.loads(json.dumps(record)))
+    restored = Ledger.restore(compiled, RunRecord.model_validate(json.loads(json.dumps(record.model_dump()))))
 
     values = restored.result_of("split")["result"]
     assert list(values) == ["__skipped__", "x"] and all(type(v) is Txt for v in values)
     assert list(restored.result_of("up")["result"]) == ["__SKIPPED__", "X"]
-    assert all("skipped" not in cell for cell in record["cells"])
+    assert all("skipped" not in cell for cell in record.cells)
 
 
 def test_a_skip_is_marked_beside_the_cell_with_its_depth():
@@ -156,11 +157,11 @@ def test_a_skip_is_marked_beside_the_cell_with_its_depth():
     ledger.record(("up", (1,)), {"result": Txt("B")})
 
     record = ledger.cells()
-    skipped = [cell for cell in record["cells"] if "skipped" in cell]
+    skipped = [cell for cell in record.cells if "skipped" in cell]
 
     assert skipped == [{"ref": ["up", "result"], "row": [0], "skipped": 1}]
     assert all("value" not in cell for cell in skipped)
-    restored = Ledger.restore(compiled, json.loads(json.dumps(record)))
+    restored = Ledger.restore(compiled, RunRecord.model_validate(json.loads(json.dumps(record.model_dump()))))
     assert list(restored.result_of("up")["result"]) == ["B"]
     assert restored.result_of("up")["result"].rows == ((1,),)
 

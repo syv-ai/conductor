@@ -40,7 +40,7 @@ def conductor_router(
       on, ``graph_complete`` or ``graph_pending``
     - ``POST {prefix}/execute-stream``  — SSE stream of ``ExecutionEvent`` frames
 
-    A run that asks goes on in legs: send the ending's ``cells`` back with
+    A run that asks goes on in legs: send the ending's ``record`` back with
     the answers in ``cache`` (``ExecuteRequest``).
     - ``POST {prefix}/compile``         — compile without executing; returns
       every ``Problem`` the graph has
@@ -76,7 +76,7 @@ def conductor_router(
             compiled,
             from_run=_from_run(request),
             cache=_cache(compiled, req.cache or {}) or None,
-            cells=req.cells,
+            record=req.record,
         )
 
     @router.get("/nodes", response_model=list[NodeDescription])
@@ -89,7 +89,7 @@ def conductor_router(
         """Run one leg and return the frame it ended on.
 
         ``graph_complete`` and ``graph_pending`` are answers — a pending
-        frame carries the questions and the cells the next request sends
+        frame carries the questions and the record the next request sends
         back. A leg that fails, is cancelled or times out fails the request,
         as ``execute_sync`` raises for it.
         """
