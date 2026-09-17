@@ -66,10 +66,9 @@ def test_500_node_linear_chain_compile_and_execute() -> None:
 
     # The first node carries a static input; every subsequent node takes
     # the previous node's ``result`` on its ``text`` parameter.
-    nodes.append(GraphNode("n0", "upper", 1, bindings={"text": Static(value="hello")}))
+    nodes.append(GraphNode(id="n0", type="upper", version=1, bindings={"text": Static(value="hello")}))
     for i in range(1, n):
-        nodes.append(GraphNode(
-            f"n{i}", "upper", 1, bindings={"text": Edges(refs=(Ref(f"n{i - 1}", "result"),))},
+        nodes.append(GraphNode(id=f"n{i}", type="upper", version=1, bindings={"text": Edges(refs=(Ref(f"n{i - 1}", "result"),))},
         ))
 
     t0 = time.monotonic()
@@ -122,7 +121,7 @@ async def test_cancellation_honored_during_retry_sleep() -> None:
     registry = NodeRegistry()
     registry.register(AlwaysFlaky)
 
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode("n1", "always-flaky", 1, bindings={"text": Static(value="x")})]), registry)
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="always-flaky", version=1, bindings={"text": Static(value="x")})]), registry)
 
     # Capture the live ``FlowRunState`` so the cancellation flag can be
     # flipped from outside. ``execute()`` builds state internally via

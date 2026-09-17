@@ -1,6 +1,6 @@
 """Iteration, alignment and reduction, derived at compile."""
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Annotated, Any
 
 import pytest
@@ -120,7 +120,7 @@ class Route(NodeDefinition):
 
     def compute_outputs(self, declared, values, arriving):
         dtype = arriving.get("value", Any)
-        return tuple(replace(out, dtype=dtype) for out in declared)
+        return tuple(out.model_copy(update={"dtype": dtype}) for out in declared)
 
 
 class Only(NodeDefinition):
@@ -137,7 +137,7 @@ class Only(NodeDefinition):
     def compute_outputs(self, declared, values, arriving):
         series = arriving.get("values")
         dtype = series.element if series is not None else Any
-        return tuple(replace(out, dtype=dtype) for out in declared)
+        return tuple(out.model_copy(update={"dtype": dtype}) for out in declared)
 
 
 class Script(NodeDefinition):
@@ -386,7 +386,7 @@ def test_a_source_may_refuse_to_be_received_whole_naming_the_fix():
 
         def compute_outputs(self, declared, values, arriving):
             dtype = arriving.get("value", Any)
-            return tuple(replace(out, dtype=dtype) for out in declared)
+            return tuple(out.model_copy(update={"dtype": dtype}) for out in declared)
 
     registry = NodeRegistry()
     for node_cls in (Halves, Reads, Routes):

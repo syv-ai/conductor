@@ -7,12 +7,11 @@ Python the field holds the class untouched, dumped it is ``description_of``
 the class, and its JSON schema is published so a record holding one can be
 a response model::
 
-    @dataclass(frozen=True)
-    class Field:
+    class Field(ConductorModel):
         name: str
         dtype: DTypeRef
 
-    TypeAdapter(Field).dump_python(Field("text", Text), mode="json")
+    Field(name="text", dtype=Text).model_dump(mode="json")
     # {"name": "text", "dtype": {"id": "text", "accepted_as": ["text"]}}
 
 ``description_of`` is the one function behind it, and is also what a

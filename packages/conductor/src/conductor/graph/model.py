@@ -12,21 +12,22 @@ node's fields fall in three groups:
 * **chrome** — ``display`` — is stored and returned and never parsed.
 
 So a diff of the behaviour fields is the behavioural diff, and chrome can
-change shape without a migration. A host stores these records through
-pydantic.
+change shape without a migration. Each record is a ``ConductorModel``,
+so a graph saves and loads itself (``Graph.from_path``, ``graph.to_yaml()``).
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
 from typing import Any
 
+from pydantic import Field, field_validator
+
 from conductor.graph.binding import Binding, static_values
+from conductor.model import ConductorModel
 
 
-@dataclass(frozen=True)
-class FieldContent:
+class FieldContent(ConductorModel):
     """The title and description a person reads for one field of one node.
 
     Copied from the node's declaration when the node is placed, and edited
@@ -40,8 +41,7 @@ class FieldContent:
     description: str | None = None
 
 
-@dataclass(frozen=True)
-class GraphNode:
+class GraphNode(ConductorModel):
     """One node as it sits in a graph: a placement of a definition.
 
     A definition (``NodeDefinition``) is what a developer wrote; a
@@ -72,7 +72,7 @@ class GraphNode:
     #: fields; nothing parses a ``type@version`` string.
     type: str
     version: int
-    bindings: Mapping[str, Binding] = field(default_factory=dict)
+    bindings: Mapping[str, Binding] = Field(default_factory=dict)
     #: Inputs of this node no caller may fill. Only matters on a
     #: node with no edge into it, since only those offer inputs to a
     #: caller.
@@ -80,16 +80,21 @@ class GraphNode:
     #: Content.
     title: str = ""
     description: str = ""
-    fields: Mapping[str, FieldContent] = field(default_factory=dict)
+    fields: Mapping[str, FieldContent] = Field(default_factory=dict)
     #: Chrome: position, size, whatever the canvas keeps. Never parsed here.
-    display: Mapping[str, Any] = field(default_factory=dict)
+    display: Mapping[str, Any] = Field(default_factory=dict)
 
-    def __post_init__(self) -> None:
+    @field_validator("id")
+    @classmethod
+    def _one_way_to_read_a_ref(cls, node_id: str) -> str:
         # ``.`` separates node from field in a ``Ref``, so an id may not
         # contain one. ``/`` may: the compiler uses it to namespace an
         # embedded graph's nodes under the placing node's id (``approve/check``).
-        if "." in self.id:
-            raise ValueError(f"node id {self.id!r} contains '.': a Ref reads as 'node.field' and must read one way")
+        # A copy with a new id is built through the constructor, since
+        # ``model_copy`` does not validate.
+        if "." in node_id:
+            raise ValueError(f"node id {node_id!r} contains '.': a Ref reads as 'node.field' and must read one way")
+        return node_id
 
     @property
     def data(self) -> dict[str, Any]:
@@ -97,8 +102,7 @@ class GraphNode:
         return static_values(self.bindings)
 
 
-@dataclass(frozen=True)
-class Graph:
+class Graph(ConductorModel):
     """The persisted graph: its nodes and its chrome.
 
     What a host stores for one version of a graph. There is no edge list,
@@ -109,4 +113,4 @@ class Graph:
 
     nodes: list[GraphNode]
     #: Chrome, at graph level.
-    display: Mapping[str, Any] = field(default_factory=dict)
+    display: Mapping[str, Any] = Field(default_factory=dict)

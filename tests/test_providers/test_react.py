@@ -46,10 +46,9 @@ def registry() -> NodeRegistry:
 @pytest.fixture
 def sample_flow() -> Graph:
     return Graph(nodes=[
-        GraphNode("n1", "build-pair", 1),
-        GraphNode("n2", "text-uppercase", 2, bindings={"text": Static(value="hi")}),
-        GraphNode(
-            "n3", "text-concat", 1,
+        GraphNode(id="n1", type="build-pair", version=1),
+        GraphNode(id="n2", type="text-uppercase", version=2, bindings={"text": Static(value="hi")}),
+        GraphNode(id="n3", type="text-concat", version=1,
             bindings={
                 "separator": Static(value="+"),
                 "a": Edges(refs=(Ref("n1", "result"),)),
@@ -86,7 +85,7 @@ class TestGraphToReact:
 
     def test_a_position_on_the_placement_is_kept(self, sample_flow):
         graph = Graph(nodes=[
-            GraphNode("n1", "build-pair", 1, display={"position": {"x": 999, "y": 111}}),
+            GraphNode(id="n1", type="build-pair", version=1, display={"position": {"x": 999, "y": 111}}),
             *sample_flow.nodes[1:],
         ])
         out = react.graph_to_react(graph)
@@ -116,7 +115,7 @@ class TestReactToGraph:
         ]
 
     def test_the_canvas_position_lands_in_display(self):
-        wire = react.graph_to_react(Graph(nodes=[GraphNode("x", "text-uppercase", 1)]))
+        wire = react.graph_to_react(Graph(nodes=[GraphNode(id="x", type="text-uppercase", version=1)]))
         wire["nodes"][0]["position"] = {"x": 5, "y": 6}
 
         assert react.react_to_graph(wire).nodes[0].display == {"position": {"x": 5, "y": 6}}
@@ -146,8 +145,8 @@ class TestReactToGraph:
 class TestEndToEnd:
     def test_wire_format_can_be_compiled_and_executed(self, registry):
         graph_in = Graph(nodes=[
-            GraphNode("src", "text-uppercase", 1, bindings={"text": Static(value="hello")}),
-            GraphNode("down", "text-reverse", 1, bindings={"text": Edges(refs=(Ref("src", "result"),))}),
+            GraphNode(id="src", type="text-uppercase", version=1, bindings={"text": Static(value="hello")}),
+            GraphNode(id="down", type="text-reverse", version=1, bindings={"text": Edges(refs=(Ref("src", "result"),))}),
         ])
 
         wire = react.graph_to_react(graph_in)

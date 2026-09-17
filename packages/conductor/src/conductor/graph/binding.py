@@ -30,14 +30,13 @@ not taken carries ``SKIPPED``.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
 from typing import Any, Mapping, TypeAlias
 
+from conductor.model import ConductorModel
 from conductor.ref import Ref
 
 
-@dataclass(frozen=True)
-class Edges:
+class Edges(ConductorModel):
     """The input's value arrives over one or more edges from other nodes' outputs.
 
     ``refs`` names those outputs in the order the author connected them,
@@ -52,8 +51,7 @@ class Edges:
     refs: tuple[Ref, ...]
 
 
-@dataclass(frozen=True)
-class Static:
+class Static(ConductorModel):
     """The input's value is one the author typed into the control; the graph stores it.
 
     Static as in fixed in the graph, the same on every run; nothing to do

@@ -29,9 +29,11 @@ hand that back.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from pydantic import Field
+
+from conductor.model import ConductorModel
 from conductor.series import Row
 
 if TYPE_CHECKING:
@@ -69,8 +71,7 @@ CODES: frozenset[str] = frozenset({
 })
 
 
-@dataclass(frozen=True)
-class ErrorCause:
+class ErrorCause(ConductorModel):
     """Why a node failed, in a shape a caller can act on.
 
     Created by the engine where the failure is known and carried two ways:
@@ -92,7 +93,7 @@ class ErrorCause:
 
     code: str
     message: str
-    details: Mapping[str, Any] = field(default_factory=dict)
+    details: Mapping[str, Any] = Field(default_factory=dict)
     row: Row | None = None
 
 

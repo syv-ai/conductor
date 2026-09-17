@@ -15,6 +15,7 @@ from conductor.ref import Ref
 from conductor.returns import Result
 from conductor.series import Series
 from conductor.widgets import ConnectionList, Textarea
+from pydantic import ValidationError
 
 
 def test_a_problem_names_a_code_a_message_and_a_place():
@@ -41,7 +42,7 @@ def test_a_problem_about_a_whole_node_names_no_field():
 def test_every_problem_is_about_a_node():
     """There is no graph-level problem: a graph is only ever wrong
     somewhere, so the anchor has two states and not three."""
-    with pytest.raises(TypeError):
+    with pytest.raises(ValidationError, match="node_id"):
         Problem(code="empty", message="The flow is empty.", fatal=True)
 
 def test_fatal_is_a_boolean_not_a_two_valued_enum():

@@ -463,8 +463,7 @@ def test_no_widget_subclass_decides_wireability():
         for name in dir(w)
         if isinstance(getattr(w, name, None), type)
         and issubclass(getattr(w, name), w.Widget)
-        and "show_handle" in getattr(w, name).__dataclass_fields__
-        and getattr(w, name).__dataclass_fields__["show_handle"].default is False
+        and getattr(w, name).model_fields["show_handle"].default is False
     )
     assert overriding == []
     assert not hasattr(w, "HumanReview")
@@ -476,8 +475,8 @@ def test_an_input_closes_its_own_handle():
 
 def test_the_flags_that_were_not_about_editing_are_gone():
     for gone in ("disable_handle", "hidden_when", "advanced", "connection_input"):
-        assert gone not in Widget.__dataclass_fields__, gone
-    assert "variables" not in Textarea.__dataclass_fields__
+        assert gone not in Widget.model_fields, gone
+    assert "variables" not in Textarea.model_fields
 
 
 def test_a_list_widget_declares_no_per_item_control():
@@ -489,7 +488,7 @@ def test_a_list_widget_declares_no_per_item_control():
     )
 
     assert data == {"kind": "list", "min_items": 1, "max_items": None}
-    assert "item_widget" not in List.__dataclass_fields__
+    assert "item_widget" not in List.model_fields
 
 
 def test_every_widget_is_in_the_union():
