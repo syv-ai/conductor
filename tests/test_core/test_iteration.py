@@ -458,7 +458,7 @@ def test_a_node_with_a_broken_edge_has_no_shape_and_says_so_once():
 
 def test_a_node_with_no_outputs_yet_is_the_ordinary_mid_edit_state():
     """Outputs born of what the author has not yet given are not a fault:
-    non-fatal, the flow still runs, the node is still derived — there is
+    non-fatal, the graph still runs, the node is still derived — there is
     simply nothing to edge from it yet."""
 
     class Sheet(NodeDefinition):

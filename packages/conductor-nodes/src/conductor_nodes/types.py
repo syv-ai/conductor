@@ -60,6 +60,10 @@ class Json(DType):
     (parses it, walks it) declares ``Json``. A node that only passes a
     value through without looking at it declares ``Any`` instead, as
     ``decision`` does.
+
+    Dumped, a ``Json`` is the value it holds, and JSON's limits are its
+    own: a tuple comes back a list, a key a string, and a float that is not
+    a number ``null``.
     """
 
     id = "json"

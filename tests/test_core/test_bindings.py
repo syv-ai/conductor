@@ -102,7 +102,7 @@ def test_a_node_is_behaviour_content_and_chrome():
     assert names == ["id", "type", "version", "bindings", "locked", "title", "description", "fields", "display"]
 
 
-def test_a_flow_is_nodes_and_display():
+def test_a_graph_is_nodes_and_display():
     names = list(Graph.model_fields)
 
     assert names == ["nodes", "display"]
@@ -185,11 +185,11 @@ class Txt(DType, str):
 
 
 class Clock:
-    """Something the run supplies, not the flow (`FromRun`)."""
+    """Something the run supplies, not the graph (`FromRun`)."""
 
 
 class TextInput(NodeDefinition):
-    """An ordinary node. Nothing marks it as one the flow exposes."""
+    """An ordinary node. Nothing marks it as one the graph exposes."""
 
     id = "text-input"
     title = "Text"
@@ -205,7 +205,7 @@ class TextInput(NodeDefinition):
 class Summarise(NodeDefinition):
     id = "summarise"
     title = "Opsummering"
-    description = "An ordinary node — neither end of what the flow exposes"
+    description = "An ordinary node — neither end of what the graph exposes"
     category = "test"
 
     def run(
@@ -299,7 +299,7 @@ def test_the_interface_is_derived_node_level():
 
 
 def test_the_interface_is_the_record_a_node_version_declares():
-    """One type at both scales. A flow returns a computed interface by
+    """One type at both scales. A graph returns a computed interface by
     address, so `returns` is `Mapping`; these nodes need nothing provided."""
     interface = _interface(_graph())
 
@@ -308,7 +308,7 @@ def test_the_interface_is_the_record_a_node_version_declares():
     assert interface.needs == {}
 
 
-def test_a_flow_level_name_is_the_address_a_ref_spells():
+def test_a_graph_level_name_is_the_address_a_ref_spells():
     """The name *is* the `Ref`, not a rendering of it: one value, one
     writer, and the key on every edge and in every caller's payload."""
     interface = _interface(_graph())
@@ -319,7 +319,7 @@ def test_a_flow_level_name_is_the_address_a_ref_spells():
 
 
 def test_needs_is_the_union_of_the_placements_needs():
-    """What a run must provide to the flow is what its nodes need, by name."""
+    """What a run must provide to the graph is what its nodes need, by name."""
     graph = Graph(nodes=[
         GraphNode(id="a", type="stamped", version=1),
         GraphNode(id="b", type="stamped", version=1, bindings={"text": Edges(refs=(Ref("a", "result"),))}),
@@ -507,7 +507,7 @@ def _echo_registry():
     return registry
 
 
-def test_a_flow_of_bindings_compiles_and_runs():
+def test_a_graph_of_bindings_compiles_and_runs():
     graph = Graph(
         nodes=[
             GraphNode(id="a", type="echo", version=1, bindings={"x": Static(value="hi")}),

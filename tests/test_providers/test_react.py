@@ -44,7 +44,7 @@ def registry() -> NodeRegistry:
 
 
 @pytest.fixture
-def sample_flow() -> Graph:
+def sample_graph() -> Graph:
     return Graph(nodes=[
         GraphNode(id="n1", type="build-pair", version=1),
         GraphNode(id="n2", type="text-uppercase", version=2, bindings={"text": Static(value="hi")}),
@@ -59,59 +59,59 @@ def sample_flow() -> Graph:
 
 
 class TestGraphToReact:
-    def test_emits_nodes_and_edges_keys(self, sample_flow):
-        assert set(react.graph_to_react(sample_flow).keys()) == {"nodes", "edges"}
+    def test_emits_nodes_and_edges_keys(self, sample_graph):
+        assert set(react.graph_to_react(sample_graph).keys()) == {"nodes", "edges"}
 
-    def test_node_structure_has_id_type_position_data(self, sample_flow):
-        for n in react.graph_to_react(sample_flow)["nodes"]:
+    def test_node_structure_has_id_type_position_data(self, sample_graph):
+        for n in react.graph_to_react(sample_graph)["nodes"]:
             assert set(n.keys()) == {"id", "type", "position", "data"}
             assert set(n["position"].keys()) == {"x", "y"}
             assert isinstance(n["position"]["x"], int)
             assert isinstance(n["position"]["y"], int)
 
-    def test_data_is_the_placement_record(self, sample_flow):
+    def test_data_is_the_placement_record(self, sample_graph):
         """The record whole — ``version`` and the bindings included."""
-        n2 = next(n for n in react.graph_to_react(sample_flow)["nodes"] if n["id"] == "n2")
+        n2 = next(n for n in react.graph_to_react(sample_graph)["nodes"] if n["id"] == "n2")
         assert n2["data"]["version"] == 2
         assert n2["data"]["bindings"] == {"text": {"value": "hi"}}
 
-    def test_edges_are_derived_one_per_ref(self, sample_flow):
-        edges = react.graph_to_react(sample_flow)["edges"]
+    def test_edges_are_derived_one_per_ref(self, sample_graph):
+        edges = react.graph_to_react(sample_graph)["edges"]
         assert [(e["source"], e["sourceHandle"], e["target"], e["targetHandle"]) for e in edges] == [
             ("n1", "result", "n3", "a"),
             ("n2", "result", "n3", "b"),
         ]
         assert len({e["id"] for e in edges}) == 2
 
-    def test_a_position_on_the_placement_is_kept(self, sample_flow):
+    def test_a_position_on_the_placement_is_kept(self, sample_graph):
         graph = Graph(nodes=[
             GraphNode(id="n1", type="build-pair", version=1, display={"position": {"x": 999, "y": 111}}),
-            *sample_flow.nodes[1:],
+            *sample_graph.nodes[1:],
         ])
         out = react.graph_to_react(graph)
         assert next(n for n in out["nodes"] if n["id"] == "n1")["position"] == {"x": 999, "y": 111}
         # Unpositioned nodes still get the layout.
         assert next(n for n in out["nodes"] if n["id"] == "n3")["position"] != {"x": 0, "y": 0}
 
-    def test_auto_layout_when_no_positions(self, sample_flow):
-        positions = {n["id"]: n["position"] for n in react.graph_to_react(sample_flow)["nodes"]}
+    def test_auto_layout_when_no_positions(self, sample_graph):
+        positions = {n["id"]: n["position"] for n in react.graph_to_react(sample_graph)["nodes"]}
         # n1 and n2 are roots (x=0); n3 is fed by both, so it sits one
         # column to the right.
         assert positions["n3"]["x"] > positions["n1"]["x"]
         assert positions["n3"]["x"] > positions["n2"]["x"]
 
-    def test_whole_output_is_json_serializable(self, sample_flow):
+    def test_whole_output_is_json_serializable(self, sample_graph):
         """No tuples, no sets, nothing exotic — must survive json.dumps."""
-        out = react.graph_to_react(sample_flow)
+        out = react.graph_to_react(sample_graph)
         assert json.loads(json.dumps(out)) == out
 
 
 class TestReactToGraph:
-    def test_roundtrip_keeps_every_placement(self, sample_flow):
-        back = react.react_to_graph(json.loads(json.dumps(react.graph_to_react(sample_flow))))
+    def test_roundtrip_keeps_every_placement(self, sample_graph):
+        back = react.react_to_graph(json.loads(json.dumps(react.graph_to_react(sample_graph))))
 
         assert [(n.id, n.type, n.version, dict(n.bindings)) for n in back.nodes] == [
-            (n.id, n.type, n.version, dict(n.bindings)) for n in sample_flow.nodes
+            (n.id, n.type, n.version, dict(n.bindings)) for n in sample_graph.nodes
         ]
 
     def test_the_canvas_position_lands_in_display(self):
