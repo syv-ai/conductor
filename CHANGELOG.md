@@ -145,7 +145,8 @@ nothing is deprecated first, everything below is gone in 2.0.0.
   widget for any type.
 - **The standard library declares its own vocabulary**: `conductor_nodes.types`
   ships `Text`, `Number`, `Flag`, `Json`, and `StdlibNode` pins each node's
-  `category`. Its categories are `text`, `math`, `logic`, `json`, `regex` and
+  `category`. `conductor_nodes.registry(categories=...)` builds a registry of them
+  (1.x's `get_default_registry`). Its categories are `text`, `math`, `logic`, `json`, `regex` and
   `decision`; asking `register_all` for `loop`, `while`, `subprocess` or
   `signal` raises `KeyError`.
 - **Providers.** `ExecuteRequest` is `{graph, cells, cache}`, and `/execute` answers
