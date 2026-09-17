@@ -543,4 +543,4 @@ Or programmatically:
 from conductor.about import get_content, list_sections, get_section
 ```
 
-The wheel bundles this file as `conductor/about/llms.txt`, so downstream projects that `pip install syv-conductor` can read the reference without cloning the repository.
+The wheel bundles this file as `conductor/about/llms.txt`, so downstream projects that install `syv-conductor` can read the reference without cloning the repository.

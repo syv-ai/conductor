@@ -30,7 +30,7 @@ Optional per-request context injection into the node ``FlowStore``::
     conductor_router(registry, context_factory=my_context)
 
 Requires ``fastapi`` installed (declared as an optional extra:
-``pip install conductor-providers[fastapi]``).
+``uv add "syv-conductor-providers[fastapi]"``).
 """
 
 from conductor_providers.fastapi.models import ExecuteRequest
