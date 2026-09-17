@@ -73,7 +73,7 @@ A node is a `NodeDefinition` subclass with `id`, `title`, `description` and `cat
 
 ### Versions and Policies
 
-Several versions live in one class. An undecorated `run` is version 1; otherwise every version is a method marked `@version(n)` and the current one is the method named `run`. Each version has its own signature and its own `Policy`.
+Several versions live in one class. An undecorated `run` is version 1; otherwise every version is a method marked `@version(n)`, the current one is the highest number, and by convention its method is the one named `run`. Each version has its own signature and its own `Policy`.
 
 ```python
 from conductor import Policy, deprecated, upgrade, version
@@ -99,7 +99,7 @@ class Greet(NodeDefinition):
 
 - `Policy(retries=0, delay=1.0, timeout=None, concurrency=8)` — how the engine runs this version. `concurrency` bounds how many rows run at once.
 - `@upgrade(a, b)` rewrites values saved against version `a` into what `b` expects; the class collects them into `cls.upgrades`, and `registry.upgrade_path(node_id, a, b)` returns one.
-- `@deprecated(header, description, alternative, migration)` on the class retires the node; on a version method, that version.
+- `@deprecated(header=..., description=..., alternative=..., migration=...)` (all keyword, all optional) on the class retires the node; on a version method, that version.
 - `NodeRegistry.register(cls)` requires versions numbered from 1 with no holes and an `alternative` that exists.
 - A version whose body is a graph is a `GraphVersion(graph=(GraphNode, ...), interface=Interface(...))`, placed in `versions` like any other. Compile expands it under the placing node's name (`approve/check`), so its inner nodes run as nodes of the one run.
 
@@ -149,7 +149,7 @@ A graph is `Graph(nodes=[...])`, and a placed node is `GraphNode(id=, type=, ver
 
 Ask it at three scales:
 
-- **The graph** — `problems`, `is_runnable`, `interface` (what the graph takes and returns: the unlocked inputs of nodes nothing feeds, and the outputs nothing reads, named by address), `execution_order()`, `decisions()`, `expanded(ref)`.
+- **The graph** — `problems`, `is_runnable`, `interface` (what the graph takes and returns: the unlocked inputs of nodes nothing feeds, and every output of the nodes nothing reads from, named by address), `execution_order()`, `decisions()`, `expanded(ref)`.
 - **One node** — `compiled.node(node_id)` is a `CompiledNode`: `interface`, `iterates_on` (the `Index` it runs once per row of, or `None`), `statics`, `runner`, `dependencies`, `version`, `graph_node`, `embedded_in`, `problems`.
 - **One field** — `compiled.field(ref)` is a `CompiledField`: `type`, `index`, `binding`, `condition` (a formula over the decisions upstream: `Condition`, `Atom`, `ALWAYS`), `problems`.
 
@@ -164,7 +164,7 @@ The engine's unit of work is a node on a row. A node that runs once is one unit;
 - **Reduction.** A `Series[X]` input on a root index receives the whole series once it is complete; on a child index, the rows under each parent row, once per parent row. Inside an embedded graph fed a series, a reduction over that series runs once per outer row.
 - **Gather.** Refs on different indexes into a `Series[X]` input collect into a fresh series; skipped sources drop out.
 - **A skip has a depth.** `SKIPPED` written at a row skips that row, and the series downstream is sparse; `SKIPPED` above a node's rows skips everything under it. A node whose every row was skipped produced an empty series; a node skipped above its rows did not run and is absent from the results.
-- **Concurrency.** A node's rows run at most `Policy.concurrency` at a time, each in a worker thread. The engine holds no limit of its own.
+- **Concurrency.** A node's rows run at most `Policy.concurrency` at a time, each in a worker thread through `asyncio.to_thread`. The engine sets no limit across nodes, but those threads come from the event loop's default executor, which is bounded (`min(32, cpu + 4)` on CPython) and shared by every node.
 - **Time.** A write asks readiness only of the units it concerns, so a run's time grows with its rows.
 
 ### Legs and Asking
@@ -190,7 +190,7 @@ Values the run supplies arrive by type: a parameter annotated `Annotated[T, From
 
 Retries live on the version's `Policy` and nowhere else; each unit retries on its own.
 
-- A failure is retried when its error is `retryable` (`NodeExecutionError`, `NodeConnectionError` and a plain exception from `run` are; `NodeValidationError` never is) and attempts remain.
+- A failure is retried when its error is `retryable` (`NodeExecutionError`, `NodeConnectionError`, `NodeTimeoutError` and a plain exception from `run` are; `NodeValidationError` never is) and attempts remain.
 - The delay before attempt `n` is `delay * 2 ** (n - 1)`; each retry emits `node_retry` with `row`, `attempt`, `retries`, `error` and `delay`.
 - `Policy.timeout` bounds one attempt; expiry is `NodeTimeoutError`.
 - `execute(timeout_seconds=300)` bounds the leg and ends it `graph_timeout`; `execute(cancel=asyncio.Event())` stops it with `graph_cancelled` when set.
@@ -211,7 +211,7 @@ ConductorError
 └── GraphPendingError       execute_sync: the leg ended pending; carries pending and cells
 ```
 
-A failed unit fails the run: the other units are cancelled. Every ending carries `results` and `cells`, so a host can start a new run from a failed one.
+A failed unit fails the run: no further unit starts, and the leg ends at once. A `run` already in its worker thread is not interrupted; it finishes, and what it returns is dropped. Every ending carries `results` and `cells`, so a host can start a new run from a failed one.
 
 ### Events
 
@@ -221,7 +221,7 @@ A failed unit fails the run: the other units are cancelled. Every ending carries
 |---|---|
 | `node_start` | `node_id` — the node's first unit started |
 | `node_progress` | `node_id`, `done`, `total` (`None` until every row exists) |
-| `node_complete` | `node_id`, `result` (a `Series` for outputs on rows), `cached` |
+| `node_complete` | `node_id`, `result` (a `Series` for outputs on rows); `cached: true` only when `cache` supplied the node |
 | `node_skipped` | `node_id` — skipped above its rows |
 | `node_retry` | `node_id`, `row`, `attempt`, `retries`, `error`, `delay` |
 | `node_error` | `node_id`, `error`, `cause` |

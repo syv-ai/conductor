@@ -128,7 +128,7 @@ Every control is a frozen pydantic model with a `kind` discriminator; `AnyWidget
 
 - **Iteration and reduction.** A node iterating on an index runs once per row, concurrently up to its policy's `concurrency`; row 1 can finish a whole chain while row 10 is still being produced. A `Series[X]` input on a root index receives the series once it is complete; on a child index, once per parent row.
 - **A skip has a depth.** `SKIPPED` at a row skips that row (the series downstream is sparse); `SKIPPED` above a node's rows skips everything under it. A node whose every row was skipped produced an empty series; a node skipped above its rows did not run and is absent from the results.
-- **A failed unit fails the run.** The other units are cancelled and the `ErrorCause`, with the row, goes out on `node_error` and `graph_error`.
+- **A failed unit fails the run.** No further unit starts (a `run` already in its thread finishes, its result dropped), and the `ErrorCause`, with the row, goes out on `node_error` and `graph_error`.
 - **A leg ends pending.** A unit whose node returned `Asks` waits; everything else runs on, and the leg ends `graph_pending` with every waiting unit's questions. The next leg is `execute` again with `cells=` (the ledger's record from the last ending) and the answers in `cache=` as the asking node's outputs. Every ending — `graph_complete`, `graph_pending`, `graph_error`, `graph_cancelled`, `graph_timeout` — carries `results` and `cells`.
 - **Readiness is kept, not recomputed.** A write asks `ready` only of the units it concerns, so a run's time grows with its rows; `Ledger.runnable()` asks every unit at a leg's start and again when it goes quiet, where a ready unit nobody started raises.
 
@@ -137,7 +137,7 @@ Every control is a frozen pydantic model with a `kind` discriminator; `AnyWidget
 Retries live on the version's `Policy` (`retries`, `delay`, `timeout`, `concurrency`) and nowhere else; each unit retries on its own.
 - Delay formula: `delay * 2 ** (attempt - 1)`.
 - `NodeValidationError` is **never** retried (bad input won't fix itself); an error class or instance with `retryable = False` isn't either.
-- `NodeConnectionError` / `NodeExecutionError` are retried.
+- `NodeConnectionError` / `NodeExecutionError` / `NodeTimeoutError` are retried.
 - `Policy.timeout` wraps one attempt in `asyncio.wait_for`; expiry is `NodeTimeoutError`. `execute(timeout_seconds=...)` bounds the whole leg, and `execute(cancel=event)` stops it.
 - Each retry emits a `node_retry` event with `{row, attempt, retries, error, delay}`.
 

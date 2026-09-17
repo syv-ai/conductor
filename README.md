@@ -186,7 +186,8 @@ A node is a class. It declares its identity and what a palette shows (`id`, `tit
 
 ```python
 from dataclasses import dataclass
-from conductor import NodeDefinition, Result, Series
+from typing import Annotated
+from conductor import SKIPPED, NodeDefinition, Result, Series
 from conductor.widgets import List, Switch, Textarea
 from conductor_nodes.types import Flag, Number, Text
 
@@ -268,7 +269,7 @@ class Number(DType, float):
 
 ### Versions
 
-Several versions live in one class as methods marked `@version(n)`; the current one is the method named `run`. Each version has its own signature and `Policy`. `@upgrade(1, 2)` marks the function that rewrites values saved against version 1 into what version 2 expects; `@deprecated` marks a class or a version as going away, optionally naming an `alternative`:
+Several versions live in one class as methods marked `@version(n)`; the current one is the highest number, and by convention its method is the one named `run`. Each version has its own signature and `Policy`. `@upgrade(1, 2)` marks the function that rewrites values saved against version 1 into what version 2 expects; `@deprecated` marks a class or a version as going away, optionally naming an `alternative`:
 
 ```python
 from conductor import Policy, deprecated, upgrade, version
@@ -351,7 +352,7 @@ results = execute_sync(compiled, from_run={Clock: SystemClock()})
 
 ### Rows
 
-A node declared for one value runs once per row when a series reaches it. The engine's unit of work is a node on a row, and it starts every unit as soon as what it reads exists, so row 1 can finish a whole chain while row 10 is still being produced; a node's rows run concurrently up to its policy's `concurrency` (8 by default). A node declaring `Series[X]` receives the series whole — once for a root series, once per parent row for a child one. Independent branches run concurrently without any configuration, and sync `run` methods are offloaded to `asyncio.to_thread`.
+A node declared for one value runs once per row when a series reaches it. The engine's unit of work is a node on a row, and it starts every unit as soon as what it reads exists, so row 1 can finish a whole chain while row 10 is still being produced; a node's rows run concurrently up to its policy's `concurrency` (8 by default), in threads from the event loop's default executor, which every node shares. A node declaring `Series[X]` receives the series whole — once for a root series, once per parent row for a child one. Independent branches run concurrently without any configuration, and sync `run` methods are offloaded to `asyncio.to_thread`.
 
 A skip has a depth: `SKIPPED` at one row leaves the series downstream sparse, and `SKIPPED` above a node's rows skips everything under it. A failed row fails the run, and its `ErrorCause` names the row.
 
@@ -371,6 +372,11 @@ class Approve(NodeDefinition):
 
     def run(self, proposal: Annotated[Text, Textarea(title="Proposal")]) -> Annotated[Text, Result(title="Decision")] | Asks:
         return Asks(questions=(Input(name="result", dtype=Text, title="Decision", widget=Textarea(title="Decision"), default=proposal, optional=True),))
+
+registry.register(Approve)
+compiled = CompiledGraph.from_graph(Graph(nodes=[
+    GraphNode(id="approve", type="approve", version=1, bindings={"proposal": Static(value="Ship it")}),
+]), registry)
 
 try:
     execute_sync(compiled)
@@ -400,7 +406,7 @@ class FetchUrl(NodeDefinition):
         return Text(resp.text)
 ```
 
-Delay between attempts is `delay * 2 ** (attempt - 1)`, and each row retries on its own. `NodeExecutionError` and `NodeConnectionError` are retried; `NodeValidationError` never is — pydantic rejected the inputs, and retrying with the same inputs is pointless. Each retry emits a `node_retry` event with `{row, attempt, retries, error, delay}`. `Policy(timeout=...)` bounds one attempt and raises `NodeTimeoutError` on expiry.
+Delay between attempts is `delay * 2 ** (attempt - 1)`, and each row retries on its own. `NodeExecutionError`, `NodeConnectionError` and `NodeTimeoutError` are retried; `NodeValidationError` never is — pydantic rejected the inputs, and retrying with the same inputs is pointless. Each retry emits a `node_retry` event with `{row, attempt, retries, error, delay}`. `Policy(timeout=...)` bounds how long the engine waits for one attempt and raises `NodeTimeoutError` on expiry; the `run` in its worker thread is not interrupted, and what it returns afterwards is dropped.
 
 ### Error types
 
@@ -576,7 +582,7 @@ uv sync                       # includes the ipykernel used by the notebooks
 uv run jupyter lab examples/  # or open the .ipynb files in VS Code
 ```
 
-The notebooks use `await collect(execute(compiled))` because the kernel already owns an event loop. From a plain `.py` script, use `execute_sync(compiled)` instead.
+The notebooks use `[event async for event in execute(compiled)]` because the kernel already owns an event loop. From a plain `.py` script, use `execute_sync(compiled)` instead.
 
 ## Stability and versioning
 
