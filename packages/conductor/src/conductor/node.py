@@ -35,11 +35,12 @@ description is always derived from the live declaration.
 from __future__ import annotations
 
 import inspect
-from abc import ABC, abstractmethod
+from abc import ABC, ABCMeta, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, Literal
 
+from conductor._display import node_repr, nodes_table
 from conductor.interface import Interface
 from conductor.metadata import Input, Output
 from conductor.model import ConductorModel
@@ -258,7 +259,22 @@ class NodeDescription(ConductorModel):
     versions: dict[int, VersionDescription]
     current: int
 
-class NodeDefinition(ABC):
+class _NodeMeta(ABCMeta):
+    """Gives a node class the repr of what it declares, and a table in a notebook.
+
+    A registry holds classes, so a class is what a person inspects: without
+    this it prints as ``<class '__main__.Greet'>``. A class that declares no
+    node (``NodeDefinition`` itself, an intermediate base) keeps the class repr.
+    """
+
+    def __repr__(cls) -> str:
+        return node_repr(cls) if "versions" in dir(cls) else super().__repr__()
+
+    def _repr_html_(cls) -> str | None:
+        return nodes_table((cls,)) if "versions" in dir(cls) else None
+
+
+class NodeDefinition(ABC, metaclass=_NodeMeta):
     """Base class for every node.
 
     A subclass declares ``id``, ``title``, ``description`` and ``category``

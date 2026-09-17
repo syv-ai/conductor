@@ -26,8 +26,9 @@ they are ever parsed. A node's return declaration is not one either: a
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Self
+from typing import Any, Self
 
 import yaml
 from pydantic import BaseModel, ConfigDict
@@ -45,6 +46,19 @@ class ConductorModel(BaseModel):
     """
 
     model_config = ConfigDict(frozen=True)
+
+    def __repr_args__(self) -> Iterator[tuple[str | None, Any]]:
+        """Pydantic's repr arguments without the fields at their default, as scikit-learn prints an estimator.
+
+        ``Input(name='text', dtype=Text, title='Text', widget=Textarea(title='Text'))``
+        rather than every ``None`` and ``True`` the record carries.
+        """
+        fields = type(self).model_fields
+        for name, value in super().__repr_args__():
+            field = fields.get(name) if name is not None else None
+            if field is not None and not field.is_required() and value == field.get_default(call_default_factory=True):
+                continue
+            yield name, value
 
     def to_yaml(self) -> str:
         return yaml.safe_dump(self.model_dump(mode="json"), sort_keys=False, allow_unicode=True)

@@ -61,6 +61,9 @@ nothing is deprecated first, everything below is gone in 2.0.0.
   `NodeDescription`.
 - `ConductorModel`: `to_yaml` / `from_yaml` / `to_path` / `from_path` on every saved record.
 - The widgets' `Choice` and `OperatorChoice`.
+- Objects print their data: a node class as `Greet(id='greet', title='Greeting', category='text', versions=(1,))`,
+  a registry as `NodeRegistry(nodes=(...))`, a record without the fields at their default, a type as its
+  name; a registry and a node class render a table in a notebook.
 - `conductor_nodes.types`: the standard library's own `Text`, `Number`, `Flag` and `Json`.
 - `examples/06_human_in_the_loop.ipynb`, which teaches `Asks` and legs.
 
