@@ -85,25 +85,26 @@ graph = Graph(nodes=[
 Retries live on the version's `Policy` and nowhere else, and each row retries on its own.
 
 - The delay before attempt `n` is `delay * 2 ** (n - 1)`.
-- Retried: `NodeExecutionError`, `NodeConnectionError`, `NodeTimeoutError` and a plain exception from `run`. Never retried: `NodeValidationError`.
+- Retried: an `ExternalFailure` the node raises, or a foreign exception whose class `Policy(retry_on=...)` names (the engine wraps it as one). Never retried: any other exception from `run` (wrapped as `NodeExecutionError`), `NodeValidationError`, a timeout.
 - Each retry emits `node_retry` with `row`, `attempt`, `retries`, `error` and `delay`.
-- `Policy(timeout=...)` bounds one attempt; expiry is `NodeTimeoutError`. The thread the attempt ran on is not interrupted.
+- `Policy.timeout` is how long the leg waits on one attempt, counted from the moment the node's thread starts: the leg owns a thread pool with one worker per unit that may be in flight, so no unit ever waits for a worker. It never interrupts the thread. A timed-out attempt is final (`NodeTimeoutError`, code `timeout`); the thread finishes on its own, keeps the node's concurrency slot until it does, and what it returns is dropped. The timeout worth retrying is the client's own, set on the client inside `run`: when the client gives up, the thread has returned and a retry runs nothing twice.
+- A `run` that holds the GIL — a regex that never finishes, a tight loop over a huge input — blocks the whole process, and nothing in the engine can stop it. Where legs run, in the API process or in a worker of their own, is the host's decision.
 
 ## Error hierarchy
 
 ```
 ConductorError
 ├── CompilationError        execute was asked to run a graph compile found not runnable; carries problems
-├── NodeError               one node failed; node_id, original, cause, retryable
-│   ├── NodeValidationError     the inputs were wrong (never retried)
-│   ├── NodeExecutionError      run raised
-│   ├── NodeTimeoutError        the policy's timeout expired
-│   └── NodeConnectionError     an external call failed (retried)
+├── NodeError               one node failed; node_id, original, cause. Internal: never retried
+│   ├── ExternalFailure         the outside world failed; the one family the engine retries
+│   ├── NodeValidationError     the inputs were wrong
+│   ├── NodeExecutionError      run raised something that is not a NodeError
+│   └── NodeTimeoutError        the policy's timeout expired; final
 ├── GraphExecutionError     execute_sync: the graph failed, was cancelled or timed out
 └── GraphPendingError       execute_sync: the leg ended pending; carries pending and cells
 ```
 
-Raise `NodeConnectionError` from `run` to mark a failure as transient.
+Raise `ExternalFailure` from `run` where the node knows the outside world failed, or name the client's exception classes in `Policy(retry_on=...)`.
 
 ## Further reading
 
