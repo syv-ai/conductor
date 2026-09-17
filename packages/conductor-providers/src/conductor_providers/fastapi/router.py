@@ -81,14 +81,20 @@ def conductor_router(
     async def execute_graph_stream(
         req: ExecuteRequest, request: Request
     ) -> StreamingResponse:
-        """Run a graph and stream ``ExecutionEvent``s as Server-Sent Events."""
+        """Run a graph and stream ``ExecutionEvent``s as Server-Sent Events.
+
+        The first event is taken before the response starts, so a run that
+        is refused before anything runs (a graph that cannot run, a
+        ``FromRun`` value the hook did not supply) fails the request, as it
+        does on ``/execute``, instead of a 200 with an empty stream.
+        """
         compiled = CompiledGraph.from_graph(req.graph, registry)
-        supplied = _from_run(request)
+        events = execute(compiled, from_run=_from_run(request), cache=req.cache or None)
+        first = await anext(events)
 
         async def event_stream() -> Any:
-            async for event in execute(
-                compiled, from_run=supplied, cache=req.cache or None
-            ):
+            yield sse_frame(first)
+            async for event in events:
                 yield sse_frame(event)
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
