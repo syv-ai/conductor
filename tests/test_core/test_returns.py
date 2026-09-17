@@ -82,7 +82,7 @@ def test_the_record_is_the_schema():
 
     assert TypeAdapter(Output).dump_python(output, mode="json") == {
         "name": "result",
-        "dtype": {"id": "series", "of": {"id": "returns-test-text", "accepted_as": ["returns-test-text"]}},
+        "dtype": {"id": "series", "of": {"id": "returns-test-text"}},
         "title": "R",
         "description": None,
         "choice": None,

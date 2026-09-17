@@ -12,7 +12,11 @@ a response model::
         dtype: DTypeRef
 
     Field(name="text", dtype=Text).model_dump(mode="json")
-    # {"name": "text", "dtype": {"id": "text", "accepted_as": ["text"]}}
+    # {"name": "text", "dtype": {"id": "text"}}
+
+Where a value of the type may land is not on the field's record: that is
+``accepted_as`` on the registry's ``TypeDescription``, served once per
+type in ``NodeRegistry.describe()``.
 
 ``description_of`` is the one function behind it, and is also what a
 ``Series`` uses to nest its element type.
@@ -54,10 +58,7 @@ def _declared(value: Any) -> Any:
 #: The JSON schema of ``describe()``'s record.
 _DESCRIPTION_SCHEMA: dict[str, Any] = {
     "type": "object",
-    "properties": {
-        "id": {"type": "string"},
-        "accepted_as": {"type": "array", "items": {"type": "string"}},
-    },
+    "properties": {"id": {"type": "string"}},
     "required": ["id"],
 }
 

@@ -13,7 +13,7 @@ conductor/
 │       ├── metadata.py         # Field, Input, Output records
 │       ├── model.py            # ConductorModel — the base of every saved or sent record: to_yaml / from_yaml / to_path / from_path
 │       ├── returns.py          # Result (what an author writes on a return); outputs_of / unpack
-│       ├── dtype.py            # DType — a value's type; accepts(); Single; registered_dtypes()
+│       ├── dtype.py            # DType — a value's type; accepts(); Single; dtype_of()
 │       ├── dtype_ref.py        # DTypeRef — a dtype as a pydantic field
 │       ├── series.py           # Series[X], Index, Row
 │       ├── ref.py              # Ref — "<node id>.<field>"
@@ -106,7 +106,7 @@ class Upper(NodeDefinition):
 
 ### Types
 
-`DType` is a real class, usually on a builtin (`class Text(DType, str)`), registered by id on definition. `target.accepts(source)` is the one edge question (default `issubclass`; a series is judged by its element). A `DType` does not convert, does not pick a widget, does not format beyond `as_text`. `describe()` is `{"id", "accepted_as"}`; `Series[X].describe()` nests its element. `Ref("node.field")` is the address of one field on one node — a `str` subclass, split only in `node_id` / `field`. An `Index` names where a series' rows come from and is compared by id; a row is a path, `(i,)` on a root index and `(i, j)` under parent row `(i,)`.
+`DType` is a real class, usually on a builtin (`class Text(DType, str)`), declaring its own `id` and `title` — declaring one records nothing anywhere, and a subclass that leaves `id` to its parent is refused. `target.accepts(source)` is the one edge question (default `issubclass`; a series is judged by its element). A `DType` does not convert, does not pick a widget, does not format beyond `as_text`. `describe()` is `{"id"}`; `Series[X].describe()` nests its element. Which types exist is the registry's: the words its nodes declare plus `registry.add_types(...)`, read through `registry.types`; `registry.accepted_as(T)` is where a `T` may land over that vocabulary, and `registry.describe()` is the palette — every node's record and one `TypeDescription` per type. `Ref("node.field")` is the address of one field on one node — a `str` subclass, split only in `node_id` / `field`. An `Index` names where a series' rows come from and is compared by id; a row is a path, `(i,)` on a root index and `(i, j)` under parent row `(i,)`.
 
 ### Bindings
 

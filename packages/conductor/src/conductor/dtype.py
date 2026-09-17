@@ -46,7 +46,12 @@ the graph is compiled. ``Single`` marks an open interface, ``**inputs: Single``:
 every connected name becomes an input of that node.
 
 Conductor defines no concrete ``DType`` except ``Series``. Which types
-exist is the host application's decision.
+exist is the host application's decision, made on its ``NodeRegistry``:
+the types its nodes declare plus ``registry.add_types(...)`` are that
+registry's vocabulary, and nothing is recorded process-wide. Declaring a
+type is therefore free of side effects — a notebook cell can declare the
+same ``Text`` twice — and one id claimed by two classes is refused where
+the second reaches a registry, never at class definition.
 """
 
 from __future__ import annotations
@@ -70,8 +75,18 @@ class DType(ABC, metaclass=_DTypeMeta):
     """Base class for every type a value on an edge can have.
 
     Subclass it together with the builtin the type is built on and declare
-    ``id`` and ``title``; the class is registered on definition. The base
-    itself has no ``id`` and is never on an edge.
+    ``id`` and ``title`` in the class body. The base itself has no ``id``
+    and is never on an edge.
+
+    A subclass is a type of its own and names itself: a class that leaves
+    ``id`` to its parent is refused at definition, since a ``Whole`` that
+    quietly travels as ``number`` is the mistake nobody sees. The one
+    exception is a **parameterisation** — ``Series[Text]``, a host's
+    ``Table[columns]`` — a subclass built to carry a detail of its base's
+    type and rightly sharing the base's id. A factory marks one with the
+    class keyword ``parameterises=Base``; the registry then files it under
+    its base (or, for a series, its element) rather than as a word of its
+    own.
     """
 
     #: Stable identifier, used by the persisted graph and the frontend.
@@ -86,10 +101,10 @@ class DType(ABC, metaclass=_DTypeMeta):
     #: form, a schema field)? ``False`` unless the type says otherwise;
     #: most values are carried on edges rather than typed in.
     authorable: ClassVar[bool] = False
-
-    #: Every declared type by its ``id``; filled by ``__init_subclass__``,
-    #: read by ``registered_dtypes``.
-    _by_id: ClassVar[dict[str, type["DType"]]] = {}
+    #: For a parameterisation (``Series[Text]``, ``Table[columns]``), the
+    #: type it parameterises and whose ``id`` it carries; ``None`` for a
+    #: type of its own.
+    parameterises: ClassVar[type["DType"] | None] = None
 
     @classmethod
     def refuses_whole(cls) -> tuple[str, str] | None:
@@ -108,42 +123,51 @@ class DType(ABC, metaclass=_DTypeMeta):
         """
         return None
 
-    def __init_subclass__(cls, **kwargs: Any) -> None:
+    def __init_subclass__(cls, *, parameterises: type["DType"] | None = None, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
-        # A subclass must say what it is. A parameterised ``Series[Text]``
-        # inherits ``Series``'s id and passes.
-        if getattr(cls, "id", None) is None or not getattr(cls, "title", None):
-            raise TypeError(
-                f"{cls.__name__} must declare a class-level 'id' and 'title'"
-            )
-        existing = DType._by_id.get(cls.id)
-        if existing is not None and existing is not cls:
-            if issubclass(cls, existing):
-                # A parameterisation or a narrowing, not a collision:
-                # `Series[Text]` is a subclass of `Series` and shares its
-                # id. The declaring type keeps the registry entry, so
-                # `registered_dtypes()` lists each type once.
-                return
-            raise ValueError(
-                f"dtype id {cls.id!r} is already declared by {existing.__name__}"
-            )
-        DType._by_id[cls.id] = cls
+        if parameterises is not None:
+            if not (
+                isinstance(parameterises, type)
+                and issubclass(parameterises, DType)
+                and parameterises is not DType
+                and issubclass(cls, parameterises)
+            ):
+                raise TypeError(
+                    f"{cls.__name__} parameterises {parameterises!r}, which is not a concrete DType among its bases"
+                )
+            if "id" in vars(cls):
+                raise TypeError(
+                    f"{cls.__name__} parameterises {parameterises.__name__} and so carries its id; "
+                    "a type with an id of its own is not a parameterisation"
+                )
+            cls.parameterises = parameterises
+        else:
+            if "id" not in vars(cls):
+                raise TypeError(
+                    f"{cls.__name__} declares no 'id' of its own. A subclass is a type of its own and "
+                    "names itself; a subclass that only carries a detail of its base is declared with "
+                    "parameterises=<base> and keeps the base's id"
+                )
+            # Set on every type of its own, so a self-named subclass of a
+            # parameterisation does not inherit the mark.
+            cls.parameterises = None
+        if not getattr(cls, "title", None):
+            raise TypeError(f"{cls.__name__} must declare a class-level 'title'")
 
     # -- the description --------------------------------------------------
 
     @classmethod
     def describe(cls) -> dict[str, Any]:
-        """This type as a JSON-ready record, for the frontend.
+        """This type as a JSON-ready record, for the frontend: ``{"id": ...}``.
 
-        ``{"id": ..., "accepted_as": [...]}`` — an object rather than a
-        string, so nothing downstream parses a type. ``accepted_as`` lists
-        the ids of every registered type whose ``accepts`` admits this one
-        (its own included), which is what an editor needs to know where a
-        value may be dropped. It is derived from ``accepts``, so widening a
-        type's welcome updates it automatically. ``Series`` overrides this
-        to nest its element type.
+        An object rather than a string, so nothing downstream parses a
+        type. ``Series`` overrides this to nest its element type. Where a
+        value of this type may land — every type whose ``accepts`` admits
+        it — is a question about a vocabulary, so it is the registry's
+        answer (``NodeRegistry.accepted_as``), served once per type in
+        ``NodeRegistry.describe()`` rather than on every field's record.
         """
-        return {"id": cls.id, "accepted_as": [d.id for d in registered_dtypes() if d._admits(cls)]}
+        return {"id": cls.id}
 
     # -- text for a person --------------------------------------------------
 
@@ -219,19 +243,6 @@ class DType(ABC, metaclass=_DTypeMeta):
             return base
         return None
 
-    @classmethod
-    def _admits(cls, source: type[DType]) -> bool:
-        """``accepts(source)``, treating "refuses to be a target" as ``False``.
-
-        ``describe()`` asks this of every registered type. Bare ``Series``
-        raises rather than answer, and for ``accepted_as`` that refusal
-        simply means "not here".
-        """
-        try:
-            return cls.accepts(source)
-        except TypeError:
-            return False
-
 
 class Single:
     """Marker for an open interface: ``def run(self, **inputs: Single)``.
@@ -261,8 +272,3 @@ def dtype_of(annotation: Any) -> Any:
     if isinstance(annotation, type) and issubclass(annotation, DType):
         return annotation
     return None
-
-
-def registered_dtypes() -> tuple[type[DType], ...]:
-    """Every ``DType`` declared so far — everything that can travel on an edge."""
-    return tuple(DType._by_id.values())

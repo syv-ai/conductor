@@ -176,20 +176,26 @@ def test_english_and_other_libraries_words_are_not_a_host_word(line):
     assert _host_words_in(line) == []
 
 
-def _types_registered_by_importing(*packages: str) -> list[str]:
-    """Import every module of ``packages`` in a fresh interpreter and name the types then registered.
+def _types_declared_by(*packages: str) -> list[str]:
+    """Import every module of ``packages`` in a fresh interpreter and name the ``DType`` classes they define.
 
-    ``__main__`` modules are left out: importing one runs it.
+    ``__main__`` modules are left out: importing one runs it. Declaring a
+    type records nothing anywhere, so the modules themselves are searched.
     """
     probe = (
         "import importlib, pkgutil\n"
+        "from conductor.dtype import DType\n"
+        "found = set()\n"
         f"for name in {packages!r}:\n"
         "    package = importlib.import_module(name)\n"
         "    for module in pkgutil.walk_packages(package.__path__, name + '.'):\n"
-        "        if not module.name.endswith('.__main__'):\n"
-        "            importlib.import_module(module.name)\n"
-        "from conductor.dtype import registered_dtypes\n"
-        "print(sorted(t.id for t in registered_dtypes()))\n"
+        "        if module.name.endswith('.__main__'):\n"
+        "            continue\n"
+        "        loaded = importlib.import_module(module.name)\n"
+        "        for value in vars(loaded).values():\n"
+        "            if isinstance(value, type) and issubclass(value, DType) and value is not DType and value.__module__ == module.name:\n"
+        "                found.add(value.id)\n"
+        "print(sorted(found))\n"
     )
     printed = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, check=True).stdout
     return ast.literal_eval(printed.strip())
@@ -197,12 +203,12 @@ def _types_registered_by_importing(*packages: str) -> list[str]:
 
 def test_the_library_declares_no_type_of_its_own_beyond_series():
     """Which values exist is the host's decision; importing every module of the core and the providers registers only the series."""
-    assert _types_registered_by_importing("conductor", "conductor_providers") == ["series"]
+    assert _types_declared_by("conductor", "conductor_providers") == ["series"]
 
 
 def test_a_package_that_declares_types_is_found():
     """The standard nodes ship their own vocabulary, so the same probe over them finds it."""
-    assert "text" in _types_registered_by_importing("conductor_nodes")
+    assert "text" in _types_declared_by("conductor_nodes")
 
 
 def test_an_iteration_and_a_reduction_run_on_the_standard_nodes_alone():
