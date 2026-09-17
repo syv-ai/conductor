@@ -31,6 +31,7 @@ class Txt(DType, str):
     id = "model-test-txt"
     title = "Text"
 
+
 def _graph() -> Graph:
     return Graph(
         nodes=[
@@ -109,6 +110,7 @@ def test_a_schema_builder_keeps_its_schema_key_on_the_wire():
 
     assert builder.schema_ == {"type": "object"}
     assert builder.model_dump()["schema"] == {"type": "object"}
+    assert SchemaBuilder.model_validate({"title": "Felter", "schema": {"a": 1}}).schema_ == {"a": 1}
 
 
 READ_BACK = (
