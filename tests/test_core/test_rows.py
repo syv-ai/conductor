@@ -418,7 +418,8 @@ def test_a_defect_in_the_engine_fails_the_leg_instead_of_hanging_it(monkeypatch)
 
     assert events[-1]["type"] == "graph_error"
     assert events[-1]["cause"].code == "engine_error"
-    assert "the ledger lost a cell" in events[-1]["error"]
+    assert events[-1]["cause"].details == {"exception": "RuntimeError"}
+    assert "the ledger lost a cell" not in events[-1]["error"]
 
 
 def test_a_graph_compile_rejected_is_refused_with_its_problems():

@@ -18,8 +18,8 @@ with the row, goes out on the event stream.
 **The leg owns its work.** Every node's ``run`` is called in a thread the
 leg owns, from a pool with one worker per unit that may be in flight, so
 a unit never waits for a worker and a node's timeout counts only the time
-its thread ran. Closing the event stream — a ``break``, an ``aclose()``,
-a cancelled consumer — stops every unit before the stream is gone. What
+its thread ran. Closing the event stream — ``aclose()``, or a cancelled
+consumer — stops every unit before the stream is gone. What
 the leg cannot do is interrupt a thread: a ``run`` that has started
 finishes on its own, and what it returns is dropped. A timed-out attempt
 is therefore final, and the thread keeps the node's concurrency slot until
@@ -119,8 +119,10 @@ async def execute(
         async for event in execute(compiled, from_run={Clock: clock}):
             ...
 
-    Leaving the loop early — ``break``, ``aclose()``, a cancelled task —
-    stops every unit before the generator is gone.
+    Closing the stream — ``aclose()`` on the generator, or cancelling the
+    task that reads it — stops every unit before the generator is gone; a
+    bare ``break`` leaves the generator open until it is closed or
+    collected, so close it.
     """
     if not compiled.is_runnable:
         raise CompilationError("the graph cannot run", problems=compiled.problems)
@@ -384,10 +386,13 @@ class _Leg:
         try:
             await self._unit(unit)
         except Exception as raised:
+            # The exception's text can hold a value the node returned, so
+            # the event carries the generic line and the class name; the
+            # exception itself is on ``original`` for a log.
             node_id, row = unit
             failure = NodeExecutionError(
-                f"{type(raised).__name__}: {raised}", node_id=node_id, original=raised,
-                cause=self._cause(code="engine_error", row=row),
+                MESSAGES["engine_error"], node_id=node_id, original=raised,
+                cause=self._cause(code="engine_error", row=row, details={"exception": type(raised).__name__}),
             )
             self.queue.put_nowait(_UnitDone(unit, error=self._error_event(node_id, failure, row)))
 
