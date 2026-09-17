@@ -82,7 +82,7 @@ def conductor_router(
     @router.get("/nodes", response_model=list[NodeDescription])
     def list_nodes() -> list[NodeDescription]:
         """Every registered definition as a record — the palette."""
-        return [cls.describe() for cls in registry.definitions()]
+        return [cls.describe() for cls in registry.nodes]
 
     @router.post("/execute")
     async def execute_graph(req: ExecuteRequest, request: Request) -> dict[str, Any]:

@@ -517,7 +517,7 @@ def test_the_registry_keys_on_the_id():
 
     assert registry.contains("echo-key")
     assert not registry.contains("echo-nothing")
-    assert registry.definitions() == (Echo,)
+    assert registry.nodes == (Echo,)
 
 
 def test_registering_the_same_id_twice_is_refused():
