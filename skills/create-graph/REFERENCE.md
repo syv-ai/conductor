@@ -191,4 +191,4 @@ The body is `{graph, cells, cache}`. Over HTTP a per-row answer is `{"rows": [[1
 - [ ] Every `Ref` names a node in the graph and one of its outputs; every bindings key names an input.
 - [ ] `compiled.is_runnable` is checked, and `problems` is shown when it is not.
 - [ ] The host keeps `cells` from a pending ending, and every `from_run` type a node needs is passed.
-- [ ] A long run has `timeout=` or a `cancel` event the caller owns; leaving the `async for` early stops every unit.
+- [ ] A long run has `timeout=` or a `cancel` event the caller owns; closing the stream (`aclose()`, a cancelled task) stops every unit.
