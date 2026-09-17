@@ -250,7 +250,7 @@ A ref stores as its address, `"node.field"`. YAML needs PyYAML (`pip install "sy
 
 ### The Palette
 
-`NodeDefinition.describe()` is the one serialisation of a node: a `NodeDescription` with `id`, `title`, `description`, `category`, `tags`, `docs`, `deprecation`, `current` and `versions` (each a `VersionDescription` with `inputs`, `outputs`, `policy`, `open`, `deprecation`). A palette is `[cls.describe() for cls in registry.definitions()]`, dumped through pydantic.
+`NodeDefinition.describe()` is the one serialisation of a node: a `NodeDescription` with `id`, `title`, `description`, `category`, `tags`, `docs`, `deprecation`, `current` and `versions` (each a `VersionDescription` with `inputs`, `outputs`, `policy`, `open`, `deprecation`). A palette is `[cls.describe() for cls in registry.nodes]`, dumped through pydantic.
 
 ## API Reference
 
@@ -261,7 +261,7 @@ The node-authoring surface, re-exported from the modules that define it:
 - Nodes: `NodeDefinition`, `NodeVersion`, `GraphVersion`, `Policy`, `Deprecation`, `NodeDescription`, `version`, `upgrade`, `deprecated`, `Interface`, `FromRun`, `Input`, `Output`, `Result`, `AnyWidget`
 - Values a run returns: `SKIPPED`, `Asks`, `is_skipped`, `is_asking`
 - Types: `DType`, `DTypeRef`, `Single`, `dtype_of`, `registered_dtypes`, `Series`, `Index`, `Ref`
-- Registry: `NodeRegistry` (`register`, `get`, `contains`, `definitions`, `upgrade_path`, `extended_with`, `runner_for`)
+- Registry: `NodeRegistry` (`register`, `get`, `contains`, `nodes`, `upgrade_path`, `extended_with`, `runner_for`)
 - Graph: `Graph`, `GraphNode`, `FieldContent`, `Binding`, `Edges`, `Static`, `dependencies_of`, `is_input_node`, `CompiledGraph`, `CompiledNode`, `CompiledField`, `Problem`, `Condition`, `Atom`, `ALWAYS`
 
 Everything else is imported from the module that defines it.
@@ -386,7 +386,7 @@ packages/
 | A saved graph embedded as a node | A `GraphVersion` in the definition's `versions` |
 | Common nodes (text, math, …) | `conductor-nodes` |
 | Save or load a graph | `Graph.to_path` / `Graph.from_path` |
-| A palette for a frontend | `[cls.describe() for cls in registry.definitions()]` |
+| A palette for a frontend | `[cls.describe() for cls in registry.nodes]` |
 | A ReactFlow canvas | `conductor_providers.react` |
 | HTTP endpoints | `conductor_providers.fastapi.conductor_router` |
 

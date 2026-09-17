@@ -36,7 +36,7 @@ def _run(reg: NodeRegistry, nodes):
 
 class TestPackageSurface:
     def test_register_all_registers_every_category(self, full_registry):
-        ids = {c.id for c in full_registry.definitions()}
+        ids = {c.id for c in full_registry.nodes}
         # Spot-check one node per category
         assert "text-uppercase" in ids
         assert "math-add" in ids
@@ -48,7 +48,7 @@ class TestPackageSurface:
     def test_register_all_respects_categories_filter(self):
         reg = NodeRegistry()
         conductor_nodes.register_all(reg, categories=["text", "math"])
-        ids = {c.id for c in reg.definitions()}
+        ids = {c.id for c in reg.nodes}
         assert "text-uppercase" in ids
         assert "math-add" in ids
         assert "json-parse" not in ids
@@ -62,7 +62,7 @@ class TestPackageSurface:
     def test_individual_modules_expose_register(self):
         reg = NodeRegistry()
         conductor_nodes.text.register(reg)
-        ids = {c.id for c in reg.definitions()}
+        ids = {c.id for c in reg.nodes}
         assert "text-uppercase" in ids
         assert "math-add" not in ids   # only text registered
 

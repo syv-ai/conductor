@@ -80,10 +80,11 @@ class NodeRegistry:
     def contains(self, node_id: str) -> bool:
         return node_id in self._nodes
 
-    def definitions(self) -> tuple[type[NodeDefinition], ...]:
-        """Every registered class, in registration order.
+    @property
+    def nodes(self) -> tuple[type[NodeDefinition], ...]:
+        """Every registered node class, in registration order.
 
-        A palette is ``[d.describe() for d in registry.definitions()]``.
+        A palette is ``[cls.describe() for cls in registry.nodes]``.
         """
         return tuple(self._nodes.values())
 

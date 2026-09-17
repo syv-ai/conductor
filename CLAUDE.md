@@ -20,7 +20,7 @@ conductor/
 │       ├── widgets.py          # Widget + the controls; AnyWidget discriminated union
 │       ├── errors.py           # ErrorCause and the exception hierarchy
 │       ├── _sentinel.py        # SKIPPED and Asks — the two values a run returns that are not results
-│       ├── registry/           # NodeRegistry (register, definitions, runner_for, extended_with, upgrade_path); discover_nodes
+│       ├── registry/           # NodeRegistry (register, nodes, runner_for, extended_with, upgrade_path); discover_nodes
 │       ├── graph/              # model (Graph/GraphNode), binding (Edges/Static), compiler + compiled (CompiledGraph and its node/field views), iteration (the edge walk), expand (embedded graphs), conditions, problem, topology, views
 │       ├── execution/          # engine (execute, execute_sync, collect; one leg per call), ledger (what a run produced, and what that makes ready), events
 │       └── about/              # Runnable library context: `python -m conductor.about`
@@ -240,7 +240,7 @@ class MyNode(NodeDefinition):
 
 ### The palette
 ```python
-palette = [cls.describe() for cls in registry.definitions()]     # NodeDescription records; dump through pydantic for JSON
+palette = [cls.describe() for cls in registry.nodes]     # NodeDescription records; dump through pydantic for JSON
 ```
 
 ## Conventions

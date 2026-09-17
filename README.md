@@ -309,7 +309,7 @@ A registered node numbers its versions from 1 with no holes; a placement pins an
 registry.register(Greet)
 registry.get("greet")                      # the class, or None
 registry.contains("greet")                 # True
-registry.definitions()                     # every class, in registration order
+registry.nodes                     # every class, in registration order
 Greet.versions[2].interface.inputs         # the Input records of version 2
 Greet.describe()                           # the palette entry, derived on demand
 registry.upgrade_path("greet", 1, 2)       # the @upgrade function, or None
