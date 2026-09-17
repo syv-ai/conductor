@@ -43,7 +43,7 @@ def test_a_graph_round_trips_through_json():
     assert Graph.model_validate_json(_graph().model_dump_json()) == _graph()
 
 
-@pytest.mark.parametrize("name", ["godkend.yaml", "godkend.yml", "godkend.json"])
+@pytest.mark.parametrize("name", ["approval.yaml", "approval.yml", "approval.json"])
 def test_a_graph_reads_back_what_it_wrote_to_a_path(tmp_path, name):
     path = tmp_path / name
     _graph().to_path(path)
@@ -52,12 +52,11 @@ def test_a_graph_reads_back_what_it_wrote_to_a_path(tmp_path, name):
 
 
 def test_the_suffix_decides_the_format(tmp_path):
-    _graph().to_path(tmp_path / "godkend.json")
-    assert (tmp_path / "godkend.json").read_text().lstrip().startswith("{")
+    _graph().to_path(tmp_path / "approval.json")
+    assert (tmp_path / "approval.json").read_text().lstrip().startswith("{")
 
 
-
-@pytest.mark.parametrize("name", ["godkend.txt", "godkend.JSON", "godkend.Yaml", "godkend.yaml.bak", "godkend"])
+@pytest.mark.parametrize("name", ["approval.txt", "approval.JSON", "approval.Yaml", "approval.yaml.bak", "approval"])
 def test_a_path_whose_suffix_is_not_exactly_json_yaml_or_yml_is_refused(tmp_path, name):
     with pytest.raises(ValueError, match=name):
         _graph().to_path(tmp_path / name)
