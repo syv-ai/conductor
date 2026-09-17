@@ -395,6 +395,15 @@ class NodeDefinition(ABC):
             methods[1] = cls.run
             policies[1] = Policy()
 
+        for number, fn in methods.items():
+            if inspect.iscoroutinefunction(fn) or inspect.isasyncgenfunction(fn):
+                # The engine calls ``run`` in a worker thread and never awaits
+                # it, so an async one would hand back a coroutine as its result.
+                raise TypeError(
+                    f"{cls.__name__}: version {number} is async; run is a plain "
+                    "function, and the engine gives each call a thread"
+                )
+
         # No contiguity check here: numbering from 1 with no holes is the
         # registry's rule and lives in ``register()``. A definition a host
         # loads from data may legitimately carry only the versions {1, 3}.
