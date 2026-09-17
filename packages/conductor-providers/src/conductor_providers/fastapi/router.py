@@ -12,12 +12,11 @@ from conductor.execution.events import ExecutionEvent
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.problem import Problem
 from conductor.node import NodeDescription
-from conductor.series import Series
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
 from conductor_providers.fastapi.models import ExecuteRequest
-from conductor_providers.fastapi.sse import _jsonable, sse_frame
+from conductor_providers.fastapi.sse import as_data, sse_frame
 
 
 def conductor_router(
@@ -75,7 +74,7 @@ def conductor_router(
         return execute(
             compiled,
             from_run=_from_run(request),
-            cache=_cache(compiled, req.cache or {}) or None,
+            cache=req.cache or None,
             record=req.record,
         )
 
@@ -105,7 +104,7 @@ def conductor_router(
             await collect(watched())
         except GraphPendingError:
             pass
-        return _jsonable(ending)
+        return as_data(ending)
 
     @router.post("/execute-stream")
     async def execute_graph_stream(
@@ -162,28 +161,6 @@ def conductor_router(
         return list(CompiledGraph.from_graph(req.graph, registry).problems)
 
     return router
-
-
-def _cache(compiled: CompiledGraph, cache: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
-    """The request's ``cache`` as ``execute`` takes it.
-
-    A node that runs once is given its outputs as they came. A node that
-    runs per row is given a ``Series`` per output on the node's own index,
-    built from the ``rows`` and ``values`` the request sent; any ``index``
-    it sent beside them is not read, since the compiled graph already says
-    which index the node runs on.
-    """
-    taken: dict[str, dict[str, Any]] = {}
-    for node_id, outputs in cache.items():
-        index = compiled.node(node_id).iterates_on
-        if index is None:
-            taken[node_id] = outputs
-            continue
-        taken[node_id] = {
-            name: Series(index, sent["values"], rows=[tuple(row) for row in sent["rows"]])
-            for name, sent in outputs.items()
-        }
-    return taken
 
 
 # Silence "imported but unused" warnings: Depends is a documented option for
