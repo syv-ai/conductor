@@ -8,7 +8,7 @@ from typing import Annotated
 from conductor import CompiledGraph, GraphNode, NodeRegistry
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
-from conductor.errors import NodeExecutionError
+from conductor.errors import ExternalFailure, NodeExecutionError
 from conductor.execution.engine import execute, execute_sync
 from conductor.graph.binding import Edges, Static
 from conductor.graph.model import Graph
@@ -179,7 +179,7 @@ class TestRetry:
                 nonlocal calls
                 calls += 1
                 if calls < 2:
-                    raise NodeExecutionError("transient", node_id="flaky")
+                    raise ExternalFailure("transient", node_id="flaky")
                 return Txt("ok")
 
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="flaky", version=1)]), _registry(Flaky))

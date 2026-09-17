@@ -46,8 +46,10 @@ from pydantic import ValidationError
 
 from conductor._sentinel import is_asking
 from conductor.errors import (
+    MESSAGES,
     CompilationError,
     ErrorCause,
+    ExternalFailure,
     GraphExecutionError,
     GraphPendingError,
     NodeError,
@@ -293,7 +295,7 @@ class _Leg:
         node_id, row = unit
         failure = NodeExecutionError(
             f"{type(raised).__name__}: {raised}", node_id=node_id, original=raised,
-            cause=self._cause(code="engine_error", message="An error in the engine stopped the run.", row=row),
+            cause=self._cause(code="engine_error", row=row),
         )
         self.queue.put_nowait(_UnitDone(unit, error=self._error_event(node_id, failure, row)))
 
@@ -344,12 +346,12 @@ class _Leg:
                     if self._remaining() == 0:
                         return  # the loop reports the timeout
                     failure: NodeError = NodeTimeoutError(
-                        f"'{node_id}' exceeded its time limit of {policy.timeout}s", node_id=node_id,
-                        cause=self._cause(code="timeout", message="The node did not answer in time.", row=row, details={"seconds": policy.timeout}),
+                        MESSAGES["timeout"], node_id=node_id,
+                        cause=self._cause(code="timeout", row=row, details={"seconds": policy.timeout}),
                     )
                 except NodeError as raised:
                     failure = raised
-                if not failure.retryable or attempt >= policy.retries:
+                if not isinstance(failure, ExternalFailure) or attempt >= policy.retries:
                     await queue.put(_UnitDone(unit, error=self._error_event(node_id, failure, row)))
                     return
                 attempt += 1
@@ -380,8 +382,10 @@ class _Leg:
         added inputs are validated like any other. ``FromRun`` parameters
         (values the host supplies by type) come from the run. Runs in a
         worker thread. A ``NodeError`` the node raises passes through; any
-        other exception becomes a ``NodeExecutionError`` with the row in its
-        cause.
+        other exception is wrapped with the row in its cause — as an
+        ``ExternalFailure`` when the policy's ``retry_on`` names its class,
+        as a ``NodeExecutionError`` otherwise — and the exception itself
+        goes on ``original``, its text on no event.
         """
         node_id, row = unit
         node = self.compiled.node(node_id)
@@ -392,7 +396,7 @@ class _Leg:
             reason = self._describe(invalid, node.interface.inputs)
             raise NodeValidationError(
                 reason, node_id=node_id, original=invalid,
-                cause=self._cause(code="invalid_input", message="The node received a value it cannot use.", row=row, details={"reason": reason}),
+                cause=self._cause(code="invalid_input", row=row, details={"reason": reason}),
             ) from invalid
         kwargs = {name: getattr(validated, name) for name in type(validated).model_fields}
         kwargs.update({name: self.from_run[needed] for name, needed in version.interface.needs.items()})
@@ -401,10 +405,15 @@ class _Leg:
             return runner(**kwargs)
         except NodeError:
             raise
+        except version.policy.retry_on as raised:
+            raise ExternalFailure(
+                MESSAGES["external_failed"], node_id=node_id, original=raised,
+                cause=self._cause(code="external_failed", row=row),
+            ) from raised
         except Exception as raised:
             raise NodeExecutionError(
-                f"{type(raised).__name__}: {raised}", node_id=node_id, original=raised,
-                cause=self._cause(code="execution_failed", message=str(raised), row=row),
+                MESSAGES["execution_failed"], node_id=node_id, original=raised,
+                cause=self._cause(code="execution_failed", row=row),
             ) from raised
 
     async def _after(self, unit: Unit) -> None:
@@ -425,12 +434,21 @@ class _Leg:
     # -- failures ----------------------------------------------------------------
 
     @staticmethod
-    def _cause(*, code: str, message: str, row: Any, details: Mapping[str, Any] | None = None) -> ErrorCause:
-        return ErrorCause(code=code, message=message, details=details or {}, row=row)
+    def _cause(*, code: str, row: Any, details: Mapping[str, Any] | None = None) -> ErrorCause:
+        """A cause the engine writes itself, with the generic message for its code."""
+        return ErrorCause(code=code, message=MESSAGES[code], details=details or {}, row=row)
 
     @staticmethod
     def _error_event(node_id: str, failure: NodeError, row: Any) -> NodeErrorEvent:
-        cause = failure.cause if failure.cause is not None else _Leg._cause(code="failed", message=str(failure), row=row)
+        """The event for a failed unit. A ``NodeError`` the node raised without
+        a cause gets one with the message the node wrote: code ``external_failed``
+        for an ``ExternalFailure``, ``failed`` for the rest."""
+        if failure.cause is not None:
+            cause = failure.cause
+        elif isinstance(failure, ExternalFailure):
+            cause = ErrorCause(code="external_failed", message=str(failure), row=row)
+        else:
+            cause = ErrorCause(code="failed", message=str(failure), row=row)
         if cause.row is None and row is not None:
             cause = cause.model_copy(update={"row": row})
         return NodeErrorEvent(type="node_error", node_id=node_id, error=str(failure), cause=cause)

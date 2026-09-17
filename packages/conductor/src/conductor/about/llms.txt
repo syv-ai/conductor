@@ -97,7 +97,7 @@ class Greet(NodeDefinition):
         return {**values, "first": first, "last": last}
 ```
 
-- `Policy(retries=0, delay=1.0, timeout=None, concurrency=8)` — how the engine runs this version. `concurrency` bounds how many rows run at once.
+- `Policy(retries=0, delay=1.0, timeout=None, concurrency=8, retry_on=())` — how the engine runs this version. `concurrency` bounds how many rows run at once; `retry_on` names the client exception classes that mean the outside world failed. Bounds: `retries >= 0`, `delay >= 0`, `timeout > 0` or `None`, `concurrency >= 1`.
 - `@upgrade(a, b)` rewrites values saved against version `a` into what `b` expects; the class collects them into `cls.upgrades`, and `registry.upgrade_path(node_id, a, b)` returns one.
 - `@deprecated(header=..., description=..., alternative=..., migration=...)` (all keyword, all optional) on the class retires the node; on a version method, that version.
 - `NodeRegistry.register(cls)` requires versions numbered from 1 with no holes and an `alternative` that exists.
@@ -190,9 +190,10 @@ Values the run supplies arrive by type: a parameter annotated `Annotated[T, From
 
 Retries live on the version's `Policy` and nowhere else; each unit retries on its own.
 
-- A failure is retried when its error is `retryable` (`NodeExecutionError`, `NodeConnectionError`, `NodeTimeoutError` and a plain exception from `run` are; `NodeValidationError` never is) and attempts remain.
+- Two families. A failure is internal — a bug, bad data, a refused schema — unless the outside world caused it. Only an `ExternalFailure` is retried: a node raises one itself, or names its client's exception classes in `Policy(retry_on=(httpx.TransportError, ...))` and the engine wraps a matching foreign exception as one (code `external_failed`). Every other exception from `run` is wrapped as `NodeExecutionError` (code `execution_failed`) and runs once; `NodeValidationError` and a timeout are never retried either.
 - The delay before attempt `n` is `delay * 2 ** (n - 1)`; each retry emits `node_retry` with `row`, `attempt`, `retries`, `error` and `delay`.
-- `Policy.timeout` bounds one attempt; expiry is `NodeTimeoutError`.
+- `Policy.timeout` bounds one attempt; expiry is `NodeTimeoutError` (code `timeout`) and is final.
+- What people read: a cause the engine writes carries the generic message for its code (`conductor.errors.MESSAGES`); a `NodeError` the node raised keeps the message the node chose. A foreign exception's text is on the wrapping error's `original` and on no event.
 - `execute(timeout_seconds=300)` bounds the leg and ends it `graph_timeout`; `execute(cancel=asyncio.Event())` stops it with `graph_cancelled` when set.
 
 ### Errors
@@ -202,11 +203,11 @@ A run-time failure carries an `ErrorCause(code, message, details, row)` — on t
 ```
 ConductorError
 ├── CompilationError        execute was asked to run a graph compile found not runnable; carries problems
-├── NodeError               one node failed; node_id, original, cause, retryable
-│   ├── NodeValidationError     the inputs were wrong (never retried)
-│   ├── NodeExecutionError      run raised
-│   ├── NodeTimeoutError        the policy's timeout expired
-│   └── NodeConnectionError     an external call failed (retried)
+├── NodeError               one node failed; node_id, original, cause. Internal: never retried
+│   ├── ExternalFailure         the outside world failed; the one family the engine retries
+│   ├── NodeValidationError     the inputs were wrong
+│   ├── NodeExecutionError      run raised something that is not a NodeError
+│   └── NodeTimeoutError        the policy's timeout expired; final
 ├── GraphExecutionError     execute_sync: the graph failed, was cancelled or timed out
 └── GraphPendingError       execute_sync: the leg ended pending; carries pending and cells
 ```
@@ -285,7 +286,7 @@ Everything else is imported from the module that defines it.
 
 ### conductor.errors
 
-`ErrorCause`, `CODES`, `ConductorError`, `CompilationError`, `NodeError`, `NodeValidationError`, `NodeExecutionError`, `NodeTimeoutError`, `NodeConnectionError`, `GraphExecutionError`, `GraphPendingError`.
+`ErrorCause`, `CODES`, `MESSAGES`, `ConductorError`, `CompilationError`, `NodeError`, `ExternalFailure`, `NodeValidationError`, `NodeExecutionError`, `NodeTimeoutError`, `GraphExecutionError`, `GraphPendingError`.
 
 ### conductor.model
 
