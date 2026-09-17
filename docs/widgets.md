@@ -1,6 +1,6 @@
 # Widgets
 
-A widget is the control an input is edited with, plus what that control needs: a dropdown's choices, a number's range. Every widget is a frozen, keyword-only record with a `kind` discriminator, and `AnyWidget` is the union of all of them, so pydantic dumps a widget and publishes a JSON schema per kind — a generic frontend renders any registered node by reading the palette.
+A widget is the control an input is edited with, plus what that control needs: a dropdown's choices, a number's range. Every widget is a frozen pydantic model with a `kind` discriminator, and `AnyWidget` is the union of all of them, so pydantic dumps a widget and publishes a JSON schema per kind — a generic frontend renders any registered node by reading the palette.
 
 ## How to use a widget
 
@@ -65,7 +65,7 @@ A widget does not decide whether an edge can reach the input: `show_handle` defa
 - **`List`** — a list of values typed by hand; the per-item control is derived by the host from the element type. Options: `min_items`, `max_items`.
 - **`Tags`** — free-form labels added one at a time.
 - **`TableInput`** — a table typed or pasted in, column types and all. Options: `min_rows`, `min_columns`, `column_types` (the host's scalar types as `Choice`s).
-- **`SchemaBuilder`** — a schema built field by field. Options: `schema`, `allow_additional`, `field_types` (the host's vocabulary as `Choice`s).
+- **`SchemaBuilder`** — a schema built field by field. Options: `schema`, `allow_additional`, `field_types` (the host's vocabulary as `Choice`s). `schema` is the keyword and the wire key; the attribute is `schema_`, since `builder.schema` is pydantic's own method.
 - **`IfElseBuilder`** — conditions built from the host's operators. Options: `operators` (a tuple of `OperatorChoice`: `id`, `title`, `category`, `arity`).
 
 ### Special
@@ -76,7 +76,7 @@ The vocabulary inside a control — a dropdown's choices, a builder's operators,
 
 ## Inspecting the schema
 
-A widget dumps through pydantic; the three lifted fields are excluded because they live on the `Input`:
+A widget dumps through pydantic; the three lifted fields are excluded because they live on the `Input`. The dump is for an editor to read, not to load back: without its title it is not a widget any more.
 
 ```python
 >>> from pydantic import TypeAdapter
@@ -85,13 +85,13 @@ A widget dumps through pydantic; the three lifted fields are excluded because th
 {'kind': 'text', 'min_length': None, 'max_length': None, 'pattern': 'https?://.*'}
 ```
 
-At the node level, `cls.describe()` is the whole palette entry — every version's `Input` and `Output` records, each `Input` carrying its widget — and `conductor_providers.react.palette_from_registry(registry)` is `[cls.describe() for cls in registry.definitions()]`.
+At the node level, `cls.describe()` is the whole palette entry — every version's `Input` and `Output` records, each `Input` carrying its widget — and `conductor_providers.react.palette_from_registry(registry)` is `[cls.describe() for cls in registry.nodes]`.
 
 ## Adding a new widget
 
 The set of controls is closed: `AnyWidget` is built from the subclasses declared in `conductor/widgets.py`, and an `Input` carrying a widget declared elsewhere is refused by pydantic. That is deliberate — conductor ships the controls and a host ships the vocabulary inside them as data — and a new control is a change here, since the component that renders each `kind` has to exist in the host's frontend anyway.
 
-1. Add a frozen, keyword-only dataclass subclassing `Widget` in `widgets.py` with a `kind: Literal["color-picker"] = "color-picker"` field and whatever the control needs. `AnyWidget` picks it up at import.
+1. Add a class subclassing `Widget` in `widgets.py` with a `kind: Literal["color-picker"] = "color-picker"` field and whatever the control needs. `AnyWidget` is built from `Widget.__subclasses__()`, so it picks the class up at import.
 2. Add a test in `tests/test_core/test_interface.py` that an input declaring it dumps with that `kind`.
 3. The frontend owes a component dispatching on `"kind": "color-picker"`.
 
@@ -99,4 +99,4 @@ The set of controls is closed: `AnyWidget` is built from the subclasses declared
 
 - [`examples/08_widgets.ipynb`](../examples/08_widgets.ipynb) — hands-on tour of every widget.
 - [`README.md`](../README.md) — the widget table.
-- [`CLAUDE.md`](../CLAUDE.md) — convention notes for agent sessions.
+- [`AGENTS.md`](../AGENTS.md) — convention notes for agent sessions.

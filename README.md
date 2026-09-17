@@ -5,10 +5,10 @@
 <h1 align="center">Conductor</h1>
 
 <p align="center">
-  A reusable, host-agnostic graph execution engine for building DAG-based workflow systems. Declare a node as a class whose typed <code>run</code> signature is its interface, compile placements of it into a validated execution plan, and run the plan with streaming events.
+  A reusable, host-agnostic engine that compiles and runs graphs of typed nodes. Declare a node as a class whose typed <code>run</code> signature is its interface, compile placements of it into a validated execution plan, and run the plan with streaming events.
 </p>
 
-Built to be the shared core behind visual workflow builders — declare a node once and get validation, execution and the palette a frontend renders from that one declaration.
+Built to be the shared core behind visual node editors — declare a node once and get validation, execution and the palette a frontend renders from that one declaration.
 
 > Need a short tour to share with a colleague? See [`docs/OVERVIEW.md`](docs/OVERVIEW.md) for a one-page architecture summary.
 
@@ -29,7 +29,7 @@ Built to be the shared core behind visual workflow builders — declare a node o
 - **Embedded graphs** — a version whose body is a graph expands under its node's name and runs as nodes of the one run.
 - **Auto-discovery** — import a package and every node it registers is in the registry.
 - **Records that save themselves** — `Graph.from_path("approval.yaml")`, `graph.to_yaml()`, and pydantic's own JSON.
-- **Zero app dependencies** — no FastAPI, no database, no auth in the core; pydantic is the one hard dependency.
+- **Zero host dependencies** — no FastAPI, no database, no auth in the core; pydantic is the one hard dependency.
 - **Standard node library** — `conductor-nodes` ships text, math, logic, JSON and regex nodes and a decision gate, declared in a four-word vocabulary of its own.
 - **Framework adapters** — `conductor_providers.react` translates graphs to/from ReactFlow JSON and builds the palette; `conductor_providers.fastapi` mounts `/nodes`, `/compile`, `/execute` and `/execute-stream`.
 
@@ -508,7 +508,7 @@ python -m conductor.about rows            # one section (prefix match)
 
 ### Keeping docs in sync
 
-- **`/docs-audit` Claude Code slash command** — run it at the end of a session that added public API or changed default behaviour. It diffs the last N commits against `CLAUDE.md`, `README.md`, `llms.txt` and `docs/index.md`, and applies edits in place. Does not commit; you review the diff.
+- **`/docs-audit` Claude Code slash command** — run it at the end of a session that added public API or changed default behaviour. It diffs the last N commits against `AGENTS.md`, `README.md`, `llms.txt` and `docs/index.md`, and applies edits in place. Does not commit; you review the diff.
 - **Weekly CI audit** — `.github/workflows/docs-audit.yml` runs the same audit every Monday and opens a PR if anything drifted. Requires `ANTHROPIC_API_KEY` as a repo secret.
 
 ### Documentation
@@ -570,8 +570,8 @@ The examples are Jupyter notebooks under `examples/` — open them in VS Code, J
 | Notebook | What it covers |
 |----------|---------------|
 | `01_basic_nodes.ipynb` | Declaring nodes: widgets, defaults, multi-output records, inspecting a registry |
-| `02_build_and_run_flow.ipynb` | Placements and edges, collecting results, streaming events |
-| `03_class_nodes_and_store.ipynb` | A node with its own methods |
+| `02_build_and_run_a_graph.ipynb` | Bindings, asking the compiled graph, problems, collecting results, streaming events, once per row, saving |
+| `03_class_nodes.ipynb` | A node with its own methods, and a value the run supplies (`FromRun`) |
 | `05_auto_discovery.ipynb` | Package scanning, versions and deprecation, the palette as JSON |
 | `06_human_in_the_loop.ipynb` | A node that asks, the run ending pending, and the next leg with the answer |
 | `08_widgets.ipynb` | Every control, inspecting a widget's schema |
