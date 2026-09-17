@@ -51,7 +51,7 @@ exist is the host application's decision.
 
 from __future__ import annotations
 
-from abc import ABC
+from abc import ABC, ABCMeta
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, get_args, get_origin
 
 from pydantic_core import core_schema
@@ -59,7 +59,14 @@ from pydantic_core import core_schema
 if TYPE_CHECKING:
     from pydantic import GetCoreSchemaHandler
 
-class DType(ABC):
+class _DTypeMeta(ABCMeta):
+    """A type prints as its name, ``Text`` or ``Series[Text]``, the way an author writes it."""
+
+    def __repr__(cls) -> str:
+        return cls.__name__
+
+
+class DType(ABC, metaclass=_DTypeMeta):
     """Base class for every type a value on an edge can have.
 
     Subclass it together with the builtin the type is built on and declare
