@@ -12,6 +12,7 @@ from conductor.node import NodeDefinition
 from conductor.ref import Ref
 from conductor.returns import Result
 from conductor.widgets import Textarea
+from pydantic import ValidationError
 
 
 class Txt(DType, str):
@@ -39,7 +40,7 @@ class TestGraphModel:
         assert node.type == "echo"
         assert node.version == 1
         assert node.data == {"text": "hello"}
-        with pytest.raises(AttributeError):
+        with pytest.raises(ValidationError, match="frozen"):
             node.id = "n2"
 
     def test_a_node_with_no_bindings_has_no_data(self):
@@ -87,8 +88,8 @@ class TestCompile:
     def test_compile_returns_compiled_graph(self, registry):
         registry.register(Echo)
         nodes = [
-            GraphNode("n1", "echo", 1, bindings={"text": Static(value="hello")}),
-            GraphNode("n2", "echo", 1, bindings={"text": Edges(refs=(Ref('n1', 'result'),))}),
+            GraphNode(id="n1", type="echo", version=1, bindings={"text": Static(value="hello")}),
+            GraphNode(id="n2", type="echo", version=1, bindings={"text": Edges(refs=(Ref('n1', 'result'),))}),
         ]
 
         compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry)
@@ -96,14 +97,14 @@ class TestCompile:
         assert compiled.execution_order() == ("n1", "n2")
 
     def test_compile_unknown_node_type_is_a_problem(self, registry):
-        nodes = [GraphNode("n1", "nonexistent", 1)]
+        nodes = [GraphNode(id="n1", type="nonexistent", version=1)]
         compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry)
         assert [p.code for p in compiled.problems] == ["unknown_node_type"]
         assert not compiled.is_runnable
 
     def test_compile_edge_from_a_missing_node_is_a_problem(self, registry):
         registry.register(Echo)
-        nodes = [GraphNode("n1", "echo", 1, bindings={"text": Edges(refs=(Ref("n_missing", "result"),))})]
+        nodes = [GraphNode(id="n1", type="echo", version=1, bindings={"text": Edges(refs=(Ref("n_missing", "result"),))})]
 
         compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry)
         assert [p.code for p in compiled.problems] == ["unknown_ref_node"]
@@ -111,8 +112,8 @@ class TestCompile:
     def test_compile_cycle_is_a_problem_on_each_node_in_it(self, registry):
         registry.register(Echo)
         nodes = [
-            GraphNode("n1", "echo", 1, bindings={"text": Edges(refs=(Ref('n2', 'result'),))}),
-            GraphNode("n2", "echo", 1, bindings={"text": Edges(refs=(Ref('n1', 'result'),))}),
+            GraphNode(id="n1", type="echo", version=1, bindings={"text": Edges(refs=(Ref('n2', 'result'),))}),
+            GraphNode(id="n2", type="echo", version=1, bindings={"text": Edges(refs=(Ref('n1', 'result'),))}),
         ]
         compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry)
         assert [(p.code, p.node_id) for p in compiled.problems] == [("cycle", "n1"), ("cycle", "n2")]

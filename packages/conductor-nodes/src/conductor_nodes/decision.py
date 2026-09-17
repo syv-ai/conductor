@@ -20,7 +20,7 @@ arrives on ``value`` onto both outputs. The two outputs share the
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Any
 
 from conductor._sentinel import SKIPPED
@@ -70,7 +70,7 @@ class Decision(StdlibNode):
     ) -> tuple[Output, ...]:
         """Give both outputs the type that arrives on ``value`` (``Any`` until connected)."""
         dtype = arriving.get("value", Any)
-        return tuple(replace(out, dtype=dtype) for out in declared)
+        return tuple(out.model_copy(update={"dtype": dtype}) for out in declared)
 
 
 def register(registry: "NodeRegistry") -> None:

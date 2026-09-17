@@ -28,10 +28,11 @@ textarea, a single line or a dropdown, so every input declares its own.
 from __future__ import annotations
 
 from abc import ABC
-from dataclasses import dataclass
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import Discriminator, Field
+from pydantic import ConfigDict, Discriminator, Field
+
+from conductor.model import ConductorModel
 
 #: Marks the three fields that belong to the ``Input``, not the control.
 #: ``Interface.of`` copies them onto the ``Input``; they are left out of
@@ -39,8 +40,7 @@ from pydantic import Discriminator, Field
 _Lifted = Field(exclude=True)
 
 
-@dataclass(frozen=True, kw_only=True)
-class Widget(ABC):
+class Widget(ConductorModel, ABC):
     """What every control has in common: a title, a description, and whether an edge can reach the field.
 
     Never subclassed outside this module: ``AnyWidget`` is built from the
@@ -53,8 +53,7 @@ class Widget(ABC):
     show_handle: Annotated[bool, _Lifted] = True
 
 
-@dataclass(frozen=True, kw_only=True)
-class Choice:
+class Choice(ConductorModel):
     """One option a person may pick: the ``id`` the value stores and the ``title`` shown.
 
     A host declares them on the widget where it declares the input, so the
@@ -70,8 +69,7 @@ class Choice:
     element: dict | None = None
 
 
-@dataclass(frozen=True, kw_only=True)
-class OperatorChoice:
+class OperatorChoice(ConductorModel):
     """One operator a condition builder offers.
 
     The host's operator table, serialised onto ``IfElseBuilder`` so a
@@ -86,7 +84,6 @@ class OperatorChoice:
     arity: int
 
 
-@dataclass(frozen=True, kw_only=True)
 class Text(Widget):
     """Single-line text."""
 
@@ -96,7 +93,6 @@ class Text(Widget):
     pattern: str | None = None
 
 
-@dataclass(frozen=True, kw_only=True)
 class Textarea(Widget):
     """Multi-line text."""
 
@@ -106,7 +102,6 @@ class Textarea(Widget):
     rows: int = 4
 
 
-@dataclass(frozen=True, kw_only=True)
 class Dropdown(Widget):
     """Pick one of a declared vocabulary of ``Choice``s."""
 
@@ -114,7 +109,6 @@ class Dropdown(Widget):
     choices: tuple[Choice, ...] = ()
 
 
-@dataclass(frozen=True, kw_only=True)
 class Range(Widget):
     """A number picked on a slider, between declared bounds."""
 
@@ -124,7 +118,6 @@ class Range(Widget):
     step: float | None = None
 
 
-@dataclass(frozen=True, kw_only=True)
 class FileUpload(Widget):
     """Files a person uploads. ``multiple`` births a series of them."""
 
@@ -134,7 +127,6 @@ class FileUpload(Widget):
     multiple: bool = False
 
 
-@dataclass(frozen=True, kw_only=True)
 class ConnectionList(Widget):
     """Edited by connecting only: the value comes down an edge, so there is nothing to type.
 
@@ -145,7 +137,6 @@ class ConnectionList(Widget):
     kind: Literal["connection-list"] = "connection-list"
 
 
-@dataclass(frozen=True, kw_only=True)
 class Number(Widget):
     """A number typed in, optionally bounded and optionally whole."""
 
@@ -156,14 +147,12 @@ class Number(Widget):
     integer_only: bool = False
 
 
-@dataclass(frozen=True, kw_only=True)
 class Switch(Widget):
     """A boolean, on or off."""
 
     kind: Literal["switch"] = "switch"
 
 
-@dataclass(frozen=True, kw_only=True)
 class DatePicker(Widget):
     """A date picked from a calendar."""
 
@@ -176,7 +165,6 @@ class DatePicker(Widget):
     seed: Literal["today"] | None = None
 
 
-@dataclass(frozen=True, kw_only=True)
 class List(Widget):
     """A list of values typed by hand. The per-item control is derived by
     the host from the element type, so none is declared here."""
@@ -186,18 +174,20 @@ class List(Widget):
     max_items: int | None = None
 
 
-@dataclass(frozen=True, kw_only=True)
 class SchemaBuilder(Widget):
     """A schema an author builds field by field — name, type, description."""
 
+    #: ``schema`` on the wire and as a keyword; ``schema_`` as an attribute,
+    #: because ``BaseModel.schema`` is taken.
+    model_config = ConfigDict(validate_by_name=True, validate_by_alias=True, serialize_by_alias=True)
+
     kind: Literal["schema-builder"] = "schema-builder"
-    schema: dict[str, Any] | None = None
+    schema_: Annotated[dict[str, Any] | None, Field(alias="schema")] = None
     allow_additional: bool = True
     #: The field types the builder offers — the host's vocabulary, as data.
     field_types: tuple[Choice, ...] = ()
 
 
-@dataclass(frozen=True, kw_only=True)
 class CodeEditor(Widget):
     """Source a person writes, highlighted for ``language``."""
 
@@ -207,7 +197,6 @@ class CodeEditor(Widget):
     max_length: int | None = None
 
 
-@dataclass(frozen=True, kw_only=True)
 class TemplateTextarea(Widget):
     """Text with placeholders. Each placeholder is an input."""
 
@@ -215,7 +204,6 @@ class TemplateTextarea(Widget):
     rows: int = 4
 
 
-@dataclass(frozen=True, kw_only=True)
 class EntityDropdown(Widget):
     """Choices the host resolves — documents, say."""
 
@@ -224,7 +212,6 @@ class EntityDropdown(Widget):
     multiple: bool = False
 
 
-@dataclass(frozen=True, kw_only=True)
 class IfElseBuilder(Widget):
     """Conditions an author builds from the host's operators."""
 
@@ -233,14 +220,12 @@ class IfElseBuilder(Widget):
     operators: tuple[OperatorChoice, ...] = ()
 
 
-@dataclass(frozen=True, kw_only=True)
 class Tags(Widget):
     """Free-form labels a person adds one at a time."""
 
     kind: Literal["tags"] = "tags"
 
 
-@dataclass(frozen=True, kw_only=True)
 class TableInput(Widget):
     """A table an author types or pastes in, column types and all."""
 

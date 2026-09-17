@@ -1,4 +1,3 @@
-import dataclasses
 
 import pytest
 from conductor.dtype import DType
@@ -95,7 +94,7 @@ def test_an_index_is_its_identity_and_lineage():
     assert Index("unfold", parent=docs) == Index("unfold", parent=docs)
     assert len({Index("unfold", parent=docs), Index("unfold", parent=docs)}) == 1
     assert Index("docs") != Index("other")
-    assert [f.name for f in dataclasses.fields(Index)] == ["id", "parent"]
+    assert list(Index.model_fields) == ["id", "parent"]
 
 
 # --- accepts: the gather direction -----------------------------------------

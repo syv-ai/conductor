@@ -3,7 +3,7 @@
 The long-lived contract between any conductor-backed server and the
 clients that talk to it; bumping it is a breaking change for every host
 using ``conductor_router``. The graph half of the payload is the ``Graph``
-record itself — ``TypeAdapter(Graph)`` is the schema, so nothing here
+record itself — ``Graph`` is the schema, so nothing here
 restates a field of it.
 """
 

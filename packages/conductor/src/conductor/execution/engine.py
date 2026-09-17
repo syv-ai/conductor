@@ -39,7 +39,7 @@ import asyncio
 import functools
 import time
 from collections.abc import AsyncGenerator, Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic import ValidationError
@@ -421,7 +421,7 @@ class _Leg:
     def _error_event(node_id: str, failure: NodeError, row: Any) -> NodeErrorEvent:
         cause = failure.cause if failure.cause is not None else _Leg._cause(code="failed", message=str(failure), row=row)
         if cause.row is None and row is not None:
-            cause = replace(cause, row=row)
+            cause = cause.model_copy(update={"row": row})
         return NodeErrorEvent(type="node_error", node_id=node_id, error=str(failure), cause=cause)
 
     @staticmethod
