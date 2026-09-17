@@ -69,11 +69,11 @@ A node is a `NodeDefinition` subclass with `id`, `title`, `description` and `cat
 - **Open interfaces.** `def run(self, **inputs: Single)` makes every name connected into the node an input, each received as one value; `**inputs: Series` receives each as a whole series.
 - **Values, not markers.** A node returns `SKIPPED` on a branch it did not take, and `Asks` when a person must answer. Nothing on the class declares that it skips or asks, except that a `run` which may ask says so in its return annotation: `-> Annotated[Text, Result(title="Decision")] | Asks`.
 - **Stateless by contract.** Every call is made on a fresh instance. What a run supplies (a clock, a client, the caller's identity) arrives through `FromRun` parameters, never through the instance.
-- The class is checked when it is defined: a missing identity attribute, a parameter without a widget, a return without a `Result`, or an `async def run` (the engine calls `run` in a worker thread) raises at the class.
+- The class is checked when it is defined: a missing identity attribute, a parameter without a widget, a return without a `Result`, an `async def run` (the engine calls `run` in a worker thread), or a `run` with no `@version` beside methods that have one raises at the class.
 
 ### Versions and Policies
 
-Several versions live in one class. An undecorated `run` is version 1; otherwise every version is a method marked `@version(n)`, the current one is the highest number, and by convention its method is the one named `run`. Each version has its own signature and its own `Policy`.
+Several versions live in one class. An undecorated `run` is version 1; otherwise every version is a method marked `@version(n)`, including `run`, the current one is the highest number, and by convention its method is the one named `run`. Each version has its own signature and its own `Policy`.
 
 ```python
 from conductor import Policy, deprecated, upgrade, version
