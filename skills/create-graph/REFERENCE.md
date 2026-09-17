@@ -64,7 +64,7 @@ assert results["loud"]["result"].rows == ((0,), (1,), (2,))
 
 ## Events
 
-`execute(compiled, *, timeout_seconds=300, from_run=None, cache=None, cells=None, cancel=None)` is one **leg**, an async generator of `TypedDict` events:
+`execute(compiled, *, cells=None, cache=None, from_run=None, timeout=None, cancel=None)` is one **leg**, an async generator of `TypedDict` events:
 
 | Event | Carries |
 |---|---|
@@ -191,4 +191,4 @@ The body is `{graph, cells, cache}`. Over HTTP a per-row answer is `{"rows": [[1
 - [ ] Every `Ref` names a node in the graph and one of its outputs; every bindings key names an input.
 - [ ] `compiled.is_runnable` is checked, and `problems` is shown when it is not.
 - [ ] The host keeps `cells` from a pending ending, and every `from_run` type a node needs is passed.
-- [ ] A long run has `timeout_seconds` or a `cancel` event the caller owns.
+- [ ] A long run has `timeout=` or a `cancel` event the caller owns; leaving the `async for` early stops every unit.
