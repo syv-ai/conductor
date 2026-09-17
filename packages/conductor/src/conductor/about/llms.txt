@@ -327,10 +327,11 @@ Three distributions, released in lockstep: `syv-conductor` (import `conductor`),
 A standard node library with a four-type vocabulary of its own, `conductor_nodes.types`: `Text`, `Number`, `Flag`, `Json`, and `StdlibNode`, the base that pins `category`.
 
 ```python
-from conductor_nodes import get_default_registry, register_all
+import conductor_nodes
 
-registry = get_default_registry()                         # every node
-register_all(registry, categories=["text", "math"])       # or a subset on a registry of your own
+registry = conductor_nodes.registry()                                  # every node
+registry = conductor_nodes.registry(categories=["text", "math"])       # a subset
+conductor_nodes.register_all(my_registry, categories=["logic"])        # added to a registry you already have
 ```
 
 | Module | Node ids |

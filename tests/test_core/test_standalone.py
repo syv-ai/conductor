@@ -206,8 +206,8 @@ def test_a_package_that_declares_types_is_found():
 
 
 def test_an_iteration_and_a_reduction_run_on_the_standard_nodes_alone():
+    import conductor_nodes
     from conductor.execution.engine import execute_sync
-    from conductor_nodes import get_default_registry
 
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
@@ -215,7 +215,7 @@ def test_an_iteration_and_a_reduction_run_on_the_standard_nodes_alone():
             GraphNode(id="upper", type="text-uppercase", version=1, bindings={"text": Edges(refs=(Ref("split", "result"),))}),
             GraphNode(id="join", type="text-join", version=1, bindings={"parts": Edges(refs=(Ref("upper", "result"),)), "separator": Static(value="+")}),
         ]),
-        get_default_registry(),
+        conductor_nodes.registry(),
     )
     assert compiled.is_runnable, compiled.problems
 

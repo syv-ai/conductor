@@ -29,6 +29,13 @@ class NodeRegistry:
         #: The classes, by id, in registration order.
         self._nodes: dict[str, type[NodeDefinition]] = {}
 
+    def __repr__(self) -> str:
+        """The ids it holds, in registration order: ``NodeRegistry(2 nodes: greet, truncate)``."""
+        if not self._nodes:
+            return "NodeRegistry(no nodes)"
+        noun = "node" if len(self._nodes) == 1 else "nodes"
+        return f"NodeRegistry({len(self._nodes)} {noun}: {', '.join(self._nodes)})"
+
     def register(self, node_cls: type[NodeDefinition]) -> None:
         if not (isinstance(node_cls, type) and issubclass(node_cls, NodeDefinition)):
             raise TypeError(f"{node_cls!r} must be a NodeDefinition subclass")
