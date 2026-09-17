@@ -134,14 +134,15 @@ class GraphCancelledEvent(TypedDict):
 
 
 class GraphTimeoutEvent(TypedDict):
-    """The leg exceeded ``timeout_seconds``. ``results`` so far and
-    ``cells`` travel with the reason, as on every ending."""
+    """The leg ran longer than the ``timeout`` its caller set (carried as
+    ``timeout_seconds``). ``results`` so far and ``cells`` travel with the
+    reason, as on every ending."""
 
     type: Literal["graph_timeout"]
     results: dict[str, dict[str, Any]]
     cells: dict[str, Any]
     elapsed_seconds: float
-    timeout_seconds: int
+    timeout_seconds: float
 
 
 ExecutionEvent = (

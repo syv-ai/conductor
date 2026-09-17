@@ -353,7 +353,7 @@ results = execute_sync(compiled, from_run={Clock: SystemClock()})
 
 ### Rows
 
-A node declared for one value runs once per row when a series reaches it. The engine's unit of work is a node on a row, and it starts every unit as soon as what it reads exists, so row 1 can finish a whole chain while row 10 is still being produced; a node's rows run concurrently up to its policy's `concurrency` (8 by default), in threads from the event loop's default executor, which every node shares. A node declaring `Series[X]` receives the series whole — once for a root series, once per parent row for a child one. Independent branches run concurrently without any configuration, and `run` is a plain function the engine calls through `asyncio.to_thread`; an `async def run` is refused when the class is defined.
+A node declared for one value runs once per row when a series reaches it. The engine's unit of work is a node on a row, and it starts every unit as soon as what it reads exists, so row 1 can finish a whole chain while row 10 is still being produced; a node's rows run concurrently up to its policy's `concurrency` (8 by default), in threads from a pool the leg owns with one worker per unit that may be in flight, so no unit waits for a worker. A node declaring `Series[X]` receives the series whole — once for a root series, once per parent row for a child one. Independent branches run concurrently without any configuration, and `run` is a plain function the engine calls in a worker thread; an `async def run` is refused when the class is defined.
 
 A skip has a depth: `SKIPPED` at one row leaves the series downstream sparse, and `SKIPPED` above a node's rows skips everything under it. A failed row fails the run, and its `ErrorCause` names the row.
 
@@ -400,14 +400,18 @@ class FetchUrl(NodeDefinition):
     description = "HTTP GET"
     category = "http"
 
-    @version(1, policy=Policy(retries=3, delay=0.5))
+    @version(1, policy=Policy(retries=3, delay=0.5, retry_on=(requests.ConnectionError, requests.Timeout)))
     def run(self, url: Annotated[Text, TextWidget(title="URL")]) -> Annotated[Text, Result(title="Body")]:
         resp = requests.get(url, timeout=10)
         resp.raise_for_status()
         return Text(resp.text)
 ```
 
-Delay between attempts is `delay * 2 ** (attempt - 1)`, and each row retries on its own. `NodeExecutionError`, `NodeConnectionError` and `NodeTimeoutError` are retried; `NodeValidationError` never is — pydantic rejected the inputs, and retrying with the same inputs is pointless. Each retry emits a `node_retry` event with `{row, attempt, retries, error, delay}`. `Policy(timeout=...)` bounds how long the engine waits for one attempt and raises `NodeTimeoutError` on expiry; the `run` in its worker thread is not interrupted, and what it returns afterwards is dropped.
+Two families of failure. A node's failure is internal — a bug, bad data, a refused schema — unless the outside world caused it, and only the outside world's is retried: an `ExternalFailure` the node raises, or a foreign exception whose class the policy's `retry_on` names, which the engine wraps as one (code `external_failed`). Every other exception from `run` is wrapped as `NodeExecutionError` (code `execution_failed`) and runs once; `NodeValidationError` never retries either — pydantic rejected the inputs, and retrying with the same inputs is pointless. Delay between attempts is `delay * 2 ** (attempt - 1)`, each row retries on its own, and each retry emits a `node_retry` event with `{row, attempt, retries, error, delay}`.
+
+`Policy.timeout` is how long the leg waits on one attempt, counted from the moment the node's thread starts: the leg owns a thread pool with one worker per unit that may be in flight, so no unit ever waits for a worker. It never interrupts the thread. A timed-out attempt is final (`NodeTimeoutError`, code `timeout`); the thread finishes on its own, keeps the node's concurrency slot until it does, and what it returns is dropped. The timeout worth retrying is the client's own, set on the client inside `run`: when the client gives up, the thread has returned and a retry runs nothing twice. A `run` that holds the GIL — a regex that never finishes, a tight loop over a huge input — blocks the whole process, and nothing in the engine can stop it. Where legs run, in the API process or in a worker of their own, is the host's decision.
+
+What people read: a cause the engine writes carries the generic message for its code (`conductor.errors.MESSAGES`); a `NodeError` the node raised keeps the message the node chose, since the node wrote it for people. A foreign exception's text is on the wrapping error's `original`, for a log, and on no event — a host streams events to a browser.
 
 ### Error types
 
@@ -416,16 +420,16 @@ All exceptions inherit from `ConductorError` and are importable from `conductor.
 ```
 ConductorError                     # Base — catch-all for any engine error
 ├── CompilationError                # A run was started on a graph compile found not runnable; carries its problems
-├── NodeError                       # Something went wrong with a specific node
-│   ├── NodeValidationError         # Input validation failed (pydantic) — never retried
-│   ├── NodeExecutionError          # run() raised — retried if the policy says so
-│   ├── NodeTimeoutError            # Node exceeded its policy's timeout
-│   └── NodeConnectionError         # External service / network failure inside a node
+├── NodeError                       # One node failed; the internal family, never retried
+│   ├── ExternalFailure             # The outside world failed; the one family the engine retries
+│   ├── NodeValidationError         # Input validation failed (pydantic)
+│   ├── NodeExecutionError          # run() raised something that is not a NodeError; it is on `original`
+│   └── NodeTimeoutError            # The leg stopped waiting for the node; final
 ├── GraphExecutionError             # execute_sync: the graph failed, was cancelled or timed out
 └── GraphPendingError               # execute_sync: the run is waiting for a person; carries the questions and the cells
 ```
 
-Raise `NodeConnectionError` from `run` to mark a failure as transient and retry-worthy.
+Raise `ExternalFailure` from `run` where the node knows the outside world failed, or name the client's exception classes in `Policy(retry_on=...)` and let the engine classify them.
 
 ### Bindings
 
@@ -489,7 +493,7 @@ The `execute()` async generator yields these events:
 | `graph_complete` | Everything ran |
 | `graph_pending` | The run is waiting for a person (includes every question) |
 | `graph_error` | A unit failed, so the run stopped (includes the cause) |
-| `graph_timeout` | The leg exceeded `timeout_seconds` |
+| `graph_timeout` | The leg ran longer than the `timeout` its caller set (carried as `timeout_seconds`) |
 | `graph_cancelled` | The `cancel` event was set |
 
 Every `graph_*` ending carries `results` and `cells`.
