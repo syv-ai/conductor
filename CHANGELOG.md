@@ -148,7 +148,9 @@ nothing is deprecated first, everything below is gone in 2.0.0.
   `category`. Its categories are `text`, `math`, `logic`, `json`, `regex` and
   `decision`; asking `register_all` for `loop`, `while`, `subprocess` or
   `signal` raises `KeyError`.
-- **Providers.** `ExecuteRequest` is `{graph, cache}`. `conductor_router`'s
+- **Providers.** `ExecuteRequest` is `{graph, cells, cache}`, and `/execute` answers
+  with the frame the leg ended on, `graph_complete` or `graph_pending`, so a run
+  that asks goes on in legs over HTTP; a leg that fails still fails the request. `conductor_router`'s
   per-request hook is `from_run`; `/compile` returns the problems themselves; a
   server-sent frame dumps records, series and what they hold through pydantic,
   a float that is not a number is `null`, and a value with no JSON form raises.

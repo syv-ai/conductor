@@ -345,7 +345,7 @@ register_all(registry, categories=["text", "math"])       # or a subset on a reg
 ### conductor-providers
 
 - `conductor_providers.react` — `graph_to_react(graph)` (ReactFlow JSON: the node record under each node's `data`, edges derived from the bindings, positions laid out where none is stored), `react_to_graph(wire)`, `palette_from_registry(registry)`.
-- `conductor_providers.fastapi` — `conductor_router(registry, *, prefix, tags, dependencies, from_run, entity_resolver)`: `GET /nodes`, `POST /compile` (every problem), `POST /execute`, `POST /execute-stream` (server-sent events) and `GET /entities/{kind}`. `from_run(request)` returns the values `execute(from_run=...)` supplies; `sse_frame(event)` serialises one event.
+- `conductor_providers.fastapi` — `conductor_router(registry, *, prefix, tags, dependencies, from_run, entity_resolver)`: `GET /nodes`, `POST /compile` (every problem), `POST /execute` (the frame the leg ended on, `graph_complete` or `graph_pending`; a failed leg fails the request), `POST /execute-stream` (server-sent events) and `GET /entities/{kind}`. The body is `ExecuteRequest` — `graph`, `cells`, `cache` — so a run that asks goes on in legs: send the ending's `cells` back with the answers in `cache`, and for a node on rows each answer as `{"rows": [...], "values": [...]}`. `from_run(request)` returns the values `execute(from_run=...)` supplies; `sse_frame(event)` serialises one event.
 
 ## Project Structure
 
