@@ -92,9 +92,12 @@ async def execute(
     annotated ``Annotated[X, FromRun()]`` receives ``from_run[X]``. A graph
     needing a type the host did not provide is refused before anything
     runs. ``cells`` restores the ledger of an earlier leg, cell by cell.
-    ``cache`` pre-seeds nodes with complete outputs by node id — a person's
-    answers to a pending unit, or an earlier run's results a caller reuses;
-    they are reported as ``node_complete`` (``cached=True``) and not run.
+    ``cache`` records outputs by node id without running the node — a
+    person's answers to a pending unit, or an earlier run's results a caller
+    reuses. For a node running per row each output is a series, and only
+    the rows it names are recorded. A node the cache completes is reported
+    as ``node_complete`` (``cached=True``); a unit already done, or a row
+    not yet produced, is refused.
     ``cancel`` is an event the host sets to stop the leg::
 
         async for event in execute(compiled, from_run={Clock: clock}):
@@ -202,7 +205,15 @@ class _Leg:
         for node_id, outputs in cache.items():
             self.ledger.inject(node_id, outputs)
             self.started.add(node_id)
-            yield NodeCompleteEvent(type="node_complete", node_id=node_id, result=outputs, cached=True)
+            if not self.ledger.complete(node_id):
+                done, total = self.ledger.progress(node_id)
+                yield NodeProgressEvent(type="node_progress", node_id=node_id, done=done, total=total)
+                continue
+            result = self.ledger.result_of(node_id)
+            if result is None:
+                yield NodeSkippedEvent(type="node_skipped", node_id=node_id)
+            else:
+                yield NodeCompleteEvent(type="node_complete", node_id=node_id, result=result, cached=True)
 
         self._start(self.ledger.runnable())
         while self.running:

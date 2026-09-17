@@ -638,6 +638,78 @@ def test_an_iterating_asking_node_pends_once_per_row_and_is_answered_as_a_series
     assert list(second[-1]["results"]["up"]["result"]) == ["X", "Y"]
 
 
+class AsksIfLong(NodeDefinition):
+    """Asks about a text longer than two characters, and passes a short one through."""
+
+    id = "asks-if-long"
+    title = "Ask if long"
+    description = "d"
+    category = "test"
+
+    def run(self, proposal: Annotated[Txt, Textarea(title="Proposal")] = Txt("")) -> Out | Asks:
+        if len(proposal) <= 2:
+            return proposal
+        return Asks(questions=(Input(name="result", dtype=Txt, title="Answer", widget=Textarea(title="Answer"), default=proposal, optional=True),))
+
+
+def _asks_if_long(texts):
+    return CompiledGraph.from_graph(
+        Graph(nodes=[
+            _docs(texts),
+            GraphNode(id="ask", type="asks-if-long", version=1, bindings={"proposal": _edge(("docs", "texts"))}),
+            GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("ask", "result"))}),
+        ]),
+        _registry_with_asks(AsksIfLong),
+    )
+
+
+def test_an_answer_fills_the_rows_it_names_and_the_rows_already_done_stay():
+    """Rows 0 and 2 ran in the first leg; only row 1 asked. The answer
+    names row 1, and rows 0 and 2 keep what they produced."""
+    compiled = _asks_if_long("a,long,b")
+    first = _leg(compiled)[-1]
+    assert [(w["node_id"], w["row"]) for w in first["pending"]] == [("ask", [1])]
+
+    second = _leg(compiled, cells=first["cells"], cache={"ask": {"result": Series(Index("docs"), [Txt("yes")], rows=[(1,)])}})
+
+    assert second[-1]["type"] == "graph_complete"
+    assert list(second[-1]["results"]["ask"]["result"]) == ["a", "yes", "b"]
+    assert list(second[-1]["results"]["up"]["result"]) == ["A", "YES", "B"]
+    (cached,) = [e for e in second if e["type"] == "node_complete" and e["node_id"] == "ask"]
+    assert cached["cached"] is True and list(cached["result"]["result"]) == ["a", "yes", "b"]
+
+
+def test_a_row_left_unanswered_asks_again_in_the_next_leg():
+    compiled = _asks_if_long("long,longer")
+    first = _leg(compiled)[-1]
+
+    second = _leg(compiled, cells=first["cells"], cache={"ask": {"result": Series(Index("docs"), [Txt("yes")], rows=[(0,)])}})
+
+    assert second[-1]["type"] == "graph_pending"
+    assert [(w["node_id"], w["row"]) for w in second[-1]["pending"]] == [("ask", [1])]
+    assert [(e["done"], e["total"]) for e in second if e["type"] == "node_progress" and e["node_id"] == "ask"] == [(1, 2)]
+    assert not any(e["type"] == "node_complete" and e["node_id"] == "ask" for e in second)
+
+
+def test_a_unit_already_done_cannot_be_given_a_result():
+    """The cells say what a leg produced; a cache entry that contradicts
+    them is refused rather than laid over them."""
+    compiled = _asks_if_long("a,long")
+    first = _leg(compiled)[-1]
+
+    with pytest.raises(ValueError, match="'docs' is already done"):
+        _leg(compiled, cells=first["cells"], cache={"docs": {"texts": Series(Index("docs"), [Txt("z")]), "names": Series(Index("docs"), [Txt("n")])}})
+    with pytest.raises(ValueError, match=r"'ask' at row \[0\] is already done"):
+        _leg(compiled, cells=first["cells"], cache={"ask": {"result": Series(Index("docs"), [Txt("z"), Txt("yes")])}})
+
+
+def test_a_row_the_run_has_not_produced_cannot_be_answered():
+    compiled = _asks_if_long("long")
+
+    with pytest.raises(ValueError, match=r"'ask' has no row \[0\]"):
+        _leg(compiled, cache={"ask": {"result": Series(Index("docs"), [Txt("yes")])}})
+
+
 def test_two_asking_nodes_in_parallel_are_one_pending_set():
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
