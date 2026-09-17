@@ -40,6 +40,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, Literal
 
+from pydantic import Field
+from pydantic.json_schema import SkipJsonSchema
+
 from conductor._display import node_repr, nodes_table
 from conductor.interface import Interface
 from conductor.metadata import Input, Output
@@ -117,22 +120,35 @@ class Policy(ConductorModel):
     Written by the node author on the version, ``@version(2, policy=Policy(retries=3))``,
     and read only by the engine; a person placing the node never sees it.
     Worth setting for work that can fail transiently or hang, such as a
-    network call. Retrying a pure computation only repeats the same failure.
+    network call. Retrying a pure computation only repeats the same failure,
+    which is why only an ``ExternalFailure`` is retried: the node raises one
+    itself, or names its client's exception classes in ``retry_on`` and the
+    engine wraps those. Every bound is checked when the policy is built.
     """
 
-    #: How many times to re-run after a failure. 0 means run once.
-    retries: int = 0
+    #: How many times to re-run after an ``ExternalFailure``. 0 means run once.
+    retries: int = Field(default=0, ge=0)
 
-    #: Seconds between attempts. Ignored when ``retries`` is 0.
-    delay: float = 1.0
+    #: Seconds before the first retry; each later one waits twice as long.
+    #: Ignored when ``retries`` is 0.
+    delay: float = Field(default=1.0, ge=0)
 
-    #: Seconds after which the engine abandons the node and fails it.
-    #: ``None`` means the run's own timeout is the only limit.
-    timeout: float | None = None
+    #: Seconds the leg waits on one attempt before failing the node with
+    #: code ``timeout``. The thread the attempt runs on is not interrupted,
+    #: and a timed-out attempt is final. ``None`` means the leg waits.
+    timeout: float | None = Field(default=None, gt=0)
 
     #: How many rows may run at once when the node runs once per row of a
     #: series. ``1`` means one after another. The engine has no other cap.
-    concurrency: int = 8
+    concurrency: int = Field(default=8, ge=1)
+
+    #: Exception classes from the node's own client that mean the outside
+    #: world failed — a connection error, a timeout, a rate limit. A foreign
+    #: exception of one of these classes is wrapped as ``ExternalFailure``
+    #: and retried; any other is wrapped as ``NodeExecutionError`` and is
+    #: not. Left out of the dump and the schema: a palette reads the policy
+    #: as JSON, and a class has no JSON form.
+    retry_on: SkipJsonSchema[tuple[type[BaseException], ...]] = Field(default=(), exclude=True)
 
 
 @dataclass(frozen=True)
