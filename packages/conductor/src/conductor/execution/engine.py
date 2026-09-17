@@ -15,6 +15,16 @@ unit ready once the whole group is.
 A failed unit fails the run: the other units are cancelled and the cause,
 with the row, goes out on the event stream.
 
+**The leg owns its work.** Every node's ``run`` is called in a thread the
+leg owns, from a pool with one worker per unit that may be in flight, so
+a unit never waits for a worker and a node's timeout counts only the time
+its thread ran. Closing the event stream — a ``break``, an ``aclose()``,
+a cancelled consumer — stops every unit before the stream is gone. What
+the leg cannot do is interrupt a thread: a ``run`` that has started
+finishes on its own, and what it returns is dropped. A timed-out attempt
+is therefore final, and the thread keeps the node's concurrency slot until
+it returns.
+
 **A run has legs.** One call of ``execute`` is one leg, and it runs until
 nothing is runnable and nothing is in flight. A unit whose node returned
 ``Asks`` is neither done nor failed: it waits, everything that reads it
@@ -36,9 +46,10 @@ start a new run from any of them.
 from __future__ import annotations
 
 import asyncio
-import functools
+import enum
 import time
 from collections.abc import AsyncGenerator, Mapping
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -82,10 +93,10 @@ from conductor.returns import unpack
 async def execute(
     compiled: CompiledGraph,
     *,
-    timeout_seconds: int = 300,
-    from_run: Mapping[type, Any] | None = None,
-    cache: dict[str, dict[str, Any]] | None = None,
     cells: dict[str, Any] | None = None,
+    cache: dict[str, dict[str, Any]] | None = None,
+    from_run: Mapping[type, Any] | None = None,
+    timeout: float | None = None,
     cancel: asyncio.Event | None = None,
 ) -> AsyncGenerator[ExecutionEvent, None]:
     """Run one leg of ``compiled`` and yield events as it goes.
@@ -100,10 +111,16 @@ async def execute(
     the rows it names are recorded. A node the cache completes is reported
     as ``node_complete`` (``cached=True``); a unit already done, or a row
     not yet produced, is refused.
-    ``cancel`` is an event the host sets to stop the leg::
+    ``timeout`` bounds the whole leg, in seconds, and ends it with
+    ``graph_timeout``; ``None``, the default, lets the leg run until it is
+    quiet. ``cancel`` is an event the host sets to stop the leg, which ends
+    it with ``graph_cancelled`` at once::
 
         async for event in execute(compiled, from_run={Clock: clock}):
             ...
+
+    Leaving the loop early — ``break``, ``aclose()``, a cancelled task —
+    stops every unit before the generator is gone.
     """
     if not compiled.is_runnable:
         raise CompilationError("the graph cannot run", problems=compiled.problems)
@@ -111,11 +128,18 @@ async def execute(
         compiled,
         cells=cells,
         from_run=from_run or {},
-        timeout_seconds=timeout_seconds,
+        timeout=timeout,
         cancel=cancel or asyncio.Event(),
     )
-    async for event in leg.events(cache or {}):
-        yield event
+    events = leg.events(cache or {})
+    try:
+        async for event in events:
+            yield event
+    finally:
+        # Close the leg's own generator here, under the consumer's close,
+        # rather than leaving it to the garbage collector's finalizer: the
+        # units are stopped by the time the consumer's ``aclose()`` returns.
+        await events.aclose()
 
 
 async def collect(events: AsyncGenerator[ExecutionEvent, None]) -> dict[str, dict[str, Any]]:
@@ -160,18 +184,35 @@ class _UnitDone:
     error: NodeErrorEvent | None = None
 
 
+class _Stop(enum.Enum):
+    """Why the loop must end before the leg is quiet: the host's cancel
+    event was set, or the leg's own deadline passed. What ``_Leg._next``
+    returns in place of a message when one of its watchers fires first."""
+
+    CANCELLED = "cancelled"
+    TIMED_OUT = "timed_out"
+
+
 class _Leg:
     """One leg in flight: the loop that starts ready units, and each unit's run.
 
     ``execute`` creates one per call and drops it when the leg ends; the
     ledger outlives it as the cells every ending carries. It holds what the
-    loop and the unit tasks share: the ledger, one semaphore per node sized
-    by its policy's concurrency (``gates``), the nodes that have emitted
+    loop and the unit tasks share: the ledger, the thread pool every
+    ``run`` is called on (``executor``), one semaphore per node sized by
+    its policy's concurrency (``gates``), the nodes that have emitted
     ``node_start`` (``started``), the queue the unit tasks report on, and
     the tasks still running. The call chain is ``events`` (the loop) →
     ``_run_unit`` (one unit, retries included) → ``_call`` (the node, in a
     worker thread). Nothing reaches a node from here that its signature
     does not name.
+
+    The pool has one worker per unit that may be in flight — the sum of
+    the nodes' concurrency — so no unit ever queues for a thread and a
+    node's timeout counts only the time its thread ran. Threads are made
+    as needed, so an idle graph costs nothing. When the loop ends, for
+    whatever reason, every unit task is cancelled and awaited and the pool
+    is told to start nothing more; a thread mid-run finishes on its own.
     """
 
     def __init__(
@@ -180,7 +221,7 @@ class _Leg:
         *,
         cells: dict[str, Any] | None,
         from_run: Mapping[type, Any],
-        timeout_seconds: int,
+        timeout: float | None,
         cancel: asyncio.Event,
     ) -> None:
         self.compiled = compiled
@@ -192,13 +233,19 @@ class _Leg:
                         f"'{node_id}' needs a {needed.__name__} for '{name}', and execute() was not given one"
                     )
         self.from_run = dict(from_run)
-        self.timeout_seconds = timeout_seconds
+        self.timeout = timeout
         self.cancel = cancel
         self.started_at = time.monotonic()
         self.started = {node_id for node_id in compiled.execution_order() if self.ledger.complete(node_id)}
+        in_flight = sum(compiled.node(node_id).version.policy.concurrency for node_id in compiled.execution_order())
+        self.executor = ThreadPoolExecutor(max_workers=max(1, in_flight), thread_name_prefix="conductor")
         self.gates: dict[str, asyncio.Semaphore] = {}
         self.queue: asyncio.Queue[ExecutionEvent | _UnitDone] = asyncio.Queue()
         self.running: dict[Unit, asyncio.Task[None]] = {}
+        #: The two things that end the loop early, awaited beside the queue
+        #: rather than polled; made in ``events``, where the loop runs.
+        self._cancelled: asyncio.Task[bool] | None = None
+        self._deadline: asyncio.Task[None] | None = None
 
     # -- the loop ----------------------------------------------------------------
 
@@ -217,43 +264,45 @@ class _Leg:
             else:
                 yield NodeCompleteEvent(type="node_complete", node_id=node_id, result=result, cached=True)
 
-        self._start(self.ledger.runnable())
-        while self.running:
-            if self.cancel.is_set():
-                self._stop()
-                yield GraphCancelledEvent(type="graph_cancelled", results=self.ledger.results(), cells=self.ledger.cells())
-                return
-            if self._remaining() == 0:
-                self._stop()
-                yield GraphTimeoutEvent(
-                    type="graph_timeout",
-                    results=self.ledger.results(),
-                    cells=self.ledger.cells(),
-                    elapsed_seconds=time.monotonic() - self.started_at,
-                    timeout_seconds=self.timeout_seconds,
-                )
-                return
-            try:
-                message = await asyncio.wait_for(self.queue.get(), timeout=0.5)
-            except TimeoutError:
-                continue
-            if not isinstance(message, _UnitDone):
-                yield message
-                continue
-            self.running.pop(message.unit, None)
-            if message.error is not None:
-                self._stop()
-                yield message.error
-                yield GraphErrorEvent(
-                    type="graph_error",
-                    node_id=message.error["node_id"],
-                    error=message.error["error"],
-                    cause=message.error["cause"],
-                    results=self.ledger.results(),
-                    cells=self.ledger.cells(),
-                )
-                return
-            self._start(message.ready)
+        self._cancelled = asyncio.ensure_future(self.cancel.wait())
+        self._deadline = None if self.timeout is None else asyncio.ensure_future(asyncio.sleep(self.timeout))
+        try:
+            self._start(self.ledger.runnable())
+            while self.running:
+                message = await self._next()
+                if message is _Stop.CANCELLED:
+                    yield GraphCancelledEvent(type="graph_cancelled", results=self.ledger.results(), cells=self.ledger.cells())
+                    return
+                if message is _Stop.TIMED_OUT:
+                    assert self.timeout is not None
+                    yield GraphTimeoutEvent(
+                        type="graph_timeout",
+                        results=self.ledger.results(),
+                        cells=self.ledger.cells(),
+                        elapsed_seconds=time.monotonic() - self.started_at,
+                        timeout_seconds=self.timeout,
+                    )
+                    return
+                if not isinstance(message, _UnitDone):
+                    yield message
+                    continue
+                self.running.pop(message.unit, None)
+                if message.error is not None:
+                    yield message.error
+                    yield GraphErrorEvent(
+                        type="graph_error",
+                        node_id=message.error["node_id"],
+                        error=message.error["error"],
+                        cause=message.error["cause"],
+                        results=self.ledger.results(),
+                        cells=self.ledger.cells(),
+                    )
+                    return
+                self._start(message.ready)
+        finally:
+            # Whatever ended the loop — quiet, an ending, or the consumer
+            # closing the stream at a yield above — nothing outlives the leg.
+            await self._teardown()
 
         # Quiescence: nothing in flight. Nothing may be runnable either; a
         # ready unit nobody started is a wake the ledger missed.
@@ -271,6 +320,43 @@ class _Leg:
             raise RuntimeError(f"nothing left to run, but {unfinished} did not complete — an engine bug")
         yield GraphCompleteEvent(type="graph_complete", results=self.ledger.results(), cells=self.ledger.cells())
 
+    async def _next(self) -> ExecutionEvent | _UnitDone | _Stop:
+        """The next thing the loop acts on: a message from a unit, or the reason to stop.
+
+        The queue, the cancel event and the deadline are awaited together;
+        whichever is first wins, and a stop wins over a message that arrived
+        in the same moment. A getter left waiting is cancelled, and the
+        queue keeps the item for the next one."""
+        assert self._cancelled is not None
+        getter = asyncio.ensure_future(self.queue.get())
+        watched = [getter, self._cancelled] + ([self._deadline] if self._deadline is not None else [])
+        try:
+            done, _ = await asyncio.wait(watched, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            if not getter.done():
+                getter.cancel()
+        if self._cancelled in done:
+            return _Stop.CANCELLED
+        if self._deadline in done:
+            return _Stop.TIMED_OUT
+        return getter.result()
+
+    async def _teardown(self) -> None:
+        """Stop every unit and the watchers, and let the threads go.
+
+        Runs when the loop ends for any reason. A unit task is cancelled
+        where it waits — on a gate, on its thread, in a retry's sleep — and
+        awaited, so no task outlives the leg. The pool is shut down without
+        waiting: a thread mid-run finishes on its own and what it returns
+        is dropped, and a call that never started is not started."""
+        tasks = list(self.running.values())
+        self.running.clear()
+        watchers = [watcher for watcher in (self._cancelled, self._deadline) if watcher is not None]
+        for task in [*tasks, *watchers]:
+            task.cancel()
+        await asyncio.gather(*tasks, *watchers, return_exceptions=True)
+        self.executor.shutdown(wait=False, cancel_futures=True)
+
     def _start(self, units: list[Unit]) -> None:
         """Start a task for each of these ready units not already running, done or waiting.
 
@@ -279,33 +365,7 @@ class _Leg:
         for unit in units:
             if unit in self.running or ledger.is_done(unit) or ledger.is_pending(unit):
                 continue
-            task = asyncio.create_task(self._run_unit(unit), name=f"unit-{unit}")
-            task.add_done_callback(functools.partial(self._settled, unit))
-            self.running[unit] = task
-
-    def _settled(self, unit: Unit, task: asyncio.Task[None]) -> None:
-        """A unit's task ended. One that raised is a defect in the engine, and
-        is reported as the unit's failure, since a task that died silently
-        would leave the loop waiting."""
-        if task.cancelled():
-            return
-        raised = task.exception()
-        if raised is None:
-            return
-        node_id, row = unit
-        failure = NodeExecutionError(
-            f"{type(raised).__name__}: {raised}", node_id=node_id, original=raised,
-            cause=self._cause(code="engine_error", row=row),
-        )
-        self.queue.put_nowait(_UnitDone(unit, error=self._error_event(node_id, failure, row)))
-
-    def _stop(self) -> None:
-        for task in self.running.values():
-            task.cancel()
-        self.running.clear()
-
-    def _remaining(self) -> float:
-        return max(0.0, self.timeout_seconds - (time.monotonic() - self.started_at))
+            self.running[unit] = asyncio.create_task(self._run_unit(unit), name=f"unit-{unit}")
 
     def _gate(self, node_id: str) -> asyncio.Semaphore:
         if node_id not in self.gates:
@@ -315,7 +375,24 @@ class _Leg:
     # -- one unit ----------------------------------------------------------------
 
     async def _run_unit(self, unit: Unit) -> None:
-        """One unit, start to finish: its inputs, its retries, and what it produced."""
+        """One unit, start to finish, and its report to the loop.
+
+        An exception out of the unit's own machinery — the ledger, the
+        events, this module — is a defect in the engine, and is reported as
+        the unit's failure with code ``engine_error``, since a task that died
+        silently would leave the loop waiting."""
+        try:
+            await self._unit(unit)
+        except Exception as raised:
+            node_id, row = unit
+            failure = NodeExecutionError(
+                f"{type(raised).__name__}: {raised}", node_id=node_id, original=raised,
+                cause=self._cause(code="engine_error", row=row),
+            )
+            self.queue.put_nowait(_UnitDone(unit, error=self._error_event(node_id, failure, row)))
+
+    async def _unit(self, unit: Unit) -> None:
+        """One unit: its inputs, its attempts under the node's policy, and what it produced."""
         node_id, row = unit
         compiled, ledger, queue = self.compiled, self.ledger, self.queue
         try:
@@ -335,32 +412,37 @@ class _Leg:
 
         version = compiled.node(node_id).version
         policy = version.policy
+        gate = self._gate(node_id)
+        loop = asyncio.get_running_loop()
         attempt = 0
-        async with self._gate(node_id):
-            while True:
-                try:
-                    budget = self._remaining() if policy.timeout is None else min(self._remaining(), policy.timeout)
-                    value = await asyncio.wait_for(asyncio.to_thread(self._call, unit, inputs), timeout=max(0.05, budget))
-                    break
-                except TimeoutError:
-                    if self._remaining() == 0:
-                        return  # the loop reports the timeout
-                    failure: NodeError = NodeTimeoutError(
-                        MESSAGES["timeout"], node_id=node_id,
-                        cause=self._cause(code="timeout", row=row, details={"seconds": policy.timeout}),
-                    )
-                except NodeError as raised:
-                    failure = raised
-                if not isinstance(failure, ExternalFailure) or attempt >= policy.retries:
-                    await queue.put(_UnitDone(unit, error=self._error_event(node_id, failure, row)))
-                    return
-                attempt += 1
-                delay = policy.delay * (2 ** (attempt - 1))
-                await queue.put(NodeRetryEvent(
-                    type="node_retry", node_id=node_id, row=None if row is None else list(row),
-                    attempt=attempt, retries=policy.retries, error=str(failure), delay=delay,
-                ))
-                await asyncio.sleep(delay)
+        while True:
+            await gate.acquire()
+            call = loop.run_in_executor(self.executor, self._call, unit, inputs)
+            # The slot is the thread's, not the wait's: it opens when the
+            # thread returns, however long ago the leg stopped waiting for it.
+            call.add_done_callback(lambda _: gate.release())
+            try:
+                value = await asyncio.wait_for(asyncio.shield(call), timeout=policy.timeout)
+                break
+            except TimeoutError:
+                # Final: the thread runs on, and a retry beside it would be a
+                # second call of the same unit.
+                failure: NodeError = NodeTimeoutError(
+                    MESSAGES["timeout"], node_id=node_id,
+                    cause=self._cause(code="timeout", row=row, details={"seconds": policy.timeout}),
+                )
+            except NodeError as raised:
+                failure = raised
+            if not isinstance(failure, ExternalFailure) or attempt >= policy.retries:
+                await queue.put(_UnitDone(unit, error=self._error_event(node_id, failure, row)))
+                return
+            attempt += 1
+            delay = policy.delay * (2 ** (attempt - 1))
+            await queue.put(NodeRetryEvent(
+                type="node_retry", node_id=node_id, row=None if row is None else list(row),
+                attempt=attempt, retries=policy.retries, error=str(failure), delay=delay,
+            ))
+            await asyncio.sleep(delay)
 
         if is_asking(value):
             # A person must answer. The unit waits; the rest of the leg runs
