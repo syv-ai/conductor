@@ -252,7 +252,16 @@ A ref stores as its address, `"node.field"`. YAML needs PyYAML (`pip install "sy
 
 `NodeDefinition.describe()` is the one serialisation of a node: a `NodeDescription` with `id`, `title`, `description`, `category`, `tags`, `docs`, `deprecation`, `current` and `versions` (each a `VersionDescription` with `inputs`, `outputs`, `policy`, `open`, `deprecation`). A palette is `[cls.describe() for cls in registry.nodes]`, dumped through pydantic.
 
-Printed, an object shows its data in constructor form, as pydantic and scikit-learn do: a node class is `Greet(id='greet', title='Greeting', category='text', versions=(1,))`, a registry is `NodeRegistry(nodes=(...))` of its nodes' reprs, a record leaves out every field at its default (`Input(name='text', dtype=Text, title='Text', widget=Textarea(title='Text'))`), and a type is its name. In a notebook a registry and a node class also render a table: id, title, category, versions, and the current version's inputs → outputs.
+Printed, an object shows its data in constructor form, as pydantic and scikit-learn do: a node class its declaration, a registry its nodes' reprs, a record every field not at its default, a type its name. In a notebook a registry and a node class also render a table: id, title, category, versions, and the current version's inputs → outputs.
+
+```python
+>>> registry
+NodeRegistry(nodes=(
+    Upper(id='upper', title='Upper case', category='text', versions=(1,)),
+))
+>>> Upper.versions[1].interface.inputs[0]
+Input(name='text', dtype=Text, title='Text', widget=Textarea(title='Text'))
+```
 
 ## API Reference
 
