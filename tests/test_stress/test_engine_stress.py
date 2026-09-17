@@ -79,7 +79,7 @@ def test_500_node_linear_chain_compile_and_execute() -> None:
     )
 
     t0 = time.monotonic()
-    results = execute_sync(compiled, timeout_seconds=120)
+    results = execute_sync(compiled, timeout=120)
     elapsed = time.monotonic() - t0
     assert elapsed < 60.0, (
         f"execution took {elapsed:.2f}s; expected <60s"
@@ -128,7 +128,7 @@ async def test_cancellation_honored_during_retry_sleep() -> None:
     first_retry_seen = asyncio.Event()
 
     async def consume() -> None:
-        async for ev in execute(compiled, timeout_seconds=60, cancel=cancel):
+        async for ev in execute(compiled, timeout=60, cancel=cancel):
             events.append(ev)
             if ev["type"] == "node_retry" and not first_retry_seen.is_set():
                 first_retry_seen.set()
