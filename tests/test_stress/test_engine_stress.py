@@ -9,7 +9,7 @@ Scenarios covered:
 
 1. **500-node deep linear chain.** Compile and execution scale with node
    count and a value propagates end-to-end.
-2. **Cancel mid-retry.** Setting the cancellation flag while a node is
+2. **Cancel mid-retry.** Setting the ``cancel`` event while a node is
    asleep between retry attempts honours the cancel: no further attempt
    runs and ``graph_cancelled`` is emitted.
 """
@@ -97,7 +97,7 @@ async def test_cancellation_honored_during_retry_sleep() -> None:
     """A node that always fails, with ``Policy(retries=5, delay=2.0)`` so
     the engine spends most of its time in ``await asyncio.sleep(delay)``
     between attempts. Once a ``node_retry`` event has been observed, the
-    cancellation flag is set. The engine's main loop polls cancellation
+    ``cancel`` event handed to ``execute`` is set. The engine's main loop polls cancellation
     every 500ms, so within ~1s ``graph_cancelled`` follows and no further
     attempt runs.
     """
@@ -115,7 +115,7 @@ async def test_cancellation_honored_during_retry_sleep() -> None:
             call_count += 1
             raise NodeExecutionError(
                 f"transient (attempt {call_count})",
-                node_id="n1", node_type="always-flaky",
+                node_id="n1",
             )
 
     registry = NodeRegistry()
@@ -123,61 +123,41 @@ async def test_cancellation_honored_during_retry_sleep() -> None:
 
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="always-flaky", version=1, bindings={"text": Static(value="x")})]), registry)
 
-    # Capture the live ``FlowRunState`` so the cancellation flag can be
-    # flipped from outside. ``execute()`` builds state internally via
-    # ``_build_state``; patching that is the cleanest hook because the
-    # engine exposes no public cancellation handle.
-    captured_state: dict[str, object] = {}
+    cancel = asyncio.Event()
+    events: list[dict] = []
+    first_retry_seen = asyncio.Event()
 
-    from conductor.execution import engine as _engine
+    async def consume() -> None:
+        async for ev in execute(compiled, timeout_seconds=60, cancel=cancel):
+            events.append(ev)
+            if ev["type"] == "node_retry" and not first_retry_seen.is_set():
+                first_retry_seen.set()
 
-    real_build_state = _engine._build_state
+    async def canceller() -> None:
+        # Wait until at least one retry attempt has been seen — this
+        # guarantees the node is currently in ``await asyncio.sleep``
+        # rather than executing or about to start.
+        await asyncio.wait_for(first_retry_seen.wait(), timeout=10)
+        # Small extra delay to make sure we're inside the sleep, not
+        # between the retry event and the sleep.
+        await asyncio.sleep(0.1)
+        cancel.set()
 
-    def capture_build_state(*args, **kwargs):
-        st = real_build_state(*args, **kwargs)
-        captured_state["state"] = st
-        return st
+    consumer_task = asyncio.create_task(consume())
+    canceller_task = asyncio.create_task(canceller())
 
-    _engine._build_state = capture_build_state
+    # Bound the whole thing: cancellation must be honoured within a
+    # few seconds even though the delay is 2.0s — the main loop polls
+    # cancellation on a 500ms tick.
     try:
-        events: list[dict] = []
-        first_retry_seen = asyncio.Event()
-
-        async def consume() -> None:
-            async for ev in execute(compiled, timeout_seconds=60):
-                events.append(ev)
-                if ev["type"] == "node_retry" and not first_retry_seen.is_set():
-                    first_retry_seen.set()
-
-        async def canceller() -> None:
-            # Wait until at least one retry attempt has been seen — this
-            # guarantees the node is currently in ``await asyncio.sleep``
-            # rather than executing or about to start.
-            await asyncio.wait_for(first_retry_seen.wait(), timeout=10)
-            # Small extra delay to make sure we're inside the sleep, not
-            # between the retry event and the sleep.
-            await asyncio.sleep(0.1)
-            state = captured_state.get("state")
-            assert state is not None, "state was not captured"
-            state._cancelled.set()  # type: ignore[attr-defined]
-
-        consumer_task = asyncio.create_task(consume())
-        canceller_task = asyncio.create_task(canceller())
-
-        # Bound the whole thing: cancellation must be honoured within a
-        # few seconds even though the delay is 2.0s — the main loop polls
-        # cancellation on a 500ms tick.
-        try:
-            await asyncio.wait_for(
-                asyncio.gather(consumer_task, canceller_task),
-                timeout=15,
-            )
-        except asyncio.TimeoutError:
-            consumer_task.cancel()
-            canceller_task.cancel()
-            raise
-    finally:
-        _engine._build_state = real_build_state
+        await asyncio.wait_for(
+            asyncio.gather(consumer_task, canceller_task),
+            timeout=15,
+        )
+    except asyncio.TimeoutError:
+        consumer_task.cancel()
+        canceller_task.cancel()
+        raise
 
     event_types = [e["type"] for e in events]
 

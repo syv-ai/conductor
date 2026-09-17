@@ -100,7 +100,7 @@ class Interface:
         signature = inspect.signature(func)
         hints = get_type_hints(func, include_extras=True)
         inputs, needs, open_shape = cls._extract_inputs(signature, hints)
-        returns, outputs = cls._extract_outputs(hints)
+        returns, outputs = cls._declared_outputs(hints)
         taken = {i.name for i in inputs} & {o.name for o in outputs}
         if taken:
             raise TypeError(
@@ -187,7 +187,7 @@ class Interface:
         return tuple(inputs), needs, open_shape
 
     @staticmethod
-    def _extract_outputs(hints: dict[str, Any]) -> tuple[Any, tuple[Output, ...]]:
+    def _declared_outputs(hints: dict[str, Any]) -> tuple[Any, tuple[Output, ...]]:
         """The declared return type and the outputs it declares.
 
         A ``run`` with no return annotation is an error, not a node with no
