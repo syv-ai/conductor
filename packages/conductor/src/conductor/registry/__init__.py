@@ -14,6 +14,7 @@ import inspect
 from collections.abc import Mapping
 from typing import Any, Callable
 
+from conductor._display import nodes_table
 from conductor.node import NodeDefinition, NodeVersion
 
 
@@ -30,11 +31,15 @@ class NodeRegistry:
         self._nodes: dict[str, type[NodeDefinition]] = {}
 
     def __repr__(self) -> str:
-        """The ids it holds, in registration order: ``NodeRegistry(2 nodes: greet, truncate)``."""
+        """Its nodes, each as its own repr, one per line: ``NodeRegistry(nodes=(Greet(...),))``."""
         if not self._nodes:
-            return "NodeRegistry(no nodes)"
-        noun = "node" if len(self._nodes) == 1 else "nodes"
-        return f"NodeRegistry({len(self._nodes)} {noun}: {', '.join(self._nodes)})"
+            return "NodeRegistry(nodes=())"
+        lines = "".join(f"    {cls!r},\n" for cls in self._nodes.values())
+        return f"NodeRegistry(nodes=(\n{lines}))"
+
+    def _repr_html_(self) -> str:
+        """In a notebook, a table of its nodes."""
+        return nodes_table(self._nodes.values())
 
     def register(self, node_cls: type[NodeDefinition]) -> None:
         if not (isinstance(node_cls, type) and issubclass(node_cls, NodeDefinition)):
