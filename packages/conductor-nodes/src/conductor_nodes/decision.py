@@ -73,10 +73,7 @@ class Decision(StdlibNode):
         return tuple(replace(out, dtype=dtype) for out in declared)
 
 
-NODES = (Decision,)
-
-
 def register(registry: "NodeRegistry") -> None:
     """Register the ``decision`` node on ``registry``."""
-    for node_cls in NODES:
+    for node_cls in (Decision,):
         registry.register(node_cls)

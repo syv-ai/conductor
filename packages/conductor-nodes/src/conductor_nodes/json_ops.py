@@ -77,10 +77,7 @@ class GetPath(StdlibNode):
         return current
 
 
-NODES = (Parse, Stringify, GetPath)
-
-
 def register(registry: "NodeRegistry") -> None:
     """Register every JSON node on the supplied registry."""
-    for node_cls in NODES:
+    for node_cls in (Parse, Stringify, GetPath):
         registry.register(node_cls)

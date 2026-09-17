@@ -88,10 +88,7 @@ class Not(StdlibNode):
         return Flag(not value)
 
 
-NODES = (IfEmpty, IfEquals, Not)
-
-
 def register(registry: "NodeRegistry") -> None:
     """Register every logic node on the supplied registry."""
-    for node_cls in NODES:
+    for node_cls in (IfEmpty, IfEquals, Not):
         registry.register(node_cls)

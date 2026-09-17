@@ -89,7 +89,7 @@ A `Edges` holds refs in operand order; a `Static` is what the author typed; an a
 
 ## Standard nodes + frontend providers
 
-**`conductor-nodes`** ships the usual suspects so downstream flows don't re-author them. Each category module exposes `NODES` and `register(registry)`; `register_all(registry)` pulls in everything:
+**`conductor-nodes`** ships the usual suspects so downstream flows don't re-author them. Each category module exposes `register(registry)`, which lists its nodes; `register_all(registry)` pulls in everything:
 
 ```python
 from conductor_nodes import register_all

@@ -151,10 +151,7 @@ class Absolute(StdlibNode):
         return Number(abs(value))
 
 
-NODES = (Add, Subtract, Multiply, Divide, Modulo, Round, Min, Max, Absolute)
-
-
 def register(registry: "NodeRegistry") -> None:
     """Register every math node on the supplied registry."""
-    for node_cls in NODES:
+    for node_cls in (Add, Subtract, Multiply, Divide, Modulo, Round, Min, Max, Absolute):
         registry.register(node_cls)
