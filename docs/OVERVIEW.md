@@ -83,11 +83,13 @@ An `Edges` holds refs in operand order, a `Static` is what the author typed, and
 
 ## Standard nodes and providers
 
-**`conductor-nodes`** ships the usual nodes so a host need not write them again. Each category module has a `register(registry)` that lists its nodes, and `register_all` pulls in every category or a subset:
+**`conductor-nodes`** ships the usual nodes so a host need not write them again. `conductor_nodes.registry()` builds a registry holding them, every category or a subset, and `register_all` adds them to a registry a host already has:
 
 ```python
-from conductor_nodes import register_all
-register_all(registry)   # or register_all(registry, categories=["text", "math"])
+import conductor_nodes
+
+registry = conductor_nodes.registry(categories=["text", "math"])
+conductor_nodes.register_all(my_registry)
 ```
 
 The nodes are declared in `conductor_nodes.types` (`Text`, `Number`, `Flag`, `Json`), because a node library has to say what its nodes take. Node ids are prefixed by category (`text-uppercase`, `math-add`), so they don't collide with a host's own.
