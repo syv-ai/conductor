@@ -258,7 +258,7 @@ class Series(DType, Sequence[T]):
         """
         return {
             "index": self.index.model_dump(),
-            "rows": [list(row) for row in self.rows],
+            "rows": self.rows,
             "values": list(self.values),
         }
 
