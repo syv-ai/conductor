@@ -248,7 +248,7 @@ class TestTimeout:
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="slow", version=1, bindings={"text": Static(value="hello")})]), registry)
 
         events = []
-        async for event in execute(compiled, timeout_seconds=1):
+        async for event in execute(compiled, timeout=1):
             events.append(event)
 
         event_types = [e["type"] for e in events]

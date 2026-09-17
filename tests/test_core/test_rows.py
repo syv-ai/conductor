@@ -412,7 +412,7 @@ def test_a_defect_in_the_engine_fails_the_leg_instead_of_hanging_it(monkeypatch)
     compiled = CompiledGraph.from_graph(Graph(nodes=[_docs("a,b")]), _registry())
 
     async def collect():
-        return [e async for e in execute(compiled, timeout_seconds=5)]
+        return [e async for e in execute(compiled, timeout=5)]
 
     events = asyncio.run(collect())
 
