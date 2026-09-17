@@ -22,7 +22,7 @@ from typing import Annotated
 
 import pytest
 from conductor import CompiledGraph, GraphNode, NodeRegistry
-from conductor.errors import NodeExecutionError
+from conductor.errors import ExternalFailure
 from conductor.execution.engine import execute, execute_sync
 from conductor.graph.binding import Edges, Static
 from conductor.graph.model import Graph
@@ -113,7 +113,7 @@ async def test_cancellation_honored_during_retry_sleep() -> None:
         def run(self, text: Annotated[Text, Textarea(title="In")] = Text("")) -> Out:
             nonlocal call_count
             call_count += 1
-            raise NodeExecutionError(
+            raise ExternalFailure(
                 f"transient (attempt {call_count})",
                 node_id="n1",
             )

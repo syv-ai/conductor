@@ -10,13 +10,28 @@ belonged to which failure.
 
     ConductorError
     ├── CompilationError        a caller asked to run a graph compile rejected
-    ├── NodeError               one node failed; carries node_id and a cause
-    │   ├── NodeValidationError     its inputs were wrong (not retried)
-    │   ├── NodeExecutionError      its body raised
-    │   ├── NodeTimeoutError        it exceeded its policy's timeout
-    │   └── NodeConnectionError     an external call failed (retried)
+    ├── NodeError               one node failed; carries node_id and a cause. Internal: never retried
+    │   ├── ExternalFailure         the outside world failed; the one family the engine retries
+    │   ├── NodeValidationError     its inputs were wrong
+    │   ├── NodeExecutionError      its body raised something that is not a NodeError
+    │   └── NodeTimeoutError        the leg stopped waiting for it
     ├── GraphExecutionError      execute_sync: the graph did not complete
     └── GraphPendingError        execute_sync: the run stopped to wait for a person; carries the questions and the record so far
+
+**Two families.** A node's failure is internal — a bug, bad data, a
+refused schema — unless the outside world caused it: a network error, a
+rate limit, an upstream 5xx. Only ``ExternalFailure`` is retried under the
+version's ``Policy``; a node raises it itself, or names the exception
+classes of the client it calls in ``Policy(retry_on=...)`` and the engine
+wraps those. Every other exception a node lets out is wrapped as
+``NodeExecutionError`` and runs once. The family is the class, so there is
+no flag beside it to disagree with.
+
+**What people are told.** A cause the engine writes carries the generic
+message for its code, from ``MESSAGES``; a ``NodeError`` the node raised
+keeps the message the node chose, since the node wrote it for people. The
+text of a foreign exception is on the wrapping error's ``original`` for a
+log and never in a cause, because a host streams causes to a browser.
 
 A pause is not an error and nothing raises for one: a node returns
 ``Asks`` (the value that says a person must answer before the graph can
@@ -64,11 +79,26 @@ class CompilationError(ConductorError):
 CODES: frozenset[str] = frozenset({
     "engine_error",
     "execution_failed",
+    "external_failed",
     "failed",
     "invalid_input",
     "row_covered_twice",
     "timeout",
 })
+
+#: What a person reads for each cause the engine writes on its own, by
+#: code. The engine builds those causes from this table, so the text is
+#: the same at every site, and a host translating by code sees the English
+#: it replaces. ``failed`` is not here: it is a ``NodeError`` the node raised
+#: without a cause, and its message is the node's own. ``row_covered_twice``
+#: is the ledger's and carries the rows in its text.
+MESSAGES: dict[str, str] = {
+    "engine_error": "An error in the engine stopped the run.",
+    "execution_failed": "The node failed.",
+    "external_failed": "An outside service did not answer.",
+    "invalid_input": "The node received a value it cannot use.",
+    "timeout": "The node did not answer in time.",
+}
 
 
 class ErrorCause(ConductorModel):
@@ -100,11 +130,15 @@ class ErrorCause(ConductorModel):
 class NodeError(ConductorError):
     """One node failed. Carries which node (``node_id``) and why (``cause``).
 
-    ``retryable`` is read by the engine's retry loop: a subclass for a
-    failure retrying cannot fix sets it ``False``; an instance may override it.
-    """
+    The base of the internal family, and what a node raises for a failure
+    of its own with a message for people: ``NodeError("The document could
+    not be read.")`` reaches the event as code ``failed`` with that text, or
+    with the ``cause`` the node built. The engine never retries it; a
+    failure the outside world caused is an ``ExternalFailure``.
 
-    retryable: bool = True
+    ``original`` is the foreign exception the engine wrapped, when there
+    was one, for a log; its text is not in ``message`` or ``cause``.
+    """
 
     def __init__(
         self,
@@ -120,22 +154,38 @@ class NodeError(ConductorError):
         super().__init__(message)
 
 
-class NodeValidationError(NodeError):
-    """The inputs themselves were wrong. Retrying cannot help."""
+class ExternalFailure(NodeError):
+    """The outside world failed: a network error, a rate limit, an upstream 5xx.
 
-    retryable: bool = False
+    The one family the engine retries, under the version's ``Policy``.
+    A node raises it where it knows the failure is external; the engine
+    raises it for a foreign exception whose class the policy's
+    ``retry_on`` names, with code ``external_failed`` and the generic
+    message. Not for a bug in the node or a value it cannot use — those
+    are internal, and retrying them repeats the same failure.
+    """
+
+
+class NodeValidationError(NodeError):
+    """The inputs themselves were wrong (code ``invalid_input``)."""
 
 
 class NodeExecutionError(NodeError):
-    """The node's body raised."""
+    """The node's body raised something that is not a ``NodeError``.
+
+    The engine's wrapping of a foreign exception the policy does not name
+    (code ``execution_failed``); the exception itself is on ``original``.
+    A node may raise it directly with a cause of its own.
+    """
 
 
 class NodeTimeoutError(NodeError):
-    """The node exceeded its policy's timeout."""
+    """The leg stopped waiting for the node (code ``timeout``).
 
-
-class NodeConnectionError(NodeError):
-    """An external call inside a node failed — worth retrying."""
+    Final: the attempt is not retried, and the thread it ran on is not
+    interrupted. Neither family's: the outside world may or may not be the
+    reason, and the engine cannot tell.
+    """
 
 
 class GraphExecutionError(ConductorError):
