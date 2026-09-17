@@ -152,10 +152,7 @@ class Reverse(StdlibNode):
         return Text(text[::-1])
 
 
-NODES = (Uppercase, Lowercase, Trim, Length, Concat, Replace, Contains, Split, Join, Reverse)
-
-
 def register(registry: "NodeRegistry") -> None:
     """Register every text node on the supplied registry."""
-    for node_cls in NODES:
+    for node_cls in (Uppercase, Lowercase, Trim, Length, Concat, Replace, Contains, Split, Join, Reverse):
         registry.register(node_cls)

@@ -1,4 +1,4 @@
-"""``DType`` — a value's type, as the flow engine sees it.
+"""``DType`` — a value's type, as the engine sees it.
 
 A ``DType`` is a real Python class, usually built on a builtin::
 
@@ -42,7 +42,7 @@ Three things a ``DType`` deliberately does not do:
 
 An input that only routes a value it never reads is annotated ``Any``
 instead of a type, and the type of what actually arrives is recorded when
-the flow is compiled. ``Single`` marks an open interface, ``**inputs: Single``:
+the graph is compiled. ``Single`` marks an open interface, ``**inputs: Single``:
 every connected name becomes an input of that node.
 
 Conductor defines no concrete ``DType`` except ``Series``. Which types

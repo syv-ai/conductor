@@ -55,32 +55,29 @@ class GetPath(StdlibNode):
         value: Annotated[Json, Textarea(title="Value")],
         path: Annotated[Text, TextWidget(title="Path")],
     ) -> Annotated[Json, Result(title="Extracted")]:
-        return Json(_get_path(value.value, path))
+        return Json(self._get_path(value.value, path))
 
-
-def _get_path(value: Any, path: str) -> Any:
-    """Walk a dotted path — each segment indexes a dict by key or a list by integer."""
-    if not path:
-        return value
-    current = value
-    for raw in path.split("."):
-        segment = raw.strip()
-        if isinstance(current, dict):
-            current = current.get(segment)
-        elif isinstance(current, list):
-            try:
-                current = current[int(segment)]
-            except (ValueError, IndexError):
+    @staticmethod
+    def _get_path(value: Any, path: str) -> Any:
+        """Walk a dotted path — each segment indexes a dict by key or a list by integer."""
+        if not path:
+            return value
+        current = value
+        for raw in path.split("."):
+            segment = raw.strip()
+            if isinstance(current, dict):
+                current = current.get(segment)
+            elif isinstance(current, list):
+                try:
+                    current = current[int(segment)]
+                except (ValueError, IndexError):
+                    return None
+            else:
                 return None
-        else:
-            return None
-    return current
-
-
-NODES = (Parse, Stringify, GetPath)
+        return current
 
 
 def register(registry: "NodeRegistry") -> None:
     """Register every JSON node on the supplied registry."""
-    for node_cls in NODES:
+    for node_cls in (Parse, Stringify, GetPath):
         registry.register(node_cls)

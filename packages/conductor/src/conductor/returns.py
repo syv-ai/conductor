@@ -28,7 +28,7 @@ the node ends up with. A return may be ``Any`` in place of a ``DType``
 when the node passes a value through without reading it.
 
 A ``run`` that may return ``Asks`` — the value a node returns when a
-person must answer before the flow can continue — says so in the same
+person must answer before the graph can continue — says so in the same
 place, as a union: ``-> Annotated[Text, Result(...)] | Asks``. The union
 member declares no output; ``outputs_of`` reads the declaration past it.
 It is the one thing a class says about asking, and it is a fact about the

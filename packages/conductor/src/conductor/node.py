@@ -23,7 +23,7 @@ The parts, by when they exist:
 * declared when the class is defined — ``NodeVersion`` (a signature, a
   ``Policy`` and the callable), ``GraphVersion`` (a version a host hands
   over by value, whose body is a graph), ``Deprecation``;
-* answered per node when a flow is compiled — the two field hooks,
+* answered per node when a graph is compiled — the two field hooks,
   ``compute_inputs`` and ``compute_outputs``;
 * derived on demand for a palette — ``NodeDescription`` and
   ``VersionDescription``, built by ``describe()``.
@@ -162,13 +162,13 @@ class GraphVersion:
     """One version of a definition whose body is a graph rather than a ``run``.
 
     A host builds one from data — a stored graph it embeds as a node,
-    say. ``interface`` is that flow's interface (inputs named by address,
+    say. ``interface`` is that graph's interface (inputs named by address,
     ``returns`` a ``Mapping``) and ``graph`` the nodes the compiler
     expands under the placing node's name, so the inner nodes run as
-    nodes of the outer flow. Nothing runs it as one unit: ``runner_for``
-    refuses it and it carries no policy. A sibling of ``NodeVersion``
-    rather than an optional field on it, so neither record can be
-    half-filled.
+    nodes of the outer graph. Nothing runs it as one unit:
+    ``NodeRegistry.runner_for`` refuses it and it carries no policy. A
+    sibling of ``NodeVersion`` rather than an optional field on it, so
+    neither record can be half-filled.
     """
 
     #: The nodes this version expands to. Edges live in their
@@ -219,20 +219,6 @@ def upgrade(
 
     return decorate
 
-
-def upgrade_methods(cls: type) -> dict[tuple[int, int], Callable[..., Any]]:
-    """Every value rewrite this class declares, keyed by the step it spans."""
-    found: dict[tuple[int, int], Callable[..., Any]] = {}
-    for klass in reversed(cls.__mro__):
-        for name in vars(klass):
-            # `getattr`, not `vars()[name]`: a `staticmethod` descriptor does
-            # not forward attribute lookups to the function it wraps, so the
-            # marker is invisible from the outside.
-            fn = getattr(cls, name, None)
-            step = getattr(fn, "__node_upgrade__", None)
-            if step is not None:
-                found[step] = fn
-    return found
 
 @dataclass(frozen=True, kw_only=True)
 class VersionDescription:
@@ -292,7 +278,7 @@ class NodeDefinition(ABC):
 
     # --- what a person reads ---------------------------------------------
     #: What a person sees in the palette. A node copies these when it
-    #: is added to a flow and may edit its own copy.
+    #: is added to a graph and may edit its own copy.
     title: ClassVar[str]
     description: ClassVar[str]
     #: Where the palette files it. A plain string; the host keeps the table
@@ -318,9 +304,16 @@ class NodeDefinition(ABC):
     #: ``GraphVersion`` records by value.
     versions: ClassVar[dict[int, "NodeVersion | GraphVersion"]]
     current: ClassVar[int]
+    #: Every value rewrite the class declares with ``@upgrade``, keyed by
+    #: the step it spans, ``(from_version, to_version)``. Collected when the
+    #: class is defined, from the class and its bases; the registry answers
+    #: ``upgrade_path`` from it. Derived only: unlike ``versions`` it is never
+    #: given, so a class body that sets it is refused, and an ``@upgrade``
+    #: attached to the class after it is defined is not seen.
+    upgrades: ClassVar[dict[tuple[int, int], Callable[..., Any]]]
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
-        """Check the declaration and derive its versions when the class is defined.
+        """Check the declaration, derive its versions and collect its upgrades when the class is defined.
 
         Subclassing is the trigger, so it cannot be forgotten and a
         malformed node fails at import with the traceback at the class. A
@@ -330,6 +323,12 @@ class NodeDefinition(ABC):
         class's, and live in ``register()``.
         """
         super().__init_subclass__(**kwargs)
+        if "upgrades" in vars(cls):
+            raise TypeError(
+                f"{cls.__name__} sets 'upgrades'; it is collected from the class's "
+                "@upgrade methods, so declare each rewrite with @upgrade"
+            )
+        cls.upgrades = cls._collect_upgrades()
         given = "versions" in vars(cls)
         if not given and (inspect.isabstract(cls) or "run" not in vars(cls)):
             # An intermediate base that adds no ``run`` — and hands over no
@@ -349,7 +348,7 @@ class NodeDefinition(ABC):
                 )
             cls.current = max(cls.versions)
             return
-        _derive_versions(cls)
+        cls._derive_versions()
         if cls.compute_outputs is NodeDefinition.compute_outputs and any(
             out.dtype is Any
             for version in cls.versions.values()
@@ -363,6 +362,73 @@ class NodeDefinition(ABC):
                 f"{cls.__name__} declares an output typed Any but no "
                 "compute_outputs to type it from what arrives"
             )
+
+    @classmethod
+    def _derive_versions(cls) -> None:
+        """Collect every version this class declares into ``cls.versions``.
+
+        Reads ``vars()`` of the class and its bases rather than ``dir()``, so an
+        inherited version is found once and an override replaces it.
+        """
+        methods: dict[int, Callable[..., Any]] = {}
+        policies: dict[int, Policy] = {}
+
+        for klass in reversed(cls.__mro__):
+            # One class body at a time, so "two methods claim this version" is
+            # judged *within* a class. Across the MRO a later entry is a
+            # subclass overriding a version its base declared.
+            claimed: dict[int, Callable[..., Any]] = {}
+            for attr in vars(klass).values():
+                fn = attr.__func__ if isinstance(attr, staticmethod) else attr
+                number = getattr(fn, "__node_version__", None)
+                if number is None:
+                    continue
+                if number in claimed:
+                    raise TypeError(
+                        f"{cls.__name__}: two methods claim version {number}. "
+                        "Each version is one signature."
+                    )
+                claimed[number] = fn
+            for number, fn in claimed.items():
+                methods[number] = fn
+                policies[number] = fn.__node_policy__
+
+        if not methods:
+            # An undecorated `run` is version 1 with the default policy.
+            methods[1] = cls.run
+            policies[1] = Policy()
+
+        # No contiguity check here: numbering from 1 with no holes is the
+        # registry's rule and lives in ``register()``. A definition a host
+        # loads from data may legitimately carry only the versions {1, 3}.
+
+        cls.versions = {
+            n: NodeVersion(
+                run=fn,
+                interface=Interface.of(fn),
+                policy=policies[n],
+                # ``@deprecated`` on a run method stamps the marker.
+                deprecation=getattr(fn, "__node_deprecation__", None),
+            )
+            for n, fn in methods.items()
+        }
+        cls.current = max(methods)
+
+    @classmethod
+    def _collect_upgrades(cls) -> dict[tuple[int, int], Callable[..., Any]]:
+        """Every value rewrite this class and its bases declare, keyed by the
+        step it spans — what ``__init_subclass__`` stores on ``cls.upgrades``."""
+        found: dict[tuple[int, int], Callable[..., Any]] = {}
+        for klass in reversed(cls.__mro__):
+            for name in vars(klass):
+                # `getattr`, not `vars()[name]`: a `staticmethod` descriptor does
+                # not forward attribute lookups to the function it wraps, so the
+                # marker is invisible from the outside.
+                fn = getattr(cls, name, None)
+                step = getattr(fn, "__node_upgrade__", None)
+                if step is not None:
+                    found[step] = fn
+        return found
 
     @abstractmethod
     def run(self, *args: Any, **kwargs: Any) -> Any:
@@ -382,7 +448,7 @@ class NodeDefinition(ABC):
         ``declared``. ``declared`` is passed in rather than read off the
         class because the placement pins a version, which may not be the
         newest; ``values`` are the values the author typed (a connected input
-        has no value until the flow runs).
+        has no value until the graph runs).
         """
         return declared
 
@@ -430,53 +496,3 @@ class NodeDefinition(ABC):
             },
             current=cls.current,
         )
-
-def _derive_versions(cls: type) -> None:
-    """Collect every version this class declares into ``cls.versions``.
-
-    Reads ``vars()`` of the class and its bases rather than ``dir()``, so an
-    inherited version is found once and an override replaces it.
-    """
-    methods: dict[int, Callable[..., Any]] = {}
-    policies: dict[int, Policy] = {}
-
-    for klass in reversed(cls.__mro__):
-        # One class body at a time, so "two methods claim this version" is
-        # judged *within* a class. Across the MRO a later entry is a
-        # subclass overriding a version its base declared.
-        claimed: dict[int, Callable[..., Any]] = {}
-        for attr in vars(klass).values():
-            fn = attr.__func__ if isinstance(attr, staticmethod) else attr
-            number = getattr(fn, "__node_version__", None)
-            if number is None:
-                continue
-            if number in claimed:
-                raise TypeError(
-                    f"{cls.__name__}: two methods claim version {number}. "
-                    "Each version is one signature."
-                )
-            claimed[number] = fn
-        for number, fn in claimed.items():
-            methods[number] = fn
-            policies[number] = fn.__node_policy__
-
-    if not methods:
-        # An undecorated `run` is version 1 with the default policy.
-        methods[1] = cls.run
-        policies[1] = Policy()
-
-    # No contiguity check here: numbering from 1 with no holes is the
-    # registry's rule and lives in ``register()``. A definition a host
-    # loads from data may legitimately carry only the versions {1, 3}.
-
-    cls.versions = {
-        n: NodeVersion(
-            run=fn,
-            interface=Interface.of(fn),
-            policy=policies[n],
-            # ``@deprecated`` on a run method stamps the marker.
-            deprecation=getattr(fn, "__node_deprecation__", None),
-        )
-        for n, fn in methods.items()
-    }
-    cls.current = max(methods)

@@ -68,10 +68,7 @@ class Extract(StdlibNode):
         return [Text(m) for m in compiled.findall(text)]
 
 
-NODES = (Match, ReplaceAll, Extract)
-
-
 def register(registry: "NodeRegistry") -> None:
     """Register every regex node on the supplied registry."""
-    for node_cls in NODES:
+    for node_cls in (Match, ReplaceAll, Extract):
         registry.register(node_cls)

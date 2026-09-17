@@ -9,17 +9,17 @@ knows — so a host can act on it without guessing which diagnostic
 belonged to which failure.
 
     ConductorError
-    ├── CompilationError        a caller asked to run a flow compile rejected
+    ├── CompilationError        a caller asked to run a graph compile rejected
     ├── NodeError               one node failed; carries node_id and a cause
     │   ├── NodeValidationError     its inputs were wrong (not retried)
     │   ├── NodeExecutionError      its body raised
     │   ├── NodeTimeoutError        it exceeded its policy's timeout
     │   └── NodeConnectionError     an external call failed (retried)
-    ├── GraphExecutionError      execute_sync: the flow did not complete
+    ├── GraphExecutionError      execute_sync: the graph did not complete
     └── GraphPendingError        execute_sync: the run stopped to wait for a person; carries the questions and the record so far
 
 A pause is not an error and nothing raises for one: a node returns
-``Asks`` (the value that says a person must answer before the flow can
+``Asks`` (the value that says a person must answer before the graph can
 continue) and the leg ends pending — a leg being one call of ``execute``;
 a run takes several when a person must answer in between.
 ``GraphPendingError`` exists only so the synchronous wrapper has a way to
@@ -43,7 +43,7 @@ class ConductorError(Exception):
 
 
 class CompilationError(ConductorError):
-    """A caller asked the engine to run a flow that compile rejected.
+    """A caller asked the engine to run a graph that compile rejected.
 
     Compile itself never raises this; what is wrong with a graph is data on
     the ``CompiledGraph``. ``execute`` raises it when a caller ignored
@@ -138,7 +138,7 @@ class NodeConnectionError(NodeError):
 
 
 class GraphExecutionError(ConductorError):
-    """``execute_sync``: the flow did not complete."""
+    """``execute_sync``: the graph did not complete."""
 
     def __init__(self, message: str, *, node_id: str | None = None, cause: ErrorCause | None = None) -> None:
         self.node_id = node_id

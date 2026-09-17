@@ -64,7 +64,6 @@ from conductor.graph.binding import Binding
 from conductor.graph.expand import authored_ref, expanded_ref
 from conductor.graph.problem import Problem
 from conductor.ref import Ref
-from conductor.registry import runner_for
 
 if TYPE_CHECKING:
     from conductor.graph.conditions import Condition
@@ -267,7 +266,7 @@ class CompiledNode:
     def runner(self) -> Callable[..., Any]:
         """The callable that runs this node, on a fresh instance per call."""
         node = self.graph_node
-        return runner_for(self._graph._registry, node.type, node.version)
+        return self._graph._registry.runner_for(node.type, node.version)
 
     @property
     def dependencies(self) -> frozenset[str]:

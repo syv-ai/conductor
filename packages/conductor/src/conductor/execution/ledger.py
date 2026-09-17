@@ -41,7 +41,7 @@ schedules; the engine is a loop over these calls.
 **A reduction groups by depth.** A ``Series[X]`` input fed a series on a
 child index receives, per unit, the rows under the unit's own row on the
 parent index — the node runs once per parent row and reduces the child
-rows under it. Inside an embedded flow (a node whose version is itself a
+rows under it. Inside an embedded graph (a node whose version is itself a
 graph; its inner nodes run as nodes of this run), a series that entered
 through a scalar field is grouped by its own row — a group of one. One
 rule covers both, the rows whose path starts with the unit's row at the
@@ -110,7 +110,7 @@ def _under(prefix: Row | None, row: Row | None) -> bool:
 
 
 class Ledger:
-    """The record of one run over one compiled flow, and what it makes ready.
+    """The record of one run over one compiled graph, and what it makes ready.
 
     Built empty by ``execute`` for a first leg, or from ``cells()`` of an
     earlier leg by ``restore``. The engine is the only caller.
@@ -211,7 +211,7 @@ class Ledger:
         """The depth a ``Series[X]`` input on ``index`` groups at, for a unit
         of ``node_id``: ``None`` (the whole series, once) for a root index;
         the parent's depth for a child index; the index's own depth when the
-        node sits inside an embedded flow that this index entered through a
+        node sits inside an embedded graph that this index entered through a
         scalar field — then each unit's group is its own row."""
         placement = self._compiled.node(node_id).embedded_in
         scope = None if placement is None else self._compiled.node(placement).iterates_on
@@ -538,7 +538,7 @@ class Ledger:
 
     @classmethod
     def restore(cls, compiled: CompiledGraph, data: dict[str, Any]) -> Ledger:
-        """A ledger holding what ``cells()`` of an earlier leg recorded, over the same compiled flow."""
+        """A ledger holding what ``cells()`` of an earlier leg recorded, over the same compiled graph."""
         ledger = cls(compiled)
         for cell in data["cells"]:
             ref = Ref(*cell["ref"])

@@ -1,7 +1,7 @@
 """Reading and writing a ``Graph`` as a dict or a YAML file.
 
 ``TypeAdapter(Graph)`` already knows every record, binding variant and
-``Ref``, so this module only wraps it; a host persisting flows its own
+``Ref``, so this module only wraps it; a host persisting graphs its own
 way can use the same adapter.
 """
 

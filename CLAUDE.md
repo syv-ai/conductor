@@ -25,7 +25,7 @@ conductor/
 │       ├── flow_format/        # YAML / JSON flow file format (Graph ↔ dict)
 │       └── about/              # Runnable library context: `python -m conductor.about`
 ├── packages/conductor-nodes/   # Standard node library (text, math, logic, json_ops, regex_ops, decision) + its types
-│   └── src/conductor_nodes/    # Each module exposes NODES and register(registry); top-level register_all()
+│   └── src/conductor_nodes/    # Each module exposes register(registry); top-level register_all()
 ├── packages/conductor-providers/ # Framework adapters — react + fastapi subpackages
 │   └── src/conductor_providers/
 │       ├── react/              # graph_to_react / react_to_graph / palette_from_registry
@@ -45,7 +45,7 @@ conductor/
 PyPI distribution names are `syv-conductor`, `syv-conductor-nodes`, `syv-conductor-providers` (Apache-2.0). The Python import paths (`conductor`, `conductor_nodes`, `conductor_providers`) are unchanged.
 
 - **`conductor`** (dist: `syv-conductor`) — the engine: the node contract, the type mechanism (`DType`, `Series`, `Ref`), compile, execute, widgets, errors, a YAML flow format. It ships every mechanism and no vocabulary: which concrete types exist is the host's decision.
-- **`conductor-nodes`** (dist: `syv-conductor-nodes`) — standard-library nodes. `conductor_nodes.types` declares the four types the catalog takes (`Text`, `Number`, `Flag`, `Json`) and `StdlibNode`, the base that pins `category` to the package's `Category` literal. Each category module exposes `NODES` and `register(registry)`; `register_all(registry, categories=...)` registers everything or a subset. Node ids are category-prefixed (`text-uppercase`, `math-add`, …).
+- **`conductor-nodes`** (dist: `syv-conductor-nodes`) — standard-library nodes. `conductor_nodes.types` declares the four types the catalog takes (`Text`, `Number`, `Flag`, `Json`) and `StdlibNode`, the base that pins `category` to the package's `Category` literal. Each category module exposes `register(registry)`, which lists its nodes; `register_all(registry, categories=...)` registers everything or a subset. Node ids are category-prefixed (`text-uppercase`, `math-add`, …).
 - **`conductor-providers`** (dist: `syv-conductor-providers`) — framework adapters. `conductor_providers.react` ships `graph_to_react` / `react_to_graph` / `palette_from_registry`; `conductor_providers.fastapi` ships `conductor_router`. New providers go in sibling subpackages — no abstract base class to satisfy.
 
 Tag-driven publishing: pushing a `v*` tag fires `.github/workflows/publish.yml`, which builds wheels + sdists and uploads all three to PyPI (`PYPI_API_TOKEN`, idempotent via `skip-existing`).

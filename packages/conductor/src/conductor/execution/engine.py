@@ -1,4 +1,4 @@
-"""Run a compiled flow: every ready unit, as soon as it is ready.
+"""Run a compiled graph: every ready unit, as soon as it is ready.
 
 A unit is ``(node, row)``: a node that runs once is one unit with row
 ``None``; a node that runs once per row of a series — a value with many
@@ -17,7 +17,7 @@ with the row, goes out on the event stream.
 **A run has legs.** One call of ``execute`` is one leg, and it runs until
 nothing is runnable and nothing is in flight. A unit whose node returned
 ``Asks`` is neither done nor failed: it waits, everything that reads it
-waits, and the rest of the flow runs on. If anything is waiting when the
+waits, and the rest of the graph runs on. If anything is waiting when the
 leg goes quiet, the leg ends with ``graph_pending`` carrying every waiting
 unit's questions, plus what the leg completed and the ledger's cells (its
 whole record, row by row). The next leg is ``execute`` again, with
@@ -88,7 +88,7 @@ async def execute(
     """Run one leg of ``compiled`` and yield events as it goes.
 
     ``from_run`` supplies values to nodes by type: a ``run`` parameter
-    annotated ``Annotated[X, FromRun()]`` receives ``from_run[X]``. A flow
+    annotated ``Annotated[X, FromRun()]`` receives ``from_run[X]``. A graph
     needing a type the host did not provide is refused before anything
     runs. ``cells`` restores the ledger of an earlier leg, cell by cell.
     ``cache`` pre-seeds nodes with complete outputs by node id — a person's
@@ -325,7 +325,7 @@ class _Leg:
                     break
                 except TimeoutError:
                     if self._remaining() == 0:
-                        return  # the loop reports the flow timeout
+                        return  # the loop reports the timeout
                     failure: NodeError = NodeTimeoutError(
                         f"'{node_id}' exceeded its time limit of {policy.timeout}s", node_id=node_id,
                         cause=self._cause(code="timeout", message="The node did not answer in time.", row=row, details={"seconds": policy.timeout}),

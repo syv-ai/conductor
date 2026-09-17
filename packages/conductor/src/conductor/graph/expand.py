@@ -126,7 +126,7 @@ class _Expander:
         self.placements.add(node.id)
         self.placement_versions[node.id] = version
         self.members.setdefault(node.id, [])
-        inner_nodes = {namespaced.id: namespaced for namespaced in (_namespaced(node.id, inner) for inner in version.graph)}
+        inner_nodes = {namespaced.id: namespaced for namespaced in (self._namespaced(node.id, inner) for inner in version.graph)}
         moved = self._moved(node, inner_nodes)
         inner_versions: dict[str, NodeVersion | GraphVersion] = {}
         for inner_id, inner in inner_nodes.items():
@@ -191,6 +191,23 @@ class _Expander:
             problems=tuple(self.problems),
         )
 
+    @staticmethod
+    def _namespaced(placement: str, inner: GraphNode) -> GraphNode:
+        """``inner`` renamed under the placement: id prefixed, inner edges
+        re-pointed, locks dropped (a lock hides an input from callers of the
+        graph, and the placement's own locks were already read by the
+        interface)."""
+        return replace(
+            inner,
+            id=f"{placement}{SEPARATOR}{inner.id}",
+            bindings={
+                name: Edges(refs=tuple(Ref(f"{placement}{SEPARATOR}{ref.node_id}", ref.field) for ref in binding.refs))
+                if isinstance(binding, Edges) else binding
+                for name, binding in inner.bindings.items()
+            },
+            locked=(),
+        )
+
 
 def expanded_ref(ref: Ref, placements: frozenset[str] | set[str]) -> Ref:
     """``Ref("approve", "check.amount")`` → ``Ref("approve/check", "amount")``, as deep as the placements go."""
@@ -236,23 +253,6 @@ def surfaced(problem: Problem, nodes: Mapping[str, GraphNode]) -> Problem:
             "inner_message": problem.message,
             "inner_details": dict(problem.details),
         },
-    )
-
-
-def _namespaced(placement: str, inner: GraphNode) -> GraphNode:
-    """``inner`` renamed under the placement: id prefixed, inner edges
-    re-pointed, locks dropped (a lock hides an input from callers of the
-    flow, and the placement's own locks were already read by the
-    interface)."""
-    return replace(
-        inner,
-        id=f"{placement}{SEPARATOR}{inner.id}",
-        bindings={
-            name: Edges(refs=tuple(Ref(f"{placement}{SEPARATOR}{ref.node_id}", ref.field) for ref in binding.refs))
-            if isinstance(binding, Edges) else binding
-            for name, binding in inner.bindings.items()
-        },
-        locked=(),
     )
 
 

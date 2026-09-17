@@ -21,7 +21,7 @@ never changes. That is the reason an address deserves a type: renaming a
 node does not move anything that points at it.
 
 An address has exactly two parts. A field name may itself contain a dot —
-that is how a flow embedded as a node keeps its own addresses as field
+that is how a graph embedded as a node keeps its own addresses as field
 names — but a node id never does, so the first dot always separates the
 two::
 
