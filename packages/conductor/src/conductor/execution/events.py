@@ -8,8 +8,9 @@ and ``graph_error``, a ``Series`` (a value with many rows) inside
 serialises it at that edge.
 
 Every event that ends a leg carries ``results`` (what the leg produced,
-by node and output) and ``cells`` (the whole record of the run so far,
-row by row, which ``execute(cells=...)`` starts the next leg from).
+by node and output) and ``record`` (the whole ``RunRecord`` of the run so
+far, in wire form, which ``execute(record=...)`` starts the next leg from).
+A row on an event is a ``Row``, the path of positions the ledger uses.
 """
 
 from __future__ import annotations
@@ -17,6 +18,8 @@ from __future__ import annotations
 from typing import Any, Literal, Required, TypedDict
 
 from conductor.errors import ErrorCause
+from conductor.execution.record import RunRecord
+from conductor.series import Row
 
 
 class NodeStartEvent(TypedDict):
@@ -70,7 +73,7 @@ class NodeErrorEvent(TypedDict):
 class NodeRetryEvent(TypedDict):
     type: Literal["node_retry"]
     node_id: str
-    row: list[int] | None
+    row: Row | None
     attempt: int
     retries: int
     error: str
@@ -79,13 +82,13 @@ class NodeRetryEvent(TypedDict):
 
 class GraphCompleteEvent(TypedDict):
     """The leg completed. ``results`` is what it produced, by node and
-    output; ``cells`` is the whole record of the run, which a host can
-    store and hand back to ``execute(cells=...)`` to start a new run from
+    output; ``record`` is the whole record of the run, which a host can
+    store and hand back to ``execute(record=...)`` to start a new run from
     this one."""
 
     type: Literal["graph_complete"]
     results: dict[str, dict[str, Any]]
-    cells: dict[str, Any]
+    record: RunRecord
 
 
 class PendingUnit(TypedDict):
@@ -94,26 +97,26 @@ class PendingUnit(TypedDict):
     questions as ``Input`` records named by address (``node.field``)."""
 
     node_id: str
-    row: list[int] | None
+    row: Row | None
     prompt: str | None
     questions: tuple[Any, ...]
 
 
 class GraphPendingEvent(TypedDict):
     """The leg ended with nodes (or rows of them) waiting on a person — all
-    of them at once. ``results`` is what the leg completed and ``cells``
-    the whole record; the next leg starts from the cells with the answers
+    of them at once. ``results`` is what the leg completed and ``record``
+    the whole record; the next leg starts from the record with the answers
     in ``cache``."""
 
     type: Literal["graph_pending"]
     pending: list[PendingUnit]
     results: dict[str, dict[str, Any]]
-    cells: dict[str, Any]
+    record: RunRecord
 
 
 class GraphErrorEvent(TypedDict, total=False):
     """A node (or one row of one) failed and the leg stopped. Like every
-    ending it carries ``results`` so far and ``cells`` beside the cause, so
+    ending it carries ``results`` so far and ``record`` beside the cause, so
     a host can start a new run from a failed one without losing what ran."""
 
     type: Required[Literal["graph_error"]]
@@ -121,26 +124,26 @@ class GraphErrorEvent(TypedDict, total=False):
     error: Required[str]
     cause: Required[ErrorCause]
     results: Required[dict[str, dict[str, Any]]]
-    cells: Required[dict[str, Any]]
+    record: Required[RunRecord]
 
 
 class GraphCancelledEvent(TypedDict):
-    """The host set ``cancel``. ``results`` so far and ``cells`` travel
+    """The host set ``cancel``. ``results`` so far and ``record`` travel
     with the reason, as on every ending."""
 
     type: Literal["graph_cancelled"]
     results: dict[str, dict[str, Any]]
-    cells: dict[str, Any]
+    record: RunRecord
 
 
 class GraphTimeoutEvent(TypedDict):
     """The leg ran longer than the ``timeout`` its caller set (carried as
-    ``timeout_seconds``). ``results`` so far and ``cells`` travel with the
+    ``timeout_seconds``). ``results`` so far and ``record`` travel with the
     reason, as on every ending."""
 
     type: Literal["graph_timeout"]
     results: dict[str, dict[str, Any]]
-    cells: dict[str, Any]
+    record: RunRecord
     elapsed_seconds: float
     timeout_seconds: float
 
