@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from conductor import NodeRegistry
@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
 from conductor_providers.fastapi.models import ExecuteRequest
-from conductor_providers.fastapi.sse import sse_frame
+from conductor_providers.fastapi.sse import _jsonable, sse_frame
 
 
 def conductor_router(
@@ -23,7 +23,7 @@ def conductor_router(
     prefix: str = "",
     tags: list[str] | None = None,
     dependencies: Sequence[Any] | None = None,
-    context_factory: Callable[[Request], dict[str, Any]] | None = None,
+    from_run: Callable[[Request], Mapping[type, Any]] | None = None,
     entity_resolver: (
         Callable[[str, Request], list[dict[str, Any]]] | None
     ) = None,
@@ -44,10 +44,11 @@ def conductor_router(
         tags: OpenAPI tags attached to every route.
         dependencies: FastAPI dependencies applied to every route (auth, rate
             limiting, anything ``Depends(...)`` can express).
-        context_factory: Optional hook invoked per-request on ``/execute`` and
+        from_run: Optional hook invoked per request on ``/execute`` and
             ``/execute-stream``. Receives the FastAPI ``Request`` and returns
-            a dict that seeds the node ``FlowStore``. Node functions declaring
-            ``store: FlowStore`` see the seeded keys.
+            the values the run supplies by type, ``execute(from_run=...)``: a
+            ``run`` parameter annotated ``Annotated[X, FromRun()]`` receives
+            the value keyed by ``X``.
         entity_resolver: Optional hook backing the ``EntityDropdown`` widget.
             Receives the entity kind (e.g. ``"document"``) and the FastAPI
             ``Request``; returns a list of ``{"id": ..., "label": ...}``
@@ -59,8 +60,8 @@ def conductor_router(
         tags=tags or ["conductor"],
         dependencies=list(dependencies) if dependencies else None,
     )
-    def _store_data(request: Request) -> dict[str, Any] | None:
-        return context_factory(request) if context_factory else None
+    def _from_run(request: Request) -> Mapping[type, Any] | None:
+        return from_run(request) if from_run else None
 
     @router.get("/nodes", response_model=list[NodeDescription])
     def list_nodes() -> list[NodeDescription]:
@@ -72,9 +73,9 @@ def conductor_router(
         """Run a flow synchronously and return the aggregated results dict."""
         compiled = CompiledGraph.from_graph(req.graph, registry)
         results = execute_sync(
-            compiled, store_data=_store_data(request), cache=req.cache or None
+            compiled, from_run=_from_run(request), cache=req.cache or None
         )
-        return {"results": results}
+        return {"results": _jsonable(results)}
 
     @router.post("/execute-stream")
     async def execute_flow_stream(
@@ -82,11 +83,11 @@ def conductor_router(
     ) -> StreamingResponse:
         """Run a flow and stream ``ExecutionEvent``s as Server-Sent Events."""
         compiled = CompiledGraph.from_graph(req.graph, registry)
-        store_data = _store_data(request)
+        supplied = _from_run(request)
 
         async def event_stream() -> Any:
             async for event in execute(
-                compiled, store_data=store_data, cache=req.cache or None
+                compiled, from_run=supplied, cache=req.cache or None
             ):
                 yield sse_frame(event)
 

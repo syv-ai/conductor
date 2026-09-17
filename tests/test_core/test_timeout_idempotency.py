@@ -4,14 +4,10 @@ import time
 from typing import Annotated
 
 import pytest
-from conductor import (
-    CompiledGraph,
-    GraphExecutionError,
-    GraphNode,
-    NodeRegistry,
-    execute_sync,
-)
+from conductor import CompiledGraph, GraphNode, NodeRegistry
 from conductor.dtype import DType
+from conductor.errors import GraphExecutionError
+from conductor.execution.engine import execute_sync
 from conductor.graph.model import Graph
 from conductor.node import NodeDefinition, Policy, version
 from conductor.returns import Result
@@ -40,6 +36,6 @@ def test_per_node_timeout_triggers() -> None:
             return Txt("done")
 
     reg.register(Slow)
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode("n1", "slow", 1)]), reg)
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="slow", version=1)]), reg)
     with pytest.raises(GraphExecutionError):
         execute_sync(compiled)
