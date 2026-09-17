@@ -68,7 +68,7 @@ def test_problems_compare_by_value():
 
 def test_details_carry_what_the_message_names():
     """A host that translates by code needs the values, not the sentence."""
-    p = Problem(code="unknown_ref_node", message="Field 'text' is connected to 'a', which is not in the flow.",
+    p = Problem(code="unknown_ref_node", message="Field 'text' is connected to 'a', which is not in the graph.",
                 fatal=True, node_id="b", field="text", details={"source_node": "a"})
 
     assert p.details == {"source_node": "a"}
@@ -442,7 +442,7 @@ def test_a_problem_is_formatted_from_its_details_and_keeps_them():
     from conductor.graph.problem import problem
 
     p = problem("unknown_ref_node", "b", "text", source_node="a")
-    assert p.message == "Field 'text' is connected to 'a', which is not in the flow."
+    assert p.message == "Field 'text' is connected to 'a', which is not in the graph."
     assert p.details == {"source_node": "a"}
     assert p.fatal is True
     assert problem("stale_binding", "b", "old").fatal is False
