@@ -98,7 +98,9 @@ class Series(DType, Sequence[T]):
     attribute: ``describe()`` can nest its element and ``DType.accepts``
     can recognise a series by ``source.element is not None``. Declaring an
     input as ``Series[X]`` means "give me the whole series"; the class
-    itself is never a wire type, only its parameterisations are.
+    itself is never a wire type, only its parameterisations are. Neither
+    is a word of a registry's vocabulary: a series is many of something,
+    and the something is the word.
 
     ``rows`` may be left out on a root index, in which case the series is
     dense: ``(0,), (1,), ...``. On a child index the rows must be given,
@@ -122,10 +124,13 @@ class Series(DType, Sequence[T]):
             )
         made = Series._parameterised.get(item)
         if made is None:
+            # Built with ``parameterises=Series``: a parameterisation carries
+            # the base's id on purpose, where any other subclass must name itself.
             made = type(
                 f"Series[{getattr(item, '__name__', item)}]",
                 (cls,),
                 {"element": item, "__slots__": ()},
+                parameterises=Series,
             )
             Series._parameterised[item] = made
         return made

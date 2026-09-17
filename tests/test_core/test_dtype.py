@@ -1,19 +1,12 @@
 """A type carries what it is and what it admits."""
 
-from typing import Any
-
 import pytest
-from conductor.dtype import DType, Single, dtype_of, registered_dtypes
+from conductor.dtype import DType, Single, dtype_of
 from pydantic import BaseModel
 
 
 class Text(DType, str):
-    """A host-side type, defined here because conductor ships none.
-
-    The id is test-scoped: the dtype registry is process-global, and
-    ``conductor_nodes.types.Text`` claims ``"text"`` when the whole suite
-    runs in one process.
-    """
+    """A host-side type, defined here because conductor ships none."""
 
     id = "dtype-test-text"
     title = "Text"
@@ -86,38 +79,20 @@ def test_a_dtype_must_declare_an_id_and_a_title():
             title = "No id"
 
 
-def test_two_unrelated_dtypes_cannot_share_an_id():
-    with pytest.raises(ValueError, match="already"):
+def test_declaring_a_type_has_no_side_effect():
+    """Two classes may claim one id; a registry, not the process, refuses the second (``test_vocabulary.py``)."""
 
-        class Duplicate(DType, str):
-            id = "dtype-test-text"
-            title = "Another text"
+    class Duplicate(DType, str):
+        id = "dtype-test-text"
+        title = "Another text"
+
+    assert Duplicate.id == Text.id
 
 
 def test_every_dtype_serializes_as_an_object():
-    """Never a string — nothing downstream parses a type."""
-    assert Text.describe() == {"id": "dtype-test-text", "accepted_as": ["dtype-test-text"]}
-
-
-def test_accepted_as_is_every_type_that_admits_this_one_self_included():
-    """The record precomputes the editor's applicability question — where
-    may this value land? — off ``accepts`` itself, so an override that
-    widens a type's welcome is served without a browser dtype catalog."""
-
-    class Grade(DType, int):
-        id = "dtype-test-grade"
-        title = "Grade"
-
-    class Score(DType, float):
-        id = "dtype-test-score"
-        title = "Score"
-
-        @classmethod
-        def accepts(cls, source: Any) -> bool:
-            return super().accepts(source) or issubclass(source, Grade)
-
-    assert Grade.describe() == {"id": "dtype-test-grade", "accepted_as": ["dtype-test-grade", "dtype-test-score"]}
-    assert Score.describe() == {"id": "dtype-test-score", "accepted_as": ["dtype-test-score"]}
+    """Never a string — nothing downstream parses a type. Where the value may
+    land is the registry's answer, so the record is the id alone."""
+    assert Text.describe() == {"id": "dtype-test-text"}
 
 
 def test_a_type_is_not_authorable_unless_it_says_so():
@@ -148,12 +123,22 @@ def test_the_base_has_no_id():
             title = "Arver"
 
 
+def test_a_subclass_names_itself():
+    """A subclass is a type of its own, so it declares its own id; inheriting
+    the parent's would make a ``Kort`` travel as ``dtype-test-text``."""
+    with pytest.raises(TypeError, match="own"):
+
+        class Nameless(Text):
+            title = "Kort"
+
+
 # --- accepts: the one question ------------------------------------------
 
 
 def test_a_type_accepts_itself_and_its_subclasses():
     class Kort(Text):
-        pass
+        id = "dtype-test-kort"
+        title = "Kort"
 
     assert Text.accepts(Text) is True
     assert Text.accepts(Kort) is True
@@ -187,7 +172,7 @@ def test_any_is_the_unconstrained_marker_and_is_not_a_type():
     not in the vocabulary and no value ever carries it."""
     from typing import Annotated, Any
 
-    assert Any not in registered_dtypes()
+    assert not (isinstance(Any, type) and issubclass(Any, DType))
     assert dtype_of(Annotated[Any, object()]) is Any
 
 
@@ -213,20 +198,16 @@ def test_dtype_of_returns_None_for_a_plain_python_type():
 
 
 def test_conductor_declares_no_domain_types_of_its_own():
-    """The ABC is conductor's, the vocabulary is the host's.
+    """The ABC is conductor's, the vocabulary is the host's: a new registry
+    has no words until a node declares one or the host adds it.
 
     `Series` is the exception and is deliberate — a collection is structure,
-    not domain: it means the same thing in every host.
+    not domain: it means the same thing in every host — and it is not a
+    word either (``test_standalone.py`` checks every module of the library).
     """
-    from conductor.dtype import registered_dtypes
-    from conductor.series import Series
+    from conductor.registry import NodeRegistry
 
-    shipped = {
-        d for d in registered_dtypes()
-        if d.__module__.startswith("conductor.")
-    }
-
-    assert shipped == {Series}
+    assert NodeRegistry().types == {}
 
 
 def test_the_vocabulary_is_importable_from_the_root():
