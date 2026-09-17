@@ -101,7 +101,7 @@ ConductorError
 │   ├── NodeExecutionError      run raised something that is not a NodeError
 │   └── NodeTimeoutError        the policy's timeout expired; final
 ├── GraphExecutionError     execute_sync: the graph failed, was cancelled or timed out
-└── GraphPendingError       execute_sync: the leg ended pending; carries pending and cells
+└── GraphPendingError       execute_sync: the leg ended pending; carries pending and record
 ```
 
 Raise `ExternalFailure` from `run` where the node knows the outside world failed, or name the client's exception classes in `Policy(retry_on=...)`.

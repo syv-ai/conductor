@@ -71,6 +71,7 @@ a skip is not a value and has no type.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Iterator
 
@@ -78,6 +79,7 @@ from conductor._sentinel import SKIPPED, is_skipped
 from conductor.codec import from_wire, to_wire
 from conductor.errors import ErrorCause, NodeExecutionError
 from conductor.execution.events import PendingUnit
+from conductor.execution.record import RunRecord
 from conductor.graph.binding import Edges, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.metadata import Input
@@ -756,7 +758,7 @@ class Ledger:
     def pending(self) -> list[PendingUnit]:
         """Every unit waiting on a person, as ``PendingUnit`` records."""
         return [
-            PendingUnit(node_id=node_id, row=None if row is None else list(row), prompt=prompt, questions=questions)
+            PendingUnit(node_id=node_id, row=row, prompt=prompt, questions=questions)
             for (node_id, row), (prompt, questions) in self._pending.items()
         ]
 
@@ -797,26 +799,28 @@ class Ledger:
 
     # -- the record ---------------------------------------------------------------
 
-    def cells(self) -> dict[str, Any]:
-        """Everything this leg has produced, as JSON-ready data.
+    def cells(self) -> RunRecord:
+        """Everything this leg has produced, as the ``RunRecord`` a host stores.
 
-        A host stores it as the run's record and hands it back to
-        ``execute(cells=...)`` for the next leg, or for a new run seeded from
+        A host keeps it as the run's record and hands it back to
+        ``execute(record=...)`` for the next leg, or for a new run seeded from
         this one. A waiting unit is not in it: it produced nothing and asks
         again next leg unless answered through ``cache``. Each value goes
         through the codec by its cell's type; a skipped cell carries
-        ``skipped`` (the depth of its row) in place of ``value``.
+        ``skipped`` (the depth of its row) in place of ``value``; and every
+        node's fingerprint is stored, so a restore can tell what changed.
         """
-        return {
-            "cells": [self._cell_wire(ref, row, value) for ref, by_row in self._cells.items() for row, value in by_row.items()],
-            "rows": {index_id: [list(r) for r in sorted(rows)] for index_id, rows in self._rows.items()},
-            "sealed": sorted(self._sealed),
-            "no_rows_under": {
+        return RunRecord(
+            cells=[self._cell_wire(ref, row, value) for ref, by_row in self._cells.items() for row, value in by_row.items()],
+            rows={index_id: [list(r) for r in sorted(rows)] for index_id, rows in self._rows.items()},
+            sealed=sorted(self._sealed),
+            no_rows_under={
                 index_id: [None if r is None else list(r) for r in sorted(rows, key=lambda r: () if r is None else r)]
                 for index_id, rows in self._no_rows_under.items()
             },
-            "done": [[node_id, None if row is None else list(row)] for node_id, row in self._done],
-        }
+            done=[(node_id, None if row is None else list(row)) for node_id, row in self._done],
+            fingerprints={node_id: self._compiled.node(node_id).fingerprint for node_id in self._compiled.execution_order()},
+        )
 
     def _cell_wire(self, ref: Ref, row: Row | None, value: Any) -> dict[str, Any]:
         """One cell as the record carries it: its address, and its value through the codec or its skip."""
@@ -838,23 +842,69 @@ class Ledger:
         return declared if self._compiled.field(ref).index is None or element is None else element
 
     @classmethod
-    def restore(cls, compiled: CompiledGraph, data: dict[str, Any]) -> Ledger:
-        """A ledger holding what ``cells()`` of an earlier leg recorded, over the same compiled graph."""
+    def restore(cls, compiled: CompiledGraph, record: RunRecord) -> Ledger:
+        """A ledger holding what an earlier leg recorded, over the graph as it is now.
+
+        A node the record fingerprints differently from ``compiled`` — or
+        does not fingerprint at all, or that ``compiled`` no longer has — is
+        left out together with everything that reads it, so those units run
+        again; the rest is restored cell for cell, each value read back
+        through the codec by its field's type.
+        """
         ledger = cls(compiled)
-        for cell in data["cells"]:
+        dropped = ledger._dropped(record.fingerprints)
+        for cell in record.cells:
             ref = Ref(*cell["ref"])
+            if ref.node_id in dropped:
+                continue
             row = None if cell["row"] is None else tuple(cell["row"])
             value = SKIPPED if "skipped" in cell else from_wire(cell["value"], ledger._cell_type(ref))
             ledger._cells.setdefault(ref, {})[row] = value
         ledger._rows, ledger._rows_by_prefix = {}, {}
-        for index_id, rows in data["rows"].items():
+        for index_id, rows in record.rows.items():
+            if index_id in dropped:
+                continue
             ledger._rows[index_id] = set()
             for r in rows:
                 ledger._born(index_id, tuple(r))
-        ledger._sealed = set(data["sealed"])
+        ledger._sealed = set(record.sealed) - dropped
         ledger._no_rows_under = {
-            index_id: {None if r is None else tuple(r) for r in rows} for index_id, rows in data["no_rows_under"].items()
+            index_id: {None if r is None else tuple(r) for r in rows}
+            for index_id, rows in record.no_rows_under.items()
+            if index_id not in dropped
         }
-        for node_id, row in data["done"]:
-            ledger._finish((node_id, None if row is None else tuple(row)))
+        for node_id, row in record.done:
+            if node_id not in dropped:
+                ledger._finish((node_id, None if row is None else tuple(row)))
         return ledger
+
+    def _dropped(self, stored: Mapping[str, str]) -> set[str]:
+        """The nodes a restore leaves out, given the record's fingerprints:
+        those the graph places differently (or the record has none for),
+        those the graph no longer has, everything that reads any of them,
+        and the typed-in lists whose rows are born under theirs."""
+        compiled = self._compiled
+        current = {node_id: compiled.node(node_id).fingerprint for node_id in compiled.execution_order()}
+        dropped = {node_id for node_id, fingerprint in current.items() if stored.get(node_id) != fingerprint}
+        dropped.update(node_id for node_id in stored if node_id not in current)
+        frontier = [node_id for node_id in dropped if node_id in current]
+        while frontier:
+            node_id = frontier.pop()
+            for out in compiled.node(node_id).interface.outputs:
+                ref = Ref(node_id, out.name)
+                readers = [*self._scalar_readers.get(ref, ()), *(reader for reader, _ in self._series_readers.get(ref, ()))]
+                for reader in readers:
+                    if reader not in dropped:
+                        dropped.add(reader)
+                        frontier.append(reader)
+        for index_id in list(dropped):
+            dropped.update(self._typed_below(index_id))
+        return dropped
+
+    def _typed_below(self, index_id: str) -> set[str]:
+        """The indexes of every typed-in list born under rows of ``index_id``, and theirs in turn."""
+        below: set[str] = set()
+        for child, _ in self._typed_under.get(index_id, ()):
+            below.add(child)
+            below.update(self._typed_below(child))
+        return below

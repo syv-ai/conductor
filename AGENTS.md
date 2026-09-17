@@ -129,7 +129,7 @@ Every control is a frozen pydantic model with a `kind` discriminator; `AnyWidget
 - **Iteration and reduction.** A node iterating on an index runs once per row, concurrently up to its policy's `concurrency`; row 1 can finish a whole chain while row 10 is still being produced. A `Series[X]` input on a root index receives the series once it is complete; on a child index, once per parent row.
 - **A skip has a depth.** `SKIPPED` at a row skips that row (the series downstream is sparse); `SKIPPED` above a node's rows skips everything under it. A node whose every row was skipped produced an empty series; a node skipped above its rows did not run and is absent from the results.
 - **A failed unit fails the run.** No further unit starts (a `run` already in its thread finishes, its result dropped), and the `ErrorCause`, with the row, goes out on `node_error` and `graph_error`.
-- **A leg ends pending.** A unit whose node returned `Asks` waits; everything else runs on, and the leg ends `graph_pending` with every waiting unit's questions. The next leg is `execute` again with `cells=` (the ledger's record from the last ending) and the answers in `cache=` as the asking node's outputs — for a node on rows, a `Series` naming only the rows it answers; a unit already done or a row not yet produced is refused. Every ending — `graph_complete`, `graph_pending`, `graph_error`, `graph_cancelled`, `graph_timeout` — carries `results` and `cells`.
+- **A leg ends pending.** A unit whose node returned `Asks` waits; everything else runs on, and the leg ends `graph_pending` with every waiting unit's questions. The next leg is `execute` again with `record=` (the ledger's record from the last ending) and the answers in `cache=` as the asking node's outputs — for a node on rows, a `Series` naming only the rows it answers; a unit already done or a row not yet produced is refused. Every ending — `graph_complete`, `graph_pending`, `graph_error`, `graph_cancelled`, `graph_timeout` — carries `results` and `record`.
 - **Readiness is kept, not recomputed.** A write asks `ready` only of the units it concerns, so a run's time grows with its rows; `Ledger.runnable()` asks every unit at a leg's start and again when it goes quiet, where a ready unit nobody started raises.
 
 ### Retry and timeout
@@ -153,7 +153,7 @@ All exceptions inherit from `ConductorError` (see `errors.py`). A run-time failu
   - `NodeExecutionError` (`run` raised something that is not a `NodeError`; the exception is on `original`)
   - `NodeTimeoutError` (the leg stopped waiting; final)
 - `GraphExecutionError` — raised by `execute_sync` when the graph fails, is cancelled or times out
-- `GraphPendingError` — raised by `execute_sync` when the leg ends pending; carries `pending` and `cells`
+- `GraphPendingError` — raised by `execute_sync` when the leg ends pending; carries `pending` and `record`
 
 ### The persisted graph
 
@@ -221,7 +221,7 @@ class Approve(NodeDefinition):
 try:
     execute_sync(compiled)
 except GraphPendingError as pending:                     # pending.pending: the questions, by address
-    results = execute_sync(compiled, cells=pending.cells, cache={"approve": {"result": Text("yes")}})
+    results = execute_sync(compiled, record=pending.record, cache={"approve": {"result": Text("yes")}})
 ```
 
 ### A second version, with a policy and an upgrade
