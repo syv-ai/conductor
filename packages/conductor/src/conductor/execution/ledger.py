@@ -648,23 +648,36 @@ class Ledger:
             woken.update(self._units_under(reader, group))
 
     def inject(self, node_id: str, outputs: dict[str, Any]) -> None:
-        """Record ``outputs`` as this node's complete result without running it —
-        a person's answers, or an earlier run's results. For a node running
-        per row the outputs are series on its index and are recorded row by row."""
+        """Record ``outputs`` as what this node produced, without running it —
+        a person's answers, or an earlier run's results.
+
+        For a node that runs once, ``outputs`` is its result. For a node
+        running per row, each output is a series on the node's index, and
+        only the rows the series name are recorded: answering row ``(1,)``
+        leaves rows ``(0,)`` and ``(2,)`` as they were, done or still to run.
+
+        A unit that is already done cannot be given a result again, and a
+        row the run has not produced yet has nothing to answer, so both raise.
+        """
         iterate = self._compiled.node(node_id).iterates_on
         if iterate is None:
-            self.record((node_id, None), outputs)
+            self._inject((node_id, None), outputs)
             return
-        for _, row in self.units(node_id):
-            if _depth(row) < iterate.depth:
-                self.record((node_id, row), Skip(at=row))
-                continue
-            at_row: dict[str, Any] = {}
-            for out in self._compiled.node(node_id).interface.outputs:
-                series = outputs[out.name]
-                by_row = dict(zip(series.rows, series.values, strict=True))
-                at_row[out.name] = by_row.get(row, SKIPPED)
-            self.record((node_id, row), Skip(at=row) if all(is_skipped(v) for v in at_row.values()) else at_row)
+        declared = self._compiled.node(node_id).interface.outputs
+        by_output = {out.name: dict(zip(outputs[out.name].rows, outputs[out.name].values, strict=True)) for out in declared}
+        born = self._rows.get(iterate.id, set())
+        for row in sorted({row for rows in by_output.values() for row in rows}):
+            if row not in born:
+                raise ValueError(f"'{node_id}' has no row {list(row)} to record: the run has not produced it")
+            at_row = {name: rows.get(row, SKIPPED) for name, rows in by_output.items()}
+            self._inject((node_id, row), Skip(at=row) if all(is_skipped(v) for v in at_row.values()) else at_row)
+
+    def _inject(self, unit: Unit, outputs: dict[str, Any] | Skip) -> None:
+        if unit in self._done:
+            node_id, row = unit
+            where = "" if row is None else f" at row {list(row)}"
+            raise ValueError(f"'{node_id}'{where} is already done, so it cannot be given a result")
+        self.record(unit, outputs)
 
     # -- waiting on a person ---------------------------------------------
 
