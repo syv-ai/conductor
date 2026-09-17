@@ -63,7 +63,10 @@ grouping depth, and the index a node runs once per row of
 row, and ``restore`` starts the next leg from it. A leg is one call of
 ``execute``; a run takes several when a node waits on a person in
 between. Nothing is pruned, so a unit done in one leg stays done in the
-next.
+next. Every value crosses through the codec (``conductor.codec``) by the
+type compile gave its field, so a restored cell is the type it was; a
+skipped cell is marked ``{"skipped": <depth>}`` beside its address, since
+a skip is not a value and has no type.
 """
 
 from __future__ import annotations
@@ -72,6 +75,7 @@ from dataclasses import dataclass
 from typing import Any, Iterator
 
 from conductor._sentinel import SKIPPED, is_skipped
+from conductor.codec import from_wire, to_wire
 from conductor.errors import ErrorCause, NodeExecutionError
 from conductor.execution.events import PendingUnit
 from conductor.graph.binding import Edges, Static
@@ -85,7 +89,6 @@ from conductor.series import Index, Row, Series
 #: unit standing in for rows a skip above them never let be born.
 Unit = tuple[str, Row | None]
 
-_SKIPPED_WIRE = "__skipped__"
 _MISSING = object()
 
 
@@ -800,15 +803,12 @@ class Ledger:
         A host stores it as the run's record and hands it back to
         ``execute(cells=...)`` for the next leg, or for a new run seeded from
         this one. A waiting unit is not in it: it produced nothing and asks
-        again next leg unless answered through ``cache``.
+        again next leg unless answered through ``cache``. Each value goes
+        through the codec by its cell's type; a skipped cell carries
+        ``skipped`` (the depth of its row) in place of ``value``.
         """
         return {
-            "cells": [
-                {"ref": [ref.node_id, ref.field], "row": None if row is None else list(row),
-                 "value": _SKIPPED_WIRE if is_skipped(value) else value}
-                for ref, by_row in self._cells.items()
-                for row, value in by_row.items()
-            ],
+            "cells": [self._cell_wire(ref, row, value) for ref, by_row in self._cells.items() for row, value in by_row.items()],
             "rows": {index_id: [list(r) for r in sorted(rows)] for index_id, rows in self._rows.items()},
             "sealed": sorted(self._sealed),
             "no_rows_under": {
@@ -818,6 +818,25 @@ class Ledger:
             "done": [[node_id, None if row is None else list(row)] for node_id, row in self._done],
         }
 
+    def _cell_wire(self, ref: Ref, row: Row | None, value: Any) -> dict[str, Any]:
+        """One cell as the record carries it: its address, and its value through the codec or its skip."""
+        cell: dict[str, Any] = {"ref": [ref.node_id, ref.field], "row": None if row is None else list(row)}
+        if is_skipped(value):
+            cell["skipped"] = _depth(row)
+            return cell
+        try:
+            cell["value"] = to_wire(value, self._cell_type(ref))
+        except Exception as unwritable:
+            raise TypeError(f"{ref} at row {row}: the value has no JSON form ({unwritable})") from unwritable
+        return cell
+
+    def _cell_type(self, ref: Ref) -> Any:
+        """The type of one cell of ``ref``: the element of the series on a
+        field with rows, the field's own type otherwise."""
+        declared = self._compiled.field(ref).type
+        element = getattr(declared, "element", None)
+        return declared if self._compiled.field(ref).index is None or element is None else element
+
     @classmethod
     def restore(cls, compiled: CompiledGraph, data: dict[str, Any]) -> Ledger:
         """A ledger holding what ``cells()`` of an earlier leg recorded, over the same compiled graph."""
@@ -825,7 +844,7 @@ class Ledger:
         for cell in data["cells"]:
             ref = Ref(*cell["ref"])
             row = None if cell["row"] is None else tuple(cell["row"])
-            value = SKIPPED if cell["value"] == _SKIPPED_WIRE else cell["value"]
+            value = SKIPPED if "skipped" in cell else from_wire(cell["value"], ledger._cell_type(ref))
             ledger._cells.setdefault(ref, {})[row] = value
         ledger._rows, ledger._rows_by_prefix = {}, {}
         for index_id, rows in data["rows"].items():
