@@ -48,6 +48,391 @@ From PyPI (Apache-2.0):
 uv add syv-conductor                # core engine — import as `conductor`
 uv add syv-conductor-nodes          # standard node library — import as `conductor_nodes`
 uv add syv-conductor-providers      # framework adapters — import as `conductor_providers`
+```
+
+The PyPI distribution names are prefixed with `syv-`; Python imports are unchanged.
+
+For local development (uv workspace):
+
+```bash
+git clone <repo-url> conductor
+cd conductor
+uv sync
+uv run pre-commit install   # strip notebook outputs on commit
+```
+
+### Run tests
+
+```bash
+uv run pytest tests/ -v
+```
+
+## Usage
+
+### 1. Declare a vocabulary and some nodes
+
+A value on an edge has a `DType`. Conductor declares none, so start by naming the types your nodes take — or import the standard library's (`conductor_nodes.types`), as this example does.
+
+```python
+from typing import Annotated
+from conductor import NodeDefinition, NodeRegistry, Result
+from conductor.widgets import Textarea, Text as TextWidget
+from conductor_nodes.types import Text
+
+class Echo(NodeDefinition):
+    id = "echo"
+    title = "Echo"
+    description = "Returns the input unchanged"
+    category = "text"
+
+    def run(
+        self, text: Annotated[Text, Textarea(title="Input", description="Text to echo")]
+    ) -> Annotated[Text, Result(title="Output")]:
+        return text
+
+class Uppercase(NodeDefinition):
+    id = "uppercase"
+    title = "Uppercase"
+    description = "Converts to uppercase"
+    category = "text"
+
+    def run(
+        self, text: Annotated[Text, TextWidget(title="Input")]
+    ) -> Annotated[Text, Result(title="Result")]:
+        return Text(text.upper())
+
+registry = NodeRegistry()
+registry.register(Echo)
+registry.register(Uppercase)
+```
+
+The class is checked the moment it is defined: a missing `id`, `title`, `description` or `category`, a parameter without a widget, or a return without a `Result` fails at import with the traceback at the class.
+
+### 2. Build and execute a graph
+
+A placement pins a node by `type` and `version` and says, per input, where its value comes from: an `Edges` binding names other placements' outputs (an edge), a `Static` binding holds a typed-in value, and an input with no binding takes its declared default. There is no edge list — a graph is its nodes.
+
+```python
+from conductor import Graph, GraphNode, Ref, Edges, Static, CompiledGraph
+from conductor.execution.engine import execute_sync
+
+graph = Graph(nodes=[
+    GraphNode(id="n1", type="echo", version=1, bindings={"text": Static(value="hello world")}),
+    GraphNode(id="n2", type="uppercase", version=1, bindings={"text": Edges(refs=(Ref("n1", "result"),))}),
+])
+compiled = CompiledGraph.from_graph(graph, registry)
+
+results = execute_sync(compiled)
+print(results["n2"]["result"])  # "HELLO WORLD"
+```
+
+A single-output node's output is named `result`; a multi-output node's outputs are the field names of the record it returns (below).
+
+### 3. Stream execution events
+
+```python
+from conductor.execution.engine import execute
+
+async for event in execute(compiled):
+    match event["type"]:
+        case "node_start":
+            print(f"Starting {event['node_id']}")
+        case "node_complete":
+            print(f"Done {event['node_id']}: {event['result']}")
+        case "node_progress":
+            print(f"{event['node_id']}: {event['done']} of {event['total']}")
+        case "node_retry":
+            print(f"Retry {event['node_id']} ({event['attempt']}/{event['retries']}): {event['error']}")
+        case "graph_complete":
+            print(f"Done: {event['results']}")
+```
+
+## Project structure
+
+```
+conductor/
+├── packages/
+│   ├── conductor/                  # Core library — uv add syv-conductor
+│   │   └── src/conductor/
+│   │       ├── node.py             # NodeDefinition, NodeVersion, Policy, version/upgrade/deprecated, describe()
+│   │       ├── interface.py        # Interface.of(run): the signature read once; FromRun; model_of
+│   │       ├── metadata.py         # Field, Input, Output records
+│   │       ├── model.py            # ConductorModel — records that save and load themselves
+│   │       ├── returns.py          # Result — what an author writes on a return; outputs_of / unpack
+│   │       ├── dtype.py            # DType — a value's type; accepts(); registered_dtypes()
+│   │       ├── series.py           # Series[X] and Index — many values of one type
+│   │       ├── ref.py              # Ref — the address "<node id>.<field>"
+│   │       ├── widgets.py          # The controls: Text, Textarea, Dropdown, …; AnyWidget
+│   │       ├── errors.py           # ErrorCause and the exception hierarchy
+│   │       ├── _sentinel.py        # SKIPPED and Asks
+│   │       ├── registry/           # NodeRegistry, discover_nodes
+│   │       ├── graph/              # GraphNode/Graph, the Binding variants, CompiledGraph.from_graph() and the CompiledGraph it returns, iteration, expansion, conditions, Problem
+│   │       ├── execution/          # execute(), execute_sync(), collect(), the ledger, events
+│   │       └── about/              # Runnable library reference: python -m conductor.about
+│   ├── conductor-nodes/            # Standard node library — uv add syv-conductor-nodes
+│   └── conductor-providers/        # Framework adapters (react, fastapi) — uv add syv-conductor-providers
+├── examples/                       # Jupyter notebooks
+├── tests/                          # pytest suite (core, nodes, providers, stress)
+├── .github/workflows/              # ci.yml (PR lint + test), docs-audit.yml (weekly)
+└── docs/                           # MkDocs site + design notes (llms.txt ships inside the package)
+```
+
+## Concepts
+
+### The node contract
+
+A node is a class. It declares its identity and what a palette shows (`id`, `title`, `description`, `category`, optional `tags` and `docs`) and implements `run`, whose typed signature is its interface:
+
+```python
+from dataclasses import dataclass
+from typing import Annotated
+from conductor import SKIPPED, NodeDefinition, Result, Series
+from conductor.widgets import List, Switch, Textarea
+from conductor_nodes.types import Flag, Number, Text
+
+class Length(NodeDefinition):
+    id = "length"
+    title = "Length"
+    description = "Character count of the text"
+    category = "text"
+
+    def run(self, text: Annotated[Text, Textarea(title="Text")]) -> Annotated[Number, Result(title="Length")]:
+        return Number(len(text))
+```
+
+- Every parameter an edge can reach declares a `DType` (or `Any`, below) and a widget. A default makes the input optional.
+- The return annotation is the output declaration. A `DType` return declares one output named `result`.
+- A node returns a value of the declared type — `Text(...)`, never a bare `str` — because a value arrives downstream as the type the edge carried.
+- A collection is `Series[X]`. A node that declares `Series[Text]` receives the whole series at once; a series output is returned as a plain list.
+
+**Several outputs** are a frozen dataclass whose fields are the outputs; `run` returns an instance. The field names are the output names, and nothing is positional:
+
+```python
+@dataclass(frozen=True)
+class Halves:
+    head: Annotated[Text, Result(title="First half")]
+    tail: Annotated[Text, Result(title="Second half")]
+
+class Split(NodeDefinition):
+    id = "split"
+    title = "Split"
+    description = "Splits text down the middle"
+    category = "text"
+
+    def run(self, text: Annotated[Text, Textarea(title="Text")]) -> Halves:
+        mid = len(text) // 2
+        return Halves(head=Text(text[:mid]), tail=Text(text[mid:]))
+```
+
+**Branching** is a value, not a role. A node that takes one of two branches returns `SKIPPED` on the other; downstream nodes fed only `SKIPPED` are skipped in turn. Outputs that are exclusive alternatives share a `choice`, so an editor knows exactly one of them arrives:
+
+```python
+@dataclass(frozen=True)
+class Emptiness:
+    not_empty: Annotated[Text, Result(title="Not empty", choice="emptiness")]
+    empty: Annotated[Text, Result(title="Empty", choice="emptiness")]
+
+class IfEmpty(NodeDefinition):
+    id = "if-empty"
+    title = "If empty"
+    description = "Routes text by whether it is blank"
+    category = "control"
+
+    def run(self, text: Annotated[Text, Textarea(title="Text")]) -> Emptiness:
+        if text.strip():
+            return Emptiness(not_empty=text, empty=SKIPPED)
+        return Emptiness(not_empty=SKIPPED, empty=text)
+```
+
+**A value the node routes without reading** is annotated `Any` instead of a type. An `Any` output requires the node to override `compute_outputs` so the outputs can be typed from what arrives — the standard library's `decision` gate is the example.
+
+### Types
+
+A `DType` is a real Python class, usually built on a builtin, declared with an `id` (the stable name the persisted graph and the frontend use) and a `title`:
+
+```python
+from conductor import DType
+
+class Text(DType, str):
+    id = "text"
+    title = "Text"
+
+class Number(DType, float):
+    id = "number"
+    title = "Number"
+```
+
+`Text("hello")` is both a `str` and a `Text`; a pydantic model with a `Text` field gives back a `Text`. A type answers one question about edges — `target.accepts(source)`: may a value of type `source` land on an input declared as `target`? The default is `issubclass`, so a subtype is accepted wherever its parent is. A `DType` does not convert values, does not pick a widget and does not format itself beyond `as_text`. `registered_dtypes()` lists every type declared so far; `describe()` on a type is its JSON-ready record.
+
+`Series[X]` is the one collection: many values of one type on an `Index`, which says where the rows came from. Two series align when they share an index, never by length. `Series[Series[X]]` does not exist.
+
+### Versions
+
+Several versions live in one class as methods marked `@version(n)`; the current one is the highest number, and by convention its method is the one named `run`. Each version has its own signature and `Policy`. `@upgrade(1, 2)` marks the function that rewrites values saved against version 1 into what version 2 expects; `@deprecated` marks a class or a version as going away, optionally naming an `alternative`:
+
+```python
+from conductor import Policy, deprecated, upgrade, version
+
+class Greet(NodeDefinition):
+    id = "greet"
+    title = "Greet"
+    description = "Greets a person"
+    category = "text"
+
+    @version(1)
+    @deprecated(header="Use version 2", migration="The name is now first and last")
+    def run_v1(self, name: Annotated[Text, TextWidget(title="Name")]) -> Annotated[Text, Result(title="Greeting")]:
+        return Text(f"Hi, {name}!")
+
+    @version(2, policy=Policy(retries=2, delay=0.5))
+    def run(
+        self,
+        first: Annotated[Text, TextWidget(title="First name")],
+        last: Annotated[Text, TextWidget(title="Last name")],
+    ) -> Annotated[Text, Result(title="Greeting")]:
+        return Text(f"Hi, {first} {last}!")
+
+    @upgrade(1, 2)
+    def _split_name(values: dict) -> dict:
+        first, _, last = values["name"].partition(" ")
+        return {**values, "first": first, "last": last}
+```
+
+A registered node numbers its versions from 1 with no holes; a placement pins any version up to the current one. `Policy` carries `retries`, `delay`, `timeout` (seconds) and `concurrency`.
+
+### The registry
+
+`NodeRegistry` maps a node id to the class itself — one entry per id, not per version:
+
+```python
+registry.register(Greet)
+registry.get("greet")                      # the class, or None
+registry.contains("greet")                 # True
+registry.definitions()                     # every class, in registration order
+Greet.versions[2].interface.inputs         # the Input records of version 2
+Greet.describe()                           # the palette entry, derived on demand
+registry.upgrade_path("greet", 1, 2)       # the @upgrade function, or None
+```
+
+`describe()` is the one serialisation of a node: a `NodeDescription` with its versions, fields, policy and deprecation notice, dumped through pydantic when a palette needs JSON. Nothing is stored, so a description is always derived from the live declaration.
+
+**Auto-discovery** imports every module in a package so the registrations in them run:
+
+```python
+from conductor.registry.discovery import discover_nodes
+
+discover_nodes("myapp.nodes", registry)    # returns how many definitions were added
+```
+
+### Field hooks
+
+Two optional methods let a node say what one *placement* of it has, when that depends on configuration:
+
+```python
+def compute_inputs(self, declared, values) -> tuple[Input, ...]: ...
+def compute_outputs(self, declared, values, arriving) -> tuple[Output, ...]: ...
+```
+
+`declared` is the pinned version's declaration, `values` what the author typed, `arriving` the type on each connected input where the compiler has recorded one. The default returns `declared`. The compiler asks a fresh instance once per node — `compute_inputs` on the typed statics, `compute_outputs` in the edges pass with what arrives — and `CompiledGraph.node(node_id).interface` serves the answers. Nothing is checked here: a hook that returns the wrong shape is a node bug and raises where it is found.
+
+### Parameters the run supplies
+
+A parameter marked `FromRun()` is not an input — no widget, no handle — but a value the host supplies by type when it runs the graph:
+
+```python
+from conductor import FromRun
+
+def run(self, text: Annotated[Text, Textarea(title="Text")], clock: Annotated[Clock, FromRun()]) -> ...:
+
+results = execute_sync(compiled, from_run={Clock: SystemClock()})
+```
+
+`Interface.needs` lists such parameters by name, and `execute` refuses to start a graph that needs a type it was not given.
+
+### Rows
+
+A node declared for one value runs once per row when a series reaches it. The engine's unit of work is a node on a row, and it starts every unit as soon as what it reads exists, so row 1 can finish a whole chain while row 10 is still being produced; a node's rows run concurrently up to its policy's `concurrency` (8 by default), in threads from the event loop's default executor, which every node shares. A node declaring `Series[X]` receives the series whole — once for a root series, once per parent row for a child one. Independent branches run concurrently without any configuration, and sync `run` methods are offloaded to `asyncio.to_thread`.
+
+A skip has a depth: `SKIPPED` at one row leaves the series downstream sparse, and `SKIPPED` above a node's rows skips everything under it. A failed row fails the run, and its `ErrorCause` names the row.
+
+### A person in the loop
+
+A node that needs a person's answer returns `Asks` instead of a result, and says so in its return annotation. Everything else runs on; the run then ends pending with every question, named by address. Answering is simply the next call:
+
+```python
+from conductor import Asks, Input
+from conductor.errors import GraphPendingError
+
+class Approve(NodeDefinition):
+    id = "approve"
+    title = "Approve"
+    description = "Asks a person to approve the proposal"
+    category = "review"
+
+    def run(self, proposal: Annotated[Text, Textarea(title="Proposal")]) -> Annotated[Text, Result(title="Decision")] | Asks:
+        return Asks(questions=(Input(name="result", dtype=Text, title="Decision", widget=Textarea(title="Decision"), default=proposal, optional=True),))
+
+registry.register(Approve)
+compiled = CompiledGraph.from_graph(Graph(nodes=[
+    GraphNode(id="approve", type="approve", version=1, bindings={"proposal": Static(value="Ship it")}),
+]), registry)
+
+try:
+    execute_sync(compiled)
+except GraphPendingError as pending:
+    results = execute_sync(compiled, cells=pending.cells, cache={"approve": {"result": Text("Approved")}})
+```
+
+`cells` is everything the earlier leg produced, so nothing is done twice; `cache` carries the answers as the asking node's outputs. Every ending of a run carries its `results` and `cells`, so a host can also start a new run from a failed or stopped one.
+
+### Retry
+
+Retries belong to the version, on its `Policy`, and nowhere else:
+
+```python
+from conductor import Policy, version
+
+class FetchUrl(NodeDefinition):
+    id = "fetch-url"
+    title = "Fetch"
+    description = "HTTP GET"
+    category = "http"
+
+    @version(1, policy=Policy(retries=3, delay=0.5))
+    def run(self, url: Annotated[Text, TextWidget(title="URL")]) -> Annotated[Text, Result(title="Body")]:
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        return Text(resp.text)
+```
+
+Delay between attempts is `delay * 2 ** (attempt - 1)`, and each row retries on its own. `NodeExecutionError`, `NodeConnectionError` and `NodeTimeoutError` are retried; `NodeValidationError` never is — pydantic rejected the inputs, and retrying with the same inputs is pointless. Each retry emits a `node_retry` event with `{row, attempt, retries, error, delay}`. `Policy(timeout=...)` bounds how long the engine waits for one attempt and raises `NodeTimeoutError` on expiry; the `run` in its worker thread is not interrupted, and what it returns afterwards is dropped.
+
+### Error types
+
+All exceptions inherit from `ConductorError` and are importable from `conductor.errors`. Node-level errors carry `node_id`, the `original` exception and an `ErrorCause` — `code`, `message`, `details` and the `row` a node running per row failed on:
+
+```
+ConductorError                     # Base — catch-all for any engine error
+├── CompilationError                # A run was started on a graph compile found not runnable; carries its problems
+├── NodeError                       # Something went wrong with a specific node
+│   ├── NodeValidationError         # Input validation failed (pydantic) — never retried
+│   ├── NodeExecutionError          # run() raised — retried if the policy says so
+│   ├── NodeTimeoutError            # Node exceeded its policy's timeout
+│   └── NodeConnectionError         # External service / network failure inside a node
+├── GraphExecutionError             # execute_sync: the graph failed, was cancelled or timed out
+└── GraphPendingError               # execute_sync: the run is waiting for a person; carries the questions and the cells
+```
+
+Raise `NodeConnectionError` from `run` to mark a failure as transient and retry-worthy.
+
+### Bindings
+
+One input holds one binding, so an edge and a typed value can never both claim the same input. `Edges(refs=(Ref("a", "result"), Ref("b", "result")))` is in operand order — into a `Series[X]` input several refs gather into one series. `Static(value=...)` is what the author typed. An absent binding means the declared default applies. A graph's dependencies (`dependencies_of`) and which placements are its input nodes (`is_input_node`, no edge into any input) are read off the bindings; nothing stores them. A failed node fails the run.
+
+A host that loads definitions the static registry lacks builds them and hands compile `registry.extended_with({...})` — a new registry per run in which a registered type wins over a loaded one.
+
+### Saving a graph
+
 A `Graph` is a pydantic model and saves itself — and so does every record a host keeps or sends (`Problem`, `ErrorCause`, `Input`, `NodeDescription`, …):
 
 ```python
@@ -196,7 +581,7 @@ uv sync                       # includes the ipykernel used by the notebooks
 uv run jupyter lab examples/  # or open the .ipynb files in VS Code
 ```
 
-The notebooks use `await collect(execute(compiled))` because the kernel already owns an event loop. From a plain `.py` script, use `execute_sync(compiled)` instead.
+The notebooks use `[event async for event in execute(compiled)]` because the kernel already owns an event loop. From a plain `.py` script, use `execute_sync(compiled)` instead.
 
 ## Stability and versioning
 
