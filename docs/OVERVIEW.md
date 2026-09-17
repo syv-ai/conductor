@@ -122,13 +122,13 @@ The same text in code: `from conductor.about import get_content, get_section`.
 
 - **CI runs ruff and pytest on every PR** (`.github/workflows/ci.yml`). Locally: `uvx ruff check .` and `uv run pytest tests/`.
 - **Conductor stands alone.** `tests/test_core/test_standalone.py` fails on a host's word ("flow", "app", an access model), a host's import or a type the library declares for itself.
-- **Docs drift is audited.** The `/docs-audit` slash command runs on demand after a feature, and a weekly CI audit opens a PR as a safety net. `CLAUDE.md` and `llms.txt` match the shipped surface.
+- **Docs drift is audited.** The `/docs-audit` slash command runs on demand after a feature, and a weekly CI audit opens a PR as a safety net. `AGENTS.md` and `llms.txt` match the shipped surface.
 - **Notebook outputs are stripped on commit** by the `nbstripout` pre-commit hook; run the cells to see values.
 - **Registering two classes under one id is an error**, not a silent overwrite.
 
 ## Further reading
 
 - [`README.md`](../README.md): install, quick start, concepts.
-- [`CLAUDE.md`](../CLAUDE.md): architecture and conventions, the primary context for agent sessions.
+- [`AGENTS.md`](../AGENTS.md): architecture and conventions, the primary context for agent sessions.
 - [`packages/conductor/src/conductor/about/llms.txt`](../packages/conductor/src/conductor/about/llms.txt): the packaged reference.
 - [`examples/*.ipynb`](../examples/): tutorial notebooks.

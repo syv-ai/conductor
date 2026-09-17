@@ -14,14 +14,14 @@ Look at the last **10** commits by default. If the user passed a number as the a
 
 2. **Identify commits that could affect docs.** A commit is relevant if it:
    - Changes code under `packages/conductor/src/conductor/` (excluding `__pycache__`)
-   - Adds or modifies a feature listed in `README.md` or `CLAUDE.md`
+   - Adds or modifies a feature listed in `README.md` or `AGENTS.md`
    - Bumps a counted thing (test count, example count, file count) already cited in docs
    - Renames, splits, or removes a public API, module, or field
 
    Pure test changes, CI tweaks, dependency bumps, typo fixes, and internal refactors that don't touch public surface area can be skipped.
 
 3. **Read every user-facing doc:**
-   - `CLAUDE.md`
+   - `AGENTS.md`
    - `README.md`
    - `packages/conductor/src/conductor/about/llms.txt`
    - `docs/index.md`, `docs/OVERVIEW.md`, `docs/widgets.md`
@@ -52,7 +52,7 @@ At the end, print a summary like:
 
 ```
 Changes applied:
-- CLAUDE.md: bumped test count 160 → 171 (commit abc123 added about module tests)
+- AGENTS.md: bumped test count 160 → 171 (commit abc123 added about module tests)
 - packages/conductor/src/conductor/about/llms.txt: added CompiledNode.embedded_in to the compilation section
 - README.md: no changes
 
