@@ -189,8 +189,11 @@ class Ledger:
         #: values each holds: inside an embedded graph that runs once per row,
         #: the author's list is a child row under each of those rows.
         self._typed_under: dict[str, list[tuple[str, int]]] = {}
-        #: The indexes of those typed-in lists.
+        #: The indexes of those typed-in lists, and of the typed-in lists on a
+        #: root, which are born here from the graph as it is now — so a
+        #: restore never takes them from a record.
         self._typed_children: set[str] = set()
+        self._typed_roots: set[str] = set()
         typed: list[str] = []
         for node_id in compiled.execution_order():
             node = compiled.node(node_id)
@@ -214,6 +217,7 @@ class Ledger:
                     for n in range(count):
                         self._born(index.id, (n,))
                     self._sealed.add(index.id)
+                    self._typed_roots.add(index.id)
                     typed.append(index.id)
                 if not isinstance(binding, Edges):
                     continue
@@ -772,7 +776,7 @@ class Ledger:
         declared = self._cell_type(Ref(node_id, name)) if dtype is None else dtype
         try:
             return from_wire(value, declared)
-        except ValueError as invalid:
+        except (TypeError, ValueError) as invalid:
             raise ValueError(f"'{node_id}' was given a value for '{name}' that is not a {getattr(declared, '__name__', declared)}") from invalid
 
     def _answered_rows(self, node_id: str, name: str, value: Any) -> dict[Row, Any]:
@@ -786,6 +790,8 @@ class Ledger:
             raise ValueError(f"'{node_id}' runs per row, so '{name}' is answered as a series, or as rows and values")
         if len(rows) != len(values):
             raise ValueError(f"'{node_id}': '{name}' names {len(rows)} rows for {len(values)} values")
+        if len(set(rows)) != len(rows):
+            raise ValueError(f"'{node_id}': '{name}' names a row twice")
         return {row: self._answer(node_id, name, item) for row, item in zip(rows, values, strict=True)}
 
     def _inject(self, unit: Unit, outputs: dict[str, Any] | Skip) -> None:
@@ -900,10 +906,13 @@ class Ledger:
         does not fingerprint at all, or that ``compiled`` no longer has — is
         left out together with everything that reads it, so those units run
         again; the rest is restored cell for cell, each value read back
-        through the codec by its field's type.
+        through the codec by its field's type. The rows of a typed-in list
+        are never taken from the record: the graph as it is now says how
+        many values the author typed, and a fresh ledger births them.
         """
         ledger = cls(compiled)
         dropped = ledger._dropped(record.fingerprints)
+        typed = ledger._typed_roots | ledger._typed_children
         for cell in record.cells:
             ref = Ref(*cell["ref"])
             if ref.node_id in dropped:
@@ -911,19 +920,21 @@ class Ledger:
             row = None if cell["row"] is None else tuple(cell["row"])
             value = SKIPPED if "skipped" in cell else from_wire(cell["value"], ledger._cell_type(ref))
             ledger._cells.setdefault(ref, {})[row] = value
-        ledger._rows, ledger._rows_by_prefix = {}, {}
         for index_id, rows in record.rows.items():
-            if index_id in dropped:
+            if index_id in dropped or index_id in typed:
                 continue
-            ledger._rows[index_id] = set()
+            ledger._rows.setdefault(index_id, set())
             for r in rows:
                 ledger._born(index_id, tuple(r))
-        ledger._sealed = set(record.sealed) - dropped
-        ledger._no_rows_under = {
+                ledger._born_typed(index_id, tuple(r))
+        ledger._sealed |= set(record.sealed) - dropped - typed
+        for index_id in sorted(ledger._sealed):
+            ledger._seal_typed(index_id, [])
+        ledger._no_rows_under.update({
             index_id: {None if r is None else tuple(r) for r in rows}
             for index_id, rows in record.no_rows_under.items()
-            if index_id not in dropped
-        }
+            if index_id not in dropped and index_id not in typed
+        })
         for node_id, row in record.done:
             if node_id not in dropped:
                 ledger._finish((node_id, None if row is None else tuple(row)))

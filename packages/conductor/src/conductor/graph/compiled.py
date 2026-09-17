@@ -65,10 +65,11 @@ from typing import TYPE_CHECKING, Any
 from pydantic_core import to_jsonable_python
 
 from conductor.codec import to_wire
-from conductor.graph.binding import Binding
+from conductor.graph.binding import Binding, Static
 from conductor.graph.expand import authored_ref, expanded_ref
 from conductor.graph.problem import Problem
 from conductor.ref import Ref
+from conductor.series import Series
 
 if TYPE_CHECKING:
     from conductor.graph.conditions import Condition
@@ -79,11 +80,16 @@ if TYPE_CHECKING:
     from conductor.series import Index
 
 
-def _through_its_type(value: Any) -> Any:
-    """A typed value inside a static, as its own type writes it — what
-    ``CompiledNode.fingerprint`` hashes for a graph built in Python. A
-    value whose type has no JSON form raises pydantic's own error."""
-    return to_wire(value, type(value))
+def _written(value: Any, dtype: Any) -> Any:
+    """A static as its declared type writes it, for ``CompiledNode.fingerprint``:
+    each of many typed-in values through the scalar type, a series through
+    its element type, one value through its own."""
+    element = getattr(dtype, "element", None)
+    if element is not None:
+        return [to_wire(item, element) for item in (value.values if isinstance(value, Series) else value)]
+    if isinstance(value, list):
+        return [to_wire(item, dtype) for item in value]
+    return to_wire(value, dtype)
 
 
 @dataclass(frozen=True)
@@ -288,16 +294,21 @@ class CompiledNode:
         edited, a version bumped, an edge moved all change it; a title or a
         position does not."""
         node = self.graph_node
-        placed = {
-            "type": node.type,
-            "version": node.version,
-            "bindings": {name: binding.model_dump() for name, binding in node.bindings.items()},
-        }
-        # A value the author typed is JSON as a stored graph holds it; a graph
-        # built in Python may hold a typed value instead, which goes through
-        # its own type's form so the same value hashes the same either way.
-        as_json = to_jsonable_python(placed, fallback=_through_its_type)
-        return hashlib.sha256(json.dumps(as_json, sort_keys=True).encode("utf-8")).hexdigest()
+        declared = {inp.name: inp.dtype for inp in self.interface.inputs}
+        bindings: dict[str, Any] = {}
+        for name, binding in node.bindings.items():
+            if isinstance(binding, Static) and name in self.statics:
+                # The value as its type writes it, never as the author spelled
+                # it: ``2`` and ``2.0`` on a number are one value, and a graph
+                # built in Python with the typed value hashes like the stored
+                # graph with its JSON. A list is what the author typed many of.
+                # A static for an input the node no longer has is hashed as
+                # spelled, since no type reads it.
+                bindings[name] = {"static": _written(self.statics[name], declared[name])}
+            else:
+                bindings[name] = binding.model_dump()
+        placed = {"type": node.type, "version": node.version, "bindings": bindings}
+        return hashlib.sha256(json.dumps(to_jsonable_python(placed), sort_keys=True).encode("utf-8")).hexdigest()
 
     @property
     def dependencies(self) -> frozenset[str]:

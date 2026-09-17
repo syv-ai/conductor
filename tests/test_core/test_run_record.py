@@ -390,3 +390,92 @@ def test_a_unit_whose_second_output_is_invalid_writes_nothing():
         ledger.record(("s", None), {"head": Txt("h"), "parts": 3})  # a series output that is not a sequence
 
     assert ledger.cells().cells == [] and not ledger.is_done(("s", None))
+
+
+# -- the review's own cases -------------------------------------------------------------
+
+
+def test_a_typed_in_list_edited_between_legs_reruns_on_the_new_rows():
+    """The rows of a typed-in list are the graph's, never the record's: grown,
+    shrunk or added between legs, the node runs on what the author typed now."""
+    calls.clear()
+    record = _leg(_compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(value=["a", "b"])})]))[-1]["record"]
+    calls.clear()
+
+    grown = _leg(_compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(value=["a", "b", "c"])})]), record=_through_json(record))[-1]
+    assert grown["type"] == "graph_complete" and list(grown["results"]["e"]["result"]) == ["A", "B", "C"]
+    shrunk = _leg(_compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(value=["a"])})]), record=_through_json(record))[-1]
+    assert shrunk["type"] == "graph_complete" and list(shrunk["results"]["e"]["result"]) == ["A"]
+    added = _leg(_compiled([
+        GraphNode(id="e", type="upper", version=1, bindings={"text": Static(value=["a", "b"])}),
+        GraphNode(id="f", type="upper", version=1, bindings={"text": Static(value=["x", "y"])}),
+    ]), record=_through_json(record))[-1]
+    assert added["type"] == "graph_complete" and list(added["results"]["f"]["result"]) == ["X", "Y"]
+    assert "upper:a" not in calls[-2:]  # ``e`` was kept on the last leg
+
+
+def test_a_static_hashes_as_its_type_writes_it_not_as_the_author_spelled_it():
+    class Num(DType, float):
+        id = "record-test-number"
+        title = "Number"
+
+    class Half(NodeDefinition):
+        id = "half"
+        title = "Half"
+        description = "d"
+        category = "test"
+
+        def run(self, n: Annotated[Num, Textarea(title="N")] = Num(0)) -> Annotated[Num, Result(title="Out")]:
+            return Num(n / 2)
+
+    def fingerprint(value):
+        reg = NodeRegistry()
+        reg.register(Half)
+        return CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="h", type="half", version=1, bindings={"n": Static(value=value)})]), reg).node("h").fingerprint
+
+    assert fingerprint(2) == fingerprint(2.0) == fingerprint(Num(2))
+    assert fingerprint(2) != fingerprint(3)
+
+
+def test_series_outputs_of_two_lengths_fail_the_returning_node_with_invalid_output():
+    from dataclasses import dataclass
+
+    @dataclass(frozen=True)
+    class Both:
+        a: Annotated[Series[Txt], Result(title="A")]
+        b: Annotated[Series[Txt], Result(title="B")]
+
+    class Uneven(NodeDefinition):
+        id = "uneven"
+        title = "Uneven"
+        description = "d"
+        category = "test"
+
+        def run(self, text: In = Txt("")) -> Both:
+            return Both(a=[Txt("x")], b=[Txt("y"), Txt("z")])
+
+    reg = NodeRegistry()
+    reg.register(Uneven)
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="u", type="uneven", version=1, bindings={"text": Static(value="x")})]), reg)
+
+    error = next(e for e in _leg(compiled) if e["type"] == "node_error")
+
+    assert error["cause"].code == "invalid_output" and "differ in length" in error["cause"].details["reason"]
+
+
+def test_an_answer_of_the_wrong_shape_or_naming_a_row_twice_names_the_node_and_output():
+    import pytest
+    from conductor.execution.ledger import Ledger
+
+    once = _compiled([GraphNode(id="split", type="split", version=1, bindings={"text": Static(value="a,b")})])
+    with pytest.raises(ValueError, match=r"'split' was given a value for 'result'"):
+        Ledger(once).inject("split", {"result": "not a series"})
+
+    per_row = _compiled([
+        GraphNode(id="split", type="split", version=1, bindings={"text": Static(value="a,b")}),
+        GraphNode(id="ask", type="ask", version=1, bindings={"text": _edge("split")}),
+    ])
+    ledger = Ledger(per_row)
+    ledger.record(("split", None), {"result": [Txt("a"), Txt("b")]})
+    with pytest.raises(ValueError, match=r"'ask': 'result' names a row twice"):
+        ledger.inject("ask", {"result": {"rows": [[0], [0]], "values": ["x", "y"]}})
