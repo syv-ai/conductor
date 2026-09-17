@@ -129,11 +129,12 @@ def test_a_series_of_any_is_a_reduction_typed_later():
     form says so, and it is not in the vocabulary."""
     from typing import Any
 
-    from conductor.dtype import registered_dtypes
+    from conductor.registry import NodeRegistry
 
     assert Series[Any].element is Any
     assert Series[Any].describe() == {"id": "series", "of": {"id": "any"}}
-    assert Series[Any] not in registered_dtypes()
+    with pytest.raises(TypeError, match="element"):
+        NodeRegistry().add_types(Series[Any])
 
 
 # --- a parameterised series is a real type ----------------------------------
@@ -152,7 +153,7 @@ def test_a_parameterised_series_is_a_real_type():
 
 
 def test_a_series_declares_its_element_type_on_the_wire():
-    assert Series[Text].describe() == {"id": "series", "of": {"id": "series-test-text", "accepted_as": ["series-test-text"]}}
+    assert Series[Text].describe() == {"id": "series", "of": {"id": "series-test-text"}}
 
 
 def test_an_unparameterised_series_cannot_be_serialized():
@@ -166,11 +167,13 @@ def test_a_series_of_series_does_not_exist():
         Series[Series[Text]]
 
 
-def test_a_parameterised_series_does_not_re_register_its_id():
-    from conductor.dtype import registered_dtypes
-
-    assert Series in registered_dtypes()
-    assert Series[Text] not in registered_dtypes()
+def test_a_parameterised_series_is_marked_and_carries_the_series_id():
+    """Built with ``parameterises=Series``, so it keeps the base's id where any
+    other subclass would have to name itself — and neither is a word: a
+    registry files the element."""
+    assert Series[Text].id == "series"
+    assert Series[Text].parameterises is Series
+    assert Series.parameterises is None
 
 
 # --- pydantic -----------------------------------------------------------------

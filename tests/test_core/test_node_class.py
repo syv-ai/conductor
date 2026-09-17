@@ -847,8 +847,8 @@ def test_describe_dumps_as_the_palette_payload():
     assert data["versions"]["1"]["inputs"][0]["widget"] == {
         "kind": "textarea", "min_length": None, "max_length": None, "rows": 2,
     }
-    assert data["versions"]["1"]["inputs"][0]["dtype"] == {"id": "node-class-test-txt", "accepted_as": ["node-class-test-txt"]}
-    assert data["versions"]["1"]["outputs"][0]["dtype"] == {"id": "node-class-test-txt", "accepted_as": ["node-class-test-txt"]}
+    assert data["versions"]["1"]["inputs"][0]["dtype"] == {"id": "node-class-test-txt"}
+    assert data["versions"]["1"]["outputs"][0]["dtype"] == {"id": "node-class-test-txt"}
     for gone in ("base_id", "width", "is_decision", "has_dynamic_outputs", "latest_version", "deprecated"):
         assert gone not in data
 

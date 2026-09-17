@@ -159,7 +159,7 @@ conductor/
 │   │       ├── metadata.py         # Field, Input, Output records
 │   │       ├── model.py            # ConductorModel — records that save themselves
 │   │       ├── returns.py          # Result — what an author writes on a return; outputs_of / unpack
-│   │       ├── dtype.py            # DType — a value's type; accepts(); registered_dtypes()
+│   │       ├── dtype.py            # DType — a value's type; accepts(); Single; dtype_of()
 │   │       ├── series.py           # Series[X] and Index — many values of one type
 │   │       ├── ref.py              # Ref — the address "<node id>.<field>"
 │   │       ├── widgets.py          # The controls: Text, Textarea, Dropdown, …; AnyWidget
@@ -262,7 +262,7 @@ class Number(DType, float):
     title = "Number"
 ```
 
-`Text("hello")` is both a `str` and a `Text`; a pydantic model with a `Text` field gives back a `Text`. A type answers one question about edges — `target.accepts(source)`: may a value of type `source` land on an input declared as `target`? The default is `issubclass`, so a subtype is accepted wherever its parent is. A `DType` does not convert values, does not pick a widget and does not format itself beyond `as_text`. `registered_dtypes()` lists every type declared so far; `describe()` on a type is its JSON-ready record.
+`Text("hello")` is both a `str` and a `Text`; a pydantic model with a `Text` field gives back a `Text`. A type answers one question about edges — `target.accepts(source)`: may a value of type `source` land on an input declared as `target`? The default is `issubclass`, so a subtype is accepted wherever its parent is. A `DType` does not convert values, does not pick a widget and does not format itself beyond `as_text`. `describe()` on a type is its JSON-ready record, `{"id": ...}`. Declaring a type records nothing anywhere — a notebook cell can declare the same `Text` twice — and a subclass names itself: one that leaves `id` to its parent is refused at definition. Which types exist is a registry's decision (below).
 
 `Series[X]` is the one collection: many values of one type on an `Index`, which says where the rows came from. Two series align when they share an index, never by length. `Series[Series[X]]` does not exist.
 
@@ -302,19 +302,24 @@ A registered node numbers its versions from 1 with no holes; a placement pins an
 
 ### The registry
 
-`NodeRegistry` maps a node id to the class itself — one entry per id, not per version:
+`NodeRegistry` maps a node id to the class itself — one entry per id, not per version — and owns the **vocabulary**: the types its nodes declare on their inputs and outputs, plus what the host adds, each under its id:
 
 ```python
-registry.register(Greet)
+registry = NodeRegistry()
+registry.register(Greet)                   # files Greet, and Text under "text"
+registry.add_types(Number)                 # a word no node here declares
 registry.get("greet")                      # the class, or None
 registry.contains("greet")                 # True
-registry.nodes                     # every class, in registration order
+registry.nodes                             # every class, in registration order
+registry.types                             # {"text": Text, "number": Number}
+registry.accepted_as(Text)                 # ("text",) — where a Text may land, over this vocabulary
 Greet.versions[2].interface.inputs         # the Input records of version 2
 Greet.describe()                           # the palette entry, derived on demand
+registry.describe()                        # the palette: every node's record and every type's
 registry.upgrade_path("greet", 1, 2)       # the @upgrade function, or None
 ```
 
-`describe()` is the one serialisation of a node: a `NodeDescription` with its versions, fields, policy and deprecation notice, dumped through pydantic when a palette needs JSON. Nothing is stored, so a description is always derived from the live declaration.
+`describe()` is the one serialisation of a node: a `NodeDescription` with its versions, fields, policy and deprecation notice, dumped through pydantic when a palette needs JSON. Nothing is stored, so a description is always derived from the live declaration. `registry.describe()` is the palette: those records plus one `TypeDescription` per type — `id`, `title` and `accepted_as`, the ids of every type in that registry whose `accepts` admits it — so an editor reads where a value may land once per type, and a field's own record is its id. Two registries in one process may each hold a `text`; one registry refuses a second class under an id it already holds, naming both.
 
 **Auto-discovery** imports every module in a package so the registrations in them run:
 
@@ -591,7 +596,7 @@ From `1.0.0` onward, conductor follows [Semantic Versioning](https://semver.org/
 
 **Public API.** A name is part of the public API if it is exported from a package's `__init__` or documented in this README / `docs/`. Anything else — `_`-prefixed names, modules not re-exported from a public surface — is internal and may change in any release without warning. The public surface:
 
-- Top-level `conductor`: the node contract (`NodeDefinition`, `NodeVersion`, `GraphVersion`, `Policy`, `Deprecation`, `NodeDescription`, `version`, `upgrade`, `deprecated`, `Interface`, `FromRun`, `Input`, `Output`, `AnyWidget`, `SKIPPED`, `Asks`, `is_skipped`, `is_asking`), the type vocabulary (`DType`, `DTypeRef`, `Single`, `dtype_of`, `registered_dtypes`, `Series`, `Index`, `Ref`, `Result`), the registry (`NodeRegistry`), and the graph (`Graph`, `GraphNode`, `FieldContent`, `Binding`, `Edges`, `Static`, `dependencies_of`, `is_input_node`, `CompiledGraph`, `CompiledNode`, `CompiledField`, `Problem`, `Condition`, `Atom`, `ALWAYS`)
+- Top-level `conductor`: the node contract (`NodeDefinition`, `NodeVersion`, `GraphVersion`, `Policy`, `Deprecation`, `NodeDescription`, `version`, `upgrade`, `deprecated`, `Interface`, `FromRun`, `Input`, `Output`, `AnyWidget`, `SKIPPED`, `Asks`, `is_skipped`, `is_asking`), the type vocabulary (`DType`, `DTypeRef`, `Single`, `dtype_of`, `Series`, `Index`, `Ref`, `Result`), the registry (`NodeRegistry`, `RegistryDescription`, `TypeDescription`), and the graph (`Graph`, `GraphNode`, `FieldContent`, `Binding`, `Edges`, `Static`, `dependencies_of`, `is_input_node`, `CompiledGraph`, `CompiledNode`, `CompiledField`, `Problem`, `Condition`, `Atom`, `ALWAYS`)
 - `conductor.execution.engine` (`execute`, `execute_sync`, `collect`), `conductor.errors` (`ErrorCause` and the error classes), `conductor.model` (`ConductorModel`), `conductor.widgets`, `conductor.metadata`, `conductor.execution.events` (the `*Event` `TypedDict`s), `conductor.registry.discovery` (`discover_nodes`)
 - `conductor_nodes` (`registry`, `register_all`, the category modules, `conductor_nodes.types`) and `conductor_providers.react` / `conductor_providers.fastapi`
 

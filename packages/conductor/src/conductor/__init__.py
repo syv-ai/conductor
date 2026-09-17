@@ -1,5 +1,5 @@
 from conductor._sentinel import SKIPPED, Asks, is_asking, is_skipped
-from conductor.dtype import DType, Single, dtype_of, registered_dtypes
+from conductor.dtype import DType, Single, dtype_of
 from conductor.dtype_ref import DTypeRef
 from conductor.graph.binding import Binding, Edges, Static
 from conductor.graph.compiled import CompiledField, CompiledGraph, CompiledNode
@@ -22,7 +22,7 @@ from conductor.node import (
     version,
 )
 from conductor.ref import Ref
-from conductor.registry import NodeRegistry
+from conductor.registry import NodeRegistry, RegistryDescription, TypeDescription
 from conductor.returns import Result
 from conductor.series import Index, Series
 from conductor.widgets import AnyWidget
