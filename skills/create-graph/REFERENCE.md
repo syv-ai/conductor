@@ -6,14 +6,13 @@ The examples below run top to bottom in one module, on the standard nodes.
 import asyncio
 from typing import Annotated
 
-from conductor import Asks, CompiledGraph, Edges, Graph, GraphNode, Input, NodeDefinition, NodeRegistry, Ref, Result, Series, Static
+import conductor_nodes
+from conductor import Asks, CompiledGraph, Edges, Graph, GraphNode, Input, NodeDefinition, Ref, Result, Series, Static
 from conductor.execution.engine import collect, execute, execute_sync
 from conductor.widgets import Textarea
-from conductor_nodes import register_all
 from conductor_nodes.types import Text
 
-registry = NodeRegistry()
-register_all(registry, categories=["text"])
+registry = conductor_nodes.registry(categories=["text"])
 ```
 
 ## Compile
