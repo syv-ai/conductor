@@ -5,11 +5,12 @@ A unit is ``(node, row)``: a node that runs once is one unit with row
 rows, whose *index* names where the rows come from — is one unit per
 row. The loop asks the ledger (the run's record of every value produced
 so far, ``conductor.execution.ledger``) which units are ready, starts
-each under its node's concurrency limit, records what comes back and
-asks again — a unit finishing is what makes other units ready. Row 1 of
-a chain can finish before row 10 of the first node has started; a node
-that receives a whole group of rows at once (a reduction) has its unit
-ready once the whole group is.
+each under its node's concurrency limit and records what comes back; the
+ledger answers each record with the units it made ready, and the loop
+starts those — a unit finishing is what makes other units ready. Row 1
+of a chain can finish before row 10 of the first node has started; a
+node that receives a whole group of rows at once (a reduction) has its
+unit ready once the whole group is.
 
 A failed unit fails the run: the other units are cancelled and the cause,
 with the row, goes out on the event stream.
@@ -38,7 +39,7 @@ import asyncio
 import functools
 import time
 from collections.abc import AsyncGenerator, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from pydantic import ValidationError
@@ -142,13 +143,15 @@ def execute_sync(compiled: CompiledGraph, **kwargs: Any) -> dict[str, dict[str, 
 
 @dataclass
 class _UnitDone:
-    """A unit finished, so the loop should dispatch again.
+    """A unit finished, so the loop should start what it made ready.
 
     The only thing a unit's task puts on the queue besides events.
-    ``error`` is set when the unit failed, which fails the leg.
+    ``ready`` holds the units the unit's record made ready, which the loop
+    starts. ``error`` is set when the unit failed, which fails the leg.
     """
 
     unit: Unit
+    ready: list[Unit] = field(default_factory=list)
     error: NodeErrorEvent | None = None
 
 
@@ -201,7 +204,7 @@ class _Leg:
             self.started.add(node_id)
             yield NodeCompleteEvent(type="node_complete", node_id=node_id, result=outputs, cached=True)
 
-        self._dispatch()
+        self._start(self.ledger.runnable())
         while self.running:
             if self.cancel.is_set():
                 self._stop()
@@ -237,9 +240,13 @@ class _Leg:
                     cells=self.ledger.cells(),
                 )
                 return
-            self._dispatch()
+            self._start(message.ready)
 
-        # Quiescence: nothing runnable, nothing in flight.
+        # Quiescence: nothing in flight. Nothing may be runnable either; a
+        # ready unit nobody started is a wake the ledger missed.
+        missed = self.ledger.runnable()
+        if missed:
+            raise RuntimeError(f"{missed} are ready but were never started — a missed wake, an engine bug")
         pending = self.ledger.pending()
         if pending:
             yield GraphPendingEvent(
@@ -251,18 +258,17 @@ class _Leg:
             raise RuntimeError(f"nothing left to run, but {unfinished} did not complete — an engine bug")
         yield GraphCompleteEvent(type="graph_complete", results=self.ledger.results(), cells=self.ledger.cells())
 
-    def _dispatch(self) -> None:
-        """Start a task for every unit that is ready and not already running, done or waiting."""
+    def _start(self, units: list[Unit]) -> None:
+        """Start a task for each of these ready units not already running, done or waiting.
+
+        A unit two records both made ready is in both lists; the second finds it running."""
         ledger = self.ledger
-        for node_id in self.compiled.execution_order():
-            if ledger.complete(node_id):
+        for unit in units:
+            if unit in self.running or ledger.is_done(unit) or ledger.is_pending(unit):
                 continue
-            for unit in ledger.units(node_id):
-                if unit in self.running or ledger.is_done(unit) or ledger.is_pending(unit) or not ledger.ready(unit):
-                    continue
-                task = asyncio.create_task(self._run_unit(unit), name=f"unit-{unit}")
-                task.add_done_callback(functools.partial(self._settled, unit))
-                self.running[unit] = task
+            task = asyncio.create_task(self._run_unit(unit), name=f"unit-{unit}")
+            task.add_done_callback(functools.partial(self._settled, unit))
+            self.running[unit] = task
 
     def _settled(self, unit: Unit, task: asyncio.Task[None]) -> None:
         """A unit's task ended. One that raised is a defect in the engine, and
@@ -305,9 +311,9 @@ class _Leg:
             await queue.put(_UnitDone(unit, error=self._error_event(node_id, failure, row)))
             return
         if isinstance(inputs, Skip):
-            ledger.record(unit, inputs)
+            ready = ledger.record(unit, inputs)
             await self._after(unit)
-            await queue.put(_UnitDone(unit))
+            await queue.put(_UnitDone(unit, ready))
             return
 
         if node_id not in self.started:
@@ -350,9 +356,9 @@ class _Leg:
             await queue.put(_UnitDone(unit))
             return
         outputs = unpack(version.interface.returns, value, compiled.node(node_id).interface.outputs)
-        ledger.record(unit, outputs)
+        ready = ledger.record(unit, outputs)
         await self._after(unit)
-        await queue.put(_UnitDone(unit))
+        await queue.put(_UnitDone(unit, ready))
 
     def _call(self, unit: Unit, inputs: dict[str, Any]) -> Any:
         """Validate the inputs against the node's interface, then call the node.
