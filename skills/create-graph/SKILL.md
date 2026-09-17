@@ -59,7 +59,7 @@ There is no edge list. A `GraphNode` is keyword-only, and a node id may not cont
 | One call over all rows | declare the input `Series[X]` | REFERENCE.md → Rows |
 | To answer a node that asked | `execute(compiled, cells=ending["cells"], cache={node_id: answers})` | REFERENCE.md → Legs |
 | A service or the caller inside a node | `execute(compiled, from_run={Caller: caller})` | REFERENCE.md → Legs |
-| A bound on the leg | `execute(compiled, timeout_seconds=60, cancel=asyncio.Event())` | REFERENCE.md → Events |
+| A bound on the leg | `execute(compiled, timeout=60, cancel=asyncio.Event())` | REFERENCE.md → Events |
 | To save the graph | `graph.to_path("g.yaml")`, `Graph.from_path("g.yaml")` | REFERENCE.md → Saving |
 | A definition the registry lacks | `CompiledGraph.from_graph(graph, registry.extended_with({id: cls}))` | REFERENCE.md → Compile |
 | HTTP endpoints or a ReactFlow canvas | `conductor_providers.fastapi` / `conductor_providers.react` | REFERENCE.md → Providers |

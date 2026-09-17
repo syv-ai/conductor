@@ -53,14 +53,14 @@ The engine's unit of work is a node on a row. A node that runs once is one unit;
   split ──> clean (row 0, 1, 2 …) ──> summarise (row 0, 1, 2 …) ──> join (once)
 ```
 
-A `Series[X]` input is a reduction: it receives the whole series, or the rows under each parent row. A node's rows run at most `Policy.concurrency` at a time, each in a worker thread, and a run's time grows with its rows.
+A `Series[X]` input is a reduction: it receives the whole series, or the rows under each parent row. A node's rows run at most `Policy.concurrency` at a time, each in a thread from a pool the leg owns with one worker per unit that may be in flight, and a run's time grows with its rows.
 
-Retries live on the version's `Policy`, and each unit retries on its own. `NodeValidationError` is never retried. Every failure carries an `ErrorCause` (`code`, `message`, `details`, `row`) on the exception and on the event, so a host routes it by code rather than by parsing a message:
+Retries live on the version's `Policy`, and each unit retries on its own. Only the outside world's failure is retried — an `ExternalFailure` the node raises, or a foreign exception the policy's `retry_on` names; anything else runs once. `Policy.timeout` is how long the leg waits on one attempt, counted from the moment the node's thread starts: the leg owns a thread pool with one worker per unit that may be in flight, so no unit ever waits for a worker. It never interrupts the thread. A timed-out attempt is final (`NodeTimeoutError`, code `timeout`); the thread finishes on its own, keeps the node's concurrency slot until it does, and what it returns is dropped. The timeout worth retrying is the client's own, set on the client inside `run`: when the client gives up, the thread has returned and a retry runs nothing twice. A `run` that holds the GIL — a regex that never finishes, a tight loop over a huge input — blocks the whole process, and nothing in the engine can stop it. Where legs run, in the API process or in a worker of their own, is the host's decision. Every failure carries an `ErrorCause` (`code`, `message`, `details`, `row`) on the exception and on the event, so a host routes it by code rather than by parsing a message; a cause the engine writes carries the generic message for its code, a node's own keeps its message, and a foreign exception's text reaches no event:
 
 ```
 ConductorError
 ├── CompilationError
-├── NodeError (Validation, Execution, Timeout, Connection)
+├── NodeError (External, Validation, Execution, Timeout)
 ├── GraphExecutionError
 └── GraphPendingError
 ```

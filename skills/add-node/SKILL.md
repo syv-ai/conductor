@@ -83,7 +83,7 @@ One module-level `registry = NodeRegistry()` per host, with each module register
 | A parameter typed `str` or `Text` with no widget | `Annotated[Text, Textarea(title="Text")]`; the class raises `TypeError` otherwise |
 | Returning `"done"` from a node declared `-> Annotated[Text, …]` | `return Text("done")` |
 | `@version(1)` on `run_v1` and a plain `def run` beside it | mark `run` too: `@version(2)` |
-| Retrying with a loop inside `run` | put `retries` on the version's `Policy`; raise `NodeConnectionError` for a transient failure |
+| Retrying with a loop inside `run` | put `retries` on the version's `Policy`; raise `ExternalFailure` for a transient failure, or name the client's classes in `retry_on` |
 | A mode flag that changes what `run` returns | declare the outputs, or compute them in `compute_outputs` |
 | Reading `self.something` set by an earlier call | pass it in: an input, or `FromRun` |
 | Writing "flow" in a docstring or message | conductor's word is graph |

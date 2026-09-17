@@ -135,23 +135,24 @@ Every control is a frozen pydantic model with a `kind` discriminator; `AnyWidget
 
 ### Retry and timeout
 
-Retries live on the version's `Policy` (`retries`, `delay`, `timeout`, `concurrency`) and nowhere else; each unit retries on its own.
-- Delay formula: `delay * 2 ** (attempt - 1)`.
-- `NodeValidationError` is **never** retried (bad input won't fix itself); an error class or instance with `retryable = False` isn't either.
-- `NodeConnectionError` / `NodeExecutionError` / `NodeTimeoutError` are retried.
-- `Policy.timeout` wraps one attempt in `asyncio.wait_for`; expiry is `NodeTimeoutError`. `execute(timeout_seconds=...)` bounds the whole leg, and `execute(cancel=event)` stops it.
-- Each retry emits a `node_retry` event with `{row, attempt, retries, error, delay}`.
+Retries live on the version's `Policy` (`retries`, `delay`, `timeout`, `concurrency`, `retry_on`) and nowhere else; each unit retries on its own.
+- Two families. A failure is internal unless the outside world caused it. Only an `ExternalFailure` is retried: a node raises one itself, or names its client's exception classes in `Policy(retry_on=(httpx.TransportError, ...))` and the engine wraps a matching foreign exception as one (code `external_failed`). Every other exception from `run` is wrapped as `NodeExecutionError` (code `execution_failed`) and runs once; `NodeValidationError` and a timeout are never retried.
+- Delay formula: `delay * 2 ** (attempt - 1)`; each retry emits a `node_retry` event with `{row, attempt, retries, error, delay}`.
+- `Policy.timeout` is how long the leg waits on one attempt, counted from the moment the node's thread starts: the leg owns a thread pool with one worker per unit that may be in flight, so no unit ever waits for a worker. It never interrupts the thread. A timed-out attempt is final (`NodeTimeoutError`, code `timeout`); the thread finishes on its own, keeps the node's concurrency slot until it does, and what it returns is dropped. The timeout worth retrying is the client's own, set on the client inside `run`: when the client gives up, the thread has returned and a retry runs nothing twice.
+- A `run` that holds the GIL — a regex that never finishes, a tight loop over a huge input — blocks the whole process, and nothing in the engine can stop it. Where legs run, in the API process or in a worker of their own, is the host's decision.
+- `execute(timeout=None)` by default; `execute(timeout=60)` bounds the whole leg in seconds and ends it `graph_timeout`; `execute(cancel=event)` stops it with `graph_cancelled` the moment the event is set. Leaving the `async for` early — `break`, `aclose()`, a cancelled task — stops every unit.
+- What people read: a cause the engine writes carries the generic message for its code (`conductor.errors.MESSAGES`); a `NodeError` the node raised keeps the message the node chose. A foreign exception's text is on the wrapping error's `original` and on no event.
 
 ### Error hierarchy
 
 All exceptions inherit from `ConductorError` (see `errors.py`). A run-time failure carries an `ErrorCause` — `code`, `message`, `details`, `row`:
 
 - `CompilationError` — a run was started on a graph compile found not runnable; carries `problems`
-- `NodeError` — carries `node_id`, `original` and `cause`
-  - `NodeValidationError` (pydantic failure, never retried; renders one line per failed field)
-  - `NodeExecutionError` (`run` raised)
-  - `NodeTimeoutError`
-  - `NodeConnectionError` (raise from node code for transient network/API failures)
+- `NodeError` — carries `node_id`, `original` and `cause`; the internal family, never retried
+  - `ExternalFailure` (the outside world failed; the one family the engine retries — raise it from `run`, or name the client's classes in `retry_on`)
+  - `NodeValidationError` (pydantic failure; renders one line per failed field)
+  - `NodeExecutionError` (`run` raised something that is not a `NodeError`; the exception is on `original`)
+  - `NodeTimeoutError` (the leg stopped waiting; final)
 - `GraphExecutionError` — raised by `execute_sync` when the graph fails, is cancelled or times out
 - `GraphPendingError` — raised by `execute_sync` when the leg ends pending; carries `pending` and `cells`
 

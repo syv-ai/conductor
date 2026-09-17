@@ -177,7 +177,7 @@ An undecorated `run` is version 1. Once there is a second, every version is mark
 
 ```python
 from conductor import Policy, deprecated, upgrade, version
-from conductor.errors import NodeConnectionError
+from conductor.errors import ExternalFailure
 
 
 class Fetch(NodeDefinition):
@@ -196,15 +196,15 @@ class Fetch(NodeDefinition):
         try:
             return Text(f"<html>{address}</html>")
         except TimeoutError as e:
-            raise NodeConnectionError(str(e)) from e
+            raise ExternalFailure(str(e)) from e
 
     @upgrade(1, 2)
     def _rename(values: dict) -> dict:
         return {"address": values["url"]}
 ```
 
-- Retried: `NodeExecutionError`, `NodeConnectionError`, `NodeTimeoutError`, a plain exception. Never: `NodeValidationError`.
-- The delay before attempt `n` is `delay * 2 ** (n - 1)`. `timeout` bounds one attempt and does not interrupt its thread.
+- Retried: an `ExternalFailure` the node raises, or a foreign exception whose class `Policy(retry_on=(...))` names. Never: any other exception from `run` (wrapped as `NodeExecutionError`), `NodeValidationError`, a timeout.
+- The delay before attempt `n` is `delay * 2 ** (n - 1)`. `timeout` is how long the leg waits on one attempt; it never interrupts the thread, and a timed-out attempt is final. Set the timeout worth retrying on the client inside `run`.
 - `concurrency` bounds how many rows of this node run at once.
 - `NodeRegistry.register` wants versions numbered from 1 with no holes.
 
@@ -262,5 +262,5 @@ class Template(NodeDefinition):
 - [ ] `id`, `title`, `description`, `category`; the id is unique in the registry.
 - [ ] Every handle parameter has a `DType` (or `Any`) and a widget; every return a `Result`, or a record of them.
 - [ ] `run` is a plain function and returns the declared types.
-- [ ] External calls raise `NodeConnectionError`, and the version's `Policy` sets `retries`.
-- [ ] Tests: the happy path, a wrong input, a retryable failure, each output of a record, each branch.
+- [ ] External calls raise `ExternalFailure` or their client's classes are in `retry_on`, and the version's `Policy` sets `retries`.
+- [ ] Tests: the happy path, a wrong input, an external failure that retries, each output of a record, each branch.

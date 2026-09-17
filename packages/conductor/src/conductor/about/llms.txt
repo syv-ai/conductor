@@ -164,7 +164,7 @@ The engine's unit of work is a node on a row. A node that runs once is one unit;
 - **Reduction.** A `Series[X]` input on a root index receives the whole series once it is complete; on a child index, the rows under each parent row, once per parent row. Inside an embedded graph fed a series, a reduction over that series runs once per outer row.
 - **Gather.** Refs on different indexes into a `Series[X]` input collect into a fresh series; skipped sources drop out.
 - **A skip has a depth.** `SKIPPED` written at a row skips that row, and the series downstream is sparse; `SKIPPED` above a node's rows skips everything under it. A node whose every row was skipped produced an empty series; a node skipped above its rows did not run and is absent from the results.
-- **Concurrency.** A node's rows run at most `Policy.concurrency` at a time, each in a worker thread through `asyncio.to_thread`. The engine sets no limit across nodes, but those threads come from the event loop's default executor, which is bounded (`min(32, cpu + 4)` on CPython) and shared by every node.
+- **Concurrency.** A node's rows run at most `Policy.concurrency` at a time, each in a worker thread from a pool the leg owns. The pool has one worker per unit that may be in flight — the sum of the nodes' `concurrency` — so no unit ever waits for a worker; the engine sets no limit across nodes, and a host that wants one sets `concurrency` per node.
 - **Time.** A write asks readiness only of the units it concerns, so a run's time grows with its rows.
 
 ### Legs and Asking
