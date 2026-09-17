@@ -101,7 +101,7 @@ async def execute(
             ...
     """
     if not compiled.is_runnable:
-        raise CompilationError("the flow cannot run", problems=compiled.problems)
+        raise CompilationError("the graph cannot run", problems=compiled.problems)
     leg = _Leg(
         compiled,
         cells=cells,
@@ -124,8 +124,8 @@ async def collect(events: AsyncGenerator[ExecutionEvent, None]) -> dict[str, dic
         if kind == "graph_error":
             raise GraphExecutionError(event["error"], node_id=event.get("node_id"), cause=event.get("cause"))
         if kind in ("graph_cancelled", "graph_timeout"):
-            raise GraphExecutionError(f"The flow was stopped ({kind}).")
-    raise GraphExecutionError("The flow ended without a result.")
+            raise GraphExecutionError(f"The graph was stopped ({kind}).")
+    raise GraphExecutionError("The graph ended without a result.")
 
 
 def execute_sync(compiled: CompiledGraph, **kwargs: Any) -> dict[str, dict[str, Any]]:

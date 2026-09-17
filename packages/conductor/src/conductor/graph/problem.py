@@ -39,7 +39,7 @@ class Problem(ConductorModel):
     ``details`` carries the values the message names, so a host that
     translates by ``code`` has them::
 
-        Problem(code="unknown_ref_node", message="Field 'text' is connected to 'a', which is not in the flow.",
+        Problem(code="unknown_ref_node", message="Field 'text' is connected to 'a', which is not in the graph.",
                 fatal=True, node_id="b", field="text", details={"source_node": "a"})
 
     There is no graph-level problem — an empty graph is not broken, it is
@@ -85,7 +85,7 @@ class Problem(ConductorModel):
 #: these keys; a code a host's own hook raised is the host's and is not
 #: here.
 CATALOGUE: Mapping[str, tuple[str, bool]] = {
-    "cycle": ("The node is part of a cycle, so the flow cannot run.", True),
+    "cycle": ("The node is part of a cycle, so the graph cannot run.", True),
     "duplicate_field_name": ("The node has two fields named '{field}'.", True),
     "duplicate_node_id": ("Two nodes have the id '{node_id}'.", True),
     "edge_into_closed_handle": ("Field '{field}' has no handle, so nothing can be connected to it.", True),
@@ -106,7 +106,7 @@ CATALOGUE: Mapping[str, tuple[str, bool]] = {
     "unknown_locked_field": ("The lock on '{node_id}.{field}' points at a field the node does not have.", False),
     "unknown_node_type": ("Node type '{node_type}' does not exist.", True),
     "unknown_node_version": ("'{node_type}' has no version {version}.", True),
-    "unknown_ref_node": ("Field '{field}' is connected to '{source_node}', which is not in the flow.", True),
+    "unknown_ref_node": ("Field '{field}' is connected to '{source_node}', which is not in the graph.", True),
     "unknown_ref_output": ("Field '{field}' is connected to '{source}', which is not an output of that node.", True),
 }
 

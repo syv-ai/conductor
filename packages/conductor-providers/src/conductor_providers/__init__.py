@@ -21,7 +21,7 @@ consumers don't pay for it.
     palette = react.palette_from_registry(registry)
 
     from conductor_providers.fastapi import conductor_router
-    app.include_router(conductor_router(registry, prefix="/flows"))
+    app.include_router(conductor_router(registry, prefix="/conductor"))
 """
 
 from conductor_providers import react

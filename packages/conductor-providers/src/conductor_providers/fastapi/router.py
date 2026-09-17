@@ -69,8 +69,8 @@ def conductor_router(
         return [cls.describe() for cls in registry.definitions()]
 
     @router.post("/execute")
-    def execute_flow(req: ExecuteRequest, request: Request) -> dict[str, Any]:
-        """Run a flow synchronously and return the aggregated results dict."""
+    def execute_graph(req: ExecuteRequest, request: Request) -> dict[str, Any]:
+        """Run a graph synchronously and return the aggregated results dict."""
         compiled = CompiledGraph.from_graph(req.graph, registry)
         results = execute_sync(
             compiled, from_run=_from_run(request), cache=req.cache or None
@@ -78,10 +78,10 @@ def conductor_router(
         return {"results": _jsonable(results)}
 
     @router.post("/execute-stream")
-    async def execute_flow_stream(
+    async def execute_graph_stream(
         req: ExecuteRequest, request: Request
     ) -> StreamingResponse:
-        """Run a flow and stream ``ExecutionEvent``s as Server-Sent Events."""
+        """Run a graph and stream ``ExecutionEvent``s as Server-Sent Events."""
         compiled = CompiledGraph.from_graph(req.graph, registry)
         supplied = _from_run(request)
 
