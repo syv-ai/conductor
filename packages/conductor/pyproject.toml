@@ -1,7 +1,7 @@
 [project]
 name = "syv-conductor"
-version = "1.12.2"
-description = "Reusable DAG execution engine — node registration, graph compilation, eager parallel streaming execution, retry, shared references, and human-in-the-loop checkpointing."
+version = "2.0.0"
+description = "Reusable DAG execution engine — a typed node contract, graph compilation, and a streaming engine that runs a node once per row, with retries, and runs that pause for a person."
 requires-python = ">=3.12"
 authors = [{ name = "Syvai", email = "billy@syv.ai" }]
 license = "Apache-2.0"
@@ -18,11 +18,11 @@ dependencies = ["pydantic>=2.11", "pyyaml>=6.0"]
 [project.optional-dependencies]
 # Sibling-package extras — published in lockstep from this monorepo, so
 # pinned `==` to the matching version to prevent resolver skew.
-nodes = ["syv-conductor-nodes==1.12.2"]
-providers = ["syv-conductor-providers==1.12.2"]
+nodes = ["syv-conductor-nodes==2.0.0"]
+providers = ["syv-conductor-providers==2.0.0"]
 all = [
-    "syv-conductor-nodes==1.12.2",
-    "syv-conductor-providers[fastapi]==1.12.2",
+    "syv-conductor-nodes==2.0.0",
+    "syv-conductor-providers[fastapi]==2.0.0",
 ]
 
 [project.urls]
