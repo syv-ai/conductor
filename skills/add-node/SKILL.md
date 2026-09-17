@@ -74,7 +74,7 @@ registry.register(Greet)
 
 ## Where to register
 
-One module-level `registry = NodeRegistry()` per host, with each module registering the classes it defines; `discover_nodes("myapp.nodes", registry)` (`conductor.registry.discovery`) imports a package so those registrations run. The standard nodes: `conductor_nodes.registry(categories=["text", "math"])` builds a registry of them, and `conductor_nodes.register_all(registry)` adds them to one you have. Two classes under one id raise. `print(registry)` names the ids it holds.
+One module-level `registry = NodeRegistry()` per host, with each module registering the classes it defines; `discover_nodes("myapp.nodes", registry)` (`conductor.registry.discovery`) imports a package so those registrations run. The standard nodes: `conductor_nodes.registry(categories=["text", "math"])` builds a registry of them, and `conductor_nodes.register_all(registry)` adds them to one you have. Two classes under one id raise. Printed, `registry` shows each node's declaration, and a record shows only the fields not at their default.
 
 ## Common mistakes
 
