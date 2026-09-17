@@ -80,7 +80,8 @@ class Json(DType):
     def __get_pydantic_core_schema__(
         cls, source_type: Any, handler: Any
     ) -> core_schema.CoreSchema:
-        """Wrap whatever arrives; there is no builtin to validate as."""
+        """Wrap whatever arrives, since there is no builtin to validate as; dump the value it holds."""
         return core_schema.no_info_plain_validator_function(
-            lambda value: value if isinstance(value, cls) else cls(value)
+            lambda value: value if isinstance(value, cls) else cls(value),
+            serialization=core_schema.plain_serializer_function_ser_schema(lambda json: json.value),
         )
