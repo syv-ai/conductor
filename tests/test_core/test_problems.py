@@ -344,7 +344,6 @@ def test_an_any_input_with_no_edge_is_unbound_required():
     """The field's type comes from the edge, so with no edge the field is
     simply unbound — one problem, one code; there is no second code for
     an untyped field."""
-    from dataclasses import replace
     from typing import Any
 
     class Route(NodeDefinition):
@@ -358,7 +357,7 @@ def test_an_any_input_with_no_edge_is_unbound_required():
 
         def compute_outputs(self, declared, values, arriving):
             dtype = arriving.get("value", Any)
-            return tuple(replace(out, dtype=dtype) for out in declared)
+            return tuple(out.model_copy(update={"dtype": dtype}) for out in declared)
 
     registry = _registry()
     registry.register(Route)
