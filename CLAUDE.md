@@ -1,6 +1,6 @@
 # Conductor
 
-Reusable DAG execution engine extracted from production workflow builders. One node contract (a class whose typed `run` signature is its interface), a type vocabulary the host declares, graph compilation, and a streaming engine that runs a node once per row of a series.
+Reusable DAG execution engine extracted from production node editors. One node contract (a class whose typed `run` signature is its interface), a type vocabulary the host declares, graph compilation, and a streaming engine that runs a node once per row of a series.
 
 ## Repository structure
 
