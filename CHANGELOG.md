@@ -136,7 +136,10 @@ nothing is deprecated first, everything below is gone in 2.0.0.
 - **Saved and sent records are pydantic models** on `ConductorModel` (`Graph`,
   `GraphNode`, `Edges`, `Static`, `Problem`, `ErrorCause`, `Policy`,
   `NodeDescription`, `Input`, `Output`, the widgets, `Index`, …), with
-  `to_yaml` / `from_yaml` / `to_path` / `from_path` beside pydantic's JSON.
+  `to_yaml` / `from_yaml` / `to_path` / `from_path` beside pydantic's JSON. A
+  saved record reads back what it wrote; a record that describes a node
+  (`NodeDescription`, `Input`, `Output`, the widgets) is written for an editor
+  and not read back.
 - **Widgets** have a `kind` discriminator and a required `title`; `description`
   and `show_handle` on the widget belong to the field. There is no default
   widget for any type.

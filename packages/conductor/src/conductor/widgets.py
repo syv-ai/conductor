@@ -13,7 +13,8 @@ Three things written on the widget belong to the field, not the control:
 ``title``, ``description`` and ``show_handle``. They sit on the widget
 because a parameter has one annotation object; ``Interface.of`` copies
 them onto the ``Input`` and they are left out of the widget's own dump, so
-each travels once. Nothing downstream reads ``widget.title``.
+each travels once. Nothing downstream reads ``widget.title``, and a dumped
+widget is not read back into one.
 
 A widget does not decide whether an edge can reach the input:
 ``show_handle`` defaults to ``True`` on the base and no control overrides

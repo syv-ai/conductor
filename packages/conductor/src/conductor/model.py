@@ -2,11 +2,20 @@
 
 A graph a host stores, a problem it shows, an input it renders, the cause
 of a failure it reports: each crosses into JSON, so each is a frozen
-pydantic model on this one base, and reads and writes itself::
+pydantic model on this one base.
+
+What a host saves reads back what it wrote — a ``Graph`` and its parts, a
+``Problem``, an ``ErrorCause``, a ``Policy``, an ``Index``::
 
     graph = Graph.from_path("approval.yaml")
     graph.to_yaml()
     graph.model_dump_json()          # JSON is pydantic's own, not renamed
+
+What describes a node — ``NodeDescription``, ``VersionDescription``,
+``Input``, ``Output`` and the widgets — is written for an editor and not
+read back. It is built from a ``run`` signature, its type dumps as that
+type's description and a widget's title travels on its ``Input``, so
+loading the dump is refused; the class is still there to ``describe()``.
 
 What compile and the engine build on every call — ``CompiledGraph`` and
 its node and field views, a version, an interface, the ledger's records —
@@ -25,13 +34,14 @@ from pydantic import BaseModel, ConfigDict
 
 
 class ConductorModel(BaseModel):
-    """A frozen record that saves and loads itself as YAML, JSON or a file.
+    """A frozen record that writes itself as YAML, JSON or a file, and reads back what a host saves.
 
     JSON is pydantic's own ``model_dump_json`` / ``model_validate_json``.
     Beside it: ``to_yaml`` and ``from_yaml``, and ``to_path`` and
     ``from_path``, where the suffix decides — ``.json`` is JSON, ``.yaml``
     and ``.yml`` are YAML, and any other suffix, ``.JSON`` included, is
-    refused rather than guessed.
+    refused rather than guessed. A record that describes a node writes and
+    does not read back (the module docstring says why).
     """
 
     model_config = ConfigDict(frozen=True)

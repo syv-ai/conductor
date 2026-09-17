@@ -237,11 +237,13 @@ A frame carries records (a `Series`, an `ErrorCause`, an `Input`), not their JSO
 
 Every record a host saves or sends is a `ConductorModel`, a frozen pydantic model: `Graph`, `GraphNode`, `FieldContent`, `Edges`, `Static`, `Problem`, `ErrorCause`, `Policy`, `Deprecation`, `NodeDescription`, `VersionDescription`, `Input`, `Output`, every widget, `Choice`, `OperatorChoice`, `Index`.
 
+What a host saves reads back what it wrote: a `Graph` and its parts, `Problem`, `ErrorCause`, `Policy`, `Deprecation`, `Choice`, `OperatorChoice`, `Index`. What describes a node — `NodeDescription`, `VersionDescription`, `Input`, `Output` and the widgets — is written for an editor and not read back: its `dtype` dumps as the type's description and a widget's title travels on its `Input`, so loading the dump raises `ValidationError`. Call `describe()` again instead.
+
 ```python
 graph.to_path("approval.yaml")          # .json, .yaml or .yml by suffix; anything else is refused
 graph = Graph.from_path("approval.yaml")
 text = graph.to_yaml(); Graph.from_yaml(text)
-graph.model_dump_json(); Graph.model_validate_json(text)
+data = graph.model_dump_json(); Graph.model_validate_json(data)
 ```
 
 A ref stores as its address, `"node.field"`. What compile and the engine build per call — `CompiledGraph`, its views, `NodeVersion`, `GraphVersion`, `Interface` — stays a frozen dataclass. A pydantic model returned from `run` is one value, not one output per field.
