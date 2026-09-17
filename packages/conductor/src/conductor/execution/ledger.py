@@ -180,6 +180,12 @@ class Ledger:
         self._iterating_on: dict[str, list[str]] = {}
         #: Per index, the nodes running once per row of it that birth rows of their own.
         self._births_on: dict[str, list[str]] = {}
+        #: Per index, the typed-in lists whose index is its child, and how many
+        #: values each holds: inside an embedded graph that runs once per row,
+        #: the author's list is a child row under each of those rows.
+        self._typed_under: dict[str, list[tuple[str, int]]] = {}
+        #: The indexes of those typed-in lists.
+        self._typed_children: set[str] = set()
         typed: list[str] = []
         for node_id in compiled.execution_order():
             node = compiled.node(node_id)
@@ -191,10 +197,16 @@ class Ledger:
                 # A scalar input where the author typed many values holds a
                 # series on an index of the input's own, and the node runs
                 # once per value. Compile stored that index on the field
-                # (``field(ref).index``). Its rows are known before anything
-                # runs, so they are born and sealed here.
+                # (``field(ref).index``). On a root index its rows are known
+                # before anything runs, so they are born and sealed here;
+                # under a parent index they are born with each parent row.
                 if getattr(inp.dtype, "element", None) is None and index is not None and isinstance(binding, Static):
-                    for n in range(len(node.statics[inp.name])):
+                    count = len(node.statics[inp.name])
+                    if index.parent is not None:
+                        self._typed_under.setdefault(index.parent.id, []).append((index.id, count))
+                        self._typed_children.add(index.id)
+                        continue
+                    for n in range(count):
                         self._born(index.id, (n,))
                     self._sealed.add(index.id)
                     typed.append(index.id)
@@ -215,6 +227,10 @@ class Ledger:
                 self._iterating_on.setdefault(node.iterates_on.id, []).append(node_id)
                 if node_id in self._births:
                     self._births_on.setdefault(node.iterates_on.id, []).append(node_id)
+        for index_id in typed:
+            for row in sorted(self._rows.get(index_id, ())):
+                self._born_typed(index_id, row)
+            self._seal_typed(index_id, [])
         self._seal([node_id for index_id in typed for node_id in self._births_on.get(index_id, ())])
 
     # -- units ---------------------------------------------------------------
@@ -338,6 +354,8 @@ class Ledger:
             born = index.id in self._sealed
         elif len(parent_row) == index.depth:
             born = parent_row in self._rows.get(index.id, ())  # the group is the row itself, so it exists once that row is born
+        elif index.id in self._typed_children:
+            born = parent_row in self._rows.get(index.parent.id, ())  # a typed-in list's rows are born with the parent row
         else:
             born = (index.id, parent_row) in self._done
         if not born:
@@ -546,11 +564,13 @@ class Ledger:
                     self._write(ref, key, item, written)
             if births and length is None:
                 barren.append(row)
+        typed = [child for key in born for child in self._born_typed(node_id, key)]
         for at in barren:
             self._no_rows_under.setdefault(node_id, set()).add(at)
+            typed.extend(self._barren_typed(node_id, at))
         self._finish(unit)
         sealed = self._seal([node_id] if births else [])
-        return self._woken(unit, written, born, barren, sealed)
+        return self._woken(unit, written, born, barren, sealed, typed)
 
     def _write(self, ref: Ref, key: Row | None, value: Any, written: list[tuple[Ref, Row | None]]) -> None:
         """Put ``value`` in the cell, noting the cell in ``written`` when it was empty."""
@@ -569,6 +589,42 @@ class Ledger:
         for prefix in _prefixes(row[:-1]):
             by_prefix.setdefault(prefix, []).append(row)
         return True
+
+    def _born_typed(self, index_id: str, row: Row) -> list[tuple[str, Row]]:
+        """Birth, under a row just born on ``index_id``, the rows of every
+        typed-in list whose index is its child, and theirs in turn; returns
+        each ``(index, row)`` born."""
+        born: list[tuple[str, Row]] = []
+        for child, count in self._typed_under.get(index_id, ()):
+            for n in range(count):
+                if self._born(child, (*row, n)):
+                    born.append((child, (*row, n)))
+                    born.extend(self._born_typed(child, (*row, n)))
+        return born
+
+    def _barren_typed(self, index_id: str, at: Row | None) -> list[tuple[str, Row | None]]:
+        """Where ``index_id`` has no rows under ``at``, neither has a typed-in
+        list beneath it; returns each ``(index, row)`` marked."""
+        marked: list[tuple[str, Row | None]] = []
+        for child, _ in self._typed_under.get(index_id, ()):
+            self._no_rows_under.setdefault(child, set()).add(at)
+            marked.append((child, at))
+            marked.extend(self._barren_typed(child, at))
+        return marked
+
+    def _seal_typed(self, index_id: str, sealed: list[str]) -> list[str]:
+        """Seal the typed-in lists beneath a sealed index: every parent row
+        is born, so every row under them is. Returns the nodes that birth on
+        the indexes sealed, for ``_seal`` to try next."""
+        births: list[str] = []
+        for child, _ in self._typed_under.get(index_id, ()):
+            if child in self._sealed:
+                continue
+            self._sealed.add(child)
+            sealed.append(child)
+            births.extend(self._births_on.get(child, ()))
+            births.extend(self._seal_typed(child, sealed))
+        return births
 
     def _finish(self, unit: Unit) -> None:
         """Mark the unit done, and count it toward its node's rows."""
@@ -594,6 +650,7 @@ class Ledger:
             self._sealed.add(node_id)
             sealed.append(node_id)
             births.extend(self._births_on.get(node_id, ()))
+            births.extend(self._seal_typed(node_id, sealed))
         return sealed
 
     def _woken(
@@ -603,6 +660,7 @@ class Ledger:
         born: list[Row],
         barren: list[Row | None],
         sealed: list[str],
+        typed: list[tuple[str, Row | None]],
     ) -> list[Unit]:
         """The units ``unit``'s record could have made ready, that are ready.
 
@@ -611,9 +669,9 @@ class Ledger:
         indexes are sealed. So the candidates are: a scalar reader of a
         written cell, at its row and under it; a series reader whose group
         the write completed, or everything under a skip above that group;
-        the units a birth or an empty row creates; a series reader of this
-        node's index whose group is born now that this unit is done or the
-        index is sealed.
+        the units a birth or an empty row creates, on this node's index or on
+        a typed-in list beneath it; a series reader of this node's index whose
+        group is born now that this unit is done or the index is sealed.
         """
         node_id, row = unit
         woken: set[Unit] = set()
@@ -629,6 +687,8 @@ class Ledger:
             woken.update((reader, key) for reader in self._iterating_on.get(node_id, ()))
         for at in barren:
             woken.update((reader, at) for reader in self._iterating_on.get(node_id, ()))
+        for index_id, key in typed:
+            woken.update((reader, key) for reader in self._iterating_on.get(index_id, ()))
         for ref, reader, depth in self._series_readers_on.get(node_id, ()):
             for key in born:
                 if depth == len(key):

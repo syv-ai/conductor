@@ -754,6 +754,49 @@ def test_nothing_checkpoints_and_nothing_resumes():
 # --- an embedded flow runs as nodes of the one run --------------------------------
 
 
+class TypedInside(NodeDefinition):
+    """An embedded graph whose inner node pairs what enters with a list the author typed."""
+
+    id = "typed-inside"
+    title = "Indlejret"
+    description = "d"
+    category = "test"
+    versions: ClassVar[dict[int, GraphVersion]] = {
+        1: GraphVersion(
+            graph=(
+                GraphNode(id="h", type="upper", version=1),
+                GraphNode(id="t", type="pair", version=1, bindings={"a": _edge(("h", "result")), "b": Static(value=["p", "q"])}),
+                GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("t", "result"))}),
+            ),
+            interface=Interface(
+                inputs=(Input(name="h.text", dtype=Txt, title="Text", widget=Textarea(title="Text"), default=Txt(""), optional=True),),
+                outputs=(Output(name="j.result", dtype=Txt, title="Result"),),
+                returns=Mapping,
+            ),
+        )
+    }
+
+
+@pytest.mark.parametrize(("texts", "joined"), [("a,b", ["A:p+A:q", "B:p+B:q"]), ("", [])])
+def test_a_typed_in_list_inside_an_iterating_embedded_graph_is_a_child_row_under_each_outer_row(texts, joined):
+    """Once per outer row, the inner node runs once per typed value, and the
+    inner reduction gathers those under the outer row. With no outer rows
+    there are no typed rows either, and the run still completes."""
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[
+            _docs(texts),
+            GraphNode(id="emb", type="typed-inside", version=1, bindings={"h.text": _edge(("docs", "texts"))}),
+        ]),
+        _registry_with_asks(TypedInside),
+    )
+    assert compiled.node("emb/t").iterates_on.parent == Index("docs")
+
+    results = execute_sync(compiled)
+
+    assert list(results["emb/j"]["result"]) == joined
+    assert results["emb/t"]["result"].rows == tuple((i, n) for i in range(len(joined)) for n in range(2))
+
+
 def test_an_inner_reduction_over_the_entering_series_runs_once_per_outer_row():
     """Gathering end to end: three texts in, three joined texts out —
     the ledger groups by the iteration index's depth, so the fold of one is one
