@@ -36,6 +36,9 @@ HOST_WORDS = {
     "a host's access model": r"\b(owner_id|org_wide|ResourceShare|UserGroup|RunnerIdentity|RunnerAuthority|COMPLIANCE_OFFICER)\b",
     "a host's domain": r"(?i)\b(risikovurdering\w*|godkend\w*)\b",
     "Danish text": r"[æøåÆØÅ«»]",
+    # The library's record is a graph; "flow" is a host's word for one.
+    # "data flow" and "control flow" are English, not a host's.
+    "a host's word for a graph": r"(?i)(?<!data )(?<!control )\bflows?\b",
 }
 
 

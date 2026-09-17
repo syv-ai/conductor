@@ -159,4 +159,4 @@ class GraphPendingError(ConductorError):
     def __init__(self, pending: list[dict[str, Any]], cells: dict[str, Any]) -> None:
         self.pending = pending
         self.cells = cells
-        super().__init__("The flow is waiting for an answer.")
+        super().__init__("The graph is waiting for an answer.")

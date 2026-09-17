@@ -208,7 +208,7 @@ def test_a_problem_found_inside_surfaces_on_the_placement():
     assert problems[0].message.startswith("In 'Text':")
     assert problems[0].details == {
         "placement": "Text",
-        "inner_message": "Field 'value' is connected to 'ghost', which is not in the flow.",
+        "inner_message": "Field 'value' is connected to 'ghost', which is not in the graph.",
         "inner_details": {"source_node": "ghost"},
     }
     assert not any("/" in (p.node_id or "") for p in compiled.problems)

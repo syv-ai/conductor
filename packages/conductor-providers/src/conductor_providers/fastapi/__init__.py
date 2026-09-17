@@ -17,7 +17,7 @@ Usage::
     app.include_router(
         conductor_router(
             registry,
-            prefix="/api/v1/flows",
+            prefix="/api/v1/conductor",
             dependencies=[Depends(require_admin)],
         )
     )
