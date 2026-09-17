@@ -49,9 +49,9 @@ from conductor.widgets import Widget
 class FromRun:
     """Marks a parameter that the caller of the graph supplies, not the graph.
 
-    ``identity: Annotated[RunnerIdentity, FromRun()]`` says: this is not an
+    ``clock: Annotated[Clock, FromRun()]`` says: this is not an
     input — no widget, no handle, no binding — but a value the host hands
-    to ``execute(from_run={RunnerIdentity: ...})``, which the engine passes
+    to ``execute(from_run={Clock: ...})``, which the engine passes
     in by type. ``Interface.of`` collects such parameters into
     ``Interface.needs``, and ``execute`` refuses to start a graph whose
     nodes need a type it was not given.
