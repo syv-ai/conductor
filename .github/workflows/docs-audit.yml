@@ -64,7 +64,7 @@ jobs:
           `git show --stat <sha>` and `git show <sha> -- <paths>`.
 
           Then read and compare against these docs:
-              CLAUDE.md
+              AGENTS.md
               README.md
               packages/conductor/src/conductor/about/llms.txt
               docs/index.md, docs/OVERVIEW.md, docs/widgets.md

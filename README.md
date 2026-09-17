@@ -506,7 +506,7 @@ python -m conductor.about rows            # one section (prefix match)
 
 ### Keeping docs in sync
 
-- **`/docs-audit` Claude Code slash command** — run it at the end of a session that added public API or changed default behaviour. It diffs the last N commits against `CLAUDE.md`, `README.md`, `llms.txt` and `docs/index.md`, and applies edits in place. Does not commit; you review the diff.
+- **`/docs-audit` Claude Code slash command** — run it at the end of a session that added public API or changed default behaviour. It diffs the last N commits against `AGENTS.md`, `README.md`, `llms.txt` and `docs/index.md`, and applies edits in place. Does not commit; you review the diff.
 - **Weekly CI audit** — `.github/workflows/docs-audit.yml` runs the same audit every Monday and opens a PR if anything drifted. Requires `ANTHROPIC_API_KEY` as a repo secret.
 
 ### Documentation

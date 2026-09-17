@@ -99,4 +99,4 @@ The set of controls is closed: `AnyWidget` is built from the subclasses declared
 
 - [`examples/08_widgets.ipynb`](../examples/08_widgets.ipynb) — hands-on tour of every widget.
 - [`README.md`](../README.md) — the widget table.
-- [`CLAUDE.md`](../CLAUDE.md) — convention notes for agent sessions.
+- [`AGENTS.md`](../AGENTS.md) — convention notes for agent sessions.
