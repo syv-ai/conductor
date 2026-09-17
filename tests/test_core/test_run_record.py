@@ -249,3 +249,144 @@ def test_without_drops_a_node_on_purpose_with_everything_downstream():
     assert list(ending["results"]["w"]["result"]) == ["[A]", "[B]"]
     assert sorted(calls) == ["upper:a", "upper:b", "wrap:A", "wrap:B"]
     assert "up" not in record.without("up").fingerprints and "split" in record.without("up").fingerprints
+
+
+# -- what a node returns and what a person answers are checked ------------------------
+
+
+def test_a_return_of_the_wrong_type_fails_the_returning_node_with_invalid_output():
+    """``-> Text`` returning ``42`` is the node's fault, not the next node's:
+    the unit that returned it fails with ``invalid_output``, naming the
+    output, and nothing is written."""
+    calls.clear()
+
+    class Wrong(NodeDefinition):
+        id = "wrong"
+        title = "Wrong"
+        description = "d"
+        category = "test"
+
+        def run(self, text: In = Txt("")) -> Out:
+            return 42  # type: ignore[return-value]
+
+    reg = NodeRegistry()
+    for cls in (Wrong, Upper):
+        reg.register(cls)
+    compiled = CompiledGraph.from_graph(Graph(nodes=[
+        GraphNode(id="w", type="wrong", version=1, bindings={"text": Static(value="x")}),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge("w")}),
+    ]), reg)
+
+    events = _leg(compiled)
+
+    error = next(e for e in events if e["type"] == "node_error")
+    assert error["node_id"] == "w"
+    assert error["cause"].code == "invalid_output"
+    assert error["cause"].message == "The node returned a value that is not what it declared."
+    assert "result" in error["cause"].details["reason"] and "42" not in error["cause"].details["reason"]
+    assert events[-1]["type"] == "graph_error" and events[-1]["record"].cells == []
+    assert calls == []
+
+
+def test_a_misspelled_output_in_the_cache_names_the_node_and_the_output():
+    compiled = _compiled([GraphNode(id="e", type="echo", version=1, bindings={"text": Static(value="x")})])
+
+    import pytest
+
+    with pytest.raises(ValueError, match=r"'e' has no output 'reslt'"):
+        _leg(compiled, cache={"e": {"reslt": Txt("y")}})
+    with pytest.raises(ValueError, match=r"'e'.*'result'"):
+        _leg(compiled, cache={"e": {}})
+
+
+def test_an_answer_decodes_through_the_codec_by_the_outputs_type():
+    """A host may hand an answer in wire form — as it came over HTTP — or as
+    the typed value; both land as the type the output declares, and a
+    per-row answer as a series on the node's own index."""
+    calls.clear()
+    once = _compiled([
+        GraphNode(id="ask", type="ask", version=1, bindings={"text": Static(value="q")}),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge("ask")}),
+    ])
+    ending = _leg(once, cache={"ask": {"result": "typed in"}})[-1]
+    assert ending["type"] == "graph_complete" and ending["results"]["up"]["result"] == "TYPED IN"
+    assert type(ending["results"]["ask"]["result"]) is Txt
+
+    per_row = _compiled([
+        GraphNode(id="split", type="split", version=1, bindings={"text": Static(value="a,b")}),
+        GraphNode(id="ask", type="ask", version=1, bindings={"text": _edge("split")}),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge("ask")}),
+    ])
+    first = _leg(per_row)
+    second = _leg(per_row, record=first[-1]["record"], cache={"ask": {"result": {"rows": [[0], [1]], "values": ["x", "y"]}}})
+    assert list(second[-1]["results"]["up"]["result"]) == ["X", "Y"]
+
+
+def test_a_per_row_answer_that_leaves_a_row_out_of_one_output_is_refused():
+    """Two outputs answered for different rows is a half answer, not a skip."""
+    from dataclasses import dataclass
+
+    import pytest
+    from conductor.execution.ledger import Ledger
+
+    @dataclass(frozen=True)
+    class Two:
+        a: Annotated[Txt, Result(title="A")]
+        b: Annotated[Txt, Result(title="B")]
+
+    class Pair(NodeDefinition):
+        id = "pair"
+        title = "Pair"
+        description = "d"
+        category = "test"
+
+        def run(self, text: In = Txt("")) -> Two:
+            return Two(a=text, b=text)
+
+    reg = NodeRegistry()
+    for cls in (Split, Pair):
+        reg.register(cls)
+    compiled = CompiledGraph.from_graph(Graph(nodes=[
+        GraphNode(id="split", type="split", version=1, bindings={"text": Static(value="a,b")}),
+        GraphNode(id="p", type="pair", version=1, bindings={"text": _edge("split")}),
+    ]), reg)
+    ledger = Ledger(compiled)
+    ledger.record(("split", None), {"result": [Txt("a"), Txt("b")]})
+    index = compiled.field(Ref("split", "result")).index
+
+    with pytest.raises(ValueError, match=r"'p'.*'b'.*\[1\]"):
+        ledger.inject("p", {"a": Series(index, [Txt("A"), Txt("B")]), "b": Series(index, [Txt("A")], rows=[(0,)])})
+
+
+def test_a_unit_whose_second_output_is_invalid_writes_nothing():
+    """A unit's outputs are checked before any is written: the ledger holds
+    all of them or none, never a half-written row."""
+    from dataclasses import dataclass
+
+    from conductor.execution.ledger import Ledger
+
+    @dataclass(frozen=True)
+    class Both:
+        head: Annotated[Txt, Result(title="Head")]
+        parts: Annotated[Series[Txt], Result(title="Parts")]
+
+    class Splits(NodeDefinition):
+        id = "splits"
+        title = "Splits"
+        description = "d"
+        category = "test"
+
+        def run(self, text: In = Txt("")) -> Both:
+            return Both(head=Txt("h"), parts=[Txt("p")])
+
+    reg = NodeRegistry()
+    reg.register(Splits)
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="s", type="splits", version=1, bindings={"text": Static(value="x")})]), reg)
+    ledger = Ledger(compiled)
+
+    import pytest
+
+    with pytest.raises(ValueError):
+        ledger.record(("s", None), {"head": Txt("h"), "parts": 3})  # a series output that is not a sequence
+
+    assert ledger.cells().cells == [] and not ledger.is_done(("s", None))

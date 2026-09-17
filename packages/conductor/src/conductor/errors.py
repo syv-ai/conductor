@@ -83,6 +83,7 @@ CODES: frozenset[str] = frozenset({
     "external_failed",
     "failed",
     "invalid_input",
+    "invalid_output",
     "row_covered_twice",
     "timeout",
 })
@@ -98,6 +99,7 @@ MESSAGES: dict[str, str] = {
     "execution_failed": "The node failed.",
     "external_failed": "An outside service did not answer.",
     "invalid_input": "The node received a value it cannot use.",
+    "invalid_output": "The node returned a value that is not what it declared.",
     "timeout": "The node did not answer in time.",
 }
 

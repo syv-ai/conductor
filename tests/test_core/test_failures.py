@@ -263,7 +263,7 @@ def test_a_foreign_exceptions_text_is_on_original_and_nowhere_else():
 def test_the_generic_messages_cover_the_engines_own_codes():
     """``MESSAGES`` says what people read for each code the engine writes
     itself; ``failed`` is the node's own message and has no generic line."""
-    assert set(MESSAGES) == {"engine_error", "execution_failed", "external_failed", "invalid_input", "timeout"}
+    assert set(MESSAGES) == {"engine_error", "execution_failed", "external_failed", "invalid_input", "invalid_output", "timeout"}
 
 
 def test_node_error_has_no_retryable_flag():

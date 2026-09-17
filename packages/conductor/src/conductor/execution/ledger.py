@@ -71,7 +71,7 @@ a skip is not a value and has no type.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Iterator
 
@@ -548,20 +548,29 @@ class Ledger:
             if births:
                 barren.append(outputs.at)
         else:
+            # Every output is checked before any cell is written, so the
+            # ledger holds all of a unit's outputs or none of them.
+            cells: dict[Ref, Any] = {}
+            series: dict[Ref, list[Any]] = {}
             length: int | None = None
             for out in interface.outputs:
                 ref = Ref(node_id, out.name)
                 value = outputs[out.name]
                 if out.dtype.element is None or is_skipped(value):
-                    self._write(ref, row, value, written)
+                    cells[ref] = value
                     continue
-                values = list(value)
+                if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+                    raise ValueError(f"{node_id}: '{out.name}' is a series output and must be a sequence, not a {type(value).__name__}")
+                series[ref] = list(value)
                 if length is None:
-                    length = len(values)
-                elif length != len(values):
+                    length = len(series[ref])
+                elif length != len(series[ref]):
                     raise ValueError(
-                        f"{node_id}: its series outputs differ in length ({length} and {len(values)})"
+                        f"{node_id}: its series outputs differ in length ({length} and {len(series[ref])})"
                     )
+            for ref, value in cells.items():
+                self._write(ref, row, value, written)
+            for ref, values in series.items():
                 for j, item in enumerate(values):
                     key = (j,) if row is None else (*row, j)
                     if self._born(node_id, key):
@@ -712,30 +721,72 @@ class Ledger:
         if self._written(ref, group):
             woken.update(self._units_under(reader, group))
 
-    def inject(self, node_id: str, outputs: dict[str, Any]) -> None:
+    def inject(self, node_id: str, outputs: Mapping[str, Any]) -> None:
         """Record ``outputs`` as what this node produced, without running it —
         a person's answers, or an earlier run's results.
 
+        Each value is read through the codec as the type its output
+        declares, so a host may hand in the typed value or its JSON form.
         For a node that runs once, ``outputs`` is its result. For a node
-        running per row, each output is a series on the node's index, and
-        only the rows the series name are recorded: answering row ``(1,)``
-        leaves rows ``(0,)`` and ``(2,)`` as they were, done or still to run.
+        running per row, each output is a series on the node's index — a
+        ``Series``, or ``{"rows": [...], "values": [...]}`` as it came over
+        the wire — and only the rows it names are recorded: answering row
+        ``(1,)`` leaves rows ``(0,)`` and ``(2,)`` as they were, done or
+        still to run; every output answers the same rows.
 
-        A unit that is already done cannot be given a result again, and a
-        row the run has not produced yet has nothing to answer, so both raise.
+        An output the node does not have, an output left out, a unit that
+        is already done, a row the run has not produced, and a row one
+        output answers and another does not all raise, naming the node and
+        the output.
         """
-        iterate = self._compiled.node(node_id).iterates_on
+        node = self._compiled.node(node_id)
+        declared = [out.name for out in node.interface.outputs]
+        for name in outputs:
+            if name not in declared:
+                raise ValueError(f"'{node_id}' has no output '{name}'")
+        for name in declared:
+            if name not in outputs:
+                raise ValueError(f"'{node_id}' was given no value for its output '{name}'")
+        iterate = node.iterates_on
         if iterate is None:
-            self._inject((node_id, None), outputs)
+            # The node's whole output at once: a series output is answered as the series.
+            self._inject((node_id, None), {
+                name: self._answer(node_id, name, value, self._compiled.field(Ref(node_id, name)).type) for name, value in outputs.items()
+            })
             return
-        declared = self._compiled.node(node_id).interface.outputs
-        by_output = {out.name: dict(zip(outputs[out.name].rows, outputs[out.name].values, strict=True)) for out in declared}
+        by_output = {name: self._answered_rows(node_id, name, value) for name, value in outputs.items()}
         born = self._rows.get(iterate.id, set())
         for row in sorted({row for rows in by_output.values() for row in rows}):
             if row not in born:
                 raise ValueError(f"'{node_id}' has no row {list(row)} to record: the run has not produced it")
-            at_row = {name: rows.get(row, SKIPPED) for name, rows in by_output.items()}
+            for name, answered in by_output.items():
+                if row not in answered:
+                    raise ValueError(f"'{node_id}' answers '{name}' for no row {list(row)}: every output answers the same rows")
+            at_row = {name: answered[row] for name, answered in by_output.items()}
             self._inject((node_id, row), Skip(at=row) if all(is_skipped(v) for v in at_row.values()) else at_row)
+
+    def _answer(self, node_id: str, name: str, value: Any, dtype: Any | None = None) -> Any:
+        """One answered value as ``dtype`` — the cell's type unless given; ``SKIPPED`` passes."""
+        if is_skipped(value):
+            return value
+        declared = self._cell_type(Ref(node_id, name)) if dtype is None else dtype
+        try:
+            return from_wire(value, declared)
+        except ValueError as invalid:
+            raise ValueError(f"'{node_id}' was given a value for '{name}' that is not a {getattr(declared, '__name__', declared)}") from invalid
+
+    def _answered_rows(self, node_id: str, name: str, value: Any) -> dict[Row, Any]:
+        """A per-row answer as ``{row: value}``: from a ``Series``, or from
+        ``rows`` and ``values`` as they came over the wire."""
+        if isinstance(value, Series):
+            rows, values = value.rows, value.values
+        elif isinstance(value, Mapping) and {"rows", "values"} <= set(value):
+            rows, values = [tuple(row) for row in value["rows"]], value["values"]
+        else:
+            raise ValueError(f"'{node_id}' runs per row, so '{name}' is answered as a series, or as rows and values")
+        if len(rows) != len(values):
+            raise ValueError(f"'{node_id}': '{name}' names {len(rows)} rows for {len(values)} values")
+        return {row: self._answer(node_id, name, item) for row, item in zip(rows, values, strict=True)}
 
     def _inject(self, unit: Unit, outputs: dict[str, Any] | Skip) -> None:
         if unit in self._done:
