@@ -40,7 +40,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, Literal
 
-from conductor._display import node_repr, nodes_table
 from conductor.interface import Interface
 from conductor.metadata import Input, Output
 from conductor.model import ConductorModel
@@ -260,18 +259,27 @@ class NodeDescription(ConductorModel):
     current: int
 
 class _NodeMeta(ABCMeta):
-    """Gives a node class the repr of what it declares, and a table in a notebook.
+    """Gives a node class the repr of what it declares.
 
     A registry holds classes, so a class is what a person inspects: without
-    this it prints as ``<class '__main__.Greet'>``. A class that declares no
-    node (``NodeDefinition`` itself, an intermediate base) keeps the class repr.
+    this it prints as ``<class '__main__.Greet'>``. The rule is pydantic's
+    and scikit-learn's — an object prints as the call that states what it
+    is, ``Greet(id='greet', title='Greeting', category='text', versions=(1,))``,
+    with ``tags`` and ``deprecation`` only when the class has them. A class
+    that declares no node (``NodeDefinition`` itself, an intermediate base)
+    keeps the class repr.
     """
 
     def __repr__(cls) -> str:
-        return node_repr(cls) if "versions" in dir(cls) else super().__repr__()
-
-    def _repr_html_(cls) -> str | None:
-        return nodes_table((cls,)) if "versions" in dir(cls) else None
+        if "versions" not in dir(cls):
+            return super().__repr__()
+        parts = [f"id={cls.id!r}", f"title={cls.title!r}", f"category={cls.category!r}"]
+        if cls.tags:
+            parts.append(f"tags={tuple(cls.tags)!r}")
+        parts.append(f"versions={tuple(sorted(cls.versions))!r}")
+        if cls.deprecation is not None:
+            parts.append(f"deprecation={cls.deprecation!r}")
+        return f"{cls.__name__}({', '.join(parts)})"
 
 
 class NodeDefinition(ABC, metaclass=_NodeMeta):

@@ -14,7 +14,6 @@ import inspect
 from collections.abc import Mapping
 from typing import Any, Callable
 
-from conductor._display import nodes_table
 from conductor.node import NodeDefinition, NodeVersion
 
 
@@ -36,10 +35,6 @@ class NodeRegistry:
             return "NodeRegistry(nodes=())"
         lines = "".join(f"    {cls!r},\n" for cls in self._nodes.values())
         return f"NodeRegistry(nodes=(\n{lines}))"
-
-    def _repr_html_(self) -> str:
-        """In a notebook, a table of its nodes."""
-        return nodes_table(self._nodes.values())
 
     def register(self, node_cls: type[NodeDefinition]) -> None:
         if not (isinstance(node_cls, type) and issubclass(node_cls, NodeDefinition)):

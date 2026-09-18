@@ -165,7 +165,6 @@ conductor/
 │   │       ├── widgets.py          # The controls: Text, Textarea, Dropdown, …; AnyWidget
 │   │       ├── errors.py           # ErrorCause and the exception hierarchy
 │   │       ├── _sentinel.py        # SKIPPED and Asks
-│   │       ├── _display.py         # how a node and a registry print
 │   │       ├── registry/           # NodeRegistry, discover_nodes
 │   │       ├── graph/              # GraphNode/Graph, the Binding variants, CompiledGraph.from_graph() and the CompiledGraph it returns, iteration, expansion, conditions, Problem
 │   │       ├── execution/          # execute(), execute_sync(), collect(), the ledger, events
