@@ -252,7 +252,7 @@ A ref stores as its address, `"node.field"`. What compile and the engine build p
 
 `NodeDefinition.describe()` is the one serialisation of a node: a `NodeDescription` with `id`, `title`, `description`, `category`, `tags`, `docs`, `deprecation`, `current` and `versions` (each a `VersionDescription` with `inputs`, `outputs`, `policy`, `open`, `deprecation`). A palette is `[cls.describe() for cls in registry.nodes]`, dumped through pydantic.
 
-Printed, an object shows its data in constructor form, as pydantic and scikit-learn do: a node class its declaration, a registry its nodes' reprs, a record every field not at its default, a type its name. In a notebook a registry and a node class also render a table: id, title, category, versions, and the current version's inputs → outputs.
+Printed, an object shows its data in constructor form, as pydantic and scikit-learn do: a node class its declaration, a registry its nodes' reprs, a record every field not at its default, a type its name.
 
 ```python
 >>> registry
@@ -365,7 +365,7 @@ conductor_nodes.register_all(my_registry, categories=["logic"])        # added t
 packages/
 ├── conductor/src/conductor/
 │   ├── node.py, interface.py, metadata.py, returns.py, model.py
-│   ├── dtype.py, dtype_ref.py, series.py, ref.py, widgets.py, errors.py, _sentinel.py, _display.py
+│   ├── dtype.py, dtype_ref.py, series.py, ref.py, widgets.py, errors.py, _sentinel.py
 │   ├── registry/        — NodeRegistry, discovery
 │   ├── graph/           — model, binding, compiler, compiled, iteration, expand, conditions, problem, topology, views
 │   ├── execution/       — engine, ledger, events

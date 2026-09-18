@@ -2,8 +2,7 @@
 
 The rule is pydantic's and scikit-learn's. An object prints as the call
 that states what it is, leaving out what is at its default, and a
-container prints its children's own reprs. In a notebook, a node and a
-registry also render a table.
+container prints its children's own reprs.
 """
 
 from typing import Annotated
@@ -123,30 +122,3 @@ def test_a_record_prints_a_field_set_back_to_its_default_value_as_absent():
     """The repr is the data, not the history: a value equal to the default is not news."""
     assert repr(Policy(retries=0, concurrency=8)) == "Policy()"
 
-
-def test_in_a_notebook_a_node_and_a_registry_render_a_table_of_their_nodes():
-    registry = NodeRegistry()
-    registry.register(Greet)
-    registry.register(Truncate)
-
-    table = registry._repr_html_()
-    assert table.count("<tr>") == 3
-    for cell in ("greet", "Greeting", "truncate", "1, 2", "name → result", "text, limit → result"):
-        assert f"<td>{cell}</td>" in table
-
-    assert Greet._repr_html_().count("<tr>") == 2
-    assert "<td>name → result</td>" in Greet._repr_html_()
-
-
-def test_the_table_escapes_what_it_shows():
-    class Angle(NodeDefinition):
-        id = "angle"
-        title = "<b>bold</b>"
-        description = "d"
-        category = "text"
-
-        def run(self, name: Annotated[Txt, TextWidget(title="Name")]) -> Annotated[Txt, Result(title="R")]:
-            return name
-
-    assert "<b>" not in Angle._repr_html_()
-    assert "&lt;b&gt;bold&lt;/b&gt;" in Angle._repr_html_()
