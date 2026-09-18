@@ -48,7 +48,6 @@ From PyPI (Apache-2.0):
 uv add syv-conductor                # core engine — import as `conductor`
 uv add syv-conductor-nodes          # standard node library — import as `conductor_nodes`
 uv add syv-conductor-providers      # framework adapters — import as `conductor_providers`
-uv add "syv-conductor[yaml]"        # optional: YAML/JSON flow format
 ```
 
 The PyPI distribution names are prefixed with `syv-`; Python imports are unchanged.
@@ -407,7 +406,7 @@ A host that loads definitions the static registry lacks builds them and hands co
 
 ### YAML / JSON flow format
 
-`conductor.flow_format` round-trips a `Graph` to and from a dict, YAML or a file: `load_flow`, `flow_to_dict`, `yaml_to_flow`, `flow_to_yaml`, `load_flow_from_path`, `dump_flow`. The record is the schema — the module wraps `TypeAdapter(Graph)` and a ref stores as its address, `"node.field"`. Requires PyYAML (`syv-conductor[yaml]`).
+`conductor.flow_format` round-trips a `Graph` to and from a dict, YAML or a file: `load_flow`, `flow_to_dict`, `yaml_to_flow`, `flow_to_yaml`, `load_flow_from_path`, `dump_flow`. The record is the schema — the module wraps `TypeAdapter(Graph)` and a ref stores as its address, `"node.field"`.
 
 ## Widgets
 

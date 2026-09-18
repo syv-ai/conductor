@@ -18,19 +18,10 @@ they are ever parsed. A node's return declaration is not one either: a
 from __future__ import annotations
 
 from pathlib import Path
-from types import ModuleType
 from typing import Self
 
+import yaml
 from pydantic import BaseModel, ConfigDict
-
-
-def _yaml() -> ModuleType:
-    """PyYAML, which only the YAML methods need; missing, it names the extra that brings it."""
-    try:
-        import yaml
-    except ImportError as missing:
-        raise ImportError("reading or writing YAML needs PyYAML: uv add 'syv-conductor[yaml]'") from missing
-    return yaml
 
 
 class ConductorModel(BaseModel):
@@ -46,11 +37,11 @@ class ConductorModel(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     def to_yaml(self) -> str:
-        return _yaml().safe_dump(self.model_dump(mode="json"), sort_keys=False, allow_unicode=True)
+        return yaml.safe_dump(self.model_dump(mode="json"), sort_keys=False, allow_unicode=True)
 
     @classmethod
     def from_yaml(cls, text: str) -> Self:
-        return cls.model_validate(_yaml().safe_load(text))
+        return cls.model_validate(yaml.safe_load(text))
 
     def to_path(self, path: str | Path) -> None:
         path = Path(path)

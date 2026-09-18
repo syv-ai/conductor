@@ -1,7 +1,6 @@
 """What a host saves is a pydantic model, and a graph saves itself."""
 
 import dataclasses
-import sys
 
 import pytest
 from conductor.errors import ErrorCause
@@ -88,13 +87,6 @@ def test_a_node_id_with_a_dot_is_refused_however_the_node_is_built():
         GraphNode(id="a.b", type="echo", version=1)
     with pytest.raises(ValueError, match="contains '.'"):
         Graph.from_yaml("nodes:\n- {id: a.b, type: echo, version: 1}\n")
-
-
-def test_yaml_without_pyyaml_names_the_extra(monkeypatch):
-    monkeypatch.setitem(sys.modules, "yaml", None)
-
-    with pytest.raises(ImportError, match=r"syv-conductor\[yaml\]"):
-        _graph().to_yaml()
 
 
 def test_an_index_is_its_id_whatever_its_parent():

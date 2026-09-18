@@ -157,7 +157,7 @@ All exceptions inherit from `ConductorError` (see `errors.py`):
 
 ### YAML / JSON flow format (`conductor.flow_format`)
 
-The record is the schema: the module wraps `TypeAdapter(Graph)` — `load_flow` / `flow_to_dict`, and YAML/JSON files via `yaml_to_flow` / `flow_to_yaml` / `load_flow_from_path` / `dump_flow`. A ref stores as its address, `"node.field"`. Requires PyYAML (optional extra: `syv-conductor[yaml]`).
+The record is the schema: the module wraps `TypeAdapter(Graph)` — `load_flow` / `flow_to_dict`, and YAML/JSON files via `yaml_to_flow` / `flow_to_yaml` / `load_flow_from_path` / `dump_flow`. A ref stores as its address, `"node.field"`.
 
 ### Documentation maintenance
 
