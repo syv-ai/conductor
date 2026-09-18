@@ -35,19 +35,23 @@ class RunRecord(ConductorModel):
 
     ``cells`` are the ledger's cells, each ``{"ref": [node, field], "row":
     [...] or null}`` with either ``"value"`` in JSON form or ``"skipped"``
-    (the depth of the row the skip was written at). ``rows``, ``sealed``,
-    ``no_rows_under`` and ``done`` are the ledger's row bookkeeping, keyed
-    by index id. ``fingerprints`` is one hash per node of its placement in
-    the graph, ``CompiledNode.fingerprint``. ``RunRecord()`` is the record
-    of a run that has produced nothing.
+    (the depth of the row the skip was written at). The next four are the
+    ledger's row bookkeeping, keyed by index id: ``rows_by_index`` is every
+    row born on an index; ``sealed_indexes`` are the indexes that will
+    never gain a row; ``childless_parent_rows`` are, per index, the parent
+    rows under which it bore no row at all; ``done_units`` are the units
+    that ran to completion, a node and the row it ran for (``null`` for a
+    node that ran once). ``node_fingerprints`` is one hash per node of its
+    placement in the graph, ``CompiledNode.fingerprint``. ``RunRecord()``
+    is the record of a run that has produced nothing.
     """
 
     cells: list[dict[str, Any]] = Field(default_factory=list)
-    rows: dict[str, list[list[int]]] = Field(default_factory=dict)
-    sealed: list[str] = Field(default_factory=list)
-    no_rows_under: dict[str, list[list[int] | None]] = Field(default_factory=dict)
-    done: list[tuple[str, list[int] | None]] = Field(default_factory=list)
-    fingerprints: dict[str, str] = Field(default_factory=dict)
+    rows_by_index: dict[str, list[list[int]]] = Field(default_factory=dict)
+    sealed_indexes: list[str] = Field(default_factory=list)
+    childless_parent_rows: dict[str, list[list[int] | None]] = Field(default_factory=dict)
+    done_units: list[tuple[str, list[int] | None]] = Field(default_factory=list)
+    node_fingerprints: dict[str, str] = Field(default_factory=dict)
 
     def without(self, *node_ids: str) -> RunRecord:
         """This record as if these nodes had never run: a host's "run from here".
@@ -62,9 +66,9 @@ class RunRecord(ConductorModel):
 
         return self.model_copy(update={
             "cells": [cell for cell in self.cells if not gone(cell["ref"][0])],
-            "rows": {index_id: rows for index_id, rows in self.rows.items() if not gone(index_id)},
-            "sealed": [index_id for index_id in self.sealed if not gone(index_id)],
-            "no_rows_under": {index_id: rows for index_id, rows in self.no_rows_under.items() if not gone(index_id)},
-            "done": [(node_id, row) for node_id, row in self.done if not gone(node_id)],
-            "fingerprints": {node_id: fp for node_id, fp in self.fingerprints.items() if not gone(node_id)},
+            "rows_by_index": {index_id: rows for index_id, rows in self.rows_by_index.items() if not gone(index_id)},
+            "sealed_indexes": [index_id for index_id in self.sealed_indexes if not gone(index_id)],
+            "childless_parent_rows": {index_id: rows for index_id, rows in self.childless_parent_rows.items() if not gone(index_id)},
+            "done_units": [(node_id, row) for node_id, row in self.done_units if not gone(node_id)],
+            "node_fingerprints": {node_id: fingerprint for node_id, fingerprint in self.node_fingerprints.items() if not gone(node_id)},
         })
