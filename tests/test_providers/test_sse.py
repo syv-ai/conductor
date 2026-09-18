@@ -25,7 +25,7 @@ def _payload(event: dict) -> dict:
 
 def test_an_ending_dumps_its_results_and_its_record():
     lines = Series(Index("lines", parent=Index("docs")), [Text("a"), Text("b")], rows=((0, 0), (1, 0)))
-    record = RunRecord(cells=[{"ref": ["split", "result"], "row": [0], "value": "a"}], fingerprints={"split": "f" * 64})
+    record = RunRecord(cells=[{"ref": ["split", "result"], "row": [0], "value": "a"}], node_fingerprints={"split": "f" * 64})
 
     payload = _payload({"type": "graph_complete", "results": {"split": {"result": lines}}, "record": record})
 

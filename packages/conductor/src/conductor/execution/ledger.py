@@ -869,14 +869,14 @@ class Ledger:
         """
         return RunRecord(
             cells=[self._cell_wire(ref, row, value) for ref, by_row in self._cells.items() for row, value in by_row.items()],
-            rows={index_id: [list(r) for r in sorted(rows)] for index_id, rows in self._rows.items()},
-            sealed=sorted(self._sealed),
-            no_rows_under={
+            rows_by_index={index_id: [list(r) for r in sorted(rows)] for index_id, rows in self._rows.items()},
+            sealed_indexes=sorted(self._sealed),
+            childless_parent_rows={
                 index_id: [None if r is None else list(r) for r in sorted(rows, key=lambda r: () if r is None else r)]
                 for index_id, rows in self._no_rows_under.items()
             },
-            done=[(node_id, None if row is None else list(row)) for node_id, row in self._done],
-            fingerprints={node_id: self._compiled.node(node_id).fingerprint for node_id in self._compiled.execution_order()},
+            done_units=[(node_id, None if row is None else list(row)) for node_id, row in self._done],
+            node_fingerprints={node_id: self._compiled.node(node_id).fingerprint for node_id in self._compiled.execution_order()},
         )
 
     def _cell_wire(self, ref: Ref, row: Row | None, value: Any) -> dict[str, Any]:
@@ -911,7 +911,7 @@ class Ledger:
         many values the author typed, and a fresh ledger births them.
         """
         ledger = cls(compiled)
-        dropped = ledger._dropped(record.fingerprints)
+        dropped = ledger._dropped(record.node_fingerprints)
         typed = ledger._typed_roots | ledger._typed_children
         for cell in record.cells:
             ref = Ref(*cell["ref"])
@@ -920,22 +920,22 @@ class Ledger:
             row = None if cell["row"] is None else tuple(cell["row"])
             value = SKIPPED if "skipped" in cell else from_wire(cell["value"], ledger._cell_type(ref))
             ledger._cells.setdefault(ref, {})[row] = value
-        for index_id, rows in record.rows.items():
+        for index_id, rows in record.rows_by_index.items():
             if index_id in dropped or index_id in typed:
                 continue
             ledger._rows.setdefault(index_id, set())
             for r in rows:
                 ledger._born(index_id, tuple(r))
                 ledger._born_typed(index_id, tuple(r))
-        ledger._sealed |= set(record.sealed) - dropped - typed
+        ledger._sealed |= set(record.sealed_indexes) - dropped - typed
         for index_id in sorted(ledger._sealed):
             ledger._seal_typed(index_id, [])
         ledger._no_rows_under.update({
             index_id: {None if r is None else tuple(r) for r in rows}
-            for index_id, rows in record.no_rows_under.items()
+            for index_id, rows in record.childless_parent_rows.items()
             if index_id not in dropped and index_id not in typed
         })
-        for node_id, row in record.done:
+        for node_id, row in record.done_units:
             if node_id not in dropped:
                 ledger._finish((node_id, None if row is None else tuple(row)))
         return ledger

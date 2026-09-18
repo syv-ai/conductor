@@ -162,9 +162,9 @@ def test_the_record_carries_a_fingerprint_per_node():
 
     record = _leg(compiled)[-1]["record"]
 
-    assert set(record.fingerprints) == {"a", "b"}
-    assert record.fingerprints["a"] == compiled.node("a").fingerprint
-    assert all(len(fp) == 64 for fp in record.fingerprints.values())
+    assert set(record.node_fingerprints) == {"a", "b"}
+    assert record.node_fingerprints["a"] == compiled.node("a").fingerprint
+    assert all(len(fp) == 64 for fp in record.node_fingerprints.values())
 
 
 # -- a changed node runs again -------------------------------------------------------
@@ -248,7 +248,7 @@ def test_without_drops_a_node_on_purpose_with_everything_downstream():
     assert ending["type"] == "graph_complete"
     assert list(ending["results"]["w"]["result"]) == ["[A]", "[B]"]
     assert sorted(calls) == ["upper:a", "upper:b", "wrap:A", "wrap:B"]
-    assert "up" not in record.without("up").fingerprints and "split" in record.without("up").fingerprints
+    assert "up" not in record.without("up").node_fingerprints and "split" in record.without("up").node_fingerprints
 
 
 # -- what a node returns and what a person answers are checked ------------------------
