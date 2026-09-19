@@ -1,6 +1,6 @@
 """The condition under which an output appears, derived from choice and edges."""
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Annotated, Any
 
 from conductor import NodeRegistry
@@ -51,7 +51,7 @@ class Gate(NodeDefinition):
 
     def compute_outputs(self, declared, values, arriving):
         dtype = arriving.get("value", Any)
-        return tuple(replace(out, dtype=dtype) for out in declared)
+        return tuple(out.model_copy(update={"dtype": dtype}) for out in declared)
 
 
 class Holder(NodeDefinition):
@@ -89,7 +89,7 @@ class Single(NodeDefinition):
     def compute_outputs(self, declared, values, arriving):
         series = arriving.get("values")
         dtype = series.element if series is not None else Any
-        return tuple(replace(out, dtype=dtype) for out in declared)
+        return tuple(out.model_copy(update={"dtype": dtype}) for out in declared)
 
 
 class Docs(NodeDefinition):

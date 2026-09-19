@@ -441,7 +441,7 @@ class _Walk:
     def _typed(field: Any, bound: Mapping[str, Any]) -> Any:
         """``field`` with the type its edge gave it, if an edge gave one."""
         if field.name in bound:
-            return replace(field, dtype=bound[field.name])
+            return field.model_copy(update={"dtype": bound[field.name]})
         return field
 
     @staticmethod

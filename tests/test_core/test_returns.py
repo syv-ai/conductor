@@ -24,16 +24,14 @@ def test_an_output_is_a_field_and_adds_one_contract_fact():
     output = Output(name="result", dtype=Text, title="Resultat")
 
     assert isinstance(output, Field)
-    assert {f.name for f in dataclasses.fields(Output)} == {
-        f.name for f in dataclasses.fields(Field)
-    } | {"choice"}
+    assert set(Output.model_fields) == set(Field.model_fields) | {"choice"}
     assert output.choice is None
     assert Output(name="if_true", dtype=Text, title="If true", choice="branches").choice == "branches"
 
 
 def test_a_field_is_name_dtype_title_description():
     """`optional` is an `Input` fact, not a field's."""
-    assert [f.name for f in dataclasses.fields(Field)] == [
+    assert list(Field.model_fields) == [
         "name",
         "dtype",
         "title",

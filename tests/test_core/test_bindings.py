@@ -97,13 +97,13 @@ def test_a_node_stores_bindings_and_derives_data():
 
 def test_a_node_is_behaviour_content_and_chrome():
     """The three categories, and nothing from the deleted models."""
-    names = [f.name for f in dataclasses.fields(GraphNode)]
+    names = list(GraphNode.model_fields)
 
     assert names == ["id", "type", "version", "bindings", "locked", "title", "description", "fields", "display"]
 
 
 def test_a_flow_is_nodes_and_display():
-    names = [f.name for f in dataclasses.fields(Graph)]
+    names = list(Graph.model_fields)
 
     assert names == ["nodes", "display"]
 
@@ -435,11 +435,9 @@ def test_a_stale_lock_reports_on_a_connected_placement_too():
     """A dormant lock stays out of the derivation — a connected placement
     contributes no inputs — but a stale one is repairable wherever it
     sits, so it reports there as it would anywhere."""
-    import dataclasses
-
     graph = _graph(language_bindings={"value": Edges(refs=(Ref("application", "result"),))})
     graph = Graph(nodes=[
-        dataclasses.replace(node, locked=("ghost",)) if node.id == "language" else node
+        node.model_copy(update={"locked": ("ghost",)}) if node.id == "language" else node
         for node in graph.nodes
     ])
 
@@ -450,13 +448,11 @@ def test_a_stale_lock_reports_on_a_connected_placement_too():
 def test_a_column_a_node_computed_is_derivable():
     """The interface is what the node answers, and a column on no
     declaration is as real a field of the surface as one it declared."""
-    import dataclasses
-
     # `GraphNode.fields` is a `Mapping`, so the placement is *built* with the
     # authored entry.
     graph = _graph()
     graph = Graph(nodes=[
-        dataclasses.replace(node, fields={**node.fields, "name": FieldContent(title="Name")})
+        node.model_copy(update={"fields": {**node.fields, "name": FieldContent(title="Name")}})
         if node.id == "summary" else node
         for node in graph.nodes
     ])

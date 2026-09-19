@@ -14,7 +14,7 @@ Two flavors of subpackage:
   framing + compile-result plumbing.
 
 Transport subpackages declare their framework dep as an optional extra
-(e.g. ``pip install conductor-providers[fastapi]``) so frontend-only
+(e.g. ``uv add "syv-conductor-providers[fastapi]"``) so frontend-only
 consumers don't pay for it.
 
     from conductor_providers import react

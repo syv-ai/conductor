@@ -11,15 +11,14 @@ dumping a record through pydantic gives the type's ``describe()``, and a
 palette is simply these records dumped.
 """
 
-from dataclasses import dataclass
 from typing import Any
 
 from conductor.dtype_ref import DTypeRef
+from conductor.model import ConductorModel
 from conductor.widgets import AnyWidget
 
 
-@dataclass(frozen=True, kw_only=True)
-class Field:
+class Field(ConductorModel):
     """One named part of a node — an input or an output.
 
     ``name`` is what edges and bindings refer to (the ``field`` half of a
@@ -29,8 +28,6 @@ class Field:
     serialises as ``null``.
 
     Nobody constructs a bare ``Field``; a node has outputs and inputs.
-    Keyword-only so a subclass can add a required field after the defaults
-    here.
     """
 
     name: str
@@ -39,7 +36,6 @@ class Field:
     description: str | None = None
 
 
-@dataclass(frozen=True, kw_only=True)
 class Output(Field):
     """A field a node produces a value on. Adds ``choice`` to ``Field``.
 
@@ -58,7 +54,6 @@ class Output(Field):
     choice: str | None = None
 
 
-@dataclass(frozen=True, kw_only=True)
 class Input(Field):
     """A field a value is supplied to — one parameter of ``run``.
 

@@ -27,7 +27,7 @@ inner node is.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 from conductor.graph.binding import Binding, Edges
 from conductor.graph.model import GraphNode
@@ -164,7 +164,7 @@ class _Expander:
                 continue
             moved.setdefault(inner, {})[field] = binding
         return {
-            inner: replace(inner_nodes[inner], bindings={**inner_nodes[inner].bindings, **bindings})
+            inner: inner_nodes[inner].model_copy(update={"bindings": {**inner_nodes[inner].bindings, **bindings}})
             for inner, bindings in moved.items()
         }
 
@@ -178,7 +178,7 @@ class _Expander:
                 if isinstance(binding, Edges) else binding
                 for name, binding in node.bindings.items()
             }
-            self.nodes[node_id] = replace(node, bindings=reconnected)
+            self.nodes[node_id] = node.model_copy(update={"bindings": reconnected})
 
     def result(self) -> Expansion:
         return Expansion(
@@ -196,17 +196,17 @@ class _Expander:
         """``inner`` renamed under the placement: id prefixed, inner edges
         re-pointed, locks dropped (a lock hides an input from callers of the
         graph, and the placement's own locks were already read by the
-        interface)."""
-        return replace(
-            inner,
-            id=f"{placement}{SEPARATOR}{inner.id}",
-            bindings={
+        interface). Built through the constructor, so the new id is checked."""
+        return GraphNode(**{
+            **dict(inner),
+            "id": f"{placement}{SEPARATOR}{inner.id}",
+            "bindings": {
                 name: Edges(refs=tuple(Ref(f"{placement}{SEPARATOR}{ref.node_id}", ref.field) for ref in binding.refs))
                 if isinstance(binding, Edges) else binding
                 for name, binding in inner.bindings.items()
             },
-            locked=(),
-        )
+            "locked": (),
+        })
 
 
 def expanded_ref(ref: Ref, placements: frozenset[str] | set[str]) -> Ref:
@@ -243,17 +243,16 @@ def surfaced(problem: Problem, nodes: Mapping[str, GraphNode]) -> Problem:
     placement, inner = problem.node_id.split(SEPARATOR, 1)
     inner_address = inner.replace(SEPARATOR, ".")
     title = nodes[problem.node_id].title if problem.node_id in nodes else inner_address
-    return replace(
-        problem,
-        node_id=placement,
-        field=authored_ref(Ref(problem.node_id, problem.field)).field if problem.field else inner_address,
-        message=f"In '{title or inner_address}': {problem.message}",
-        details={
+    return problem.model_copy(update={
+        "node_id": placement,
+        "field": authored_ref(Ref(problem.node_id, problem.field)).field if problem.field else inner_address,
+        "message": f"In '{title or inner_address}': {problem.message}",
+        "details": {
             "placement": title or inner_address,
             "inner_message": problem.message,
             "inner_details": dict(problem.details),
         },
-    )
+    })
 
 
 def _enclosing(expanded_id: str) -> list[str]:

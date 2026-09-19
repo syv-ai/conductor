@@ -45,10 +45,9 @@ Built to be the shared core behind visual flow builders — declare a node once 
 From PyPI (Apache-2.0):
 
 ```bash
-pip install syv-conductor                # core engine — import as `conductor`
-pip install syv-conductor-nodes          # standard node library — import as `conductor_nodes`
-pip install syv-conductor-providers      # framework adapters — import as `conductor_providers`
-pip install "syv-conductor[yaml]"        # optional: YAML/JSON flow format
+uv add syv-conductor                # core engine — import as `conductor`
+uv add syv-conductor-nodes          # standard node library — import as `conductor_nodes`
+uv add syv-conductor-providers      # framework adapters — import as `conductor_providers`
 ```
 
 The PyPI distribution names are prefixed with `syv-`; Python imports are unchanged.
@@ -151,7 +150,7 @@ async for event in execute(compiled):
 ```
 conductor/
 ├── packages/
-│   ├── conductor/                  # Core library — pip install syv-conductor
+│   ├── conductor/                  # Core library — uv add syv-conductor
 │   │   └── src/conductor/
 │   │       ├── node.py             # NodeDefinition, NodeVersion, Policy, version/upgrade/deprecated, describe()
 │   │       ├── interface.py        # Interface.of(run): the signature read once; Provided; model_of
@@ -168,8 +167,8 @@ conductor/
 │   │       ├── execution/          # execute(), execute_sync(), the eager scheduler, retry, events
 │   │       ├── flow_format/        # YAML / JSON flow files
 │   │       └── about/              # Runnable library reference: python -m conductor.about
-│   ├── conductor-nodes/            # Standard node library — pip install syv-conductor-nodes
-│   └── conductor-providers/        # Framework adapters (react, fastapi) — pip install syv-conductor-providers
+│   ├── conductor-nodes/            # Standard node library — uv add syv-conductor-nodes
+│   └── conductor-providers/        # Framework adapters (react, fastapi) — uv add syv-conductor-providers
 ├── examples/                       # Jupyter notebooks
 ├── tests/                          # pytest suite (core, nodes, providers, stress)
 ├── .github/workflows/              # ci.yml (PR lint + test), docs-audit.yml (weekly)
@@ -407,7 +406,7 @@ A host that loads definitions the static registry lacks builds them and hands co
 
 ### YAML / JSON flow format
 
-`conductor.flow_format` round-trips a `Graph` to and from a dict, YAML or a file: `load_flow`, `flow_to_dict`, `yaml_to_flow`, `flow_to_yaml`, `load_flow_from_path`, `dump_flow`. The record is the schema — the module wraps `TypeAdapter(Graph)` and a ref stores as its address, `"node.field"`. Requires PyYAML (`syv-conductor[yaml]`).
+`conductor.flow_format` round-trips a `Graph` to and from a dict, YAML or a file: `load_flow`, `flow_to_dict`, `yaml_to_flow`, `flow_to_yaml`, `load_flow_from_path`, `dump_flow`. The record is the schema — the module wraps `TypeAdapter(Graph)` and a ref stores as its address, `"node.field"`.
 
 ## Widgets
 

@@ -1,7 +1,7 @@
 """A ``Graph`` to ReactFlow JSON and back.
 
 Each ReactFlow node carries the node record whole under ``data``
-(``TypeAdapter(GraphNode)`` is the schema), a ``position`` the canvas
+(``GraphNode`` is the schema), a ``position`` the canvas
 needs, and the canvas's own ``type``. The edges are derived from the
 bindings, one per ref, for the canvas to draw; reading back ignores them,
 since the bindings in ``data`` already say where every value comes from.
@@ -13,11 +13,8 @@ from typing import Any
 
 from conductor.graph.binding import Edges
 from conductor.graph.model import Graph, GraphNode
-from pydantic import TypeAdapter
 
 from conductor_providers.react.layout import topological_positions
-
-_NODE = TypeAdapter(GraphNode)
 
 
 def graph_to_react(graph: Graph) -> dict[str, Any]:
@@ -32,7 +29,7 @@ def graph_to_react(graph: Graph) -> dict[str, Any]:
             "id": node.id,
             "type": node.type,
             "position": node.display.get("position", auto[node.id]),
-            "data": _NODE.dump_python(node, mode="json", exclude={"display"}),
+            "data": node.model_dump(mode="json", exclude={"display"}),
         }
         for node in graph.nodes
     ]
@@ -61,6 +58,6 @@ def react_to_graph(wire: dict[str, Any]) -> Graph:
     the round trip.
     """
     return Graph(nodes=[
-        _NODE.validate_python({**raw["data"], "display": {"position": raw["position"]}})
+        GraphNode.model_validate({**raw["data"], "display": {"position": raw["position"]}})
         for raw in wire["nodes"]
     ])

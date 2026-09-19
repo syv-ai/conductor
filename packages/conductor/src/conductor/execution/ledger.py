@@ -68,7 +68,7 @@ next.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Any, Iterator
 
 from conductor._sentinel import SKIPPED, is_skipped
@@ -672,7 +672,7 @@ class Ledger:
         """Park this unit: its node returned ``Asks``. It and everything that
         reads it wait; the questions are re-keyed by address (``node.field``)."""
         node_id, _ = unit
-        self._pending[unit] = (prompt, tuple(replace(q, name=Ref(node_id, q.name)) for q in questions))
+        self._pending[unit] = (prompt, tuple(q.model_copy(update={"name": Ref(node_id, q.name)}) for q in questions))
 
     def is_pending(self, unit: Unit) -> bool:
         return unit in self._pending

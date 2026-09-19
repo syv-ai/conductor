@@ -29,7 +29,6 @@ field and is opened one level at a time by a node.
 from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 from uuid import uuid4
 
@@ -37,6 +36,7 @@ from pydantic_core import core_schema
 
 from conductor.dtype import DType
 from conductor.dtype_ref import description_of
+from conductor.model import ConductorModel
 
 #: The element type, for the ``Sequence`` protocol: ``Series[Text]`` yields ``Text``.
 T = TypeVar("T")
@@ -48,8 +48,7 @@ if TYPE_CHECKING:
 #: ``(i, j)`` for the j-th row born under parent row ``(i,)``.
 Row = tuple[int, ...]
 
-@dataclass(frozen=True, slots=True, eq=False)
-class Index:
+class Index(ConductorModel):
     """Where a series' rows come from — the identity two series must share to align.
 
     An index is an ``id`` and, for a child index, the ``parent`` it was
@@ -68,7 +67,11 @@ class Index:
 
     id: str
     #: The index this one was unfolded from, or ``None`` for a root.
-    parent: "Index | None" = None
+    parent: Index | None = None
+
+    def __init__(self, id: str, parent: Index | None = None) -> None:
+        """Positional, as an index reads: ``Index("lines", parent=docs)``."""
+        super().__init__(id=id, parent=parent)
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, Index) and other.id == self.id
@@ -254,16 +257,9 @@ class Series(DType, Sequence[T]):
         tell which series share one and which rows belong to which parent.
         """
         return {
-            "index": Series._index_as_wire(self.index),
-            "rows": [list(row) for row in self.rows],
+            "index": self.index.model_dump(),
+            "rows": self.rows,
             "values": list(self.values),
-        }
-
-    @staticmethod
-    def _index_as_wire(index: Index) -> dict[str, Any]:
-        return {
-            "id": index.id,
-            "parent": None if index.parent is None else Series._index_as_wire(index.parent),
         }
 
     #: The JSON schema of an index. ``parent`` has this same shape, as deep

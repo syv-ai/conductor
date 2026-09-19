@@ -15,7 +15,6 @@ surface being rebuilt.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from conductor.graph.binding import Edges
@@ -113,5 +112,5 @@ def _placed(node: GraphNode, declared):
     """``declared`` under its address, with the title the author gave it on this node where there is one."""
     content = node.fields.get(declared.name)
     if content is None:
-        return replace(declared, name=Ref(node.id, declared.name))
-    return replace(declared, name=Ref(node.id, declared.name), title=content.title, description=content.description)
+        return declared.model_copy(update={"name": Ref(node.id, declared.name)})
+    return declared.model_copy(update={"name": Ref(node.id, declared.name), "title": content.title, "description": content.description})

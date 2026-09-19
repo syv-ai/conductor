@@ -23,13 +23,15 @@ directly where they arise, with the host's own text.
 
 from __future__ import annotations
 
-import dataclasses
 from collections.abc import Mapping
 from typing import Any
 
+from pydantic import Field
 
-@dataclasses.dataclass(frozen=True, slots=True)
-class Problem:
+from conductor.model import ConductorModel
+
+
+class Problem(ConductorModel):
     """One thing wrong with a graph.
 
     Every problem is about a node, so ``node_id`` is required; ``field``
@@ -70,9 +72,8 @@ class Problem:
     field: str | None = None
 
     #: What the message was formatted from, under stable keys. Empty when
-    #: the message names nothing beyond the anchor. (``dataclasses.field``
-    #: by its module name: this record's own ``field`` shadows it here.)
-    details: Mapping[str, Any] = dataclasses.field(default_factory=dict)
+    #: the message names nothing beyond the anchor.
+    details: Mapping[str, Any] = Field(default_factory=dict)
 
 
 #: Every code compile itself emits: its message, with ``{node_id}``,

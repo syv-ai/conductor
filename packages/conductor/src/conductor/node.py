@@ -42,6 +42,7 @@ from typing import TYPE_CHECKING, Any, Callable, ClassVar, Literal
 
 from conductor.interface import Interface
 from conductor.metadata import Input, Output
+from conductor.model import ConductorModel
 
 if TYPE_CHECKING:
     from conductor.dtype import DType
@@ -60,8 +61,7 @@ class Refuses(Exception):
         self.message = message
         super().__init__(message)
 
-@dataclass(frozen=True, kw_only=True)
-class Deprecation:
+class Deprecation(ConductorModel):
     """A notice that a node, or one of its versions, is going away.
 
     Every part is optional prose. ``alternative`` is the id of the node to
@@ -110,8 +110,7 @@ def deprecated(
 
     return decorate
 
-@dataclass(frozen=True)
-class Policy:
+class Policy(ConductorModel):
     """How the engine runs one version of a node: retries, timeout, concurrency.
 
     Written by the node author on the version, ``@version(2, policy=Policy(retries=3))``,
@@ -220,8 +219,7 @@ def upgrade(
     return decorate
 
 
-@dataclass(frozen=True, kw_only=True)
-class VersionDescription:
+class VersionDescription(ConductorModel):
     """One version as a palette reads it: its fields, its policy, whether its
     inputs are open (and in which shape) and its deprecation notice.
 
@@ -238,8 +236,7 @@ class VersionDescription:
     deprecation: Deprecation | None
 
 
-@dataclass(frozen=True, kw_only=True)
-class NodeDescription:
+class NodeDescription(ConductorModel):
     """A node definition as a record — the palette entry.
 
     Built by ``NodeDefinition.describe()`` from the class, on demand, and

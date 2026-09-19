@@ -186,7 +186,7 @@ Per-node `compensation:` field pointing at another node. When a flow fails, the 
 `signal-wait` / `signal-timer` nodes raise `SignalRequired(name, correlation=..., timeout_seconds=...)` to pause the flow. Engine checkpoints `(signal_name, correlation, signal_timeout_seconds)` and yields `signal_waiting` + `flow_paused` events. Host resumes with `resume_sync(compiled, checkpoint, payload)`.
 
 ### YAML / JSON Flow Format
-`conductor.flow_format` module converts `Flow` ↔ YAML/JSON. `load_flow(dict)`, `yaml_to_flow(str)`, `load_flow_from_path(path)`, `flow_to_yaml(flow)`, `flow_to_dict(flow)`, `dump_flow(flow, path)`. Requires PyYAML at call time (optional extra: `conductor[yaml]`).
+`conductor.flow_format` module converts `Flow` ↔ YAML/JSON. `load_flow(dict)`, `yaml_to_flow(str)`, `load_flow_from_path(path)`, `flow_to_yaml(flow)`, `flow_to_dict(flow)`, `dump_flow(flow, path)`. PyYAML is a dependency of the core.
 
 ### Type Checking
 Compile-time validation of edge type compatibility:
@@ -426,7 +426,7 @@ Dict output: `{"result": dict, **dict}` (keys spread for sub-output access)
 
 Three workspace packages ship today. PyPI distribution names are prefixed with `syv-` (Apache-2.0); Python import paths are unchanged.
 
-1. **`conductor`** (dist: `syv-conductor`) — the core engine. All compile/execute/registry/widget types. Optional extra: `syv-conductor[yaml]` for the YAML/JSON flow format.
+1. **`conductor`** (dist: `syv-conductor`) — the core engine. All compile/execute/registry/widget types.
 2. **`conductor-nodes`** (dist: `syv-conductor-nodes`) — reusable standard-library nodes.
 3. **`conductor-providers`** (dist: `syv-conductor-providers`) — framework adapters; ships React and FastAPI providers today.
 
@@ -543,4 +543,4 @@ Or programmatically:
 from conductor.about import get_content, list_sections, get_section
 ```
 
-The wheel bundles this file as `conductor/about/llms.txt`, so downstream projects that `pip install syv-conductor` can read the reference without cloning the repository.
+The wheel bundles this file as `conductor/about/llms.txt`, so downstream projects that install `syv-conductor` can read the reference without cloning the repository.
