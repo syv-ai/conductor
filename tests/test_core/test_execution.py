@@ -79,11 +79,45 @@ def three_node_registry(registry):
     return registry
 
 
+class Slow(NodeDefinition):
+    id = "slow"
+    title = "Slow"
+    description = "Sleeps 0.3s, then uppercases"
+    category = "test"
+
+    def run(self, text: Annotated[Txt, Textarea(title="Input")]) -> Out:
+        time.sleep(0.3)
+        return Txt(text.upper())
+
+
 # ---------------------------------------------------------------------------
 # Streaming execution
 # ---------------------------------------------------------------------------
 
 class TestStreamingExecution:
+    def test_independent_branches_run_in_parallel(self, registry):
+        """Two independent branches overlap instead of running one after the other."""
+        # A(0.3s) -> C(0.3s) --+
+        #                      +--> E
+        # B(0.3s) -> D(0.3s) --+
+        registry.register(Slow)
+        registry.register(Combine)
+        compiled = CompiledGraph.from_graph(Graph(nodes=[
+            GraphNode(id="a", type="slow", version=1, bindings={"text": Static(value="hello")}),
+            GraphNode(id="b", type="slow", version=1, bindings={"text": Static(value="world")}),
+            GraphNode(id="c", type="slow", version=1, bindings={"text": Edges(refs=(Ref("a", "result"),))}),
+            GraphNode(id="d", type="slow", version=1, bindings={"text": Edges(refs=(Ref("b", "result"),))}),
+            GraphNode(id="e", type="combine", version=1, bindings={"a": Edges(refs=(Ref("c", "result"),)), "b": Edges(refs=(Ref("d", "result"),))}),
+        ]), registry)
+
+        start = time.monotonic()
+        results = execute_sync(compiled)
+        elapsed = time.monotonic() - start
+
+        # Sequential would be 5 * 0.3 = 1.5s; eager is A+B, C+D, E = ~0.9s.
+        assert elapsed < 1.3, f"Took {elapsed:.2f}s — branches should run in parallel"
+        assert results["e"]["result"] == "HELLO WORLD"
+
     async def test_linear_chain_events(self, three_node_registry):
         """echo -> upper should produce start/complete events for each node."""
         compiled = CompiledGraph.from_graph(Graph(nodes=[
@@ -214,7 +248,7 @@ class TestTimeout:
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="slow", version=1, bindings={"text": Static(value="hello")})]), registry)
 
         events = []
-        async for event in execute(compiled, timeout_seconds=1):
+        async for event in execute(compiled, timeout=1):
             events.append(event)
 
         event_types = [e["type"] for e in events]

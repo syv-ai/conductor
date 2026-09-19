@@ -97,7 +97,7 @@ class Greet(NodeDefinition):
         return {**values, "first": first, "last": last}
 ```
 
-- `Policy(retries=0, delay=1.0, timeout=None, concurrency=8)` — how the engine runs this version. `concurrency` bounds how many rows run at once.
+- `Policy(retries=0, delay=1.0, timeout=None, concurrency=8, retry_on=())` — how the engine runs this version. `concurrency` bounds how many rows run at once; `retry_on` names the client exception classes that mean the outside world failed. Bounds: `retries >= 0`, `delay >= 0`, `timeout > 0` or `None`, `concurrency >= 1`.
 - `@upgrade(a, b)` rewrites values saved against version `a` into what `b` expects; the class collects them into `cls.upgrades`, and `registry.upgrade_path(node_id, a, b)` returns one.
 - `@deprecated(header=..., description=..., alternative=..., migration=...)` (all keyword, all optional) on the class retires the node; on a version method, that version.
 - `NodeRegistry.register(cls)` requires versions numbered from 1 with no holes and an `alternative` that exists.
@@ -164,7 +164,7 @@ The engine's unit of work is a node on a row. A node that runs once is one unit;
 - **Reduction.** A `Series[X]` input on a root index receives the whole series once it is complete; on a child index, the rows under each parent row, once per parent row. Inside an embedded graph fed a series, a reduction over that series runs once per outer row.
 - **Gather.** Refs on different indexes into a `Series[X]` input collect into a fresh series; skipped sources drop out.
 - **A skip has a depth.** `SKIPPED` written at a row skips that row, and the series downstream is sparse; `SKIPPED` above a node's rows skips everything under it. A node whose every row was skipped produced an empty series; a node skipped above its rows did not run and is absent from the results.
-- **Concurrency.** A node's rows run at most `Policy.concurrency` at a time, each in a worker thread through `asyncio.to_thread`. The engine sets no limit across nodes, but those threads come from the event loop's default executor, which is bounded (`min(32, cpu + 4)` on CPython) and shared by every node.
+- **Concurrency.** A node's rows run at most `Policy.concurrency` at a time, each in a worker thread from a pool the leg owns. The pool has one worker per unit that may be in flight — the sum of the nodes' `concurrency` — so no unit ever waits for a worker; the engine sets no limit across nodes, and a host that wants one sets `concurrency` per node.
 - **Time.** A write asks readiness only of the units it concerns, so a run's time grows with its rows.
 
 ### Legs and Asking
@@ -190,10 +190,12 @@ Values the run supplies arrive by type: a parameter annotated `Annotated[T, From
 
 Retries live on the version's `Policy` and nowhere else; each unit retries on its own.
 
-- A failure is retried when its error is `retryable` (`NodeExecutionError`, `NodeConnectionError`, `NodeTimeoutError` and a plain exception from `run` are; `NodeValidationError` never is) and attempts remain.
+- Two families. A failure is internal — a bug, bad data, a refused schema — unless the outside world caused it. Only an `ExternalFailure` is retried: a node raises one itself, or names its client's exception classes in `Policy(retry_on=(httpx.TransportError, ...))` and the engine wraps a matching foreign exception as one (code `external_failed`). Every other exception from `run` is wrapped as `NodeExecutionError` (code `execution_failed`) and runs once; `NodeValidationError` and a timeout are never retried either.
 - The delay before attempt `n` is `delay * 2 ** (n - 1)`; each retry emits `node_retry` with `row`, `attempt`, `retries`, `error` and `delay`.
-- `Policy.timeout` bounds one attempt; expiry is `NodeTimeoutError`.
-- `execute(timeout_seconds=300)` bounds the leg and ends it `graph_timeout`; `execute(cancel=asyncio.Event())` stops it with `graph_cancelled` when set.
+- `Policy.timeout` bounds one attempt; expiry is `NodeTimeoutError` (code `timeout`) and is final.
+- What people read: a cause the engine writes carries the generic message for its code (`conductor.errors.MESSAGES`); a `NodeError` the node raised keeps the message the node chose. A foreign exception's text is on the wrapping error's `original` and on no event.
+- `Policy.timeout` counts only the time the node's thread ran: the leg owns a thread pool with one worker per unit that may be in flight, so no unit waits for a worker. The thread is never interrupted; a timed-out attempt is final and its thread keeps the node's concurrency slot until it returns.
+- `execute(timeout=None)` by default: the leg runs until it is quiet. `execute(timeout=60)` bounds the leg in seconds and ends it `graph_timeout`; `execute(cancel=asyncio.Event())` stops it with `graph_cancelled` the moment the event is set. Closing the stream — `aclose()`, or cancelling the task that reads it — stops every unit; a bare `break` leaves the generator open until it is closed or collected, so close it.
 
 ### Errors
 
@@ -202,11 +204,11 @@ A run-time failure carries an `ErrorCause(code, message, details, row)` — on t
 ```
 ConductorError
 ├── CompilationError        execute was asked to run a graph compile found not runnable; carries problems
-├── NodeError               one node failed; node_id, original, cause, retryable
-│   ├── NodeValidationError     the inputs were wrong (never retried)
-│   ├── NodeExecutionError      run raised
-│   ├── NodeTimeoutError        the policy's timeout expired
-│   └── NodeConnectionError     an external call failed (retried)
+├── NodeError               one node failed; node_id, original, cause. Internal: never retried
+│   ├── ExternalFailure         the outside world failed; the one family the engine retries
+│   ├── NodeValidationError     the inputs were wrong
+│   ├── NodeExecutionError      run raised something that is not a NodeError
+│   └── NodeTimeoutError        the policy's timeout expired; final
 ├── GraphExecutionError     execute_sync: the graph failed, was cancelled or timed out
 └── GraphPendingError       execute_sync: the leg ended pending; carries pending and cells
 ```
@@ -279,13 +281,13 @@ Everything else is imported from the module that defines it.
 
 ### conductor.execution.engine
 
-- `execute(compiled, *, timeout_seconds=300, from_run=None, cache=None, cells=None, cancel=None)` — one leg, as an async generator of events.
+- `execute(compiled, *, cells=None, cache=None, from_run=None, timeout=None, cancel=None)` — one leg, as an async generator of events; `timeout` bounds the leg in seconds, `None` means no bound.
 - `collect(events)` — drain a stream; return the results, or raise `GraphPendingError` / `GraphExecutionError` for the ending that stopped it.
 - `execute_sync(compiled, **kwargs)` — `collect(execute(...))` under `asyncio.run`, for scripts and tests.
 
 ### conductor.errors
 
-`ErrorCause`, `CODES`, `ConductorError`, `CompilationError`, `NodeError`, `NodeValidationError`, `NodeExecutionError`, `NodeTimeoutError`, `NodeConnectionError`, `GraphExecutionError`, `GraphPendingError`.
+`ErrorCause`, `CODES`, `MESSAGES`, `ConductorError`, `CompilationError`, `NodeError`, `ExternalFailure`, `NodeValidationError`, `NodeExecutionError`, `NodeTimeoutError`, `GraphExecutionError`, `GraphPendingError`.
 
 ### conductor.model
 

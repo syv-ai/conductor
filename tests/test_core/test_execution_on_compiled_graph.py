@@ -78,9 +78,9 @@ class Flaky(NodeDefinition):
     def run(self, text: Annotated[Txt, Textarea(title="Text")] = Txt("")) -> Out:
         Flaky.calls += 1
         if Flaky.calls < 3:
-            from conductor.errors import NodeExecutionError
+            from conductor.errors import ExternalFailure
 
-            raise NodeExecutionError("not yet")
+            raise ExternalFailure("not yet")
         return text
 
 
