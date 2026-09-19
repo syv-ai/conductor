@@ -74,7 +74,7 @@ class Asks:
     The engine is the only reader: ``is_asking`` on the returned value
     parks the unit — one run of one node, on one row when the node runs
     per row — through ``Ledger.pend``, and the leg ends ``graph_pending``
-    once nothing else can run; ``run`` returns that ending like any other.
+    once nothing else can run; ``conductor.run`` returns that ending like any other.
     Its sibling is ``SKIPPED``, the other value that
     is not a result. A ``run`` that may ask says so only in its return
     annotation, ``-> X | Asks``.

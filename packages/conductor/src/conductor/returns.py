@@ -46,7 +46,7 @@ from typing import Annotated, Any, Union, get_args, get_origin, get_type_hints
 from conductor._sentinel import Asks, is_skipped
 from conductor.codec import from_wire
 from conductor.dtype import DType, dtype_of
-from conductor.metadata import Output, Result
+from conductor.metadata import Output, Param, Result
 from conductor.series import Series
 
 RESULT_KEY = "result"
@@ -70,6 +70,8 @@ def outputs_of(return_hint: Any) -> tuple[Any, tuple[Output, ...]]:
         members = tuple(member for member in get_args(return_hint) if member is not Asks)
         if len(members) == 1 and Asks in get_args(return_hint):
             return outputs_of(members[0])
+    if Param.on(return_hint) is not None:
+        raise TypeError("the return carries a Param; a return carries a Result, and Param belongs on a parameter")
     declared = get_args(return_hint)[0] if get_origin(return_hint) is Annotated else return_hint
     dtype = dtype_of(declared)
     if dtype is not None:
@@ -83,6 +85,8 @@ def outputs_of(return_hint: Any) -> tuple[Any, tuple[Output, ...]]:
         for field in fields(declared):
             hint = hints[field.name]
             field_dtype, result = dtype_of(hint), Result.on(hint)
+            if Param.on(hint) is not None:
+                raise TypeError(f"{declared.__name__}.{field.name} carries a Param; a record's field carries a Result")
             if field_dtype is None or result is None:
                 raise TypeError(
                     f"{declared.__name__}.{field.name} must be Annotated[DType, Result(title=...)] — got {hint!r}"

@@ -62,7 +62,7 @@ registry.register(Greet)
 |---|---|---|
 | Its own value types | `class Text(DType, str): id = "text"; title = "Text"`, once per host | REFERENCE.md → Types |
 | Several outputs | a frozen dataclass of `Annotated[X, Result(...)]` fields as the return type | REFERENCE.md → Outputs |
-| A whole list at once | a `Series[X]` parameter with `Param(title=...)` alone (an edge fills it) or with `widget=List()` | REFERENCE.md → Series |
+| A whole list at once | a `Series[X]` parameter with `Param(title=...)` alone (an edge fills it) or with `widget=ListWidget()` | REFERENCE.md → Series |
 | To run once per item | nothing: a series on a scalar input iterates the node | create-graph |
 | A branch | return `SKIPPED` on the output not taken; share a `choice` | REFERENCE.md → Branching |
 | A person's answer | `-> X \| Asks`, and return `Asks(questions=(Input(...),))` | REFERENCE.md → Asking |
@@ -80,7 +80,7 @@ One module-level `registry = NodeRegistry()` per host, with each module register
 
 | Mistake | Fix |
 |---|---|
-| A parameter typed `str` or `Text` with no widget | `Annotated[Text, Param(title="Text", widget=Textarea())]`; the class raises `TypeError` otherwise |
+| A parameter typed `str` with a handle, or a widget written bare in `Annotated` | `Annotated[Text, Param(title="Text", widget=Textarea())]`; a handle needs a `DType`, and the widget goes on the `Param` |
 | Returning `"done"` from a node declared `-> Annotated[Text, …]` | `return Text("done")` |
 | `@version(1)` on `run_v1` and a plain `def run` beside it | mark `run` too: `@version(2)` |
 | Retrying with a loop inside `run` | put `retries` on the version's `Policy`; raise `ExternalFailure` for a transient failure, or name the client's classes in `retry_on` |

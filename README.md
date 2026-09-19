@@ -574,7 +574,7 @@ uv sync                       # includes the ipykernel used by the notebooks
 uv run jupyter lab examples/  # or open the .ipynb files in VS Code
 ```
 
-The notebooks use `[event async for event in execute(compiled)]` because the kernel already owns an event loop. From a plain `.py` script, `run_sync(compiled)` is the same call; it returns the event the leg ended on.
+The notebooks use `await run(compiled)` — or iterate `execute(compiled)` to see the events — because the kernel already owns an event loop. From a plain `.py` script, `run_sync(compiled)` is the same call; it returns the event the leg ended on.
 
 ## Stability and versioning
 

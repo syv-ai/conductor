@@ -14,7 +14,7 @@ import asyncio
 from typing import Annotated, Any
 
 import pytest
-from conductor import Asks, CompiledGraph, GraphNode, NodeRegistry
+from conductor import SKIPPED, Asks, CompiledGraph, GraphNode, NodeRegistry
 from conductor.dtype import DType
 from conductor.execution.engine import execute
 from conductor.graph.binding import Edges, Static
@@ -74,6 +74,18 @@ def test_a_param_with_a_title_alone_is_a_connection_only_input():
     assert b.widget is None and b.show_handle is True and b.title == "B"
 
 
+def test_a_result_on_a_parameter_and_a_param_on_the_return_are_refused():
+    def swapped(self, a: Annotated[Num, Result(title="A")]) -> Out: ...
+
+    with pytest.raises(TypeError, match="carries a Result"):
+        Interface.of(swapped)
+
+    def returned(self, a: Annotated[Num, Param(title="A")]) -> Annotated[Txt, Param(title="X"), Result(title="Y")]: ...
+
+    with pytest.raises(TypeError, match="carries a Param"):
+        Interface.of(returned)
+
+
 def test_a_parameter_without_a_param_is_titled_by_its_name():
     def run(self, texts: Series[Txt]) -> Out: ...
 
@@ -116,6 +128,18 @@ class AskEach(NodeDefinition):
         return Asks()
 
 
+class SkipShort(NodeDefinition):
+    """Passes a text on, skipping one shorter than two characters."""
+
+    id = "skip-short"
+    title = "Skip short"
+    description = "d"
+    category = "test"
+
+    def run(self, text: Annotated[Txt, Param(title="Text")]) -> Out:
+        return SKIPPED if len(text) < 2 else text
+
+
 class Docs(NodeDefinition):
     id = "docs"
     title = "Docs"
@@ -129,6 +153,7 @@ class Docs(NodeDefinition):
 def _registry() -> NodeRegistry:
     reg = NodeRegistry()
     reg.register(Docs)
+    reg.register(SkipShort)
     reg.register(AskEach)
     return reg
 
@@ -183,9 +208,30 @@ def test_a_list_answers_a_per_row_node():
     assert second[-1]["results"]["ask"]["result"] == Series(Index("docs"), [Txt("x"), Txt("y"), Txt("z")], rows=[(0,), (1,), (2,)])
 
 
+def test_a_list_answers_the_rows_still_open_and_leaves_a_skipped_row_alone():
+    """Row 1 was skipped upstream, so the asking node never asked about it;
+    a list answers the two rows that are open, in order."""
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[
+            GraphNode(id="docs", type="docs", version=1, bindings={"text": Static(value="aa,b,cc")}),
+            GraphNode(id="skip", type="skip-short", version=1, bindings={"text": Edges(refs=(Ref("docs", "result"),))}),
+            GraphNode(id="ask", type="ask-each", version=1, bindings={"proposal": Edges(refs=(Ref("skip", "result"),))}),
+        ]),
+        _registry(),
+    )
+    assert compiled.is_runnable, compiled.problems
+    first = _leg(compiled)[-1]
+    assert [w["row"] for w in first["pending"]] == [(0,), (2,)]
+
+    second = _leg(compiled, record=first["record"], cache={"ask": {"result": ["x", "z"]}})
+
+    assert second[-1]["type"] == "graph_complete"
+    assert second[-1]["results"]["ask"]["result"] == Series(Index("docs"), [Txt("x"), Txt("z")], rows=[(0,), (2,)])
+
+
 def test_a_list_of_the_wrong_length_is_refused_naming_node_and_output():
     compiled = _asking_per_row("a,b,c")
     first = _leg(compiled)[-1]
 
-    with pytest.raises(ValueError, match=r"'ask'.*'result'.*3 rows"):
+    with pytest.raises(ValueError, match=r"'ask'.*'result'.*3 rows still open"):
         _leg(compiled, record=first["record"], cache={"ask": {"result": ["x", "y"]}})

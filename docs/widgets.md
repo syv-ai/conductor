@@ -24,13 +24,13 @@ class Greet(NodeDefinition):
         return Text(f"Hello, {name}!")
 ```
 
-Three things written on the widget belong to the field, not the control: `title`, `description` and `show_handle`. They sit on the widget because a parameter has one annotation object; `Interface.of` copies them onto the `Input` and they are left out of the widget's own dump, so each travels once.
+A widget is the control and nothing more. What a person reads about the input — `title`, `description` — and whether an edge can reach it — `show_handle` — are written on the `Param` the widget sits on, `Annotated[Text, Param(title="Text", widget=Textarea())]`, and travel once, on the `Input`; a widget's own dump is its configuration alone.
 
 ## Every input declares its own
 
-Conductor ships no default widget for any type. The same `Text` may be a textarea, a single line or a dropdown, so a parameter with no widget is a broken declaration and fails at import — not one that falls back to a default control.
+Conductor ships no default widget for any type. The same `Text` may be a textarea, a single line or a dropdown, so nothing falls back to a default control: a `Param` with no widget is an input only an edge fills, and a widget written bare in `Annotated` fails at import naming the `Param` form.
 
-A widget does not decide whether an edge can reach the input: `show_handle` defaults to `True` on the base and no control overrides it. A node closes one input by writing `show_handle=False` on that input's annotation; such an input may declare any pydantic-validatable type (a schema, a list of branches), since nothing travels on an edge to it. Where an edge *can* land, the parameter declares a `DType` — or `Any`, for a value the node routes without reading.
+A widget does not decide whether an edge can reach the input: no control carries `show_handle`. A node closes one input by writing `show_handle=False` on its `Param`; such an input may declare any pydantic-validatable type (a schema, a list of branches), since nothing travels on an edge to it. Where an edge *can* land, the parameter declares a `DType` — or `Any`, for a value the node routes without reading.
 
 ## Widget catalog
 

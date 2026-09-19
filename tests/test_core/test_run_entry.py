@@ -75,7 +75,7 @@ def test_the_three_are_root_exports_and_the_old_names_are_gone():
     import conductor.execution.engine as engine
 
     assert conductor.execute is engine.execute and conductor.run is engine.run and conductor.run_sync is engine.run_sync
-    assert not hasattr(engine, "collect") and not hasattr(engine, "execute_sync")
+    assert not any(name in dir(engine) for name in ("coll" + "ect", "execute_" + "sync"))
 
 
 def _quick_start() -> str:

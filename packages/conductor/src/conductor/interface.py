@@ -42,7 +42,7 @@ from typing import Annotated, Any, Callable, Literal, get_args, get_origin, get_
 from pydantic import BaseModel, ConfigDict, create_model
 
 from conductor.dtype import DType, Single, dtype_of
-from conductor.metadata import Input, Output, Param
+from conductor.metadata import Input, Output, Param, Result
 from conductor.returns import outputs_of
 from conductor.series import Series
 from conductor.widgets import Widget
@@ -156,6 +156,10 @@ class Interface:
                 raise TypeError(
                     f"parameter {name!r} carries a bare widget; the widget goes on the Param — "
                     "Annotated[Text, Param(title=..., widget=Textarea())]"
+                )
+            if Result.on(annotation) is not None:
+                raise TypeError(
+                    f"parameter {name!r} carries a Result; a parameter carries a Param, and Result belongs on the return"
                 )
             param = Param.on(annotation) or Param()
             dtype = dtype_of(annotation)
