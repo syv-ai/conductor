@@ -1,6 +1,6 @@
 [project]
 name = "syv-conductor-nodes"
-version = "1.12.2"
+version = "2.0.0"
 description = "Standard-library nodes for conductor — text, math, logic, JSON, regex, and a decision gate. Categories opt-in via register_all(registry, categories=[...])."
 requires-python = ">=3.12"
 authors = [{ name = "Syvai", email = "billy@syv.ai" }]
@@ -13,7 +13,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Typing :: Typed",
 ]
-dependencies = ["syv-conductor", "pydantic>=2.0"]
+dependencies = ["syv-conductor", "pydantic>=2.11"]
 
 [project.urls]
 Repository = "https://github.com/syvai/conductor"

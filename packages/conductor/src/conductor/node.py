@@ -35,7 +35,7 @@ description is always derived from the live declaration.
 from __future__ import annotations
 
 import inspect
-from abc import ABC, abstractmethod
+from abc import ABC, ABCMeta, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, Literal
@@ -241,7 +241,8 @@ class NodeDescription(ConductorModel):
 
     Built by ``NodeDefinition.describe()`` from the class, on demand, and
     read by an editor: a palette is these records dumped through pydantic.
-    Never stored, so there is no copy to keep in step with the class.
+    Never stored and never read back, so there is no copy to keep in step
+    with the class.
 
     Describes the *type*. The titles a particular placement shows live on
     its ``GraphNode``.
@@ -257,7 +258,31 @@ class NodeDescription(ConductorModel):
     versions: dict[int, VersionDescription]
     current: int
 
-class NodeDefinition(ABC):
+class _NodeMeta(ABCMeta):
+    """Gives a node class the repr of what it declares.
+
+    A registry holds classes, so a class is what a person inspects: without
+    this it prints as ``<class '__main__.Greet'>``. The rule is pydantic's
+    and scikit-learn's — an object prints as the call that states what it
+    is, ``Greet(id='greet', title='Greeting', category='text', versions=(1,))``,
+    with ``tags`` and ``deprecation`` only when the class has them. A class
+    that declares no node (``NodeDefinition`` itself, an intermediate base)
+    keeps the class repr.
+    """
+
+    def __repr__(cls) -> str:
+        if "versions" not in dir(cls):
+            return super().__repr__()
+        parts = [f"id={cls.id!r}", f"title={cls.title!r}", f"category={cls.category!r}"]
+        if cls.tags:
+            parts.append(f"tags={tuple(cls.tags)!r}")
+        parts.append(f"versions={tuple(sorted(cls.versions))!r}")
+        if cls.deprecation is not None:
+            parts.append(f"deprecation={cls.deprecation!r}")
+        return f"{cls.__name__}({', '.join(parts)})"
+
+
+class NodeDefinition(ABC, metaclass=_NodeMeta):
     """Base class for every node.
 
     A subclass declares ``id``, ``title``, ``description`` and ``category``
@@ -394,6 +419,22 @@ class NodeDefinition(ABC):
             # An undecorated `run` is version 1 with the default policy.
             methods[1] = cls.run
             policies[1] = Policy()
+        elif getattr(cls.run, "__node_version__", None) is None:
+            # Beside declared versions a plain ``run`` has no number, and
+            # the current version is the method named ``run``.
+            raise TypeError(
+                f"{cls.__name__}: run has no @version, but other methods do; "
+                "mark run with the number of the version it is"
+            )
+
+        for number, fn in methods.items():
+            if inspect.iscoroutinefunction(fn) or inspect.isasyncgenfunction(fn):
+                # The engine calls ``run`` in a worker thread and never awaits
+                # it, so an async one would hand back a coroutine as its result.
+                raise TypeError(
+                    f"{cls.__name__}: version {number} is async; run is a plain "
+                    "function, and the engine gives each call a thread"
+                )
 
         # No contiguity check here: numbering from 1 with no holes is the
         # registry's rule and lives in ``register()``. A definition a host

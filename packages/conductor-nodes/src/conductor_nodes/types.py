@@ -60,6 +60,10 @@ class Json(DType):
     (parses it, walks it) declares ``Json``. A node that only passes a
     value through without looking at it declares ``Any`` instead, as
     ``decision`` does.
+
+    Dumped, a ``Json`` is the value it holds, and JSON's limits are its
+    own: a tuple comes back a list, a key a string, and a float that is not
+    a number ``null``.
     """
 
     id = "json"
@@ -80,7 +84,8 @@ class Json(DType):
     def __get_pydantic_core_schema__(
         cls, source_type: Any, handler: Any
     ) -> core_schema.CoreSchema:
-        """Wrap whatever arrives; there is no builtin to validate as."""
+        """Wrap whatever arrives, since there is no builtin to validate as; dump the value it holds."""
         return core_schema.no_info_plain_validator_function(
-            lambda value: value if isinstance(value, cls) else cls(value)
+            lambda value: value if isinstance(value, cls) else cls(value),
+            serialization=core_schema.plain_serializer_function_ser_schema(lambda json: json.value),
         )

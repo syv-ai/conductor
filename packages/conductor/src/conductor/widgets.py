@@ -13,7 +13,8 @@ Three things written on the widget belong to the field, not the control:
 ``title``, ``description`` and ``show_handle``. They sit on the widget
 because a parameter has one annotation object; ``Interface.of`` copies
 them onto the ``Input`` and they are left out of the widget's own dump, so
-each travels once. Nothing downstream reads ``widget.title``.
+each travels once. Nothing downstream reads ``widget.title``, and a dumped
+widget is not read back into one.
 
 A widget does not decide whether an edge can reach the input:
 ``show_handle`` defaults to ``True`` on the base and no control overrides
@@ -178,7 +179,9 @@ class SchemaBuilder(Widget):
     """A schema an author builds field by field — name, type, description."""
 
     #: ``schema`` on the wire and as a keyword; ``schema_`` as an attribute,
-    #: because ``BaseModel.schema`` is taken.
+    #: because ``BaseModel.schema`` is taken: ``builder.schema`` is pydantic's
+    #: deprecated classmethod, not the value. A dump says ``schema`` unless
+    #: asked for ``by_alias=False``.
     model_config = ConfigDict(validate_by_name=True, validate_by_alias=True, serialize_by_alias=True)
 
     kind: Literal["schema-builder"] = "schema-builder"

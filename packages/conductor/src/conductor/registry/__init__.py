@@ -29,6 +29,13 @@ class NodeRegistry:
         #: The classes, by id, in registration order.
         self._nodes: dict[str, type[NodeDefinition]] = {}
 
+    def __repr__(self) -> str:
+        """Its nodes, each as its own repr, one per line: ``NodeRegistry(nodes=(Greet(...),))``."""
+        if not self._nodes:
+            return "NodeRegistry(nodes=())"
+        lines = "".join(f"    {cls!r},\n" for cls in self._nodes.values())
+        return f"NodeRegistry(nodes=(\n{lines}))"
+
     def register(self, node_cls: type[NodeDefinition]) -> None:
         if not (isinstance(node_cls, type) and issubclass(node_cls, NodeDefinition)):
             raise TypeError(f"{node_cls!r} must be a NodeDefinition subclass")
@@ -73,10 +80,11 @@ class NodeRegistry:
     def contains(self, node_id: str) -> bool:
         return node_id in self._nodes
 
-    def definitions(self) -> tuple[type[NodeDefinition], ...]:
-        """Every registered class, in registration order.
+    @property
+    def nodes(self) -> tuple[type[NodeDefinition], ...]:
+        """Every registered node class, in registration order.
 
-        A palette is ``[d.describe() for d in registry.definitions()]``.
+        A palette is ``[cls.describe() for cls in registry.nodes]``.
         """
         return tuple(self._nodes.values())
 

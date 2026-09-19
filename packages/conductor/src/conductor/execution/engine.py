@@ -92,16 +92,19 @@ async def execute(
     annotated ``Annotated[X, FromRun()]`` receives ``from_run[X]``. A graph
     needing a type the host did not provide is refused before anything
     runs. ``cells`` restores the ledger of an earlier leg, cell by cell.
-    ``cache`` pre-seeds nodes with complete outputs by node id — a person's
-    answers to a pending unit, or an earlier run's results a caller reuses;
-    they are reported as ``node_complete`` (``cached=True``) and not run.
+    ``cache`` records outputs by node id without running the node — a
+    person's answers to a pending unit, or an earlier run's results a caller
+    reuses. For a node running per row each output is a series, and only
+    the rows it names are recorded. A node the cache completes is reported
+    as ``node_complete`` (``cached=True``); a unit already done, or a row
+    not yet produced, is refused.
     ``cancel`` is an event the host sets to stop the leg::
 
         async for event in execute(compiled, from_run={Clock: clock}):
             ...
     """
     if not compiled.is_runnable:
-        raise CompilationError("the flow cannot run", problems=compiled.problems)
+        raise CompilationError("the graph cannot run", problems=compiled.problems)
     leg = _Leg(
         compiled,
         cells=cells,
@@ -124,8 +127,8 @@ async def collect(events: AsyncGenerator[ExecutionEvent, None]) -> dict[str, dic
         if kind == "graph_error":
             raise GraphExecutionError(event["error"], node_id=event.get("node_id"), cause=event.get("cause"))
         if kind in ("graph_cancelled", "graph_timeout"):
-            raise GraphExecutionError(f"The flow was stopped ({kind}).")
-    raise GraphExecutionError("The flow ended without a result.")
+            raise GraphExecutionError(f"The graph was stopped ({kind}).")
+    raise GraphExecutionError("The graph ended without a result.")
 
 
 def execute_sync(compiled: CompiledGraph, **kwargs: Any) -> dict[str, dict[str, Any]]:
@@ -202,7 +205,15 @@ class _Leg:
         for node_id, outputs in cache.items():
             self.ledger.inject(node_id, outputs)
             self.started.add(node_id)
-            yield NodeCompleteEvent(type="node_complete", node_id=node_id, result=outputs, cached=True)
+            if not self.ledger.complete(node_id):
+                done, total = self.ledger.progress(node_id)
+                yield NodeProgressEvent(type="node_progress", node_id=node_id, done=done, total=total)
+                continue
+            result = self.ledger.result_of(node_id)
+            if result is None:
+                yield NodeSkippedEvent(type="node_skipped", node_id=node_id)
+            else:
+                yield NodeCompleteEvent(type="node_complete", node_id=node_id, result=result, cached=True)
 
         self._start(self.ledger.runnable())
         while self.running:

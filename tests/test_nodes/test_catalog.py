@@ -7,13 +7,13 @@ to one module cannot quietly drop a title, a category or an id.
 from collections import defaultdict
 from typing import Any, get_args
 
+import conductor_nodes
 import pytest
 from conductor.node import NodeDefinition
-from conductor_nodes import get_default_registry
 from conductor_nodes.types import Flag, Json, Number, Text
 
 #: Every node id the catalog is expected to hold, checked in both directions
-#: against ``registry.definitions()``: a node missing here or an unlisted
+#: against ``registry.nodes``: a node missing here or an unlisted
 #: node in the registry both fail.
 EXPECTED_IDS = {
     "text-uppercase", "text-lowercase", "text-trim", "text-length",
@@ -35,7 +35,7 @@ VOCABULARY = {Text, Number, Flag, Json}
 
 @pytest.fixture(scope="module")
 def registry():
-    return get_default_registry()
+    return conductor_nodes.registry()
 
 
 def _current(node_cls):
@@ -50,7 +50,7 @@ def _is_vocabulary(dtype) -> bool:
 
 def test_the_catalog_is_exactly_what_is_expected(registry):
     """Both directions: a subset check would let an unreviewed node into the catalog."""
-    assert {n.id for n in registry.definitions()} == EXPECTED_IDS
+    assert {n.id for n in registry.nodes} == EXPECTED_IDS
 
 
 def test_the_markers_and_the_signals_are_gone(registry):
@@ -70,19 +70,19 @@ def test_the_markers_and_the_signals_are_gone(registry):
 def test_every_node_declares_a_title_a_description_and_a_category(registry):
     from conductor_nodes.types import Category
 
-    for node_cls in registry.definitions():
+    for node_cls in registry.nodes:
         assert node_cls.title, f"{node_cls.id} has no title"
         assert node_cls.description, f"{node_cls.id} has no description"
         assert node_cls.category in get_args(Category), f"{node_cls.id} is filed nowhere"
 
 
 def test_every_node_numbers_its_versions_from_one(registry):
-    for node_cls in registry.definitions():
+    for node_cls in registry.nodes:
         assert min(node_cls.versions) == 1, f"{node_cls.id} starts at {min(node_cls.versions)}"
 
 
 def test_every_field_declares_a_title(registry):
-    for node_cls in registry.definitions():
+    for node_cls in registry.nodes:
         iface = _current(node_cls)
         for field in (*iface.inputs, *iface.outputs):
             assert field.title, f"{node_cls.id}.{field.name} has no title"
@@ -91,7 +91,7 @@ def test_every_field_declares_a_title(registry):
 def test_every_field_is_declared_in_the_vocabulary_or_is_any(registry):
     """Every field's type is one of ``conductor_nodes.types``, a ``Series`` of
     one, or ``Any`` on a node that routes a value it does not read."""
-    for node_cls in registry.definitions():
+    for node_cls in registry.nodes:
         iface = _current(node_cls)
         for field in (*iface.inputs, *iface.outputs):
             assert field.dtype is Any or _is_vocabulary(field.dtype), (
@@ -105,7 +105,7 @@ def test_only_the_gate_declares_any(registry):
     arriving type. No other node declares ``Any``."""
     vague = {
         node_cls.id
-        for node_cls in registry.definitions()
+        for node_cls in registry.nodes
         if any(f.dtype is Any for f in (*_current(node_cls).inputs, *_current(node_cls).outputs))
     }
     assert vague == {"decision"}
@@ -118,7 +118,7 @@ def test_branches_are_one_choice(registry):
     produced per run. The three routing nodes declare one group each;
     nothing else declares any."""
     groups = {}
-    for node_cls in registry.definitions():
+    for node_cls in registry.nodes:
         by_choice = defaultdict(list)
         for out in _current(node_cls).outputs:
             if out.choice is not None:
@@ -135,7 +135,7 @@ def test_branches_are_one_choice(registry):
 def test_no_node_says_what_the_engine_must_do(registry):
     """No node carries a ``role``: a branch not taken is ``SKIPPED``, a
     value the engine acts on, and nothing on the class announces it."""
-    for node_cls in registry.definitions():
+    for node_cls in registry.nodes:
         assert not hasattr(node_cls, "role"), node_cls.id
 
 
@@ -147,7 +147,7 @@ def test_no_stdlib_node_overrides_a_shaping_hook(registry):
     There is no ``validate`` hook to override: a value's constraints are
     its dtype's constructor rules.
     """
-    for node_cls in registry.definitions():
+    for node_cls in registry.nodes:
         assert getattr(node_cls, "compute_inputs") is getattr(NodeDefinition, "compute_inputs"), (
             f"{node_cls.id} overrides compute_inputs — record why it must"
         )
@@ -160,5 +160,15 @@ def test_no_stdlib_node_overrides_a_shaping_hook(registry):
 
 def test_every_node_describes(registry):
     """``describe()`` builds for every node."""
-    for node_cls in registry.definitions():
+    for node_cls in registry.nodes:
         assert node_cls.describe().id == node_cls.id
+
+
+def test_a_registry_of_the_standard_nodes_is_one_call():
+    import conductor_nodes
+
+    assert {cls.id for cls in conductor_nodes.registry().nodes} == EXPECTED_IDS
+    assert {cls.id for cls in conductor_nodes.registry(categories=["logic"]).nodes} == {
+        "logic-if-empty", "logic-if-equals", "logic-not",
+    }
+    assert not hasattr(conductor_nodes, "get_default_registry")

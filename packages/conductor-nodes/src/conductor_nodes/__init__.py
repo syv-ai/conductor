@@ -1,14 +1,18 @@
 """``conductor_nodes`` — the standard node library.
 
-One module per category. ``register_all`` registers every node on a
-registry you supply; ``get_default_registry`` builds a fresh one::
+One module per category. ``registry`` builds a fresh registry holding
+them; ``register_all`` adds them to a registry you already have::
 
-    from conductor import NodeRegistry
-    from conductor_nodes import register_all, get_default_registry
+    import conductor_nodes
 
-    registry = NodeRegistry()
-    register_all(registry, categories=["text", "math"])   # a subset
-    registry = get_default_registry()                     # everything
+    registry = conductor_nodes.registry()                          # everything
+    registry = conductor_nodes.registry(categories=["text"])       # a subset
+    conductor_nodes.register_all(my_registry, categories=["math"])
+
+Conductor's core does not know this package exists, so a registry with
+the standard nodes in it is asked of this package, never of
+``NodeRegistry``: the nodes bring their own vocabulary, which a host with
+types of its own does not want.
 """
 
 from __future__ import annotations
@@ -49,7 +53,7 @@ def register_all(registry: "NodeRegistry", *, categories: list[str] | None = Non
         CATEGORIES[name].register(registry)   # type: ignore[attr-defined]
 
 
-def get_default_registry(*, categories: list[str] | None = None) -> "NodeRegistry":
+def registry(*, categories: list[str] | None = None) -> "NodeRegistry":
     """A new ``NodeRegistry`` holding the nodes of ``categories`` (default: all)."""
     from conductor import NodeRegistry
 

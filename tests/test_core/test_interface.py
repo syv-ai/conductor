@@ -455,7 +455,7 @@ def test_a_control_does_not_close_its_own_handle():
 
 def test_no_widget_subclass_decides_wireability():
     """They all inherit True. A widget that changed engine control
-    flow does not exist: a pause is a node returning Asks."""
+    graph does not exist: a pause is a node returning Asks."""
     import conductor.widgets as w
 
     overriding = sorted(

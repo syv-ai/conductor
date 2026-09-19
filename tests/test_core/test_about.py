@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import builtins
+import importlib
+import pkgutil
+import re
 import subprocess
 import sys
+import typing
 
 from conductor import about
 
@@ -22,21 +27,21 @@ def test_list_sections_includes_core_stanzas():
     assert "core-concepts" in slugs
     assert "api-reference" in slugs
     # H3 — nested concept sections must also be addressable directly
-    assert "retry" in slugs
-    assert "shared-references-produce-consume" in slugs
+    assert "retries-and-timeouts" in slugs
+    assert "legs-and-asking" in slugs
 
 
 def test_get_section_exact_slug():
-    body = about.get_section("retry")
+    body = about.get_section("retries-and-timeouts")
     assert body is not None
-    assert "### Retry" in body
-    assert "RetryConfig" in body
+    assert "### Retries and Timeouts" in body
+    assert "Policy" in body
 
 
 def test_get_section_substring_match_resolves_to_full_slug():
-    body = about.get_section("shared")
+    body = about.get_section("asking")
     assert body is not None
-    assert "Shared References" in body
+    assert "### Legs and Asking" in body
 
 
 def test_get_section_unknown_returns_none():
@@ -44,12 +49,11 @@ def test_get_section_unknown_returns_none():
 
 
 def test_sections_do_not_bleed_past_same_or_higher_heading():
-    retry_body = about.get_section("retry")
-    assert retry_body is not None
-    # Retry is H3 inside Core Concepts, followed by H3 Data Flow. It must
-    # end at the next heading of the same or higher level, so the Data
-    # Flow section must not be inside Retry.
-    assert "### Data Flow" not in retry_body
+    retries_body = about.get_section("retries-and-timeouts")
+    assert retries_body is not None
+    # Retries and Timeouts is H3 inside Core Concepts, followed by H3
+    # Errors. It must end at the next heading of the same or higher level.
+    assert "### Errors" not in retries_body
 
 
 def test_cli_no_args_prints_full_content():
@@ -68,15 +72,15 @@ def test_cli_sections_lists_slugs():
     )
     lines = [ln.strip() for ln in result.stdout.splitlines() if ln.strip()]
     assert "quick-start" in lines
-    assert "shared-references-produce-consume" in lines
+    assert "legs-and-asking" in lines
 
 
 def test_cli_section_filter_emits_only_that_section():
     result = subprocess.run(
-        [sys.executable, "-m", "conductor.about", "retry"],
+        [sys.executable, "-m", "conductor.about", "retries"],
         capture_output=True, text=True, check=True,
     )
-    assert "### Retry" in result.stdout
+    assert "### Retries and Timeouts" in result.stdout
     assert "## Quick Start" not in result.stdout
 
 
@@ -97,3 +101,40 @@ def test_cli_help_flag():
         capture_output=True, text=True, check=True,
     )
     assert "python -m conductor.about" in result.stdout
+
+
+def _library_names() -> set[str]:
+    """Every name any module of the three packages defines or imports, plus typing's and the builtins."""
+    names = set(dir(typing)) | set(dir(builtins))
+    for package_name in ("conductor", "conductor_nodes", "conductor_providers"):
+        package = importlib.import_module(package_name)
+        for info in pkgutil.walk_packages(package.__path__, f"{package_name}."):
+            if info.name.endswith("__main__"):
+                continue
+            names.update(dir(importlib.import_module(info.name)))
+    return names
+
+
+def test_every_name_the_reference_puts_in_backticks_exists():
+    """A stale name here is broken code on an agent's next task. Every
+    class-like name in backticks is defined somewhere in the library (a
+    one-letter placeholder like ``X`` aside), and every dotted
+    ``conductor…`` path imports."""
+    known = _library_names()
+    missing: set[str] = set()
+    for span in re.findall(r"`([^`\n]+)`", about.get_content()):
+        if re.match(r"(GET|POST) ", span):
+            continue
+        code = re.sub(r'"[^"]*"', "", span)
+        for dotted in re.findall(r"\bconductor(?:_nodes|_providers)?(?:\.\w+)+", code):
+            module, _, attribute = dotted.rpartition(".")
+            try:
+                importlib.import_module(dotted)
+            except ModuleNotFoundError:
+                if not hasattr(importlib.import_module(module), attribute):
+                    missing.add(dotted)
+        for name in re.findall(r"(?<![.\w])[A-Z][A-Za-z0-9_]+", code):
+            if name not in known:
+                missing.add(name)
+
+    assert missing == set()

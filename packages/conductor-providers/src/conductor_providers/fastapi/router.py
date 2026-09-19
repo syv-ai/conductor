@@ -2,19 +2,22 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from conductor import NodeRegistry
-from conductor.execution.engine import execute, execute_sync
+from conductor.errors import GraphPendingError
+from conductor.execution.engine import collect, execute
+from conductor.execution.events import ExecutionEvent
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.problem import Problem
 from conductor.node import NodeDescription
+from conductor.series import Series
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
 from conductor_providers.fastapi.models import ExecuteRequest
-from conductor_providers.fastapi.sse import sse_frame
+from conductor_providers.fastapi.sse import _jsonable, sse_frame
 
 
 def conductor_router(
@@ -23,7 +26,7 @@ def conductor_router(
     prefix: str = "",
     tags: list[str] | None = None,
     dependencies: Sequence[Any] | None = None,
-    context_factory: Callable[[Request], dict[str, Any]] | None = None,
+    from_run: Callable[[Request], Mapping[type, Any]] | None = None,
     entity_resolver: (
         Callable[[str, Request], list[dict[str, Any]]] | None
     ) = None,
@@ -33,8 +36,12 @@ def conductor_router(
     Mounts:
 
     - ``GET  {prefix}/nodes``           — every definition's ``describe()``
-    - ``POST {prefix}/execute``         — sync execution, returns aggregated results
+    - ``POST {prefix}/execute``         — one leg; returns the frame it ended
+      on, ``graph_complete`` or ``graph_pending``
     - ``POST {prefix}/execute-stream``  — SSE stream of ``ExecutionEvent`` frames
+
+    A run that asks goes on in legs: send the ending's ``cells`` back with
+    the answers in ``cache`` (``ExecuteRequest``).
     - ``POST {prefix}/compile``         — compile without executing; returns
       every ``Problem`` the graph has
 
@@ -44,10 +51,11 @@ def conductor_router(
         tags: OpenAPI tags attached to every route.
         dependencies: FastAPI dependencies applied to every route (auth, rate
             limiting, anything ``Depends(...)`` can express).
-        context_factory: Optional hook invoked per-request on ``/execute`` and
+        from_run: Optional hook invoked per request on ``/execute`` and
             ``/execute-stream``. Receives the FastAPI ``Request`` and returns
-            a dict that seeds the node ``FlowStore``. Node functions declaring
-            ``store: FlowStore`` see the seeded keys.
+            the values the run supplies by type, ``execute(from_run=...)``: a
+            ``run`` parameter annotated ``Annotated[X, FromRun()]`` receives
+            the value keyed by ``X``.
         entity_resolver: Optional hook backing the ``EntityDropdown`` widget.
             Receives the entity kind (e.g. ``"document"``) and the FastAPI
             ``Request``; returns a list of ``{"id": ..., "label": ...}``
@@ -59,35 +67,63 @@ def conductor_router(
         tags=tags or ["conductor"],
         dependencies=list(dependencies) if dependencies else None,
     )
-    def _store_data(request: Request) -> dict[str, Any] | None:
-        return context_factory(request) if context_factory else None
+    def _from_run(request: Request) -> Mapping[type, Any] | None:
+        return from_run(request) if from_run else None
+
+    def _leg(req: ExecuteRequest, request: Request) -> Any:
+        compiled = CompiledGraph.from_graph(req.graph, registry)
+        return execute(
+            compiled,
+            from_run=_from_run(request),
+            cache=_cache(compiled, req.cache or {}) or None,
+            cells=req.cells,
+        )
 
     @router.get("/nodes", response_model=list[NodeDescription])
     def list_nodes() -> list[NodeDescription]:
         """Every registered definition as a record — the palette."""
-        return [cls.describe() for cls in registry.definitions()]
+        return [cls.describe() for cls in registry.nodes]
 
     @router.post("/execute")
-    def execute_flow(req: ExecuteRequest, request: Request) -> dict[str, Any]:
-        """Run a flow synchronously and return the aggregated results dict."""
-        compiled = CompiledGraph.from_graph(req.graph, registry)
-        results = execute_sync(
-            compiled, store_data=_store_data(request), cache=req.cache or None
-        )
-        return {"results": results}
+    async def execute_graph(req: ExecuteRequest, request: Request) -> dict[str, Any]:
+        """Run one leg and return the frame it ended on.
+
+        ``graph_complete`` and ``graph_pending`` are answers — a pending
+        frame carries the questions and the cells the next request sends
+        back. A leg that fails, is cancelled or times out fails the request,
+        as ``execute_sync`` raises for it.
+        """
+        ending: ExecutionEvent | None = None
+
+        async def watched() -> Any:
+            nonlocal ending
+            async for event in _leg(req, request):
+                ending = event
+                yield event
+
+        try:
+            await collect(watched())
+        except GraphPendingError:
+            pass
+        return _jsonable(ending)
 
     @router.post("/execute-stream")
-    async def execute_flow_stream(
+    async def execute_graph_stream(
         req: ExecuteRequest, request: Request
     ) -> StreamingResponse:
-        """Run a flow and stream ``ExecutionEvent``s as Server-Sent Events."""
-        compiled = CompiledGraph.from_graph(req.graph, registry)
-        store_data = _store_data(request)
+        """Run a graph and stream ``ExecutionEvent``s as Server-Sent Events.
+
+        The first event is taken before the response starts, so a run that
+        is refused before anything runs (a graph that cannot run, a
+        ``FromRun`` value the hook did not supply) fails the request, as it
+        does on ``/execute``, instead of a 200 with an empty stream.
+        """
+        events = _leg(req, request)
+        first = await anext(events)
 
         async def event_stream() -> Any:
-            async for event in execute(
-                compiled, store_data=store_data, cache=req.cache or None
-            ):
+            yield sse_frame(first)
+            async for event in events:
                 yield sse_frame(event)
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
@@ -126,6 +162,28 @@ def conductor_router(
         return list(CompiledGraph.from_graph(req.graph, registry).problems)
 
     return router
+
+
+def _cache(compiled: CompiledGraph, cache: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    """The request's ``cache`` as ``execute`` takes it.
+
+    A node that runs once is given its outputs as they came. A node that
+    runs per row is given a ``Series`` per output on the node's own index,
+    built from the ``rows`` and ``values`` the request sent; any ``index``
+    it sent beside them is not read, since the compiled graph already says
+    which index the node runs on.
+    """
+    taken: dict[str, dict[str, Any]] = {}
+    for node_id, outputs in cache.items():
+        index = compiled.node(node_id).iterates_on
+        if index is None:
+            taken[node_id] = outputs
+            continue
+        taken[node_id] = {
+            name: Series(index, sent["values"], rows=[tuple(row) for row in sent["rows"]])
+            for name, sent in outputs.items()
+        }
+    return taken
 
 
 # Silence "imported but unused" warnings: Depends is a documented option for

@@ -297,6 +297,74 @@ def test_a_gap_in_the_versions_is_the_catalogs_rule_not_the_classs():
         NodeRegistry().register(Gapped)
 
 
+def test_an_async_run_is_refused():
+    """The engine calls ``run`` in a worker thread and never awaits it, so an
+    async version would complete with a coroutine for its result."""
+    with pytest.raises(TypeError, match="async"):
+
+        class Waits(NodeDefinition):
+            id = "waits"
+            title = "Waits"
+            description = "d"
+            category = "test"
+
+            async def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+                return x
+
+    with pytest.raises(TypeError, match="version 2 is async"):
+
+        class WaitsLater(NodeDefinition):
+            id = "waits-later"
+            title = "Waits"
+            description = "d"
+            category = "test"
+
+            @version(1)
+            def run_v1(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+                return x
+
+            @version(2)
+            async def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+                return x
+
+
+def test_an_undecorated_run_beside_versions_is_refused():
+    """Once any method carries ``@version``, every version says its number:
+    a plain ``run`` beside them would otherwise be dropped without a word."""
+    with pytest.raises(TypeError, match="run has no @version"):
+
+        class Forgot(NodeDefinition):
+            id = "forgot"
+            title = "Forgot"
+            description = "d"
+            category = "test"
+
+            @version(1)
+            def run_v1(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+                return x
+
+            def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+                return x
+
+    class Versioned(NodeDefinition):
+        id = "versioned"
+        title = "Versioned"
+        description = "d"
+        category = "test"
+
+        @version(1)
+        def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+            return x
+
+    with pytest.raises(TypeError, match="run has no @version"):
+
+        class Overrides(Versioned):
+            id = "overrides"
+
+            def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Out:
+                return x
+
+
 def test_two_methods_claiming_one_version_are_refused():
     with pytest.raises(TypeError, match="version 1"):
 
@@ -449,7 +517,7 @@ def test_the_registry_keys_on_the_id():
 
     assert registry.contains("echo-key")
     assert not registry.contains("echo-nothing")
-    assert registry.definitions() == (Echo,)
+    assert registry.nodes == (Echo,)
 
 
 def test_registering_the_same_id_twice_is_refused():

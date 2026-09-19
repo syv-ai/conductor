@@ -38,7 +38,7 @@ from conductor.graph.topology import dependencies_of, order_of
 from conductor.graph.views import derive_interface, lock_problems
 from conductor.interface import Interface
 from conductor.metadata import Input
-from conductor.node import GraphVersion, NodeVersion
+from conductor.node import GraphVersion, NodeVersion, Refuses
 from conductor.ref import Ref
 from conductor.registry import NodeRegistry
 from conductor.series import Series
@@ -195,6 +195,10 @@ class _Compilation:
         the edges, which can tell ``compute_outputs`` what type arrives on each
         connected input.
 
+        A hook that cannot answer for these values raises ``Refuses``; its
+        code and message are the node's one fatal ``Problem``, and the node is
+        left out of every later pass, as a node whose type is unknown is.
+
         On a version that takes ``**inputs``, every connected name that is not
         a declared parameter becomes an ``Input`` of its own: typed ``Any`` or
         ``Series[Any]`` until the edge walk types it, titled by its name.
@@ -209,7 +213,11 @@ class _Compilation:
             instance = self.registry.get(node.type)()
             defaults = {i.name: i.default for i in version.interface.inputs if i.optional}
             values = {**defaults, **self._typed_statics(version.interface.inputs, node)}
-            inputs = instance.compute_inputs(version.interface.inputs, values)
+            try:
+                inputs = instance.compute_inputs(version.interface.inputs, values)
+            except Refuses as refusal:
+                self.problems.append(Problem(code=refusal.code, message=refusal.message, fatal=True, node_id=node_id))
+                continue
             added = tuple(i for i in inputs if i.name not in {d.name for d in version.interface.inputs})
             if added:
                 values = {**values, **self._typed_statics(added, node)}

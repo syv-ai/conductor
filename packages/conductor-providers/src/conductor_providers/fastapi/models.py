@@ -16,13 +16,18 @@ from pydantic import BaseModel, ConfigDict
 
 
 class ExecuteRequest(BaseModel):
-    """The POST body shared by ``/execute``, ``/execute-stream``, and ``/compile``."""
+    """The POST body shared by ``/execute``, ``/execute-stream``, and ``/compile``, which reads only ``graph``."""
 
     model_config = ConfigDict(extra="ignore")
 
     graph: Graph
-    # Optional precomputed node results, keyed by node id. Nodes listed here
-    # are seeded as already-completed (the engine emits ``node_complete`` with
-    # ``cached=True`` and skips running them), so a host can reuse outputs from
-    # a previous run instead of recomputing the whole graph. Unset = run all.
+    # Outputs recorded by node id without running the node: a person's
+    # answers to a pending leg, or an earlier run's results. The engine reports
+    # a node the cache completes as ``node_complete`` with ``cached=True``. For
+    # a node that runs per row, each output is a series in the form one is
+    # dumped in, ``{"rows": [...], "values": [...]}``, naming only the rows it
+    # answers. Unset = run all.
     cache: dict[str, Any] | None = None
+    # The ``cells`` of an earlier leg's ending, handed back so this leg goes
+    # on from where that one stopped. Unset = a fresh run.
+    cells: dict[str, Any] | None = None

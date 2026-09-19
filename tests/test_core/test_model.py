@@ -3,6 +3,7 @@
 import dataclasses
 
 import pytest
+from conductor.dtype import DType
 from conductor.errors import ErrorCause
 from conductor.execution.ledger import Skip
 from conductor.graph.binding import Edges, Static
@@ -26,6 +27,11 @@ from conductor.widgets import Choice, Dropdown, OperatorChoice, SchemaBuilder, T
 from pydantic import ValidationError
 
 
+class Txt(DType, str):
+    id = "model-test-txt"
+    title = "Text"
+
+
 def _graph() -> Graph:
     return Graph(
         nodes=[
@@ -43,7 +49,7 @@ def test_a_graph_round_trips_through_json():
     assert Graph.model_validate_json(_graph().model_dump_json()) == _graph()
 
 
-@pytest.mark.parametrize("name", ["godkend.yaml", "godkend.yml", "godkend.json"])
+@pytest.mark.parametrize("name", ["approval.yaml", "approval.yml", "approval.json"])
 def test_a_graph_reads_back_what_it_wrote_to_a_path(tmp_path, name):
     path = tmp_path / name
     _graph().to_path(path)
@@ -52,12 +58,11 @@ def test_a_graph_reads_back_what_it_wrote_to_a_path(tmp_path, name):
 
 
 def test_the_suffix_decides_the_format(tmp_path):
-    _graph().to_path(tmp_path / "godkend.json")
-    assert (tmp_path / "godkend.json").read_text().lstrip().startswith("{")
+    _graph().to_path(tmp_path / "approval.json")
+    assert (tmp_path / "approval.json").read_text().lstrip().startswith("{")
 
 
-
-@pytest.mark.parametrize("name", ["godkend.txt", "godkend.JSON", "godkend.Yaml", "godkend.yaml.bak", "godkend"])
+@pytest.mark.parametrize("name", ["approval.txt", "approval.JSON", "approval.Yaml", "approval.yaml.bak", "approval"])
 def test_a_path_whose_suffix_is_not_exactly_json_yaml_or_yml_is_refused(tmp_path, name):
     with pytest.raises(ValueError, match=name):
         _graph().to_path(tmp_path / name)
@@ -105,6 +110,41 @@ def test_a_schema_builder_keeps_its_schema_key_on_the_wire():
 
     assert builder.schema_ == {"type": "object"}
     assert builder.model_dump()["schema"] == {"type": "object"}
+    assert SchemaBuilder.model_validate({"title": "Felter", "schema": {"a": 1}}).schema_ == {"a": 1}
+
+
+READ_BACK = (
+    FieldContent(title="X", description="x"),
+    Edges(refs=(Ref("a", "result"), Ref("b", "result"))),
+    Static(value={"rows": [1, 2]}),
+    Problem(code="cycle", message="m", fatal=True, node_id="a", field="x", details={"path": ["a", "b"]}),
+    ErrorCause(code="timeout", message="m", details={"seconds": 3}, row=(0, 2)),
+    Deprecation(header="Gone", alternative="echo"),
+    Policy(retries=2, delay=0.5, timeout=3.0, concurrency=1),
+    Choice(id="en", title="English", element={"id": "text"}),
+    OperatorChoice(id="contains", title="indeholder", category="text", arity=2),
+    Index("lines", parent=Index("docs")),
+)
+
+
+@pytest.mark.parametrize("record", READ_BACK, ids=lambda r: type(r).__name__)
+def test_a_record_a_host_saves_reads_back_what_it_wrote(record):
+    assert type(record).from_yaml(record.to_yaml()) == record
+    assert type(record).model_validate_json(record.model_dump_json()) == record
+
+
+def test_a_description_is_written_for_an_editor_and_not_read_back():
+    """An ``Input`` is written from a ``run`` signature: its type dumps as a
+    description and its widget's title travels on the ``Input``. Loading the
+    dump would need the class the signature already holds, so it is refused
+    rather than half-built — ask ``describe()`` again instead."""
+    text = Input(name="text", dtype=Txt, title="Text", widget=Textarea(title="Text"))
+    dumped = text.model_dump(mode="json")
+
+    assert dumped["dtype"] == Txt.describe()
+    assert "title" not in dumped["widget"]
+    with pytest.raises(ValidationError):
+        Input.model_validate(dumped)
 
 
 SAVED = (

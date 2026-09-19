@@ -17,17 +17,18 @@ Usage::
     app.include_router(
         conductor_router(
             registry,
-            prefix="/api/v1/flows",
+            prefix="/api/v1/conductor",
             dependencies=[Depends(require_admin)],
         )
     )
 
-Optional per-request context injection into the node ``FlowStore``::
+Values the run supplies to nodes by type, per request (a node's ``run``
+parameter annotated ``Annotated[User, FromRun()]`` receives the ``User``)::
 
-    def my_context(request: Request) -> dict[str, Any]:
-        return {"user": request.state.user, "session": request.state.session}
+    def supplied(request: Request) -> dict[type, Any]:
+        return {User: request.state.user}
 
-    conductor_router(registry, context_factory=my_context)
+    conductor_router(registry, from_run=supplied)
 
 Requires ``fastapi`` installed (declared as an optional extra:
 ``uv add "syv-conductor-providers[fastapi]"``).
