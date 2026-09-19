@@ -23,7 +23,7 @@ python -m conductor.about node         # one section, by prefix: node, versions,
 ```python
 from typing import Annotated
 
-from conductor import NodeDefinition, NodeRegistry, Result
+from conductor import NodeDefinition, NodeRegistry, Param, Result
 from conductor.widgets import Number as NumberWidget, Text as TextWidget
 from myapp.types import Number, Text          # the host's own DTypes
 
@@ -36,8 +36,8 @@ class Greet(NodeDefinition):
 
     def run(
         self,
-        name: Annotated[Text, TextWidget(title="Name")],
-        times: Annotated[Number, NumberWidget(title="Times", integer_only=True)] = Number(1),
+        name: Annotated[Text, Param(title="Name", widget=TextWidget())],
+        times: Annotated[Number, Param(title="Times", widget=NumberWidget(integer_only=True))] = Number(1),
     ) -> Annotated[Text, Result(title="Greeting")]:
         return Text(" ".join(f"hello {name}" for _ in range(int(times))))
 
@@ -62,7 +62,7 @@ registry.register(Greet)
 |---|---|---|
 | Its own value types | `class Text(DType, str): id = "text"; title = "Text"`, once per host | REFERENCE.md → Types |
 | Several outputs | a frozen dataclass of `Annotated[X, Result(...)]` fields as the return type | REFERENCE.md → Outputs |
-| A whole list at once | a `Series[X]` parameter with `ConnectionList` or `List` | REFERENCE.md → Series |
+| A whole list at once | a `Series[X]` parameter with `Param(title=...)` alone (an edge fills it) or with `widget=List()` | REFERENCE.md → Series |
 | To run once per item | nothing: a series on a scalar input iterates the node | create-graph |
 | A branch | return `SKIPPED` on the output not taken; share a `choice` | REFERENCE.md → Branching |
 | A person's answer | `-> X \| Asks`, and return `Asks(questions=(Input(...),))` | REFERENCE.md → Asking |
@@ -80,7 +80,7 @@ One module-level `registry = NodeRegistry()` per host, with each module register
 
 | Mistake | Fix |
 |---|---|
-| A parameter typed `str` or `Text` with no widget | `Annotated[Text, Textarea(title="Text")]`; the class raises `TypeError` otherwise |
+| A parameter typed `str` or `Text` with no widget | `Annotated[Text, Param(title="Text", widget=Textarea())]`; the class raises `TypeError` otherwise |
 | Returning `"done"` from a node declared `-> Annotated[Text, …]` | `return Text("done")` |
 | `@version(1)` on `run_v1` and a plain `def run` beside it | mark `run` too: `@version(2)` |
 | Retrying with a loop inside `run` | put `retries` on the version's `Policy`; raise `ExternalFailure` for a transient failure, or name the client's classes in `retry_on` |

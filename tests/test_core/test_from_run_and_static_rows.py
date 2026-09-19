@@ -3,18 +3,18 @@
 from typing import Annotated
 
 import pytest
-from conductor import FromRun, NodeRegistry
+from conductor import FromRun, NodeRegistry, Param
 from conductor.dtype import DType
 from conductor.execution.engine import execute_sync
 from conductor.graph.binding import Edges, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.interface import Interface
+from conductor.metadata import Result
 from conductor.node import NodeDefinition
 from conductor.ref import Ref
-from conductor.returns import Result
 from conductor.series import Index, Series
-from conductor.widgets import ConnectionList, List, Text
+from conductor.widgets import List, Text
 
 
 class Txt(DType, str):
@@ -33,7 +33,7 @@ class Greet(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, text: Annotated[Txt, Text(title="T")], who: Annotated[Who, FromRun()]) -> Annotated[Txt, Result(title="R")]:
+    def run(self, text: Annotated[Txt, Param(title="T", widget=Text())], who: Annotated[Who, FromRun()]) -> Annotated[Txt, Result(title="R")]:
         return Txt(f"{text} {who.name}")
 
 
@@ -43,7 +43,7 @@ class Upper(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, text: Annotated[Txt, List(title="T")] = Txt("")) -> Annotated[Txt, Result(title="R")]:
+    def run(self, text: Annotated[Txt, Param(title="T", widget=List())] = Txt("")) -> Annotated[Txt, Result(title="R")]:
         return Txt(text.upper())
 
 
@@ -53,7 +53,7 @@ class JoinAll(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, texts: Annotated[Series[Txt], ConnectionList(title="T")] = ()) -> Annotated[Txt, Result(title="R")]:
+    def run(self, texts: Annotated[Series[Txt], Param(title="T")] = ()) -> Annotated[Txt, Result(title="R")]:
         return Txt("-".join(texts))
 
 

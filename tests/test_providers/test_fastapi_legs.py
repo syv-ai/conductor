@@ -20,9 +20,8 @@ pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
 from conductor import Asks, NodeRegistry  # noqa: E402
-from conductor.metadata import Input  # noqa: E402
+from conductor.metadata import Input, Param, Result  # noqa: E402
 from conductor.node import NodeDefinition  # noqa: E402
-from conductor.returns import Result  # noqa: E402
 from conductor.series import Series  # noqa: E402
 from conductor.widgets import Switch, Textarea  # noqa: E402
 from conductor_nodes.types import Flag, Text  # noqa: E402
@@ -44,7 +43,7 @@ def client(calls: list[str]) -> TestClient:
         description = "splits a text into words"
         category = "test"
 
-        def run(self, text: Annotated[Text, Textarea(title="Text")]) -> Annotated[Series[Text], Result(title="Words")]:
+        def run(self, text: Annotated[Text, Param(title="Text", widget=Textarea())]) -> Annotated[Series[Text], Result(title="Words")]:
             calls.append("words")
             return [Text(word) for word in text.split()]
 
@@ -54,9 +53,9 @@ def client(calls: list[str]) -> TestClient:
         description = "asks a person"
         category = "test"
 
-        def run(self, text: Annotated[Text, Textarea(title="Text")]) -> Annotated[Flag, Result(title="Approved")] | Asks:
+        def run(self, text: Annotated[Text, Param(title="Text", widget=Textarea())]) -> Annotated[Flag, Result(title="Approved")] | Asks:
             calls.append("approve")
-            return Asks(questions=(Input(name="result", dtype=Flag, title="Approved", widget=Switch(title="Approved")),))
+            return Asks(questions=(Input(name="result", dtype=Flag, title="Approved", widget=Switch()),))
 
     registry = NodeRegistry()
     registry.register(Words)

@@ -16,7 +16,7 @@ Built to be the shared core behind visual node editors — declare a node once a
 
 - **One node contract** — a node is a `NodeDefinition` subclass; the typed signature of its `run` method *is* its interface. Nothing is declared twice.
 - **A type vocabulary you own** — every value on an edge has a `DType`; conductor ships the mechanism and no vocabulary (except `Series[X]`, the one collection). A host declares `Text`, `Number`, `Document`, … as it sees fit.
-- **Widgets on the declaration** — `Annotated[Text, Textarea(title="Text")]` says how a person edits an input; the same record drives validation and the palette.
+- **Widgets on the declaration** — `Annotated[Text, Param(title="Text", widget=Textarea())]` says how a person edits an input; the same record drives validation and the palette.
 - **Versions with a policy** — several versions live in one class (`@version(2)`); each carries a `Policy` for retries, timeout and concurrency; `@upgrade(1, 2)` rewrites saved values; `@deprecated` retires a node or a version.
 - **Compile-then-execute** — everything wrong with a graph is an anchored `Problem` before any node runs.
 - **Rows** — a series arriving on a scalar input runs the node once per row, concurrently under its policy; a `Series[X]` input receives the whole series or a group per parent row. A run's time grows with its rows.
@@ -75,7 +75,7 @@ A value on an edge has a `DType`. Conductor declares none, so start by naming th
 
 ```python
 from typing import Annotated
-from conductor import NodeDefinition, NodeRegistry, Result
+from conductor import NodeDefinition, NodeRegistry, Param, Result
 from conductor.widgets import Textarea, Text as TextWidget
 from conductor_nodes.types import Text
 
@@ -86,7 +86,7 @@ class Echo(NodeDefinition):
     category = "text"
 
     def run(
-        self, text: Annotated[Text, Textarea(title="Input", description="Text to echo")]
+        self, text: Annotated[Text, Param(title="Input", description="Text to echo", widget=Textarea())]
     ) -> Annotated[Text, Result(title="Output")]:
         return text
 
@@ -97,7 +97,7 @@ class Uppercase(NodeDefinition):
     category = "text"
 
     def run(
-        self, text: Annotated[Text, TextWidget(title="Input")]
+        self, text: Annotated[Text, Param(title="Input", widget=TextWidget())]
     ) -> Annotated[Text, Result(title="Result")]:
         return Text(text.upper())
 
@@ -196,7 +196,7 @@ class Length(NodeDefinition):
     description = "Character count of the text"
     category = "text"
 
-    def run(self, text: Annotated[Text, Textarea(title="Text")]) -> Annotated[Number, Result(title="Length")]:
+    def run(self, text: Annotated[Text, Param(title="Text", widget=Textarea())]) -> Annotated[Number, Result(title="Length")]:
         return Number(len(text))
 ```
 
@@ -219,7 +219,7 @@ class Split(NodeDefinition):
     description = "Splits text down the middle"
     category = "text"
 
-    def run(self, text: Annotated[Text, Textarea(title="Text")]) -> Halves:
+    def run(self, text: Annotated[Text, Param(title="Text", widget=Textarea())]) -> Halves:
         mid = len(text) // 2
         return Halves(head=Text(text[:mid]), tail=Text(text[mid:]))
 ```
@@ -238,7 +238,7 @@ class IfEmpty(NodeDefinition):
     description = "Routes text by whether it is blank"
     category = "control"
 
-    def run(self, text: Annotated[Text, Textarea(title="Text")]) -> Emptiness:
+    def run(self, text: Annotated[Text, Param(title="Text", widget=Textarea())]) -> Emptiness:
         if text.strip():
             return Emptiness(not_empty=text, empty=SKIPPED)
         return Emptiness(not_empty=SKIPPED, empty=text)
@@ -281,14 +281,14 @@ class Greet(NodeDefinition):
 
     @version(1)
     @deprecated(header="Use version 2", migration="The name is now first and last")
-    def run_v1(self, name: Annotated[Text, TextWidget(title="Name")]) -> Annotated[Text, Result(title="Greeting")]:
+    def run_v1(self, name: Annotated[Text, Param(title="Name", widget=TextWidget())]) -> Annotated[Text, Result(title="Greeting")]:
         return Text(f"Hi, {name}!")
 
     @version(2, policy=Policy(retries=2, delay=0.5))
     def run(
         self,
-        first: Annotated[Text, TextWidget(title="First name")],
-        last: Annotated[Text, TextWidget(title="Last name")],
+        first: Annotated[Text, Param(title="First name", widget=TextWidget())],
+        last: Annotated[Text, Param(title="Last name", widget=TextWidget())],
     ) -> Annotated[Text, Result(title="Greeting")]:
         return Text(f"Hi, {first} {last}!")
 
@@ -347,7 +347,7 @@ A parameter marked `FromRun()` is not an input — no widget, no handle — but 
 ```python
 from conductor import FromRun
 
-def run(self, text: Annotated[Text, Textarea(title="Text")], clock: Annotated[Clock, FromRun()]) -> ...:
+def run(self, text: Annotated[Text, Param(title="Text", widget=Textarea())], clock: Annotated[Clock, FromRun()]) -> ...:
 
 results = execute_sync(compiled, from_run={Clock: SystemClock()})
 ```
@@ -374,8 +374,8 @@ class Approve(NodeDefinition):
     description = "Asks a person to approve the proposal"
     category = "review"
 
-    def run(self, proposal: Annotated[Text, Textarea(title="Proposal")]) -> Annotated[Text, Result(title="Decision")] | Asks:
-        return Asks(questions=(Input(name="result", dtype=Text, title="Decision", widget=Textarea(title="Decision"), default=proposal, optional=True),))
+    def run(self, proposal: Annotated[Text, Param(title="Proposal", widget=Textarea())]) -> Annotated[Text, Result(title="Decision")] | Asks:
+        return Asks(questions=(Input(name="result", dtype=Text, title="Decision", widget=Textarea(), default=proposal, optional=True),))
 
 registry.register(Approve)
 compiled = CompiledGraph.from_graph(Graph(nodes=[
@@ -404,7 +404,7 @@ class FetchUrl(NodeDefinition):
     category = "http"
 
     @version(1, policy=Policy(retries=3, delay=0.5, retry_on=(requests.ConnectionError, requests.Timeout)))
-    def run(self, url: Annotated[Text, TextWidget(title="URL")]) -> Annotated[Text, Result(title="Body")]:
+    def run(self, url: Annotated[Text, Param(title="URL", widget=TextWidget())]) -> Annotated[Text, Result(title="Body")]:
         resp = requests.get(url, timeout=10)
         resp.raise_for_status()
         return Text(resp.text)
@@ -475,7 +475,6 @@ A widget is the control an input is edited with, plus what that control needs. E
 | `TableInput` | A table typed or pasted in | `min_rows`, `min_columns`, `column_types` |
 | `SchemaBuilder` | A schema built field by field | `schema`, `allow_additional`, `field_types` |
 | `IfElseBuilder` | Conditions built from the host's operators | `operators` |
-| `ConnectionList` | Edited by connecting only — a `Series[X]` or `Any` input | — |
 
 Conductor ships no default widget for any type: `Text` may be a textarea, a single line or a dropdown, so every input declares its own. An input closes itself to edges with `show_handle=False` on its widget, and may then declare any pydantic-validatable type. The set of controls is closed — `AnyWidget` is built from the subclasses in `widgets.py`, and a new control is a change there, since the component that renders each `kind` has to exist in the host's frontend anyway.
 

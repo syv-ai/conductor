@@ -9,12 +9,11 @@ from conductor.graph.binding import Edges, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.graph.problem import Problem
-from conductor.metadata import Output
+from conductor.metadata import Output, Param, Result
 from conductor.node import NodeDefinition
 from conductor.ref import Ref
-from conductor.returns import Result
 from conductor.series import Series
-from conductor.widgets import ConnectionList, Textarea
+from conductor.widgets import Textarea
 from pydantic import ValidationError
 
 
@@ -103,8 +102,8 @@ class Echo(NodeDefinition):
 
     def run(
         self,
-        x: Annotated[Txt, Textarea(title="X")] = Txt(""),
-        y: Annotated[Txt, Textarea(title="Y")] = Txt(""),
+        x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt(""),
+        y: Annotated[Txt, Param(title="Y", widget=Textarea())] = Txt(""),
     ) -> Out:
         return Txt(x + y)
 
@@ -115,7 +114,7 @@ class Script(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, code: Annotated[Txt, Textarea(title="Code", show_handle=False)] = Txt("")) -> Out:
+    def run(self, code: Annotated[Txt, Param(title="Code", show_handle=False, widget=Textarea())] = Txt("")) -> Out:
         return code
 
 
@@ -125,7 +124,7 @@ class Needs(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, x: Annotated[Txt, Textarea(title="X")]) -> Out:
+    def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())]) -> Out:
         return x
 
 
@@ -135,7 +134,7 @@ class Join(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, texts: Annotated[Series[Txt], ConnectionList(title="Texts")] = ()) -> Out:
+    def run(self, texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
         return Txt("\n".join(texts))
 
 
@@ -147,7 +146,7 @@ class Picky(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, x: Annotated[Nonempty, Textarea(title="X")] = Nonempty("x")) -> Out:
+    def run(self, x: Annotated[Nonempty, Param(title="X", widget=Textarea())] = Nonempty("x")) -> Out:
         return Txt(x)
 
 
@@ -159,7 +158,7 @@ class Twice(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, value: Annotated[Txt, Textarea(title="Value")] = Txt("")) -> Out:
+    def run(self, value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
         return value
 
     def compute_outputs(self, declared, values, arriving):
@@ -254,7 +253,7 @@ def test_a_computed_field_with_a_handle_needs_an_edge_type():
         description = "d"
         category = "test"
 
-        def run(self, value: Annotated[Txt, Textarea(title="Value")] = Txt("")) -> Out:
+        def run(self, value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
             return value
 
         def compute_outputs(self, declared, values, arriving):
@@ -352,7 +351,7 @@ def test_an_any_input_with_no_edge_is_unbound_required():
         description = "d"
         category = "test"
 
-        def run(self, value: Annotated[Any, ConnectionList(title="Value")]) -> Annotated[Any, Result(title="R")]:
+        def run(self, value: Annotated[Any, Param(title="Value")]) -> Annotated[Any, Result(title="R")]:
             return value
 
         def compute_outputs(self, declared, values, arriving):

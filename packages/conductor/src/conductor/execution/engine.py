@@ -454,8 +454,10 @@ class _Leg:
 
         if is_asking(value):
             # A person must answer. The unit waits; the rest of the leg runs
-            # on and the leg ends pending once quiet.
-            ledger.pend(unit, value.questions, value.prompt)
+            # on and the leg ends pending once quiet. A node with no
+            # questions of its own asks for its declared outputs.
+            questions = value.questions or tuple(out.question() for out in compiled.node(node_id).interface.outputs)
+            ledger.pend(unit, questions, value.prompt)
             await queue.put(_UnitDone(unit))
             return
         try:

@@ -18,9 +18,9 @@ import pytest
 from conductor import CompiledGraph, Graph, GraphNode, NodeRegistry
 from conductor.execution.engine import execute_sync
 from conductor.graph.binding import Edges, Static
+from conductor.metadata import Result
 from conductor.node import NodeDefinition
 from conductor.ref import Ref
-from conductor.returns import Result
 from conductor_nodes.types import Text
 from conductor_providers import react
 

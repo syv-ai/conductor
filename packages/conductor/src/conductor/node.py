@@ -10,7 +10,7 @@ whose typed signature is its interface::
         description = "Upper-cases a text."
         category = "text"
 
-        def run(self, text: Annotated[Text, Textarea(title="Text")]) -> Annotated[Text, Result(title="Result")]:
+        def run(self, text: Annotated[Text, Param(title="Text", widget=Textarea())]) -> Annotated[Text, Result(title="Result")]:
             return Text(text.upper())
 
 Several versions live in one class as methods marked ``@version(n)``; the

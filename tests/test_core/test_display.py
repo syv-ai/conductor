@@ -19,7 +19,7 @@ from conductor import (
 )
 from conductor.dtype import DType
 from conductor.graph.problem import Problem
-from conductor.metadata import Input
+from conductor.metadata import Input, Param
 from conductor.series import Index
 from conductor.widgets import Text as TextWidget
 from conductor.widgets import Textarea
@@ -36,7 +36,7 @@ class Greet(NodeDefinition):
     description = "Greets someone"
     category = "text"
 
-    def run(self, name: Annotated[Txt, TextWidget(title="Name")]) -> Annotated[Txt, Result(title="Greeting")]:
+    def run(self, name: Annotated[Txt, Param(title="Name", widget=TextWidget())]) -> Annotated[Txt, Result(title="Greeting")]:
         return Txt(f"hello {name}")
 
 
@@ -47,12 +47,12 @@ class Truncate(NodeDefinition):
     category = "text"
 
     @version(1)
-    def run_v1(self, text: Annotated[Txt, Textarea(title="Text")]) -> Annotated[Txt, Result(title="Short")]:
+    def run_v1(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())]) -> Annotated[Txt, Result(title="Short")]:
         return text
 
     @version(2, policy=Policy(retries=2))
     def run(
-        self, text: Annotated[Txt, Textarea(title="Text")], limit: Annotated[Txt, TextWidget(title="Limit")] = Txt("10")
+        self, text: Annotated[Txt, Param(title="Text", widget=Textarea())], limit: Annotated[Txt, Param(title="Limit", widget=TextWidget())] = Txt("10")
     ) -> Annotated[Txt, Result(title="Short")]:
         return text
 
@@ -76,7 +76,7 @@ def test_a_node_prints_its_deprecation_and_tags_only_when_it_has_them():
         category = "text"
         tags = ("legacy",)
 
-        def run(self, name: Annotated[Txt, TextWidget(title="Name")]) -> Annotated[Txt, Result(title="R")]:
+        def run(self, name: Annotated[Txt, Param(title="Name", widget=TextWidget())]) -> Annotated[Txt, Result(title="R")]:
             return name
 
     assert repr(Old) == (
@@ -108,9 +108,9 @@ def test_a_registry_prints_its_nodes():
 
 
 def test_a_record_prints_only_what_is_not_at_its_default():
-    text = Input(name="text", dtype=Txt, title="Text", widget=Textarea(title="Text"))
+    text = Input(name="text", dtype=Txt, title="Text", widget=Textarea())
 
-    assert repr(text) == "Input(name='text', dtype=Txt, title='Text', widget=Textarea(title='Text'))"
+    assert repr(text) == "Input(title='Text', widget=Textarea(), name='text', dtype=Txt)"
     assert repr(Policy()) == "Policy()"
     assert repr(Policy(retries=2)) == "Policy(retries=2)"
     assert repr(Deprecation()) == "Deprecation()"

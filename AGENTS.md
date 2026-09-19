@@ -92,7 +92,7 @@ class Upper(NodeDefinition):
     description = "Upper-cases a text."
     category = "text"            # where the palette files it; required, a plain string
 
-    def run(self, text: Annotated[Text, Textarea(title="Text")]) -> Annotated[Text, Result(title="Result")]:
+    def run(self, text: Annotated[Text, Param(title="Text", widget=Textarea())]) -> Annotated[Text, Result(title="Result")]:
         return Text(text.upper())
 ```
 
@@ -122,7 +122,7 @@ The call is validated through the placed node's own interface with pydantic (`ex
 
 ### Widgets
 
-Every control is a frozen pydantic model with a `kind` discriminator; `AnyWidget` is the union built from `Widget.__subclasses__()`, so an `Input` dumps its widget with a schema per kind. The set: `Text`, `Textarea`, `TemplateTextarea`, `CodeEditor`, `Dropdown`, `EntityDropdown`, `Number`, `Range`, `Switch`, `DatePicker`, `FileUpload`, `List`, `Tags`, `TableInput`, `SchemaBuilder`, `IfElseBuilder`, `ConnectionList`. Conductor ships no default widget for any type — every input declares its own. Vocabulary inside a control (`Dropdown.choices`, `IfElseBuilder.operators`, `TableInput.column_types`) is the host's, as data. Full guide: [`docs/widgets.md`](docs/widgets.md); demo: [`examples/08_widgets.ipynb`](examples/08_widgets.ipynb).
+Every control is a frozen pydantic model with a `kind` discriminator; `AnyWidget` is the union built from `Widget.__subclasses__()`, so an `Input` dumps its widget with a schema per kind. The set: `Text`, `Textarea`, `TemplateTextarea`, `CodeEditor`, `Dropdown`, `EntityDropdown`, `Number`, `Range`, `Switch`, `DatePicker`, `FileUpload`, `List`, `Tags`, `TableInput`, `SchemaBuilder`, `IfElseBuilder`. Conductor ships no default widget for any type — every input declares its own. Vocabulary inside a control (`Dropdown.choices`, `IfElseBuilder.operators`, `TableInput.column_types`) is the host's, as data. Full guide: [`docs/widgets.md`](docs/widgets.md); demo: [`examples/08_widgets.ipynb`](examples/08_widgets.ipynb).
 
 ### Rows, skips and legs
 
@@ -177,7 +177,7 @@ When the audit flags a discrepancy it can't resolve (commit says X, code does Y)
 ### Declaring and registering a node
 ```python
 from typing import Annotated
-from conductor import NodeDefinition, NodeRegistry, Result
+from conductor import NodeDefinition, NodeRegistry, Param, Result
 from conductor.widgets import Textarea
 from conductor_nodes.types import Text     # or a DType of your own
 
@@ -187,7 +187,7 @@ class MyNode(NodeDefinition):
     description = "Does stuff"
     category = "text"
 
-    def run(self, text: Annotated[Text, Textarea(title="Input")]) -> Annotated[Text, Result(title="Result")]:
+    def run(self, text: Annotated[Text, Param(title="Input", widget=Textarea())]) -> Annotated[Text, Result(title="Result")]:
         return Text(text.upper())
 
 registry = NodeRegistry()
@@ -215,8 +215,8 @@ results = execute_sync(compiled)     # results["n1"]["result"] == "HELLO"
 ```python
 class Approve(NodeDefinition):
     ...
-    def run(self, proposal: Annotated[Text, Textarea(title="Proposal")]) -> Annotated[Text, Result(title="Decision")] | Asks:
-        return Asks(questions=(Input(name="result", dtype=Text, title="Decision", widget=Textarea(title="Decision"), default=proposal, optional=True),))
+    def run(self, proposal: Annotated[Text, Param(title="Proposal", widget=Textarea())]) -> Annotated[Text, Result(title="Decision")] | Asks:
+        return Asks(questions=(Input(name="result", dtype=Text, title="Decision", widget=Textarea(), default=proposal, optional=True),))
 
 try:
     execute_sync(compiled)
@@ -229,10 +229,10 @@ except GraphPendingError as pending:                     # pending.pending: the 
 class MyNode(NodeDefinition):
     ...
     @version(1)
-    def run_v1(self, text: Annotated[Text, Textarea(title="Input")]) -> Annotated[Text, Result(title="Result")]: ...
+    def run_v1(self, text: Annotated[Text, Param(title="Input", widget=Textarea())]) -> Annotated[Text, Result(title="Result")]: ...
 
     @version(2, policy=Policy(retries=3, delay=0.5))
-    def run(self, text: Annotated[Text, Textarea(title="Input")], loud: Annotated[Flag, Switch(title="Loud")] = Flag(False)) -> Annotated[Text, Result(title="Result")]: ...
+    def run(self, text: Annotated[Text, Param(title="Input", widget=Textarea())], loud: Annotated[Flag, Param(title="Loud", widget=Switch())] = Flag(False)) -> Annotated[Text, Result(title="Result")]: ...
 
     @upgrade(1, 2)
     def _add_loud(values: dict) -> dict:

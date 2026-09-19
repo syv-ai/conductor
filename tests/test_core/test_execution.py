@@ -5,16 +5,16 @@ from dataclasses import dataclass
 from typing import Annotated
 
 import pytest
-from conductor import SKIPPED
+from conductor import SKIPPED, Param
 from conductor.dtype import DType
 from conductor.errors import GraphExecutionError
 from conductor.execution.engine import collect, execute, execute_sync
 from conductor.graph.binding import Edges, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
+from conductor.metadata import Result
 from conductor.node import NodeDefinition
 from conductor.ref import Ref
-from conductor.returns import Result
 from conductor.widgets import Textarea
 
 
@@ -32,7 +32,7 @@ class Echo(NodeDefinition):
     description = "Returns input"
     category = "test"
 
-    def run(self, text: Annotated[Txt, Textarea(title="Input")]) -> Out:
+    def run(self, text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
         return text
 
 
@@ -42,7 +42,7 @@ class Upper(NodeDefinition):
     description = "Uppercases"
     category = "test"
 
-    def run(self, text: Annotated[Txt, Textarea(title="Input")]) -> Out:
+    def run(self, text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
         return Txt(text.upper())
 
 
@@ -54,8 +54,8 @@ class Combine(NodeDefinition):
 
     def run(
         self,
-        a: Annotated[Txt, Textarea(title="A")],
-        b: Annotated[Txt, Textarea(title="B")],
+        a: Annotated[Txt, Param(title="A", widget=Textarea())],
+        b: Annotated[Txt, Param(title="B", widget=Textarea())],
     ) -> Out:
         return Txt(f"{a} {b}")
 
@@ -66,7 +66,7 @@ class Fail(NodeDefinition):
     description = "Always fails"
     category = "test"
 
-    def run(self, text: Annotated[Txt, Textarea(title="Input")]) -> Out:
+    def run(self, text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
         raise RuntimeError("boom")
 
 
@@ -85,7 +85,7 @@ class Slow(NodeDefinition):
     description = "Sleeps 0.3s, then uppercases"
     category = "test"
 
-    def run(self, text: Annotated[Txt, Textarea(title="Input")]) -> Out:
+    def run(self, text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
         time.sleep(0.3)
         return Txt(text.upper())
 
@@ -240,7 +240,7 @@ class TestTimeout:
             description = "Sleeps"
             category = "test"
 
-            def run(self, text: Annotated[Txt, Textarea(title="Input")]) -> Out:
+            def run(self, text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
                 time.sleep(2)
                 return text
 
@@ -277,7 +277,7 @@ class TestSkipPropagation:
             description = "Returns SKIPPED on one branch"
             category = "test"
 
-            def run(self, text: Annotated[Txt, Textarea(title="Input")]) -> Branches:
+            def run(self, text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Branches:
                 return Branches(taken=text, not_taken=SKIPPED)
 
         registry.register(Echo)

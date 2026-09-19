@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Annotated
 
 import pytest
-from conductor import NodeRegistry
+from conductor import NodeRegistry, Param
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
 from conductor.errors import NodeExecutionError
@@ -12,11 +12,11 @@ from conductor.execution.ledger import Ledger, Skip
 from conductor.graph.binding import Edges, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
+from conductor.metadata import Result
 from conductor.node import NodeDefinition
 from conductor.ref import Ref
-from conductor.returns import Result
 from conductor.series import Index, Series
-from conductor.widgets import ConnectionList, Textarea
+from conductor.widgets import Textarea
 
 
 class Txt(DType, str):
@@ -45,7 +45,7 @@ class Docs(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, folder: Annotated[Txt, Textarea(title="Folder")] = Txt("")) -> Documents:
+    def run(self, folder: Annotated[Txt, Param(title="Folder", widget=Textarea())] = Txt("")) -> Documents:
         return Documents(texts=(), names=())
 
 
@@ -55,7 +55,7 @@ class Upper(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, text: Annotated[Txt, Textarea(title="Text")] = Txt("")) -> Out:
+    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
         return Txt(text.upper())
 
 
@@ -65,7 +65,7 @@ class Pair(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, a: Annotated[Txt, Textarea(title="A")] = Txt(""), b: Annotated[Txt, Textarea(title="B")] = Txt("")) -> Out:
+    def run(self, a: Annotated[Txt, Param(title="A", widget=Textarea())] = Txt(""), b: Annotated[Txt, Param(title="B", widget=Textarea())] = Txt("")) -> Out:
         return Txt(a + b)
 
 
@@ -75,7 +75,7 @@ class Lines(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, text: Annotated[Txt, Textarea(title="Text")] = Txt("")) -> Annotated[Series[Txt], Result(title="Lines")]:
+    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Lines")]:
         return text.splitlines()
 
 
@@ -85,7 +85,7 @@ class Join(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, texts: Annotated[Series[Txt], ConnectionList(title="Texts")] = ()) -> Out:
+    def run(self, texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
         return Txt("+".join(texts))
 
 
@@ -97,7 +97,7 @@ class Gate(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, texts: Annotated[Series[Txt], ConnectionList(title="Texts")] = ()) -> Column:
+    def run(self, texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Column:
         return Column(full=texts, empty=SKIPPED) if len(texts) else Column(full=SKIPPED, empty=texts)
 
 
@@ -578,7 +578,7 @@ def test_a_pending_unit_waits_and_so_does_what_reads_it():
         GraphNode(id="a", type="upper", version=1, bindings={"text": Static(value="a")}),
         GraphNode(id="b", type="upper", version=1, bindings={"text": _edge(("a", "result"))}),
     ])
-    ledger.pend(("a", None), (Input(name="result", dtype=Txt, title="Svar", widget=Textarea(title="Svar")),))
+    ledger.pend(("a", None), (Input(name="result", dtype=Txt, title="Svar", widget=Textarea()),))
 
     assert ledger.is_pending(("a", None)) and not ledger.is_done(("a", None))
     assert not ledger.complete("a")

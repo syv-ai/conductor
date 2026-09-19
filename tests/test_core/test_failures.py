@@ -13,7 +13,7 @@ import json
 from typing import Annotated
 
 import pytest
-from conductor import CompiledGraph, GraphNode, NodeRegistry
+from conductor import CompiledGraph, GraphNode, NodeRegistry, Param
 from conductor.dtype import DType
 from conductor.errors import (
     MESSAGES,
@@ -27,9 +27,9 @@ from conductor.errors import (
 from conductor.execution.engine import _Leg, execute, execute_sync
 from conductor.graph.binding import Edges, Static
 from conductor.graph.model import Graph
+from conductor.metadata import Result
 from conductor.node import NodeDefinition, Policy, version
 from conductor.ref import Ref
-from conductor.returns import Result
 from conductor.series import Series
 from conductor.widgets import Textarea
 
@@ -39,7 +39,7 @@ class Txt(DType, str):
     title = "Text"
 
 
-In = Annotated[Txt, Textarea(title="In")]
+In = Annotated[Txt, Param(title="In", widget=Textarea())]
 Out = Annotated[Txt, Result(title="Out")]
 
 
@@ -370,7 +370,7 @@ def test_a_flaky_node_in_one_branch_retries_while_the_other_branch_completes():
         description = "d"
         category = "test"
 
-        def run(self, a: Annotated[Txt, Textarea(title="A")] = Txt(""), b: Annotated[Txt, Textarea(title="B")] = Txt("")) -> Out:
+        def run(self, a: Annotated[Txt, Param(title="A", widget=Textarea())] = Txt(""), b: Annotated[Txt, Param(title="B", widget=Textarea())] = Txt("")) -> Out:
             return Txt(f"{a}+{b}")
 
     reg = NodeRegistry()

@@ -11,9 +11,9 @@ Two nodes: one written for a single value, one for a whole series. That differen
 ```python
 from typing import Annotated
 
-from conductor import CompiledGraph, DType, Edges, Graph, GraphNode, NodeDefinition, NodeRegistry, Ref, Result, Series, Static
+from conductor import CompiledGraph, DType, Edges, Graph, GraphNode, NodeDefinition, NodeRegistry, Param, Ref, Result, Series, Static
 from conductor.execution.engine import execute_sync
-from conductor.widgets import ConnectionList, Textarea
+from conductor.widgets import Textarea
 
 
 class Text(DType, str):
@@ -27,7 +27,7 @@ class Upper(NodeDefinition):
     description = "Upper-cases one text"
     category = "text"
 
-    def run(self, text: Annotated[Text, Textarea(title="Text")]) -> Annotated[Text, Result(title="Result")]:
+    def run(self, text: Annotated[Text, Param(title="Text", widget=Textarea())]) -> Annotated[Text, Result(title="Result")]:
         return Text(text.upper())
 
 
@@ -37,7 +37,7 @@ class Join(NodeDefinition):
     description = "Joins every text of a series"
     category = "text"
 
-    def run(self, texts: Annotated[Series[Text], ConnectionList(title="Texts")]) -> Annotated[Text, Result(title="Result")]:
+    def run(self, texts: Annotated[Series[Text], Param(title="Texts")]) -> Annotated[Text, Result(title="Result")]:
         return Text("+".join(texts))
 
 
@@ -63,13 +63,13 @@ results["join"]["result"]          # "A+B+C" — Series[Text] received the whole
 
 A node is a `NodeDefinition` subclass with `id`, `title`, `description` and `category` (optional `tags`, `docs`), and a `run` method. The typed signature of `run` is the interface; nothing is declared twice.
 
-- **Inputs.** Every parameter an edge can reach is `Annotated[DType, Widget(...)]`. `title`, `description` and `show_handle` are written on the widget and lifted onto the `Input` record. A default makes the input optional. `show_handle=False` closes the input to edges, and it may then declare any pydantic-validatable type.
+- **Inputs.** Every parameter is `Annotated[DType, Param(...)]`: `title`, `description`, the `widget` a person edits it with, and `show_handle`. `Param(title=...)` with no widget is an input only an edge fills; a parameter with no `Param` is titled by its name. A bare widget in `Annotated` is refused. A default makes the input optional. `show_handle=False` closes the input to edges, and it may then declare any pydantic-validatable type.
 - **Outputs.** The return annotation declares them. `Annotated[Text, Result(title=...)]` is one output named `result`. A frozen dataclass whose fields are `Annotated[DType, Result(...)]` is one output per field, named by the fields. `Mapping[str, Any]` means the placed node's computed interface names the outputs, returned by name.
 - **`Any`** is for a value a node routes without reading. An `Any` output needs a `compute_outputs` override, which types it from what arrives.
 - **Open interfaces.** `def run(self, **inputs: Single)` makes every name connected into the node an input, each received as one value; `**inputs: Series` receives each as a whole series.
 - **Values, not markers.** A node returns `SKIPPED` on a branch it did not take, and `Asks` when a person must answer. Nothing on the class declares that it skips or asks, except that a `run` which may ask says so in its return annotation: `-> Annotated[Text, Result(title="Decision")] | Asks`.
 - **Stateless by contract.** Every call is made on a fresh instance. What a run supplies (a clock, a client, the caller's identity) arrives through `FromRun` parameters, never through the instance.
-- The class is checked when it is defined: a missing identity attribute, a parameter without a widget, a return without a `Result`, an `async def run` (the engine calls `run` in a worker thread), or a `run` with no `@version` beside methods that have one raises at the class.
+- The class is checked when it is defined: a missing identity attribute, a widget written bare instead of on a `Param`, a return without a `Result`, an `async def run` (the engine calls `run` in a worker thread), or a `run` with no `@version` beside methods that have one raises at the class.
 
 ### Versions and Policies
 
@@ -86,10 +86,10 @@ class Greet(NodeDefinition):
 
     @version(1)
     @deprecated(header="Use version 2")
-    def run_v1(self, name: Annotated[Text, Textarea(title="Name")]) -> Annotated[Text, Result(title="Greeting")]: ...
+    def run_v1(self, name: Annotated[Text, Param(title="Name", widget=Textarea())]) -> Annotated[Text, Result(title="Greeting")]: ...
 
     @version(2, policy=Policy(retries=2, delay=0.5, timeout=10, concurrency=4))
-    def run(self, first: Annotated[Text, Textarea(title="First")], last: Annotated[Text, Textarea(title="Last")]) -> Annotated[Text, Result(title="Greeting")]: ...
+    def run(self, first: Annotated[Text, Param(title="First", widget=Textarea())], last: Annotated[Text, Param(title="Last", widget=Textarea())]) -> Annotated[Text, Result(title="Greeting")]: ...
 
     @upgrade(1, 2)
     def _split_name(values: dict) -> dict:
@@ -171,7 +171,7 @@ The engine's unit of work is a node on a row. A node that runs once is one unit;
 
 One call of `execute` is one **leg**. It runs until nothing is runnable and nothing is in flight.
 
-A node that needs a person returns `Asks(questions=(Input(...), ...), prompt=None)`. Its unit waits, everything that reads it waits, and the rest of the graph runs on. When the leg goes quiet it ends `graph_pending` with every waiting unit — node, row, prompt and questions named by address — plus `results` and `cells`. An iterating asking node asks once per row, in one pending set.
+A node that needs a person returns `Asks(questions=(Input(...), ...), prompt=None)` — or `Asks()`, which asks for its declared outputs with no widget, so the host picks the control from the type. Its unit waits, everything that reads it waits, and the rest of the graph runs on. When the leg goes quiet it ends `graph_pending` with every waiting unit — node, row, prompt and questions named by address — plus `results` and `cells`. An iterating asking node asks once per row, in one pending set.
 
 Answering is the next leg, and it is `execute` again:
 
@@ -239,7 +239,7 @@ A frame carries records (a `Series`, an `ErrorCause`, an `Input`), not their JSO
 
 Every record a host saves or sends is a `ConductorModel`, a frozen pydantic model: `Graph`, `GraphNode`, `FieldContent`, `Edges`, `Static`, `Problem`, `ErrorCause`, `Policy`, `Deprecation`, `NodeDescription`, `VersionDescription`, `Input`, `Output`, every widget, `Choice`, `OperatorChoice`, `Index`.
 
-What a host saves reads back what it wrote: a `Graph` and its parts, `Problem`, `ErrorCause`, `Policy`, `Deprecation`, `Choice`, `OperatorChoice`, `Index`. What describes a node — `NodeDescription`, `VersionDescription`, `Input`, `Output` and the widgets — is written for an editor and not read back: its `dtype` dumps as the type's description and a widget's title travels on its `Input`, so loading the dump raises `ValidationError`. Call `describe()` again instead.
+What a host saves reads back what it wrote: a `Graph` and its parts, `Problem`, `ErrorCause`, `Policy`, `Deprecation`, `Choice`, `OperatorChoice`, `Index`. What describes a node — `NodeDescription`, `VersionDescription`, `Input`, `Output` and the widgets — is written for an editor: its `dtype` dumps as the type's description and reads back as that description, not the class; the rest reads back as written. Call `describe()` for the classes.
 
 ```python
 graph.to_path("approval.yaml")          # .json, .yaml or .yml by suffix; anything else is refused
@@ -262,7 +262,7 @@ NodeRegistry(nodes=(
     Upper(id='upper', title='Upper case', category='text', versions=(1,)),
 ))
 >>> Upper.versions[1].interface.inputs[0]
-Input(name='text', dtype=Text, title='Text', widget=Textarea(title='Text'))
+Input(title='Text', widget=Textarea(), name='text', dtype=Text)
 ```
 
 ## API Reference
@@ -271,7 +271,7 @@ Input(name='text', dtype=Text, title='Text', widget=Textarea(title='Text'))
 
 The node-authoring surface, re-exported from the modules that define it:
 
-- Nodes: `NodeDefinition`, `NodeVersion`, `GraphVersion`, `Policy`, `Deprecation`, `NodeDescription`, `version`, `upgrade`, `deprecated`, `Interface`, `FromRun`, `Input`, `Output`, `Result`, `AnyWidget`
+- Nodes: `NodeDefinition`, `NodeVersion`, `GraphVersion`, `Policy`, `Deprecation`, `NodeDescription`, `version`, `upgrade`, `deprecated`, `Interface`, `FromRun`, `Input`, `Output`, `Param`, `Result`, `AnyWidget`
 - Values a run returns: `SKIPPED`, `Asks`, `is_skipped`, `is_asking`
 - Types: `DType`, `DTypeRef`, `Single`, `dtype_of`, `Series`, `Index`, `Ref`
 - Registry: `NodeRegistry` (`register`, `add_types`, `get`, `contains`, `nodes`, `types`, `accepted_as`, `describe`, `upgrade_path`, `extended_with`, `runner_for`), `RegistryDescription`, `TypeDescription`
@@ -299,7 +299,7 @@ Everything else is imported from the module that defines it.
 
 ### conductor.widgets
 
-Every control is a frozen model with a `kind`; `AnyWidget` is their union. `title`, `description` and `show_handle` belong to the field and are lifted onto the `Input`.
+Every control is a frozen model with a `kind`; `AnyWidget` is their union. A widget is the control and nothing else: `title`, `description` and `show_handle` are the `Param`'s, and an input with no widget (`Param(title=...)` alone) is filled by an edge only.
 
 | Widget | For | Options |
 |---|---|---|
@@ -319,7 +319,6 @@ Every control is a frozen model with a `kind`; `AnyWidget` is their union. `titl
 | `TableInput` | a table typed or pasted in | `min_rows`, `min_columns`, `column_types` |
 | `SchemaBuilder` | a schema built field by field | `schema`, `allow_additional`, `field_types` |
 | `IfElseBuilder` | conditions from the host's operators | `operators` (`OperatorChoice(id, title, category, arity)`) |
-| `ConnectionList` | connected only: a `Series[X]` or `Any` input | — |
 
 Conductor ships no default widget for any type; every input declares its own. The vocabulary inside a control is the host's, as data.
 

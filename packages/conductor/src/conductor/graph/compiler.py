@@ -42,7 +42,6 @@ from conductor.node import GraphVersion, NodeVersion, Refuses
 from conductor.ref import Ref
 from conductor.registry import NodeRegistry
 from conductor.series import Series
-from conductor.widgets import ConnectionList
 
 
 class _Compilation:
@@ -228,7 +227,7 @@ class _Compilation:
                 shape = Series[Any] if version.interface.open == "series" else Any
                 named = {i.name for i in inputs}
                 inputs = (*inputs, *(
-                    Input(name=name, dtype=shape, title=name, widget=ConnectionList(title=name))
+                    Input(name=name, dtype=shape, title=name)
                     for name, binding in node.bindings.items()
                     if name not in named and isinstance(binding, Edges)
                 ))

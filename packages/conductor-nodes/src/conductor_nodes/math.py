@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Annotated
 
-from conductor.returns import Result
+from conductor.metadata import Param, Result
 from conductor.series import Series
 from conductor.widgets import List, Range
 from conductor.widgets import Number as NumberWidget
@@ -23,8 +23,8 @@ class Add(StdlibNode):
 
     def run(
         self,
-        a: Annotated[Number, NumberWidget(title="A")],
-        b: Annotated[Number, NumberWidget(title="B")],
+        a: Annotated[Number, Param(title="A", widget=NumberWidget())],
+        b: Annotated[Number, Param(title="B", widget=NumberWidget())],
     ) -> Annotated[Number, Result(title="Sum")]:
         return Number(a + b)
 
@@ -37,8 +37,8 @@ class Subtract(StdlibNode):
 
     def run(
         self,
-        a: Annotated[Number, NumberWidget(title="A")],
-        b: Annotated[Number, NumberWidget(title="B")],
+        a: Annotated[Number, Param(title="A", widget=NumberWidget())],
+        b: Annotated[Number, Param(title="B", widget=NumberWidget())],
     ) -> Annotated[Number, Result(title="Difference")]:
         return Number(a - b)
 
@@ -51,8 +51,8 @@ class Multiply(StdlibNode):
 
     def run(
         self,
-        a: Annotated[Number, NumberWidget(title="A")],
-        b: Annotated[Number, NumberWidget(title="B")],
+        a: Annotated[Number, Param(title="A", widget=NumberWidget())],
+        b: Annotated[Number, Param(title="B", widget=NumberWidget())],
     ) -> Annotated[Number, Result(title="Product")]:
         return Number(a * b)
 
@@ -65,8 +65,8 @@ class Divide(StdlibNode):
 
     def run(
         self,
-        a: Annotated[Number, NumberWidget(title="A")],
-        b: Annotated[Number, NumberWidget(title="B")],
+        a: Annotated[Number, Param(title="A", widget=NumberWidget())],
+        b: Annotated[Number, Param(title="B", widget=NumberWidget())],
     ) -> Annotated[Number, Result(title="Quotient")]:
         if b == 0:
             raise ValueError("Division by zero")
@@ -81,8 +81,8 @@ class Modulo(StdlibNode):
 
     def run(
         self,
-        a: Annotated[Number, NumberWidget(title="A")],
-        b: Annotated[Number, NumberWidget(title="B")],
+        a: Annotated[Number, Param(title="A", widget=NumberWidget())],
+        b: Annotated[Number, Param(title="B", widget=NumberWidget())],
     ) -> Annotated[Number, Result(title="Remainder")]:
         if b == 0:
             raise ValueError("Modulo by zero")
@@ -97,9 +97,9 @@ class Round(StdlibNode):
 
     def run(
         self,
-        value: Annotated[Number, NumberWidget(title="Value")],
+        value: Annotated[Number, Param(title="Value", widget=NumberWidget())],
         decimals: Annotated[
-            Number, Range(title="Decimals", min_val=0, max_val=10, step=1)
+            Number, Param(title="Decimals", widget=Range(min_val=0, max_val=10, step=1))
         ] = Number(0),
     ) -> Annotated[Number, Result(title="Rounded")]:
         return Number(round(value, int(decimals)))
@@ -114,7 +114,7 @@ class Min(StdlibNode):
     def run(
         self,
         values: Annotated[
-            Series[Number], List(title="Values")
+            Series[Number], Param(title="Values", widget=List())
         ],
     ) -> Annotated[Number, Result(title="Min")]:
         if not len(values):
@@ -131,7 +131,7 @@ class Max(StdlibNode):
     def run(
         self,
         values: Annotated[
-            Series[Number], List(title="Values")
+            Series[Number], Param(title="Values", widget=List())
         ],
     ) -> Annotated[Number, Result(title="Max")]:
         if not len(values):
@@ -146,7 +146,7 @@ class Absolute(StdlibNode):
     category = "math"
 
     def run(
-        self, value: Annotated[Number, NumberWidget(title="Value")]
+        self, value: Annotated[Number, Param(title="Value", widget=NumberWidget())]
     ) -> Annotated[Number, Result(title="Absolute")]:
         return Number(abs(value))
 

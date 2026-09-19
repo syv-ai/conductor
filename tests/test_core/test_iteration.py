@@ -9,12 +9,11 @@ from conductor.dtype import DType, Single
 from conductor.graph.binding import Edges, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
-from conductor.metadata import Output
+from conductor.metadata import Output, Param, Result
 from conductor.node import NodeDefinition
 from conductor.ref import Ref
-from conductor.returns import Result
 from conductor.series import Index, Series
-from conductor.widgets import ConnectionList, Textarea
+from conductor.widgets import Textarea
 
 
 class Txt(DType, str):
@@ -44,7 +43,7 @@ class Docs(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, folder: Annotated[Txt, Textarea(title="Folder")] = Txt("")) -> Documents:
+    def run(self, folder: Annotated[Txt, Param(title="Folder", widget=Textarea())] = Txt("")) -> Documents:
         return Documents(texts=(), filenames=())
 
 
@@ -54,7 +53,7 @@ class Upper(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, text: Annotated[Txt, Textarea(title="Text")] = Txt("")) -> Out:
+    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
         return Txt(text.upper())
 
 
@@ -66,8 +65,8 @@ class Pair(NodeDefinition):
 
     def run(
         self,
-        a: Annotated[Txt, Textarea(title="A")] = Txt(""),
-        b: Annotated[Txt, Textarea(title="B")] = Txt(""),
+        a: Annotated[Txt, Param(title="A", widget=Textarea())] = Txt(""),
+        b: Annotated[Txt, Param(title="B", widget=Textarea())] = Txt(""),
     ) -> Out:
         return Txt(a + b)
 
@@ -80,7 +79,7 @@ class Join(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, texts: Annotated[Series[Txt], ConnectionList(title="Texts")] = ()) -> Out:
+    def run(self, texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
         return Txt("\n".join(texts))
 
 
@@ -92,7 +91,7 @@ class Lines(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, text: Annotated[Txt, Textarea(title="Text")] = Txt("")) -> Annotated[Series[Txt], Result(title="Lines")]:
+    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Lines")]:
         return text.splitlines()
 
 
@@ -102,7 +101,7 @@ class Count(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, text: Annotated[Txt, Textarea(title="Text")] = Txt("")) -> Annotated[Num, Result(title="Count")]:
+    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Num, Result(title="Count")]:
         return Num(len(text))
 
 
@@ -115,7 +114,7 @@ class Route(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, value: Annotated[Any, ConnectionList(title="Value")]) -> Annotated[Any, Result(title="Pass on")]:
+    def run(self, value: Annotated[Any, Param(title="Value")]) -> Annotated[Any, Result(title="Pass on")]:
         return value
 
     def compute_outputs(self, declared, values, arriving):
@@ -131,7 +130,7 @@ class Only(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, values: Annotated[Series[Any], ConnectionList(title="Values")]) -> Annotated[Any, Result(title="The value")]:
+    def run(self, values: Annotated[Series[Any], Param(title="Values")]) -> Annotated[Any, Result(title="The value")]:
         return values[0]
 
     def compute_outputs(self, declared, values, arriving):
@@ -148,7 +147,7 @@ class Script(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, code: Annotated[Txt, Textarea(title="Code", show_handle=False)] = Txt(""), **inputs: Single) -> Out:
+    def run(self, code: Annotated[Txt, Param(title="Code", show_handle=False, widget=Textarea())] = Txt(""), **inputs: Single) -> Out:
         return Txt(",".join(sorted(inputs)))
 
 
@@ -381,7 +380,7 @@ def test_a_source_may_refuse_to_be_received_whole_naming_the_fix():
         description = "d"
         category = "test"
 
-        def run(self, value: Annotated[Any, ConnectionList(title="V")]) -> Annotated[Any, Result(title="V")]:
+        def run(self, value: Annotated[Any, Param(title="V")]) -> Annotated[Any, Result(title="V")]:
             return value
 
         def compute_outputs(self, declared, values, arriving):
@@ -417,7 +416,7 @@ def test_an_open_roster_takes_one_input_per_edge_received_whole():
     assert compiled.is_runnable, compiled.problems
     interface = compiled.node("s").interface
     assert [(i.name, i.dtype) for i in interface.inputs] == [("code", Txt), ("antal", Num), ("tekster", Series[Txt])]
-    assert type(interface.inputs[2].widget).__name__ == "ConnectionList"
+    assert interface.inputs[2].widget is None
     assert compiled.node("s").iterates_on is None
     assert compiled.field(Ref("s", "tekster")).index == Index("docs")
 
@@ -467,7 +466,7 @@ def test_a_node_with_no_outputs_yet_is_the_ordinary_mid_edit_state():
         description = "d"
         category = "test"
 
-        def run(self, header: Annotated[Txt, Textarea(title="Header")] = Txt("")) -> Out:
+        def run(self, header: Annotated[Txt, Param(title="Header", widget=Textarea())] = Txt("")) -> Out:
             return header
 
         def compute_outputs(self, declared, values, arriving):
@@ -500,7 +499,7 @@ def test_compute_outputs_sees_the_dtype_each_connected_input_receives():
         description = "d"
         category = "test"
 
-        def run(self, value: Annotated[Txt, Textarea(title="Value")] = Txt("")) -> Out:
+        def run(self, value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
             return value
 
         def compute_outputs(self, declared, values, arriving):
@@ -535,7 +534,7 @@ def test_a_hook_that_cannot_answer_refuses_and_the_refusal_is_the_placements_pro
         description = "d"
         category = "test"
 
-        def run(self, value: Annotated[Txt, Textarea(title="Value")] = Txt("")) -> Out:
+        def run(self, value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
             return value
 
         def compute_outputs(self, declared, values, arriving):
@@ -566,7 +565,7 @@ def test_an_inputs_hook_that_cannot_answer_refuses_and_compile_does_not_raise():
         description = "d"
         category = "test"
 
-        def run(self, value: Annotated[Txt, Textarea(title="Value")] = Txt("")) -> Out:
+        def run(self, value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
             return value
 
         def compute_inputs(self, declared, values):
@@ -597,7 +596,7 @@ def test_a_hook_reads_a_defaulted_static_nothing_bound():
         description = "d"
         category = "test"
 
-        def run(self, suffix: Annotated[Txt, Textarea(title="Suffix")] = Txt("out")) -> Out:
+        def run(self, suffix: Annotated[Txt, Param(title="Suffix", widget=Textarea())] = Txt("out")) -> Out:
             return suffix
 
         def compute_outputs(self, declared, values, arriving):

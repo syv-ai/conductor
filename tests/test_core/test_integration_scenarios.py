@@ -5,16 +5,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Annotated
 
-from conductor import CompiledGraph, GraphNode, NodeRegistry
+from conductor import CompiledGraph, GraphNode, NodeRegistry, Param
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
 from conductor.errors import ExternalFailure, NodeExecutionError
 from conductor.execution.engine import execute, execute_sync
 from conductor.graph.binding import Edges, Static
 from conductor.graph.model import Graph
+from conductor.metadata import Result
 from conductor.node import NodeDefinition, Policy, version
 from conductor.ref import Ref
-from conductor.returns import Result
 from conductor.widgets import Number as NumberWidget
 from conductor.widgets import Textarea
 
@@ -41,7 +41,7 @@ class Echo(NodeDefinition):
     description = "Returns its text"
     category = "test"
 
-    def run(self, text: Annotated[Txt, Textarea(title="Text")] = Txt("")) -> Out:
+    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
         return text
 
 
@@ -51,7 +51,7 @@ class Record(NodeDefinition):
     description = "Returns its label"
     category = "test"
 
-    def run(self, label: Annotated[Txt, Textarea(title="Label")] = Txt("hit")) -> Out:
+    def run(self, label: Annotated[Txt, Param(title="Label", widget=Textarea())] = Txt("hit")) -> Out:
         return label
 
 
@@ -63,8 +63,8 @@ class AlwaysFail(NodeDefinition):
 
     def run(
         self,
-        reason: Annotated[Txt, Textarea(title="Why")] = Txt("boom"),
-        number: Annotated[Num, NumberWidget(title="Number")] = Num(0),
+        reason: Annotated[Txt, Param(title="Why", widget=Textarea())] = Txt("boom"),
+        number: Annotated[Num, Param(title="Number", widget=NumberWidget())] = Num(0),
     ) -> Out:
         raise NodeExecutionError(reason, node_id="always_fail")
 
@@ -79,8 +79,8 @@ class Tally(NodeDefinition):
 
     def run(
         self,
-        number: Annotated[Num, NumberWidget(title="Number")] = Num(0),
-        label: Annotated[Txt, Textarea(title="Label")] = Txt("hit"),
+        number: Annotated[Num, Param(title="Number", widget=NumberWidget())] = Num(0),
+        label: Annotated[Txt, Param(title="Label", widget=Textarea())] = Txt("hit"),
     ) -> Out:
         return label
 
@@ -101,8 +101,8 @@ class Decide(NodeDefinition):
 
     def run(
         self,
-        value: Annotated[Num, NumberWidget(title="Value")] = Num(0),
-        threshold: Annotated[Num, NumberWidget(title="Threshold")] = Num(50),
+        value: Annotated[Num, Param(title="Value", widget=NumberWidget())] = Num(0),
+        threshold: Annotated[Num, Param(title="Threshold", widget=NumberWidget())] = Num(50),
     ) -> Branches:
         if value > threshold:
             return Branches(high=value, low=SKIPPED)
@@ -210,8 +210,8 @@ class Route(NodeDefinition):
 
     def run(
         self,
-        text: Annotated[Txt, Textarea(title="Text")] = Txt(""),
-        expect: Annotated[Txt, Textarea(title="Expect")] = Txt("data"),
+        text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt(""),
+        expect: Annotated[Txt, Param(title="Expect", widget=Textarea())] = Txt("data"),
     ) -> Match:
         if text == expect:
             return Match(match=text, other=SKIPPED)

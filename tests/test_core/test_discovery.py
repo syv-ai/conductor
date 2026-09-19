@@ -5,9 +5,9 @@ does not hold."""
 from typing import Annotated
 
 from conductor.dtype import DType
+from conductor.metadata import Result
 from conductor.registry import NodeRegistry
 from conductor.registry.discovery import discover_nodes
-from conductor.returns import Result
 
 
 class Txt(DType, str):
@@ -36,8 +36,8 @@ def test_discover_from_package(tmp_path):
         "from typing import Annotated\n"
         "import conductor\n"
         "from conductor.dtype import DType\n"
+        "from conductor.metadata import Param, Result\n"
         "from conductor.node import NodeDefinition\n"
-        "from conductor.returns import Result\n"
         "from conductor.widgets import Textarea\n"
         "\n"
         "class DiscoveredText(DType, str):\n"
@@ -50,7 +50,7 @@ def test_discover_from_package(tmp_path):
         "    description = 'Discovered'\n"
         "    category = 'test'\n"
         "\n"
-        "    def run(self, text: Annotated[DiscoveredText, Textarea(title='In')])"
+        "    def run(self, text: Annotated[DiscoveredText, Param(title='In', widget=Textarea())])"
         " -> Annotated[DiscoveredText, Result(title='Out')]:\n"
         "        return text\n"
         "\n"

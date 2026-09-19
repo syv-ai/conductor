@@ -10,12 +10,11 @@ from conductor.graph.binding import Edges, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.interface import Interface
-from conductor.metadata import Input, Output
+from conductor.metadata import Input, Output, Param, Result
 from conductor.node import GraphVersion, NodeDefinition
 from conductor.ref import Ref
-from conductor.returns import Result
 from conductor.series import Index, Series
-from conductor.widgets import ConnectionList, Textarea
+from conductor.widgets import Textarea
 
 
 class Txt(DType, str):
@@ -32,7 +31,7 @@ class Holder(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, value: Annotated[Txt, Textarea(title="Text")] = Txt("")) -> Out:
+    def run(self, value: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
         return value
 
 
@@ -42,7 +41,7 @@ class Upper(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, text: Annotated[Txt, Textarea(title="Text")] = Txt("")) -> Out:
+    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
         return Txt(text.upper())
 
 
@@ -54,7 +53,7 @@ class Join(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, texts: Annotated[Series[Txt], ConnectionList(title="Texts")] = ()) -> Out:
+    def run(self, texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
         return Txt("+".join(texts))
 
 
@@ -64,7 +63,7 @@ class Docs(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, folder: Annotated[Txt, Textarea(title="Folder")] = Txt("")) -> Annotated[Series[Txt], Result(title="Texts")]:
+    def run(self, folder: Annotated[Txt, Param(title="Folder", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Texts")]:
         return [Txt("a"), Txt("b")]
 
 
@@ -74,7 +73,7 @@ class Lines(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, text: Annotated[Txt, Textarea(title="Text")] = Txt("")) -> Annotated[Series[Txt], Result(title="Lines")]:
+    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Lines")]:
         return text.splitlines()
 
 
@@ -115,7 +114,7 @@ def _inner_definition():
     return _embedded_definition(
         "inner-graph",
         _inner_graph(),
-        inputs=(Input(name="holder.value", dtype=Txt, title="Text", widget=Textarea(title="Text"), default=Txt("indre"), optional=True),),
+        inputs=(Input(name="holder.value", dtype=Txt, title="Text", widget=Textarea(), default=Txt("indre"), optional=True),),
         outputs=(Output(name="join.result", dtype=Txt, title="Result"),),
     )
 
@@ -259,7 +258,7 @@ def test_a_series_born_inside_reduces_to_the_outer_row_by_lineage_alone():
             GraphNode(id="lines", type="lines", version=1, bindings={"text": Edges(refs=(Ref("holder", "result"),))}),
             GraphNode(id="join", type="join", version=1, bindings={"texts": Edges(refs=(Ref("lines", "result"),))}),
         ),
-        inputs=(Input(name="holder.value", dtype=Txt, title="Text", widget=Textarea(title="Text"), default=Txt(""), optional=True),),
+        inputs=(Input(name="holder.value", dtype=Txt, title="Text", widget=Textarea(), default=Txt(""), optional=True),),
         outputs=(Output(name="join.result", dtype=Txt, title="Result"),),
     )
     compiled = CompiledGraph.from_graph(
@@ -286,7 +285,7 @@ def test_a_series_born_inside_reduces_to_the_outer_row_by_lineage_alone():
             GraphNode(id="lines", type="lines", version=1, bindings={"text": Edges(refs=(Ref("holder", "result"),))}),
             GraphNode(id="join", type="join", version=1, bindings={"texts": Edges(refs=(Ref("lines", "result"),))}),
         ),
-        inputs=(Input(name="entered.value", dtype=Txt, title="Text", widget=Textarea(title="Text"), default=Txt(""), optional=True),),
+        inputs=(Input(name="entered.value", dtype=Txt, title="Text", widget=Textarea(), default=Txt(""), optional=True),),
         outputs=(Output(name="join.result", dtype=Txt, title="Result"),),
     )
     compiled = CompiledGraph.from_graph(
@@ -318,8 +317,8 @@ def test_two_crossings_on_one_lineage_make_the_whole_block_iterate_on_the_deeper
             GraphNode(id="ua", type="upper", version=1, bindings={"text": Edges(refs=(Ref("a", "result"),))}),
         ),
         inputs=(
-            Input(name="a.value", dtype=Txt, title="A", widget=Textarea(title="A"), default=Txt(""), optional=True),
-            Input(name="b.value", dtype=Txt, title="B", widget=Textarea(title="B"), default=Txt(""), optional=True),
+            Input(name="a.value", dtype=Txt, title="A", widget=Textarea(), default=Txt(""), optional=True),
+            Input(name="b.value", dtype=Txt, title="B", widget=Textarea(), default=Txt(""), optional=True),
         ),
         outputs=(Output(name="ua.result", dtype=Txt, title="A upper"), Output(name="b.result", dtype=Txt, title="B")),
     )
@@ -350,7 +349,7 @@ def test_a_series_entering_a_series_field_is_read_whole_and_the_block_expands_fl
     inner = _embedded_definition(
         "joiner",
         (GraphNode(id="join", type="join", version=1),),
-        inputs=(Input(name="join.texts", dtype=Series[Txt], title="Texts", widget=ConnectionList(title="Texts"), default=(), optional=True),),
+        inputs=(Input(name="join.texts", dtype=Series[Txt], title="Texts", default=(), optional=True),),
         outputs=(Output(name="join.result", dtype=Txt, title="Result"),),
     )
     compiled = CompiledGraph.from_graph(
@@ -375,8 +374,8 @@ def test_two_unrelated_series_entering_one_placement_are_its_misaligned():
             GraphNode(id="b", type="holder", version=1),
         ),
         inputs=(
-            Input(name="a.value", dtype=Txt, title="A", widget=Textarea(title="A"), default=Txt(""), optional=True),
-            Input(name="b.value", dtype=Txt, title="B", widget=Textarea(title="B"), default=Txt(""), optional=True),
+            Input(name="a.value", dtype=Txt, title="A", widget=Textarea(), default=Txt(""), optional=True),
+            Input(name="b.value", dtype=Txt, title="B", widget=Textarea(), default=Txt(""), optional=True),
         ),
         outputs=(Output(name="a.result", dtype=Txt, title="A"), Output(name="b.result", dtype=Txt, title="B")),
     )
@@ -401,7 +400,7 @@ def test_a_nested_placement_expands_under_both_names():
             GraphNode(id="pre", type="holder", version=1, bindings={"value": Static(value="x")}),
             GraphNode(id="inner", type="inner-graph", version=1, bindings={"holder.value": Edges(refs=(Ref("pre", "result"),))}),
         ),
-        inputs=(Input(name="pre.value", dtype=Txt, title="Text", widget=Textarea(title="Text"), default=Txt("x"), optional=True),),
+        inputs=(Input(name="pre.value", dtype=Txt, title="Text", widget=Textarea(), default=Txt("x"), optional=True),),
         outputs=(Output(name="inner.join.result", dtype=Txt, title="Result"),),
     )
     compiled = CompiledGraph.from_graph(

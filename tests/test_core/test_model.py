@@ -11,7 +11,7 @@ from conductor.graph.compiled import CompiledField, CompiledGraph, CompiledNode
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.problem import Problem
 from conductor.interface import Interface
-from conductor.metadata import Field, Input, Output
+from conductor.metadata import Field, Input, Output, Param, Result
 from conductor.model import ConductorModel
 from conductor.node import (
     Deprecation,
@@ -106,11 +106,11 @@ def test_an_index_is_its_id_whatever_its_parent():
 
 def test_a_schema_builder_keeps_its_schema_key_on_the_wire():
     """``schema`` is also a pydantic method name, so the attribute is ``schema_`` and the wire and keyword say ``schema``."""
-    builder = SchemaBuilder(title="Felter", schema={"type": "object"})
+    builder = SchemaBuilder(schema={"type": "object"})
 
     assert builder.schema_ == {"type": "object"}
     assert builder.model_dump()["schema"] == {"type": "object"}
-    assert SchemaBuilder.model_validate({"title": "Felter", "schema": {"a": 1}}).schema_ == {"a": 1}
+    assert SchemaBuilder.model_validate({"schema": {"a": 1}}).schema_ == {"a": 1}
 
 
 READ_BACK = (
@@ -124,6 +124,7 @@ READ_BACK = (
     Choice(id="en", title="English", element={"id": "text"}),
     OperatorChoice(id="contains", title="indeholder", category="text", arity=2),
     Index("lines", parent=Index("docs")),
+    Textarea(rows=2),
 )
 
 
@@ -133,24 +134,24 @@ def test_a_record_a_host_saves_reads_back_what_it_wrote(record):
     assert type(record).model_validate_json(record.model_dump_json()) == record
 
 
-def test_a_description_is_written_for_an_editor_and_not_read_back():
+def test_a_description_reads_back_with_its_type_as_a_description():
     """An ``Input`` is written from a ``run`` signature: its type dumps as a
-    description and its widget's title travels on the ``Input``. Loading the
-    dump would need the class the signature already holds, so it is refused
-    rather than half-built — ask ``describe()`` again instead."""
-    text = Input(name="text", dtype=Txt, title="Text", widget=Textarea(title="Text"))
+    description, and the class the signature holds is not rebuilt from
+    it. Everything else — the title, the widget — reads back as written."""
+    text = Input(name="text", dtype=Txt, title="Text", widget=Textarea())
     dumped = text.model_dump(mode="json")
 
     assert dumped["dtype"] == Txt.describe()
     assert "title" not in dumped["widget"]
-    with pytest.raises(ValidationError):
-        Input.model_validate(dumped)
+    back = Input.model_validate(dumped)
+    assert back.dtype == Txt.describe()
+    assert back.model_copy(update={"dtype": Txt}) == text
 
 
 SAVED = (
     Graph, GraphNode, FieldContent, Edges, Static, Problem, ErrorCause,
     Deprecation, Policy, VersionDescription, NodeDescription,
-    Field, Input, Output, Widget, Textarea, Dropdown, Choice, OperatorChoice, Index,
+    Field, Param, Result, Input, Output, Widget, Textarea, Dropdown, Choice, OperatorChoice, Index,
 )
 BUILT_PER_CALL = (CompiledGraph, CompiledNode, CompiledField, NodeVersion, GraphVersion, Interface, Skip)
 

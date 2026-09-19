@@ -23,12 +23,11 @@ from conductor.graph.binding import Edges, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.interface import Interface
-from conductor.metadata import Input, Output
+from conductor.metadata import Input, Output, Param, Result
 from conductor.node import GraphVersion, NodeDefinition, Policy, version
 from conductor.ref import Ref
-from conductor.returns import Result
 from conductor.series import Index, Series
-from conductor.widgets import ConnectionList, Textarea
+from conductor.widgets import Textarea
 
 
 class Txt(DType, str):
@@ -57,7 +56,7 @@ class Docs(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, text: Annotated[Txt, Textarea(title="Texts")] = Txt("")) -> Documents:
+    def run(self, text: Annotated[Txt, Param(title="Texts", widget=Textarea())] = Txt("")) -> Documents:
         parts = [Txt(p) for p in text.split(",")] if text else []
         return Documents(texts=parts, names=[Txt(f"doc{i}") for i in range(len(parts))])
 
@@ -68,7 +67,7 @@ class Upper(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, text: Annotated[Txt, Textarea(title="Text")] = Txt("")) -> Out:
+    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
         return Txt(text.upper())
 
 
@@ -78,7 +77,7 @@ class Pair(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, a: Annotated[Txt, Textarea(title="A")] = Txt(""), b: Annotated[Txt, Textarea(title="B")] = Txt("")) -> Out:
+    def run(self, a: Annotated[Txt, Param(title="A", widget=Textarea())] = Txt(""), b: Annotated[Txt, Param(title="B", widget=Textarea())] = Txt("")) -> Out:
         return Txt(f"{a}:{b}")
 
 
@@ -88,7 +87,7 @@ class Lines(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, text: Annotated[Txt, Textarea(title="Text")] = Txt("")) -> Annotated[Series[Txt], Result(title="Lines")]:
+    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Lines")]:
         return [Txt(p) for p in text.split("/")]
 
 
@@ -98,7 +97,7 @@ class Join(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, texts: Annotated[Series[Txt], ConnectionList(title="Texts")] = ()) -> Out:
+    def run(self, texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
         return Txt("+".join(texts))
 
 
@@ -110,7 +109,7 @@ class LongOnly(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, text: Annotated[Txt, Textarea(title="Text")] = Txt("")) -> Length:
+    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Length:
         return Length(long=text, short=SKIPPED) if len(text) > 2 else Length(long=SKIPPED, short=text)
 
 
@@ -120,7 +119,7 @@ class FailsOn(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, text: Annotated[Txt, Textarea(title="Text")] = Txt("")) -> Out:
+    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
         if text == "boom":
             raise NodeExecutionError("kunne ikke", cause=ErrorCause(code="boom", message="Boom."))
         return text
@@ -137,7 +136,7 @@ class Slow(NodeDefinition):
     peak = 0
 
     @version(1, policy=Policy(concurrency=1))
-    def run(self, text: Annotated[Txt, Textarea(title="Text")] = Txt("")) -> Out:
+    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
         with Slow.lock:
             Slow.active += 1
             Slow.peak = max(Slow.peak, Slow.active)
@@ -157,7 +156,7 @@ class Wide(NodeDefinition):
     active = 0
     peak = 0
 
-    def run(self, text: Annotated[Txt, Textarea(title="Text")] = Txt("")) -> Out:
+    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
         with Wide.lock:
             Wide.active += 1
             Wide.peak = max(Wide.peak, Wide.active)
@@ -180,7 +179,7 @@ class Columns(NodeDefinition):
         spec = values.get("spec", "")
         return tuple(Output(name=name, dtype=Txt, title=name.title()) for name in spec.split(",") if name)
 
-    def run(self, text: Annotated[Txt, Textarea(title="Text")] = Txt(""), spec: Annotated[Txt, Textarea(title="Kolonner")] = Txt("")) -> Mapping[str, Any]:
+    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt(""), spec: Annotated[Txt, Param(title="Kolonner", widget=Textarea())] = Txt("")) -> Mapping[str, Any]:
         return {name: Txt(f"{name}:{text}") for name in spec.split(",") if name}
 
 
@@ -471,12 +470,12 @@ def test_computed_inputs_reach_the_node_as_keywords():
         description = "d"
         category = "test"
 
-        def run(self, template: Annotated[Txt, Textarea(title="Template", show_handle=False)] = Txt(""), **values: Txt) -> Out:
+        def run(self, template: Annotated[Txt, Param(title="Template", show_handle=False, widget=Textarea())] = Txt(""), **values: Txt) -> Out:
             return Txt(re.sub(r"\{(\w+)\}", lambda m: str(values[m.group(1)]), template))
 
         def compute_inputs(self, declared, values):
             names = re.findall(r"\{(\w+)\}", str(values.get("template", "")))
-            return (*declared, *(Input(name=n, dtype=Txt, title=n, widget=TextWidget(title=n)) for n in dict.fromkeys(names)))
+            return (*declared, *(Input(name=n, dtype=Txt, title=n, widget=TextWidget()) for n in dict.fromkeys(names)))
 
     registry = _registry()
     registry.register(Template)
@@ -547,8 +546,8 @@ class AskNode(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, proposal: Annotated[Txt, Textarea(title="Proposal")] = Txt("")) -> Out | Asks:
-        return Asks(questions=(Input(name="result", dtype=Txt, title="Answer", widget=Textarea(title="Answer"), default=proposal, optional=True),))
+    def run(self, proposal: Annotated[Txt, Param(title="Proposal", widget=Textarea())] = Txt("")) -> Out | Asks:
+        return Asks(questions=(Input(name="result", dtype=Txt, title="Answer", widget=Textarea(), default=proposal, optional=True),))
 
 
 def test_a_run_that_may_ask_says_so_and_still_declares_its_outputs():
@@ -647,10 +646,10 @@ class AsksIfLong(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, proposal: Annotated[Txt, Textarea(title="Proposal")] = Txt("")) -> Out | Asks:
+    def run(self, proposal: Annotated[Txt, Param(title="Proposal", widget=Textarea())] = Txt("")) -> Out | Asks:
         if len(proposal) <= 2:
             return proposal
-        return Asks(questions=(Input(name="result", dtype=Txt, title="Answer", widget=Textarea(title="Answer"), default=proposal, optional=True),))
+        return Asks(questions=(Input(name="result", dtype=Txt, title="Answer", widget=Textarea(), default=proposal, optional=True),))
 
 
 def _asks_if_long(texts):
@@ -770,7 +769,7 @@ class TypedInside(NodeDefinition):
                 GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("t", "result"))}),
             ),
             interface=Interface(
-                inputs=(Input(name="h.text", dtype=Txt, title="Text", widget=Textarea(title="Text"), default=Txt(""), optional=True),),
+                inputs=(Input(name="h.text", dtype=Txt, title="Text", widget=Textarea(), default=Txt(""), optional=True),),
                 outputs=(Output(name="j.result", dtype=Txt, title="Result"),),
                 returns=Mapping,
             ),
@@ -815,7 +814,7 @@ def test_an_inner_reduction_over_the_entering_series_runs_once_per_outer_row():
                     GraphNode(id="gather", type="join", version=1, bindings={"texts": _edge(("holder", "result"))}),
                 ),
                 interface=Interface(
-                    inputs=(Input(name="holder.text", dtype=Txt, title="Text", widget=Textarea(title="Text"), default=Txt("inner"), optional=True),),
+                    inputs=(Input(name="holder.text", dtype=Txt, title="Text", widget=Textarea(), default=Txt("inner"), optional=True),),
                     outputs=(Output(name="gather.result", dtype=Txt, title="Result"),),
                     returns=Mapping,
                 ),

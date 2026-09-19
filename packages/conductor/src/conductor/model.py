@@ -12,10 +12,11 @@ What a host saves reads back what it wrote — a ``Graph`` and its parts, a
     graph.model_dump_json()          # JSON is pydantic's own, not renamed
 
 What describes a node — ``NodeDescription``, ``VersionDescription``,
-``Input``, ``Output`` and the widgets — is written for an editor and not
-read back. It is built from a ``run`` signature, its type dumps as that
-type's description and a widget's title travels on its ``Input``, so
-loading the dump is refused; the class is still there to ``describe()``.
+``Input``, ``Output`` and the widgets — is written for an editor. It is
+built from a ``run`` signature, so its ``dtype`` dumps as the type's
+description and reads back as that description, not the class; the rest
+of the record — the title, the widget — reads back as written. The class
+is still there to ``describe()``.
 
 What compile and the engine build on every call — ``CompiledGraph`` and
 its node and field views, a version, an interface, the ledger's records —
@@ -50,7 +51,7 @@ class ConductorModel(BaseModel):
     def __repr_args__(self) -> Iterator[tuple[str | None, Any]]:
         """Pydantic's repr arguments without the fields at their default, as scikit-learn prints an estimator.
 
-        ``Input(name='text', dtype=Text, title='Text', widget=Textarea(title='Text'))``
+        ``Input(name='text', dtype=Text, title='Text', widget=Textarea())``
         rather than every ``None`` and ``True`` the record carries.
         """
         fields = type(self).model_fields

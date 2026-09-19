@@ -9,7 +9,7 @@ from conductor.graph.problem import Problem
 from conductor.graph.topology import dependencies_of
 from conductor.graph.views import is_input_node
 from conductor.interface import FromRun, Interface
-from conductor.metadata import Input, Output
+from conductor.metadata import Input, Output, Param, Result
 from conductor.node import (
     Deprecation,
     GraphVersion,
@@ -23,6 +23,5 @@ from conductor.node import (
 )
 from conductor.ref import Ref
 from conductor.registry import NodeRegistry, RegistryDescription, TypeDescription
-from conductor.returns import Result
 from conductor.series import Index, Series
 from conductor.widgets import AnyWidget

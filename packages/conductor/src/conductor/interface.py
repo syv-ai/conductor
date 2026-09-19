@@ -4,8 +4,8 @@ A node declares its inputs and outputs by annotating ``run``::
 
     def run(
         self,
-        text: Annotated[Text, Textarea(title="Text")],
-        language: Annotated[Text, Dropdown(title="Language", choices=...)] = Text("en"),
+        text: Annotated[Text, Param(title="Text", widget=Textarea())],
+        language: Annotated[Text, Param(title="Language", widget=Dropdown(choices=...))] = Text("en"),
     ) -> Annotated[Text, Result(title="Translation")]:
         ...
 
@@ -15,7 +15,10 @@ records, the output records and what the caller must provide.
 tuple of inputs. Nothing else reads the signature, so there is one place
 the two could disagree, and it is here.
 
-Three things the walk understands beyond ``Annotated[DType, Widget]``:
+A parameter carries at most one ``Param``; a parameter with none is
+``Param()``, titled by its name, with no widget. A widget written bare in
+``Annotated`` is refused: it belongs on the ``Param``. Three things the
+walk understands beyond ``Annotated[DType, Param(...)]``:
 
 * ``Any`` in place of a ``DType`` — the input accepts whatever is connected to
   it. The type that actually arrives is recorded when the graph is
@@ -25,7 +28,7 @@ Three things the walk understands beyond ``Annotated[DType, Widget]``:
   ``Series``, as a whole series). The interface records only that it
   is open and in which shape; the inputs themselves are made from
   the edges when the graph is compiled.
-* A parameter whose widget says ``show_handle=False`` cannot be connected, so
+* A parameter whose ``Param`` says ``show_handle=False`` cannot be connected, so
   it may declare any pydantic-validatable type (a schema, a list of
   branches). A ``DType`` is required exactly where an edge can land.
 """
@@ -39,7 +42,7 @@ from typing import Annotated, Any, Callable, Literal, get_args, get_origin, get_
 from pydantic import BaseModel, ConfigDict, create_model
 
 from conductor.dtype import DType, Single, dtype_of
-from conductor.metadata import Input, Output
+from conductor.metadata import Input, Output, Param
 from conductor.returns import outputs_of
 from conductor.series import Series
 from conductor.widgets import Widget
@@ -119,11 +122,11 @@ class Interface:
         inputs: list[Input] = []
         needs: dict[str, type] = {}
         open_shape: Literal["single", "series"] | None = None
-        for name, param in signature.parameters.items():
+        for name, parameter in signature.parameters.items():
             if name == "self":
                 continue
-            annotation = hints.get(name, param.annotation)
-            if param.kind is inspect.Parameter.VAR_KEYWORD:
+            annotation = hints.get(name, parameter.annotation)
+            if parameter.kind is inspect.Parameter.VAR_KEYWORD:
                 if annotation is Single:
                     # ``**inputs: Single``: an open interface, every connected name
                     # received as one value. Only the shape is recorded; the
@@ -136,6 +139,11 @@ class Interface:
                 # Any other ``**values``: the inputs this node's ``compute_inputs``
                 # adds arrive here by name. The hook declares them, not the signature.
                 continue
+            if parameter.kind is inspect.Parameter.VAR_POSITIONAL:
+                raise TypeError(
+                    f"parameter *{name}: a node's inputs are named, so an edge or a binding "
+                    "can land on each; *args names none"
+                )
             if annotation is Single or _declared(annotation) is Single:
                 raise TypeError(
                     f"parameter {name!r}: Single is spelled on **inputs only; "
@@ -144,14 +152,14 @@ class Interface:
             if _annotation_of(annotation, FromRun) is not None:
                 needs[name] = get_args(annotation)[0]
                 continue
-            widget = _annotation_of(annotation, Widget)
-            if widget is None:
+            if _annotation_of(annotation, Widget) is not None:
                 raise TypeError(
-                    f"parameter {name!r} declares no widget — annotate it, "
-                    "e.g. Annotated[Text, Textarea(title=...)]"
+                    f"parameter {name!r} carries a bare widget; the widget goes on the Param — "
+                    "Annotated[Text, Param(title=..., widget=Textarea())]"
                 )
+            param = Param.on(annotation) or Param()
             dtype = dtype_of(annotation)
-            if widget.show_handle:
+            if param.show_handle:
                 # An edge can land here, so the type must be one an edge carries:
                 # a DType, or Any for "whatever arrives".
                 if dtype is None:
@@ -168,19 +176,16 @@ class Interface:
                 # No handle, so nothing travels: the declared type is a static
                 # type, used to validate the value a person typed.
                 dtype = _declared(annotation)
-            has_default = param.default is not inspect.Parameter.empty
-            # `title`, `description` and `show_handle` are copied off the widget
-            # annotation onto the Input, like `dtype` is read off the annotation.
-            # Nothing downstream reads them from the widget.
+            has_default = parameter.default is not inspect.Parameter.empty
             inputs.append(
                 Input(
                     name=name,
                     dtype=dtype,
-                    title=widget.title,
-                    description=widget.description,
-                    widget=widget,
-                    show_handle=widget.show_handle,
-                    default=param.default if has_default else None,
+                    title=param.title or name,
+                    description=param.description,
+                    widget=param.widget,
+                    show_handle=param.show_handle,
+                    default=parameter.default if has_default else None,
                     optional=has_default,
                 )
             )

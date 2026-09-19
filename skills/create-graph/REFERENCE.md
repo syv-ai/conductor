@@ -7,7 +7,7 @@ import asyncio
 from typing import Annotated
 
 import conductor_nodes
-from conductor import Asks, CompiledGraph, Edges, Graph, GraphNode, Input, NodeDefinition, Ref, Result, Series, Static
+from conductor import Asks, CompiledGraph, Edges, Graph, GraphNode, Input, NodeDefinition, Param, Ref, Result, Series, Static
 from conductor.execution.engine import collect, execute, execute_sync
 from conductor.widgets import Textarea
 from conductor_nodes.types import Text
@@ -106,8 +106,8 @@ class Approve(NodeDefinition):
     description = "Asks a person to approve a proposal."
     category = "review"
 
-    def run(self, proposal: Annotated[Text, Textarea(title="Proposal")]) -> Annotated[Text, Result(title="Decision")] | Asks:
-        return Asks(questions=(Input(name="result", dtype=Text, title="Decision", widget=Textarea(title="Decision"), default=proposal),))
+    def run(self, proposal: Annotated[Text, Param(title="Proposal", widget=Textarea())]) -> Annotated[Text, Result(title="Decision")] | Asks:
+        return Asks(questions=(Input(name="result", dtype=Text, title="Decision", widget=Textarea(), default=proposal),))
 
 
 registry.register(Approve)

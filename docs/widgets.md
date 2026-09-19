@@ -8,7 +8,7 @@ An author writes the widget inside `Annotated` on a `run` parameter:
 
 ```python
 from typing import Annotated
-from conductor import NodeDefinition, Result
+from conductor import NodeDefinition, Param, Result
 from conductor.widgets import Text as TextWidget
 from conductor_nodes.types import Text
 
@@ -19,7 +19,7 @@ class Greet(NodeDefinition):
     category = "text"
 
     def run(
-        self, name: Annotated[Text, TextWidget(title="Name", description="Who to greet")]
+        self, name: Annotated[Text, Param(title="Name", description="Who to greet", widget=TextWidget())]
     ) -> Annotated[Text, Result(title="Greeting")]:
         return Text(f"Hello, {name}!")
 ```
@@ -68,9 +68,9 @@ A widget does not decide whether an edge can reach the input: `show_handle` defa
 - **`SchemaBuilder`** — a schema built field by field. Options: `schema`, `allow_additional`, `field_types` (the host's vocabulary as `Choice`s). `schema` is the keyword and the wire key; the attribute is `schema_`, since `builder.schema` is pydantic's own method.
 - **`IfElseBuilder`** — conditions built from the host's operators. Options: `operators` (a tuple of `OperatorChoice`: `id`, `title`, `category`, `arity`).
 
-### Special
+### No widget
 
-- **`ConnectionList`** — edited by edges only: the value comes down an edge, so there is nothing to type. The control for a `Series[X]` input, an `Any` input and each connected name of an open interface.
+An input filled by edges only — a `Series[X]` gathered from other nodes, an `Any` passed through, each connected name of an open interface — declares no widget: `Param(title=...)` alone. There is nothing to type, so there is no control.
 
 The vocabulary inside a control — a dropdown's choices, a builder's operators, a table's column types — is the host's, declared on the widget where it declares the input, so it travels as data and no frontend list has to agree with a host table by hand.
 
@@ -81,7 +81,7 @@ A widget dumps through pydantic; the three lifted fields are excluded because th
 ```python
 >>> from pydantic import TypeAdapter
 >>> from conductor.widgets import AnyWidget, Text
->>> TypeAdapter(AnyWidget).dump_python(Text(title="URL", pattern=r"https?://.*"), mode="json")
+>>> TypeAdapter(AnyWidget).dump_python(Param(title="URL", widget=Text(pattern=r"https?://.*")), mode="json")
 {'kind': 'text', 'min_length': None, 'max_length': None, 'pattern': 'https?://.*'}
 ```
 

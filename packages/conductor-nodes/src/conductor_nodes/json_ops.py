@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Annotated, Any
 
-from conductor.returns import Result
+from conductor.metadata import Param, Result
 from conductor.widgets import Range, Switch, Textarea
 from conductor.widgets import Text as TextWidget
 
@@ -22,7 +22,7 @@ class Parse(StdlibNode):
     category = "json"
 
     def run(
-        self, text: Annotated[Text, Textarea(title="JSON text")]
+        self, text: Annotated[Text, Param(title="JSON text", widget=Textarea())]
     ) -> Annotated[Json, Result(title="Parsed")]:
         return Json(json.loads(text))
 
@@ -35,11 +35,11 @@ class Stringify(StdlibNode):
 
     def run(
         self,
-        value: Annotated[Json, Textarea(title="Value")],
+        value: Annotated[Json, Param(title="Value", widget=Textarea())],
         indent: Annotated[
-            Number, Range(title="Indent", min_val=0, max_val=8, step=1)
+            Number, Param(title="Indent", widget=Range(min_val=0, max_val=8, step=1))
         ] = Number(0),
-        sort_keys: Annotated[Flag, Switch(title="Sort keys")] = Flag(False),
+        sort_keys: Annotated[Flag, Param(title="Sort keys", widget=Switch())] = Flag(False),
     ) -> Annotated[Text, Result(title="JSON")]:
         return Text(json.dumps(value.value, indent=int(indent) or None, sort_keys=bool(sort_keys)))
 
@@ -52,8 +52,8 @@ class GetPath(StdlibNode):
 
     def run(
         self,
-        value: Annotated[Json, Textarea(title="Value")],
-        path: Annotated[Text, TextWidget(title="Path")],
+        value: Annotated[Json, Param(title="Value", widget=Textarea())],
+        path: Annotated[Text, Param(title="Path", widget=TextWidget())],
     ) -> Annotated[Json, Result(title="Extracted")]:
         return Json(self._get_path(value.value, path))
 

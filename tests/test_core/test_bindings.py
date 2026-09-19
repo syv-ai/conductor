@@ -15,10 +15,9 @@ from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.topology import dependencies_of
 from conductor.graph.views import derive_interface, is_input_node, lock_problems
 from conductor.interface import FromRun, Interface
-from conductor.metadata import Output
+from conductor.metadata import Output, Param, Result
 from conductor.node import NodeDefinition
 from conductor.ref import Ref
-from conductor.returns import Result
 from conductor.widgets import Textarea
 from pydantic import TypeAdapter
 
@@ -197,7 +196,7 @@ class TextInput(NodeDefinition):
     category = "test"
 
     def run(
-        self, value: Annotated[Txt, Textarea(title="Text")] = Txt("")
+        self, value: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")
     ) -> Annotated[Txt, Result(title="Text")]:
         return value
 
@@ -209,7 +208,7 @@ class Summarise(NodeDefinition):
     category = "test"
 
     def run(
-        self, text: Annotated[Txt, Textarea(title="Text")] = Txt("")
+        self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")
     ) -> Annotated[Txt, Result(title="Result")]:
         return text
 
@@ -225,7 +224,7 @@ class Stamped(NodeDefinition):
     def run(
         self,
         clock: Annotated[Clock, FromRun()],
-        text: Annotated[Txt, Textarea(title="Text")] = Txt(""),
+        text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt(""),
     ) -> Annotated[Txt, Result(title="Result")]:
         return text
 
@@ -403,7 +402,7 @@ def test_a_field_with_no_handle_is_never_an_input():
         category = "test"
 
         def run(
-            self, code: Annotated[Txt, Textarea(title="Kode", show_handle=False)] = Txt("")
+            self, code: Annotated[Txt, Param(title="Kode", show_handle=False, widget=Textarea())] = Txt("")
         ) -> Annotated[Txt, Result(title="Result")]:
             return code
 
@@ -499,7 +498,7 @@ def _echo_registry():
         description = "d"
         category = "test"
 
-        def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Annotated[Txt, Result(title="Result")]:
+        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="Result")]:
             return Txt(x.upper())
 
     registry = NodeRegistry()
@@ -542,7 +541,7 @@ def test_a_branch_not_taken_is_skipped_downstream():
         category = "test"
 
         def run(
-            self, x: Annotated[Txt, Textarea(title="X")] = Txt("")
+            self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")
         ) -> Answer:
             return Answer(yes=x, no=SKIPPED) if x else Answer(yes=SKIPPED, no=x)
 

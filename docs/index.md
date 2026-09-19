@@ -22,7 +22,7 @@ A reusable, host-agnostic engine that compiles and runs graphs of typed nodes. D
 ```python
 from typing import Annotated
 
-from conductor import CompiledGraph, Edges, Graph, GraphNode, NodeDefinition, NodeRegistry, Policy, Ref, Result, Static, version
+from conductor import CompiledGraph, Edges, Graph, GraphNode, NodeDefinition, NodeRegistry, Param, Policy, Ref, Result, Static, version
 from conductor.execution.engine import execute_sync
 from conductor.widgets import Text as TextWidget
 from conductor_nodes.types import Number, Text          # or DTypes of your own
@@ -35,7 +35,7 @@ class Fetch(NodeDefinition):
     category = "http"
 
     @version(1, policy=Policy(retries=3, delay=0.5))
-    def run(self, url: Annotated[Text, TextWidget(title="URL")]) -> Annotated[Text, Result(title="Body")]:
+    def run(self, url: Annotated[Text, Param(title="URL", widget=TextWidget())]) -> Annotated[Text, Result(title="Body")]:
         return Text(f"<html>{url}</html>")
 
 
@@ -45,7 +45,7 @@ class Length(NodeDefinition):
     description = "Counts characters"
     category = "text"
 
-    def run(self, text: Annotated[Text, TextWidget(title="Text")]) -> Annotated[Number, Result(title="Length")]:
+    def run(self, text: Annotated[Text, Param(title="Text", widget=TextWidget())]) -> Annotated[Number, Result(title="Length")]:
         return Number(len(text))
 
 

@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated
 
 from conductor._sentinel import SKIPPED
-from conductor.returns import Result
+from conductor.metadata import Param, Result
 from conductor.widgets import Switch, Textarea
 from conductor.widgets import Text as TextWidget
 
@@ -50,7 +50,7 @@ class IfEmpty(StdlibNode):
     category = "control"
 
     def run(
-        self, text: Annotated[Text, Textarea(title="Text")]
+        self, text: Annotated[Text, Param(title="Text", widget=Textarea())]
     ) -> Emptiness:
         if text.strip():
             return Emptiness(not_empty=text, empty=SKIPPED)
@@ -65,9 +65,9 @@ class IfEquals(StdlibNode):
 
     def run(
         self,
-        a: Annotated[Text, TextWidget(title="A")],
-        b: Annotated[Text, TextWidget(title="B")],
-        case_sensitive: Annotated[Flag, Switch(title="Case sensitive")] = Flag(True),
+        a: Annotated[Text, Param(title="A", widget=TextWidget())],
+        b: Annotated[Text, Param(title="B", widget=TextWidget())],
+        case_sensitive: Annotated[Flag, Param(title="Case sensitive", widget=Switch())] = Flag(True),
     ) -> Equality:
         left = a if case_sensitive else a.lower()
         right = b if case_sensitive else b.lower()
@@ -83,7 +83,7 @@ class Not(StdlibNode):
     category = "logic"
 
     def run(
-        self, value: Annotated[Flag, Switch(title="Value")]
+        self, value: Annotated[Flag, Param(title="Value", widget=Switch())]
     ) -> Annotated[Flag, Result(title="Negated")]:
         return Flag(not value)
 

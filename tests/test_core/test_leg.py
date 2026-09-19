@@ -13,14 +13,14 @@ import threading
 import time
 from typing import Annotated
 
-from conductor import CompiledGraph, GraphNode, NodeRegistry
+from conductor import CompiledGraph, GraphNode, NodeRegistry, Param
 from conductor.dtype import DType
 from conductor.execution.engine import execute, execute_sync
 from conductor.graph.binding import Edges, Static
 from conductor.graph.model import Graph
+from conductor.metadata import Result
 from conductor.node import NodeDefinition, Policy, version
 from conductor.ref import Ref
-from conductor.returns import Result
 from conductor.series import Series
 from conductor.widgets import Textarea
 
@@ -30,7 +30,7 @@ class Txt(DType, str):
     title = "Text"
 
 
-In = Annotated[Txt, Textarea(title="In")]
+In = Annotated[Txt, Param(title="In", widget=Textarea())]
 Out = Annotated[Txt, Result(title="Out")]
 Parts = Annotated[Series[Txt], Result(title="Parts")]
 
@@ -164,7 +164,7 @@ def test_an_instant_node_beside_forty_slow_rows_does_not_time_out():
         category = "test"
 
         @version(1, policy=Policy(timeout=0.1))
-        def run(self, texts: Annotated[Series[Txt], Textarea(title="In")]) -> Out:
+        def run(self, texts: Annotated[Series[Txt], Param(title="In", widget=Textarea())]) -> Out:
             return Txt("now")
 
     reg = NodeRegistry()
