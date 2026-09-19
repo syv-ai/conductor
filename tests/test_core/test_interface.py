@@ -96,7 +96,7 @@ def test_a_series_parameter_carries_its_element_type():
 
     dtype = Interface.of(collects).inputs[0].dtype
 
-    assert dtype.describe() == {"id": "series", "of": {"id": "interface-test-text", "accepted_as": ["interface-test-text"]}}
+    assert dtype.describe() == {"id": "series", "of": {"id": "interface-test-text"}}
 
 
 def test_optional_is_derived_from_the_default():
@@ -344,7 +344,7 @@ def test_the_input_record_dumps_as_the_wire():
         "name", "dtype", "title", "description",
         "widget", "show_handle", "default", "optional",
     }
-    assert data["dtype"] == {"id": "interface-test-text", "accepted_as": ["interface-test-text"]}
+    assert data["dtype"] == {"id": "interface-test-text"}
     assert data["widget"]["kind"] == "dropdown"
     assert data["widget"]["choices"] == [{"id": "da", "title": "Danish", "element": None}, {"id": "en", "title": "English", "element": None}]
 
