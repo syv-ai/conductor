@@ -56,14 +56,20 @@ cached, and "compile this and assert what it says" is a complete test.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from conductor.graph.binding import Binding
+from pydantic_core import to_jsonable_python
+
+from conductor.codec import to_wire
+from conductor.graph.binding import Binding, Static
 from conductor.graph.expand import authored_ref, expanded_ref
 from conductor.graph.problem import Problem
 from conductor.ref import Ref
+from conductor.series import Series
 
 if TYPE_CHECKING:
     from conductor.graph.conditions import Condition
@@ -72,6 +78,18 @@ if TYPE_CHECKING:
     from conductor.node import GraphVersion, NodeVersion
     from conductor.registry import NodeRegistry
     from conductor.series import Index
+
+
+def _written(value: Any, dtype: Any) -> Any:
+    """A static as its declared type writes it, for ``CompiledNode.fingerprint``:
+    each of many typed-in values through the scalar type, a series through
+    its element type, one value through its own."""
+    element = getattr(dtype, "element", None)
+    if element is not None:
+        return [to_wire(item, element) for item in (value.values if isinstance(value, Series) else value)]
+    if isinstance(value, list):
+        return [to_wire(item, dtype) for item in value]
+    return to_wire(value, dtype)
 
 
 @dataclass(frozen=True)
@@ -267,6 +285,30 @@ class CompiledNode:
         """The callable that runs this node, on a fresh instance per call."""
         node = self.graph_node
         return self._graph._registry.runner_for(node.type, node.version)
+
+    @property
+    def fingerprint(self) -> str:
+        """A hash of how the graph places this node: its type, version and
+        bindings. A run record stores one per node, and a leg restored into
+        a graph whose fingerprint differs runs the node again — a static
+        edited, a version bumped, an edge moved all change it; a title or a
+        position does not."""
+        node = self.graph_node
+        declared = {inp.name: inp.dtype for inp in self.interface.inputs}
+        bindings: dict[str, Any] = {}
+        for name, binding in node.bindings.items():
+            if isinstance(binding, Static) and name in self.statics:
+                # The value as its type writes it, never as the author spelled
+                # it: ``2`` and ``2.0`` on a number are one value, and a graph
+                # built in Python with the typed value hashes like the stored
+                # graph with its JSON. A list is what the author typed many of.
+                # A static for an input the node no longer has is hashed as
+                # spelled, since no type reads it.
+                bindings[name] = {"static": _written(self.statics[name], declared[name])}
+            else:
+                bindings[name] = binding.model_dump()
+        placed = {"type": node.type, "version": node.version, "bindings": bindings}
+        return hashlib.sha256(json.dumps(to_jsonable_python(placed), sort_keys=True).encode("utf-8")).hexdigest()
 
     @property
     def dependencies(self) -> frozenset[str]:

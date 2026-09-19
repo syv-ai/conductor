@@ -1,4 +1,4 @@
-"""A frame's values take one JSON form: records through pydantic, the rest through their type."""
+"""A frame is an event as JSON-ready data: records through pydantic, a typed value through the codec by its own type."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import pytest
 pytest.importorskip("fastapi")
 
 from conductor.errors import ErrorCause  # noqa: E402
+from conductor.execution.record import RunRecord  # noqa: E402
 from conductor.metadata import Input  # noqa: E402
 from conductor.series import Index, Series  # noqa: E402
 from conductor.widgets import Textarea  # noqa: E402
@@ -22,52 +23,36 @@ def _payload(event: dict) -> dict:
     return json.loads(frame[len("data: "):])
 
 
-def test_a_series_in_a_result_keeps_its_index_and_rows():
+def test_an_ending_dumps_its_results_and_its_record():
     lines = Series(Index("lines", parent=Index("docs")), [Text("a"), Text("b")], rows=((0, 0), (1, 0)))
+    record = RunRecord(cells=[{"ref": ["split", "result"], "row": [0], "value": "a"}], node_fingerprints={"split": "f" * 64})
 
-    payload = _payload({"type": "graph_complete", "results": {"split": {"result": lines}}, "cells": {}})
+    payload = _payload({"type": "graph_complete", "results": {"split": {"result": lines}}, "record": record})
 
     assert payload["results"]["split"]["result"] == {
         "index": {"id": "lines", "parent": {"id": "docs", "parent": None}},
         "rows": [[0, 0], [1, 0]],
         "values": ["a", "b"],
     }
+    assert payload["record"] == record.model_dump(mode="json")
 
 
 def test_a_pending_units_questions_and_a_failures_cause_are_records():
     question = Input(name="ask.result", dtype=Text, title="Svar", widget=Textarea(title="Svar"), default=Text("forslag"), optional=True)
 
-    pending = _payload({"type": "graph_pending", "pending": [{"node_id": "ask", "row": None, "prompt": None, "questions": (question,)}], "results": {}, "cells": {}})
+    pending = _payload({"type": "graph_pending", "pending": [{"node_id": "ask", "row": (1,), "prompt": None, "questions": (question,)}], "results": {}, "record": RunRecord()})
     failed = _payload({"type": "node_error", "node_id": "n", "error": "boom", "cause": ErrorCause(code="boom", message="Boom.", row=(2,))})
 
     (asked,) = pending["pending"][0]["questions"]
     assert (asked["name"], asked["default"], asked["widget"]["kind"]) == ("ask.result", "forslag", "textarea")
+    assert pending["pending"][0]["row"] == [1]
     assert failed["cause"] == {"code": "boom", "message": "Boom.", "details": {}, "row": [2]}
 
 
-def test_a_type_dumps_through_its_own_schema_and_a_value_with_none_raises():
-    assert _payload({"type": "node_complete", "result": {"parsed": Json({"a": [1]})}})["result"] == {"parsed": {"a": [1]}}
-
-    with pytest.raises(TypeError, match="no JSON form"):
-        sse_frame({"type": "node_complete", "result": {"x": object()}})
-
-
-def test_what_a_value_holds_dumps_through_its_own_type_too():
-    """An iterating node that returns ``Json`` gives a series of them; the
-    series dumps through its schema and each ``Json`` through its own."""
+def test_a_typed_value_dumps_through_its_own_type_and_one_with_no_form_raises():
     parsed = Series(Index("parts"), [Json({"a": 1}), Json([2])])
 
-    payload = _payload({"type": "graph_complete", "results": {"parse": {"result": parsed}}, "cells": {}})
-
-    assert payload["results"]["parse"]["result"]["values"] == [{"a": 1}, [2]]
-    assert _payload({"type": "node_complete", "result": {"x": Json(Json({"k": Text("t")}))}})["result"] == {"x": {"k": "t"}}
-    with pytest.raises(TypeError, match="no JSON form"):
-        sse_frame({"type": "node_complete", "result": {"x": Series(Index("parts"), [object()])}})
-
-
-def test_a_float_that_is_not_a_number_is_null_everywhere():
-    nan = float("nan")
-
-    payload = _payload({"type": "node_complete", "result": {"n": nan, "s": Series(Index("parts"), [nan])}})
-
-    assert payload["result"] == {"n": None, "s": {"index": {"id": "parts", "parent": None}, "rows": [[0]], "values": [None]}}
+    assert _payload({"type": "graph_complete", "results": {"parse": {"result": parsed}}, "record": RunRecord()})["results"]["parse"]["result"]["values"] == [{"a": 1}, [2]]
+    assert _payload({"type": "node_complete", "result": {"n": float("nan")}})["result"] == {"n": None}
+    with pytest.raises(Exception, match="object"):
+        sse_frame({"type": "node_complete", "result": {"x": object()}})

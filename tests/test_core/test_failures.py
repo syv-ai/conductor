@@ -247,7 +247,7 @@ def test_a_foreign_exceptions_text_is_on_original_and_nowhere_else():
             raise KeyError("secret-token")
 
     compiled = _compiled(Buggy)
-    leg = _Leg(compiled, cells=None, from_run={}, timeout=None, cancel=asyncio.Event())
+    leg = _Leg(compiled, record=None, from_run={}, timeout=None, cancel=asyncio.Event())
 
     with pytest.raises(NodeExecutionError) as caught:
         leg._call(("n1", None), {"text": "x"})
@@ -263,7 +263,7 @@ def test_a_foreign_exceptions_text_is_on_original_and_nowhere_else():
 def test_the_generic_messages_cover_the_engines_own_codes():
     """``MESSAGES`` says what people read for each code the engine writes
     itself; ``failed`` is the node's own message and has no generic line."""
-    assert set(MESSAGES) == {"engine_error", "execution_failed", "external_failed", "invalid_input", "timeout"}
+    assert set(MESSAGES) == {"engine_error", "execution_failed", "external_failed", "invalid_input", "invalid_output", "timeout"}
 
 
 def test_node_error_has_no_retryable_flag():

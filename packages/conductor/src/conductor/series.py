@@ -215,10 +215,14 @@ class Series(DType, Sequence[T]):
     ) -> core_schema.CoreSchema:
         """Validate the values through the element type; keep index and rows.
 
-        A ``Series`` passes through with its index and rows intact; a plain
-        list becomes a dense series on a fresh root index; a scalar is
-        refused rather than wrapped. Serialises as ``{index, rows, values}``.
+        The wire form — ``{index, rows, values}`` out, and a series, that
+        form or a plain list in — is the codec's (``conductor.codec``);
+        this schema only points pydantic at it, with the values written and
+        read through the element type's own schema. Imported here rather
+        than at the top because the codec builds series.
         """
+        from conductor.codec import SERIES_WIRE_SCHEMA, series_from_wire, series_to_wire
+
         element = getattr(source_type, "element", None)
         element_schema = (
             handler.generate_schema(element)
@@ -226,19 +230,11 @@ class Series(DType, Sequence[T]):
             else core_schema.any_schema()
         )
 
-        def validate(value: Any, inner: Any) -> "Series[Any]":
-            if isinstance(value, Series):
-                return Series(value.index, inner(list(value.values)), rows=value.rows)
-            if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
-                return Series(Index.fresh(), inner(list(value)))
-            # A scalar is not silently wrapped into a one-element series.
-            raise TypeError(f"expected a series, got {type(value).__name__}")
-
         return core_schema.no_info_wrap_validator_function(
-            validate,
+            series_from_wire,
             core_schema.list_schema(element_schema),
             serialization=core_schema.plain_serializer_function_ser_schema(
-                Series._as_wire,
+                series_to_wire,
                 # Values serialise through the element type's own schema.
                 return_schema=core_schema.typed_dict_schema({
                     "index": core_schema.typed_dict_field(core_schema.any_schema()),
@@ -247,41 +243,5 @@ class Series(DType, Sequence[T]):
                 }),
                 when_used="json",
             ),
-            metadata={"pydantic_js_functions": [lambda _s, _h: cls._WIRE_SCHEMA]},
+            metadata={"pydantic_js_functions": [lambda _s, _h: SERIES_WIRE_SCHEMA]},
         )
-
-    def _as_wire(self) -> dict[str, Any]:
-        """The JSON form of a series: ``{"index": {...}, "rows": [...], "values": [...]}``.
-
-        The index travels whole (id and parent chain), so a consumer can
-        tell which series share one and which rows belong to which parent.
-        """
-        return {
-            "index": self.index.model_dump(),
-            "rows": self.rows,
-            "values": list(self.values),
-        }
-
-    #: The JSON schema of an index. ``parent`` has this same shape, as deep
-    #: as the lineage goes; it is published as a plain object because a
-    #: schema built inside a pydantic schema function cannot reference itself.
-    _INDEX_WIRE_SCHEMA: ClassVar[dict[str, Any]] = {
-        "type": "object",
-        "properties": {
-            "id": {"type": "string"},
-            "parent": {
-                "anyOf": [{"type": "object"}, {"type": "null"}],
-                "description": "The parent index, in this same shape; null for a root.",
-            },
-        },
-        "required": ["id", "parent"],
-    }
-    _WIRE_SCHEMA: ClassVar[dict[str, Any]] = {
-        "type": "object",
-        "properties": {
-            "index": _INDEX_WIRE_SCHEMA,
-            "rows": {"type": "array", "items": {"type": "array", "items": {"type": "integer"}}},
-            "values": {"type": "array"},
-        },
-        "required": ["index", "rows", "values"],
-    }

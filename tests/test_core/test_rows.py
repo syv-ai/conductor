@@ -508,7 +508,7 @@ def test_node_complete_carries_the_series():
 # --- every ending is one shape ----------------------------------------------------
 
 
-def test_a_cancelled_leg_carries_its_results_and_cells():
+def test_a_cancelled_leg_carries_its_results_and_record():
     """`graph_cancelled` and `graph_timeout` end a leg the way `graph_complete`
     and `graph_pending` do — the results so far and the ledger's cells beside
     their reason — so a host can start a new run from any ending."""
@@ -529,7 +529,7 @@ def test_a_cancelled_leg_carries_its_results_and_cells():
     assert ending["results"]["a"]["result"] == "klar"
     assert "completed_nodes" not in ending
 
-    seeded = asyncio.run(leg(cells=ending["cells"]))
+    seeded = asyncio.run(leg(record=ending["record"]))
     assert seeded[-1]["type"] == "graph_complete"
     assert seeded[-1]["results"]["b"]["result"] == "B"
     assert not any(e["type"] == "node_start" and e["node_id"] == "a" for e in seeded)
@@ -596,7 +596,7 @@ def test_a_node_that_asks_ends_the_leg_pending_with_its_question_named_by_addres
     assert not any(e["type"] == "node_start" and e["node_id"] == "up" for e in events)
 
 
-def test_answering_is_the_next_leg_from_the_cells_and_the_cache():
+def test_answering_is_the_next_leg_from_the_record_and_the_cache():
     """The answer is the asking node's output in ``cache``; the cells carry
     what the first leg produced, so nothing done is done twice."""
     compiled = CompiledGraph.from_graph(
@@ -609,7 +609,7 @@ def test_answering_is_the_next_leg_from_the_cells_and_the_cache():
     )
     first = _leg(compiled)[-1]
 
-    second = _leg(compiled, cells=first["cells"], cache={"ask": {"result": Txt("yes")}})
+    second = _leg(compiled, record=first["record"], cache={"ask": {"result": Txt("yes")}})
 
     assert second[-1]["type"] == "graph_complete"
     assert second[-1]["results"]["up"]["result"] == "YES"
@@ -631,10 +631,10 @@ def test_an_iterating_asking_node_pends_once_per_row_and_is_answered_as_a_series
     first = _leg(compiled)[-1]
 
     assert first["type"] == "graph_pending"
-    assert [(w["node_id"], w["row"]) for w in first["pending"]] == [("ask", [0]), ("ask", [1])]
+    assert [(w["node_id"], w["row"]) for w in first["pending"]] == [("ask", (0,)), ("ask", (1,))]
     assert [w["questions"][0].default for w in first["pending"]] == ["a", "b"]
 
-    second = _leg(compiled, cells=first["cells"], cache={"ask": {"result": Series(Index("docs"), [Txt("x"), Txt("y")])}})
+    second = _leg(compiled, record=first["record"], cache={"ask": {"result": Series(Index("docs"), [Txt("x"), Txt("y")])}})
 
     assert list(second[-1]["results"]["up"]["result"]) == ["X", "Y"]
 
@@ -669,9 +669,9 @@ def test_an_answer_fills_the_rows_it_names_and_the_rows_already_done_stay():
     names row 1, and rows 0 and 2 keep what they produced."""
     compiled = _asks_if_long("a,long,b")
     first = _leg(compiled)[-1]
-    assert [(w["node_id"], w["row"]) for w in first["pending"]] == [("ask", [1])]
+    assert [(w["node_id"], w["row"]) for w in first["pending"]] == [("ask", (1,))]
 
-    second = _leg(compiled, cells=first["cells"], cache={"ask": {"result": Series(Index("docs"), [Txt("yes")], rows=[(1,)])}})
+    second = _leg(compiled, record=first["record"], cache={"ask": {"result": Series(Index("docs"), [Txt("yes")], rows=[(1,)])}})
 
     assert second[-1]["type"] == "graph_complete"
     assert list(second[-1]["results"]["ask"]["result"]) == ["a", "yes", "b"]
@@ -684,10 +684,10 @@ def test_a_row_left_unanswered_asks_again_in_the_next_leg():
     compiled = _asks_if_long("long,longer")
     first = _leg(compiled)[-1]
 
-    second = _leg(compiled, cells=first["cells"], cache={"ask": {"result": Series(Index("docs"), [Txt("yes")], rows=[(0,)])}})
+    second = _leg(compiled, record=first["record"], cache={"ask": {"result": Series(Index("docs"), [Txt("yes")], rows=[(0,)])}})
 
     assert second[-1]["type"] == "graph_pending"
-    assert [(w["node_id"], w["row"]) for w in second[-1]["pending"]] == [("ask", [1])]
+    assert [(w["node_id"], w["row"]) for w in second[-1]["pending"]] == [("ask", (1,))]
     assert [(e["done"], e["total"]) for e in second if e["type"] == "node_progress" and e["node_id"] == "ask"] == [(1, 2)]
     assert not any(e["type"] == "node_complete" and e["node_id"] == "ask" for e in second)
 
@@ -699,9 +699,9 @@ def test_a_unit_already_done_cannot_be_given_a_result():
     first = _leg(compiled)[-1]
 
     with pytest.raises(ValueError, match="'docs' is already done"):
-        _leg(compiled, cells=first["cells"], cache={"docs": {"texts": Series(Index("docs"), [Txt("z")]), "names": Series(Index("docs"), [Txt("n")])}})
+        _leg(compiled, record=first["record"], cache={"docs": {"texts": Series(Index("docs"), [Txt("z")]), "names": Series(Index("docs"), [Txt("n")])}})
     with pytest.raises(ValueError, match=r"'ask' at row \[0\] is already done"):
-        _leg(compiled, cells=first["cells"], cache={"ask": {"result": Series(Index("docs"), [Txt("z"), Txt("yes")])}})
+        _leg(compiled, record=first["record"], cache={"ask": {"result": Series(Index("docs"), [Txt("z"), Txt("yes")])}})
 
 
 def test_a_row_the_run_has_not_produced_cannot_be_answered():
@@ -734,7 +734,7 @@ def test_execute_sync_hands_the_pending_leg_back_as_an_error():
         execute_sync(compiled)
     assert [w["node_id"] for w in pending.value.pending] == ["ask"]
 
-    answered = _leg(compiled, cells=pending.value.cells, cache={"ask": {"result": Txt("yes")}})
+    answered = _leg(compiled, record=pending.value.record, cache={"ask": {"result": Txt("yes")}})
     assert answered[-1]["type"] == "graph_complete"
     assert answered[-1]["results"]["ask"]["result"] == "yes"
 

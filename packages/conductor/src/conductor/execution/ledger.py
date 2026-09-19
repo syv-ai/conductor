@@ -63,17 +63,23 @@ grouping depth, and the index a node runs once per row of
 row, and ``restore`` starts the next leg from it. A leg is one call of
 ``execute``; a run takes several when a node waits on a person in
 between. Nothing is pruned, so a unit done in one leg stays done in the
-next.
+next. Every value crosses through the codec (``conductor.codec``) by the
+type compile gave its field, so a restored cell is the type it was; a
+skipped cell is marked ``{"skipped": <depth>}`` beside its address, since
+a skip is not a value and has no type.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Iterator
 
 from conductor._sentinel import SKIPPED, is_skipped
+from conductor.codec import from_wire, to_wire
 from conductor.errors import ErrorCause, NodeExecutionError
 from conductor.execution.events import PendingUnit
+from conductor.execution.record import RunRecord
 from conductor.graph.binding import Edges, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.metadata import Input
@@ -85,7 +91,6 @@ from conductor.series import Index, Row, Series
 #: unit standing in for rows a skip above them never let be born.
 Unit = tuple[str, Row | None]
 
-_SKIPPED_WIRE = "__skipped__"
 _MISSING = object()
 
 
@@ -184,8 +189,11 @@ class Ledger:
         #: values each holds: inside an embedded graph that runs once per row,
         #: the author's list is a child row under each of those rows.
         self._typed_under: dict[str, list[tuple[str, int]]] = {}
-        #: The indexes of those typed-in lists.
+        #: The indexes of those typed-in lists, and of the typed-in lists on a
+        #: root, which are born here from the graph as it is now — so a
+        #: restore never takes them from a record.
         self._typed_children: set[str] = set()
+        self._typed_roots: set[str] = set()
         typed: list[str] = []
         for node_id in compiled.execution_order():
             node = compiled.node(node_id)
@@ -209,6 +217,7 @@ class Ledger:
                     for n in range(count):
                         self._born(index.id, (n,))
                     self._sealed.add(index.id)
+                    self._typed_roots.add(index.id)
                     typed.append(index.id)
                 if not isinstance(binding, Edges):
                     continue
@@ -543,20 +552,29 @@ class Ledger:
             if births:
                 barren.append(outputs.at)
         else:
+            # Every output is checked before any cell is written, so the
+            # ledger holds all of a unit's outputs or none of them.
+            cells: dict[Ref, Any] = {}
+            series: dict[Ref, list[Any]] = {}
             length: int | None = None
             for out in interface.outputs:
                 ref = Ref(node_id, out.name)
                 value = outputs[out.name]
                 if out.dtype.element is None or is_skipped(value):
-                    self._write(ref, row, value, written)
+                    cells[ref] = value
                     continue
-                values = list(value)
+                if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+                    raise ValueError(f"{node_id}: '{out.name}' is a series output and must be a sequence, not a {type(value).__name__}")
+                series[ref] = list(value)
                 if length is None:
-                    length = len(values)
-                elif length != len(values):
+                    length = len(series[ref])
+                elif length != len(series[ref]):
                     raise ValueError(
-                        f"{node_id}: its series outputs differ in length ({length} and {len(values)})"
+                        f"{node_id}: its series outputs differ in length ({length} and {len(series[ref])})"
                     )
+            for ref, value in cells.items():
+                self._write(ref, row, value, written)
+            for ref, values in series.items():
                 for j, item in enumerate(values):
                     key = (j,) if row is None else (*row, j)
                     if self._born(node_id, key):
@@ -707,30 +725,74 @@ class Ledger:
         if self._written(ref, group):
             woken.update(self._units_under(reader, group))
 
-    def inject(self, node_id: str, outputs: dict[str, Any]) -> None:
+    def inject(self, node_id: str, outputs: Mapping[str, Any]) -> None:
         """Record ``outputs`` as what this node produced, without running it —
         a person's answers, or an earlier run's results.
 
+        Each value is read through the codec as the type its output
+        declares, so a host may hand in the typed value or its JSON form.
         For a node that runs once, ``outputs`` is its result. For a node
-        running per row, each output is a series on the node's index, and
-        only the rows the series name are recorded: answering row ``(1,)``
-        leaves rows ``(0,)`` and ``(2,)`` as they were, done or still to run.
+        running per row, each output is a series on the node's index — a
+        ``Series``, or ``{"rows": [...], "values": [...]}`` as it came over
+        the wire — and only the rows it names are recorded: answering row
+        ``(1,)`` leaves rows ``(0,)`` and ``(2,)`` as they were, done or
+        still to run; every output answers the same rows.
 
-        A unit that is already done cannot be given a result again, and a
-        row the run has not produced yet has nothing to answer, so both raise.
+        An output the node does not have, an output left out, a unit that
+        is already done, a row the run has not produced, and a row one
+        output answers and another does not all raise, naming the node and
+        the output.
         """
-        iterate = self._compiled.node(node_id).iterates_on
+        node = self._compiled.node(node_id)
+        declared = [out.name for out in node.interface.outputs]
+        for name in outputs:
+            if name not in declared:
+                raise ValueError(f"'{node_id}' has no output '{name}'")
+        for name in declared:
+            if name not in outputs:
+                raise ValueError(f"'{node_id}' was given no value for its output '{name}'")
+        iterate = node.iterates_on
         if iterate is None:
-            self._inject((node_id, None), outputs)
+            # The node's whole output at once: a series output is answered as the series.
+            self._inject((node_id, None), {
+                name: self._answer(node_id, name, value, self._compiled.field(Ref(node_id, name)).type) for name, value in outputs.items()
+            })
             return
-        declared = self._compiled.node(node_id).interface.outputs
-        by_output = {out.name: dict(zip(outputs[out.name].rows, outputs[out.name].values, strict=True)) for out in declared}
+        by_output = {name: self._answered_rows(node_id, name, value) for name, value in outputs.items()}
         born = self._rows.get(iterate.id, set())
         for row in sorted({row for rows in by_output.values() for row in rows}):
             if row not in born:
                 raise ValueError(f"'{node_id}' has no row {list(row)} to record: the run has not produced it")
-            at_row = {name: rows.get(row, SKIPPED) for name, rows in by_output.items()}
+            for name, answered in by_output.items():
+                if row not in answered:
+                    raise ValueError(f"'{node_id}' answers '{name}' for no row {list(row)}: every output answers the same rows")
+            at_row = {name: answered[row] for name, answered in by_output.items()}
             self._inject((node_id, row), Skip(at=row) if all(is_skipped(v) for v in at_row.values()) else at_row)
+
+    def _answer(self, node_id: str, name: str, value: Any, dtype: Any | None = None) -> Any:
+        """One answered value as ``dtype`` — the cell's type unless given; ``SKIPPED`` passes."""
+        if is_skipped(value):
+            return value
+        declared = self._cell_type(Ref(node_id, name)) if dtype is None else dtype
+        try:
+            return from_wire(value, declared)
+        except (TypeError, ValueError) as invalid:
+            raise ValueError(f"'{node_id}' was given a value for '{name}' that is not a {getattr(declared, '__name__', declared)}") from invalid
+
+    def _answered_rows(self, node_id: str, name: str, value: Any) -> dict[Row, Any]:
+        """A per-row answer as ``{row: value}``: from a ``Series``, or from
+        ``rows`` and ``values`` as they came over the wire."""
+        if isinstance(value, Series):
+            rows, values = value.rows, value.values
+        elif isinstance(value, Mapping) and {"rows", "values"} <= set(value):
+            rows, values = [tuple(row) for row in value["rows"]], value["values"]
+        else:
+            raise ValueError(f"'{node_id}' runs per row, so '{name}' is answered as a series, or as rows and values")
+        if len(rows) != len(values):
+            raise ValueError(f"'{node_id}': '{name}' names {len(rows)} rows for {len(values)} values")
+        if len(set(rows)) != len(rows):
+            raise ValueError(f"'{node_id}': '{name}' names a row twice")
+        return {row: self._answer(node_id, name, item) for row, item in zip(rows, values, strict=True)}
 
     def _inject(self, unit: Unit, outputs: dict[str, Any] | Skip) -> None:
         if unit in self._done:
@@ -753,7 +815,7 @@ class Ledger:
     def pending(self) -> list[PendingUnit]:
         """Every unit waiting on a person, as ``PendingUnit`` records."""
         return [
-            PendingUnit(node_id=node_id, row=None if row is None else list(row), prompt=prompt, questions=questions)
+            PendingUnit(node_id=node_id, row=row, prompt=prompt, questions=questions)
             for (node_id, row), (prompt, questions) in self._pending.items()
         ]
 
@@ -794,48 +856,117 @@ class Ledger:
 
     # -- the record ---------------------------------------------------------------
 
-    def cells(self) -> dict[str, Any]:
-        """Everything this leg has produced, as JSON-ready data.
+    def cells(self) -> RunRecord:
+        """Everything this leg has produced, as the ``RunRecord`` a host stores.
 
-        A host stores it as the run's record and hands it back to
-        ``execute(cells=...)`` for the next leg, or for a new run seeded from
+        A host keeps it as the run's record and hands it back to
+        ``execute(record=...)`` for the next leg, or for a new run seeded from
         this one. A waiting unit is not in it: it produced nothing and asks
-        again next leg unless answered through ``cache``.
+        again next leg unless answered through ``cache``. Each value goes
+        through the codec by its cell's type; a skipped cell carries
+        ``skipped`` (the depth of its row) in place of ``value``; and every
+        node's fingerprint is stored, so a restore can tell what changed.
         """
-        return {
-            "cells": [
-                {"ref": [ref.node_id, ref.field], "row": None if row is None else list(row),
-                 "value": _SKIPPED_WIRE if is_skipped(value) else value}
-                for ref, by_row in self._cells.items()
-                for row, value in by_row.items()
-            ],
-            "rows": {index_id: [list(r) for r in sorted(rows)] for index_id, rows in self._rows.items()},
-            "sealed": sorted(self._sealed),
-            "no_rows_under": {
+        return RunRecord(
+            cells=[self._cell_wire(ref, row, value) for ref, by_row in self._cells.items() for row, value in by_row.items()],
+            rows_by_index={index_id: [list(r) for r in sorted(rows)] for index_id, rows in self._rows.items()},
+            sealed_indexes=sorted(self._sealed),
+            childless_parent_rows={
                 index_id: [None if r is None else list(r) for r in sorted(rows, key=lambda r: () if r is None else r)]
                 for index_id, rows in self._no_rows_under.items()
             },
-            "done": [[node_id, None if row is None else list(row)] for node_id, row in self._done],
-        }
+            done_units=[(node_id, None if row is None else list(row)) for node_id, row in self._done],
+            node_fingerprints={node_id: self._compiled.node(node_id).fingerprint for node_id in self._compiled.execution_order()},
+        )
+
+    def _cell_wire(self, ref: Ref, row: Row | None, value: Any) -> dict[str, Any]:
+        """One cell as the record carries it: its address, and its value through the codec or its skip."""
+        cell: dict[str, Any] = {"ref": [ref.node_id, ref.field], "row": None if row is None else list(row)}
+        if is_skipped(value):
+            cell["skipped"] = _depth(row)
+            return cell
+        try:
+            cell["value"] = to_wire(value, self._cell_type(ref))
+        except Exception as unwritable:
+            raise TypeError(f"{ref} at row {row}: the value has no JSON form ({unwritable})") from unwritable
+        return cell
+
+    def _cell_type(self, ref: Ref) -> Any:
+        """The type of one cell of ``ref``: the element of the series on a
+        field with rows, the field's own type otherwise."""
+        declared = self._compiled.field(ref).type
+        element = getattr(declared, "element", None)
+        return declared if self._compiled.field(ref).index is None or element is None else element
 
     @classmethod
-    def restore(cls, compiled: CompiledGraph, data: dict[str, Any]) -> Ledger:
-        """A ledger holding what ``cells()`` of an earlier leg recorded, over the same compiled graph."""
+    def restore(cls, compiled: CompiledGraph, record: RunRecord) -> Ledger:
+        """A ledger holding what an earlier leg recorded, over the graph as it is now.
+
+        A node the record fingerprints differently from ``compiled`` — or
+        does not fingerprint at all, or that ``compiled`` no longer has — is
+        left out together with everything that reads it, so those units run
+        again; the rest is restored cell for cell, each value read back
+        through the codec by its field's type. The rows of a typed-in list
+        are never taken from the record: the graph as it is now says how
+        many values the author typed, and a fresh ledger births them.
+        """
         ledger = cls(compiled)
-        for cell in data["cells"]:
+        dropped = ledger._dropped(record.node_fingerprints)
+        typed = ledger._typed_roots | ledger._typed_children
+        for cell in record.cells:
             ref = Ref(*cell["ref"])
+            if ref.node_id in dropped:
+                continue
             row = None if cell["row"] is None else tuple(cell["row"])
-            value = SKIPPED if cell["value"] == _SKIPPED_WIRE else cell["value"]
+            value = SKIPPED if "skipped" in cell else from_wire(cell["value"], ledger._cell_type(ref))
             ledger._cells.setdefault(ref, {})[row] = value
-        ledger._rows, ledger._rows_by_prefix = {}, {}
-        for index_id, rows in data["rows"].items():
-            ledger._rows[index_id] = set()
+        for index_id, rows in record.rows_by_index.items():
+            if index_id in dropped or index_id in typed:
+                continue
+            ledger._rows.setdefault(index_id, set())
             for r in rows:
                 ledger._born(index_id, tuple(r))
-        ledger._sealed = set(data["sealed"])
-        ledger._no_rows_under = {
-            index_id: {None if r is None else tuple(r) for r in rows} for index_id, rows in data["no_rows_under"].items()
-        }
-        for node_id, row in data["done"]:
-            ledger._finish((node_id, None if row is None else tuple(row)))
+                ledger._born_typed(index_id, tuple(r))
+        ledger._sealed |= set(record.sealed_indexes) - dropped - typed
+        for index_id in sorted(ledger._sealed):
+            ledger._seal_typed(index_id, [])
+        ledger._no_rows_under.update({
+            index_id: {None if r is None else tuple(r) for r in rows}
+            for index_id, rows in record.childless_parent_rows.items()
+            if index_id not in dropped and index_id not in typed
+        })
+        for node_id, row in record.done_units:
+            if node_id not in dropped:
+                ledger._finish((node_id, None if row is None else tuple(row)))
         return ledger
+
+    def _dropped(self, stored: Mapping[str, str]) -> set[str]:
+        """The nodes a restore leaves out, given the record's fingerprints:
+        those the graph places differently (or the record has none for),
+        those the graph no longer has, everything that reads any of them,
+        and the typed-in lists whose rows are born under theirs."""
+        compiled = self._compiled
+        current = {node_id: compiled.node(node_id).fingerprint for node_id in compiled.execution_order()}
+        dropped = {node_id for node_id, fingerprint in current.items() if stored.get(node_id) != fingerprint}
+        dropped.update(node_id for node_id in stored if node_id not in current)
+        frontier = [node_id for node_id in dropped if node_id in current]
+        while frontier:
+            node_id = frontier.pop()
+            for out in compiled.node(node_id).interface.outputs:
+                ref = Ref(node_id, out.name)
+                readers = [*self._scalar_readers.get(ref, ()), *(reader for reader, _ in self._series_readers.get(ref, ()))]
+                for reader in readers:
+                    if reader not in dropped:
+                        dropped.add(reader)
+                        frontier.append(reader)
+        for index_id in list(dropped):
+            dropped.update(self._typed_below(index_id))
+        return dropped
+
+    def _typed_below(self, index_id: str) -> set[str]:
+        """The indexes of every typed-in list born under rows of ``index_id``, and theirs in turn."""
+        below: set[str] = set()
+        for child, _ in self._typed_under.get(index_id, ()):
+            below.add(child)
+            below.update(self._typed_below(child))
+        return below

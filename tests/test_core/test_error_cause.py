@@ -58,13 +58,14 @@ def test_the_hierarchy_is_what_is_raised_and_nothing_else():
 
 def test_a_pending_leg_is_not_an_error_but_the_sync_wrapper_hands_it_back_as_one():
     """A pause is a leg boundary, not a failure. `execute_sync` has no
-    other channel, so it raises this — with the questions and the cells."""
+    other channel, so it raises this — with the questions and the record."""
     from conductor.errors import GraphPendingError
+    from conductor.execution.record import RunRecord
 
-    pending = GraphPendingError([{"node_id": "ask", "row": None, "questions": ()}], {"cells": []})
+    pending = GraphPendingError([{"node_id": "ask", "row": None, "questions": ()}], RunRecord())
 
     assert pending.pending[0]["node_id"] == "ask"
-    assert pending.cells == {"cells": []}
+    assert pending.record == RunRecord()
 
 
 def test_every_code_the_engine_emits_is_declared_once():

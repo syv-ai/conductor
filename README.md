@@ -380,10 +380,10 @@ compiled = CompiledGraph.from_graph(Graph(nodes=[
 try:
     execute_sync(compiled)
 except GraphPendingError as pending:
-    results = execute_sync(compiled, cells=pending.cells, cache={"approve": {"result": Text("Approved")}})
+    results = execute_sync(compiled, record=pending.record, cache={"approve": {"result": Text("Approved")}})
 ```
 
-`cells` is everything the earlier leg produced, so nothing is done twice; `cache` carries the answers as the asking node's outputs; for a node on rows, a `Series` naming the rows it answers, while a row that ran keeps its value and a row left out asks again. Every ending of a run carries its `results` and `cells`, so a host can also start a new run from a failed or stopped one.
+`record` is the engine's `RunRecord` of everything the earlier leg produced, so nothing is done twice, and a node the graph has changed since runs again; `cache` carries the answers as the asking node's outputs; for a node on rows, a `Series` naming the rows it answers, while a row that ran keeps its value and a row left out asks again. Every ending of a run carries its `results` and `record`, so a host can also start a new run from a failed or stopped one.
 
 ### Retry
 
@@ -424,7 +424,7 @@ ConductorError                     # Base — catch-all for any engine error
 │   ├── NodeExecutionError          # run() raised something that is not a NodeError; it is on `original`
 │   └── NodeTimeoutError            # The leg stopped waiting for the node; final
 ├── GraphExecutionError             # execute_sync: the graph failed, was cancelled or timed out
-└── GraphPendingError               # execute_sync: the run is waiting for a person; carries the questions and the cells
+└── GraphPendingError               # execute_sync: the run is waiting for a person; carries the questions and the record
 ```
 
 Raise `ExternalFailure` from `run` where the node knows the outside world failed, or name the client's exception classes in `Policy(retry_on=...)` and let the engine classify them.
@@ -494,7 +494,7 @@ The `execute()` async generator yields these events:
 | `graph_timeout` | The leg ran longer than the `timeout` its caller set (carried as `timeout_seconds`) |
 | `graph_cancelled` | The `cancel` event was set |
 
-Every `graph_*` ending carries `results` and `cells`.
+Every `graph_*` ending carries `results` and `record`.
 
 ## Using in other projects
 
