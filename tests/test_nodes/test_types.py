@@ -1,11 +1,14 @@
 """The four types the catalog is declared with."""
 
-from conductor.dtype import DType, registered_dtypes
+import conductor_nodes
+from conductor.dtype import DType
 from conductor_nodes.types import Flag, Json, Number, Text
 from pydantic import BaseModel
 
 
 def test_the_vocabulary_is_four_dtypes():
+    """Each is declared by some node, so a registry of the standard nodes holds all four."""
+    vocabulary = conductor_nodes.registry().types
     for dtype, dtype_id, title in (
         (Text, "text", "Text"),
         (Number, "number", "Number"),
@@ -15,7 +18,7 @@ def test_the_vocabulary_is_four_dtypes():
         assert issubclass(dtype, DType)
         assert dtype.id == dtype_id
         assert dtype.title == title
-        assert dtype in registered_dtypes()
+        assert vocabulary[dtype_id] is dtype
 
 
 def test_text_and_number_are_their_builtins():
