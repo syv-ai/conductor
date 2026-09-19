@@ -64,15 +64,16 @@ jobs:
           `git show --stat <sha>` and `git show <sha> -- <paths>`.
 
           Then read and compare against these docs:
-              CLAUDE.md
+              AGENTS.md
               README.md
               packages/conductor/src/conductor/about/llms.txt
-              docs/index.md
+              docs/index.md, docs/OVERVIEW.md, docs/widgets.md
+              skills/add-node/SKILL.md, skills/create-graph/SKILL.md
 
           Look for drift:
             - New public APIs (module, class, function, field) not documented.
-            - New node fields / enum values / exception types missing from
-              the hierarchy diagrams.
+            - New GraphNode fields, compiled-graph questions, problem or
+              cause codes, events or exception types missing from the docs.
             - Changed default behavior not reflected.
             - Test counts or example counts that are out of date — run
               `uv run pytest tests/ --collect-only -q 2>&1 | tail -1` for
@@ -85,10 +86,10 @@ jobs:
           prose. Prefer tightening existing wording over new sections.
 
           Constraints:
-            - Only edit CLAUDE.md, README.md,
-              packages/conductor/src/conductor/about/llms.txt,
-              docs/index.md. No code, tests,
-              or examples.
+            - Only edit the docs listed above. No code, tests, or
+              examples; flag a notebook that teaches removed API instead.
+            - The library's word is graph, never flow ("data flow" and
+              "control flow" as plain English are fine).
             - Do not run `git commit` or `git push`; the workflow handles
               that outside this turn.
             - If a commit message describes something not present in the

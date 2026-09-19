@@ -1,7 +1,7 @@
 [project]
 name = "conductor-workspace"
 version = "0.1.0"
-description = "Reusable graph execution engine for DAG-based workflows"
+description = "Reusable engine that compiles and runs graphs of typed nodes"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []
