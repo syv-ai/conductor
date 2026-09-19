@@ -13,7 +13,7 @@ from conductor.widgets import (
     Choice,
     DatePicker,
     Dropdown,
-    List,
+    ListWidget,
     SchemaBuilder,
     Textarea,
     Widget,
@@ -471,10 +471,10 @@ def test_a_list_widget_declares_no_per_item_control():
     """The element type is the input's dtype, and the host derives the
     per-item control from it — a control inside a control would be the
     same answer declared twice."""
-    data = TypeAdapter(AnyWidget).dump_python(List(min_items=1), mode="json")
+    data = TypeAdapter(AnyWidget).dump_python(ListWidget(min_items=1), mode="json")
 
     assert data == {"kind": "list", "min_items": 1, "max_items": None}
-    assert "item_widget" not in List.model_fields
+    assert "item_widget" not in ListWidget.model_fields
 
 
 def test_every_widget_is_in_the_union():

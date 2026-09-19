@@ -1,9 +1,8 @@
 from typing import Annotated, ClassVar
 
 import pytest
-from conductor import NodeRegistry
+from conductor import NodeRegistry, run_sync
 from conductor.dtype import DType
-from conductor.execution.engine import execute_sync
 from conductor.graph.binding import Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
@@ -1046,7 +1045,7 @@ def test_a_class_node_executes_in_a_graph():
     registry.register(Shout)
 
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="shout", version=1, bindings={"text": Static(value="hi")})]), registry)
-    results = execute_sync(compiled)
+    results = run_sync(compiled)["results"]
     assert results["a"]["result"] == "HI!"
 
 
@@ -1074,7 +1073,7 @@ def test_two_versions_of_one_class_execute_independently():
 
     for pinned, expected in ((1, "hi"), (2, "hi?")):
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="suffix", version=pinned, bindings={"text": Static(value="hi")})]), registry)
-        assert execute_sync(compiled)["a"]["result"] == expected
+        assert run_sync(compiled)["results"]["a"]["result"] == expected
 
 
 def test_a_version_a_class_does_not_declare_is_refused():

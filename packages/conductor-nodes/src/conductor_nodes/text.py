@@ -6,8 +6,7 @@ from typing import TYPE_CHECKING, Annotated
 
 from conductor.metadata import Param, Result
 from conductor.series import Series
-from conductor.widgets import List, Switch, Textarea
-from conductor.widgets import Text as TextWidget
+from conductor.widgets import ListWidget, Switch, Textarea, TextWidget
 
 from conductor_nodes.types import Flag, Number, StdlibNode, Text
 
@@ -133,7 +132,7 @@ class Join(StdlibNode):
     def run(
         self,
         parts: Annotated[
-            Series[Text], Param(title="Parts", widget=List())
+            Series[Text], Param(title="Parts", widget=ListWidget())
         ],
         separator: Annotated[Text, Param(title="Separator", widget=TextWidget())] = Text(", "),
     ) -> Annotated[Text, Result(title="Joined")]:

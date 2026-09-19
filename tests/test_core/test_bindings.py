@@ -5,10 +5,9 @@ from dataclasses import dataclass
 from typing import Annotated
 
 import pytest
-from conductor import NodeRegistry
+from conductor import NodeRegistry, run_sync
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
-from conductor.execution.engine import execute_sync
 from conductor.graph.binding import Edges, Static, static_values
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import FieldContent, Graph, GraphNode
@@ -513,7 +512,7 @@ def test_a_graph_of_bindings_compiles_and_runs():
             GraphNode(id="b", type="echo", version=1, bindings={"x": Edges(refs=(Ref("a", "result"),))}),
         ],
     )
-    results = execute_sync(CompiledGraph.from_graph(graph=graph, registry=_echo_registry()))
+    results = run_sync(CompiledGraph.from_graph(graph=graph, registry=_echo_registry()))["results"]
 
     assert results["a"]["result"] == "HI"
     assert results["b"]["result"] == "HI"
@@ -523,7 +522,7 @@ def test_an_unbound_input_falls_back_to_its_declared_default():
     """Absence is the only "nothing binds this" state there is."""
     graph = Graph(nodes=[GraphNode(id="a", type="echo", version=1)])
 
-    assert execute_sync(CompiledGraph.from_graph(graph=graph, registry=_echo_registry()))["a"]["result"] == ""
+    assert run_sync(CompiledGraph.from_graph(graph=graph, registry=_echo_registry()))["results"]["a"]["result"] == ""
 
 
 def test_a_branch_not_taken_is_skipped_downstream():
@@ -554,10 +553,10 @@ def test_a_branch_not_taken_is_skipped_downstream():
             GraphNode(id="no", type="echo", version=1, bindings={"x": Edges(refs=(Ref("g", "no"),))}),
         ],
     )
-    results = execute_sync(CompiledGraph.from_graph(graph=graph, registry=registry))
+    results = run_sync(CompiledGraph.from_graph(graph=graph, registry=registry))["results"]
 
     assert results["yes"]["result"] == "HI"
-    # The aggregated results of ``execute_sync`` omit a skipped node.
+    # The results a leg ends with omit a skipped node.
     assert "no" not in results
 
 

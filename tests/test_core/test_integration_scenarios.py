@@ -5,18 +5,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Annotated
 
-from conductor import CompiledGraph, GraphNode, NodeRegistry, Param
+from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, run_sync
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
 from conductor.errors import ExternalFailure, NodeExecutionError
-from conductor.execution.engine import execute, execute_sync
+from conductor.execution.engine import execute
 from conductor.graph.binding import Edges, Static
 from conductor.graph.model import Graph
 from conductor.metadata import Result
 from conductor.node import NodeDefinition, Policy, version
 from conductor.ref import Ref
-from conductor.widgets import Number as NumberWidget
-from conductor.widgets import Textarea
+from conductor.widgets import NumberWidget, Textarea
 
 
 class Txt(DType, str):
@@ -146,7 +145,7 @@ class TestDecisionCombinations:
                 GraphNode(id="a", type="tally", version=1, bindings={"label": Static(value="A"), "number": Edges(refs=(Ref('d', 'high'),))}),
                 GraphNode(id="b", type="always-fail", version=1, bindings={"number": Edges(refs=(Ref('d', 'low'),))}),
             ]), _registry())
-        r = execute_sync(compiled)
+        r = run_sync(compiled)["results"]
         # A ran; B was skipped so it never failed
         assert r["a"]["result"] == "A"
         assert "b" not in r
@@ -183,7 +182,7 @@ class TestRetry:
                 return Txt("ok")
 
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="flaky", version=1)]), _registry(Flaky))
-        r = execute_sync(compiled)
+        r = run_sync(compiled)["results"]
         assert r["n1"]["result"] == "ok"
         assert calls == 2  # one failure + one success
 
@@ -227,7 +226,7 @@ class TestEdgeCases:
                 GraphNode(id="taken", type="tally", version=1, bindings={"label": Static(value="TAKEN"), "number": Edges(refs=(Ref('d', 'high'),))}),
                 GraphNode(id="other", type="tally", version=1, bindings={"label": Static(value="OTHER"), "number": Edges(refs=(Ref('d', 'low'),))}),
             ]), _registry())
-        r = execute_sync(compiled)
+        r = run_sync(compiled)["results"]
         assert r["taken"]["result"] == "TAKEN"
         assert "other" not in r
 
@@ -240,6 +239,6 @@ class TestEdgeCases:
                 GraphNode(id="taken", type="echo", version=1, bindings={"text": Edges(refs=(Ref('d', 'match'),))}),
                 GraphNode(id="else_b", type="echo", version=1, bindings={"text": Edges(refs=(Ref('d', 'other'),))}),
             ]), _registry(Route))
-        r = execute_sync(compiled)
+        r = run_sync(compiled)["results"]
         assert r["taken"]["result"] == "data"
         assert "else_b" not in r

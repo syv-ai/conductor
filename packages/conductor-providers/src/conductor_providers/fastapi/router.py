@@ -6,8 +6,7 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from conductor import NodeRegistry
-from conductor.errors import GraphPendingError
-from conductor.execution.engine import collect, execute
+from conductor.execution.engine import execute
 from conductor.execution.events import ExecutionEvent
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.problem import Problem
@@ -87,22 +86,13 @@ def conductor_router(
     async def execute_graph(req: ExecuteRequest, request: Request) -> dict[str, Any]:
         """Run one leg and return the frame it ended on.
 
-        ``graph_complete`` and ``graph_pending`` are answers — a pending
-        frame carries the questions and the record the next request sends
-        back. A leg that fails, is cancelled or times out fails the request,
-        as ``execute_sync`` raises for it.
+        Every ending is an answer: ``graph_complete`` carries the results,
+        ``graph_pending`` the questions and the record the next request
+        sends back, ``graph_error``, ``graph_cancelled`` and
+        ``graph_timeout`` why the leg stopped.
         """
         ending: ExecutionEvent | None = None
-
-        async def watched() -> Any:
-            nonlocal ending
-            async for event in _leg(req, request):
-                ending = event
-                yield event
-
-        try:
-            await collect(watched())
-        except GraphPendingError:
+        async for ending in _leg(req, request):
             pass
         return as_data(ending)
 

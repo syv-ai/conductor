@@ -7,8 +7,7 @@ from typing import TYPE_CHECKING, Annotated
 
 from conductor.metadata import Param, Result
 from conductor.series import Series
-from conductor.widgets import Switch, Textarea
-from conductor.widgets import Text as TextWidget
+from conductor.widgets import Switch, Textarea, TextWidget
 
 from conductor_nodes.types import Flag, StdlibNode, Text
 

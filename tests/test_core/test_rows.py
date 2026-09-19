@@ -8,17 +8,15 @@ from dataclasses import dataclass
 from typing import Annotated, Any, ClassVar
 
 import pytest
-from conductor import NodeRegistry
+from conductor import NodeRegistry, run_sync
 from conductor._sentinel import SKIPPED, Asks
 from conductor.dtype import DType
 from conductor.errors import (
     CompilationError,
     ErrorCause,
-    GraphExecutionError,
-    GraphPendingError,
     NodeExecutionError,
 )
-from conductor.execution.engine import execute, execute_sync
+from conductor.execution.engine import execute
 from conductor.graph.binding import Edges, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
@@ -201,16 +199,16 @@ def _docs(texts):
 def _run(nodes):
     compiled = CompiledGraph.from_graph(Graph(nodes=nodes), _registry())
     assert compiled.is_runnable, compiled.problems
-    return execute_sync(compiled)
+    return run_sync(compiled)["results"]
 
 
 def _events(nodes):
     compiled = CompiledGraph.from_graph(Graph(nodes=nodes), _registry())
 
-    async def collect():
+    async def gathered():
         return [e async for e in execute(compiled)]
 
-    return asyncio.run(collect())
+    return asyncio.run(gathered())
 
 
 # --- a computed interface, by name -----------------------------------------------------
@@ -386,16 +384,16 @@ def test_a_failed_row_fails_the_node_and_the_cause_names_the_row():
     assert not any(e["type"] == "node_start" and e["node_id"] == "j" for e in events)
 
 
-def test_execute_sync_raises_with_the_cause():
+def test_run_sync_returns_the_error_ending_with_its_cause():
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[_docs("boom"), GraphNode(id="f", type="fails-on", version=1, bindings={"text": _edge(("docs", "texts"))})]),
         _registry(),
     )
 
-    with pytest.raises(GraphExecutionError) as raised:
-        execute_sync(compiled)
-    assert raised.value.node_id == "f"
-    assert raised.value.cause.row == (0,)
+    ending = run_sync(compiled)
+    assert ending["type"] == "graph_error"
+    assert ending["node_id"] == "f"
+    assert ending["cause"].row == (0,)
 
 
 def test_a_defect_in_the_engine_fails_the_leg_instead_of_hanging_it(monkeypatch):
@@ -410,10 +408,10 @@ def test_a_defect_in_the_engine_fails_the_leg_instead_of_hanging_it(monkeypatch)
     monkeypatch.setattr(Ledger, "inputs_for", broken)
     compiled = CompiledGraph.from_graph(Graph(nodes=[_docs("a,b")]), _registry())
 
-    async def collect():
+    async def gathered():
         return [e async for e in execute(compiled, timeout=5)]
 
-    events = asyncio.run(collect())
+    events = asyncio.run(gathered())
 
     assert events[-1]["type"] == "graph_error"
     assert events[-1]["cause"].code == "engine_error"
@@ -425,7 +423,7 @@ def test_a_graph_compile_rejected_is_refused_with_its_problems():
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="gone", version=1)]), _registry())
 
     with pytest.raises(CompilationError) as raised:
-        execute_sync(compiled)
+        run_sync(compiled)
     assert [p.code for p in raised.value.problems] == ["unknown_node_type"]
 
 
@@ -462,7 +460,7 @@ def test_computed_inputs_reach_the_node_as_keywords():
     import re
 
     from conductor.metadata import Input
-    from conductor.widgets import Text as TextWidget
+    from conductor.widgets import TextWidget
 
     class Template(NodeDefinition):
         id = "template"
@@ -493,7 +491,7 @@ def test_computed_inputs_reach_the_node_as_keywords():
     )
     assert compiled.is_runnable, compiled.problems
 
-    assert list(execute_sync(compiled)["t"]["result"]) == ["Dear Ida (24-1)", "Dear Bo (24-1)"]
+    assert list(run_sync(compiled)["results"]["t"]["result"]) == ["Dear Ida (24-1)", "Dear Bo (24-1)"]
 
 
 def test_node_complete_carries_the_series():
@@ -723,17 +721,17 @@ def test_two_asking_nodes_in_parallel_are_one_pending_set():
     assert sorted(w["node_id"] for w in ending["pending"]) == ["a", "b"]
 
 
-def test_execute_sync_hands_the_pending_leg_back_as_an_error():
+def test_run_sync_returns_the_pending_ending():
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[GraphNode(id="ask", type="asks", version=1, bindings={"proposal": Static(value="p")})]),
         _registry_with_asks(),
     )
 
-    with pytest.raises(GraphPendingError) as pending:
-        execute_sync(compiled)
-    assert [w["node_id"] for w in pending.value.pending] == ["ask"]
+    pending = run_sync(compiled)
+    assert pending["type"] == "graph_pending"
+    assert [w["node_id"] for w in pending["pending"]] == ["ask"]
 
-    answered = _leg(compiled, record=pending.value.record, cache={"ask": {"result": Txt("yes")}})
+    answered = _leg(compiled, record=pending["record"], cache={"ask": {"result": Txt("yes")}})
     assert answered[-1]["type"] == "graph_complete"
     assert answered[-1]["results"]["ask"]["result"] == "yes"
 
@@ -791,7 +789,7 @@ def test_a_typed_in_list_inside_an_iterating_embedded_graph_is_a_child_row_under
     )
     assert compiled.node("emb/t").iterates_on.parent == Index("docs")
 
-    results = execute_sync(compiled)
+    results = run_sync(compiled)["results"]
 
     assert list(results["emb/j"]["result"]) == joined
     assert results["emb/t"]["result"].rows == tuple((i, n) for i in range(len(joined)) for n in range(2))
@@ -830,7 +828,7 @@ def test_an_inner_reduction_over_the_entering_series_runs_once_per_outer_row():
         _registry_with_asks(Embedded),
     )
     assert compiled.is_runnable, compiled.problems
-    results = execute_sync(compiled)
+    results = run_sync(compiled)["results"]
 
     assert list(results["emb/holder"]["result"]) == ["A", "B", "C"]
     assert list(results["emb/gather"]["result"]) == ["A", "B", "C"]

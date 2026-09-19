@@ -9,7 +9,7 @@ An author writes the widget inside `Annotated` on a `run` parameter:
 ```python
 from typing import Annotated
 from conductor import NodeDefinition, Param, Result
-from conductor.widgets import Text as TextWidget
+from conductor.widgets import TextWidget
 from conductor_nodes.types import Text
 
 class Greet(NodeDefinition):
@@ -80,8 +80,8 @@ A widget dumps through pydantic; the three lifted fields are excluded because th
 
 ```python
 >>> from pydantic import TypeAdapter
->>> from conductor.widgets import AnyWidget, Text
->>> TypeAdapter(AnyWidget).dump_python(Param(title="URL", widget=Text(pattern=r"https?://.*")), mode="json")
+>>> from conductor.widgets import AnyWidget, TextWidget
+>>> TypeAdapter(AnyWidget).dump_python(TextWidget(pattern=r"https?://.*"), mode="json")
 {'kind': 'text', 'min_length': None, 'max_length': None, 'pattern': 'https?://.*'}
 ```
 

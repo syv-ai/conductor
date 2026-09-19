@@ -13,10 +13,9 @@ from dataclasses import dataclass
 from typing import Annotated
 
 import pytest
-from conductor import NodeRegistry, Param
+from conductor import NodeRegistry, Param, run_sync
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
-from conductor.execution.engine import execute_sync
 from conductor.execution.ledger import Ledger
 from conductor.graph.binding import Edges, Static
 from conductor.graph.compiled import CompiledGraph
@@ -143,7 +142,7 @@ def _work(rows: int, monkeypatch: pytest.MonkeyPatch) -> tuple[int, int]:
     with monkeypatch.context() as patched:
         patched.setattr(Ledger, "ready", counted_ready)
         patched.setattr(Ledger, "_lookup", counted_lookup)
-        results = execute_sync(compiled)
+        results = run_sync(compiled)["results"]
 
     short = len(range(0, rows, 3))
     assert len(results["long-joined"]["result"].split("+")) == rows - short
@@ -166,12 +165,12 @@ def test_four_times_the_rows_is_about_four_times_the_work(monkeypatch):
 @pytest.mark.skipif(os.environ.get("CI") == "true", reason="wall-clock timing is noise on a shared CI runner")
 def test_four_times_the_rows_takes_at_most_eight_times_as_long():
     """The wall clock, with room for noise: linear is fourfold, quadratic sixteen."""
-    execute_sync(_compiled(50))  # warm imports and caches before timing
+    run_sync(_compiled(50))  # warm imports and caches before timing
 
     def timed(rows: int) -> float:
         compiled = _compiled(rows)
         started = time.perf_counter()
-        execute_sync(compiled)
+        run_sync(compiled)
         return time.perf_counter() - started
 
     small, large = timed(250), timed(1000)
@@ -192,4 +191,4 @@ def test_a_ready_unit_nobody_started_stops_the_leg_loudly(monkeypatch):
     monkeypatch.setattr(Ledger, "record", silent)
 
     with pytest.raises(RuntimeError, match="missed wake"):
-        execute_sync(_compiled(3))
+        run_sync(_compiled(3))

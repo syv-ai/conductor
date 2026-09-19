@@ -21,8 +21,7 @@ from conductor.dtype import DType
 from conductor.graph.problem import Problem
 from conductor.metadata import Input, Param
 from conductor.series import Index
-from conductor.widgets import Text as TextWidget
-from conductor.widgets import Textarea
+from conductor.widgets import Textarea, TextWidget
 
 
 class Txt(DType, str):

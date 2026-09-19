@@ -9,7 +9,7 @@ Every value on an edge has a `DType`: a real class, usually on a builtin, regist
 ```python
 from typing import Annotated, Any
 
-from conductor import DType, Param
+from conductor import Asks, deprecated, DType, FromRun, Input, NodeDefinition, Output, Param, Policy, Result, Series, Single, SKIPPED, upgrade, version
 
 
 class Text(DType, str):
@@ -38,8 +38,7 @@ One output is `Annotated[X, Result(title=...)]`, named `result`. Several outputs
 ```python
 from dataclasses import dataclass
 
-from conductor import NodeDefinition, Result
-from conductor.widgets import Text as TextWidget, Textarea
+from conductor.widgets import TextWidget, Textarea
 
 
 @dataclass(frozen=True)
@@ -70,7 +69,6 @@ A pydantic model returned from `run` is one value, not one output per field.
 `Series[X]` is the one collection. A parameter declared `Series[X]` receives the whole series in one call (a reduction); an output declared `Series[X]` is returned as a plain list, and each item becomes a row.
 
 ```python
-from conductor import Series
 
 
 class Words(NodeDefinition):
@@ -100,7 +98,6 @@ A node written for one value never loops: feed it a series and the engine runs i
 A node that takes one of two branches returns `SKIPPED` on the other; what reads that output does not run. Outputs that are exclusive alternatives share a `choice`:
 
 ```python
-from conductor import SKIPPED
 from conductor.widgets import Switch
 
 
@@ -127,7 +124,6 @@ The standard library's `decision`, `logic-if-empty` and `logic-if-equals` often 
 A node that needs a person returns `Asks` in place of a result, and says so in its return annotation. Each question is an `Input` named after the output it fills:
 
 ```python
-from conductor import Asks, Input
 
 
 class Approve(NodeDefinition):
@@ -150,7 +146,6 @@ The answer arrives on the next leg as this node's output, and `run` is not calle
 What only the caller of `execute` has — a clock, a client, who is running the graph — is not an input. Mark the parameter `FromRun()`; the host hands the value in by type:
 
 ```python
-from conductor import FromRun
 
 
 class Caller:
@@ -175,7 +170,6 @@ class Signed(NodeDefinition):
 An undecorated `run` is version 1. Once there is a second, every version is marked `@version(n)`, `run` included; the current one is the highest number. Retries, delay, timeout and concurrency belong to the version's `Policy`:
 
 ```python
-from conductor import Policy, deprecated, upgrade, version
 from conductor.errors import ExternalFailure
 
 
@@ -214,7 +208,6 @@ When what one placed node has depends on how the author configured it, override 
 ```python
 from collections.abc import Mapping
 
-from conductor import Output
 from conductor.node import Refuses
 
 
@@ -243,7 +236,6 @@ class Columns(NodeDefinition):
 `**inputs: Single` makes every name connected into the node an input, each received as one value; `**inputs: Series` receives each as a whole series:
 
 ```python
-from conductor import Single
 
 
 class Template(NodeDefinition):

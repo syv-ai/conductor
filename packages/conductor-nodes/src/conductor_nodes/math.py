@@ -6,8 +6,7 @@ from typing import TYPE_CHECKING, Annotated
 
 from conductor.metadata import Param, Result
 from conductor.series import Series
-from conductor.widgets import List, Range
-from conductor.widgets import Number as NumberWidget
+from conductor.widgets import ListWidget, NumberWidget, Range
 
 from conductor_nodes.types import Number, StdlibNode
 
@@ -114,7 +113,7 @@ class Min(StdlibNode):
     def run(
         self,
         values: Annotated[
-            Series[Number], Param(title="Values", widget=List())
+            Series[Number], Param(title="Values", widget=ListWidget())
         ],
     ) -> Annotated[Number, Result(title="Min")]:
         if not len(values):
@@ -131,7 +130,7 @@ class Max(StdlibNode):
     def run(
         self,
         values: Annotated[
-            Series[Number], Param(title="Values", widget=List())
+            Series[Number], Param(title="Values", widget=ListWidget())
         ],
     ) -> Annotated[Number, Result(title="Max")]:
         if not len(values):

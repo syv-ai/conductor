@@ -17,8 +17,12 @@ edge only: ``Param(title=...)`` alone declares it. Nor does a widget
 change how the engine runs: a pause is a node that returns ``Asks``, not a
 widget kind.
 
-Conductor ships no default widget for any type: ``Text`` may be a
+Conductor ships no default widget for any type: a text may be a
 textarea, a single line or a dropdown, so every input declares its own.
+The three controls whose plain names collide with a host's types are
+named for what they are — ``TextWidget``, ``NumberWidget``,
+``ListWidget`` — so ``from conductor.widgets import TextWidget`` sits
+beside a host's ``Text`` without an alias.
 """
 
 from __future__ import annotations
@@ -71,7 +75,7 @@ class OperatorChoice(ConductorModel):
     arity: int
 
 
-class Text(Widget):
+class TextWidget(Widget):
     """Single-line text."""
 
     kind: Literal["text"] = "text"
@@ -114,7 +118,7 @@ class FileUpload(Widget):
     multiple: bool = False
 
 
-class Number(Widget):
+class NumberWidget(Widget):
     """A number typed in, optionally bounded and optionally whole."""
 
     kind: Literal["number"] = "number"
@@ -142,7 +146,7 @@ class DatePicker(Widget):
     seed: Literal["today"] | None = None
 
 
-class List(Widget):
+class ListWidget(Widget):
     """A list of values typed by hand. The per-item control is derived by
     the host from the element type, so none is declared here."""
 

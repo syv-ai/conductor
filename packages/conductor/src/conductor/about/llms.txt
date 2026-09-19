@@ -11,8 +11,7 @@ Two nodes: one written for a single value, one for a whole series. That differen
 ```python
 from typing import Annotated
 
-from conductor import CompiledGraph, DType, Edges, Graph, GraphNode, NodeDefinition, NodeRegistry, Param, Ref, Result, Series, Static
-from conductor.execution.engine import execute_sync
+from conductor import CompiledGraph, DType, Edges, Graph, GraphNode, NodeDefinition, NodeRegistry, Param, Ref, Result, Series, Static, run
 from conductor.widgets import Textarea
 
 
@@ -52,7 +51,8 @@ graph = Graph(nodes=[
 compiled = CompiledGraph.from_graph(graph, registry)
 assert compiled.is_runnable, compiled.problems
 
-results = execute_sync(compiled)
+ending = await run(compiled)       # a notebook cell; from a script, run_sync(compiled) — the same ending event
+results = ending["results"]
 list(results["upper"]["result"])   # ["A", "B", "C"] — three values typed into one input: it ran once per value
 results["join"]["result"]          # "A+B+C" — Series[Text] received the whole series, once
 ```
@@ -76,7 +76,6 @@ A node is a `NodeDefinition` subclass with `id`, `title`, `description` and `cat
 Several versions live in one class. An undecorated `run` is version 1; otherwise every version is a method marked `@version(n)`, including `run`, the current one is the highest number, and by convention its method is the one named `run`. Each version has its own signature and its own `Policy`.
 
 ```python
-from conductor import Policy, deprecated, upgrade, version
 
 class Greet(NodeDefinition):
     id = "greet"
@@ -209,8 +208,6 @@ ConductorError
 │   ├── NodeValidationError     the inputs were wrong
 │   ├── NodeExecutionError      run raised something that is not a NodeError
 │   └── NodeTimeoutError        the policy's timeout expired; final
-├── GraphExecutionError     execute_sync: the graph failed, was cancelled or timed out
-└── GraphPendingError       execute_sync: the leg ended pending; carries pending and record
 ```
 
 A failed unit fails the run: no further unit starts, and the leg ends at once. A `run` already in its worker thread is not interrupted; it finishes, and what it returns is dropped. Every ending carries `results` and `cells`, so a host can start a new run from a failed one.
@@ -282,12 +279,14 @@ Everything else is imported from the module that defines it.
 ### conductor.execution.engine
 
 - `execute(compiled, *, record=None, cache=None, from_run=None, timeout=None, cancel=None)` — one leg, as an async generator of events; `timeout` bounds the leg in seconds, `None` means no bound.
-- `collect(events)` — drain a stream; return the results, or raise `GraphPendingError` / `GraphExecutionError` for the ending that stopped it.
-- `execute_sync(compiled, **kwargs)` — `collect(execute(...))` under `asyncio.run`, for scripts and tests.
+- `run(compiled, **kwargs)` — `execute` drained: returns the event the leg ended on — `graph_complete`, `graph_pending`, `graph_error`, `graph_cancelled` or `graph_timeout`. A pause is an ending, not an exception.
+- `run_sync(compiled, **kwargs)` — `run` under `asyncio.run`, for a script or a test; under a running loop (a notebook, a server) it refuses, naming `await conductor.run(...)`.
+
+All three are root exports: `from conductor import execute, run, run_sync`.
 
 ### conductor.errors
 
-`ErrorCause`, `CODES`, `MESSAGES`, `ConductorError`, `CompilationError`, `NodeError`, `ExternalFailure`, `NodeValidationError`, `NodeExecutionError`, `NodeTimeoutError`, `GraphExecutionError`, `GraphPendingError`.
+`ErrorCause`, `CODES`, `MESSAGES`, `ConductorError`, `CompilationError`, `NodeError`, `ExternalFailure`, `NodeValidationError`, `NodeExecutionError`, `NodeTimeoutError`.
 
 ### conductor.model
 
@@ -303,18 +302,18 @@ Every control is a frozen model with a `kind`; `AnyWidget` is their union. A wid
 
 | Widget | For | Options |
 |---|---|---|
-| `Text` | one line | `min_length`, `max_length`, `pattern` |
+| `TextWidget` | one line | `min_length`, `max_length`, `pattern` |
 | `Textarea` | several lines | `rows`, `min_length`, `max_length` |
 | `TemplateTextarea` | text with placeholders | `rows` |
 | `CodeEditor` | source code | `language`, `min_length`, `max_length` |
 | `Dropdown` | one of a vocabulary | `choices` (`Choice(id, title, element)`) |
 | `EntityDropdown` | choices the host resolves | `entity_kind`, `multiple` |
-| `Number` | a number typed in | `min_val`, `max_val`, `step`, `integer_only` |
+| `NumberWidget` | a number typed in | `min_val`, `max_val`, `step`, `integer_only` |
 | `Range` | a number on a slider | `min_val`, `max_val`, `step` |
 | `Switch` | a boolean | — |
 | `DatePicker` | a date | `min_date`, `max_date`, `seed` |
 | `FileUpload` | uploaded files | `accept`, `max_size_mb`, `multiple` |
-| `List` | values typed by hand | `min_items`, `max_items` |
+| `ListWidget` | values typed by hand | `min_items`, `max_items` |
 | `Tags` | free-form labels | — |
 | `TableInput` | a table typed or pasted in | `min_rows`, `min_columns`, `column_types` |
 | `SchemaBuilder` | a schema built field by field | `schema`, `allow_additional`, `field_types` |

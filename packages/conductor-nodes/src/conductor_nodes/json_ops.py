@@ -6,8 +6,7 @@ import json
 from typing import TYPE_CHECKING, Annotated, Any
 
 from conductor.metadata import Param, Result
-from conductor.widgets import Range, Switch, Textarea
-from conductor.widgets import Text as TextWidget
+from conductor.widgets import Range, Switch, Textarea, TextWidget
 
 from conductor_nodes.types import Flag, Json, Number, StdlibNode, Text
 

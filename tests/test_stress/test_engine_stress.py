@@ -21,9 +21,9 @@ import time
 from typing import Annotated
 
 import pytest
-from conductor import CompiledGraph, GraphNode, NodeRegistry, Param
+from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, run_sync
 from conductor.errors import ExternalFailure
-from conductor.execution.engine import execute, execute_sync
+from conductor.execution.engine import execute
 from conductor.graph.binding import Edges, Static
 from conductor.graph.model import Graph
 from conductor.metadata import Result
@@ -79,7 +79,7 @@ def test_500_node_linear_chain_compile_and_execute() -> None:
     )
 
     t0 = time.monotonic()
-    results = execute_sync(compiled, timeout=120)
+    results = run_sync(compiled, timeout=120)["results"]
     elapsed = time.monotonic() - t0
     assert elapsed < 60.0, (
         f"execution took {elapsed:.2f}s; expected <60s"

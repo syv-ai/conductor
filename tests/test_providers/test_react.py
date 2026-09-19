@@ -15,8 +15,7 @@ from typing import Annotated
 
 import conductor_nodes
 import pytest
-from conductor import CompiledGraph, Graph, GraphNode, NodeRegistry
-from conductor.execution.engine import execute_sync
+from conductor import CompiledGraph, Graph, GraphNode, NodeRegistry, run_sync
 from conductor.graph.binding import Edges, Static
 from conductor.metadata import Result
 from conductor.node import NodeDefinition
@@ -153,5 +152,5 @@ class TestEndToEnd:
         back = json.loads(json.dumps(wire))  # simulate network
         graph_out = react.react_to_graph(back)
 
-        results = execute_sync(CompiledGraph.from_graph(graph_out, registry))
+        results = run_sync(CompiledGraph.from_graph(graph_out, registry))["results"]
         assert results["down"]["result"] == "OLLEH"

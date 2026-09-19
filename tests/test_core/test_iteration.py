@@ -345,8 +345,8 @@ def test_a_source_may_refuse_to_be_received_whole_naming_the_fix():
 
     from conductor import NodeRegistry
     from conductor.dtype import DType, Single
+    from conductor.metadata import Result
     from conductor.node import NodeDefinition
-    from conductor.returns import Result
 
     class Half(DType):
         id = "half"

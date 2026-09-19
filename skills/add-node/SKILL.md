@@ -24,7 +24,7 @@ python -m conductor.about node         # one section, by prefix: node, versions,
 from typing import Annotated
 
 from conductor import NodeDefinition, NodeRegistry, Param, Result
-from conductor.widgets import Number as NumberWidget, Text as TextWidget
+from conductor.widgets import NumberWidget, TextWidget
 from myapp.types import Number, Text          # the host's own DTypes
 
 

@@ -24,8 +24,7 @@ from conductor.metadata import Input, Param, Result
 from conductor.node import NodeDefinition
 from conductor.ref import Ref
 from conductor.series import Index, Series
-from conductor.widgets import Number as NumberWidget
-from conductor.widgets import Textarea
+from conductor.widgets import NumberWidget, Textarea
 
 
 class Txt(DType, str):

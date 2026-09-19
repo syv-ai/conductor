@@ -21,8 +21,7 @@ The installed library wins over this file.
 ## Core pattern
 
 ```python
-from conductor import CompiledGraph, Edges, Graph, GraphNode, Ref, Static
-from conductor.execution.engine import execute_sync
+from conductor import CompiledGraph, Edges, Graph, GraphNode, Ref, run_sync, Static
 
 graph = Graph(nodes=[
     GraphNode(id="words", type="text-split", version=1, bindings={"text": Static(value="red,green")}),
@@ -34,7 +33,7 @@ compiled = CompiledGraph.from_graph(graph, registry)
 if not compiled.is_runnable:
     raise ValueError([(p.code, p.node_id, p.message) for p in compiled.problems])
 
-results = execute_sync(compiled)          # {node_id: {output_name: value}}
+results = run_sync(compiled)["results"]          # {node_id: {output_name: value}}
 results["joined"]["result"]               # "RED + GREEN"; loud ran once per word
 ```
 
@@ -64,7 +63,7 @@ There is no edge list. A `GraphNode` is keyword-only, and a node id may not cont
 | A definition the registry lacks | `CompiledGraph.from_graph(graph, registry.extended_with({id: cls}))` | REFERENCE.md → Compile |
 | HTTP endpoints or a ReactFlow canvas | `conductor_providers.fastapi` / `conductor_providers.react` | REFERENCE.md → Providers |
 
-In a notebook the kernel owns an event loop: `await collect(execute(compiled))`, not `execute_sync`.
+In a notebook the kernel owns an event loop: `await run(compiled)`, not `run_sync` — the same ending event either way.
 
 ## Common mistakes
 
@@ -74,8 +73,9 @@ In a notebook the kernel owns an event loop: `await collect(execute(compiled))`,
 | `compile(nodes=..., edges=...)`, `GraphEdge` | `CompiledGraph.from_graph(Graph(nodes=[...]), registry)`; an edge is an `Edges` binding |
 | Wrapping `from_graph` in `try` to catch a bad graph | it does not raise for one: read `is_runnable` and `problems` |
 | A loop node, or a `for` around `execute` per item | bind a series; the engine runs the node once per row |
-| `execute_sync(compiled, retry=...)` | retries belong to the node version's `Policy` |
-| Catching `GraphPendingError` and calling `execute` without `record` | pass `record=pending.record`, or everything runs again |
+| `run_sync(compiled, retry=...)` | retries belong to the node version's `Policy` |
+| `except GraphPendingError` around `run_sync` | nothing raises for a pause: read `ending["type"]`, and answer with `record=ending["record"]` |
+| Answering a pending leg with `execute` and no `record` | pass `record=ending["record"]`, or everything runs again |
 | An answer for some rows given as a list | a `Series` on `compiled.node(node_id).iterates_on`, with `rows=` |
 | Listening for `flow_complete` | endings are `graph_complete`, `graph_pending`, `graph_error`, `graph_cancelled`, `graph_timeout` |
 
@@ -83,5 +83,5 @@ In a notebook the kernel owns an event loop: `await collect(execute(compiled))`,
 
 1. `compiled.problems` first: a graph that cannot run says why before anything runs.
 2. Stream `execute` and print every event: which nodes start, which rows progress, which are skipped.
-3. A failure's `cause` has a `code` and, for a node on rows, the `row`: `node_error` / `graph_error` carry it, and so does `GraphExecutionError.cause`.
+3. A failure's `cause` has a `code` and, for a node on rows, the `row`: `node_error` / `graph_error` carry it.
 4. For a value that is not what you expected, ask `compiled.field(Ref(node_id, input))` for its `binding`, `type` and `index`.
