@@ -51,9 +51,9 @@ when it goes quiet, where a ready unit that nobody started is a bug.
 
 **How a unit receives each input is compile's decision, read here.**
 Every input carries a receive record (``CompiledField.receives``, from
-``conductor.graph.receive``): ``PerRow`` — the cell at the unit's own row,
-projected onto the index the value sits on; ``Whole`` — everything on the
-field, the same at every unit; ``Reduce`` — the rows under the unit's row
+``conductor.graph.receive``): ``Iterate`` — the cell at the unit's own row,
+projected onto the index the value sits on; ``Broadcast`` — the one cell
+there is; ``Whole`` — everything on the field; ``Group`` — the rows under the unit's row
 cut to a depth, so a node fed a series on a child index runs once per
 parent row and reduces the child rows under it, and inside an embedded
 graph a series that entered through a scalar field is reduced one row at
@@ -84,7 +84,7 @@ from conductor.execution.events import PendingUnit
 from conductor.execution.record import RunRecord
 from conductor.graph.binding import Edges, Static
 from conductor.graph.compiled import CompiledGraph
-from conductor.graph.receive import Gather, PerRow, Receive, Reduce, Whole
+from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Receive, Whole
 from conductor.metadata import Input
 from conductor.ref import Ref
 from conductor.series import Index, Row, Series
@@ -207,11 +207,11 @@ class Ledger:
                 received = compiled.field(own).receives
                 # A scalar input where the author typed many values holds a
                 # series on an index of the input's own, and the node runs
-                # once per value: compile says so as ``PerRow`` on that index
+                # once per value: compile says so as ``Iterate`` on that index
                 # with a typed-in binding. On a root index its rows are known
                 # before anything runs, so they are born and sealed here;
                 # under a parent index they are born with each parent row.
-                if isinstance(binding, Static) and isinstance(received, PerRow) and received.index is not None:
+                if isinstance(binding, Static) and isinstance(received, Iterate):
                     index, count = received.index, len(node.statics[inp.name])
                     if index.parent is not None:
                         self._typed_under.setdefault(index.parent.id, []).append((index.id, count))
@@ -225,9 +225,9 @@ class Ledger:
                 if not isinstance(binding, Edges):
                     continue
                 connected.append((binding, received))
-                depth = received.depth if isinstance(received, Reduce) else None
+                depth = received.depth if isinstance(received, Group) else None
                 for ref in binding.refs:
-                    if isinstance(received, PerRow):
+                    if isinstance(received, (Iterate, Broadcast)):
                         self._scalar_readers.setdefault(ref, []).append(node_id)
                         continue
                     self._series_readers.setdefault(ref, []).append((node_id, depth))
@@ -315,11 +315,11 @@ class Ledger:
 
     def _input_ready(self, binding: Edges, received: Receive, row: Row | None) -> bool:
         """Is everything a unit at ``row`` receives on this input written?
-        Per row: the cell at its row on each ref. Reduced: every row of the
-        group under it. Whole or gathered: everything on each ref."""
-        if isinstance(received, PerRow):
+        Iterated or broadcast: the cell at its row on each ref. Grouped: every
+        row of the group under it. Whole or gathered: everything on each ref."""
+        if isinstance(received, (Iterate, Broadcast)):
             return all(self._present(ref, self._key(ref, row)) for ref in binding.refs)
-        group = _group(row, received.depth) if isinstance(received, Reduce) else None
+        group = _group(row, received.depth) if isinstance(received, Group) else None
         return all(self._written(ref, group) for ref in binding.refs)
 
     def _present(self, ref: Ref, key: Row | None) -> bool:
@@ -398,7 +398,7 @@ class Ledger:
             if isinstance(binding, Static):
                 values[inp.name] = self._typed(received, self._compiled.node(node_id).statics[inp.name], own, row)
                 continue
-            if isinstance(received, PerRow):
+            if isinstance(received, (Iterate, Broadcast)):
                 covering, skips = self._covering(node_id, binding.refs, row)
                 if not covering:
                     return Skip(at=max(skips, key=_depth))
@@ -416,7 +416,7 @@ class Ledger:
                         gathered.extend(self._series(node_id, (ref,), index, self._rows_under(index.id, None)).values)
                 values[inp.name] = Series(received.index, gathered)
             else:
-                group = row[: received.depth] if isinstance(received, Reduce) else None
+                group = row[: received.depth] if isinstance(received, Group) else None
                 found = [self._lookup(ref, group) for ref in binding.refs]
                 if all(is_skipped(value) for value, _ in found):
                     return Skip(at=max((at for _, at in found), key=_depth))
@@ -459,14 +459,13 @@ class Ledger:
     def _typed(self, received: Receive, value: Any, own: Ref, row: Row | None = None) -> Any:
         """A value the author typed (or the declared default) as the unit receives it.
 
-        Received whole, it is a series on the input's own index; received
-        per row on an index of the input's own, it is many typed-in values
-        and the unit takes the one at its row; received per row with no
-        index, it is the one value.
+        Received whole, it is a series on the input's own index; iterated
+        on an index of the input's own, it is many typed-in values and the
+        unit takes the one at its row; broadcast, it is the one value.
         """
         if isinstance(received, Whole):
             return Series(self._index(own), value.values if isinstance(value, Series) else list(value))
-        if isinstance(received, PerRow) and received.index is not None:
+        if isinstance(received, Iterate):
             return list(value)[row[received.index.depth - 1]]
         return value
 

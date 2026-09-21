@@ -16,7 +16,7 @@ from conductor.dtype import DType, Single
 from conductor.graph.binding import Edges, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
-from conductor.graph.receive import Gather, PerRow, Reduce, Whole
+from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Whole
 from conductor.interface import Interface
 from conductor.metadata import Input, Output, Param, Result
 from conductor.node import GraphVersion, NodeDefinition
@@ -138,7 +138,7 @@ def test_a_scalar_input_fed_a_scalar_receives_one_value_once():
         GraphNode(id="b", type="upper", version=1, bindings={"text": _edge(("a", "result"))}),
     ])
 
-    assert _receives(compiled, "b", "text") == PerRow(None)
+    assert _receives(compiled, "b", "text") == Broadcast()
 
 
 def test_a_scalar_input_fed_a_series_receives_one_value_per_row_of_its_index():
@@ -147,7 +147,7 @@ def test_a_scalar_input_fed_a_series_receives_one_value_per_row_of_its_index():
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "result"))}),
     ])
 
-    assert _receives(compiled, "up", "text") == PerRow(Index("docs"))
+    assert _receives(compiled, "up", "text") == Iterate(Index("docs"))
     assert compiled.node("up").iterates_on == Index("docs")
 
 
@@ -168,7 +168,7 @@ def test_a_series_input_fed_a_series_on_a_child_reduces_under_the_parent_row():
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("lines", "result"))}),
     ])
 
-    assert _receives(compiled, "j", "texts") == Reduce(Index("lines"), depth=1)
+    assert _receives(compiled, "j", "texts") == Group(Index("lines"), depth=1)
     assert compiled.node("j").iterates_on == Index("docs")
 
 
@@ -204,10 +204,10 @@ def test_a_typed_in_scalar_is_received_once_and_a_typed_in_list_once_per_value()
         GraphNode(id="default", type="upper", version=1),
     ])
 
-    assert _receives(compiled, "one", "text") == PerRow(None)
-    assert _receives(compiled, "many", "text") == PerRow(Index(Ref("many", "text")))
+    assert _receives(compiled, "one", "text") == Broadcast()
+    assert _receives(compiled, "many", "text") == Iterate(Index(Ref("many", "text")))
     assert compiled.node("many").iterates_on == Index(Ref("many", "text"))
-    assert _receives(compiled, "default", "text") == PerRow(None)
+    assert _receives(compiled, "default", "text") == Broadcast()
 
 
 def test_a_series_input_with_a_typed_in_list_or_a_default_receives_it_whole_on_its_own_index():
@@ -228,7 +228,7 @@ def test_a_closed_input_typed_as_a_list_holds_one_value_and_the_node_runs_once()
     compiled = _compiled([GraphNode(id="t", type="tags", version=1, bindings={"tags": Static(value=["a", "b", "c"])})])
 
     assert compiled.is_runnable, compiled.problems
-    assert _receives(compiled, "t", "tags") == PerRow(None)
+    assert _receives(compiled, "t", "tags") == Broadcast()
     assert compiled.node("t").iterates_on is None
     assert compiled.node("t").statics == {"tags": ["a", "b", "c"]}
 
@@ -240,7 +240,7 @@ def test_a_default_is_not_a_static():
 
     assert compiled.is_runnable, compiled.problems
     assert compiled.node("t").statics == {}
-    assert _receives(compiled, "t", "tags") == PerRow(None)
+    assert _receives(compiled, "t", "tags") == Broadcast()
 
 
 def test_an_output_has_no_receive_record():
@@ -269,8 +269,8 @@ def test_an_inner_reduction_over_the_entering_series_reduces_to_its_own_row():
     ], inner)
 
     assert compiled.is_runnable, compiled.problems
-    assert _receives(compiled, "emb/holder", "text") == PerRow(Index("docs"))
-    assert _receives(compiled, "emb", "join.texts") == Reduce(Index("docs"), depth=1)
+    assert _receives(compiled, "emb/holder", "text") == Iterate(Index("docs"))
+    assert _receives(compiled, "emb", "join.texts") == Group(Index("docs"), depth=1)
     assert compiled.node("emb/join").iterates_on == Index("docs")
 
 

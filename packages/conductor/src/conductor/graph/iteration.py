@@ -41,8 +41,8 @@ indexes, a typed-in list, a default — is gathered onto a fresh index
 that belongs to the input, and the node runs once.
 
 Every one of those answers is written down as the input's receive record
-(``conductor.graph.receive``): per row on which index, whole, reduced at
-which depth, or gathered. The engine reads the record and decides
+(``conductor.graph.receive``): one row at a time on which index, broadcast,
+whole, grouped at which depth, or gathered. The engine reads the record and decides
 nothing of this again.
 
 An embedded graph (a node whose version is a graph, inlined by ``expand``)
@@ -80,7 +80,7 @@ from conductor.graph.binding import Edges
 from conductor.graph.expand import authored_ref
 from conductor.graph.model import GraphNode
 from conductor.graph.problem import Problem, problem
-from conductor.graph.receive import Gather, PerRow, Receive, Reduce, Whole
+from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Receive, Whole
 from conductor.graph.views import field_problems
 from conductor.interface import Interface
 from conductor.metadata import Input, Output
@@ -307,7 +307,7 @@ class _Walk:
             if not isinstance(binding, Edges):
                 carried, receive = self._originates(inp, ref, inp.name in self.listed[node.id], scope_index)
                 found.arrivals[inp.name], found.receives[inp.name] = carried, receive
-                if isinstance(receive, PerRow) and receive.index is not None:
+                if isinstance(receive, Iterate):
                     found.demands.append((receive.index, ref))
                 continue
             missing = [source for source in binding.refs if source not in self.carried]
@@ -359,8 +359,10 @@ class _Walk:
                     return found
                 arriving = sources[0]  # one ref, or a union of several on one index
                 found.arriving[inp.name] = arriving.dtype.element or arriving.dtype
-                found.receives[inp.name] = PerRow(arriving.index)
-                if arriving.index is not None:
+                if arriving.index is None:
+                    found.receives[inp.name] = Broadcast()
+                else:
+                    found.receives[inp.name] = Iterate(arriving.index)
                     found.demands.append((arriving.index, ref))
             elif self._one_index(sources):
                 arriving = sources[0]  # one series, or a union of several on one index
@@ -369,10 +371,10 @@ class _Walk:
                     # The series entered this embedded graph from outside, so the
                     # reduction runs once per outer row and receives the one row
                     # under it.
-                    found.receives[inp.name] = Reduce(arriving.index, arriving.index.depth)
+                    found.receives[inp.name] = Group(arriving.index, arriving.index.depth)
                     found.demands.append((arriving.index, ref))
                 elif arriving.index.parent is not None:
-                    found.receives[inp.name] = Reduce(arriving.index, arriving.index.parent.depth)
+                    found.receives[inp.name] = Group(arriving.index, arriving.index.parent.depth)
                     found.demands.append((arriving.index.parent, ref))
                 else:
                     found.receives[inp.name] = Whole()
@@ -545,7 +547,7 @@ class _Walk:
     @staticmethod
     def _originates(inp: Input, ref: Ref, listed: bool, scope: Index | None) -> tuple[_Carried, Receive]:
         """What a field carries when no edge feeds it, and how it is received:
-        a scalar, received once; or a series on an index of the field's own —
+        a scalar, broadcast; or a series on an index of the field's own —
         always for a ``Series[X]`` input, received whole; and for a scalar
         input when the author typed many values (``listed``), received one
         per row, so the node runs once per value. Inside an embedded graph
@@ -556,8 +558,8 @@ class _Walk:
             return _Carried(inp.dtype, Index(ref, parent=scope)), Whole()
         if listed:
             own = Index(ref, parent=scope)
-            return _Carried(Series[inp.dtype], own), PerRow(own)
-        return _Carried(inp.dtype, None), PerRow(None)
+            return _Carried(Series[inp.dtype], own), Iterate(own)
+        return _Carried(inp.dtype, None), Broadcast()
 
     @staticmethod
     def _admit(target: Any, ref: Ref, source_ref: Ref, source: _Carried) -> list[Problem]:

@@ -69,7 +69,7 @@ from conductor.codec import to_wire
 from conductor.graph.binding import Binding, Static
 from conductor.graph.expand import expanded_ref
 from conductor.graph.problem import Problem
-from conductor.graph.receive import PerRow
+from conductor.graph.receive import Iterate
 from conductor.ref import Ref
 from conductor.series import Series
 
@@ -291,7 +291,7 @@ class CompiledNode:
         JSON form. Only what the author typed: an input left to its
         declared default is absent. Where the author typed many values for
         a scalar input the value is a list of them, and the field's
-        ``receives`` is ``PerRow`` on the input's own index.
+        ``receives`` is ``Iterate`` on the input's own index.
         """
         return self._graph._statics[self.id]
 
@@ -321,7 +321,7 @@ class CompiledNode:
                 # A static for an input the node no longer has is hashed as
                 # spelled, since no type reads it.
                 received = self._graph._receives[Ref(self.id, name)]
-                listed = isinstance(received, PerRow) and received.index is not None
+                listed = isinstance(received, Iterate)
                 bindings[name] = {"static": _written(self.statics[name], declared[name], listed)}
             else:
                 bindings[name] = binding.model_dump()
@@ -408,9 +408,10 @@ class CompiledField:
     @property
     def receives(self) -> Receive:
         """How a unit of this input's node receives the value: the cell at
-        its own row (``PerRow``), everything on the field (``Whole``), the
-        rows under its row (``Reduce``) or its unrelated sources collected
-        (``Gather``) — see ``conductor.graph.receive``. Decided once by the
+        its own row (``Iterate``), the one cell there is (``Broadcast``),
+        everything on the field (``Whole``), the rows under its row
+        (``Group``) or its unrelated sources collected (``Gather``) — see
+        ``conductor.graph.receive``. Decided once by the
         walk over the edges; the engine's ledger reads it to tell when a
         unit is ready and what to hand it, and an editor may label the
         edge from it. Only an input has one; asking on an output raises."""
