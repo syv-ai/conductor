@@ -3,10 +3,10 @@
 ``CompiledGraph.from_graph`` builds it from a ``Graph`` and a ``NodeRegistry``.
 Everyone else asks it questions and never reads the nodes' bindings
 themselves: which version each node uses, which inputs and outputs it
-actually has, where each input's value comes from, what type travels on
-every field, which nodes run once per row and in what order, under which
-condition each output appears, and what is wrong. The engine is one more
-caller.
+actually has, where each input's value comes from and how each unit
+receives it, what type travels on every field, which nodes run once per
+row and in what order, under which condition each output appears, and
+what is wrong. The engine is one more caller.
 
 The questions come at three scales. The graph itself answers what it
 takes and returns (``interface``), what is wrong with it (``problems``,
@@ -62,32 +62,35 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
 
 from conductor.codec import to_wire
 from conductor.graph.binding import Binding, Static
-from conductor.graph.expand import authored_ref, expanded_ref
+from conductor.graph.expand import expanded_ref
 from conductor.graph.problem import Problem
+from conductor.graph.receive import Iterate
 from conductor.ref import Ref
 from conductor.series import Series
 
 if TYPE_CHECKING:
     from conductor.graph.conditions import Condition
     from conductor.graph.model import Graph, GraphNode
+    from conductor.graph.receive import Receive
     from conductor.interface import Interface
     from conductor.node import GraphVersion, NodeVersion
     from conductor.registry import NodeRegistry
     from conductor.series import Index
 
 
-def _written(value: Any, dtype: Any) -> Any:
+def _written(value: Any, dtype: Any, listed: bool) -> Any:
     """A static as its declared type writes it, for ``CompiledNode.fingerprint``:
-    each of many typed-in values through the scalar type, a series through
-    its element type, one value through its own."""
+    each of many typed-in values (``listed``) through the scalar type, a
+    series through its element type, one value through its own."""
     element = getattr(dtype, "element", None)
     if element is not None:
         return [to_wire(item, element) for item in (value.values if isinstance(value, Series) else value)]
-    if isinstance(value, list):
+    if listed:
         return [to_wire(item, dtype) for item in value]
     return to_wire(value, dtype)
 
@@ -110,16 +113,26 @@ class CompiledGraph:
     raises, and an editor paints it from ``problems`` alone.
     """
 
-    _nodes: Mapping[str, GraphNode]
+    #: The graph as the author saved it, and the registry it was compiled
+    #: against: kept so a compiled graph can produce another from the same
+    #: two (``bound``), never read back for what compile already learned.
+    _graph: Graph
     _registry: NodeRegistry
+    _nodes: Mapping[str, GraphNode]
     _versions: Mapping[str, NodeVersion | GraphVersion]
     _interfaces: Mapping[str, Interface]
     _statics: Mapping[str, Mapping[str, Any]]
-    _dependencies: Mapping[str, frozenset[str]]
+    #: Per node the walk derived, the pydantic model that validates a call
+    #: against its interface — built once here, not once per unit.
+    _call_models: Mapping[str, type[BaseModel]]
     _order: tuple[str, ...]
     _iterated: Mapping[str, Index | None]
     _indexes: Mapping[Ref, Index | None]
     _types: Mapping[Ref, Any]
+    #: How every input receives its value, as the walk over the edges decided
+    #: it once (``conductor.graph.receive``); the engine reads it and decides
+    #: nothing of the kind again.
+    _receives: Mapping[Ref, Receive]
     _conditions: Mapping[Ref, Condition]
     #: Every node whose version is a graph, by expanded id — the ones the
     #: author placed and the ones nested inside them alike.
@@ -226,19 +239,19 @@ class CompiledNode:
     """One node as the compiler left it: what it has, what it holds, how it runs.
 
     ``CompiledGraph.node(node_id)`` builds one on each call; nothing stores
-    it. The engine reads ``interface``, ``statics``, ``runner``,
-    ``dependencies`` and ``iterates_on`` for each node it runs, and
-    ``version`` and ``graph_node`` for the policy and the type it reports;
-    an editor reads ``interface``, ``iterates_on`` and ``problems`` for each
-    node it draws. Its sibling is ``CompiledField``, the same window onto
-    one input or output.
+    it. The engine reads ``interface``, ``validate``, ``statics``,
+    ``runner`` and ``iterates_on`` for each node it runs, and ``version``
+    and ``graph_node`` for the policy and the type it reports; an editor
+    reads ``interface`` and ``iterates_on`` for each node it draws, and
+    filters ``CompiledGraph.problems`` by node id for its marks. Its
+    sibling is ``CompiledField``, the same window onto one input or output.
 
     An attribute a node cannot answer raises: a node the edge walk could
     not derive — its own edges wrong, or a fault upstream of it — has an
-    interface but no ``iterates_on``, and a node whose version is a graph
-    has an interface, a version and ``embedded_in`` but no ``graph_node``,
-    ``statics`` or ``dependencies`` — its inner nodes run in its place. The
-    ``Problem`` on it says why.
+    interface but no ``iterates_on`` or ``validate``, and a node whose
+    version is a graph has an interface, a version and ``embedded_in`` but
+    no ``graph_node`` or ``statics`` — its inner nodes run in its place.
+    The ``Problem`` on it in ``CompiledGraph.problems`` says why.
     """
 
     _graph: CompiledGraph = field(repr=False)
@@ -275,8 +288,10 @@ class CompiledNode:
         """The values the author typed into this node, by field.
 
         Each read through the field's declared type — the value, never its
-        JSON form. A value is a ``list`` exactly when the author typed
-        many values.
+        JSON form. Only what the author typed: an input left to its
+        declared default is absent. Where the author typed many values for
+        a scalar input the value is a list of them, and the field's
+        ``receives`` is ``Iterate`` on the input's own index.
         """
         return self._graph._statics[self.id]
 
@@ -301,19 +316,30 @@ class CompiledNode:
                 # The value as its type writes it, never as the author spelled
                 # it: ``2`` and ``2.0`` on a number are one value, and a graph
                 # built in Python with the typed value hashes like the stored
-                # graph with its JSON. A list is what the author typed many of.
+                # graph with its JSON. The author typed many values exactly
+                # when the input is received one per row of its own index.
                 # A static for an input the node no longer has is hashed as
                 # spelled, since no type reads it.
-                bindings[name] = {"static": _written(self.statics[name], declared[name])}
+                received = self._graph._receives[Ref(self.id, name)]
+                listed = isinstance(received, Iterate)
+                bindings[name] = {"static": _written(self.statics[name], declared[name], listed)}
             else:
                 bindings[name] = binding.model_dump()
         placed = {"type": node.type, "version": node.version, "bindings": bindings}
         return hashlib.sha256(json.dumps(to_jsonable_python(placed), sort_keys=True).encode("utf-8")).hexdigest()
 
-    @property
-    def dependencies(self) -> frozenset[str]:
-        """The nodes this one waits for, read off its edges."""
-        return self._graph._dependencies[self.id]
+    def validate(self, inputs: Mapping[str, Any]) -> dict[str, Any]:
+        """The keyword arguments a call of this node runs with: ``inputs``
+        checked against the interface, one value per input, a default
+        filled in where the call gave none. Raises pydantic's
+        ``ValidationError`` when a value is not its input's type or a
+        required input is missing; the engine turns that into the node's
+        failure. The check runs through a model built once when the graph
+        was compiled, not once per unit. Only for a node the walk over the
+        edges derived — a node with a fault upstream has none, and asking
+        raises."""
+        validated = self._graph._call_models[self.id](**inputs)
+        return {name: getattr(validated, name) for name in type(validated).model_fields}
 
     @property
     def iterates_on(self) -> Index | None:
@@ -331,30 +357,24 @@ class CompiledNode:
         author placed."""
         return self._graph._placement_of[self.id]
 
-    @property
-    def problems(self) -> tuple[Problem, ...]:
-        """Every problem about this node, on any of its fields or on the
-        node itself. Anchored on the authored graph, so an inner node of an
-        embedded graph has none of its own: they sit on the node the author
-        placed, under the inner address."""
-        return tuple(p for p in self._graph.problems if p.node_id == self.id)
-
 
 @dataclass(frozen=True)
 class CompiledField:
-    """One input or output as the compiler left it: its type, its rows, where its value comes from.
+    """One input or output as the compiler left it: its type, its rows, where its value comes from, how it is received.
 
     ``CompiledGraph.field(ref)`` builds one on each call; nothing stores
-    it. The engine reads ``index`` and ``binding`` to lay values out per
-    row and to find them; an editor reads ``type`` and ``index`` to draw
-    the edge, and ``problems`` to mark the field. Its sibling is
-    ``CompiledNode``, the same window onto one node.
+    it. The engine reads ``index``, ``binding`` and ``receives`` to lay
+    values out per row, to find them and to hand each unit what it takes;
+    an editor reads ``type`` and ``index`` to draw the edge and ``receives``
+    to label it, and filters ``CompiledGraph.problems`` by node and field
+    for its marks. Its sibling is ``CompiledNode``, the same window onto
+    one node.
 
     An attribute a field cannot answer raises: an input has no
-    ``condition`` and an output has no ``binding``; and no field of a node
-    the edge walk could not derive has a ``type``, ``index`` or
-    ``condition``, since nothing downstream of a fault is guessed at. The
-    ``Problem`` on it says why.
+    ``condition`` and an output has no ``binding`` or ``receives``; and no
+    field of a node the edge walk could not derive has a ``type``,
+    ``index``, ``receives`` or ``condition``, since nothing downstream of
+    a fault is guessed at. The ``Problem`` on it says why.
     """
 
     _graph: CompiledGraph = field(repr=False)
@@ -390,17 +410,21 @@ class CompiledField:
         return node.bindings.get(self.ref.field)
 
     @property
+    def receives(self) -> Receive:
+        """How a unit of this input's node receives the value: the cell at
+        its own row (``Iterate``), the one cell there is (``Broadcast``),
+        everything on the field (``Whole``), the rows under its row
+        (``Group``) or its unrelated sources collected (``Gather``) — see
+        ``conductor.graph.receive``. Decided once by the
+        walk over the edges; the engine's ledger reads it to tell when a
+        unit is ready and what to hand it, and an editor may label the
+        edge from it. Only an input has one; asking on an output raises."""
+        return self._graph._receives[self.ref]
+
+    @property
     def condition(self) -> Condition:
         """Under which condition this output appears: a boolean formula over
         the decisions upstream (see ``conductor.graph.conditions``),
         ``ALWAYS`` when nothing gates it. Derived from ``choice`` groups
         and edges; the engine never reads it. Only an output has one."""
         return self._graph._conditions[self.ref]
-
-    @property
-    def problems(self) -> tuple[Problem, ...]:
-        """Every problem about this field, anchored where the author sees
-        it: on the node they placed, under the inner address for a field
-        inside an embedded graph."""
-        anchor = authored_ref(self.ref)
-        return tuple(p for p in self._graph.problems if p.node_id == anchor.node_id and p.field == anchor.field)

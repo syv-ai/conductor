@@ -81,7 +81,8 @@ class Problem(ConductorModel):
 #: The non-fatal ones are states an author can leave a graph in and still
 #: run it: a binding or a lock on a field the node no longer has (nothing
 #: reads it), a node whose outputs wait on a value the author has not
-#: typed yet. A host that translates problems by code covers exactly
+#: typed yet, an embedded graph whose host-declared interface disagrees
+#: with the graph it holds (the graph's wins). A host that translates problems by code covers exactly
 #: these keys; a code a host's own hook raised is the host's and is not
 #: here.
 CATALOGUE: Mapping[str, tuple[str, bool]] = {
@@ -89,7 +90,11 @@ CATALOGUE: Mapping[str, tuple[str, bool]] = {
     "duplicate_field_name": ("The node has two fields named '{field}'.", True),
     "duplicate_node_id": ("Two nodes have the id '{node_id}'.", True),
     "edge_into_closed_handle": ("Field '{field}' has no handle, so nothing can be connected to it.", True),
+    "graph_interface_mismatch": (
+        "The embedded graph declares '{field}' as {declared}, but its graph has {actual}.", False,
+    ),
     "handle_needs_dtype": ("Field '{field}' has a handle but no type that can travel on an edge.", True),
+    "invalid_node_id": ("'{node_id}' cannot be a node id: '/' names the nodes of an embedded graph.", True),
     "invalid_static": ("The value in '{field}' cannot be read as the field's type. {reason}", True),
     "misaligned": ("'{a}' and '{b}' get their rows from different sources, so the node cannot run per row.", True),
     "no_outputs": ("The node has no fields to pass on, so nothing can be connected from it.", False),

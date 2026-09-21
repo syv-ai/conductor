@@ -7,16 +7,18 @@ derives that surface. Nothing here is stored and nothing here walks the
 graph: the one graph-wide fact it needs, which nodes consume which, comes
 in as the dependency map ``topology.dependencies_of`` builds once per
 compile. ``is_input_node`` is the same rule for one node, for a caller
-holding one; ``lock_problems`` is the one check a lock can fail, kept
+holding one; ``lock_problems`` is the one check a lock can fail, and
+``field_problems`` the two rules every node's fields obey, both kept
 apart from the derivation so an editor gets its problems without a
 surface being rebuilt.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import TYPE_CHECKING
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, Any
 
+from conductor.dtype import DType
 from conductor.graph.binding import Edges
 from conductor.graph.model import GraphNode
 from conductor.graph.problem import Problem, problem
@@ -26,7 +28,6 @@ from conductor.ref import Ref
 if TYPE_CHECKING:
     from conductor.graph.model import Graph
     from conductor.metadata import Input, Output
-    from conductor.node import GraphVersion, NodeVersion
 
 
 def is_input_node(node: GraphNode) -> bool:
@@ -59,10 +60,46 @@ def lock_problems(nodes: Mapping[str, GraphNode], interfaces: Mapping[str, Inter
     )
 
 
+def field_problems(
+    node_id: str, fields: Sequence[Input | Output], taken: frozenset[str] = frozenset(), *, untyped_ok: bool
+) -> list[Problem]:
+    """Which of a node's fields break the two rules every field obeys?
+
+    A field name is unique within a node across inputs and outputs, because
+    a ``Ref(node, field)`` must name one field: a name repeated in ``fields``,
+    or already in ``taken`` (the names on the other side), is
+    ``duplicate_field_name``. And every field that can be connected — every
+    output, and every input not closed with ``show_handle=False`` — must
+    carry a ``DType``, or nothing could connect it: ``handle_needs_dtype``.
+    ``Any`` is allowed with ``untyped_ok``: an input typed ``Any`` takes its
+    type from its edge and, unconnected, is ``unbound_required`` already; an
+    output a hook left ``Any`` once the edges are known can carry nothing,
+    so compile asks with ``untyped_ok=False`` there.
+
+    A declaration is checked for both when the class is defined; a hook can
+    compute a set of fields that breaks either, so compile asks again on
+    what the hooks answered — the inputs before the walk over the edges,
+    the outputs as the walk completes them.
+    """
+    found: list[Problem] = []
+    seen = set(taken)
+    for declared in fields:
+        if declared.name in seen:
+            found.append(problem("duplicate_field_name", node_id, declared.name))
+        seen.add(declared.name)
+        if not getattr(declared, "show_handle", True):
+            continue
+        if declared.dtype is Any:
+            if not untyped_ok:
+                found.append(problem("handle_needs_dtype", node_id, declared.name))
+        elif not (isinstance(declared.dtype, type) and issubclass(declared.dtype, DType)):
+            found.append(problem("handle_needs_dtype", node_id, declared.name))
+    return found
+
+
 def derive_interface(
     graph: Graph,
     interfaces: Mapping[str, Interface],
-    versions: Mapping[str, NodeVersion | GraphVersion],
     dependencies: Mapping[str, frozenset[str]],
 ) -> Interface:
     """What this graph takes and returns, read off its nodes.
@@ -77,22 +114,28 @@ def derive_interface(
     its address ``Ref(node_id, field)`` and carrying the title the author
     gave that field on that node. ``returns`` is ``Mapping``: a graph
     returns its outputs by address. ``needs`` is the union of what the
-    nodes' versions need, by parameter name.
+    nodes need, by parameter name.
 
-    ``interfaces`` holds each node's actual fields (its computed ``Interface``) and
-    ``versions`` the version record each node pinned; a node in neither is
-    one compile could not resolve, and contributes nothing.
-    ``dependencies`` is the map compile built once; a node in nobody's set
-    is an output node. Fields come in node order, field order within a
-    node.
+    ``interfaces`` holds each node's actual fields (its computed
+    ``Interface``, which carries the needs of the version it pinned); a
+    node not in it is one compile could not resolve, and contributes
+    nothing. ``dependencies`` is the map compile built once; a node in
+    nobody's set is an output node. Fields come in node order, field order
+    within a node.
+
+    Asked twice per compile: of the authored graph, for what the graph
+    takes and returns, and of each embedded graph, for what its placement
+    takes and returns (``_Compilation.interface``).
     """
     consumed = frozenset().union(*dependencies.values())
     inputs: list[Input] = []
     outputs: list[Output] = []
+    needs: dict[str, type] = {}
     for node in graph.nodes:
         if node.id not in interfaces:
             continue
         interface = interfaces[node.id]
+        needs.update(interface.needs)
         if is_input_node(node):
             inputs.extend(
                 _placed(node, declared)
@@ -101,10 +144,6 @@ def derive_interface(
             )
         if node.id not in consumed:
             outputs.extend(_placed(node, declared) for declared in interface.outputs)
-
-    needs: dict[str, type] = {}
-    for version in versions.values():
-        needs.update(version.interface.needs)
     return Interface(inputs=tuple(inputs), outputs=tuple(outputs), returns=Mapping, needs=needs)
 
 

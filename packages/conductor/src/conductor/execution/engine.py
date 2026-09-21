@@ -84,7 +84,6 @@ from conductor.execution.events import (
 from conductor.execution.ledger import Ledger, Skip, Unit
 from conductor.execution.record import RunRecord
 from conductor.graph.compiled import CompiledGraph
-from conductor.interface import model_of
 from conductor.returns import unpack
 
 # -- entry points ---------------------------------------------------------------
@@ -499,14 +498,13 @@ class _Leg:
         node = self.compiled.node(node_id)
         version = node.version
         try:
-            validated = model_of(node.interface.inputs)(**inputs)
+            kwargs = node.validate(inputs)
         except ValidationError as invalid:
             reason = self._describe(invalid, node.interface.inputs)
             raise NodeValidationError(
                 reason, node_id=node_id, original=invalid,
                 cause=self._cause(code="invalid_input", row=row, details={"reason": reason}),
             ) from invalid
-        kwargs = {name: getattr(validated, name) for name in type(validated).model_fields}
         kwargs.update({name: self.from_run[needed] for name, needed in version.interface.needs.items()})
         runner = node.runner
         try:
