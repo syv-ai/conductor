@@ -50,7 +50,7 @@ its address, since a skip is not a value and has no type.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Iterator
 
 from conductor._sentinel import SKIPPED, is_skipped
@@ -114,26 +114,26 @@ def _order(unit: Unit) -> Row:
 class _Reader:
     """One node reading one output of another node, and how it receives it.
 
-    Filed when the ledger is built, under the output it reads and, for a
-    series, under the index that series sits on, so that a write asks only
-    its own readers. Read by the wake path after every record, and by a
-    restore to drop the readers of a node that changed. A ``per_row``
-    reader wakes at the written cell's row; any other wakes when the group
-    it reads is complete, ``depth`` being the group's, or ``None`` for a
-    reader that takes everything on the field.
+    Filed when the ledger is built, three ways: under the reading node as
+    what it reads, so ``ready`` asks each; under the output it reads and,
+    for a series, under the index that series sits on, so a write wakes
+    only its own readers. A restore reads the same records to drop the
+    readers of a node that changed. A ``per_row`` reader is ready and
+    wakes at the written cell's row; any other when the group it reads is
+    complete, ``depth`` being the group's, or ``None`` for a reader that
+    takes everything on the field. Both are decided once here, so neither
+    the ready path nor the wake path asks the record's type again.
     """
 
     node_id: str
     ref: Ref
     received: Receive
+    per_row: bool = field(init=False)
+    depth: int | None = field(init=False)
 
-    @property
-    def per_row(self) -> bool:
-        return isinstance(self.received, (Iterate, Broadcast))
-
-    @property
-    def depth(self) -> int | None:
-        return self.received.depth if isinstance(self.received, Group) else None
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "per_row", isinstance(self.received, (Iterate, Broadcast)))
+        object.__setattr__(self, "depth", self.received.depth if isinstance(self.received, Group) else None)
 
 
 class Ledger:
@@ -180,10 +180,10 @@ class Ledger:
             for node_id in order
             if any(o.dtype.element is not None for o in compiled.node(node_id).interface.outputs)
         )
-        #: Per node, its connected inputs: the edges and how the input receives them.
-        self._connected: dict[str, tuple[tuple[Edges, Receive], ...]] = {}
-        #: Per output, who reads it; and the readers of a series again by the
-        #: index it sits on, for the writes that birth or seal rows there.
+        #: Per node, what it reads: one ``_Reader`` per edge into it.
+        self._connected: dict[str, tuple[_Reader, ...]] = {}
+        #: The same readers per output read, and, for a series, per index it
+        #: sits on, for the writes that birth or seal rows there.
         self._readers: dict[Ref, list[_Reader]] = {}
         self._readers_on: dict[str, list[_Reader]] = {}
         #: Per index, the nodes that run once per row of it, and those among
@@ -207,14 +207,14 @@ class Ledger:
         the output it reads and, for a series, under the index that series
         sits on. Also file the index the node itself iterates on."""
         node = self._compiled.node(node_id)
-        connected: list[tuple[Edges, Receive]] = []
+        connected: list[_Reader] = []
         for inp in node.interface.inputs:
-            field = self._compiled.field(Ref(node_id, inp.name))
-            if not isinstance(field.binding, Edges):
+            compiled_field = self._compiled.field(Ref(node_id, inp.name))
+            if not isinstance(compiled_field.binding, Edges):
                 continue
-            connected.append((field.binding, field.receives))
-            for ref in field.binding.refs:
-                reader = _Reader(node_id, ref, field.receives)
+            for ref in compiled_field.binding.refs:
+                reader = _Reader(node_id, ref, compiled_field.receives)
+                connected.append(reader)
                 self._readers.setdefault(ref, []).append(reader)
                 index = self._index(ref)
                 if not reader.per_row and index is not None:
@@ -234,10 +234,10 @@ class Ledger:
         node = self._compiled.node(node_id)
         roots: list[str] = []
         for inp in node.interface.inputs:
-            field = self._compiled.field(Ref(node_id, inp.name))
-            if not (isinstance(field.binding, Static) and isinstance(field.receives, Iterate)):
+            compiled_field = self._compiled.field(Ref(node_id, inp.name))
+            if not (isinstance(compiled_field.binding, Static) and isinstance(compiled_field.receives, Iterate)):
                 continue
-            index, count = field.receives.index, len(node.statics[inp.name])
+            index, count = compiled_field.receives.index, len(node.statics[inp.name])
             if index.parent is not None:
                 self._typed_under.setdefault(index.parent.id, []).append((index.id, count))
                 self._typed_children.add(index.id)
@@ -314,7 +314,7 @@ class Ledger:
         iterate = self._compiled.node(node_id).iterates_on
         if iterate is not None and _depth(row) < iterate.depth:
             return True  # standing in at a shorter row: the skip above it is already known
-        return all(self._input_ready(binding, received, row) for binding, received in self._connected[node_id])
+        return all(self._read_ready(reader, row) for reader in self._connected[node_id])
 
     def runnable(self) -> list[Unit]:
         """Every unit that may start now: ready, and neither done nor waiting
@@ -328,14 +328,13 @@ class Ledger:
             if unit not in self._done and unit not in self._pending and self.ready(unit)
         ]
 
-    def _input_ready(self, binding: Edges, received: Receive, row: Row | None) -> bool:
-        """Is everything a unit at ``row`` receives on this input written?
-        Iterated or broadcast: the cell at its row on each ref. Grouped: every
-        row of the group under it. Whole or gathered: everything on each ref."""
-        if isinstance(received, (Iterate, Broadcast)):
-            return all(self._present(ref, self._key(ref, row)) for ref in binding.refs)
-        group = _group(row, received.depth) if isinstance(received, Group) else None
-        return all(self._written(ref, group) for ref in binding.refs)
+    def _read_ready(self, reader: _Reader, row: Row | None) -> bool:
+        """Is what a unit at ``row`` reads through this reader written? Per
+        row: the cell at its row. Grouped: every row of the group under it.
+        Whole or gathered: everything on the ref."""
+        if reader.per_row:
+            return self._present(reader.ref, self._key(reader.ref, row))
+        return self._written(reader.ref, _group(row, reader.depth))
 
     def _present(self, ref: Ref, key: Row | None) -> bool:
         return self._lookup(ref, key)[0] is not _MISSING
