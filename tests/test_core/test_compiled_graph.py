@@ -15,6 +15,7 @@ from conductor.metadata import Output, Param, Result
 from conductor.node import NodeDefinition, Policy, version
 from conductor.ref import Ref
 from conductor.widgets import Choice, Dropdown, Textarea
+from pydantic import ValidationError
 
 
 class Txt(DType, str):
@@ -415,16 +416,19 @@ def test_the_artifact_and_its_diagnostics_are_importable_from_the_root():
 # --- the call model, and what the record does not carry ------------------------------
 
 
-def test_the_call_model_is_built_once_per_compiled_node():
-    """C13: the pydantic model that validates a call is compile's, built once,
-    not the engine's per unit."""
+def test_a_compiled_node_validates_a_call_and_hands_back_its_keyword_arguments():
+    """C13: validating a call is compile's, through a model built once per
+    node; the engine asks ``validate`` and gets the keyword arguments the
+    call runs with, and never meets the model."""
     compiled = _compiled([GraphNode(id="a", type="echo", version=1, bindings={"x": Static(value="hi")})])
+    node = compiled.node("a")
 
-    model = compiled.node("a").call_model
-    assert model is compiled.node("a").call_model
-    assert isinstance(model(x=Txt("a"), y=Txt("b")).x, Txt)
+    kwargs = node.validate({"x": Txt("a")})
+    assert set(kwargs) == {"x", "y"} and isinstance(kwargs["x"], Txt) and kwargs["y"] == Txt("")
+    with pytest.raises(ValidationError):
+        node.validate({"x": ["not", "text"]})
     with pytest.raises(KeyError):
-        _compiled([GraphNode(id="b", type="echo", version=1, bindings={"x": Edges(refs=(Ref("ghost", "result"),))})]).node("b").call_model
+        _compiled([GraphNode(id="b", type="echo", version=1, bindings={"x": Edges(refs=(Ref("ghost", "result"),))})]).node("b").validate({})
 
 
 def test_the_record_keeps_the_authored_graph_and_the_registry_and_drops_what_nothing_calls():

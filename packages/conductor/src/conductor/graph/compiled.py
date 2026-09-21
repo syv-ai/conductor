@@ -239,7 +239,7 @@ class CompiledNode:
     """One node as the compiler left it: what it has, what it holds, how it runs.
 
     ``CompiledGraph.node(node_id)`` builds one on each call; nothing stores
-    it. The engine reads ``interface``, ``call_model``, ``statics``,
+    it. The engine reads ``interface``, ``validate``, ``statics``,
     ``runner`` and ``iterates_on`` for each node it runs, and ``version``
     and ``graph_node`` for the policy and the type it reports; an editor
     reads ``interface`` and ``iterates_on`` for each node it draws, and
@@ -248,7 +248,7 @@ class CompiledNode:
 
     An attribute a node cannot answer raises: a node the edge walk could
     not derive — its own edges wrong, or a fault upstream of it — has an
-    interface but no ``iterates_on`` or ``call_model``, and a node whose
+    interface but no ``iterates_on`` or ``validate``, and a node whose
     version is a graph has an interface, a version and ``embedded_in`` but
     no ``graph_node`` or ``statics`` — its inner nodes run in its place.
     The ``Problem`` on it in ``CompiledGraph.problems`` says why.
@@ -328,14 +328,18 @@ class CompiledNode:
         placed = {"type": node.type, "version": node.version, "bindings": bindings}
         return hashlib.sha256(json.dumps(to_jsonable_python(placed), sort_keys=True).encode("utf-8")).hexdigest()
 
-    @property
-    def call_model(self) -> type[BaseModel]:
-        """The pydantic model that validates a call against this node's
-        interface: one field per input, its declared type and default.
-        Built once when the graph is compiled; the engine validates every
-        unit's inputs through it. Only for a node the walk over the edges
-        derived — a node with a fault upstream has none, and asking raises."""
-        return self._graph._call_models[self.id]
+    def validate(self, inputs: Mapping[str, Any]) -> dict[str, Any]:
+        """The keyword arguments a call of this node runs with: ``inputs``
+        checked against the interface, one value per input, a default
+        filled in where the call gave none. Raises pydantic's
+        ``ValidationError`` when a value is not its input's type or a
+        required input is missing; the engine turns that into the node's
+        failure. The check runs through a model built once when the graph
+        was compiled, not once per unit. Only for a node the walk over the
+        edges derived — a node with a fault upstream has none, and asking
+        raises."""
+        validated = self._graph._call_models[self.id](**inputs)
+        return {name: getattr(validated, name) for name in type(validated).model_fields}
 
     @property
     def iterates_on(self) -> Index | None:
