@@ -269,9 +269,10 @@ class _Compilation:
         without a type an edge can carry (``field_problems``), are checked
         here on the inputs the hook answered, before the walk reads them.
 
-        An edge from a node the author placed but compile could not resolve
-        — an unknown type, a cycle — is left alone: that node carries its own
-        problem, and "not in the graph" would be untrue. Leaves in ``broken``
+        An edge from an id the author wrote but compile could not resolve —
+        an unknown type, a cycle, a refused id — is left alone: that node
+        carries its own fatal problem, and "not in the graph" would be
+        untrue. Leaves in ``broken``
         the ids of the nodes whose edges or inputs are wrong; the edge walk
         leaves them out, since nothing can be derived from a broken edge.
         """
@@ -301,11 +302,12 @@ class _Compilation:
                         continue  # a node of the run; the walk checks that it has the output
                     broken.add(node_id)
                     source = authored_ref(ref)
-                    if source.node_id not in self.authored:
-                        self.problems.append(problem("unknown_ref_node", node_id, name, source_node=source.node_id))
-                    elif source.node_id in self.expansion.placement_versions:
+                    if source.node_id in self.expansion.placement_versions:
                         # An embedded graph the author placed, but no inner node of that name.
                         self.problems.append(problem("unknown_ref_output", node_id, name, source=str(source)))
+                    elif ref.node_id not in self.graph_ids:
+                        self.problems.append(problem("unknown_ref_node", node_id, name, source_node=ref.node_id))
+                    # else: an id the author wrote that compile could not resolve; it carries its own fatal problem
 
             for inp in interface.inputs:
                 if inp.dtype is Any:

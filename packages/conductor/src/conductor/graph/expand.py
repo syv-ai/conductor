@@ -34,7 +34,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
 
 from conductor.graph.binding import Binding, Edges
 from conductor.graph.model import GraphNode
@@ -272,17 +271,23 @@ def surfaced(problem: Problem, nodes: Mapping[str, GraphNode], authored: Iterabl
         "field": authored_ref(Ref(problem.node_id, problem.field)).field if problem.field else inner_address,
         "message": f"In '{title}': {problem.message}",
         "details": {
-            **{key: authored_address(value) for key, value in problem.details.items()},
+            **{key: authored_address(value) if key in ADDRESS_KEYS else value for key, value in problem.details.items()},
             "placement": title,
             "inner_message": problem.message,
         },
     })
 
 
-def authored_address(value: Any) -> Any:
-    """``value`` with an expanded id or address rewritten to the author's:
-    ``"e/p.a"`` → ``"e.p.a"``, ``"e/p"`` → ``"e.p"``; anything else as it is."""
-    if not isinstance(value, str) or SEPARATOR not in value:
+#: The ``details`` keys that hold an address or a node id (``CATALOGUE``'s
+#: ``source``, ``source_node``, ``a`` and ``b``); every other value — a
+#: type's own sentence, a type id — is left as it is.
+ADDRESS_KEYS: frozenset[str] = frozenset({"source", "source_node", "a", "b"})
+
+
+def authored_address(value: str) -> str:
+    """An expanded id or address rewritten to the author's: ``"e/p.a"`` →
+    ``"e.p.a"``, ``"e/p"`` → ``"e.p"``; one with no ``/`` as it is."""
+    if SEPARATOR not in value:
         return value
     return str(authored_ref(Ref(value))) if "." in value else value.replace(SEPARATOR, ".")
 

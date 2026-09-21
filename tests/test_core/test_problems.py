@@ -535,3 +535,30 @@ def test_an_edge_into_a_field_an_embedded_graph_lacks_names_the_authors_address(
         ("unknown_ref_output", "w", "x", {"source": "e.ghost.out"}),
     ]
     assert not any("/" in p.message for p in compiled.problems)
+
+
+def test_an_edge_from_a_slashed_name_under_a_plain_node_is_not_in_the_graph():
+    """C11, the other way: ``a/b`` collapses to ``a`` as an author's address,
+    but ``a`` is an ordinary node, not an embedded graph, so the source is
+    simply not in the graph — and the graph is not runnable with a node the
+    walk never derived."""
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[
+            GraphNode(id="a", type="echo", version=1),
+            GraphNode(id="u", type="echo", version=1, bindings={"x": Edges(refs=(Ref("a/b", "result"),))}),
+        ]),
+        _registry(),
+    )
+
+    assert [(p.code, p.node_id, p.details) for p in compiled.problems] == [("unknown_ref_node", "u", {"source_node": "a/b"})]
+    assert not compiled.is_runnable
+
+
+def test_an_edge_from_a_refused_id_is_not_reported_again():
+    """C11 with C5: the id carries ``invalid_node_id``; its reader is silent."""
+    problems = _problems([
+        GraphNode(id="x/y", type="echo", version=1),
+        GraphNode(id="u", type="echo", version=1, bindings={"x": Edges(refs=(Ref("x/y", "result"),))}),
+    ])
+
+    assert [(p.code, p.node_id) for p in problems] == [("invalid_node_id", "x/y")]

@@ -561,3 +561,19 @@ def test_a_problem_surfaced_from_inside_keeps_its_details_and_rewrites_the_addre
     (problem,) = compiled.problems
     assert (problem.code, problem.node_id, problem.field) == ("union_needs_one_index", "emb", "up.text")
     assert problem.details == {"placement": "Upper", "inner_message": "Field 'text' has several edges; that only works when they are all rows of one table."}
+
+
+def test_surfacing_rewrites_addresses_and_leaves_every_other_detail_alone():
+    """C12: only the details that hold an address or a node id are rewritten;
+    a type's own sentence with a ``/`` in it is not an address."""
+    from conductor.graph.expand import surfaced
+    from conductor.graph.problem import Problem
+
+    inner = Problem(code="invalid_static", message="The value in 'v' cannot be read. 3/4 is not a whole number.",
+                    fatal=True, node_id="e/p", field="v", details={"reason": "3/4 is not a whole number"})
+    misaligned = Problem(code="misaligned", message="m", fatal=True, node_id="e/p", details={"a": "e/p.a", "b": "e/q/r.b"})
+
+    assert surfaced(inner, {}, ()).details == {
+        "reason": "3/4 is not a whole number", "placement": "p", "inner_message": inner.message,
+    }
+    assert surfaced(misaligned, {}, ()).details == {"a": "e.p.a", "b": "e.q.r.b", "placement": "p", "inner_message": "m"}
