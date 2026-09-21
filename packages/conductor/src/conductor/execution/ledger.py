@@ -1,74 +1,50 @@
-"""The ledger: what a run has produced, cell by cell, and what that makes ready.
+"""The ledger: what a run has produced so far, and what that lets run next.
 
-A ledger is the engine's record of one run — every value every node has
-produced so far — and the one place the engine asks what may run next.
+The engine runs a graph as units. A unit is one node on one row. A node
+that runs once is a single unit with row ``None``; a node fed a series on
+a scalar input runs once per row of that series' index, one unit per row.
+A row is a path, ``(i,)`` on a root index and ``(i, j)`` for the j-th row
+born under ``(i,)``, so a unit deep in the tree finds its row on an
+ancestor index by taking a prefix. Rows are born when the unit producing
+the series writes it; until then nobody knows how many there will be.
 
-The engine's unit of work is ``(node, row)``. A *series* is a value with
-many rows, and an *index* names where those rows come from; a node that
-receives a series on a scalar input runs once per row of that index. A
-node that runs once is one unit with row ``None``; a node that runs per
-row of index ``L`` is one unit per row of ``L``. A row is a path —
-``(i,)`` on a root index, ``(i, j)`` for a child row created under parent
-row ``(i,)`` — so a unit on a deeper index finds its row on an ancestor
-by taking a prefix. A row is *born* when the unit producing the series
-writes it; until then nothing knows how many rows there will be.
+The ledger keeps everything a run has written, one cell per field and
+row, and answers the engine's two questions: is this unit ready, and
+what does it run with. The engine is a loop over those calls. Nothing in
+here is asynchronous and nothing in here schedules.
 
-**A skip has a depth.** ``SKIPPED`` written at row ``k`` on a field means
-the field holds nothing at ``k`` and at every row under it. A unit that
-returns ``SKIPPED`` on an output writes it at its own row. A reader looks
-for a skip at its own row and at every shorter prefix, and re-emits
-``SKIPPED`` at the depth it found it: a skip at the reader's own depth
-that one row is missing; a skip above it means nothing beneath it runs.
-A unit whose every series output is skipped births no rows, so a node
-running per row of that index runs once at the shorter row instead —
-that is how a skip keeps its reach through a chain.
+Readiness is kept rather than recomputed. Checking every unit after every
+write would cost the square of the rows, so ``record`` returns the units
+its write could have made ready, and only those are checked: the readers
+of the written cell at its row and below, the units a new row creates,
+and a reduction whose group is now complete. ``ready`` stays the
+definition, and ``runnable`` asks it of every unit when a leg starts and
+when it goes quiet, where a ready unit nobody started is a bug.
 
-The ledger holds:
+How a unit receives each input is compile's decision, read here. Every
+input carries a receive record (``CompiledField.receives``, from
+``conductor.graph.receive``). ``Iterate`` takes the cell at the unit's own
+row, ``Broadcast`` the one cell there is, ``Whole`` everything on the
+field, ``Group`` the rows under the unit's row cut to a depth, and
+``Gather`` unrelated sources collected onto the input's own index. The
+ledger switches on the record to say when a unit is ready and what to
+hand it, and derives none of this from types or indexes itself.
 
-* a **cell** per ``(field, row)``: the value, or ``SKIPPED``;
-* the **rows born** on each index — a root's by the one unit of the node
-  that produced the series, a child's by each unit of its parent node;
-* which indexes are **sealed**: every row they will ever have is born;
-* under which rows an index has **no rows**, because something above them was skipped;
-* which units are **done**, and which are **pending** on a person.
+A skip has a depth. ``SKIPPED`` written at row ``k`` means the field
+holds nothing at ``k`` and at every row under it. A unit that returns
+``SKIPPED`` writes it at its own row. A reader looks for a skip at its
+own row and at every shorter prefix, and re-emits it at the depth it
+found it. A unit whose every series output is skipped births no rows, so
+a node that would run per row of that index runs once at the shorter row
+instead. That is how a skip keeps its reach down a chain.
 
-It answers ``units`` (a node's units right now), ``ready`` and
-``inputs_for`` (may this unit run, and with what), ``record`` (this unit
-produced this, and these units are ready now), ``runnable``, ``pend``,
-``complete`` and ``progress``, ``results``, ``pending`` and ``cells``.
-Nothing here is asynchronous and nothing here schedules; the engine is a
-loop over these calls.
-
-**Readiness is kept, not recomputed.** Asking every unit whether it is
-ready after every unit finishes costs the square of the rows. So
-``record`` reports the units its write made ready, and only those are
-asked: the readers of a cell, at the cell's row and the rows under it;
-the units a birth or a skip creates; a reduction whose group the write
-completed. A group remembers how many of its rows are already written, so
-no row is read twice. ``ready`` stays the definition, and ``runnable``
-asks it of every unit: the engine does that when a leg starts, and again
-when it goes quiet, where a ready unit that nobody started is a bug.
-
-**How a unit receives each input is compile's decision, read here.**
-Every input carries a receive record (``CompiledField.receives``, from
-``conductor.graph.receive``): ``Iterate`` — the cell at the unit's own row,
-projected onto the index the value sits on; ``Broadcast`` — the one cell
-there is; ``Whole`` — everything on the field; ``Group`` — the rows under the unit's row
-cut to a depth, so a node fed a series on a child index runs once per
-parent row and reduces the child rows under it, and inside an embedded
-graph a series that entered through a scalar field is reduced one row at
-a time; ``Gather`` — unrelated sources collected onto the input's own
-index. The ledger switches on the record to say when a unit is ready and
-what to hand it, and derives none of this from types or indexes itself.
-
-**Cells are the record.** ``cells`` is everything a leg produced, row by
-row, and ``restore`` starts the next leg from it. A leg is one call of
-``execute``; a run takes several when a node waits on a person in
-between. Nothing is pruned, so a unit done in one leg stays done in the
-next. Every value crosses through the codec (``conductor.codec``) by the
-type compile gave its field, so a restored cell is the type it was; a
-skipped cell is marked ``{"skipped": <depth>}`` beside its address, since
-a skip is not a value and has no type.
+The cells are the record. ``cells`` is everything a leg produced, and
+``restore`` starts the next leg from it. A leg is one call of
+``execute``; a run takes several when a node waits on a person. Nothing
+is pruned, so a unit done in one leg stays done in the next. Every value
+crosses through the codec (``conductor.codec``) by the type compile gave
+its field, and a skipped cell is marked ``{"skipped": <depth>}`` beside
+its address, since a skip is not a value and has no type.
 """
 
 from __future__ import annotations
@@ -227,9 +203,9 @@ class Ledger:
         self._birth_typed_roots(roots)
 
     def _map_readers(self, node_id: str) -> None:
-        """File what this node reads and how — one ``_Reader`` per edge, under
+        """File what this node reads and how: one ``_Reader`` per edge, under
         the output it reads and, for a series, under the index that series
-        sits on — and the index the node itself iterates on."""
+        sits on. Also file the index the node itself iterates on."""
         node = self._compiled.node(node_id)
         connected: list[tuple[Edges, Receive]] = []
         for inp in node.interface.inputs:
@@ -250,7 +226,7 @@ class Ledger:
                 self._births_on.setdefault(node.iterates_on.id, []).append(node_id)
 
     def _map_typed_lists(self, node_id: str) -> list[str]:
-        """The lists the author typed into this node's scalar inputs — compile
+        """The lists the author typed into this node's scalar inputs. Compile
         says ``Iterate`` on an index of the input's own, one row per value,
         under a typed-in binding. A list under a parent index is filed to be
         born with each parent row. A list on a root has its rows born and
@@ -275,7 +251,7 @@ class Ledger:
 
     def _birth_typed_roots(self, roots: list[str]) -> None:
         """Under every row of a typed-in list on a root, birth the typed-in
-        lists whose index is its child and seal them; then seal the index of
+        lists whose index is its child, and seal them. Then seal the index of
         every node that births rows per row of a list complete from the start."""
         for index_id in roots:
             for row in sorted(self._rows.get(index_id, ())):
