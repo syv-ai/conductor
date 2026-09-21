@@ -16,8 +16,9 @@ and the series it produces is sparse.
 ``Asks``, returned where a result would be, means a person must answer
 before the graph can continue. It carries the questions, one ``Input`` (the
 record that describes one field a node takes) per value the person
-supplies. The engine reports them and ends the leg pending — a leg is one
-call of ``execute``, and a run takes several when a person must answer in
+supplies — or none, and the node's declared outputs are the questions.
+The engine reports them and ends the leg pending — a leg is one call of
+``execute``, and a run takes several when a person must answer in
 between. The answers reach the next leg as the node's outputs through
 ``execute(cache=...)``, so ``run`` is not called again.
 """
@@ -57,25 +58,29 @@ class Asks:
 
     ``questions`` are the fields the person fills in, one ``Input`` per
     output of the node; the engine re-keys them by address (``node.field``)
-    when it reports them. ``prompt`` is optional text for the person; when
-    ``None`` the host shows the node's own title and description::
+    when it reports them. ``Asks()`` with no questions asks for the node's
+    declared outputs as they are — name, type, title, description, and
+    no widget, so the host picks the control from the type. A node writes
+    its own questions when it has a default to offer or a control to
+    insist on. ``prompt`` is optional text for the person; when ``None``
+    the host shows the node's own title and description::
 
-        def run(self, proposal: Annotated[Txt, Textarea(title="Proposal")] = Txt("")) -> Out | Asks:
+        def run(self, proposal: Annotated[Txt, Param(title="Proposal", widget=Textarea())] = Txt("")) -> Out | Asks:
             return Asks(questions=(
                 Input(name="result", dtype=Txt, title="Answer",
-                      widget=Textarea(title="Answer"), default=proposal, optional=True),
+                      widget=Textarea(), default=proposal, optional=True),
             ))
 
     The engine is the only reader: ``is_asking`` on the returned value
     parks the unit — one run of one node, on one row when the node runs
     per row — through ``Ledger.pend``, and the leg ends ``graph_pending``
-    once nothing else can run; ``execute_sync`` hands the pause back as
-    ``GraphPendingError``. Its sibling is ``SKIPPED``, the other value that
+    once nothing else can run; ``conductor.run`` returns that ending like any other.
+    Its sibling is ``SKIPPED``, the other value that
     is not a result. A ``run`` that may ask says so only in its return
     annotation, ``-> X | Asks``.
     """
 
-    questions: tuple[Input, ...]
+    questions: tuple[Input, ...] = ()
     prompt: str | None = None
 
 

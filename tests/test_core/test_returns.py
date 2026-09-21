@@ -6,8 +6,8 @@ from typing import Annotated, Any
 
 import pytest
 from conductor.dtype import DType
-from conductor.metadata import Field, Output
-from conductor.returns import Result, outputs_of, unpack
+from conductor.metadata import Field, Output, Result
+from conductor.returns import outputs_of, unpack
 from conductor.series import Series
 from pydantic import TypeAdapter
 
@@ -23,20 +23,18 @@ def test_an_output_is_a_field_and_adds_one_contract_fact():
     engine never does."""
     output = Output(name="result", dtype=Text, title="Resultat")
 
-    assert isinstance(output, Field)
-    assert set(Output.model_fields) == set(Field.model_fields) | {"choice"}
+    assert isinstance(output, Result) and isinstance(output, Field)
+    assert set(Result.model_fields) == set(Field.model_fields) | {"choice"}
+    assert set(Output.model_fields) == set(Result.model_fields) | {"name", "dtype"}
     assert output.choice is None
     assert Output(name="if_true", dtype=Text, title="If true", choice="branches").choice == "branches"
 
 
-def test_a_field_is_name_dtype_title_description():
-    """`optional` is an `Input` fact, not a field's."""
-    assert list(Field.model_fields) == [
-        "name",
-        "dtype",
-        "title",
-        "description",
-    ]
+def test_a_field_is_title_and_description():
+    """What a person reads is the half an input and an output share; a
+    name and a type are the node's records' (``Input``, ``Output``), and
+    `optional` is an `Input` fact alone."""
+    assert list(Field.model_fields) == ["title", "description"]
 
 
 def test_an_output_carries_what_both_sides_of_a_node_have():

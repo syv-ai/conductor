@@ -733,10 +733,12 @@ class Ledger:
         declares, so a host may hand in the typed value or its JSON form.
         For a node that runs once, ``outputs`` is its result. For a node
         running per row, each output is a series on the node's index — a
-        ``Series``, or ``{"rows": [...], "values": [...]}`` as it came over
-        the wire — and only the rows it names are recorded: answering row
-        ``(1,)`` leaves rows ``(0,)`` and ``(2,)`` as they were, done or
-        still to run; every output answers the same rows.
+        ``Series``, ``{"rows": [...], "values": [...]}`` as it came over
+        the wire, or a plain list with one value per row still to answer
+        (born and not yet done), in row order — and only the rows it
+        names are recorded:
+        answering row ``(1,)`` leaves rows ``(0,)`` and ``(2,)`` as they
+        were, done or still to run; every output answers the same rows.
 
         An output the node does not have, an output left out, a unit that
         is already done, a row the run has not produced, and a row one
@@ -758,8 +760,9 @@ class Ledger:
                 name: self._answer(node_id, name, value, self._compiled.field(Ref(node_id, name)).type) for name, value in outputs.items()
             })
             return
-        by_output = {name: self._answered_rows(node_id, name, value) for name, value in outputs.items()}
         born = self._rows.get(iterate.id, set())
+        open_rows = [row for row in sorted(born) if (node_id, row) not in self._done]
+        by_output = {name: self._answered_rows(node_id, name, value, open_rows) for name, value in outputs.items()}
         for row in sorted({row for rows in by_output.values() for row in rows}):
             if row not in born:
                 raise ValueError(f"'{node_id}' has no row {list(row)} to record: the run has not produced it")
@@ -779,15 +782,21 @@ class Ledger:
         except (TypeError, ValueError) as invalid:
             raise ValueError(f"'{node_id}' was given a value for '{name}' that is not a {getattr(declared, '__name__', declared)}") from invalid
 
-    def _answered_rows(self, node_id: str, name: str, value: Any) -> dict[Row, Any]:
-        """A per-row answer as ``{row: value}``: from a ``Series``, or from
-        ``rows`` and ``values`` as they came over the wire."""
+    def _answered_rows(self, node_id: str, name: str, value: Any, open_rows: list[Row]) -> dict[Row, Any]:
+        """A per-row answer as ``{row: value}``: from a ``Series``, from
+        ``rows`` and ``values`` as they came over the wire, or from a plain
+        list answering every row in ``open_rows`` — the rows still to
+        answer — in order."""
         if isinstance(value, Series):
             rows, values = value.rows, value.values
         elif isinstance(value, Mapping) and {"rows", "values"} <= set(value):
             rows, values = [tuple(row) for row in value["rows"]], value["values"]
+        elif isinstance(value, Sequence) and not isinstance(value, str | bytes):
+            if len(value) != len(open_rows):
+                raise ValueError(f"'{node_id}': '{name}' answers {len(value)} values for {len(open_rows)} rows still open; a list answers every open row in order")
+            rows, values = open_rows, list(value)
         else:
-            raise ValueError(f"'{node_id}' runs per row, so '{name}' is answered as a series, or as rows and values")
+            raise ValueError(f"'{node_id}' runs per row, so '{name}' is answered as a series, as rows and values, or as a list")
         if len(rows) != len(values):
             raise ValueError(f"'{node_id}': '{name}' names {len(rows)} rows for {len(values)} values")
         if len(set(rows)) != len(rows):

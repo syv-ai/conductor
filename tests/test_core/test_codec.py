@@ -11,16 +11,16 @@ import json
 from typing import Annotated, Any
 
 import pytest
-from conductor import CompiledGraph, GraphNode, NodeRegistry
+from conductor import CompiledGraph, GraphNode, NodeRegistry, Param
 from conductor.codec import from_wire, to_wire
 from conductor.dtype import DType
 from conductor.execution.ledger import Ledger
 from conductor.execution.record import RunRecord
 from conductor.graph.binding import Edges, Static
 from conductor.graph.model import Graph
+from conductor.metadata import Result
 from conductor.node import NodeDefinition
 from conductor.ref import Ref
-from conductor.returns import Result
 from conductor.series import Index, Series
 from conductor.widgets import Textarea
 from conductor_nodes.types import Flag, Json, Number, Text
@@ -104,7 +104,7 @@ class Split(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, text: Annotated[Txt, Textarea(title="In")] = Txt("")) -> Annotated[Series[Txt], Result(title="Parts")]:
+    def run(self, text: Annotated[Txt, Param(title="In", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Parts")]:
         return [Txt(part) for part in text.split(",")]
 
 
@@ -114,7 +114,7 @@ class Upper(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, text: Annotated[Txt, Textarea(title="In")] = Txt("")) -> Annotated[Txt, Result(title="Out")]:
+    def run(self, text: Annotated[Txt, Param(title="In", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="Out")]:
         return Txt(text.upper())
 
 
@@ -180,7 +180,7 @@ def test_a_value_with_no_json_form_raises_naming_the_field():
         description = "d"
         category = "test"
 
-        def run(self, text: Annotated[Txt, Textarea(title="In")] = Txt("")) -> Annotated[Opaque, Result(title="Handle")]:
+        def run(self, text: Annotated[Txt, Param(title="In", widget=Textarea())] = Txt("")) -> Annotated[Opaque, Result(title="Handle")]:
             return Opaque(object())
 
     compiled = _compiled(Opens, nodes=[GraphNode(id="o", type="opens", version=1, bindings={"text": Static(value="x")})])

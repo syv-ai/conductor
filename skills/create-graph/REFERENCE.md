@@ -7,8 +7,8 @@ import asyncio
 from typing import Annotated
 
 import conductor_nodes
-from conductor import Asks, CompiledGraph, Edges, Graph, GraphNode, Input, NodeDefinition, Ref, Result, Series, Static
-from conductor.execution.engine import collect, execute, execute_sync
+from conductor import Asks, CompiledGraph, Edges, Graph, GraphNode, Input, NodeDefinition, Param, Ref, Result, run, run_sync, Series, Static
+from conductor.execution.engine import execute
 from conductor.widgets import Textarea
 from conductor_nodes.types import Text
 
@@ -53,7 +53,7 @@ rows = CompiledGraph.from_graph(
 )
 assert rows.node("loud").iterates_on is not None and rows.node("joined").iterates_on is None
 
-results = execute_sync(rows)
+results = run_sync(rows)["results"]
 assert list(results["loud"]["result"]) == ["RED", "GREEN", "BLUE"]
 assert results["loud"]["result"].rows == ((0,), (1,), (2,))
 ```
@@ -93,7 +93,7 @@ ending = asyncio.run(watch(rows))
 assert ending["type"] == "graph_complete"
 ```
 
-A frame carries records (a `Series`, an `ErrorCause`, an `Input`), not JSON; serialise at the host's edge (`conductor_providers.fastapi.sse.sse_frame` does it for server-sent events). `collect(events)` drains a stream and returns the results, or raises `GraphPendingError` or `GraphExecutionError` (with `cause`) for the ending that stopped it; `execute_sync` is `collect` under `asyncio.run`.
+A frame carries records (a `Series`, an `ErrorCause`, an `Input`), not JSON; serialise at the host's edge (`conductor_providers.fastapi.sse.sse_frame` does it for server-sent events). `await run(compiled)` drains the stream and returns the event the leg ended on — a pause, an error, a cancel and a timeout are endings, not exceptions; `run_sync` is `run` under `asyncio.run`, and refuses under a running loop.
 
 ## Legs
 
@@ -106,8 +106,8 @@ class Approve(NodeDefinition):
     description = "Asks a person to approve a proposal."
     category = "review"
 
-    def run(self, proposal: Annotated[Text, Textarea(title="Proposal")]) -> Annotated[Text, Result(title="Decision")] | Asks:
-        return Asks(questions=(Input(name="result", dtype=Text, title="Decision", widget=Textarea(title="Decision"), default=proposal),))
+    def run(self, proposal: Annotated[Text, Param(title="Proposal", widget=Textarea())]) -> Annotated[Text, Result(title="Decision")] | Asks:
+        return Asks(questions=(Input(name="result", dtype=Text, title="Decision", widget=Textarea(), default=proposal),))
 
 
 registry.register(Approve)
@@ -147,7 +147,7 @@ assert list(done["results"]["approve"]["result"]) == ["First, approved", "Second
 - Answering a unit already done, or a row the run has not produced, raises `ValueError`.
 - `record` is a `RunRecord`, JSON through `model_dump()`: a host stores it with the run and hands it back; a node the graph has changed since, or that reads one, runs again. Nothing is checkpointed or resumed.
 - Every ending carries `record`, so a new run can also start from a failed or stopped one.
-- From a script: `except GraphPendingError as pending:` and then `execute_sync(compiled, record=pending.record, cache=...)`.
+- From a script: `paused = run_sync(compiled)` ends with `paused["type"] == "graph_pending"`, and `run_sync(compiled, record=paused["record"], cache=...)` is the next leg.
 
 **Values the run supplies.** A node parameter `Annotated[T, FromRun()]` receives `from_run[T]`: `execute(compiled, from_run={Caller: caller})`. A leg not given a type some node needs raises `TypeError` before anything runs.
 

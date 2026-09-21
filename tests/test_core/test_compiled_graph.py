@@ -11,10 +11,9 @@ from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.problem import Problem
 from conductor.interface import FromRun, Interface, model_of
-from conductor.metadata import Output
+from conductor.metadata import Output, Param, Result
 from conductor.node import NodeDefinition, Policy, version
 from conductor.ref import Ref
-from conductor.returns import Result
 from conductor.widgets import Choice, Dropdown, Textarea
 
 
@@ -39,8 +38,8 @@ class Echo(NodeDefinition):
 
     def run(
         self,
-        x: Annotated[Txt, Textarea(title="X")] = Txt(""),
-        y: Annotated[Txt, Textarea(title="Y")] = Txt(""),
+        x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt(""),
+        y: Annotated[Txt, Param(title="Y", widget=Textarea())] = Txt(""),
     ) -> Out:
         return Txt(x + y)
 
@@ -51,7 +50,7 @@ class TextInput(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, value: Annotated[Txt, Textarea(title="Text")] = Txt("")) -> Out:
+    def run(self, value: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
         return value
 
 
@@ -65,8 +64,8 @@ class Modes(NodeDefinition):
 
     def run(
         self,
-        mode: Annotated[Txt, Dropdown(title="State", choices=(Choice(id="a", title="A"), Choice(id="b", title="B")))] = Txt("a"),
-        extra: Annotated[Txt, Textarea(title="Extra")] = Txt(""),
+        mode: Annotated[Txt, Param(title="State", widget=Dropdown(choices=(Choice(id="a", title="A"), Choice(id="b", title="B"))))] = Txt("a"),
+        extra: Annotated[Txt, Param(title="Extra", widget=Textarea())] = Txt(""),
     ) -> Out:
         return mode
 
@@ -84,7 +83,7 @@ class OpenSheet(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, header: Annotated[Txt, Textarea(title="Header")] = Txt("")) -> Out:
+    def run(self, header: Annotated[Txt, Param(title="Header", widget=Textarea())] = Txt("")) -> Out:
         return header
 
     def compute_outputs(self, declared, values, arriving):
@@ -102,11 +101,11 @@ class Renamed(NodeDefinition):
     category = "test"
 
     @version(1)
-    def run_v1(self, old: Annotated[Txt, Textarea(title="Old")] = Txt("")) -> Out:
+    def run_v1(self, old: Annotated[Txt, Param(title="Old", widget=Textarea())] = Txt("")) -> Out:
         return old
 
     @version(2, policy=Policy(retries=2))
-    def run(self, new: Annotated[Txt, Textarea(title="New")] = Txt("")) -> Out:
+    def run(self, new: Annotated[Txt, Param(title="New", widget=Textarea())] = Txt("")) -> Out:
         return new
 
 
@@ -125,7 +124,7 @@ class Stamped(NodeDefinition):
     def run(
         self,
         clock: Annotated[Clock, FromRun()],
-        x: Annotated[Txt, Textarea(title="X")] = Txt(""),
+        x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt(""),
     ) -> Out:
         return x
 

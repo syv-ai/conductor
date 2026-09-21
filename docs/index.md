@@ -22,9 +22,8 @@ A reusable, host-agnostic engine that compiles and runs graphs of typed nodes. D
 ```python
 from typing import Annotated
 
-from conductor import CompiledGraph, Edges, Graph, GraphNode, NodeDefinition, NodeRegistry, Policy, Ref, Result, Static, version
-from conductor.execution.engine import execute_sync
-from conductor.widgets import Text as TextWidget
+from conductor import CompiledGraph, Edges, Graph, GraphNode, NodeDefinition, NodeRegistry, Param, Policy, Ref, Result, run_sync, Static, version
+from conductor.widgets import TextWidget
 from conductor_nodes.types import Number, Text          # or DTypes of your own
 
 
@@ -35,7 +34,7 @@ class Fetch(NodeDefinition):
     category = "http"
 
     @version(1, policy=Policy(retries=3, delay=0.5))
-    def run(self, url: Annotated[Text, TextWidget(title="URL")]) -> Annotated[Text, Result(title="Body")]:
+    def run(self, url: Annotated[Text, Param(title="URL", widget=TextWidget())]) -> Annotated[Text, Result(title="Body")]:
         return Text(f"<html>{url}</html>")
 
 
@@ -45,7 +44,7 @@ class Length(NodeDefinition):
     description = "Counts characters"
     category = "text"
 
-    def run(self, text: Annotated[Text, TextWidget(title="Text")]) -> Annotated[Number, Result(title="Length")]:
+    def run(self, text: Annotated[Text, Param(title="Text", widget=TextWidget())]) -> Annotated[Number, Result(title="Length")]:
         return Number(len(text))
 
 
@@ -62,7 +61,7 @@ compiled = CompiledGraph.from_graph(
 )
 assert compiled.is_runnable, compiled.problems
 
-results = execute_sync(compiled)
+results = run_sync(compiled)["results"]
 list(results["size"]["result"])     # [30.0, 30.0]: two URLs typed in, so both nodes ran once per URL
 ```
 
@@ -100,8 +99,6 @@ ConductorError
 │   ├── NodeValidationError     the inputs were wrong
 │   ├── NodeExecutionError      run raised something that is not a NodeError
 │   └── NodeTimeoutError        the policy's timeout expired; final
-├── GraphExecutionError     execute_sync: the graph failed, was cancelled or timed out
-└── GraphPendingError       execute_sync: the leg ended pending; carries pending and record
 ```
 
 Raise `ExternalFailure` from `run` where the node knows the outside world failed, or name the client's exception classes in `Policy(retry_on=...)`.

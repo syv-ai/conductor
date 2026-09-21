@@ -16,7 +16,7 @@ Built to be the shared core behind visual node editors — declare a node once a
 
 - **One node contract** — a node is a `NodeDefinition` subclass; the typed signature of its `run` method *is* its interface. Nothing is declared twice.
 - **A type vocabulary you own** — every value on an edge has a `DType`; conductor ships the mechanism and no vocabulary (except `Series[X]`, the one collection). A host declares `Text`, `Number`, `Document`, … as it sees fit.
-- **Widgets on the declaration** — `Annotated[Text, Textarea(title="Text")]` says how a person edits an input; the same record drives validation and the palette.
+- **Widgets on the declaration** — `Annotated[Text, Param(title="Text", widget=Textarea())]` says how a person edits an input; the same record drives validation and the palette.
 - **Versions with a policy** — several versions live in one class (`@version(2)`); each carries a `Policy` for retries, timeout and concurrency; `@upgrade(1, 2)` rewrites saved values; `@deprecated` retires a node or a version.
 - **Compile-then-execute** — everything wrong with a graph is an anchored `Problem` before any node runs.
 - **Rows** — a series arriving on a scalar input runs the node once per row, concurrently under its policy; a `Series[X]` input receives the whole series or a group per parent row. A run's time grows with its rows.
@@ -75,8 +75,8 @@ A value on an edge has a `DType`. Conductor declares none, so start by naming th
 
 ```python
 from typing import Annotated
-from conductor import NodeDefinition, NodeRegistry, Result
-from conductor.widgets import Textarea, Text as TextWidget
+from conductor import Asks, CompiledGraph, deprecated, DType, Edges, FromRun, Graph, GraphNode, Input, NodeDefinition, NodeRegistry, Param, Policy, Ref, Result, run_sync, Series, SKIPPED, Static, upgrade, version
+from conductor.widgets import Textarea, TextWidget
 from conductor_nodes.types import Text
 
 class Echo(NodeDefinition):
@@ -86,7 +86,7 @@ class Echo(NodeDefinition):
     category = "text"
 
     def run(
-        self, text: Annotated[Text, Textarea(title="Input", description="Text to echo")]
+        self, text: Annotated[Text, Param(title="Input", description="Text to echo", widget=Textarea())]
     ) -> Annotated[Text, Result(title="Output")]:
         return text
 
@@ -97,7 +97,7 @@ class Uppercase(NodeDefinition):
     category = "text"
 
     def run(
-        self, text: Annotated[Text, TextWidget(title="Input")]
+        self, text: Annotated[Text, Param(title="Input", widget=TextWidget())]
     ) -> Annotated[Text, Result(title="Result")]:
         return Text(text.upper())
 
@@ -113,8 +113,6 @@ The class is checked the moment it is defined: a missing `id`, `title`, `descrip
 A placement pins a node by `type` and `version` and says, per input, where its value comes from: an `Edges` binding names other placements' outputs (an edge), a `Static` binding holds a typed-in value, and an input with no binding takes its declared default. There is no edge list — a graph is its nodes.
 
 ```python
-from conductor import Graph, GraphNode, Ref, Edges, Static, CompiledGraph
-from conductor.execution.engine import execute_sync
 
 graph = Graph(nodes=[
     GraphNode(id="n1", type="echo", version=1, bindings={"text": Static(value="hello world")}),
@@ -122,7 +120,7 @@ graph = Graph(nodes=[
 ])
 compiled = CompiledGraph.from_graph(graph, registry)
 
-results = execute_sync(compiled)
+results = run_sync(compiled)["results"]
 print(results["n2"]["result"])  # "HELLO WORLD"
 ```
 
@@ -167,7 +165,7 @@ conductor/
 │   │       ├── _sentinel.py        # SKIPPED and Asks
 │   │       ├── registry/           # NodeRegistry, discover_nodes
 │   │       ├── graph/              # GraphNode/Graph, the Binding variants, CompiledGraph.from_graph() and the CompiledGraph it returns, iteration, expansion, conditions, Problem
-│   │       ├── execution/          # execute(), execute_sync(), collect(), the ledger, events
+│   │       ├── execution/          # execute(), run(), run_sync(), the ledger, events
 │   │       └── about/              # Runnable library reference: python -m conductor.about
 │   ├── conductor-nodes/            # Standard node library — uv add syv-conductor-nodes
 │   └── conductor-providers/        # Framework adapters (react, fastapi) — uv add syv-conductor-providers
@@ -186,8 +184,7 @@ A node is a class. It declares its identity and what a palette shows (`id`, `tit
 ```python
 from dataclasses import dataclass
 from typing import Annotated
-from conductor import SKIPPED, NodeDefinition, Result, Series
-from conductor.widgets import List, Switch, Textarea
+from conductor.widgets import ListWidget, Switch, Textarea
 from conductor_nodes.types import Flag, Number, Text
 
 class Length(NodeDefinition):
@@ -196,7 +193,7 @@ class Length(NodeDefinition):
     description = "Character count of the text"
     category = "text"
 
-    def run(self, text: Annotated[Text, Textarea(title="Text")]) -> Annotated[Number, Result(title="Length")]:
+    def run(self, text: Annotated[Text, Param(title="Text", widget=Textarea())]) -> Annotated[Number, Result(title="Length")]:
         return Number(len(text))
 ```
 
@@ -219,7 +216,7 @@ class Split(NodeDefinition):
     description = "Splits text down the middle"
     category = "text"
 
-    def run(self, text: Annotated[Text, Textarea(title="Text")]) -> Halves:
+    def run(self, text: Annotated[Text, Param(title="Text", widget=Textarea())]) -> Halves:
         mid = len(text) // 2
         return Halves(head=Text(text[:mid]), tail=Text(text[mid:]))
 ```
@@ -238,7 +235,7 @@ class IfEmpty(NodeDefinition):
     description = "Routes text by whether it is blank"
     category = "control"
 
-    def run(self, text: Annotated[Text, Textarea(title="Text")]) -> Emptiness:
+    def run(self, text: Annotated[Text, Param(title="Text", widget=Textarea())]) -> Emptiness:
         if text.strip():
             return Emptiness(not_empty=text, empty=SKIPPED)
         return Emptiness(not_empty=SKIPPED, empty=text)
@@ -251,7 +248,6 @@ class IfEmpty(NodeDefinition):
 A `DType` is a real Python class, usually built on a builtin, declared with an `id` (the stable name the persisted graph and the frontend use) and a `title`:
 
 ```python
-from conductor import DType
 
 class Text(DType, str):
     id = "text"
@@ -271,7 +267,6 @@ class Number(DType, float):
 Several versions live in one class as methods marked `@version(n)`, `run` included; the current one is the highest number, and by convention its method is the one named `run`. Each version has its own signature and `Policy`. `@upgrade(1, 2)` marks the function that rewrites values saved against version 1 into what version 2 expects; `@deprecated` marks a class or a version as going away, optionally naming an `alternative`:
 
 ```python
-from conductor import Policy, deprecated, upgrade, version
 
 class Greet(NodeDefinition):
     id = "greet"
@@ -281,14 +276,14 @@ class Greet(NodeDefinition):
 
     @version(1)
     @deprecated(header="Use version 2", migration="The name is now first and last")
-    def run_v1(self, name: Annotated[Text, TextWidget(title="Name")]) -> Annotated[Text, Result(title="Greeting")]:
+    def run_v1(self, name: Annotated[Text, Param(title="Name", widget=TextWidget())]) -> Annotated[Text, Result(title="Greeting")]:
         return Text(f"Hi, {name}!")
 
     @version(2, policy=Policy(retries=2, delay=0.5))
     def run(
         self,
-        first: Annotated[Text, TextWidget(title="First name")],
-        last: Annotated[Text, TextWidget(title="Last name")],
+        first: Annotated[Text, Param(title="First name", widget=TextWidget())],
+        last: Annotated[Text, Param(title="Last name", widget=TextWidget())],
     ) -> Annotated[Text, Result(title="Greeting")]:
         return Text(f"Hi, {first} {last}!")
 
@@ -345,11 +340,10 @@ def compute_outputs(self, declared, values, arriving) -> tuple[Output, ...]: ...
 A parameter marked `FromRun()` is not an input — no widget, no handle — but a value the host supplies by type when it runs the graph:
 
 ```python
-from conductor import FromRun
 
-def run(self, text: Annotated[Text, Textarea(title="Text")], clock: Annotated[Clock, FromRun()]) -> ...:
+def run(self, text: Annotated[Text, Param(title="Text", widget=Textarea())], clock: Annotated[Clock, FromRun()]) -> ...:
 
-results = execute_sync(compiled, from_run={Clock: SystemClock()})
+results = run_sync(compiled, from_run={Clock: SystemClock()})["results"]
 ```
 
 `Interface.needs` lists such parameters by name, and `execute` refuses to start a graph that needs a type it was not given.
@@ -365,8 +359,6 @@ A skip has a depth: `SKIPPED` at one row leaves the series downstream sparse, an
 A node that needs a person's answer returns `Asks` instead of a result, and says so in its return annotation. Everything else runs on; the run then ends pending with every question, named by address. Answering is simply the next call:
 
 ```python
-from conductor import Asks, Input
-from conductor.errors import GraphPendingError
 
 class Approve(NodeDefinition):
     id = "approve"
@@ -374,18 +366,16 @@ class Approve(NodeDefinition):
     description = "Asks a person to approve the proposal"
     category = "review"
 
-    def run(self, proposal: Annotated[Text, Textarea(title="Proposal")]) -> Annotated[Text, Result(title="Decision")] | Asks:
-        return Asks(questions=(Input(name="result", dtype=Text, title="Decision", widget=Textarea(title="Decision"), default=proposal, optional=True),))
+    def run(self, proposal: Annotated[Text, Param(title="Proposal", widget=Textarea())]) -> Annotated[Text, Result(title="Decision")] | Asks:
+        return Asks(questions=(Input(name="result", dtype=Text, title="Decision", widget=Textarea(), default=proposal, optional=True),))
 
 registry.register(Approve)
 compiled = CompiledGraph.from_graph(Graph(nodes=[
     GraphNode(id="approve", type="approve", version=1, bindings={"proposal": Static(value="Ship it")}),
 ]), registry)
 
-try:
-    execute_sync(compiled)
-except GraphPendingError as pending:
-    results = execute_sync(compiled, record=pending.record, cache={"approve": {"result": Text("Approved")}})
+paused = run_sync(compiled)                                   # paused["type"] == "graph_pending"; paused["pending"]: the questions, by address
+results = run_sync(compiled, record=paused["record"], cache={"approve": {"result": Text("Approved")}})["results"]
 ```
 
 `record` is the engine's `RunRecord` of everything the earlier leg produced, so nothing is done twice, and a node the graph has changed since runs again; `cache` carries the answers as the asking node's outputs; for a node on rows, a `Series` naming the rows it answers, while a row that ran keeps its value and a row left out asks again. Every ending of a run carries its `results` and `record`, so a host can also start a new run from a failed or stopped one.
@@ -395,7 +385,6 @@ except GraphPendingError as pending:
 Retries belong to the version, on its `Policy`, and nowhere else:
 
 ```python
-from conductor import Policy, version
 
 class FetchUrl(NodeDefinition):
     id = "fetch-url"
@@ -404,7 +393,7 @@ class FetchUrl(NodeDefinition):
     category = "http"
 
     @version(1, policy=Policy(retries=3, delay=0.5, retry_on=(requests.ConnectionError, requests.Timeout)))
-    def run(self, url: Annotated[Text, TextWidget(title="URL")]) -> Annotated[Text, Result(title="Body")]:
+    def run(self, url: Annotated[Text, Param(title="URL", widget=TextWidget())]) -> Annotated[Text, Result(title="Body")]:
         resp = requests.get(url, timeout=10)
         resp.raise_for_status()
         return Text(resp.text)
@@ -428,8 +417,6 @@ ConductorError                     # Base — catch-all for any engine error
 │   ├── NodeValidationError         # Input validation failed (pydantic)
 │   ├── NodeExecutionError          # run() raised something that is not a NodeError; it is on `original`
 │   └── NodeTimeoutError            # The leg stopped waiting for the node; final
-├── GraphExecutionError             # execute_sync: the graph failed, was cancelled or timed out
-└── GraphPendingError               # execute_sync: the run is waiting for a person; carries the questions and the record
 ```
 
 Raise `ExternalFailure` from `run` where the node knows the outside world failed, or name the client's exception classes in `Policy(retry_on=...)` and let the engine classify them.
@@ -459,23 +446,22 @@ A widget is the control an input is edited with, plus what that control needs. E
 
 | Widget | Best for | Key options |
 |--------|----------|-------------|
-| `Text` | Single-line string | `min_length`, `max_length`, `pattern` |
+| `TextWidget` | Single-line string | `min_length`, `max_length`, `pattern` |
 | `Textarea` | Multi-line string | `rows`, `min_length`, `max_length` |
 | `TemplateTextarea` | Text with placeholders, each an input | `rows` |
 | `CodeEditor` | Source a person writes | `language`, `min_length`, `max_length` |
 | `Dropdown` | Pick one of a declared vocabulary of `Choice`s | `choices` |
 | `EntityDropdown` | Choices the host resolves | `entity_kind`, `multiple` |
-| `Number` | A number typed in | `min_val`, `max_val`, `step`, `integer_only` |
+| `NumberWidget` | A number typed in | `min_val`, `max_val`, `step`, `integer_only` |
 | `Range` | A number on a slider | `min_val`, `max_val`, `step` |
 | `Switch` | A boolean | — |
 | `DatePicker` | A date from a calendar | `min_date`, `max_date`, `seed` |
 | `FileUpload` | Files a person uploads | `accept`, `max_size_mb`, `multiple` |
-| `List` | A list of values typed by hand | `min_items`, `max_items` |
+| `ListWidget` | A list of values typed by hand | `min_items`, `max_items` |
 | `Tags` | Free-form labels | — |
 | `TableInput` | A table typed or pasted in | `min_rows`, `min_columns`, `column_types` |
 | `SchemaBuilder` | A schema built field by field | `schema`, `allow_additional`, `field_types` |
 | `IfElseBuilder` | Conditions built from the host's operators | `operators` |
-| `ConnectionList` | Edited by connecting only — a `Series[X]` or `Any` input | — |
 
 Conductor ships no default widget for any type: `Text` may be a textarea, a single line or a dropdown, so every input declares its own. An input closes itself to edges with `show_handle=False` on its widget, and may then declare any pydantic-validatable type. The set of controls is closed — `AnyWidget` is built from the subclasses in `widgets.py`, and a new control is a change there, since the component that renders each `kind` has to exist in the host's frontend anyway.
 
@@ -588,7 +574,7 @@ uv sync                       # includes the ipykernel used by the notebooks
 uv run jupyter lab examples/  # or open the .ipynb files in VS Code
 ```
 
-The notebooks use `[event async for event in execute(compiled)]` because the kernel already owns an event loop. From a plain `.py` script, use `execute_sync(compiled)` instead.
+The notebooks use `await run(compiled)` — or iterate `execute(compiled)` to see the events — because the kernel already owns an event loop. From a plain `.py` script, `run_sync(compiled)` is the same call; it returns the event the leg ended on.
 
 ## Stability and versioning
 
@@ -597,7 +583,7 @@ From `1.0.0` onward, conductor follows [Semantic Versioning](https://semver.org/
 **Public API.** A name is part of the public API if it is exported from a package's `__init__` or documented in this README / `docs/`. Anything else — `_`-prefixed names, modules not re-exported from a public surface — is internal and may change in any release without warning. The public surface:
 
 - Top-level `conductor`: the node contract (`NodeDefinition`, `NodeVersion`, `GraphVersion`, `Policy`, `Deprecation`, `NodeDescription`, `version`, `upgrade`, `deprecated`, `Interface`, `FromRun`, `Input`, `Output`, `AnyWidget`, `SKIPPED`, `Asks`, `is_skipped`, `is_asking`), the type vocabulary (`DType`, `DTypeRef`, `Single`, `dtype_of`, `Series`, `Index`, `Ref`, `Result`), the registry (`NodeRegistry`, `RegistryDescription`, `TypeDescription`), and the graph (`Graph`, `GraphNode`, `FieldContent`, `Binding`, `Edges`, `Static`, `dependencies_of`, `is_input_node`, `CompiledGraph`, `CompiledNode`, `CompiledField`, `Problem`, `Condition`, `Atom`, `ALWAYS`)
-- `conductor.execution.engine` (`execute`, `execute_sync`, `collect`), `conductor.errors` (`ErrorCause` and the error classes), `conductor.model` (`ConductorModel`), `conductor.widgets`, `conductor.metadata`, `conductor.execution.events` (the `*Event` `TypedDict`s), `conductor.registry.discovery` (`discover_nodes`)
+- `conductor.execution.engine` (`execute`, `run`, `run_sync`, also exported at the root), `conductor.errors` (`ErrorCause` and the error classes), `conductor.model` (`ConductorModel`), `conductor.widgets`, `conductor.metadata`, `conductor.execution.events` (the `*Event` `TypedDict`s), `conductor.registry.discovery` (`discover_nodes`)
 - `conductor_nodes` (`registry`, `register_all`, the category modules, `conductor_nodes.types`) and `conductor_providers.react` / `conductor_providers.fastapi`
 
 **Compatibility guarantees from `1.0.0`.**

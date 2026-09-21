@@ -22,10 +22,11 @@ positional and nothing is auto-named: an output's name is what other nodes
 edge to, so it is always a name the author chose. A ``run`` that returns
 the wrong shape raises at the point of disagreement.
 
-``Result`` is what the author writes — title, description and, for one of
-several exclusive branches, its ``choice`` group. ``Output`` is the record
-the node ends up with. A return may be ``Any`` in place of a ``DType``
-when the node passes a value through without reading it.
+``Result`` (in ``conductor.metadata``, beside its twin ``Param``) is what
+the author writes — title, description and, for one of several exclusive
+branches, its ``choice`` group. ``Output`` is the record the node ends up
+with. A return may be ``Any`` in place of a ``DType`` when the node passes
+a value through without reading it.
 
 A ``run`` that may return ``Asks`` — the value a node returns when a
 person must answer before the graph can continue — says so in the same
@@ -38,49 +39,17 @@ return, not a capability: the engine still acts on the value alone.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import fields, is_dataclass
 from types import UnionType
 from typing import Annotated, Any, Union, get_args, get_origin, get_type_hints
 
 from conductor._sentinel import Asks, is_skipped
 from conductor.codec import from_wire
 from conductor.dtype import DType, dtype_of
-from conductor.metadata import Output
+from conductor.metadata import Output, Param, Result
 from conductor.series import Series
 
 RESULT_KEY = "result"
-
-
-@dataclass(frozen=True)
-class Result:
-    """What the author says about an output: its title, description and ``choice``.
-
-    Written inside ``Annotated[...]`` on ``run``'s return type or on a field
-    of the returned record. ``choice`` groups outputs that are exclusive
-    alternatives — exactly one of the group is produced per run, as with
-    the two branches of an if/else node::
-
-        if_true: Annotated[Text, Result(title="If true", choice="branches")]
-        if_false: Annotated[Text, Result(title="If false", choice="branches")]
-
-    ``outputs_of`` reads it once and produces an ``Output``; the ``Result``
-    itself is not kept.
-    """
-
-    title: str
-    description: str | None = None
-    choice: str | None = None
-
-    @classmethod
-    def on(cls, hint: Any) -> Result | None:
-        """The ``Result`` written on ``hint``, or ``None`` if it carries none."""
-        if get_origin(hint) is not Annotated:
-            return None
-        return next((extra for extra in get_args(hint)[1:] if isinstance(extra, cls)), None)
-
-    def output(self, name: str, dtype: Any) -> Output:
-        """The ``Output`` this declares for the field ``name`` of type ``dtype``."""
-        return Output(name=name, dtype=dtype, title=self.title, description=self.description, choice=self.choice)
 
 
 def outputs_of(return_hint: Any) -> tuple[Any, tuple[Output, ...]]:
@@ -101,6 +70,8 @@ def outputs_of(return_hint: Any) -> tuple[Any, tuple[Output, ...]]:
         members = tuple(member for member in get_args(return_hint) if member is not Asks)
         if len(members) == 1 and Asks in get_args(return_hint):
             return outputs_of(members[0])
+    if Param.on(return_hint) is not None:
+        raise TypeError("the return carries a Param; a return carries a Result, and Param belongs on a parameter")
     declared = get_args(return_hint)[0] if get_origin(return_hint) is Annotated else return_hint
     dtype = dtype_of(declared)
     if dtype is not None:
@@ -114,6 +85,8 @@ def outputs_of(return_hint: Any) -> tuple[Any, tuple[Output, ...]]:
         for field in fields(declared):
             hint = hints[field.name]
             field_dtype, result = dtype_of(hint), Result.on(hint)
+            if Param.on(hint) is not None:
+                raise TypeError(f"{declared.__name__}.{field.name} carries a Param; a record's field carries a Result")
             if field_dtype is None or result is None:
                 raise TypeError(
                     f"{declared.__name__}.{field.name} must be Annotated[DType, Result(title=...)] — got {hint!r}"

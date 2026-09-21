@@ -62,8 +62,6 @@ from conductor.errors import (
     CompilationError,
     ErrorCause,
     ExternalFailure,
-    GraphExecutionError,
-    GraphPendingError,
     NodeError,
     NodeExecutionError,
     NodeTimeoutError,
@@ -147,29 +145,37 @@ async def execute(
         await events.aclose()
 
 
-async def collect(events: AsyncGenerator[ExecutionEvent, None]) -> dict[str, dict[str, Any]]:
-    """Drain an event stream and return the results, or raise for the ending that stopped it."""
-    async for event in events:
-        kind = event["type"]
-        if kind == "graph_complete":
-            return event["results"]
-        if kind == "graph_pending":
-            raise GraphPendingError(event["pending"], event["record"])
-        if kind == "graph_error":
-            raise GraphExecutionError(event["error"], node_id=event.get("node_id"), cause=event.get("cause"))
-        if kind in ("graph_cancelled", "graph_timeout"):
-            raise GraphExecutionError(f"The graph was stopped ({kind}).")
-    raise GraphExecutionError("The graph ended without a result.")
+async def run(compiled: CompiledGraph, **kwargs: Any) -> ExecutionEvent:
+    """Run one leg to its end and return the event it ended on.
 
-
-def execute_sync(compiled: CompiledGraph, **kwargs: Any) -> dict[str, dict[str, Any]]:
-    """Run one leg synchronously and return ``{node_id: {output: value}}``.
-
-    A convenience for tests and scripts. A leg that ends pending raises
-    ``GraphPendingError`` with the questions and the record; the caller
-    answers and calls again with ``record`` and ``cache``.
+    ``execute`` with the same arguments, drained: the ending is
+    ``graph_complete`` (``results`` and ``record``), ``graph_pending`` (the
+    questions a person must answer, and the ``record`` the next leg
+    takes), ``graph_error``, ``graph_cancelled`` or ``graph_timeout``. A
+    pause is an ending like any other, not an exception: the caller reads
+    ``type`` and, for a pending leg, calls again with ``record`` and
+    ``cache``. For code with no event loop, ``run_sync``.
     """
-    return asyncio.run(collect(execute(compiled, **kwargs)))
+    ending: ExecutionEvent | None = None
+    async for ending in execute(compiled, **kwargs):
+        pass
+    if ending is None:
+        raise RuntimeError("the leg ended without an event")
+    return ending
+
+
+def run_sync(compiled: CompiledGraph, **kwargs: Any) -> ExecutionEvent:
+    """``run`` for a script or a test: the same call under ``asyncio.run``.
+
+    Inside a running event loop — a notebook, a server — it refuses,
+    since ``asyncio.run`` cannot nest: ``await conductor.run(...)`` is the
+    call there.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(run(compiled, **kwargs))
+    raise RuntimeError("a loop is running; use await conductor.run(...)")
 
 
 # -- the leg ---------------------------------------------------------------------
@@ -454,8 +460,10 @@ class _Leg:
 
         if is_asking(value):
             # A person must answer. The unit waits; the rest of the leg runs
-            # on and the leg ends pending once quiet.
-            ledger.pend(unit, value.questions, value.prompt)
+            # on and the leg ends pending once quiet. A node with no
+            # questions of its own asks for its declared outputs.
+            questions = value.questions or tuple(out.question() for out in compiled.node(node_id).interface.outputs)
+            ledger.pend(unit, questions, value.prompt)
             await queue.put(_UnitDone(unit))
             return
         try:

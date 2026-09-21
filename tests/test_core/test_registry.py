@@ -10,9 +10,9 @@ from typing import Annotated, Any
 
 import pytest
 from conductor.dtype import DType
+from conductor.metadata import Param, Result
 from conductor.node import NodeDefinition, version
 from conductor.registry import NodeRegistry
-from conductor.returns import Result
 from conductor.widgets import Textarea
 
 
@@ -31,14 +31,14 @@ class Echo(NodeDefinition):
     category = "test"
 
     @version(1)
-    def run_v1(self, text: Annotated[Txt, Textarea(title="Input")]) -> Out:
+    def run_v1(self, text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
         return text
 
     @version(2)
     def run(
         self,
-        text: Annotated[Txt, Textarea(title="Input")],
-        prefix: Annotated[Txt, Textarea(title="Prefix")] = Txt(""),
+        text: Annotated[Txt, Param(title="Input", widget=Textarea())],
+        prefix: Annotated[Txt, Param(title="Prefix", widget=Textarea())] = Txt(""),
     ) -> Out:
         return Txt(f"{prefix}{text}")
 
@@ -49,7 +49,7 @@ class Upper(NodeDefinition):
     description = "Uppercases text"
     category = "test"
 
-    def run(self, text: Annotated[Txt, Textarea(title="Input")]) -> Out:
+    def run(self, text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
         return Txt(text.upper())
 
 
@@ -75,7 +75,7 @@ def test_a_second_class_under_the_same_id_is_refused(registry):
         description = "First"
         category = "test"
 
-        def run(self, x: Annotated[Txt, Textarea(title="X")]) -> Out:
+        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())]) -> Out:
             return x
 
     class Second(NodeDefinition):
@@ -84,7 +84,7 @@ def test_a_second_class_under_the_same_id_is_refused(registry):
         description = "Second"
         category = "test"
 
-        def run(self, x: Annotated[Txt, Textarea(title="X")]) -> Out:
+        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())]) -> Out:
             return x
 
     registry.register(First)
@@ -132,15 +132,15 @@ def test_var_keyword_is_not_an_input():
         description = "Dynamic"
         category = "test"
 
-        def run(self, text: Annotated[Txt, Textarea(title="Text")], **values: Any) -> Out:
+        def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())], **values: Any) -> Out:
             return text
 
     assert [i.name for i in VarKw.versions[1].interface.inputs] == ["text"]
 
 
 def test_var_positional_is_refused():
-    """A ``*args`` parameter has no widget and no name an edge could land on."""
-    with pytest.raises(TypeError, match="declares no widget"):
+    """A ``*args`` parameter has no name an edge could land on."""
+    with pytest.raises(TypeError, match=r"\*args names none"):
 
         class VarPos(NodeDefinition):
             id = "varpos"
@@ -148,7 +148,7 @@ def test_var_positional_is_refused():
             description = "Dynamic"
             category = "test"
 
-            def run(self, text: Annotated[Txt, Textarea(title="Text")], *args: Any) -> Out:
+            def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())], *args: Any) -> Out:
                 return text
 
 
@@ -172,7 +172,7 @@ def _node(node_id):
         description = "d"
         category = "test"
 
-        def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Annotated[Txt, Result(title="R")]:
+        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="R")]:
             return x
 
     return Made
@@ -215,7 +215,7 @@ def test_a_loaded_definition_need_not_number_from_one():
         category = "test"
 
         @version(3)
-        def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Annotated[Txt, Result(title="R")]:
+        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="R")]:
             return x
 
     extended = NodeRegistry().extended_with({"loaded-3": Loaded})

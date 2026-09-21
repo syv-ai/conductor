@@ -15,8 +15,6 @@ belonged to which failure.
     │   ├── NodeValidationError     its inputs were wrong
     │   ├── NodeExecutionError      its body raised something that is not a NodeError
     │   └── NodeTimeoutError        the leg stopped waiting for it
-    ├── GraphExecutionError      execute_sync: the graph did not complete
-    └── GraphPendingError        execute_sync: the run stopped to wait for a person; carries the questions and the run record so far
 
 **Two families.** A node's failure is internal — a bug, bad data, a
 refused schema — unless the outside world caused it: a network error, a
@@ -36,9 +34,9 @@ log and never in a cause, because a host streams causes to a browser.
 A pause is not an error and nothing raises for one: a node returns
 ``Asks`` (the value that says a person must answer before the graph can
 continue) and the leg ends pending — a leg being one call of ``execute``;
-a run takes several when a person must answer in between.
-``GraphPendingError`` exists only so the synchronous wrapper has a way to
-hand that back.
+a run takes several when a person must answer in between. Nor is a leg
+that ends in error an exception: ``run`` returns the ending event, and
+the caller reads its ``type``.
 """
 
 from __future__ import annotations
@@ -52,7 +50,6 @@ from conductor.model import ConductorModel
 from conductor.series import Row
 
 if TYPE_CHECKING:
-    from conductor.execution.record import RunRecord
     from conductor.graph.problem import Problem
 
 
@@ -189,27 +186,3 @@ class NodeTimeoutError(NodeError):
     interrupted. Neither family's: the outside world may or may not be the
     reason, and the engine cannot tell.
     """
-
-
-class GraphExecutionError(ConductorError):
-    """``execute_sync``: the graph did not complete."""
-
-    def __init__(self, message: str, *, node_id: str | None = None, cause: ErrorCause | None = None) -> None:
-        self.node_id = node_id
-        self.cause = cause
-        super().__init__(message)
-
-
-class GraphPendingError(ConductorError):
-    """Raised by ``execute_sync`` when the leg ended waiting on a person.
-
-    Carries the questions of every node — or every row of a node that
-    runs per row — that is waiting (``pending``), and the record of
-    everything the run has produced so far (``record``); the caller answers
-    and calls again with both.
-    """
-
-    def __init__(self, pending: list[dict[str, Any]], record: RunRecord) -> None:
-        self.pending = pending
-        self.record = record
-        super().__init__("The graph is waiting for an answer.")

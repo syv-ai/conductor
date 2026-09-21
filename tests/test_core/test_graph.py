@@ -8,9 +8,9 @@ from conductor.graph.binding import Edges, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.graph.topology import order_of
+from conductor.metadata import Param, Result
 from conductor.node import NodeDefinition
 from conductor.ref import Ref
-from conductor.returns import Result
 from conductor.widgets import Textarea
 from pydantic import ValidationError
 
@@ -29,7 +29,7 @@ class Echo(NodeDefinition):
     description = "Echo"
     category = "test"
 
-    def run(self, text: Annotated[Txt, Textarea(title="In")]) -> Out:
+    def run(self, text: Annotated[Txt, Param(title="In", widget=Textarea())]) -> Out:
         return text
 
 

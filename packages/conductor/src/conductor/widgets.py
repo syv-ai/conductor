@@ -4,26 +4,25 @@ A widget is the control an input is edited with, plus what that control
 needs: a dropdown's choices, a number's range. Every widget is a frozen,
 keyword-only record with a ``kind`` discriminator, and ``AnyWidget`` is the
 union of all of them, so pydantic dumps a widget and publishes a JSON
-schema per kind. An author writes one inside ``Annotated`` on a ``run``
-parameter::
+schema per kind. An author writes one on the ``Param`` inside
+``Annotated`` on a ``run`` parameter::
 
-    language: Annotated[Text, Dropdown(title="Language", choices=(Choice(id="en", title="English"),))]
+    language: Annotated[Text, Param(title="Language", widget=Dropdown(choices=(Choice(id="en", title="English"),)))]
 
-Three things written on the widget belong to the field, not the control:
-``title``, ``description`` and ``show_handle``. They sit on the widget
-because a parameter has one annotation object; ``Interface.of`` copies
-them onto the ``Input`` and they are left out of the widget's own dump, so
-each travels once. Nothing downstream reads ``widget.title``, and a dumped
-widget is not read back into one.
+A widget is the control and nothing more. What a person reads about the
+input — its title and description — and whether an edge can reach it are
+the ``Param``'s, not the widget's, so each fact is written once and a
+dumped widget reads back into one. An input with no widget is filled by an
+edge only: ``Param(title=...)`` alone declares it. Nor does a widget
+change how the engine runs: a pause is a node that returns ``Asks``, not a
+widget kind.
 
-A widget does not decide whether an edge can reach the input:
-``show_handle`` defaults to ``True`` on the base and no control overrides
-it. A node closes one input by writing ``show_handle=False`` on that
-input's annotation. Nor does a widget change how the engine runs: a pause
-is a node that returns ``Asks``, not a widget kind.
-
-Conductor ships no default widget for any type: ``Text`` may be a
+Conductor ships no default widget for any type: a text may be a
 textarea, a single line or a dropdown, so every input declares its own.
+The three controls whose plain names collide with a host's types are
+named for what they are — ``TextWidget``, ``NumberWidget``,
+``ListWidget`` — so ``from conductor.widgets import TextWidget`` sits
+beside a host's ``Text`` without an alias.
 """
 
 from __future__ import annotations
@@ -35,23 +34,14 @@ from pydantic import ConfigDict, Discriminator, Field
 
 from conductor.model import ConductorModel
 
-#: Marks the three fields that belong to the ``Input``, not the control.
-#: ``Interface.of`` copies them onto the ``Input``; they are left out of
-#: the widget's own dump.
-_Lifted = Field(exclude=True)
-
 
 class Widget(ConductorModel, ABC):
-    """What every control has in common: a title, a description, and whether an edge can reach the field.
+    """The base of every control: a ``kind`` and what that control needs.
 
     Never subclassed outside this module: ``AnyWidget`` is built from the
     subclasses declared here, and a control the host's frontend cannot
     render is not a control.
     """
-
-    title: Annotated[str, _Lifted]
-    description: Annotated[str | None, _Lifted] = None
-    show_handle: Annotated[bool, _Lifted] = True
 
 
 class Choice(ConductorModel):
@@ -85,7 +75,7 @@ class OperatorChoice(ConductorModel):
     arity: int
 
 
-class Text(Widget):
+class TextWidget(Widget):
     """Single-line text."""
 
     kind: Literal["text"] = "text"
@@ -128,17 +118,7 @@ class FileUpload(Widget):
     multiple: bool = False
 
 
-class ConnectionList(Widget):
-    """Edited by connecting only: the value comes down an edge, so there is nothing to type.
-
-    The control for a ``Series[X]`` input, an ``Any`` input and each
-    connected name of an open interface.
-    """
-
-    kind: Literal["connection-list"] = "connection-list"
-
-
-class Number(Widget):
+class NumberWidget(Widget):
     """A number typed in, optionally bounded and optionally whole."""
 
     kind: Literal["number"] = "number"
@@ -166,7 +146,7 @@ class DatePicker(Widget):
     seed: Literal["today"] | None = None
 
 
-class List(Widget):
+class ListWidget(Widget):
     """A list of values typed by hand. The per-item control is derived by
     the host from the element type, so none is declared here."""
 

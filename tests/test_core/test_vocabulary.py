@@ -17,7 +17,7 @@ import re
 from typing import Annotated, Any
 
 import pytest
-from conductor import NodeDefinition, NodeRegistry, Result
+from conductor import NodeDefinition, NodeRegistry, Param, Result
 from conductor.dtype import DType
 from conductor.registry import RegistryDescription, TypeDescription
 from conductor.series import Series
@@ -62,10 +62,10 @@ class Shout(NodeDefinition):
 
     def run(
         self,
-        text: Annotated[Text, Textarea(title="Text")],
-        weights: Annotated[Series[Number], Textarea(title="Weights")],
-        anything: Annotated[Any, Textarea(title="Anything")],
-        tags: Annotated[list[str], Textarea(title="Tags", show_handle=False)] = [],
+        text: Annotated[Text, Param(title="Text", widget=Textarea())],
+        weights: Annotated[Series[Number], Param(title="Weights", widget=Textarea())],
+        anything: Annotated[Any, Param(title="Anything", widget=Textarea())],
+        tags: Annotated[list[str], Param(title="Tags", show_handle=False, widget=Textarea())] = [],
     ) -> Annotated[Text, Result(title="Loud")]:
         return Text(text.upper())
 
@@ -136,7 +136,7 @@ def test_two_classes_with_one_id_in_one_call_are_refused_together():
         description = "Returns its input"
         category = "test"
 
-        def run(self, text: Annotated[Text, Textarea(title="Text")]) -> Annotated[AnotherText, Result(title="Same")]:
+        def run(self, text: Annotated[Text, Param(title="Text", widget=Textarea())]) -> Annotated[AnotherText, Result(title="Same")]:
             return AnotherText(text)
 
     with pytest.raises(ValueError, match="'text'"):
@@ -159,7 +159,7 @@ def test_a_collision_through_register_names_both_classes_and_files_nothing():
         description = "Lowercases"
         category = "test"
 
-        def run(self, text: Annotated[AnotherText, Textarea(title="Text")]) -> Annotated[AnotherText, Result(title="Quiet")]:
+        def run(self, text: Annotated[AnotherText, Param(title="Text", widget=Textarea())]) -> Annotated[AnotherText, Result(title="Quiet")]:
             return AnotherText(text.lower())
 
     registry = NodeRegistry()

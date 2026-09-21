@@ -21,14 +21,14 @@ import time
 from typing import Annotated
 
 import pytest
-from conductor import CompiledGraph, GraphNode, NodeRegistry
+from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, run_sync
 from conductor.errors import ExternalFailure
-from conductor.execution.engine import execute, execute_sync
+from conductor.execution.engine import execute
 from conductor.graph.binding import Edges, Static
 from conductor.graph.model import Graph
+from conductor.metadata import Result
 from conductor.node import NodeDefinition, Policy, version
 from conductor.ref import Ref
-from conductor.returns import Result
 from conductor.widgets import Textarea
 from conductor_nodes.types import Text
 
@@ -41,7 +41,7 @@ class Upper(NodeDefinition):
     description = "Uppercases its input"
     category = "test"
 
-    def run(self, text: Annotated[Text, Textarea(title="Input")] = Text("")) -> Out:
+    def run(self, text: Annotated[Text, Param(title="Input", widget=Textarea())] = Text("")) -> Out:
         return Text(text.upper())
 
 
@@ -79,7 +79,7 @@ def test_500_node_linear_chain_compile_and_execute() -> None:
     )
 
     t0 = time.monotonic()
-    results = execute_sync(compiled, timeout=120)
+    results = run_sync(compiled, timeout=120)["results"]
     elapsed = time.monotonic() - t0
     assert elapsed < 60.0, (
         f"execution took {elapsed:.2f}s; expected <60s"
@@ -110,7 +110,7 @@ async def test_cancellation_honored_during_retry_sleep() -> None:
         category = "test"
 
         @version(1, policy=Policy(retries=5, delay=2.0))
-        def run(self, text: Annotated[Text, Textarea(title="In")] = Text("")) -> Out:
+        def run(self, text: Annotated[Text, Param(title="In", widget=Textarea())] = Text("")) -> Out:
             nonlocal call_count
             call_count += 1
             raise ExternalFailure(

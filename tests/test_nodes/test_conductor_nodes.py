@@ -1,4 +1,4 @@
-"""The standard node library, node by node, through ``compile`` + ``execute_sync``.
+"""The standard node library, node by node, through ``compile`` + ``run_sync``.
 
 Each node is placed in a graph and run, so registration, the declared
 interface and the behaviour of ``run`` are checked together. Results come
@@ -11,10 +11,8 @@ from __future__ import annotations
 
 import conductor_nodes
 import pytest
-from conductor import CompiledGraph, GraphNode, NodeRegistry
+from conductor import CompiledGraph, GraphNode, NodeRegistry, run_sync
 from conductor._sentinel import SKIPPED
-from conductor.errors import GraphExecutionError
-from conductor.execution.engine import execute_sync
 from conductor.graph.binding import Edges, Static
 from conductor.graph.model import Graph
 from conductor.ref import Ref
@@ -29,9 +27,13 @@ def full_registry() -> NodeRegistry:
     return reg
 
 
-def _run(reg: NodeRegistry, nodes):
+def _ending(reg: NodeRegistry, nodes):
     compiled = CompiledGraph.from_graph(Graph(nodes=nodes), reg)
-    return execute_sync(compiled)
+    return run_sync(compiled)
+
+
+def _run(reg: NodeRegistry, nodes):
+    return _ending(reg, nodes)["results"]
 
 
 class TestPackageSurface:
@@ -179,11 +181,11 @@ class TestMath:
         assert r["n"]["result"] == 2.5
 
     def test_divide_by_zero_raises(self, full_registry):
-        with pytest.raises(GraphExecutionError):
-            _run(
-                full_registry,
-                [GraphNode(id="n", type="math-divide", version=1, bindings={"a": Static(value=1), "b": Static(value=0)})],
-            )
+        ending = _ending(
+            full_registry,
+            [GraphNode(id="n", type="math-divide", version=1, bindings={"a": Static(value=1), "b": Static(value=0)})],
+        )
+        assert ending["type"] == "graph_error"
 
     def test_modulo(self, full_registry):
         r = _run(

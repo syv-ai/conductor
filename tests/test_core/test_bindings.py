@@ -5,20 +5,18 @@ from dataclasses import dataclass
 from typing import Annotated
 
 import pytest
-from conductor import NodeRegistry
+from conductor import NodeRegistry, run_sync
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
-from conductor.execution.engine import execute_sync
 from conductor.graph.binding import Edges, Static, static_values
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.topology import dependencies_of
 from conductor.graph.views import derive_interface, is_input_node, lock_problems
 from conductor.interface import FromRun, Interface
-from conductor.metadata import Output
+from conductor.metadata import Output, Param, Result
 from conductor.node import NodeDefinition
 from conductor.ref import Ref
-from conductor.returns import Result
 from conductor.widgets import Textarea
 from pydantic import TypeAdapter
 
@@ -197,7 +195,7 @@ class TextInput(NodeDefinition):
     category = "test"
 
     def run(
-        self, value: Annotated[Txt, Textarea(title="Text")] = Txt("")
+        self, value: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")
     ) -> Annotated[Txt, Result(title="Text")]:
         return value
 
@@ -209,7 +207,7 @@ class Summarise(NodeDefinition):
     category = "test"
 
     def run(
-        self, text: Annotated[Txt, Textarea(title="Text")] = Txt("")
+        self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")
     ) -> Annotated[Txt, Result(title="Result")]:
         return text
 
@@ -225,7 +223,7 @@ class Stamped(NodeDefinition):
     def run(
         self,
         clock: Annotated[Clock, FromRun()],
-        text: Annotated[Txt, Textarea(title="Text")] = Txt(""),
+        text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt(""),
     ) -> Annotated[Txt, Result(title="Result")]:
         return text
 
@@ -403,7 +401,7 @@ def test_a_field_with_no_handle_is_never_an_input():
         category = "test"
 
         def run(
-            self, code: Annotated[Txt, Textarea(title="Kode", show_handle=False)] = Txt("")
+            self, code: Annotated[Txt, Param(title="Kode", show_handle=False, widget=Textarea())] = Txt("")
         ) -> Annotated[Txt, Result(title="Result")]:
             return code
 
@@ -499,7 +497,7 @@ def _echo_registry():
         description = "d"
         category = "test"
 
-        def run(self, x: Annotated[Txt, Textarea(title="X")] = Txt("")) -> Annotated[Txt, Result(title="Result")]:
+        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="Result")]:
             return Txt(x.upper())
 
     registry = NodeRegistry()
@@ -514,7 +512,7 @@ def test_a_graph_of_bindings_compiles_and_runs():
             GraphNode(id="b", type="echo", version=1, bindings={"x": Edges(refs=(Ref("a", "result"),))}),
         ],
     )
-    results = execute_sync(CompiledGraph.from_graph(graph=graph, registry=_echo_registry()))
+    results = run_sync(CompiledGraph.from_graph(graph=graph, registry=_echo_registry()))["results"]
 
     assert results["a"]["result"] == "HI"
     assert results["b"]["result"] == "HI"
@@ -524,7 +522,7 @@ def test_an_unbound_input_falls_back_to_its_declared_default():
     """Absence is the only "nothing binds this" state there is."""
     graph = Graph(nodes=[GraphNode(id="a", type="echo", version=1)])
 
-    assert execute_sync(CompiledGraph.from_graph(graph=graph, registry=_echo_registry()))["a"]["result"] == ""
+    assert run_sync(CompiledGraph.from_graph(graph=graph, registry=_echo_registry()))["results"]["a"]["result"] == ""
 
 
 def test_a_branch_not_taken_is_skipped_downstream():
@@ -542,7 +540,7 @@ def test_a_branch_not_taken_is_skipped_downstream():
         category = "test"
 
         def run(
-            self, x: Annotated[Txt, Textarea(title="X")] = Txt("")
+            self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")
         ) -> Answer:
             return Answer(yes=x, no=SKIPPED) if x else Answer(yes=SKIPPED, no=x)
 
@@ -555,10 +553,10 @@ def test_a_branch_not_taken_is_skipped_downstream():
             GraphNode(id="no", type="echo", version=1, bindings={"x": Edges(refs=(Ref("g", "no"),))}),
         ],
     )
-    results = execute_sync(CompiledGraph.from_graph(graph=graph, registry=registry))
+    results = run_sync(CompiledGraph.from_graph(graph=graph, registry=registry))["results"]
 
     assert results["yes"]["result"] == "HI"
-    # The aggregated results of ``execute_sync`` omit a skipped node.
+    # The results a leg ends with omit a skipped node.
     assert "no" not in results
 
 

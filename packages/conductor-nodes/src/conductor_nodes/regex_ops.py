@@ -5,10 +5,9 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Annotated
 
-from conductor.returns import Result
+from conductor.metadata import Param, Result
 from conductor.series import Series
-from conductor.widgets import Switch, Textarea
-from conductor.widgets import Text as TextWidget
+from conductor.widgets import Switch, Textarea, TextWidget
 
 from conductor_nodes.types import Flag, StdlibNode, Text
 
@@ -24,9 +23,9 @@ class Match(StdlibNode):
 
     def run(
         self,
-        text: Annotated[Text, Textarea(title="Text")],
-        pattern: Annotated[Text, TextWidget(title="Pattern")],
-        ignore_case: Annotated[Flag, Switch(title="Ignore case")] = Flag(False),
+        text: Annotated[Text, Param(title="Text", widget=Textarea())],
+        pattern: Annotated[Text, Param(title="Pattern", widget=TextWidget())],
+        ignore_case: Annotated[Flag, Param(title="Ignore case", widget=Switch())] = Flag(False),
     ) -> Annotated[Flag, Result(title="Matched")]:
         flags = re.IGNORECASE if ignore_case else 0
         return Flag(re.search(pattern, text, flags=flags) is not None)
@@ -40,10 +39,10 @@ class ReplaceAll(StdlibNode):
 
     def run(
         self,
-        text: Annotated[Text, Textarea(title="Text")],
-        pattern: Annotated[Text, TextWidget(title="Pattern")],
-        replacement: Annotated[Text, TextWidget(title="Replace with")] = Text(""),
-        ignore_case: Annotated[Flag, Switch(title="Ignore case")] = Flag(False),
+        text: Annotated[Text, Param(title="Text", widget=Textarea())],
+        pattern: Annotated[Text, Param(title="Pattern", widget=TextWidget())],
+        replacement: Annotated[Text, Param(title="Replace with", widget=TextWidget())] = Text(""),
+        ignore_case: Annotated[Flag, Param(title="Ignore case", widget=Switch())] = Flag(False),
     ) -> Annotated[Text, Result(title="Result")]:
         flags = re.IGNORECASE if ignore_case else 0
         return Text(re.sub(pattern, replacement, text, flags=flags))
@@ -57,9 +56,9 @@ class Extract(StdlibNode):
 
     def run(
         self,
-        text: Annotated[Text, Textarea(title="Text")],
-        pattern: Annotated[Text, TextWidget(title="Pattern")],
-        ignore_case: Annotated[Flag, Switch(title="Ignore case")] = Flag(False),
+        text: Annotated[Text, Param(title="Text", widget=Textarea())],
+        pattern: Annotated[Text, Param(title="Pattern", widget=TextWidget())],
+        ignore_case: Annotated[Flag, Param(title="Ignore case", widget=Switch())] = Flag(False),
     ) -> Annotated[Series[Text], Result(title="Matches")]:
         flags = re.IGNORECASE if ignore_case else 0
         compiled = re.compile(pattern, flags=flags)

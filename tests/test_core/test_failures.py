@@ -13,23 +13,22 @@ import json
 from typing import Annotated
 
 import pytest
-from conductor import CompiledGraph, GraphNode, NodeRegistry
+from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, run_sync
 from conductor.dtype import DType
 from conductor.errors import (
     MESSAGES,
     ErrorCause,
     ExternalFailure,
-    GraphExecutionError,
     NodeError,
     NodeExecutionError,
     NodeValidationError,
 )
-from conductor.execution.engine import _Leg, execute, execute_sync
+from conductor.execution.engine import _Leg, execute
 from conductor.graph.binding import Edges, Static
 from conductor.graph.model import Graph
+from conductor.metadata import Result
 from conductor.node import NodeDefinition, Policy, version
 from conductor.ref import Ref
-from conductor.returns import Result
 from conductor.series import Series
 from conductor.widgets import Textarea
 
@@ -39,7 +38,7 @@ class Txt(DType, str):
     title = "Text"
 
 
-In = Annotated[Txt, Textarea(title="In")]
+In = Annotated[Txt, Param(title="In", widget=Textarea())]
 Out = Annotated[Txt, Result(title="Out")]
 
 
@@ -142,8 +141,7 @@ def test_an_exhausted_external_failure_is_external_failed():
     assert error["cause"].code == "external_failed"
     assert error["cause"].message == "An outside service did not answer."
     assert "socket" not in error["error"]
-    with pytest.raises(GraphExecutionError):
-        execute_sync(compiled)
+    assert run_sync(compiled)["type"] == "graph_error"
 
 
 def test_an_external_failure_the_node_raised_retries_and_keeps_its_message():
@@ -224,8 +222,7 @@ def test_a_validation_error_the_node_raised_is_never_retried():
             calls.append(1)
             raise NodeValidationError("intentionally invalid input")
 
-    with pytest.raises(GraphExecutionError):
-        execute_sync(_compiled(Picky))
+    assert run_sync(_compiled(Picky))["type"] == "graph_error"
 
     assert len(calls) == 1
 
@@ -332,7 +329,7 @@ def test_a_failed_row_is_retried_alone():
         reg,
     )
 
-    results = execute_sync(compiled)
+    results = run_sync(compiled)["results"]
 
     assert list(results["rows"]["result"]) == ["A", "B", "C"]
     assert sorted(calls) == ["a", "b", "b", "c"]
@@ -370,7 +367,7 @@ def test_a_flaky_node_in_one_branch_retries_while_the_other_branch_completes():
         description = "d"
         category = "test"
 
-        def run(self, a: Annotated[Txt, Textarea(title="A")] = Txt(""), b: Annotated[Txt, Textarea(title="B")] = Txt("")) -> Out:
+        def run(self, a: Annotated[Txt, Param(title="A", widget=Textarea())] = Txt(""), b: Annotated[Txt, Param(title="B", widget=Textarea())] = Txt("")) -> Out:
             return Txt(f"{a}+{b}")
 
     reg = NodeRegistry()
@@ -385,7 +382,7 @@ def test_a_flaky_node_in_one_branch_retries_while_the_other_branch_completes():
         reg,
     )
 
-    results = execute_sync(compiled)
+    results = run_sync(compiled)["results"]
 
     assert results["n3"]["result"] == "A:x+B:y"
     assert calls == {"a": 2, "b": 1}

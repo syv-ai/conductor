@@ -9,7 +9,7 @@ Every value on an edge has a `DType`: a real class, usually on a builtin, regist
 ```python
 from typing import Annotated, Any
 
-from conductor import DType
+from conductor import Asks, deprecated, DType, FromRun, Input, NodeDefinition, Output, Param, Policy, Result, Series, Single, SKIPPED, upgrade, version
 
 
 class Text(DType, str):
@@ -38,8 +38,7 @@ One output is `Annotated[X, Result(title=...)]`, named `result`. Several outputs
 ```python
 from dataclasses import dataclass
 
-from conductor import NodeDefinition, Result
-from conductor.widgets import Text as TextWidget, Textarea
+from conductor.widgets import TextWidget, Textarea
 
 
 @dataclass(frozen=True)
@@ -56,8 +55,8 @@ class Split(NodeDefinition):
 
     def run(
         self,
-        text: Annotated[Text, Textarea(title="Text")],
-        separator: Annotated[Text, TextWidget(title="Separator")] = Text(","),
+        text: Annotated[Text, Param(title="Text", widget=Textarea())],
+        separator: Annotated[Text, Param(title="Separator", widget=TextWidget())] = Text(","),
     ) -> Parts:
         head, _, tail = text.partition(separator)
         return Parts(head=Text(head), tail=Text(tail))
@@ -70,8 +69,6 @@ A pydantic model returned from `run` is one value, not one output per field.
 `Series[X]` is the one collection. A parameter declared `Series[X]` receives the whole series in one call (a reduction); an output declared `Series[X]` is returned as a plain list, and each item becomes a row.
 
 ```python
-from conductor import Series
-from conductor.widgets import ConnectionList
 
 
 class Words(NodeDefinition):
@@ -80,7 +77,7 @@ class Words(NodeDefinition):
     description = "One row per word."
     category = "text"
 
-    def run(self, text: Annotated[Text, Textarea(title="Text")]) -> Annotated[Series[Text], Result(title="Words")]:
+    def run(self, text: Annotated[Text, Param(title="Text", widget=Textarea())]) -> Annotated[Series[Text], Result(title="Words")]:
         return [Text(word) for word in text.split()]
 
 
@@ -90,7 +87,7 @@ class Count(NodeDefinition):
     description = "How many values arrived."
     category = "text"
 
-    def run(self, values: Annotated[Series[Text], ConnectionList(title="Values")]) -> Annotated[Number, Result(title="Count")]:
+    def run(self, values: Annotated[Series[Text], Param(title="Values")]) -> Annotated[Number, Result(title="Count")]:
         return Number(len(values))
 ```
 
@@ -101,7 +98,6 @@ A node written for one value never loops: feed it a series and the engine runs i
 A node that takes one of two branches returns `SKIPPED` on the other; what reads that output does not run. Outputs that are exclusive alternatives share a `choice`:
 
 ```python
-from conductor import SKIPPED
 from conductor.widgets import Switch
 
 
@@ -117,7 +113,7 @@ class Route(NodeDefinition):
     description = "Sends the text one way or the other."
     category = "logic"
 
-    def run(self, text: Annotated[Text, Textarea(title="Text")], go: Annotated[Flag, Switch(title="Yes?")]) -> Branches:
+    def run(self, text: Annotated[Text, Param(title="Text", widget=Textarea())], go: Annotated[Flag, Param(title="Yes?", widget=Switch())]) -> Branches:
         return Branches(yes=text, no=SKIPPED) if go else Branches(yes=SKIPPED, no=text)
 ```
 
@@ -128,7 +124,6 @@ The standard library's `decision`, `logic-if-empty` and `logic-if-equals` often 
 A node that needs a person returns `Asks` in place of a result, and says so in its return annotation. Each question is an `Input` named after the output it fills:
 
 ```python
-from conductor import Asks, Input
 
 
 class Approve(NodeDefinition):
@@ -137,9 +132,9 @@ class Approve(NodeDefinition):
     description = "Asks a person to approve or rewrite the proposal."
     category = "review"
 
-    def run(self, proposal: Annotated[Text, Textarea(title="Proposal")]) -> Annotated[Text, Result(title="Decision")] | Asks:
+    def run(self, proposal: Annotated[Text, Param(title="Proposal", widget=Textarea())]) -> Annotated[Text, Result(title="Decision")] | Asks:
         return Asks(
-            questions=(Input(name="result", dtype=Text, title="Decision", widget=Textarea(title="Decision"), default=proposal),),
+            questions=(Input(name="result", dtype=Text, title="Decision", widget=Textarea(), default=proposal),),
             prompt="Approve or rewrite the proposal.",
         )
 ```
@@ -151,7 +146,6 @@ The answer arrives on the next leg as this node's output, and `run` is not calle
 What only the caller of `execute` has — a clock, a client, who is running the graph — is not an input. Mark the parameter `FromRun()`; the host hands the value in by type:
 
 ```python
-from conductor import FromRun
 
 
 class Caller:
@@ -165,7 +159,7 @@ class Signed(NodeDefinition):
     description = "Signs a text with the caller's name."
     category = "text"
 
-    def run(self, text: Annotated[Text, Textarea(title="Text")], who: Annotated[Caller, FromRun()]) -> Annotated[Text, Result(title="Signed")]:
+    def run(self, text: Annotated[Text, Param(title="Text", widget=Textarea())], who: Annotated[Caller, FromRun()]) -> Annotated[Text, Result(title="Signed")]:
         return Text(f"{text} — {who.name}")
 ```
 
@@ -176,7 +170,6 @@ class Signed(NodeDefinition):
 An undecorated `run` is version 1. Once there is a second, every version is marked `@version(n)`, `run` included; the current one is the highest number. Retries, delay, timeout and concurrency belong to the version's `Policy`:
 
 ```python
-from conductor import Policy, deprecated, upgrade, version
 from conductor.errors import ExternalFailure
 
 
@@ -188,11 +181,11 @@ class Fetch(NodeDefinition):
 
     @version(1)
     @deprecated(header="Use version 2", migration="`url` is now `address`.")
-    def run_v1(self, url: Annotated[Text, TextWidget(title="URL")]) -> Annotated[Text, Result(title="Body")]:
+    def run_v1(self, url: Annotated[Text, Param(title="URL", widget=TextWidget())]) -> Annotated[Text, Result(title="Body")]:
         return self.run(address=url)
 
     @version(2, policy=Policy(retries=3, delay=0.5, timeout=10.0, concurrency=4))
-    def run(self, address: Annotated[Text, TextWidget(title="Address")]) -> Annotated[Text, Result(title="Body")]:
+    def run(self, address: Annotated[Text, Param(title="Address", widget=TextWidget())]) -> Annotated[Text, Result(title="Body")]:
         try:
             return Text(f"<html>{address}</html>")
         except TimeoutError as e:
@@ -215,7 +208,6 @@ When what one placed node has depends on how the author configured it, override 
 ```python
 from collections.abc import Mapping
 
-from conductor import Output
 from conductor.node import Refuses
 
 
@@ -225,7 +217,7 @@ class Columns(NodeDefinition):
     description = "One output per column name typed in."
     category = "table"
 
-    def run(self, names: Annotated[Text, TextWidget(title="Column names")]) -> Mapping[str, Any]:
+    def run(self, names: Annotated[Text, Param(title="Column names", widget=TextWidget())]) -> Mapping[str, Any]:
         return {name: Text(name.upper()) for name in names.split(",")}
 
     def compute_outputs(self, declared, values: Mapping[str, Any], arriving) -> tuple[Output, ...]:
@@ -244,7 +236,6 @@ class Columns(NodeDefinition):
 `**inputs: Single` makes every name connected into the node an input, each received as one value; `**inputs: Series` receives each as a whole series:
 
 ```python
-from conductor import Single
 
 
 class Template(NodeDefinition):
@@ -253,7 +244,7 @@ class Template(NodeDefinition):
     description = "Fills {name} placeholders from whatever is connected."
     category = "text"
 
-    def run(self, template: Annotated[Text, Textarea(title="Template")], **inputs: Single) -> Annotated[Text, Result(title="Text")]:
+    def run(self, template: Annotated[Text, Param(title="Template", widget=Textarea())], **inputs: Single) -> Annotated[Text, Result(title="Text")]:
         return Text(template.format(**inputs))
 ```
 

@@ -20,10 +20,9 @@ from conductor.execution.engine import execute
 from conductor.execution.record import RunRecord
 from conductor.graph.binding import Edges, Static
 from conductor.graph.model import Graph
-from conductor.metadata import Input
+from conductor.metadata import Input, Param, Result
 from conductor.node import NodeDefinition, version
 from conductor.ref import Ref
-from conductor.returns import Result
 from conductor.series import Series
 from conductor.widgets import Textarea
 
@@ -33,7 +32,7 @@ class Txt(DType, str):
     title = "Text"
 
 
-In = Annotated[Txt, Textarea(title="In")]
+In = Annotated[Txt, Param(title="In", widget=Textarea())]
 Out = Annotated[Txt, Result(title="Out")]
 
 calls: list[str] = []
@@ -97,7 +96,7 @@ class Ask(NodeDefinition):
 
     def run(self, text: In = Txt("")) -> Out | Asks:
         calls.append(f"ask:{text}")
-        return Asks(questions=(Input(name="result", dtype=Txt, title="Answer", widget=Textarea(title="Answer"), default=text, optional=True),))
+        return Asks(questions=(Input(name="result", dtype=Txt, title="Answer", widget=Textarea(), default=text, optional=True),))
 
 
 def _registry() -> NodeRegistry:
@@ -425,7 +424,7 @@ def test_a_static_hashes_as_its_type_writes_it_not_as_the_author_spelled_it():
         description = "d"
         category = "test"
 
-        def run(self, n: Annotated[Num, Textarea(title="N")] = Num(0)) -> Annotated[Num, Result(title="Out")]:
+        def run(self, n: Annotated[Num, Param(title="N", widget=Textarea())] = Num(0)) -> Annotated[Num, Result(title="Out")]:
             return Num(n / 2)
 
     def fingerprint(value):

@@ -5,16 +5,15 @@ from dataclasses import dataclass
 from typing import Annotated
 
 import pytest
-from conductor import SKIPPED
+from conductor import SKIPPED, Param, run, run_sync
 from conductor.dtype import DType
-from conductor.errors import GraphExecutionError
-from conductor.execution.engine import collect, execute, execute_sync
+from conductor.execution.engine import execute
 from conductor.graph.binding import Edges, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
+from conductor.metadata import Result
 from conductor.node import NodeDefinition
 from conductor.ref import Ref
-from conductor.returns import Result
 from conductor.widgets import Textarea
 
 
@@ -32,7 +31,7 @@ class Echo(NodeDefinition):
     description = "Returns input"
     category = "test"
 
-    def run(self, text: Annotated[Txt, Textarea(title="Input")]) -> Out:
+    def run(self, text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
         return text
 
 
@@ -42,7 +41,7 @@ class Upper(NodeDefinition):
     description = "Uppercases"
     category = "test"
 
-    def run(self, text: Annotated[Txt, Textarea(title="Input")]) -> Out:
+    def run(self, text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
         return Txt(text.upper())
 
 
@@ -54,8 +53,8 @@ class Combine(NodeDefinition):
 
     def run(
         self,
-        a: Annotated[Txt, Textarea(title="A")],
-        b: Annotated[Txt, Textarea(title="B")],
+        a: Annotated[Txt, Param(title="A", widget=Textarea())],
+        b: Annotated[Txt, Param(title="B", widget=Textarea())],
     ) -> Out:
         return Txt(f"{a} {b}")
 
@@ -66,7 +65,7 @@ class Fail(NodeDefinition):
     description = "Always fails"
     category = "test"
 
-    def run(self, text: Annotated[Txt, Textarea(title="Input")]) -> Out:
+    def run(self, text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
         raise RuntimeError("boom")
 
 
@@ -85,7 +84,7 @@ class Slow(NodeDefinition):
     description = "Sleeps 0.3s, then uppercases"
     category = "test"
 
-    def run(self, text: Annotated[Txt, Textarea(title="Input")]) -> Out:
+    def run(self, text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
         time.sleep(0.3)
         return Txt(text.upper())
 
@@ -111,7 +110,7 @@ class TestStreamingExecution:
         ]), registry)
 
         start = time.monotonic()
-        results = execute_sync(compiled)
+        results = run_sync(compiled)["results"]
         elapsed = time.monotonic() - start
 
         # Sequential would be 5 * 0.3 = 1.5s; eager is A+B, C+D, E = ~0.9s.
@@ -141,7 +140,7 @@ class TestStreamingExecution:
                 GraphNode(id="n2", type="upper", version=1, bindings={"text": Edges(refs=(Ref('n1', 'result'),))}),
             ]), three_node_registry)
 
-        results = await collect(execute(compiled))
+        results = (await run(compiled))["results"]
         assert results["n2"]["result"] == "HELLO"
 
     async def test_diamond_execution(self, three_node_registry):
@@ -156,7 +155,7 @@ class TestStreamingExecution:
                 GraphNode(id="n4", type="combine", version=1, bindings={"a": Edges(refs=(Ref('n2', 'result'),)), "b": Edges(refs=(Ref('n3', 'result'),))}),
             ]), three_node_registry)
 
-        results = await collect(execute(compiled))
+        results = (await run(compiled))["results"]
         assert results["n4"]["result"] == "HELLO hello"
 
 
@@ -165,21 +164,21 @@ class TestStreamingExecution:
 # ---------------------------------------------------------------------------
 
 class TestSyncExecution:
-    def test_execute_sync_linear(self, three_node_registry):
+    def test_run_sync_linear(self, three_node_registry):
         """Blocking API: echo -> upper."""
         compiled = CompiledGraph.from_graph(Graph(nodes=[
                 GraphNode(id="n1", type="echo", version=1, bindings={"text": Static(value="world")}),
                 GraphNode(id="n2", type="upper", version=1, bindings={"text": Edges(refs=(Ref('n1', 'result'),))}),
             ]), three_node_registry)
 
-        results = execute_sync(compiled)
+        results = run_sync(compiled)["results"]
         assert results["n2"]["result"] == "WORLD"
 
     def test_single_node_no_edges(self, three_node_registry):
         """A single node with static data, no edges."""
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="echo", version=1, bindings={"text": Static(value="standalone")})]), three_node_registry)
 
-        results = execute_sync(compiled)
+        results = run_sync(compiled)["results"]
         assert results["n1"]["result"] == "standalone"
 
 
@@ -195,10 +194,10 @@ class TestCaching:
                 GraphNode(id="n2", type="upper", version=1, bindings={"text": Edges(refs=(Ref('n1', 'result'),))}),
             ]), three_node_registry)
 
-        results = await collect(execute(
+        results = (await run(
             compiled,
             cache={"n1": {"result": "cached_value"}},
-        ))
+        ))["results"]
         # n2 should uppercase the cached value, not "hello"
         assert results["n2"]["result"] == "CACHED_VALUE"
 
@@ -220,12 +219,11 @@ class TestErrorHandling:
         assert "node_error" in event_types
         assert "graph_error" in event_types
 
-    def test_execute_sync_raises_on_error(self, registry):
+    def test_run_sync_returns_the_error_ending(self, registry):
         registry.register(Fail)
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="fail", version=1, bindings={"text": Static(value="hello")})]), registry)
 
-        with pytest.raises(GraphExecutionError):
-            execute_sync(compiled)
+        assert run_sync(compiled)["type"] == "graph_error"
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +238,7 @@ class TestTimeout:
             description = "Sleeps"
             category = "test"
 
-            def run(self, text: Annotated[Txt, Textarea(title="Input")]) -> Out:
+            def run(self, text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
                 time.sleep(2)
                 return text
 
@@ -277,7 +275,7 @@ class TestSkipPropagation:
             description = "Returns SKIPPED on one branch"
             category = "test"
 
-            def run(self, text: Annotated[Txt, Textarea(title="Input")]) -> Branches:
+            def run(self, text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Branches:
                 return Branches(taken=text, not_taken=SKIPPED)
 
         registry.register(Echo)
@@ -308,5 +306,5 @@ class TestStrayDataKeyFiltering:
                 GraphNode(id="n1", type="upper", version=1, bindings={"text": Static(value="hi"), "_host_note": Static(value=["x"])}),
             ]), three_node_registry)
 
-        results = execute_sync(compiled)
+        results = run_sync(compiled)["results"]
         assert results["n1"]["result"] == "HI"

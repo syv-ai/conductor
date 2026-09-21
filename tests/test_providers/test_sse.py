@@ -38,7 +38,7 @@ def test_an_ending_dumps_its_results_and_its_record():
 
 
 def test_a_pending_units_questions_and_a_failures_cause_are_records():
-    question = Input(name="ask.result", dtype=Text, title="Svar", widget=Textarea(title="Svar"), default=Text("forslag"), optional=True)
+    question = Input(name="ask.result", dtype=Text, title="Svar", widget=Textarea(), default=Text("forslag"), optional=True)
 
     pending = _payload({"type": "graph_pending", "pending": [{"node_id": "ask", "row": (1,), "prompt": None, "questions": (question,)}], "results": {}, "record": RunRecord()})
     failed = _payload({"type": "node_error", "node_id": "n", "error": "boom", "cause": ErrorCause(code="boom", message="Boom.", row=(2,))})

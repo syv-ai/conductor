@@ -6,15 +6,14 @@ from typing import Annotated
 import pytest
 from conductor.dtype import DType, Single
 from conductor.interface import Interface, model_of
-from conductor.returns import Result
+from conductor.metadata import Param, Result
 from conductor.series import Series
 from conductor.widgets import (
     AnyWidget,
     Choice,
-    ConnectionList,
     DatePicker,
     Dropdown,
-    List,
+    ListWidget,
     SchemaBuilder,
     Textarea,
     Widget,
@@ -30,8 +29,8 @@ class Text(DType, str):
 
 
 def sample(
-    text: Annotated[Text, Textarea(title="Text", description="Free text")],
-    language: Annotated[Text, Dropdown(title="Language", choices=(Choice(id="da", title="Danish"), Choice(id="en", title="English")))] = Text("da"),
+    text: Annotated[Text, Param(title="Text", description="Free text", widget=Textarea())],
+    language: Annotated[Text, Param(title="Language", widget=Dropdown(choices=(Choice(id="da", title="Danish"), Choice(id="en", title="English"))))] = Text("da"),
 ) -> Annotated[Text, Result(title="Result")]:
     return text
 
@@ -90,7 +89,7 @@ def test_an_input_carries_a_dtype_not_a_type_string():
 
 def test_a_series_parameter_carries_its_element_type():
     def collects(
-        sources: Annotated[Series[Text], ConnectionList(title="Edges")],
+        sources: Annotated[Series[Text], Param(title="Edges")],
     ) -> Annotated[Text, Result(title="R")]:
         return Text("")
 
@@ -127,7 +126,7 @@ def test_several_outputs_are_the_fields_of_a_record():
         yes: Annotated[Text, Result(title="Yes")]
         no: Annotated[Text, Result(title="No")]
 
-    def branches(value: Annotated[Text, Textarea(title="V")]) -> Answer:
+    def branches(value: Annotated[Text, Param(title="V", widget=Textarea())]) -> Answer:
         return Answer(yes=value, no=value)
 
     outputs = Interface.of(branches).outputs
@@ -140,7 +139,7 @@ def test_a_computed_roster_declares_no_outputs_and_returns_by_name():
     from collections.abc import Mapping
     from typing import Any
 
-    def columns(spec: Annotated[Text, Textarea(title="Columns")]) -> Mapping[str, Any]:
+    def columns(spec: Annotated[Text, Param(title="Columns", widget=Textarea())]) -> Mapping[str, Any]:
         return {}
 
     interface = Interface.of(columns)
@@ -153,7 +152,7 @@ def test_a_record_field_without_a_result_is_refused():
     class Bare:
         a: Text
 
-    def node(value: Annotated[Text, Textarea(title="V")]) -> Bare:
+    def node(value: Annotated[Text, Param(title="V", widget=Textarea())]) -> Bare:
         return Bare(a=value)
 
     with pytest.raises(TypeError, match="Bare.a"):
@@ -172,27 +171,17 @@ def test_each_of_several_outputs_carries_its_own_dtype():
         text: Annotated[Text, Result(title="T")]
         number: Annotated[Num, Result(title="N")]
 
-    def pair(value: Annotated[Text, Textarea(title="V")]) -> Both:
+    def pair(value: Annotated[Text, Param(title="V", widget=Textarea())]) -> Both:
         return Both(text=value, number=Num(1))
 
     assert [o.dtype for o in Interface.of(pair).outputs] == [Text, Num]
-
-
-def test_a_param_without_a_widget_is_refused():
-    """An input without a widget is an error, not a fallback."""
-
-    def bare(x: Text = Text("")) -> Annotated[Text, Result(title="R")]:
-        return x
-
-    with pytest.raises(TypeError, match="widget"):
-        Interface.of(bare)
 
 
 def test_a_param_with_a_handle_must_declare_a_dtype():
     """A plain `str` is not a declaration where an edge can land: it cannot
     be connected (`accepts` has nothing to ask), rendered or checked."""
 
-    def plain(x: Annotated[str, Textarea(title="X")] = "") -> Annotated[Text, Result(title="R")]:
+    def plain(x: Annotated[str, Param(title="X", widget=Textarea())] = "") -> Annotated[Text, Result(title="R")]:
         return Text(x)
 
     with pytest.raises(TypeError, match="handle"):
@@ -211,7 +200,7 @@ def test_a_closed_param_may_declare_a_static_type():
         fields: tuple[str, ...] = ()
 
     def structured(
-        schema: Annotated[Schema, SchemaBuilder(title="Schema", show_handle=False)] = Schema(),
+        schema: Annotated[Schema, Param(title="Schema", show_handle=False, widget=SchemaBuilder())] = Schema(),
     ) -> Annotated[Text, Result(title="R")]:
         return Text("")
 
@@ -226,7 +215,7 @@ def test_a_bare_dtype_input_is_refused():
     declaration with no type in it. A node that means "whatever
     arrives" declares `Any`."""
 
-    def vague(x: Annotated[DType, Textarea(title="X")]) -> Annotated[Text, Result(title="R")]:
+    def vague(x: Annotated[DType, Param(title="X", widget=Textarea())]) -> Annotated[Text, Result(title="R")]:
         return Text("")
 
     with pytest.raises(TypeError, match="concrete"):
@@ -243,7 +232,7 @@ def test_a_pass_through_declares_any():
     own `compute_outputs`."""
     from typing import Any
 
-    def route(x: Annotated[Any, Textarea(title="X")]) -> Annotated[Any, Result(title="R")]:
+    def route(x: Annotated[Any, Param(title="X", widget=Textarea())]) -> Annotated[Any, Result(title="R")]:
         return x
 
     iface = Interface.of(route)
@@ -258,7 +247,7 @@ def test_an_any_roster_validates_a_call():
     what arrives on an `Any` input — the validator passes the value through."""
     from typing import Any
 
-    def route(x: Annotated[Any, Textarea(title="X")]) -> Annotated[Any, Result(title="R")]:
+    def route(x: Annotated[Any, Param(title="X", widget=Textarea())]) -> Annotated[Any, Result(title="R")]:
         return x
 
     model = model_of(Interface.of(route).inputs)
@@ -276,7 +265,7 @@ def test_an_open_roster_is_single_on_the_keyword_parameter():
     from collections.abc import Mapping
     from typing import Any
 
-    def script(code: Annotated[Text, Textarea(title="Code")], **inputs: Single) -> Mapping[str, Any]:
+    def script(code: Annotated[Text, Param(title="Code", widget=Textarea())], **inputs: Single) -> Mapping[str, Any]:
         return {}
 
     iface = Interface.of(script)
@@ -295,7 +284,7 @@ def test_single_is_spelled_on_the_keyword_parameter_only():
     """`Single` is the open interface's shape and nothing else's: a
     named parameter declares a DType, or `Any` for whatever arrives."""
 
-    def named(x: Annotated[Single, Textarea(title="X")]) -> Annotated[Text, Result(title="R")]:
+    def named(x: Annotated[Single, Param(title="X", widget=Textarea())]) -> Annotated[Text, Result(title="R")]:
         return Text("")
 
     with pytest.raises(TypeError, match="Single"):
@@ -303,7 +292,7 @@ def test_single_is_spelled_on_the_keyword_parameter_only():
 
 
 def test_a_return_without_a_declaration_is_refused():
-    def undeclared(x: Annotated[Text, Textarea(title="X")] = Text("")) -> Text:
+    def undeclared(x: Annotated[Text, Param(title="X", widget=Textarea())] = Text("")) -> Text:
         return x
 
     with pytest.raises(TypeError, match="Result"):
@@ -312,7 +301,7 @@ def test_a_return_without_a_declaration_is_refused():
 
 def test_self_is_not_an_input():
     class Holder:
-        def run(self, x: Annotated[Text, Textarea(title="X")] = Text("")) -> Annotated[Text, Result(title="R")]:
+        def run(self, x: Annotated[Text, Param(title="X", widget=Textarea())] = Text("")) -> Annotated[Text, Result(title="R")]:
             return x
 
     assert [i.name for i in Interface.of(Holder.run).inputs] == ["x"]
@@ -323,11 +312,11 @@ def test_computed_inputs_arrive_as_keyword_arguments():
     ``**values``. The signature declares nothing about them."""
     from conductor.metadata import Input
 
-    def templated(template: Annotated[Text, Textarea(title="Template")] = Text(""), **values: Text) -> Annotated[Text, Result(title="R")]:
+    def templated(template: Annotated[Text, Param(title="Template", widget=Textarea())] = Text(""), **values: Text) -> Annotated[Text, Result(title="R")]:
         return Text(template.format(**values))
 
     assert [i.name for i in Interface.of(templated).inputs] == ["template"]
-    interface = (*Interface.of(templated).inputs, Input(name="name", dtype=Text, title="name", widget=Textarea(title="name")))
+    interface = (*Interface.of(templated).inputs, Input(name="name", dtype=Text, title="name", widget=Textarea()))
     validated = model_of(interface)(template="Hi {name}", name="Ida")
     assert isinstance(validated.name, Text)
 
@@ -350,9 +339,9 @@ def test_the_input_record_dumps_as_the_wire():
 
 
 def test_the_wire_carries_presentation_on_the_field_not_inside_the_widget():
-    """The contract test the field/widget split needs: the annotation object
-    still holds what was lifted off it, so a consumer could read the wrong
-    copy. It is not on the wire, and this is what says so."""
+    """The contract test the field/widget split needs: what a person reads
+    about the input is on the ``Input``, and the widget's dump is the
+    control's configuration and nothing else."""
     from conductor.metadata import Input
 
     data = TypeAdapter(Input).dump_python(Interface.of(sample).inputs[1], mode="json")
@@ -367,7 +356,7 @@ def test_the_input_record_publishes_a_json_schema_per_widget():
     from conductor.metadata import Input
 
     schema = TypeAdapter(Input).json_schema(mode="serialization")
-    widget = schema["properties"]["widget"]
+    (widget,) = [member for member in schema["properties"]["widget"]["anyOf"] if "discriminator" in member]
 
     assert widget["discriminator"]["propertyName"] == "kind"
     assert "dropdown" in widget["discriminator"]["mapping"]
@@ -382,7 +371,7 @@ def test_a_from_run_parameter_is_a_need_not_an_input():
     class Who:
         pass
 
-    def greet(text: Annotated[Text, Textarea(title="T")], who: Annotated[Who, FromRun()]) -> Annotated[Text, Result(title="R")]:
+    def greet(text: Annotated[Text, Param(title="T", widget=Textarea())], who: Annotated[Who, FromRun()]) -> Annotated[Text, Result(title="R")]:
         return Text(f"{text} {who}")
 
     iface = Interface.of(greet)
@@ -401,7 +390,7 @@ def test_a_name_on_both_sides_is_refused():
     class Pair:
         text: Annotated[Text, Result(title="Same name")]
 
-    def echo(text: Annotated[Text, Textarea(title="T")] = Text("")) -> Pair:
+    def echo(text: Annotated[Text, Param(title="T", widget=Textarea())] = Text("")) -> Pair:
         return Pair(text=text)
 
     with pytest.raises(TypeError, match="both sides"):
@@ -413,33 +402,31 @@ def test_a_name_on_both_sides_is_refused():
 
 
 def test_a_widget_is_frozen_and_keyword_only():
-    w = Textarea(title="Text", rows=6)
+    w = Textarea(rows=6)
 
     with pytest.raises(Exception):
         w.rows = 2
     with pytest.raises(TypeError):
-        Textarea("Text")
+        Textarea(6)
 
 
 def test_a_widget_names_its_kind_once():
     """`kind` is the discriminator. There is no WidgetType enum and no
     widget_type property saying the same thing a second time."""
-    assert Textarea(title="T").kind == "textarea"
-    assert Dropdown(title="D").kind == "dropdown"
+    assert Textarea().kind == "textarea"
+    assert Dropdown().kind == "dropdown"
     assert not hasattr(Widget, "widget_type")
     assert not hasattr(Widget, "to_schema")
 
 
 def test_a_widget_dumps_its_own_config_and_nothing_the_field_owns():
-    data = TypeAdapter(AnyWidget).dump_python(
-        Dropdown(title="Language", description="d", choices=(Choice(id="da", title="Danish"),)), mode="json"
-    )
+    data = TypeAdapter(AnyWidget).dump_python(Dropdown(choices=(Choice(id="da", title="Danish"),)), mode="json")
 
     assert data == {"kind": "dropdown", "choices": [{"id": "da", "title": "Danish", "element": None}]}
 
 
 def test_a_widget_takes_a_cable_by_default():
-    assert Textarea(title="Text").show_handle is True
+    assert Param(title="Text", widget=Textarea()).show_handle is True
 
 
 def test_a_control_does_not_close_its_own_handle():
@@ -448,29 +435,30 @@ def test_a_control_does_not_close_its_own_handle():
     An edge can legitimately deliver a dropdown's choice or a built schema,
     so the widget is the wrong place to decide. The node closes the input.
     """
-    assert Dropdown(title="Choice", choices=(Choice(id="a", title="A"),)).show_handle is True
-    assert DatePicker(title="Date").show_handle is True
-    assert SchemaBuilder(title="Schema").show_handle is True
+    assert Param(title="Choice", widget=Dropdown(choices=(Choice(id="a", title="A"),))).show_handle is True
+    assert Param(title="Date", widget=DatePicker()).show_handle is True
+    assert Param(title="Schema", widget=SchemaBuilder()).show_handle is True
 
 
-def test_no_widget_subclass_decides_wireability():
-    """They all inherit True. A widget that changed engine control
-    graph does not exist: a pause is a node returning Asks."""
+def test_no_widget_decides_wireability():
+    """Whether an edge can reach an input is the ``Param``'s answer; no
+    control carries one. A widget that changed engine control does not
+    exist: a pause is a node returning Asks."""
     import conductor.widgets as w
 
-    overriding = sorted(
+    carrying = sorted(
         name
         for name in dir(w)
         if isinstance(getattr(w, name, None), type)
         and issubclass(getattr(w, name), w.Widget)
-        and getattr(w, name).model_fields["show_handle"].default is False
+        and {"show_handle", "title", "description"} & set(getattr(w, name).model_fields)
     )
-    assert overriding == []
+    assert carrying == []
     assert not hasattr(w, "HumanReview")
 
 
 def test_an_input_closes_its_own_handle():
-    assert Dropdown(title="Choice", choices=(Choice(id="a", title="A"),), show_handle=False).show_handle is False
+    assert Param(title="Choice", show_handle=False, widget=Dropdown(choices=(Choice(id="a", title="A"),))).show_handle is False
 
 
 def test_the_flags_that_were_not_about_editing_are_gone():
@@ -483,12 +471,10 @@ def test_a_list_widget_declares_no_per_item_control():
     """The element type is the input's dtype, and the host derives the
     per-item control from it — a control inside a control would be the
     same answer declared twice."""
-    data = TypeAdapter(AnyWidget).dump_python(
-        List(title="Names", min_items=1), mode="json"
-    )
+    data = TypeAdapter(AnyWidget).dump_python(ListWidget(min_items=1), mode="json")
 
     assert data == {"kind": "list", "min_items": 1, "max_items": None}
-    assert "item_widget" not in List.model_fields
+    assert "item_widget" not in ListWidget.model_fields
 
 
 def test_every_widget_is_in_the_union():

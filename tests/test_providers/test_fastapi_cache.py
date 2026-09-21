@@ -17,9 +17,9 @@ import pytest
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
-from conductor import NodeRegistry  # noqa: E402
+from conductor import NodeRegistry, Param  # noqa: E402
+from conductor.metadata import Result  # noqa: E402
 from conductor.node import NodeDefinition  # noqa: E402
-from conductor.returns import Result  # noqa: E402
 from conductor.widgets import Textarea  # noqa: E402
 from conductor_nodes.types import Text  # noqa: E402
 from conductor_providers.fastapi import conductor_router  # noqa: E402
@@ -52,7 +52,7 @@ def client(calls: list[str]) -> TestClient:
         category = "test"
 
         def run(
-            self, text: Annotated[Text, Textarea(title="Text")]
+            self, text: Annotated[Text, Param(title="Text", widget=Textarea())]
         ) -> Annotated[Text, Result(title="Loud")]:
             calls.append("shout")
             return Text(text.upper())

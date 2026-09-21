@@ -19,8 +19,8 @@ pytest.importorskip("httpx")
 
 from conductor import NodeRegistry  # noqa: E402
 from conductor.interface import FromRun  # noqa: E402
+from conductor.metadata import Result  # noqa: E402
 from conductor.node import NodeDefinition  # noqa: E402
-from conductor.returns import Result  # noqa: E402
 from conductor_nodes.types import Text  # noqa: E402
 from conductor_providers.fastapi import conductor_router  # noqa: E402
 from fastapi import FastAPI, Request  # noqa: E402

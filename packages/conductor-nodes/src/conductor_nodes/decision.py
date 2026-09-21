@@ -24,9 +24,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Any
 
 from conductor._sentinel import SKIPPED
-from conductor.metadata import Output
-from conductor.returns import Result
-from conductor.widgets import ConnectionList, Switch
+from conductor.metadata import Output, Param, Result
+from conductor.widgets import Switch
 
 from conductor_nodes.types import Flag, StdlibNode
 
@@ -55,8 +54,8 @@ class Decision(StdlibNode):
 
     def run(
         self,
-        value: Annotated[Any, ConnectionList(title="Value")],
-        when: Annotated[Flag, Switch(title="When")] = Flag(True),
+        value: Annotated[Any, Param(title="Value")],
+        when: Annotated[Flag, Param(title="When", widget=Switch())] = Flag(True),
     ) -> Branches:
         if when:
             return Branches(if_true=value, if_false=SKIPPED)

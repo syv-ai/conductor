@@ -22,7 +22,7 @@ conductor/
 │       ├── _sentinel.py        # SKIPPED and Asks — the two values a run returns that are not results
 │       ├── registry/           # NodeRegistry (register, nodes, runner_for, extended_with, upgrade_path); discover_nodes
 │       ├── graph/              # model (Graph/GraphNode), binding (Edges/Static), compiler + compiled (CompiledGraph and its node/field views), iteration (the edge walk), expand (embedded graphs), conditions, problem, topology, views
-│       ├── execution/          # engine (execute, execute_sync, collect; one leg per call), ledger (what a run produced, and what that makes ready), events
+│       ├── execution/          # engine (execute, run, run_sync; one leg per call), ledger (what a run produced, and what that makes ready), events
 │       └── about/              # Runnable library context: `python -m conductor.about`
 ├── packages/conductor-nodes/   # Standard node library (text, math, logic, json_ops, regex_ops, decision) + its types
 │   └── src/conductor_nodes/    # Each module exposes register(registry); top-level register_all()
@@ -81,7 +81,7 @@ Three phases: `declare → compile → execute`.
 
 1. **Declare** — a node is a `NodeDefinition` subclass. `__init_subclass__` checks `id`, `title`, `description`, `category`, derives one `NodeVersion` per `@version` method (an undecorated `run` is version 1; beside `@version` methods, `run` must carry one too) by reading the signature once with `Interface.of`, and collects its `@upgrade` rewrites into `cls.upgrades`. `NodeRegistry.register(cls)` files the class under its id and checks the catalogue rules (versions numbered from 1 with no holes, a deprecated current version pointing somewhere, an `alternative` that exists).
 2. **Compile** — `CompiledGraph.from_graph(graph, registry)` resolves each node's pin, asks `compute_inputs` on the typed statics, validates the stored bindings, expands an embedded graph under its node's name, walks the edges once in order — typing every unconstrained field from what arrives, asking `accepts`, making a node fed a series run once per row of it, asking `compute_outputs` with what arrives — and derives the condition under which each output appears. Returns an immutable `CompiledGraph` that callers ask at three scales — the graph (`problems`, `is_runnable`, `interface`, `execution_order`, `decisions`), one node (`node(id)`: `interface`, `iterates_on`, `statics`, `runner`, `dependencies`, `embedded_in`, `problems`) and one field (`field(ref)`: `type`, `index`, `binding`, `condition`, `problems`); everything wrong with the graph is an anchored `Problem` on it, never an exception. Every definition the graph names must be in the registry; a host that loads one calls `registry.extended_with(...)` first.
-3. **Execute** — `execute(compiled)` is an async generator yielding `ExecutionEvent`s. Its unit of work is `(node, row)`: a node that runs once is one unit, a node that runs per row is one unit per row. The `Ledger` holds every value the run has produced, cell by cell, and answers each write with the units it made ready; the engine starts those under each node's `Policy.concurrency`. A call is validated through `model_of(interface.inputs)` and made on a fresh instance (`compiled.node(id).runner`). One call of `execute` is one **leg**: it runs until nothing is runnable and nothing is in flight. `execute_sync()` is a blocking wrapper.
+3. **Execute** — `execute(compiled)` is an async generator yielding `ExecutionEvent`s. Its unit of work is `(node, row)`: a node that runs once is one unit, a node that runs per row is one unit per row. The `Ledger` holds every value the run has produced, cell by cell, and answers each write with the units it made ready; the engine starts those under each node's `Policy.concurrency`. A call is validated through `model_of(interface.inputs)` and made on a fresh instance (`compiled.node(id).runner`). One call of `execute` is one **leg**: it runs until nothing is runnable and nothing is in flight. `await run(compiled)` drains it and returns the ending event; `run_sync(compiled)` is the same call for a script, and refuses under a running loop.
 
 ### The node contract
 
@@ -92,7 +92,7 @@ class Upper(NodeDefinition):
     description = "Upper-cases a text."
     category = "text"            # where the palette files it; required, a plain string
 
-    def run(self, text: Annotated[Text, Textarea(title="Text")]) -> Annotated[Text, Result(title="Result")]:
+    def run(self, text: Annotated[Text, Param(title="Text", widget=Textarea())]) -> Annotated[Text, Result(title="Result")]:
         return Text(text.upper())
 ```
 
@@ -122,7 +122,7 @@ The call is validated through the placed node's own interface with pydantic (`ex
 
 ### Widgets
 
-Every control is a frozen pydantic model with a `kind` discriminator; `AnyWidget` is the union built from `Widget.__subclasses__()`, so an `Input` dumps its widget with a schema per kind. The set: `Text`, `Textarea`, `TemplateTextarea`, `CodeEditor`, `Dropdown`, `EntityDropdown`, `Number`, `Range`, `Switch`, `DatePicker`, `FileUpload`, `List`, `Tags`, `TableInput`, `SchemaBuilder`, `IfElseBuilder`, `ConnectionList`. Conductor ships no default widget for any type — every input declares its own. Vocabulary inside a control (`Dropdown.choices`, `IfElseBuilder.operators`, `TableInput.column_types`) is the host's, as data. Full guide: [`docs/widgets.md`](docs/widgets.md); demo: [`examples/08_widgets.ipynb`](examples/08_widgets.ipynb).
+Every control is a frozen pydantic model with a `kind` discriminator; `AnyWidget` is the union built from `Widget.__subclasses__()`, so an `Input` dumps its widget with a schema per kind. The set: `TextWidget`, `Textarea`, `TemplateTextarea`, `CodeEditor`, `Dropdown`, `EntityDropdown`, `Number`, `Range`, `Switch`, `DatePicker`, `FileUpload`, `List`, `Tags`, `TableInput`, `SchemaBuilder`, `IfElseBuilder`. Conductor ships no default widget for any type — every input declares its own. Vocabulary inside a control (`Dropdown.choices`, `IfElseBuilder.operators`, `TableInput.column_types`) is the host's, as data. Full guide: [`docs/widgets.md`](docs/widgets.md); demo: [`examples/08_widgets.ipynb`](examples/08_widgets.ipynb).
 
 ### Rows, skips and legs
 
@@ -152,8 +152,6 @@ All exceptions inherit from `ConductorError` (see `errors.py`). A run-time failu
   - `NodeValidationError` (pydantic failure; renders one line per failed field)
   - `NodeExecutionError` (`run` raised something that is not a `NodeError`; the exception is on `original`)
   - `NodeTimeoutError` (the leg stopped waiting; final)
-- `GraphExecutionError` — raised by `execute_sync` when the graph fails, is cancelled or times out
-- `GraphPendingError` — raised by `execute_sync` when the leg ends pending; carries `pending` and `record`
 
 ### The persisted graph
 
@@ -177,7 +175,7 @@ When the audit flags a discrepancy it can't resolve (commit says X, code does Y)
 ### Declaring and registering a node
 ```python
 from typing import Annotated
-from conductor import NodeDefinition, NodeRegistry, Result
+from conductor import NodeDefinition, NodeRegistry, Param, Result, run_sync
 from conductor.widgets import Textarea
 from conductor_nodes.types import Text     # or a DType of your own
 
@@ -187,7 +185,7 @@ class MyNode(NodeDefinition):
     description = "Does stuff"
     category = "text"
 
-    def run(self, text: Annotated[Text, Textarea(title="Input")]) -> Annotated[Text, Result(title="Result")]:
+    def run(self, text: Annotated[Text, Param(title="Input", widget=Textarea())]) -> Annotated[Text, Result(title="Result")]:
         return Text(text.upper())
 
 registry = NodeRegistry()
@@ -205,23 +203,20 @@ registry.register(MyNode)     # ids are unique; registering a second class under
 
 ### Building and running a graph
 ```python
-from conductor.execution.engine import execute_sync
 
 compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="my-node", version=1, bindings={"text": Static(value="hello")})]), registry)
-results = execute_sync(compiled)     # results["n1"]["result"] == "HELLO"
+results = run_sync(compiled)["results"]     # results["n1"]["result"] == "HELLO"
 ```
 
 ### A node that asks, and the next leg
 ```python
 class Approve(NodeDefinition):
     ...
-    def run(self, proposal: Annotated[Text, Textarea(title="Proposal")]) -> Annotated[Text, Result(title="Decision")] | Asks:
-        return Asks(questions=(Input(name="result", dtype=Text, title="Decision", widget=Textarea(title="Decision"), default=proposal, optional=True),))
+    def run(self, proposal: Annotated[Text, Param(title="Proposal", widget=Textarea())]) -> Annotated[Text, Result(title="Decision")] | Asks:
+        return Asks(questions=(Input(name="result", dtype=Text, title="Decision", widget=Textarea(), default=proposal, optional=True),))
 
-try:
-    execute_sync(compiled)
-except GraphPendingError as pending:                     # pending.pending: the questions, by address
-    results = execute_sync(compiled, record=pending.record, cache={"approve": {"result": Text("yes")}})
+paused = run_sync(compiled)                                   # paused["type"] == "graph_pending"; paused["pending"]: the questions, by address
+results = run_sync(compiled, record=paused["record"], cache={"approve": {"result": Text("yes")}})["results"]
 ```
 
 ### A second version, with a policy and an upgrade
@@ -229,10 +224,10 @@ except GraphPendingError as pending:                     # pending.pending: the 
 class MyNode(NodeDefinition):
     ...
     @version(1)
-    def run_v1(self, text: Annotated[Text, Textarea(title="Input")]) -> Annotated[Text, Result(title="Result")]: ...
+    def run_v1(self, text: Annotated[Text, Param(title="Input", widget=Textarea())]) -> Annotated[Text, Result(title="Result")]: ...
 
     @version(2, policy=Policy(retries=3, delay=0.5))
-    def run(self, text: Annotated[Text, Textarea(title="Input")], loud: Annotated[Flag, Switch(title="Loud")] = Flag(False)) -> Annotated[Text, Result(title="Result")]: ...
+    def run(self, text: Annotated[Text, Param(title="Input", widget=Textarea())], loud: Annotated[Flag, Param(title="Loud", widget=Switch())] = Flag(False)) -> Annotated[Text, Result(title="Result")]: ...
 
     @upgrade(1, 2)
     def _add_loud(values: dict) -> dict:

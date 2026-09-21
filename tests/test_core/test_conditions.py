@@ -3,18 +3,18 @@
 from dataclasses import dataclass
 from typing import Annotated, Any
 
-from conductor import NodeRegistry
+from conductor import NodeRegistry, Param
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
 from conductor.graph.binding import Edges, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.conditions import ALWAYS, Atom
 from conductor.graph.model import Graph, GraphNode
+from conductor.metadata import Result
 from conductor.node import NodeDefinition
 from conductor.ref import Ref
-from conductor.returns import Result
 from conductor.series import Series
-from conductor.widgets import ConnectionList, Switch, Textarea
+from conductor.widgets import Switch, Textarea
 
 
 class Txt(DType, str):
@@ -44,8 +44,8 @@ class Gate(NodeDefinition):
 
     def run(
         self,
-        value: Annotated[Any, ConnectionList(title="Value")],
-        when: Annotated[Flag, Switch(title="When")] = Flag(1),
+        value: Annotated[Any, Param(title="Value")],
+        when: Annotated[Flag, Param(title="When", widget=Switch())] = Flag(1),
     ) -> Branches:
         return Branches(if_true=value, if_false=SKIPPED) if when else Branches(if_true=SKIPPED, if_false=value)
 
@@ -60,7 +60,7 @@ class Holder(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, value: Annotated[Txt, Textarea(title="Text")] = Txt("")) -> Out:
+    def run(self, value: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
         return value
 
 
@@ -70,7 +70,7 @@ class Upper(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, text: Annotated[Txt, Textarea(title="Text")] = Txt("")) -> Out:
+    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
         return Txt(text.upper())
 
 
@@ -83,7 +83,7 @@ class Single(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, values: Annotated[Series[Any], ConnectionList(title="Values")]) -> Annotated[Any, Result(title="The value")]:
+    def run(self, values: Annotated[Series[Any], Param(title="Values")]) -> Annotated[Any, Result(title="The value")]:
         return values[0]
 
     def compute_outputs(self, declared, values, arriving):
@@ -98,7 +98,7 @@ class Docs(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, folder: Annotated[Txt, Textarea(title="Folder")] = Txt("")) -> Annotated[Series[Txt], Result(title="Texts")]:
+    def run(self, folder: Annotated[Txt, Param(title="Folder", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Texts")]:
         return [Txt("a")]
 
 
