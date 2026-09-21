@@ -46,6 +46,16 @@ def description_of(declared: Any) -> dict[str, Any] | None:
     return None
 
 
+def name_of(declared: Any) -> str:
+    """A declared type named for an English sentence: ``text``, ``a series of
+    text``, ``any`` — by its id, which is what a host also keys on."""
+    if declared is Any:
+        return "any"
+    if isinstance(declared, type) and issubclass(declared, DType):
+        return f"a series of {declared.element.id}" if declared.element is not None else declared.id
+    return getattr(declared, "__name__", str(declared))
+
+
 def _declared(value: Any) -> Any:
     """Validator for a ``DTypeRef`` field: keep the declared class as it is.
 

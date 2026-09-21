@@ -387,8 +387,8 @@ def test_a_cycle_is_a_fatal_problem_on_each_node_in_it():
 
 def test_problems_can_be_read_whole_or_by_node():
     """Every problem here is about a field the node does not have — a lock
-    and two bindings naming nothing — so the node carries them and no
-    field view exists to ask."""
+    and two bindings naming nothing — so ``compiled.problems`` is where they
+    are read, filtered by node, and no field view exists to ask."""
     compiled = CompiledGraph.from_graph(
         Graph(
             nodes=[GraphNode(id="a", type="echo", version=1, locked=("ghost",), bindings={"z": Static(value=1), "w": Static(value=2)})],
@@ -397,9 +397,8 @@ def test_problems_can_be_read_whole_or_by_node():
     )
 
     assert len(compiled.problems) == 3
-    assert len(compiled.node("a").problems) == 3
-    assert [p.code for p in compiled.node("a").problems if p.field == "ghost"] == ["unknown_locked_field"]
-    assert [p.code for p in compiled.node("a").problems if p.field == "z"] == ["stale_binding"]
+    assert [p.code for p in compiled.problems if p.node_id == "a" and p.field == "ghost"] == ["unknown_locked_field"]
+    assert [p.code for p in compiled.problems if p.node_id == "a" and p.field == "z"] == ["stale_binding"]
     with pytest.raises(KeyError):
         compiled.field(Ref("a", "z"))
 
@@ -444,3 +443,95 @@ def test_a_problem_is_formatted_from_its_details_and_keeps_them():
     assert p.details == {"source_node": "a"}
     assert p.fatal is True
     assert problem("stale_binding", "b", "old").fatal is False
+
+
+# --- what compile refuses that it used to let through ----------------------------------
+
+
+def test_a_slash_in_an_authored_id_is_fatal():
+    """C5: ``/`` is how compile names the nodes of an embedded graph."""
+    (problem,) = _problems([GraphNode(id="a/b", type="echo", version=1)])
+
+    assert (problem.code, problem.fatal, problem.node_id) == ("invalid_node_id", True, "a/b")
+
+
+def test_an_edge_with_no_refs_is_refused_where_it_is_written():
+    """C7: ``Edges(refs=())`` is not a binding; it used to crash compile."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        Edges(refs=())
+
+
+def test_a_cycle_is_reported_on_its_members_only():
+    """C10: a node downstream of a cycle is not part of it. It keeps its
+    interface, so an editor draws it, and the cycle alone stops the run."""
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[
+            GraphNode(id="a", type="echo", version=1, bindings={"x": Edges(refs=(Ref("b", "result"),))}),
+            GraphNode(id="b", type="echo", version=1, bindings={"x": Edges(refs=(Ref("a", "result"),))}),
+            GraphNode(id="u", type="echo", version=1, bindings={"x": Edges(refs=(Ref("a", "result"),))}),
+            GraphNode(id="v", type="echo", version=1, bindings={"x": Edges(refs=(Ref("u", "result"),))}),
+        ]),
+        _registry(),
+    )
+
+    assert [(p.code, p.node_id) for p in compiled.problems] == [("cycle", "a"), ("cycle", "b")]
+    assert compiled.execution_order() == ("u", "v")
+    assert [i.name for i in compiled.node("u").interface.inputs] == ["x", "y"]
+    assert not compiled.is_runnable
+
+
+def test_an_edge_from_a_node_that_failed_to_resolve_is_not_reported_again():
+    """C11: the source carries ``unknown_node_type``; the reader is silent
+    rather than told the node 'is not in the graph', which it is."""
+    problems = _problems([
+        GraphNode(id="x", type="no-such", version=1),
+        GraphNode(id="u", type="echo", version=1, bindings={"x": Edges(refs=(Ref("x", "result"),))}),
+    ])
+
+    assert [(p.code, p.node_id) for p in problems] == [("unknown_node_type", "x")]
+
+
+def test_an_edge_into_a_field_an_embedded_graph_lacks_names_the_authors_address():
+    """C11: ``e.nope`` is not an output of ``e``; the message says so with
+    the address the author wrote, and no expanded id leaks."""
+    from collections.abc import Mapping
+    from typing import ClassVar
+
+    from conductor.interface import Interface
+    from conductor.metadata import Input, Output
+    from conductor.node import GraphVersion
+
+    class Emb(NodeDefinition):
+        id = "emb-graph"
+        title = "Embedded"
+        description = "d"
+        category = "test"
+        versions: ClassVar[dict[int, GraphVersion]] = {
+            1: GraphVersion(
+                graph=(GraphNode(id="inner", type="echo", version=1),),
+                interface=Interface(
+                    inputs=(Input(name="inner.x", dtype=Txt, title="X", widget=Textarea(), default=Txt(""), optional=True),),
+                    outputs=(Output(name="inner.result", dtype=Txt, title="R"),),
+                    returns=Mapping,
+                ),
+            )
+        }
+
+    registry = _registry()
+    registry.register(Emb)
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[
+            GraphNode(id="e", type="emb-graph", version=1),
+            GraphNode(id="u", type="echo", version=1, bindings={"x": Edges(refs=(Ref("e", "nope"),))}),
+            GraphNode(id="w", type="echo", version=1, bindings={"x": Edges(refs=(Ref("e", "ghost.out"),))}),
+        ]),
+        registry,
+    )
+
+    assert [(p.code, p.node_id, p.field, p.details) for p in compiled.problems] == [
+        ("unknown_ref_output", "u", "x", {"source": "e.nope"}),
+        ("unknown_ref_output", "w", "x", {"source": "e.ghost.out"}),
+    ]
+    assert not any("/" in p.message for p in compiled.problems)

@@ -9,7 +9,7 @@ from conductor.dtype import DType, Single
 from conductor.graph.binding import Edges, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
-from conductor.metadata import Output, Param, Result
+from conductor.metadata import Input, Output, Param, Result
 from conductor.node import NodeDefinition
 from conductor.ref import Ref
 from conductor.series import Index, Series
@@ -394,7 +394,7 @@ def test_a_source_may_refuse_to_be_received_whole_naming_the_fix():
     read = CompiledGraph.from_graph(Graph(nodes=[edge["h"], GraphNode(id="r", type="reads", version=1, bindings={"x": Edges(refs=(Ref("h", "result"),))})]), registry)
     routed = CompiledGraph.from_graph(Graph(nodes=[edge["h"], GraphNode(id="r", type="routes", version=1, bindings={"value": Edges(refs=(Ref("h", "result"),))})]), registry)
 
-    (problem,) = read.node("r").problems
+    (problem,) = [p for p in read.problems if p.node_id == "r"]
     assert (problem.code, problem.fatal, problem.field) == ("columns_unknown", True, "x")
     assert "state them" in problem.message
     assert routed.is_runnable and routed.field(Ref("r", "result")).type is Half
@@ -547,7 +547,7 @@ def test_a_hook_that_cannot_answer_refuses_and_the_refusal_is_the_placements_pro
         GraphNode(id="f", type="fussy", version=1, bindings={"value": _edge(("docs", "texts"))}),
     ]), registry)
 
-    (problem,) = compiled.node("f").problems
+    (problem,) = [p for p in compiled.problems if p.node_id == "f"]
     assert (problem.code, problem.fatal, problem.node_id) == ("wrong_shape", True, "f")
     assert problem.message == "What arrives does not fit."
     assert compiled.node("f").interface.outputs == ()
@@ -758,7 +758,7 @@ def test_two_refs_on_different_indexes_into_a_scalar_input_is_fatal():
         GraphNode(id="m", type="upper", version=1, bindings={"text": _edge(("a", "texts"), ("b", "texts"))}),
     ])
 
-    (problem,) = compiled.node("m").problems
+    (problem,) = [p for p in compiled.problems if p.node_id == "m"]
     assert (problem.code, problem.field) == ("union_needs_one_index", "text")
 
 
@@ -815,3 +815,87 @@ def test_compile_stores_no_rows_and_no_mask():
     assert not hasattr(compiled.node("up").iterates_on, "rows")
     assert not hasattr(compiled, "rows")
     assert not hasattr(compiled, "mask")
+
+
+# --- what a hook may answer ---------------------------------------------------------
+
+
+def test_a_hook_that_adds_a_connected_input_without_an_edge_type_is_a_problem_not_a_crash():
+    """C7: a computed input a handle bears must carry a type an edge can carry.
+    Connected, it used to crash the walk; now it is ``handle_needs_dtype`` on
+    the field, fatal, and the node is not derived."""
+
+    class Adds(NodeDefinition):
+        id = "adds"
+        title = "Adds"
+        description = "d"
+        category = "test"
+
+        def run(self, value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
+            return value
+
+        def compute_inputs(self, declared, values):
+            return (*declared, Input(name="raw", dtype=int, title="Raw"))
+
+    registry = _registry()
+    registry.register(Adds)
+    compiled = CompiledGraph.from_graph(Graph(nodes=[
+        GraphNode(id="n", type="count", version=1, bindings={"text": Static(value="hi")}),
+        GraphNode(id="a", type="adds", version=1, bindings={"raw": _edge(("n", "result"))}),
+    ]), registry)
+
+    assert [(p.code, p.fatal, p.node_id, p.field) for p in compiled.problems] == [("handle_needs_dtype", True, "a", "raw")]
+    with pytest.raises(KeyError):
+        compiled.node("a").iterates_on
+
+
+def test_a_hook_that_leaves_a_connected_output_untyped_is_a_problem_not_a_crash():
+    """C7: an output typed ``Any`` after the hook has answered can carry
+    nothing on an edge. Reading it used to crash the walk."""
+
+    class Vague(NodeDefinition):
+        id = "vague"
+        title = "Vague"
+        description = "d"
+        category = "test"
+
+        def run(self, value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Annotated[Any, Result(title="Out")]:
+            return value
+
+        def compute_outputs(self, declared, values, arriving):
+            return declared  # never types it
+
+    registry = _registry()
+    registry.register(Vague)
+    compiled = CompiledGraph.from_graph(Graph(nodes=[
+        GraphNode(id="v", type="vague", version=1, bindings={"value": Static(value="hi")}),
+        GraphNode(id="u", type="upper", version=1, bindings={"text": _edge(("v", "result"))}),
+    ]), registry)
+
+    assert [(p.code, p.fatal, p.node_id, p.field) for p in compiled.problems] == [("handle_needs_dtype", True, "v", "result")]
+    assert not compiled.is_runnable
+
+
+def test_a_static_is_typed_against_the_interface_the_hook_returned():
+    """C8: a hook that retypes an input from text to number makes the value
+    the author typed as text an ``invalid_static`` now, not a failure at run time."""
+
+    class Retypes(NodeDefinition):
+        id = "retypes"
+        title = "Retypes"
+        description = "d"
+        category = "test"
+
+        def run(self, value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
+            return value
+
+        def compute_inputs(self, declared, values):
+            return tuple(i.model_copy(update={"dtype": Num, "default": Num(0)}) for i in declared)
+
+    registry = _registry()
+    registry.register(Retypes)
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="r", type="retypes", version=1, bindings={"value": Static(value="abc")})]), registry)
+    numeric = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="r", type="retypes", version=1, bindings={"value": Static(value="2")})]), registry)
+
+    assert [(p.code, p.field) for p in compiled.problems] == [("invalid_static", "value")]
+    assert numeric.is_runnable and numeric.node("r").statics == {"value": Num(2)}

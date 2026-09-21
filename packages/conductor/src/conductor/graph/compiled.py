@@ -62,11 +62,12 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
 
 from conductor.codec import to_wire
 from conductor.graph.binding import Binding, Static
-from conductor.graph.expand import authored_ref, expanded_ref
+from conductor.graph.expand import expanded_ref
 from conductor.graph.problem import Problem
 from conductor.graph.receive import PerRow
 from conductor.ref import Ref
@@ -112,12 +113,18 @@ class CompiledGraph:
     raises, and an editor paints it from ``problems`` alone.
     """
 
-    _nodes: Mapping[str, GraphNode]
+    #: The graph as the author saved it, and the registry it was compiled
+    #: against: kept so a compiled graph can produce another from the same
+    #: two (``bound``), never read back for what compile already learned.
+    _graph: Graph
     _registry: NodeRegistry
+    _nodes: Mapping[str, GraphNode]
     _versions: Mapping[str, NodeVersion | GraphVersion]
     _interfaces: Mapping[str, Interface]
     _statics: Mapping[str, Mapping[str, Any]]
-    _dependencies: Mapping[str, frozenset[str]]
+    #: Per node the walk derived, the pydantic model that validates a call
+    #: against its interface — built once here, not once per unit.
+    _call_models: Mapping[str, type[BaseModel]]
     _order: tuple[str, ...]
     _iterated: Mapping[str, Index | None]
     _indexes: Mapping[Ref, Index | None]
@@ -232,19 +239,19 @@ class CompiledNode:
     """One node as the compiler left it: what it has, what it holds, how it runs.
 
     ``CompiledGraph.node(node_id)`` builds one on each call; nothing stores
-    it. The engine reads ``interface``, ``statics``, ``runner``,
-    ``dependencies`` and ``iterates_on`` for each node it runs, and
-    ``version`` and ``graph_node`` for the policy and the type it reports;
-    an editor reads ``interface``, ``iterates_on`` and ``problems`` for each
-    node it draws. Its sibling is ``CompiledField``, the same window onto
-    one input or output.
+    it. The engine reads ``interface``, ``call_model``, ``statics``,
+    ``runner`` and ``iterates_on`` for each node it runs, and ``version``
+    and ``graph_node`` for the policy and the type it reports; an editor
+    reads ``interface`` and ``iterates_on`` for each node it draws, and
+    filters ``CompiledGraph.problems`` by node id for its marks. Its
+    sibling is ``CompiledField``, the same window onto one input or output.
 
     An attribute a node cannot answer raises: a node the edge walk could
     not derive — its own edges wrong, or a fault upstream of it — has an
-    interface but no ``iterates_on``, and a node whose version is a graph
-    has an interface, a version and ``embedded_in`` but no ``graph_node``,
-    ``statics`` or ``dependencies`` — its inner nodes run in its place. The
-    ``Problem`` on it says why.
+    interface but no ``iterates_on`` or ``call_model``, and a node whose
+    version is a graph has an interface, a version and ``embedded_in`` but
+    no ``graph_node`` or ``statics`` — its inner nodes run in its place.
+    The ``Problem`` on it in ``CompiledGraph.problems`` says why.
     """
 
     _graph: CompiledGraph = field(repr=False)
@@ -322,9 +329,13 @@ class CompiledNode:
         return hashlib.sha256(json.dumps(to_jsonable_python(placed), sort_keys=True).encode("utf-8")).hexdigest()
 
     @property
-    def dependencies(self) -> frozenset[str]:
-        """The nodes this one waits for, read off its edges."""
-        return self._graph._dependencies[self.id]
+    def call_model(self) -> type[BaseModel]:
+        """The pydantic model that validates a call against this node's
+        interface: one field per input, its declared type and default.
+        Built once when the graph is compiled; the engine validates every
+        unit's inputs through it. Only for a node the walk over the edges
+        derived — a node with a fault upstream has none, and asking raises."""
+        return self._graph._call_models[self.id]
 
     @property
     def iterates_on(self) -> Index | None:
@@ -342,14 +353,6 @@ class CompiledNode:
         author placed."""
         return self._graph._placement_of[self.id]
 
-    @property
-    def problems(self) -> tuple[Problem, ...]:
-        """Every problem about this node, on any of its fields or on the
-        node itself. Anchored on the authored graph, so an inner node of an
-        embedded graph has none of its own: they sit on the node the author
-        placed, under the inner address."""
-        return tuple(p for p in self._graph.problems if p.node_id == self.id)
-
 
 @dataclass(frozen=True)
 class CompiledField:
@@ -358,9 +361,10 @@ class CompiledField:
     ``CompiledGraph.field(ref)`` builds one on each call; nothing stores
     it. The engine reads ``index``, ``binding`` and ``receives`` to lay
     values out per row, to find them and to hand each unit what it takes;
-    an editor reads ``type`` and ``index`` to draw the edge, ``receives``
-    to label it, and ``problems`` to mark the field. Its sibling is
-    ``CompiledNode``, the same window onto one node.
+    an editor reads ``type`` and ``index`` to draw the edge and ``receives``
+    to label it, and filters ``CompiledGraph.problems`` by node and field
+    for its marks. Its sibling is ``CompiledNode``, the same window onto
+    one node.
 
     An attribute a field cannot answer raises: an input has no
     ``condition`` and an output has no ``binding`` or ``receives``; and no
@@ -419,11 +423,3 @@ class CompiledField:
         ``ALWAYS`` when nothing gates it. Derived from ``choice`` groups
         and edges; the engine never reads it. Only an output has one."""
         return self._graph._conditions[self.ref]
-
-    @property
-    def problems(self) -> tuple[Problem, ...]:
-        """Every problem about this field, anchored where the author sees
-        it: on the node they placed, under the inner address for a field
-        inside an embedded graph."""
-        anchor = authored_ref(self.ref)
-        return tuple(p for p in self._graph.problems if p.node_id == anchor.node_id and p.field == anchor.field)

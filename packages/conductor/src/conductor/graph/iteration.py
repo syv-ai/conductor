@@ -75,11 +75,13 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from conductor.dtype import DType
-from conductor.dtype_ref import description_of
+from conductor.dtype_ref import description_of, name_of
 from conductor.graph.binding import Edges
+from conductor.graph.expand import authored_ref
 from conductor.graph.model import GraphNode
 from conductor.graph.problem import Problem, problem
 from conductor.graph.receive import Gather, PerRow, Receive, Reduce, Whole
+from conductor.graph.views import field_problems
 from conductor.interface import Interface
 from conductor.metadata import Input, Output
 from conductor.node import NodeVersion, Refuses
@@ -235,6 +237,9 @@ class _Walk:
         #: when the walk reaches its first inner node, with the inner field
         #: the series entered through; ``None`` when no series enters.
         self.scopes: dict[str, tuple[Index, Ref] | None] = {}
+        #: Embedded graphs whose entering series disagree; their inner nodes
+        #: are not derived.
+        self.misaligned_placements: set[str] = set()
 
     def result(self) -> Iteration:
         fields = {**self.arrived, **self.carried}
@@ -253,7 +258,7 @@ class _Walk:
         arrive and derive nothing."""
         scope = self._scope_of(node)
         arrived = self._read_inputs(node, scope)
-        if arrived.broken:
+        if arrived.broken or self.placement_of.get(node.id) in self.misaligned_placements:
             self._complete_without_deriving(node, arrived)
         else:
             self._derive(node, arrived, scope)
@@ -263,13 +268,20 @@ class _Walk:
         row of, and the inner field it entered through; ``None`` when ``node``
         is at the top level or that graph runs once. Found on the first inner
         node visited and recorded under the id of the node that embeds the
-        graph."""
+        graph. An embedded graph whose entering series disagree is recorded
+        in ``misaligned_placements``: its inner nodes are completed but not
+        derived, so the one ``misaligned`` on the placement is the only report."""
         placement = self.placement_of.get(node.id)
         if placement is None:
             return None
         if placement not in self.scopes:
-            self.scopes[placement] = self._entering_index(placement)
-            self.iterated[placement] = None if self.scopes[placement] is None else self.scopes[placement][0]
+            entering = self._entering_index(placement)
+            if isinstance(entering, Problem):
+                self.problems.append(entering)
+                self.misaligned_placements.add(placement)
+                entering = None
+            self.scopes[placement] = entering
+            self.iterated[placement] = None if entering is None else entering[0]
         return self.scopes[placement]
 
     def _read_inputs(self, node: GraphNode, scope: tuple[Index, Ref] | None) -> _Arrivals:
@@ -386,6 +398,13 @@ class _Walk:
             return
         outputs = answered
         self.completed[node.id] = replace(self.versions[node.id].interface, inputs=inputs, outputs=outputs)
+        faults = field_problems(node.id, outputs, frozenset(i.name for i in inputs), untyped_ok=False)
+        if faults:
+            # An output no edge could carry, or a name used twice: the node has
+            # its interface, so an editor draws it, and nothing is derived
+            # from it, so no reader is told the output is missing.
+            self.problems.extend(faults)
+            return
         if not outputs:
             self.problems.append(problem("no_outputs", node.id))
         # Inside an embedded graph that runs per row, every node runs at least
@@ -422,11 +441,11 @@ class _Walk:
             # The broken source carries the fault; a refusal about its missing
             # arrival would report the same fact twice.
             answered = ()
-        self.completed[node.id] = replace(
-            self.versions[node.id].interface,
-            inputs=tuple(self._typed(inp, arrived.bound) for inp in self.asked[node.id].inputs),
-            outputs=answered,
-        )
+        inputs = tuple(self._typed(inp, arrived.bound) for inp in self.asked[node.id].inputs)
+        self.completed[node.id] = replace(self.versions[node.id].interface, inputs=inputs, outputs=answered)
+        # An output still ``Any`` here is one an edge would have typed; only a
+        # name used twice or a type no edge can carry is the node's own fault.
+        self.problems.extend(field_problems(node.id, answered, frozenset(i.name for i in inputs), untyped_ok=True))
 
     def _outputs(self, node: GraphNode, arriving: Mapping[str, Any]) -> tuple[Output, ...] | Problem:
         """Ask the node's ``compute_outputs`` now that it can be told what
@@ -447,15 +466,16 @@ class _Walk:
         except Refuses as refusal:
             return Problem(code=refusal.code, message=refusal.message, fatal=True, node_id=node.id)
 
-    def _entering_index(self, placement: str) -> tuple[Index, Ref] | None:
+    def _entering_index(self, placement: str) -> tuple[Index, Ref] | None | Problem:
         """The index an embedded graph's inner nodes run once per row of, and
         the inner field it entered through: the deepest index among the
         series that enter it from outside through a scalar field, or ``None``
         when no series enters that way (the inner nodes then run once each,
         as if the graph were flat). A ``**inputs`` parameter receives its
         edge whole and is not a way in. Two entering series on unrelated
-        indexes are reported as ``misaligned`` on the embedded graph's node,
-        exactly as they would be on a single node.
+        indexes are the ``misaligned`` problem returned, on the embedded
+        graph's node with the two fields in the author's addresses, exactly
+        as they would be on a single node.
         """
         block = self.members[placement]
         inside = set(block)
@@ -468,13 +488,20 @@ class _Walk:
                 binding = node.bindings.get(inp.name)
                 if not isinstance(binding, Edges) or getattr(inp.dtype, "element", None) is not None or self._whole(node_id, inp):
                     continue
-                for source in binding.refs:
-                    if source.node_id not in inside and source in self.carried and self.carried[source].index is not None:
-                        demands.append((self.carried[source].index, Ref(node_id, inp.name)))
+                entering = {
+                    self.carried[source].index
+                    for source in binding.refs
+                    if source.node_id not in inside and source in self.carried and self.carried[source].index is not None
+                }
+                # One input, one index: several edges on different indexes into
+                # one scalar input is the node's own fault (``union_needs_one_index``),
+                # reported when the node is read, not a disagreement between fields.
+                if len(entering) == 1:
+                    demands.append((entering.pop(), Ref(node_id, inp.name)))
         index, disagreeing = self._iteration_index(demands)
         if disagreeing is not None:
-            self.problems.append(self._misaligned(placement, *disagreeing))
-            return None
+            a, b = disagreeing
+            return self._misaligned(placement, authored_ref(a), authored_ref(b))
         if index is None:
             return None
         entered_through = next(ref for demanded, ref in demands if demanded == index)
@@ -541,8 +568,8 @@ class _Walk:
                 source=str(source_ref),
                 source_type=description_of(source.dtype),
                 target_type=description_of(target),
-                source_said=_say(source.dtype),
-                target_said=_say(target),
+                source_said=name_of(source.dtype),
+                target_said=name_of(target),
             )]
         return []
 
@@ -567,13 +594,6 @@ class _Walk:
     @staticmethod
     def _misaligned(node_id: str, a: Ref, b: Ref) -> Problem:
         return problem("misaligned", node_id, a=str(a), b=str(b))
-
-
-def _say(dtype: Any) -> str:
-    """A type named by its id, for the English message: ``text``, ``a series of text``."""
-    if dtype.element is not None:
-        return f"a series of {dtype.element.id}"
-    return dtype.id
 
 
 def _lineage(index: Index) -> list[Index]:

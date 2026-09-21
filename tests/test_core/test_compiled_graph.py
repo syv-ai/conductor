@@ -366,16 +366,6 @@ def test_the_engine_asks_for_a_placement_its_version_and_its_runner():
     assert compiled.node("old").graph_node.type == "renamed"
     assert compiled.node("old").version.interface.inputs[0].name == "old"
     assert compiled.node("old").runner(old=Txt("hej")) == "hej"
-    assert compiled.node("old").dependencies == frozenset()
-
-
-def test_dependencies_are_read_off_the_wires():
-    compiled = _compiled([
-        GraphNode(id="a", type="echo", version=1),
-        GraphNode(id="b", type="echo", version=1, bindings={"x": Edges(refs=(Ref("a", "result"),)), "y": Edges(refs=(Ref("a", "result"),))}),
-    ])
-
-    assert compiled.node("b").dependencies == frozenset({"a"})
 
 
 # --- the artifact is a value ------------------------------------------------
@@ -420,3 +410,34 @@ def test_the_artifact_and_its_diagnostics_are_importable_from_the_root():
     assert callable(conductor.CompiledGraph.from_graph)
     for gone in ("compile", "resolve_graph_outputs", "FOR_EACH"):
         assert not hasattr(conductor, gone), gone
+
+
+# --- the call model, and what the record does not carry ------------------------------
+
+
+def test_the_call_model_is_built_once_per_compiled_node():
+    """C13: the pydantic model that validates a call is compile's, built once,
+    not the engine's per unit."""
+    compiled = _compiled([GraphNode(id="a", type="echo", version=1, bindings={"x": Static(value="hi")})])
+
+    model = compiled.node("a").call_model
+    assert model is compiled.node("a").call_model
+    assert isinstance(model(x=Txt("a"), y=Txt("b")).x, Txt)
+    with pytest.raises(KeyError):
+        _compiled([GraphNode(id="b", type="echo", version=1, bindings={"x": Edges(refs=(Ref("ghost", "result"),))})]).node("b").call_model
+
+
+def test_the_record_keeps_the_authored_graph_and_the_registry_and_drops_what_nothing_calls():
+    """C14: ``dependencies``, a node's or a field's own ``problems`` are gone —
+    ``compiled.problems`` is the one list, filtered by whoever needs a slice —
+    while the authored graph and the registry stay, so a compiled graph can
+    produce another."""
+    graph = Graph(nodes=[GraphNode(id="a", type="echo", version=1, bindings={"x": Static(value="hi"), "z": Static(value=1)})])
+    registry = _registry()
+    compiled = CompiledGraph.from_graph(graph, registry)
+
+    assert compiled._graph is graph and compiled._registry is registry
+    assert not hasattr(compiled.node("a"), "dependencies")
+    assert not hasattr(compiled.node("a"), "problems")
+    assert not hasattr(compiled.field(Ref("a", "x")), "problems")
+    assert [p.code for p in compiled.problems if p.node_id == "a"] == ["stale_binding"]

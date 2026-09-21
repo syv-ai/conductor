@@ -84,7 +84,6 @@ from conductor.execution.events import (
 from conductor.execution.ledger import Ledger, Skip, Unit
 from conductor.execution.record import RunRecord
 from conductor.graph.compiled import CompiledGraph
-from conductor.interface import model_of
 from conductor.returns import unpack
 
 # -- entry points ---------------------------------------------------------------
@@ -499,7 +498,7 @@ class _Leg:
         node = self.compiled.node(node_id)
         version = node.version
         try:
-            validated = model_of(node.interface.inputs)(**inputs)
+            validated = node.call_model(**inputs)
         except ValidationError as invalid:
             reason = self._describe(invalid, node.interface.inputs)
             raise NodeValidationError(

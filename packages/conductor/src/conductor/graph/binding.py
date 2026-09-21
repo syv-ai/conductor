@@ -31,6 +31,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping, TypeAlias
 
+from pydantic import Field
+
 from conductor.model import ConductorModel
 from conductor.ref import Ref
 
@@ -39,15 +41,16 @@ class Edges(ConductorModel):
     """The input's value arrives over one or more edges from other nodes' outputs.
 
     ``refs`` names those outputs in the order the author connected them,
-    and that order is the only order there is. A scalar input has one ref;
-    a ``Series[X]`` input may have several, gathered into one series. There
-    is no per-ref enable flag: muting an operand is deleting it.
+    and that order is the only order there is; an edge with no refs is not
+    a binding and is refused where it is written. A scalar input has one
+    ref; a ``Series[X]`` input may have several, gathered into one series.
+    There is no per-ref enable flag: muting an operand is deleting it.
 
     Written by the editor when two handles are connected; read by compile.
     Its one sibling is ``Static``.
     """
 
-    refs: tuple[Ref, ...]
+    refs: tuple[Ref, ...] = Field(min_length=1)
 
 
 class Static(ConductorModel):

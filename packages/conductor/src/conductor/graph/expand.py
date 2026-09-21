@@ -10,12 +10,18 @@ placement's own bindings move onto the inner fields they name, and edges
 from outside into the placement are re-pointed at the inner field they
 reach. The engine then runs one flat graph.
 
-``/`` separates namespace levels inside a node id (an editor never mints
-one) and ``.`` stays the address separator, so an expanded address reads
-``approve/check.amount``. The inverse — ``approve`` plus ``check.amount``
-— is how a problem found inside is reported on the node the author can
-see, and how ``CompiledGraph`` answers a question asked with the
-placement's own address.
+``/`` separates namespace levels inside a node id and ``.`` stays the
+address separator, so an expanded address reads ``approve/check.amount``.
+Only compile writes a ``/``: an authored id holding one is refused
+(``invalid_node_id``), or it could collide with an inner node's expanded
+id and be read in its place. The inverse — ``approve`` plus
+``check.amount`` — is how a problem found inside is reported on the node
+the author can see, and how ``CompiledGraph`` answers a question asked
+with the placement's own address.
+
+A graph that embeds itself, directly or through another graph, would
+expand forever; ``inline`` carries the chain of definitions being entered
+and reports the node that closes the ring as a ``cycle``.
 
 The expanded order is the authored order with each placement replaced by
 its inner order, recursively. That is a topological order of the expanded
@@ -26,8 +32,9 @@ inner node is.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from conductor.graph.binding import Binding, Edges
 from conductor.graph.model import GraphNode
@@ -84,7 +91,7 @@ def expand(
     expander = _Expander(registry)
     for node_id in order:
         if node_id in versions:
-            expander.inline(authored[node_id], versions[node_id], enclosing=None)
+            expander.inline(authored[node_id], versions[node_id], enclosing=None, chain=())
     expander.reconnect()
     return expander.result()
 
@@ -110,10 +117,13 @@ class _Expander:
         self.placement_versions: dict[str, GraphVersion] = {}
         self.placements: set[str] = set()
 
-    def inline(self, node: GraphNode, version: NodeVersion | GraphVersion, enclosing: str | None) -> None:
+    def inline(self, node: GraphNode, version: NodeVersion | GraphVersion, enclosing: str | None, chain: tuple[str, ...]) -> None:
         """Add ``node`` to the expanded graph — itself, or its inner nodes
         under its name when ``version`` is a graph. ``enclosing`` is the
-        innermost placement the node sits in, ``None`` at the top."""
+        innermost placement the node sits in, ``None`` at the top; ``chain``
+        the definitions (by type id) whose graphs are being entered, so a
+        graph that holds a node of a type already in it is a ``cycle`` on
+        that node rather than an expansion without end."""
         if isinstance(version, NodeVersion):
             self.nodes[node.id] = node
             self.order.append(node.id)
@@ -122,11 +132,20 @@ class _Expander:
             for placement in _enclosing(node.id):
                 self.members.setdefault(placement, []).append(node.id)
             return
+        if node.type in chain:
+            self.problems.append(problem("cycle", node.id))
+            return
         self.placement_of[node.id] = enclosing
         self.placements.add(node.id)
         self.placement_versions[node.id] = version
         self.members.setdefault(node.id, [])
-        inner_nodes = {namespaced.id: namespaced for namespaced in (self._namespaced(node.id, inner) for inner in version.graph)}
+        inner_nodes: dict[str, GraphNode] = {}
+        for inner in version.graph:
+            if SEPARATOR in inner.id:
+                self.problems.append(problem("invalid_node_id", f"{node.id}{SEPARATOR}{inner.id}"))
+                continue
+            namespaced = self._namespaced(node.id, inner)
+            inner_nodes[namespaced.id] = namespaced
         moved = self._moved(node, inner_nodes)
         inner_versions: dict[str, NodeVersion | GraphVersion] = {}
         for inner_id, inner in inner_nodes.items():
@@ -145,7 +164,7 @@ class _Expander:
         self.problems.extend(problem("cycle", inner_id) for inner_id in sorted(cyclic))
         for inner_id in inner_order:
             if inner_id in inner_versions:
-                self.inline(moved.get(inner_id, inner_nodes[inner_id]), inner_versions[inner_id], enclosing=node.id)
+                self.inline(moved.get(inner_id, inner_nodes[inner_id]), inner_versions[inner_id], enclosing=node.id, chain=(*chain, node.type))
 
     def _moved(self, placement: GraphNode, inner_nodes: Mapping[str, GraphNode]) -> dict[str, GraphNode]:
         """The placement's bindings, moved onto the inner fields they name.
@@ -228,31 +247,44 @@ def authored_ref(ref: Ref) -> Ref:
     return Ref(placement, f"{inner.replace(SEPARATOR, '.')}.{ref.field}")
 
 
-def surfaced(problem: Problem, nodes: Mapping[str, GraphNode]) -> Problem:
+def surfaced(problem: Problem, nodes: Mapping[str, GraphNode], authored: Iterable[str]) -> Problem:
     """Move a problem found inside a placement onto the placement, where the author can see it.
 
-    The author sees ``approve``, not ``approve/check``: the node becomes
+    A problem on a node the author placed (``authored``) is theirs already
+    and is left alone — including the one about an authored id that holds
+    a ``/``. The author sees ``approve``, not ``approve/check``: the node becomes
     the placement, the field becomes the inner address the authored graph
     already uses (``check.amount``), and the message is prefixed with the
-    inner node's title. The code stays the inner problem's; ``details``
-    carries the placement's title and the inner message and details, so a
-    host can rebuild the nested sentence in its own language.
+    inner node's title. The code stays the inner problem's, and so do its
+    ``details`` under their own keys — every expanded address in them
+    rewritten to the author's (``approve/check.amount`` → ``approve.check.amount``)
+    — with ``placement`` (the inner node's title) and ``inner_message``
+    added beside them, so a host translating by code finds the same keys
+    inside a placement as outside one.
     """
-    if SEPARATOR not in problem.node_id:
+    if SEPARATOR not in problem.node_id or problem.node_id in authored:
         return problem
     placement, inner = problem.node_id.split(SEPARATOR, 1)
     inner_address = inner.replace(SEPARATOR, ".")
-    title = nodes[problem.node_id].title if problem.node_id in nodes else inner_address
+    title = (nodes[problem.node_id].title if problem.node_id in nodes else None) or inner_address
     return problem.model_copy(update={
         "node_id": placement,
         "field": authored_ref(Ref(problem.node_id, problem.field)).field if problem.field else inner_address,
-        "message": f"In '{title or inner_address}': {problem.message}",
+        "message": f"In '{title}': {problem.message}",
         "details": {
-            "placement": title or inner_address,
+            **{key: authored_address(value) for key, value in problem.details.items()},
+            "placement": title,
             "inner_message": problem.message,
-            "inner_details": dict(problem.details),
         },
     })
+
+
+def authored_address(value: Any) -> Any:
+    """``value`` with an expanded id or address rewritten to the author's:
+    ``"e/p.a"`` → ``"e.p.a"``, ``"e/p"`` → ``"e.p"``; anything else as it is."""
+    if not isinstance(value, str) or SEPARATOR not in value:
+        return value
+    return str(authored_ref(Ref(value))) if "." in value else value.replace(SEPARATOR, ".")
 
 
 def _enclosing(expanded_id: str) -> list[str]:

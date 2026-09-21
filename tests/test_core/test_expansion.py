@@ -152,8 +152,6 @@ def test_the_placements_bindings_move_onto_the_inner_fields_they_name():
 
     assert compiled.field(Ref("emb/holder", "value")).binding == Edges(refs=(Ref("src", "result"),))
     assert compiled.field(Ref("after", "text")).binding == Edges(refs=(Ref("emb/join", "result"),))
-    assert compiled.node("emb/holder").dependencies == frozenset({"src"})
-    assert compiled.node("after").dependencies == frozenset({"emb/join"})
 
 
 def test_an_unconnected_placement_keeps_the_inner_statics_and_expands_flat():
@@ -199,16 +197,14 @@ def test_a_problem_found_inside_surfaces_on_the_placement():
         GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.value": Edges(refs=(Ref("ghost", "result"),))}),
     ])
 
-    problems = compiled.node("emb").problems
+    problems = [p for p in compiled.problems if p.node_id == "emb"]
     assert [(p.code, p.field) for p in problems] == [("unknown_ref_node", "holder.value")]
-    assert compiled.field(Ref("emb", "holder.value")).problems == problems  # by either address
-    assert compiled.field(Ref("emb/holder", "value")).problems == problems
-    assert compiled.node("emb/holder").problems == ()  # anchored on the node the author placed
+    assert [p for p in compiled.problems if p.node_id == "emb/holder"] == []  # anchored on the node the author placed
     assert problems[0].message.startswith("In 'Text':")
     assert problems[0].details == {
+        "source_node": "ghost",
         "placement": "Text",
         "inner_message": "Field 'value' is connected to 'ghost', which is not in the graph.",
-        "inner_details": {"source_node": "ghost"},
     }
     assert not any("/" in (p.node_id or "") for p in compiled.problems)
 
@@ -417,3 +413,151 @@ def test_a_nested_placement_expands_under_both_names():
     assert compiled.node("top/pre").embedded_in == "top"
     assert compiled.field(Ref("after", "text")).binding == Edges(refs=(Ref("top/inner/join", "result"),))
     assert compiled.field(Ref("top", "inner.join.result")).type is Txt
+
+
+# --- what compile refuses about an embedded graph ---------------------------------------
+
+
+def test_an_authored_id_with_a_slash_is_refused_and_never_collides_with_an_inner_node():
+    """C5: ``/`` names the nodes of an embedded graph. An authored ``e/holder``
+    beside a placement ``e`` used to appear twice in the order and be read by
+    the inner nodes; now it is refused on its own."""
+    compiled = _compiled([
+        GraphNode(id="e/holder", type="holder", version=1, bindings={"value": Static(value="impostor")}),
+        GraphNode(id="e", type="inner-graph", version=1),
+    ])
+
+    assert [(p.code, p.fatal, p.node_id) for p in compiled.problems] == [("invalid_node_id", True, "e/holder")]
+    assert compiled.execution_order().count("e/holder") == 1
+    assert compiled.field(Ref("e/holder", "value")).binding == Static(value="inner")
+
+
+def test_a_graph_that_embeds_itself_is_a_cycle_not_a_recursion_error():
+    """C6: a definition whose graph holds a node of its own type, directly or
+    through another, is reported as a cycle on the node that closes it."""
+    selfish = _embedded_definition(
+        "selfish",
+        (GraphNode(id="again", type="selfish", version=1),),
+        inputs=(),
+        outputs=(),
+    )
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="s", type="selfish", version=1)]), _registry(selfish))
+
+    assert [(p.code, p.node_id, p.field) for p in compiled.problems] == [("cycle", "s", "again")]
+    assert not compiled.is_runnable
+
+
+def test_two_graphs_that_embed_each_other_are_a_cycle():
+    """C6, through another: A holds B, B holds A."""
+    a = _embedded_definition("ring-a", (GraphNode(id="b", type="ring-b", version=1),), inputs=(), outputs=())
+    b = _embedded_definition("ring-b", (GraphNode(id="a", type="ring-a", version=1),), inputs=(), outputs=())
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="top", type="ring-a", version=1)]), _registry(a, b))
+
+    assert [(p.code, p.node_id, p.field) for p in compiled.problems] == [("cycle", "top", "b.a")]
+
+
+def test_a_placements_interface_is_derived_from_its_graph_and_a_declaration_it_lacks_is_reported():
+    """C9: the host declares what its embedded graph takes and returns; compile
+    reads it off the inner graph and says where the declaration disagrees. A
+    field the graph does not have is not advertised and cannot be asked for."""
+    inner = _embedded_definition(
+        "declared-wrong",
+        _inner_graph(),
+        inputs=(
+            Input(name="holder.value", dtype=Txt, title="Text", widget=Textarea(), default=Txt(""), optional=True),
+            Input(name="phantom.value", dtype=Txt, title="Phantom", widget=Textarea(), default=Txt(""), optional=True),
+        ),
+        outputs=(Output(name="join.result", dtype=Txt, title="Result"), Output(name="ghost.out", dtype=Txt, title="Ghost")),
+    )
+    compiled = _compiled([GraphNode(id="emb", type="declared-wrong", version=1)], inner)
+
+    assert [(p.code, p.fatal, p.node_id, p.field) for p in compiled.problems] == [
+        ("graph_interface_mismatch", False, "emb", "phantom.value"),
+        ("graph_interface_mismatch", False, "emb", "ghost.out"),
+    ]
+    assert compiled.is_runnable
+    assert [i.name for i in compiled.interface.inputs] == ["emb.holder.value"]
+    assert [o.name for o in compiled.interface.outputs] == ["emb.join.result"]
+    assert [o.name for o in compiled.node("emb").interface.outputs] == ["join.result"]
+    with pytest.raises(KeyError):
+        compiled.field(Ref("emb", "ghost.out"))
+
+
+def test_a_declared_type_that_differs_from_the_inner_graphs_is_reported_and_the_graphs_wins():
+    """C9: declared and inner types can differ; the inner graph's is the one that runs."""
+
+    class Num(DType, float):
+        id = "expansion-test-num"
+        title = "Number"
+
+    inner = _embedded_definition(
+        "declared-wrong-type",
+        _inner_graph(),
+        inputs=(Input(name="holder.value", dtype=Num, title="Text", widget=Textarea(), default=Num(0), optional=True),),
+        outputs=(Output(name="join.result", dtype=Txt, title="Result"),),
+    )
+    compiled = _compiled([GraphNode(id="emb", type="declared-wrong-type", version=1)], inner)
+
+    (problem,) = compiled.problems
+    assert (problem.code, problem.fatal, problem.field) == ("graph_interface_mismatch", False, "holder.value")
+    assert problem.details == {"declared": "expansion-test-num", "actual": "expansion-test-txt"}
+    assert compiled.interface.inputs[0].dtype is Txt
+
+
+def test_misaligned_inside_an_embedded_graph_is_reported_once_with_the_authors_addresses():
+    """C12: one inner node fed two unrelated outer series was reported twice —
+    once on the placement with expanded addresses leaking, once surfaced from
+    the inner node with a different details shape. Now once, on the
+    placement, with the addresses the author sees, in the shape every
+    ``misaligned`` has."""
+    inner = _embedded_definition(
+        "pairs",
+        (GraphNode(id="p", type="pair", version=1),),
+        inputs=(
+            Input(name="p.a", dtype=Txt, title="A", widget=Textarea(), default=Txt(""), optional=True),
+            Input(name="p.b", dtype=Txt, title="B", widget=Textarea(), default=Txt(""), optional=True),
+        ),
+        outputs=(Output(name="p.result", dtype=Txt, title="Result"),),
+    )
+
+    class Pair(NodeDefinition):
+        id = "pair"
+        title = "Pair"
+        description = "d"
+        category = "test"
+
+        def run(
+            self,
+            a: Annotated[Txt, Param(title="A", widget=Textarea())] = Txt(""),
+            b: Annotated[Txt, Param(title="B", widget=Textarea())] = Txt(""),
+        ) -> Out:
+            return Txt(a + b)
+
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[
+            GraphNode(id="d1", type="docs", version=1),
+            GraphNode(id="d2", type="docs", version=1),
+            GraphNode(id="emb", type="pairs", version=1, bindings={"p.a": Edges(refs=(Ref("d1", "result"),)), "p.b": Edges(refs=(Ref("d2", "result"),))}),
+        ]),
+        _registry(inner, Pair),
+    )
+
+    (problem,) = compiled.problems
+    assert (problem.code, problem.node_id) == ("misaligned", "emb")
+    assert problem.details == {"a": "emb.p.a", "b": "emb.p.b"}
+    assert "emb/" not in problem.message and "emb/" not in str(problem.details)
+
+
+def test_a_problem_surfaced_from_inside_keeps_its_details_and_rewrites_the_addresses():
+    """C12: surfacing adds ``placement`` and ``inner_message`` beside the
+    inner problem's own details, with every address in them rewritten to the
+    author's — never a nested ``inner_details``."""
+    compiled = _compiled([
+        GraphNode(id="d1", type="docs", version=1),
+        GraphNode(id="d2", type="docs", version=1),
+        GraphNode(id="emb", type="inner-graph", version=1, bindings={"up.text": Edges(refs=(Ref("d1", "result"), Ref("d2", "result")))}),
+    ])
+
+    (problem,) = compiled.problems
+    assert (problem.code, problem.node_id, problem.field) == ("union_needs_one_index", "emb", "up.text")
+    assert problem.details == {"placement": "Upper", "inner_message": "Field 'text' has several edges; that only works when they are all rows of one table."}
