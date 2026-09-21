@@ -134,6 +134,32 @@ def _order(unit: Unit) -> Row:
     return () if unit[1] is None else unit[1]
 
 
+@dataclass(frozen=True, slots=True)
+class _Reader:
+    """One node reading one output of another node, and how it receives it.
+
+    Filed when the ledger is built, under the output it reads and, for a
+    series, under the index that series sits on, so that a write asks only
+    its own readers. Read by the wake path after every record, and by a
+    restore to drop the readers of a node that changed. A ``per_row``
+    reader wakes at the written cell's row; any other wakes when the group
+    it reads is complete, ``depth`` being the group's, or ``None`` for a
+    reader that takes everything on the field.
+    """
+
+    node_id: str
+    ref: Ref
+    received: Receive
+
+    @property
+    def per_row(self) -> bool:
+        return isinstance(self.received, (Iterate, Broadcast))
+
+    @property
+    def depth(self) -> int | None:
+        return self.received.depth if isinstance(self.received, Group) else None
+
+
 class Ledger:
     """The record of one run over one compiled graph, and what it makes ready.
 
@@ -166,83 +192,96 @@ class Ledger:
         self._written_rows: dict[tuple[Ref, Row | None], tuple[list[Row], int]] = {}
         #: Each field's index as compile stored it, looked up once.
         self._indexes: dict[Ref, Index | None] = {}
+
+        # What the graph says, read off compile once: who reads which output
+        # and how, which nodes birth rows on which index, and where the
+        # author typed a list into a scalar input.
+        order = compiled.execution_order()
+        self._position = {node_id: n for n, node_id in enumerate(order)}
         #: Nodes that birth rows on an index: those with a series output.
         self._births = frozenset(
             node_id
-            for node_id in compiled.execution_order()
+            for node_id in order
             if any(o.dtype.element is not None for o in compiled.node(node_id).interface.outputs)
         )
-        self._position = {node_id: n for n, node_id in enumerate(compiled.execution_order())}
-
-        # Who reads what, from the edges, so a write asks only its readers.
         #: Per node, its connected inputs: the edges and how the input receives them.
         self._connected: dict[str, tuple[tuple[Edges, Receive], ...]] = {}
-        #: Per output, the nodes reading it one row at a time.
-        self._scalar_readers: dict[Ref, list[str]] = {}
-        #: Per output, the nodes reading it as a series, and the depth they
-        #: group at — ``None`` for a reader that takes everything on it.
-        self._series_readers: dict[Ref, list[tuple[str, int | None]]] = {}
-        #: The same readers by the index of the output they read.
-        self._series_readers_on: dict[str, list[tuple[Ref, str, int | None]]] = {}
-        #: Per index, the nodes that run once per row of it.
+        #: Per output, who reads it; and the readers of a series again by the
+        #: index it sits on, for the writes that birth or seal rows there.
+        self._readers: dict[Ref, list[_Reader]] = {}
+        self._readers_on: dict[str, list[_Reader]] = {}
+        #: Per index, the nodes that run once per row of it, and those among
+        #: them that birth rows of their own.
         self._iterating_on: dict[str, list[str]] = {}
-        #: Per index, the nodes running once per row of it that birth rows of their own.
         self._births_on: dict[str, list[str]] = {}
-        #: Per index, the typed-in lists whose index is its child, and how many
-        #: values each holds: inside an embedded graph that runs once per row,
-        #: the author's list is a child row under each of those rows.
+        #: Typed-in lists. Under a parent index: per parent, each list's index
+        #: and how many values it holds, its rows born with each parent row.
+        #: On a root: born here from the graph as it is now, so a restore
+        #: never takes them from a record.
         self._typed_under: dict[str, list[tuple[str, int]]] = {}
-        #: The indexes of those typed-in lists, and of the typed-in lists on a
-        #: root, which are born here from the graph as it is now — so a
-        #: restore never takes them from a record.
         self._typed_children: set[str] = set()
         self._typed_roots: set[str] = set()
-        typed: list[str] = []
-        for node_id in compiled.execution_order():
-            node = compiled.node(node_id)
-            connected: list[tuple[Edges, Receive]] = []
-            for inp in node.interface.inputs:
-                own = Ref(node_id, inp.name)
-                binding = compiled.field(own).binding
-                received = compiled.field(own).receives
-                # A scalar input where the author typed many values holds a
-                # series on an index of the input's own, and the node runs
-                # once per value: compile says so as ``Iterate`` on that index
-                # with a typed-in binding. On a root index its rows are known
-                # before anything runs, so they are born and sealed here;
-                # under a parent index they are born with each parent row.
-                if isinstance(binding, Static) and isinstance(received, Iterate):
-                    index, count = received.index, len(node.statics[inp.name])
-                    if index.parent is not None:
-                        self._typed_under.setdefault(index.parent.id, []).append((index.id, count))
-                        self._typed_children.add(index.id)
-                        continue
-                    for n in range(count):
-                        self._born(index.id, (n,))
-                    self._sealed.add(index.id)
-                    self._typed_roots.add(index.id)
-                    typed.append(index.id)
-                if not isinstance(binding, Edges):
-                    continue
-                connected.append((binding, received))
-                depth = received.depth if isinstance(received, Group) else None
-                for ref in binding.refs:
-                    if isinstance(received, (Iterate, Broadcast)):
-                        self._scalar_readers.setdefault(ref, []).append(node_id)
-                        continue
-                    self._series_readers.setdefault(ref, []).append((node_id, depth))
-                    if self._index(ref) is not None:
-                        self._series_readers_on.setdefault(self._index(ref).id, []).append((ref, node_id, depth))
-            self._connected[node_id] = tuple(connected)
-            if node.iterates_on is not None:
-                self._iterating_on.setdefault(node.iterates_on.id, []).append(node_id)
-                if node_id in self._births:
-                    self._births_on.setdefault(node.iterates_on.id, []).append(node_id)
-        for index_id in typed:
+        for node_id in order:
+            self._map_readers(node_id)
+        roots = [root for node_id in order for root in self._map_typed_lists(node_id)]
+        self._birth_typed_roots(roots)
+
+    def _map_readers(self, node_id: str) -> None:
+        """File what this node reads and how — one ``_Reader`` per edge, under
+        the output it reads and, for a series, under the index that series
+        sits on — and the index the node itself iterates on."""
+        node = self._compiled.node(node_id)
+        connected: list[tuple[Edges, Receive]] = []
+        for inp in node.interface.inputs:
+            field = self._compiled.field(Ref(node_id, inp.name))
+            if not isinstance(field.binding, Edges):
+                continue
+            connected.append((field.binding, field.receives))
+            for ref in field.binding.refs:
+                reader = _Reader(node_id, ref, field.receives)
+                self._readers.setdefault(ref, []).append(reader)
+                index = self._index(ref)
+                if not reader.per_row and index is not None:
+                    self._readers_on.setdefault(index.id, []).append(reader)
+        self._connected[node_id] = tuple(connected)
+        if node.iterates_on is not None:
+            self._iterating_on.setdefault(node.iterates_on.id, []).append(node_id)
+            if node_id in self._births:
+                self._births_on.setdefault(node.iterates_on.id, []).append(node_id)
+
+    def _map_typed_lists(self, node_id: str) -> list[str]:
+        """The lists the author typed into this node's scalar inputs — compile
+        says ``Iterate`` on an index of the input's own, one row per value,
+        under a typed-in binding. A list under a parent index is filed to be
+        born with each parent row. A list on a root has its rows born and
+        sealed here, and its index is returned."""
+        node = self._compiled.node(node_id)
+        roots: list[str] = []
+        for inp in node.interface.inputs:
+            field = self._compiled.field(Ref(node_id, inp.name))
+            if not (isinstance(field.binding, Static) and isinstance(field.receives, Iterate)):
+                continue
+            index, count = field.receives.index, len(node.statics[inp.name])
+            if index.parent is not None:
+                self._typed_under.setdefault(index.parent.id, []).append((index.id, count))
+                self._typed_children.add(index.id)
+                continue
+            for n in range(count):
+                self._born(index.id, (n,))
+            self._sealed.add(index.id)
+            self._typed_roots.add(index.id)
+            roots.append(index.id)
+        return roots
+
+    def _birth_typed_roots(self, roots: list[str]) -> None:
+        """Under every row of a typed-in list on a root, birth the typed-in
+        lists whose index is its child and seal them; then seal the index of
+        every node that births rows per row of a list complete from the start."""
+        for index_id in roots:
             for row in sorted(self._rows.get(index_id, ())):
                 self._born_typed(index_id, row)
             self._seal_typed(index_id, [])
-        self._seal([node_id for index_id in typed for node_id in self._births_on.get(index_id, ())])
+        self._seal([node_id for index_id in roots for node_id in self._births_on.get(index_id, ())])
 
     # -- units ---------------------------------------------------------------
 
@@ -674,29 +713,27 @@ class Ledger:
         node_id, row = unit
         woken: set[Unit] = set()
         for ref, key in written:
-            for reader in self._scalar_readers.get(ref, ()):
-                woken.update(self._units_under(reader, key))
-            for reader, depth in self._series_readers.get(ref, ()):
-                if depth is not None and _depth(key) < depth:
-                    woken.update(self._units_under(reader, key))
+            for reader in self._readers.get(ref, ()):
+                if reader.per_row or (reader.depth is not None and _depth(key) < reader.depth):
+                    woken.update(self._units_under(reader.node_id, key))
                 else:
-                    self._wake_group(ref, reader, _group(key, depth), woken)
+                    self._wake_group(ref, reader.node_id, _group(key, reader.depth), woken)
         for key in born:
             woken.update((reader, key) for reader in self._iterating_on.get(node_id, ()))
         for at in barren:
             woken.update((reader, at) for reader in self._iterating_on.get(node_id, ()))
         for index_id, key in typed:
             woken.update((reader, key) for reader in self._iterating_on.get(index_id, ()))
-        for ref, reader, depth in self._series_readers_on.get(node_id, ()):
+        for reader in self._readers_on.get(node_id, ()):
             for key in born:
-                if depth == len(key):
-                    self._wake_group(ref, reader, key, woken)
-            if row is not None and depth == len(row):
-                self._wake_group(ref, reader, row, woken)
+                if reader.depth == len(key):
+                    self._wake_group(reader.ref, reader.node_id, key, woken)
+            if row is not None and reader.depth == len(row):
+                self._wake_group(reader.ref, reader.node_id, row, woken)
         for index_id in sealed:
-            for ref, reader, depth in self._series_readers_on.get(index_id, ()):
-                if depth is None:
-                    self._wake_group(ref, reader, None, woken)
+            for reader in self._readers_on.get(index_id, ()):
+                if reader.depth is None:
+                    self._wake_group(reader.ref, reader.node_id, None, woken)
         ready = [u for u in woken if u not in self._done and u not in self._pending and self.ready(u)]
         return sorted(ready, key=lambda u: (self._position[u[0]], _order(u)))
 
@@ -943,11 +980,10 @@ class Ledger:
             node_id = frontier.pop()
             for out in compiled.node(node_id).interface.outputs:
                 ref = Ref(node_id, out.name)
-                readers = [*self._scalar_readers.get(ref, ()), *(reader for reader, _ in self._series_readers.get(ref, ()))]
-                for reader in readers:
-                    if reader not in dropped:
-                        dropped.add(reader)
-                        frontier.append(reader)
+                for reader in self._readers.get(ref, ()):
+                    if reader.node_id not in dropped:
+                        dropped.add(reader.node_id)
+                        frontier.append(reader.node_id)
         for index_id in list(dropped):
             dropped.update(self._typed_below(index_id))
         return dropped
