@@ -3,10 +3,10 @@
 ``CompiledGraph.from_graph`` builds it from a ``Graph`` and a ``NodeRegistry``.
 Everyone else asks it questions and never reads the nodes' bindings
 themselves: which version each node uses, which inputs and outputs it
-actually has, where each input's value comes from, what type travels on
-every field, which nodes run once per row and in what order, under which
-condition each output appears, and what is wrong. The engine is one more
-caller.
+actually has, where each input's value comes from and how each unit
+receives it, what type travels on every field, which nodes run once per
+row and in what order, under which condition each output appears, and
+what is wrong. The engine is one more caller.
 
 The questions come at three scales. The graph itself answers what it
 takes and returns (``interface``), what is wrong with it (``problems``,
@@ -68,26 +68,28 @@ from conductor.codec import to_wire
 from conductor.graph.binding import Binding, Static
 from conductor.graph.expand import authored_ref, expanded_ref
 from conductor.graph.problem import Problem
+from conductor.graph.receive import PerRow
 from conductor.ref import Ref
 from conductor.series import Series
 
 if TYPE_CHECKING:
     from conductor.graph.conditions import Condition
     from conductor.graph.model import Graph, GraphNode
+    from conductor.graph.receive import Receive
     from conductor.interface import Interface
     from conductor.node import GraphVersion, NodeVersion
     from conductor.registry import NodeRegistry
     from conductor.series import Index
 
 
-def _written(value: Any, dtype: Any) -> Any:
+def _written(value: Any, dtype: Any, listed: bool) -> Any:
     """A static as its declared type writes it, for ``CompiledNode.fingerprint``:
-    each of many typed-in values through the scalar type, a series through
-    its element type, one value through its own."""
+    each of many typed-in values (``listed``) through the scalar type, a
+    series through its element type, one value through its own."""
     element = getattr(dtype, "element", None)
     if element is not None:
         return [to_wire(item, element) for item in (value.values if isinstance(value, Series) else value)]
-    if isinstance(value, list):
+    if listed:
         return [to_wire(item, dtype) for item in value]
     return to_wire(value, dtype)
 
@@ -120,6 +122,10 @@ class CompiledGraph:
     _iterated: Mapping[str, Index | None]
     _indexes: Mapping[Ref, Index | None]
     _types: Mapping[Ref, Any]
+    #: How every input receives its value, as the walk over the edges decided
+    #: it once (``conductor.graph.receive``); the engine reads it and decides
+    #: nothing of the kind again.
+    _receives: Mapping[Ref, Receive]
     _conditions: Mapping[Ref, Condition]
     #: Every node whose version is a graph, by expanded id — the ones the
     #: author placed and the ones nested inside them alike.
@@ -275,8 +281,10 @@ class CompiledNode:
         """The values the author typed into this node, by field.
 
         Each read through the field's declared type — the value, never its
-        JSON form. A value is a ``list`` exactly when the author typed
-        many values.
+        JSON form. Only what the author typed: an input left to its
+        declared default is absent. Where the author typed many values for
+        a scalar input the value is a list of them, and the field's
+        ``receives`` is ``PerRow`` on the input's own index.
         """
         return self._graph._statics[self.id]
 
@@ -301,10 +309,13 @@ class CompiledNode:
                 # The value as its type writes it, never as the author spelled
                 # it: ``2`` and ``2.0`` on a number are one value, and a graph
                 # built in Python with the typed value hashes like the stored
-                # graph with its JSON. A list is what the author typed many of.
+                # graph with its JSON. The author typed many values exactly
+                # when the input is received one per row of its own index.
                 # A static for an input the node no longer has is hashed as
                 # spelled, since no type reads it.
-                bindings[name] = {"static": _written(self.statics[name], declared[name])}
+                received = self._graph._receives[Ref(self.id, name)]
+                listed = isinstance(received, PerRow) and received.index is not None
+                bindings[name] = {"static": _written(self.statics[name], declared[name], listed)}
             else:
                 bindings[name] = binding.model_dump()
         placed = {"type": node.type, "version": node.version, "bindings": bindings}
@@ -342,19 +353,20 @@ class CompiledNode:
 
 @dataclass(frozen=True)
 class CompiledField:
-    """One input or output as the compiler left it: its type, its rows, where its value comes from.
+    """One input or output as the compiler left it: its type, its rows, where its value comes from, how it is received.
 
     ``CompiledGraph.field(ref)`` builds one on each call; nothing stores
-    it. The engine reads ``index`` and ``binding`` to lay values out per
-    row and to find them; an editor reads ``type`` and ``index`` to draw
-    the edge, and ``problems`` to mark the field. Its sibling is
+    it. The engine reads ``index``, ``binding`` and ``receives`` to lay
+    values out per row, to find them and to hand each unit what it takes;
+    an editor reads ``type`` and ``index`` to draw the edge, ``receives``
+    to label it, and ``problems`` to mark the field. Its sibling is
     ``CompiledNode``, the same window onto one node.
 
     An attribute a field cannot answer raises: an input has no
-    ``condition`` and an output has no ``binding``; and no field of a node
-    the edge walk could not derive has a ``type``, ``index`` or
-    ``condition``, since nothing downstream of a fault is guessed at. The
-    ``Problem`` on it says why.
+    ``condition`` and an output has no ``binding`` or ``receives``; and no
+    field of a node the edge walk could not derive has a ``type``,
+    ``index``, ``receives`` or ``condition``, since nothing downstream of
+    a fault is guessed at. The ``Problem`` on it says why.
     """
 
     _graph: CompiledGraph = field(repr=False)
@@ -388,6 +400,17 @@ class CompiledField:
         if self.ref.field not in {i.name for i in self._graph._interfaces[self.ref.node_id].inputs}:
             raise KeyError(f"{node.type!r} has no input {self.ref.field!r} on this node")
         return node.bindings.get(self.ref.field)
+
+    @property
+    def receives(self) -> Receive:
+        """How a unit of this input's node receives the value: the cell at
+        its own row (``PerRow``), everything on the field (``Whole``), the
+        rows under its row (``Reduce``) or its unrelated sources collected
+        (``Gather``) — see ``conductor.graph.receive``. Decided once by the
+        walk over the edges; the engine's ledger reads it to tell when a
+        unit is ready and what to hand it, and an editor may label the
+        edge from it. Only an input has one; asking on an output raises."""
+        return self._graph._receives[self.ref]
 
     @property
     def condition(self) -> Condition:

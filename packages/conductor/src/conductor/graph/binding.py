@@ -29,7 +29,6 @@ not taken carries ``SKIPPED``.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from typing import Any, Mapping, TypeAlias
 
 from conductor.model import ConductorModel
@@ -82,12 +81,3 @@ def static_values(bindings: Mapping[str, Binding]) -> dict[str, Any]:
         for name, binding in bindings.items()
         if isinstance(binding, Static)
     }
-
-
-def many(value: Any) -> bool:
-    """Is ``value`` a sequence of values, as a list widget or a multi-upload holds one?
-
-    Text and bytes are one value each, not sequences. This is the one test
-    for "a typed-in value that stands for many".
-    """
-    return isinstance(value, Sequence) and not isinstance(value, (str, bytes))

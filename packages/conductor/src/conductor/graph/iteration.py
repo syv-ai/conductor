@@ -1,4 +1,4 @@
-"""One walk over the edges: what arrives on every field, and whether each edge is allowed.
+"""One walk over the edges: what arrives on every field, whether each edge is allowed, and how each input receives.
 
 Called by the compiler once every node's inputs are known. It walks the
 nodes in execution order and, for each edge into each input, answers
@@ -40,6 +40,11 @@ feeding the input — several scalars, several series on different
 indexes, a typed-in list, a default — is gathered onto a fresh index
 that belongs to the input, and the node runs once.
 
+Every one of those answers is written down as the input's receive record
+(``conductor.graph.receive``): per row on which index, whole, reduced at
+which depth, or gathered. The engine reads the record and decides
+nothing of this again.
+
 An embedded graph (a node whose version is a graph, inlined by ``expand``)
 has a boundary. Where a series enters it through a scalar field, the
 whole inner graph runs once per row of that index: every inner node runs
@@ -47,7 +52,9 @@ at least once per row of it, every index opened inside it is a child of
 it, and an inner reduction over the entering index receives one row at a
 time — so the inner graph behaves exactly as it would standalone, once
 per outer row. That index is found once, when the walk reaches the first
-inner node, from the edges crossing in (``_Walk._entering_index``).
+inner node, from the edges crossing in (``_Walk._entering_index``), and
+is one more demand on every inner node: an inner node fed rows from an
+index unrelated to it is ``misaligned``, as it would be on a flat node.
 
 A scalar input holding a typed-in sequence (a multi-file upload, a list
 typed by hand) is a series on an index of its own, and the node runs once
@@ -69,9 +76,10 @@ from typing import Any
 
 from conductor.dtype import DType
 from conductor.dtype_ref import description_of
-from conductor.graph.binding import Edges, many
+from conductor.graph.binding import Edges
 from conductor.graph.model import GraphNode
 from conductor.graph.problem import Problem, problem
+from conductor.graph.receive import Gather, PerRow, Receive, Reduce, Whole
 from conductor.interface import Interface
 from conductor.metadata import Input, Output
 from conductor.node import NodeVersion, Refuses
@@ -88,7 +96,8 @@ class Iteration:
     ``None`` when it runs once; for each embedded graph, the index its
     inner nodes run per row of. ``types``: the type that travels on every
     field; ``indexes``: for a field carrying a series, where its rows come
-    from (``None`` otherwise). ``interfaces``: each node's inputs and outputs
+    from (``None`` otherwise). ``receives``: for every input, how a unit
+    receives its value. ``interfaces``: each node's inputs and outputs
     with the types the edges gave them — what ``CompiledGraph.node(...).interface``
     serves from then on. ``problems``: what went wrong.
     """
@@ -96,6 +105,7 @@ class Iteration:
     iterated: Mapping[str, Index | None]
     types: Mapping[Ref, Any]
     indexes: Mapping[Ref, Index | None]
+    receives: Mapping[Ref, Receive]
     interfaces: Mapping[str, Interface]
     problems: tuple[Problem, ...]
 
@@ -106,21 +116,27 @@ def derive(
     versions: Mapping[str, NodeVersion],
     registry: NodeRegistry,
     statics: Mapping[str, Mapping[str, Any]],
+    listed: Mapping[str, frozenset[str]],
     *,
     placement_of: Mapping[str, str | None] = {},
     members: Mapping[str, Sequence[str]] = {},
 ) -> Iteration:
     """Walk ``nodes`` in execution order and record, for each, whether it
-    runs once per row, what type every field carries, and its completed
-    inputs and outputs.
+    runs once per row, what type every field carries, how every input
+    receives, and its completed inputs and outputs.
 
     ``nodes`` holds only nodes whose edges all point at existing nodes
     (the compiler leaves the rest out). A node fed by a node that was
     left out or could not be resolved gets no entry in ``iterated``,
-    ``types`` or ``indexes`` — the broken source carries the problem, and nothing
-    downstream of a fault is guessed at — but its inputs and outputs are
-    still completed from what did arrive, so an editor can draw its
-    handles.
+    ``types``, ``indexes`` or ``receives`` — the broken source carries the
+    problem, and nothing downstream of a fault is guessed at — but its
+    inputs and outputs are still completed from what did arrive, so an
+    editor can draw its handles.
+
+    ``statics`` holds the values the author typed, by node and input, each
+    read through its declared type; ``listed`` names, per node, the scalar
+    inputs where the author typed many values (three files, a list of
+    texts), which the node runs once per value of.
 
     ``compute_outputs`` is asked once per node, here, with ``arriving``
     (the type each connected input receives per call) and the values the
@@ -132,7 +148,7 @@ def derive(
     The index an embedded graph runs per row of is found when its first
     node is reached.
     """
-    walk = _Walk(nodes, interfaces, versions, registry, statics, placement_of, members)
+    walk = _Walk(nodes, interfaces, versions, registry, statics, listed, placement_of, members)
     for node in nodes:
         walk.visit(node)
     return walk.result()
@@ -153,16 +169,18 @@ class _Arrivals:
     """What one node's inputs receive, gathered while its edges are read.
 
     ``arrivals``: per input, what it carries — the type, and the index for
-    a series. ``receives``: per connected input, the type the node sees
-    per call (an element, where a series is sliced per row). ``demands``:
-    the indexes the node must run per row of, each with the input that
-    demands it. ``bound``: the types the edges gave to inputs that had
-    none of their own. ``broken`` is set when a source cannot be read and
-    the walk stopped at that input.
+    a series. ``receives``: per input, how a unit receives it. ``arriving``:
+    per connected input, the type the node sees per call (an element,
+    where a series is sliced per row) — what ``compute_outputs`` is told.
+    ``demands``: the indexes the node must run per row of, each with the
+    input that demands it. ``bound``: the types the edges gave to inputs
+    that had none of their own. ``broken`` is set when a source cannot be
+    read and the walk stopped at that input.
     """
 
     arrivals: dict[str, _Carried] = dataclasses.field(default_factory=dict)
-    receives: dict[str, Any] = dataclasses.field(default_factory=dict)
+    receives: dict[str, Receive] = dataclasses.field(default_factory=dict)
+    arriving: dict[str, Any] = dataclasses.field(default_factory=dict)
     demands: list[tuple[Index, Ref]] = dataclasses.field(default_factory=list)
     bound: dict[str, Any] = dataclasses.field(default_factory=dict)
     broken: bool = False
@@ -184,6 +202,7 @@ class _Walk:
         versions: Mapping[str, NodeVersion],
         registry: NodeRegistry,
         statics: Mapping[str, Mapping[str, Any]],
+        listed: Mapping[str, frozenset[str]],
         placement_of: Mapping[str, str | None],
         members: Mapping[str, Sequence[str]],
     ) -> None:
@@ -194,27 +213,36 @@ class _Walk:
         self.versions = versions
         self.registry = registry
         self.statics = statics
+        self.listed = listed
         self.placement_of = placement_of
         self.members = members
         #: The index each visited node runs once per row of (``None``: once);
         #: each embedded graph's, under its placement id.
         self.iterated: dict[str, Index | None] = {}
-        #: What every field of every visited node carries.
+        #: What every output of every visited node carries: the sources a
+        #: later node's edges may name. Only outputs are sources.
         self.carried: dict[Ref, _Carried] = {}
+        #: What every input of every visited node carries.
+        self.arrived: dict[Ref, _Carried] = {}
+        #: How every input of every visited node receives its value.
+        self.receives: dict[Ref, Receive] = {}
         #: Each visited node's inputs and outputs, completed: every type the
         #: edges gave them, and the outputs as ``compute_outputs`` answered.
         #: What ``Iteration.interfaces`` serves.
         self.completed: dict[str, Interface] = {}
         self.problems: list[Problem] = []
         #: The index each embedded graph's inner nodes run per row of, found
-        #: when the walk reaches its first inner node.
-        self.scopes: dict[str, Index | None] = {}
+        #: when the walk reaches its first inner node, with the inner field
+        #: the series entered through; ``None`` when no series enters.
+        self.scopes: dict[str, tuple[Index, Ref] | None] = {}
 
     def result(self) -> Iteration:
+        fields = {**self.arrived, **self.carried}
         return Iteration(
             iterated=self.iterated,
-            types={ref: c.dtype for ref, c in self.carried.items()},
-            indexes={ref: c.index for ref, c in self.carried.items()},
+            types={ref: c.dtype for ref, c in fields.items()},
+            indexes={ref: c.index for ref, c in fields.items()},
+            receives=self.receives,
             interfaces=self.completed,
             problems=tuple(self.problems),
         )
@@ -230,21 +258,22 @@ class _Walk:
         else:
             self._derive(node, arrived, scope)
 
-    def _scope_of(self, node: GraphNode) -> Index | None:
+    def _scope_of(self, node: GraphNode) -> tuple[Index, Ref] | None:
         """The index that the embedded graph containing ``node`` runs once per
-        row of; ``None`` when ``node`` is at the top level or that graph runs
-        once. Found on the first inner node visited and recorded under the
-        id of the node that embeds the graph."""
+        row of, and the inner field it entered through; ``None`` when ``node``
+        is at the top level or that graph runs once. Found on the first inner
+        node visited and recorded under the id of the node that embeds the
+        graph."""
         placement = self.placement_of.get(node.id)
         if placement is None:
             return None
         if placement not in self.scopes:
             self.scopes[placement] = self._entering_index(placement)
-            self.iterated[placement] = self.scopes[placement]
+            self.iterated[placement] = None if self.scopes[placement] is None else self.scopes[placement][0]
         return self.scopes[placement]
 
-    def _read_inputs(self, node: GraphNode, scope: Index | None) -> _Arrivals:
-        """What arrives on each input of ``node``, and whether each edge is allowed.
+    def _read_inputs(self, node: GraphNode, scope: tuple[Index, Ref] | None) -> _Arrivals:
+        """What arrives on each input of ``node``, how each is received, and whether each edge is allowed.
 
         An input nothing feeds carries what the author typed (a scalar, or a
         series on an index of its own). A connected input is checked: every
@@ -257,24 +286,23 @@ class _Walk:
         that cannot be read and says so in ``broken``.
         """
         interface = self.asked[node.id]
-        version = self.versions[node.id]
-        declared_names = {i.name for i in version.interface.inputs}
+        scope_index = None if scope is None else scope[0]
         found = _Arrivals()
 
         for inp in interface.inputs:
             ref = Ref(node.id, inp.name)
             binding = node.bindings.get(inp.name)
-            whole = version.interface.open == "single" and inp.name not in declared_names
             if not isinstance(binding, Edges):
-                found.arrivals[inp.name] = self._originates(inp, ref, self.statics[node.id].get(inp.name), scope)
-                if getattr(inp.dtype, "element", None) is None and found.arrivals[inp.name].index is not None:
-                    found.demands.append((found.arrivals[inp.name].index, ref))
+                carried, receive = self._originates(inp, ref, inp.name in self.listed[node.id], scope_index)
+                found.arrivals[inp.name], found.receives[inp.name] = carried, receive
+                if isinstance(receive, PerRow) and receive.index is not None:
+                    found.demands.append((receive.index, ref))
                 continue
             missing = [source for source in binding.refs if source not in self.carried]
             if missing:
-                # A source that was resolved but has no such field: the ref names
-                # an output it does not have. A source that was never resolved
-                # carries its own problem and is not reported again here.
+                # A source that was resolved but has no such output: the ref names
+                # an output it does not have, or an input. A source that was never
+                # resolved carries its own problem and is not reported again here.
                 self.problems.extend(
                     problem("unknown_ref_output", node.id, inp.name, source=str(source))
                     for source in missing if source.node_id in self.iterated
@@ -282,7 +310,7 @@ class _Walk:
                 found.broken = True
                 return found
             sources = [self.carried[source] for source in binding.refs]
-            if whole:
+            if self._whole(node.id, inp):
                 # A `**inputs` parameter takes what arrives, whole. It is passed
                 # as a keyword argument, so its name must be an identifier.
                 if not inp.name.isidentifier():
@@ -299,8 +327,9 @@ class _Walk:
                     found.broken = True
                     return found
                 found.bound[inp.name] = sources[0].dtype
-                found.receives[inp.name] = sources[0].dtype
+                found.arriving[inp.name] = sources[0].dtype
                 found.arrivals[inp.name] = sources[0]
+                found.receives[inp.name] = Whole()
                 continue
             target = inp.dtype
             if target is Any or getattr(target, "element", None) is Any:
@@ -317,32 +346,38 @@ class _Walk:
                     found.broken = True
                     return found
                 arriving = sources[0]  # one ref, or a union of several on one index
-                found.receives[inp.name] = arriving.dtype.element or arriving.dtype
+                found.arriving[inp.name] = arriving.dtype.element or arriving.dtype
+                found.receives[inp.name] = PerRow(arriving.index)
                 if arriving.index is not None:
                     found.demands.append((arriving.index, ref))
             elif self._one_index(sources):
                 arriving = sources[0]  # one series, or a union of several on one index
-                found.receives[inp.name] = arriving.dtype
-                if scope is not None and arriving.index == scope:
+                found.arriving[inp.name] = arriving.dtype
+                if scope_index is not None and arriving.index == scope_index:
                     # The series entered this embedded graph from outside, so the
                     # reduction runs once per outer row and receives the one row
                     # under it.
+                    found.receives[inp.name] = Reduce(arriving.index, arriving.index.depth)
                     found.demands.append((arriving.index, ref))
                 elif arriving.index.parent is not None:
+                    found.receives[inp.name] = Reduce(arriving.index, arriving.index.parent.depth)
                     found.demands.append((arriving.index.parent, ref))
+                else:
+                    found.receives[inp.name] = Whole()
             else:
-                arriving = _Carried(target, Index(ref, parent=scope))
-                found.receives[inp.name] = target
+                arriving = _Carried(target, Index(ref, parent=scope_index))
+                found.arriving[inp.name] = target
+                found.receives[inp.name] = Gather(arriving.index)
             found.arrivals[inp.name] = arriving
         return found
 
-    def _derive(self, node: GraphNode, arrived: _Arrivals, scope: Index | None) -> None:
+    def _derive(self, node: GraphNode, arrived: _Arrivals, scope: tuple[Index, Ref] | None) -> None:
         """Every input read: complete the node's fields, ask its outputs,
-        decide the index it runs per row of, and record what each output
-        carries."""
+        decide the index it runs per row of, and record what each field
+        carries and how each input receives."""
         interface = self.asked[node.id]
         inputs = tuple(self._typed(inp, arrived.bound) for inp in interface.inputs)
-        answered = self._outputs(node, arrived.receives)
+        answered = self._outputs(node, arrived.arriving)
         if isinstance(answered, Problem):
             # The refusal is the node's problem: fatal, with no `no_outputs`
             # beside it, and nothing is derived past it.
@@ -353,23 +388,26 @@ class _Walk:
         self.completed[node.id] = replace(self.versions[node.id].interface, inputs=inputs, outputs=outputs)
         if not outputs:
             self.problems.append(problem("no_outputs", node.id))
-        iteration_index, disagreeing = self._iteration_index(arrived.demands)
+        # Inside an embedded graph that runs per row, every node runs at least
+        # once per outer row: that index is one more demand, named by the inner
+        # field the series entered through, on the same line of descent as the
+        # node's own. A node nothing from outside reaches runs per row of it; a
+        # node fed from a shallower index repeats its value down to it; a node
+        # fed rows unrelated to it is misaligned.
+        demands = arrived.demands if scope is None else [*arrived.demands, scope]
+        iteration_index, disagreeing = self._iteration_index(demands)
         if disagreeing is not None:
             self.problems.append(self._misaligned(node.id, *disagreeing))
             return
-        # Inside an embedded graph that runs per row, every node runs at least
-        # once per outer row: that index is one more demand on the same line
-        # of descent. A node nothing from outside reaches runs per row of it;
-        # a node fed from a shallower index repeats its value down to it.
-        if scope is not None and (iteration_index is None or scope not in _lineage(iteration_index)):
-            iteration_index = scope
         self.iterated[node.id] = iteration_index
-        self.carried.update({Ref(node.id, name): c for name, c in arrived.arrivals.items()})
+        self.arrived.update({Ref(node.id, name): c for name, c in arrived.arrivals.items()})
+        self.receives.update({Ref(node.id, name): r for name, r in arrived.receives.items()})
+        scope_index = None if scope is None else scope[0]
         node_index: Index | None = None
         for out in outputs:
             ref = Ref(node.id, out.name)
             if getattr(out.dtype, "element", None) is not None:
-                node_index = node_index or Index(node.id, parent=iteration_index or scope)
+                node_index = node_index or Index(node.id, parent=iteration_index or scope_index)
                 self.carried[ref] = _Carried(out.dtype, node_index)
             elif iteration_index is not None:
                 self.carried[ref] = _Carried(Series[out.dtype], iteration_index)
@@ -379,7 +417,7 @@ class _Walk:
     def _complete_without_deriving(self, node: GraphNode, arrived: _Arrivals) -> None:
         """A source was broken: complete the inputs and outputs from what
         arrived so an editor can draw the node, and derive nothing."""
-        answered = self._outputs(node, arrived.receives)
+        answered = self._outputs(node, arrived.arriving)
         if isinstance(answered, Problem):
             # The broken source carries the fault; a refusal about its missing
             # arrival would report the same fact twice.
@@ -390,7 +428,7 @@ class _Walk:
             outputs=answered,
         )
 
-    def _outputs(self, node: GraphNode, receives: Mapping[str, Any]) -> tuple[Output, ...] | Problem:
+    def _outputs(self, node: GraphNode, arriving: Mapping[str, Any]) -> tuple[Output, ...] | Problem:
         """Ask the node's ``compute_outputs`` now that it can be told what
         arrives, with the values the author typed laid over the
         declaration's defaults (so a hook indexes ``values[...]`` without a
@@ -405,17 +443,19 @@ class _Walk:
         declared = (*version.interface.inputs, *self.asked[node.id].inputs)
         values = {**{i.name: i.default for i in declared if i.optional}, **self.statics[node.id]}
         try:
-            return self.registry.get(node.type)().compute_outputs(version.interface.outputs, values, receives)
+            return self.registry.get(node.type)().compute_outputs(version.interface.outputs, values, arriving)
         except Refuses as refusal:
             return Problem(code=refusal.code, message=refusal.message, fatal=True, node_id=node.id)
 
-    def _entering_index(self, placement: str) -> Index | None:
-        """The index an embedded graph's inner nodes run once per row of: the
-        deepest index among the series that enter it from outside through a
-        scalar field, or ``None`` when no series enters that way (the inner
-        nodes then run once each, as if the graph were flat). Two entering
-        series on unrelated indexes are reported as ``misaligned`` on the
-        embedded graph's node, exactly as they would be on a single node.
+    def _entering_index(self, placement: str) -> tuple[Index, Ref] | None:
+        """The index an embedded graph's inner nodes run once per row of, and
+        the inner field it entered through: the deepest index among the
+        series that enter it from outside through a scalar field, or ``None``
+        when no series enters that way (the inner nodes then run once each,
+        as if the graph were flat). A ``**inputs`` parameter receives its
+        edge whole and is not a way in. Two entering series on unrelated
+        indexes are reported as ``misaligned`` on the embedded graph's node,
+        exactly as they would be on a single node.
         """
         block = self.members[placement]
         inside = set(block)
@@ -426,7 +466,7 @@ class _Walk:
             node = self.nodes[node_id]
             for inp in self.asked[node_id].inputs:
                 binding = node.bindings.get(inp.name)
-                if not isinstance(binding, Edges) or getattr(inp.dtype, "element", None) is not None:
+                if not isinstance(binding, Edges) or getattr(inp.dtype, "element", None) is not None or self._whole(node_id, inp):
                     continue
                 for source in binding.refs:
                     if source.node_id not in inside and source in self.carried and self.carried[source].index is not None:
@@ -435,7 +475,16 @@ class _Walk:
         if disagreeing is not None:
             self.problems.append(self._misaligned(placement, *disagreeing))
             return None
-        return index
+        if index is None:
+            return None
+        entered_through = next(ref for demanded, ref in demands if demanded == index)
+        return index, entered_through
+
+    def _whole(self, node_id: str, inp: Input) -> bool:
+        """Is ``inp`` a ``**inputs: Single`` parameter — a connected name the
+        version did not declare, received whole?"""
+        version = self.versions[node_id]
+        return version.interface.open == "single" and inp.name not in {i.name for i in version.interface.inputs}
 
     @staticmethod
     def _typed(field: Any, bound: Mapping[str, Any]) -> Any:
@@ -467,22 +516,21 @@ class _Walk:
         )
 
     @staticmethod
-    def _originates(inp: Input, ref: Ref, static: Any, scope: Index | None) -> _Carried:
-        """What a field carries when no edge feeds it: a scalar, or a series on
-        an index of the field's own — always for a ``Series[X]`` input, and for
-        a scalar input when the author typed many values. Inside an embedded
-        graph that runs per row, that index is a child of the entering one
+    def _originates(inp: Input, ref: Ref, listed: bool, scope: Index | None) -> tuple[_Carried, Receive]:
+        """What a field carries when no edge feeds it, and how it is received:
+        a scalar, received once; or a series on an index of the field's own —
+        always for a ``Series[X]`` input, received whole; and for a scalar
+        input when the author typed many values (``listed``), received one
+        per row, so the node runs once per value. Inside an embedded graph
+        that runs per row, that index is a child of the entering one
         (``scope``).
-
-        ``static`` is the converted value from ``_Compilation._typed_statics`` — a
-        ``list`` exactly when the author typed many — so a scalar type whose
-        own JSON form happens to be a list never makes the node run per row.
         """
         if getattr(inp.dtype, "element", None) is not None:  # only a Series type has an element
-            return _Carried(inp.dtype, Index(ref, parent=scope))
-        if many(static):
-            return _Carried(Series[inp.dtype], Index(ref, parent=scope))
-        return _Carried(inp.dtype, None)
+            return _Carried(inp.dtype, Index(ref, parent=scope)), Whole()
+        if listed:
+            own = Index(ref, parent=scope)
+            return _Carried(Series[inp.dtype], own), PerRow(own)
+        return _Carried(inp.dtype, None), PerRow(None)
 
     @staticmethod
     def _admit(target: Any, ref: Ref, source_ref: Ref, source: _Carried) -> list[Problem]:

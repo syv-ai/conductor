@@ -150,7 +150,7 @@ Ask it at three scales:
 
 - **The graph** — `problems`, `is_runnable`, `interface` (what the graph takes and returns: the unlocked inputs of nodes nothing feeds, and every output of the nodes nothing reads from, named by address), `execution_order()`, `decisions()`, `expanded(ref)`.
 - **One node** — `compiled.node(node_id)` is a `CompiledNode`: `interface`, `iterates_on` (the `Index` it runs once per row of, or `None`), `statics`, `runner`, `dependencies`, `version`, `graph_node`, `embedded_in`, `problems`.
-- **One field** — `compiled.field(ref)` is a `CompiledField`: `type`, `index`, `binding`, `condition` (a formula over the decisions upstream: `Condition`, `Atom`, `ALWAYS`), `problems`.
+- **One field** — `compiled.field(ref)` is a `CompiledField`: `type`, `index`, `binding`, `receives` (how a unit receives the input: `PerRow`, `Whole`, `Reduce` or `Gather` from `conductor.graph.receive`), `condition` (a formula over the decisions upstream: `Condition`, `Atom`, `ALWAYS`), `problems`.
 
 Compile types every unconstrained field from what arrives, asks `accepts` on every edge, decides which nodes run per row, and asks the field hooks. A problem inside an embedded graph is reported on the node the author placed.
 

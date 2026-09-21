@@ -20,6 +20,7 @@ a fault.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import replace
 from functools import cache
 from typing import Any
@@ -27,7 +28,7 @@ from typing import Any
 from pydantic import TypeAdapter, ValidationError
 
 from conductor.dtype import DType
-from conductor.graph.binding import Edges, many, static_values
+from conductor.graph.binding import Edges, static_values
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.conditions import Condition, conditions_of
 from conductor.graph.expand import Expansion, expand, surfaced
@@ -70,6 +71,9 @@ class _Compilation:
         #: expanded id (pass 5; the walk over the edges completes them).
         self.interfaces: dict[str, Interface] = {}
         self.statics: dict[str, dict[str, Any]] = {}
+        #: Per node, the scalar inputs where the author typed many values —
+        #: three files, a list of texts — which the node runs once per value of.
+        self.listed: dict[str, frozenset[str]] = {}
         #: Nodes whose stored edges are wrong; the edge walk leaves them out (pass 6).
         self.broken: frozenset[str] = frozenset()
         #: What the walk over the edges decided (pass 7).
@@ -124,6 +128,7 @@ class _Compilation:
             _iterated=iteration.iterated,
             _indexes=iteration.indexes,
             _types=iteration.types,
+            _receives=iteration.receives,
             _conditions=self.output_conditions,
             _placements=frozenset(expansion.placement_versions),
             _placement_of=expansion.placement_of,
@@ -189,10 +194,11 @@ class _Compilation:
         those values, each read through its declared type by ``_typed_statics``
         and laid over the declaration's defaults, so a hook that reads a table's
         columns or a schema's fields gets the typed value and never parses JSON
-        itself. Only the
-        inputs are asked here. The outputs stay as declared until the walk over
-        the edges, which can tell ``compute_outputs`` what type arrives on each
-        connected input.
+        itself. What is kept afterwards (``statics``, ``listed``) is only what
+        the author typed: a default is the declaration's and applies wherever
+        nothing is bound. Only the inputs are asked here. The outputs stay as
+        declared until the walk over the edges, which can tell
+        ``compute_outputs`` what type arrives on each connected input.
 
         A hook that cannot answer for these values raises ``Refuses``; its
         code and message are the node's one fatal ``Problem``, and the node is
@@ -211,15 +217,16 @@ class _Compilation:
             node = self.expansion.nodes[node_id]
             instance = self.registry.get(node.type)()
             defaults = {i.name: i.default for i in version.interface.inputs if i.optional}
-            values = {**defaults, **self._typed_statics(version.interface.inputs, node)}
+            typed, listed = self._typed_statics(version.interface.inputs, node)
             try:
-                inputs = instance.compute_inputs(version.interface.inputs, values)
+                inputs = instance.compute_inputs(version.interface.inputs, {**defaults, **typed})
             except Refuses as refusal:
                 self.problems.append(Problem(code=refusal.code, message=refusal.message, fatal=True, node_id=node_id))
                 continue
             added = tuple(i for i in inputs if i.name not in {d.name for d in version.interface.inputs})
             if added:
-                values = {**values, **self._typed_statics(added, node)}
+                typed_added, listed_added = self._typed_statics(added, node)
+                typed, listed = {**typed, **typed_added}, listed | listed_added
             if version.interface.open is not None:
                 # One Input per edge: `Series[Any]` when the node reduces each
                 # ("series"), `Any` when it receives each whole ("single"). The
@@ -232,7 +239,8 @@ class _Compilation:
                     if name not in named and isinstance(binding, Edges)
                 ))
             self.interfaces[node_id] = replace(version.interface, inputs=inputs)
-            self.statics[node_id] = values
+            self.statics[node_id] = typed
+            self.listed[node_id] = listed
 
     def check_bindings(self) -> None:
         """Check the stored bindings against the inputs each node actually has.
@@ -291,7 +299,7 @@ class _Compilation:
                 for node_id in expansion.order
                 if node_id in self.interfaces and node_id not in self.broken
             ],
-            self.interfaces, expansion.versions, self.registry, self.statics,
+            self.interfaces, expansion.versions, self.registry, self.statics, self.listed,
             placement_of=expansion.placement_of, members=expansion.members,
         )
         self.problems.extend(self.iteration.problems)
@@ -348,53 +356,63 @@ class _Compilation:
 
     # -- the values the author typed --------------------------------------------
 
-    def _typed_statics(self, inputs: tuple[Any, ...], node: GraphNode) -> dict[str, Any]:
-        """Every value the author typed into ``node``, read through its field's declared type.
+    def _typed_statics(self, inputs: tuple[Any, ...], node: GraphNode) -> tuple[dict[str, Any], frozenset[str]]:
+        """Every value the author typed into ``node``, read through its field's
+        declared type, and which of the scalar inputs hold many values.
 
         A stored ``Static`` holds JSON — a file comes back as a dict, an
         authored schema as a list — and every reader downstream wants the
         value, not its JSON form, so each is converted once here. A sequence
         the declared type cannot read as one value is read as a sequence of
-        values, which keeps a list-shaped scalar (a schema) one value while
-        three uploaded files are three rows. A value the type cannot read at
-        all is a fatal ``invalid_static``, carrying whatever the type's
-        constructor said. A value on a parameter typed ``Any`` is skipped:
-        only an edge can give that parameter a type, and ``check_bindings``
-        reports it as unbound.
-
-        The invariant every reader relies on: the converted value is a
-        ``list`` exactly when the author typed many values.
+        values, which keeps a list-shaped scalar (a schema, a list of tags)
+        one value while three uploaded files are three rows. Which of the two
+        happened is decided here, by which reading succeeded, and returned
+        as the set of inputs holding many — never again from the shape of
+        the value. A value the type cannot read at all is a fatal
+        ``invalid_static``, carrying whatever the type's constructor said. A
+        value on a parameter typed ``Any`` is skipped: only an edge can give
+        that parameter a type, and ``check_bindings`` reports it as unbound.
         """
         declared = {i.name: i for i in inputs}
         typed: dict[str, Any] = {}
+        listed: set[str] = set()
         for name, value in static_values(node.bindings).items():
             inp = declared.get(name)
             if inp is None or inp.dtype is Any:
                 continue  # a field the node lacks, or one only an edge can type; check_bindings reports both
             try:
-                typed[name] = self._typed_static(inp, value)
+                typed[name], many = self._typed_static(inp, value)
             except (ValidationError, TypeError, ValueError) as invalid:
                 said = _what_the_type_said(invalid)
                 self.problems.append(problem("invalid_static", node.id, name, **({"reason": said} if said else {})))
-        return typed
+                continue
+            if many:
+                listed.add(name)
+        return typed, frozenset(listed)
 
     @staticmethod
-    def _typed_static(inp: Any, value: Any) -> Any:
-        """``value`` read through ``inp``'s declared type: a sequence element by
-        element for a ``Series[X]`` input; one value, or a sequence of values
-        when the type refuses the whole, for anything else."""
+    def _typed_static(inp: Any, value: Any) -> tuple[Any, bool]:
+        """``value`` read through ``inp``'s declared type, and whether it is
+        many values: a sequence element by element for a ``Series[X]`` input
+        (one series, not many); one value, or — when the type refuses the
+        whole — a sequence of values, for anything else."""
         element = getattr(inp.dtype, "element", None)
         if element is not None:
             # A Series[X] input takes the whole sequence, each element typed.
-            if not many(value):
+            if not _sequence(value):
                 raise TypeError("a Series input takes a sequence")
-            return [_adapter(element).validate_python(v) for v in value]
+            return [_adapter(element).validate_python(v) for v in value], False
         try:
-            return _adapter(inp.dtype).validate_python(value)
+            return _adapter(inp.dtype).validate_python(value), False
         except ValidationError:
-            if many(value):
-                return [_adapter(inp.dtype).validate_python(v) for v in value]
+            if _sequence(value):
+                return [_adapter(inp.dtype).validate_python(v) for v in value], True
             raise
+
+
+def _sequence(value: Any) -> bool:
+    """Is ``value`` a sequence of values, as a list widget or a multi-upload holds one? Text and bytes are one value each."""
+    return isinstance(value, Sequence) and not isinstance(value, (str, bytes))
 
 
 @cache

@@ -49,15 +49,17 @@ no row is read twice. ``ready`` stays the definition, and ``runnable``
 asks it of every unit: the engine does that when a leg starts, and again
 when it goes quiet, where a ready unit that nobody started is a bug.
 
-**A reduction groups by depth.** A ``Series[X]`` input fed a series on a
-child index receives, per unit, the rows under the unit's own row on the
-parent index — the node runs once per parent row and reduces the child
-rows under it. Inside an embedded graph (a node whose version is itself a
-graph; its inner nodes run as nodes of this run), a series that entered
-through a scalar field is grouped by its own row — a group of one. One
-rule covers both, the rows whose path starts with the unit's row at the
-grouping depth, and the index a node runs once per row of
-(``CompiledGraph.node(node_id).iterates_on``) says which depth that is.
+**How a unit receives each input is compile's decision, read here.**
+Every input carries a receive record (``CompiledField.receives``, from
+``conductor.graph.receive``): ``PerRow`` — the cell at the unit's own row,
+projected onto the index the value sits on; ``Whole`` — everything on the
+field, the same at every unit; ``Reduce`` — the rows under the unit's row
+cut to a depth, so a node fed a series on a child index runs once per
+parent row and reduces the child rows under it, and inside an embedded
+graph a series that entered through a scalar field is reduced one row at
+a time; ``Gather`` — unrelated sources collected onto the input's own
+index. The ledger switches on the record to say when a unit is ready and
+what to hand it, and derives none of this from types or indexes itself.
 
 **Cells are the record.** ``cells`` is everything a leg produced, row by
 row, and ``restore`` starts the next leg from it. A leg is one call of
@@ -82,6 +84,7 @@ from conductor.execution.events import PendingUnit
 from conductor.execution.record import RunRecord
 from conductor.graph.binding import Edges, Static
 from conductor.graph.compiled import CompiledGraph
+from conductor.graph.receive import Gather, PerRow, Receive, Reduce, Whole
 from conductor.metadata import Input
 from conductor.ref import Ref
 from conductor.series import Index, Row, Series
@@ -172,12 +175,12 @@ class Ledger:
         self._position = {node_id: n for n, node_id in enumerate(compiled.execution_order())}
 
         # Who reads what, from the edges, so a write asks only its readers.
-        #: Per node, its connected inputs: the edges, how the input reads
-        #: them, and for a reduction the depth it groups at.
-        self._connected: dict[str, tuple[tuple[Edges, str, int | None], ...]] = {}
+        #: Per node, its connected inputs: the edges and how the input receives them.
+        self._connected: dict[str, tuple[tuple[Edges, Receive], ...]] = {}
         #: Per output, the nodes reading it one row at a time.
         self._scalar_readers: dict[Ref, list[str]] = {}
-        #: Per output, the nodes reading it as a series, and the depth they group at.
+        #: Per output, the nodes reading it as a series, and the depth they
+        #: group at — ``None`` for a reader that takes everything on it.
         self._series_readers: dict[Ref, list[tuple[str, int | None]]] = {}
         #: The same readers by the index of the output they read.
         self._series_readers_on: dict[str, list[tuple[Ref, str, int | None]]] = {}
@@ -197,19 +200,19 @@ class Ledger:
         typed: list[str] = []
         for node_id in compiled.execution_order():
             node = compiled.node(node_id)
-            connected: list[tuple[Edges, str, int | None]] = []
+            connected: list[tuple[Edges, Receive]] = []
             for inp in node.interface.inputs:
                 own = Ref(node_id, inp.name)
                 binding = compiled.field(own).binding
-                index = compiled.field(own).index
+                received = compiled.field(own).receives
                 # A scalar input where the author typed many values holds a
                 # series on an index of the input's own, and the node runs
-                # once per value. Compile stored that index on the field
-                # (``field(ref).index``). On a root index its rows are known
+                # once per value: compile says so as ``PerRow`` on that index
+                # with a typed-in binding. On a root index its rows are known
                 # before anything runs, so they are born and sealed here;
                 # under a parent index they are born with each parent row.
-                if getattr(inp.dtype, "element", None) is None and index is not None and isinstance(binding, Static):
-                    count = len(node.statics[inp.name])
+                if isinstance(binding, Static) and isinstance(received, PerRow) and received.index is not None:
+                    index, count = received.index, len(node.statics[inp.name])
                     if index.parent is not None:
                         self._typed_under.setdefault(index.parent.id, []).append((index.id, count))
                         self._typed_children.add(index.id)
@@ -221,11 +224,10 @@ class Ledger:
                     typed.append(index.id)
                 if not isinstance(binding, Edges):
                     continue
-                reading = self._reading(inp, binding)
-                depth = self._group_depth(node_id, self._index(binding.refs[0])) if reading == "reduction" else None
-                connected.append((binding, reading, depth))
+                connected.append((binding, received))
+                depth = received.depth if isinstance(received, Reduce) else None
                 for ref in binding.refs:
-                    if reading == "scalar":
+                    if isinstance(received, PerRow):
                         self._scalar_readers.setdefault(ref, []).append(node_id)
                         continue
                     self._series_readers.setdefault(ref, []).append((node_id, depth))
@@ -297,7 +299,7 @@ class Ledger:
         iterate = self._compiled.node(node_id).iterates_on
         if iterate is not None and _depth(row) < iterate.depth:
             return True  # standing in at a shorter row: the skip above it is already known
-        return all(self._input_ready(binding, reading, depth, row) for binding, reading, depth in self._connected[node_id])
+        return all(self._input_ready(binding, received, row) for binding, received in self._connected[node_id])
 
     def runnable(self) -> list[Unit]:
         """Every unit that may start now: ready, and neither done nor waiting
@@ -311,25 +313,14 @@ class Ledger:
             if unit not in self._done and unit not in self._pending and self.ready(unit)
         ]
 
-    def _input_ready(self, binding: Edges, reading: str, depth: int | None, row: Row | None) -> bool:
-        if reading == "scalar":
+    def _input_ready(self, binding: Edges, received: Receive, row: Row | None) -> bool:
+        """Is everything a unit at ``row`` receives on this input written?
+        Per row: the cell at its row on each ref. Reduced: every row of the
+        group under it. Whole or gathered: everything on each ref."""
+        if isinstance(received, PerRow):
             return all(self._present(ref, self._key(ref, row)) for ref in binding.refs)
-        if reading == "gather":
-            return all(self._written(ref, None) for ref in binding.refs)
-        group = _group(row, depth)
+        group = _group(row, received.depth) if isinstance(received, Reduce) else None
         return all(self._written(ref, group) for ref in binding.refs)
-
-    def _group_depth(self, node_id: str, index: Index) -> int | None:
-        """The depth a ``Series[X]`` input on ``index`` groups at, for a unit
-        of ``node_id``: ``None`` (the whole series, once) for a root index;
-        the parent's depth for a child index; the index's own depth when the
-        node sits inside an embedded graph that this index entered through a
-        scalar field — then each unit's group is its own row."""
-        placement = self._compiled.node(node_id).embedded_in
-        scope = None if placement is None else self._compiled.node(placement).iterates_on
-        if scope is not None and index == scope:
-            return index.depth
-        return None if index.parent is None else index.parent.depth
 
     def _present(self, ref: Ref, key: Row | None) -> bool:
         return self._lookup(ref, key)[0] is not _MISSING
@@ -380,29 +371,16 @@ class Ledger:
         self._written_rows[group] = (rows, written)
         return written == len(rows)
 
-    def _reading(self, inp: Input, binding: Edges) -> str:
-        """How a connected input reads its sources: ``"scalar"`` (per row — one
-        ref, or several on one index of which one covers each row),
-        ``"reduction"`` (one series, received whole on a root index and once
-        per parent row on a child one — ``_group_depth`` says which) or
-        ``"gather"`` (unrelated sources collected into a fresh series)."""
-        if getattr(inp.dtype, "element", None) is None:
-            return "scalar"
-        indexes = {self._index(ref) for ref in binding.refs}
-        if None not in indexes and len(indexes) == 1:
-            return "reduction"
-        return "gather"
-
     # -- what a unit receives -------------------------------------------------
 
     def inputs_for(self, unit: Unit) -> dict[str, Any] | Skip:
         """The keyword arguments this unit runs with, or the ``Skip`` that stops it.
 
-        A ``Skip`` comes from ``SKIPPED`` on a connected scalar input, on the
-        series a reduction receives, or at a row above this
-        unit's. A gather drops skipped sources instead — an empty gather
-        is an empty series — because gathering is how "whichever branch
-        fired" is expressed.
+        A ``Skip`` comes from ``SKIPPED`` on an input received per row, on
+        the series an input receives whole or reduced, or at a row above
+        this unit's. A gather drops skipped sources instead — an empty
+        gather is an empty series — because gathering is how "whichever
+        branch fired" is expressed.
         """
         node_id, row = unit
         iterate = self._compiled.node(node_id).iterates_on
@@ -412,31 +390,23 @@ class Ledger:
         for inp in self._compiled.node(node_id).interface.inputs:
             own = Ref(node_id, inp.name)
             binding = self._compiled.field(own).binding
+            received = self._compiled.field(own).receives
             if binding is None:
-                if getattr(inp.dtype, "element", None) is not None and inp.optional:
-                    values[inp.name] = self._typed(inp, inp.default, own)
-                continue
+                if isinstance(received, Whole):
+                    values[inp.name] = self._typed(received, inp.default, own)
+                continue  # a scalar default is the node's own; the call applies it
             if isinstance(binding, Static):
-                values[inp.name] = self._typed(inp, self._compiled.node(node_id).statics[inp.name], own, row)
+                values[inp.name] = self._typed(received, self._compiled.node(node_id).statics[inp.name], own, row)
                 continue
-            reading = self._reading(inp, binding)
-            if reading == "scalar":
+            if isinstance(received, PerRow):
                 covering, skips = self._covering(node_id, binding.refs, row)
                 if not covering:
                     return Skip(at=max(skips, key=_depth))
                 (values[inp.name],) = covering
-            elif reading == "reduction":
-                index = self._compiled.field(binding.refs[0]).index
-                depth = self._group_depth(node_id, index)
-                parent_row = None if depth is None else row[:depth]
-                found = [self._lookup(ref, parent_row) for ref in binding.refs]
-                if all(is_skipped(value) for value, _ in found):
-                    return Skip(at=max((at for _, at in found), key=_depth))
-                values[inp.name] = self._series(node_id, binding.refs, index, self._rows_under(index.id, parent_row))
-            else:
+            elif isinstance(received, Gather):
                 gathered: list[Any] = []
                 for ref in binding.refs:
-                    index = self._compiled.field(ref).index
+                    index = self._index(ref)
                     value, _ = self._lookup(ref, None)
                     if is_skipped(value):
                         continue
@@ -444,7 +414,18 @@ class Ledger:
                         gathered.append(value)
                     else:
                         gathered.extend(self._series(node_id, (ref,), index, self._rows_under(index.id, None)).values)
-                values[inp.name] = Series(self._compiled.field(own).index, gathered)
+                values[inp.name] = Series(received.index, gathered)
+            else:
+                group = row[: received.depth] if isinstance(received, Reduce) else None
+                found = [self._lookup(ref, group) for ref in binding.refs]
+                if all(is_skipped(value) for value, _ in found):
+                    return Skip(at=max((at for _, at in found), key=_depth))
+                index = self._index(binding.refs[0])
+                if index is None:
+                    # Received whole from a source that ran once: the one value.
+                    ((values[inp.name], _),) = found
+                else:
+                    values[inp.name] = self._series(node_id, binding.refs, index, self._rows_under(index.id, group))
         return values
 
     def _covering(self, node_id: str, refs: tuple[Ref, ...], row: Row | None) -> tuple[list[Any], list[Row | None]]:
@@ -475,19 +456,19 @@ class Ledger:
             )
         return covering, skips
 
-    def _typed(self, inp: Input, value: Any, own: Ref, row: Row | None = None) -> Any:
+    def _typed(self, received: Receive, value: Any, own: Ref, row: Row | None = None) -> Any:
         """A value the author typed (or the declared default) as the unit receives it.
 
-        A sequence on a ``Series[X]`` input becomes a series on the input's
-        own index; a sequence on a scalar input is read at this unit's row
-        on that index. Which index, and whether the scalar input holds a
-        sequence at all, is what compile stored on the field (``field(ref).index``).
+        Received whole, it is a series on the input's own index; received
+        per row on an index of the input's own, it is many typed-in values
+        and the unit takes the one at its row; received per row with no
+        index, it is the one value.
         """
-        index = self._compiled.field(own).index
-        if getattr(inp.dtype, "element", None) is None:
-            return value if index is None else list(value)[row[index.depth - 1]]
-        values = value.values if isinstance(value, Series) else list(value)
-        return Series(index, values)
+        if isinstance(received, Whole):
+            return Series(self._index(own), value.values if isinstance(value, Series) else list(value))
+        if isinstance(received, PerRow) and received.index is not None:
+            return list(value)[row[received.index.depth - 1]]
+        return value
 
     def _lookup(self, ref: Ref, key: Row | None) -> tuple[Any, Row | None]:
         """``(value, row)`` for the cell at ``(ref, key)``: ``SKIPPED`` at the
