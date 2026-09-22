@@ -22,7 +22,7 @@ conductor/
 │       ├── _sentinel.py        # SKIPPED and Asks — the two values a run returns that are not results
 │       ├── registry/           # NodeRegistry (register, nodes, runner_for, extended_with, upgraded)
 │       ├── graph/              # model (Graph/GraphNode), binding (From/Static), compiler + compiled (CompiledGraph and its node/field views), iteration (the edge walk), expand (embedded graphs), conditions, problem, topology, views
-│       ├── execution/          # engine (execute, run, run_sync; one leg per call), ledger (what a run produced, and what that makes ready), events
+│       ├── execution/          # engine (execute, run, run_sync; one leg per call), leg (the loop, each unit, the teardown), ledger (what a run produced, and what that makes ready), events
 │       └── about/              # Runnable library context: `python -m conductor.about`
 ├── packages/conductor-nodes/   # Standard node library (text, math, logic, json_ops, regex_ops, decision) + its types
 │   └── src/conductor_nodes/    # Each module exposes register(registry); top-level register_all()

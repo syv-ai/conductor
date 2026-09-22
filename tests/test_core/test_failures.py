@@ -23,7 +23,8 @@ from conductor.errors import (
     NodeExecutionError,
     NodeValidationError,
 )
-from conductor.execution.engine import _Leg, execute
+from conductor.execution.engine import execute
+from conductor.execution.leg import Leg
 from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
 from conductor.metadata import Result
@@ -243,7 +244,7 @@ def test_a_foreign_exceptions_text_is_on_original_and_nowhere_else():
             raise KeyError("secret-token")
 
     compiled = _compiled(Buggy)
-    leg = _Leg(compiled, record=None, from_run={}, timeout=None, cancel=asyncio.Event())
+    leg = Leg(compiled, record=None, from_run={}, timeout=None, cancel=asyncio.Event())
 
     with pytest.raises(NodeExecutionError) as caught:
         leg._call(("n1", None), {"text": "x"})

@@ -99,12 +99,12 @@ def test_a_record_naming_a_node_the_graph_does_not_have_leaves_it_out(client):
 def test_an_error_that_is_not_a_refusal_stays_the_servers(client, monkeypatch):
     """Only a refused graph or a refused cache or record is the caller's
     fault; a ``ValueError`` from anywhere else is a bug and a 500."""
-    import conductor.execution.engine as engine
+    import conductor.execution.leg as leg
 
     def broken(*args, **kwargs):
         raise ValueError("a bug")
 
-    monkeypatch.setattr(engine._Leg, "__init__", broken)
+    monkeypatch.setattr(leg.Leg, "__init__", broken)
     graph = {"nodes": [{"id": "n1", "type": "shout", "version": 1, "bindings": {"text": {"value": "hi"}}}]}
     resp = TestClient(client.app, raise_server_exceptions=False).post("/execute", json={"graph": graph})
 

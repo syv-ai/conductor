@@ -167,7 +167,7 @@ conductor/
 │   │       ├── _sentinel.py        # SKIPPED and Asks
 │   │       ├── registry/           # NodeRegistry
 │   │       ├── graph/              # GraphNode/Graph, the Binding variants, CompiledGraph.from_graph() and the CompiledGraph it returns, iteration, expansion, conditions, Problem
-│   │       ├── execution/          # execute(), run(), run_sync(), the ledger, events
+│   │       ├── execution/          # execute(), run(), run_sync(), the leg, the ledger, events
 │   │       └── about/              # Runnable library reference: python -m conductor.about
 │   ├── conductor-nodes/            # Standard node library — uv add syv-conductor-nodes
 │   └── conductor-providers/        # Framework adapters (react, fastapi) — uv add syv-conductor-providers
