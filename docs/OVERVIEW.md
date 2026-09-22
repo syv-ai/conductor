@@ -98,7 +98,7 @@ The nodes are declared in `conductor_nodes.types` (`Text`, `Number`, `Flag`, `Js
 from conductor_providers import react
 from conductor.metadata import Param
 
-palette = react.palette_from_registry(registry)   # [cls.describe() ...]
+palette = registry.describe()                     # the palette is the registry's own
 wire = react.graph_to_react(graph)                # Graph → ReactFlow JSON
 graph = react.react_to_graph(wire)                # ReactFlow JSON → Graph
 ```

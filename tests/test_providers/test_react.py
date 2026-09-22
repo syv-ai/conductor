@@ -58,8 +58,8 @@ def sample_graph() -> Graph:
 
 
 class TestGraphToReact:
-    def test_emits_nodes_and_edges_keys(self, sample_graph):
-        assert set(react.graph_to_react(sample_graph).keys()) == {"nodes", "edges"}
+    def test_emits_nodes_edges_and_the_graphs_display(self, sample_graph):
+        assert set(react.graph_to_react(sample_graph).keys()) == {"nodes", "edges", "display"}
 
     def test_node_structure_has_id_type_position_data(self, sample_graph):
         for n in react.graph_to_react(sample_graph)["nodes"]:
@@ -154,3 +154,21 @@ class TestEndToEnd:
 
         results = run_sync(CompiledGraph.from_graph(graph_out, registry))["results"]
         assert results["down"]["result"] == "OLLEH"
+
+
+
+def test_display_survives_the_round_trip_whole():
+    """Colour, collapsed state and whatever else the canvas keeps come back;
+    the canvas's position is merged in; the graph's own display too."""
+    from conductor.graph.model import Graph, GraphNode
+
+    graph = Graph(
+        nodes=[GraphNode(id="n1", type="build-pair", version=1, display={"position": {"x": 1, "y": 2}, "color": "red", "collapsed": True})],
+        display={"zoom": 1.5},
+    )
+    wire = react.graph_to_react(graph)
+    wire["nodes"][0]["position"] = {"x": 9, "y": 9}
+
+    back = react.react_to_graph(wire)
+    assert back.nodes[0].display == {"position": {"x": 9, "y": 9}, "color": "red", "collapsed": True}
+    assert back.display == {"zoom": 1.5}

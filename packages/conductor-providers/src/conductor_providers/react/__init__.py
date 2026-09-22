@@ -33,17 +33,15 @@ Notes:
 - Positions are ReactFlow's; ``graph_to_react`` reads one from the
   node's ``display`` and lays out the rest, ``react_to_graph`` writes
   the canvas's back into ``display``.
-- The palette (node-type metadata for a sidebar) is available via
-  ``palette_from_registry``.
+- The palette (node-type metadata for a sidebar) is the registry's own:
+  ``registry.describe()``.
 """
 
 from conductor_providers.react.graph import graph_to_react, react_to_graph
 from conductor_providers.react.layout import topological_positions
-from conductor_providers.react.schema import palette_from_registry
 
 __all__ = [
     "graph_to_react",
     "react_to_graph",
-    "palette_from_registry",
     "topological_positions",
 ]

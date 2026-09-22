@@ -58,3 +58,34 @@ def test_every_problem_comes_back_anchored(client):
         ("unknown_ref_node", True, "n2", "text"),
     ]
     assert resp.json()[1]["details"] == {"source_node": "ghost"}
+
+
+# --- a bad request is a 4xx, not a 500 --------------------------------------------------
+
+
+def test_executing_a_graph_that_cannot_run_is_a_422_with_its_problems(client):
+    for route in ("/execute", "/execute-stream"):
+        resp = client.post(route, json={"graph": {"nodes": [{"id": "n1", "type": "gone", "version": 1}]}})
+
+        assert resp.status_code == 422, route
+        assert [p["code"] for p in resp.json()["detail"]["problems"]] == ["unknown_node_type"]
+
+
+def test_a_cache_the_run_cannot_take_is_a_422_naming_why(client):
+    graph = {"nodes": [{"id": "n1", "type": "shout", "version": 1, "bindings": {"text": {"value": "hi"}}}]}
+    resp = client.post("/execute", json={"graph": graph, "cache": {"n1": {"nope": "x"}}})
+
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "'n1' has no output 'nope'"
+
+
+def test_the_entities_route_exists_only_with_a_resolver(client):
+    assert client.get("/entities/document").status_code == 404
+
+
+def test_the_dead_provider_bits_are_gone():
+    import conductor_providers
+    import conductor_providers.react as react
+
+    assert not hasattr(conductor_providers, "PROVIDERS")
+    assert not hasattr(react, "palette_from_registry")

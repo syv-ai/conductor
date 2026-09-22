@@ -6,12 +6,13 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from conductor import NodeRegistry
+from conductor.errors import CompilationError
 from conductor.execution.engine import execute
 from conductor.execution.events import ExecutionEvent
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.problem import Problem
 from conductor.node import NodeDescription
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from conductor_providers.fastapi.models import ExecuteRequest
@@ -57,8 +58,14 @@ def conductor_router(
         entity_resolver: Optional hook backing the ``EntityDropdown`` widget.
             Receives the entity kind (e.g. ``"document"``) and the FastAPI
             ``Request``; returns a list of ``{"id": ..., "label": ...}``
-            dicts the frontend renders as choices. If unset, the mounted
-            ``GET {prefix}/entities/{kind}`` route returns 501.
+            dicts the frontend renders as choices. ``GET {prefix}/entities/{kind}``
+            is mounted only when one is given.
+
+    A request the run cannot start from is the caller's fault and a 422:
+    a graph with a fatal problem (``detail.problems``, the same records
+    ``/compile`` answers with) or a ``cache`` the run refuses (``detail`` is
+    the reason). ``/compile`` answers a broken graph with 200 and its
+    problems, since describing it is what was asked.
     """
     router = APIRouter(
         prefix=prefix,
@@ -77,6 +84,19 @@ def conductor_router(
             record=req.record,
         )
 
+    async def _started(req: ExecuteRequest, request: Request) -> tuple[Any, ExecutionEvent]:
+        """The leg and its first event, or the 422 a refused start is."""
+        events = _leg(req, request)
+        try:
+            return events, await anext(events)
+        except CompilationError as refused:
+            raise HTTPException(
+                status_code=422,
+                detail={"message": "the graph cannot run", "problems": [p.model_dump(mode="json") for p in refused.problems]},
+            ) from refused
+        except ValueError as refused:
+            raise HTTPException(status_code=422, detail=str(refused)) from refused
+
     @router.get("/nodes", response_model=list[NodeDescription])
     def list_nodes() -> list[NodeDescription]:
         """Every registered definition as a record — the palette."""
@@ -91,8 +111,8 @@ def conductor_router(
         sends back, ``graph_error``, ``graph_cancelled`` and
         ``graph_timeout`` why the leg stopped.
         """
-        ending: ExecutionEvent | None = None
-        async for ending in _leg(req, request):
+        events, ending = await _started(req, request)
+        async for ending in events:
             pass
         return as_data(ending)
 
@@ -107,8 +127,7 @@ def conductor_router(
         ``FromRun`` value the hook did not supply) fails the request, as it
         does on ``/execute``, instead of a 200 with an empty stream.
         """
-        events = _leg(req, request)
-        first = await anext(events)
+        events, first = await _started(req, request)
 
         async def event_stream() -> Any:
             yield sse_frame(first)
@@ -117,27 +136,17 @@ def conductor_router(
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
 
-    @router.get("/entities/{kind}")
-    def list_entities(kind: str, request: Request) -> list[dict[str, Any]]:
-        """Return candidate entities of ``kind`` for the current request.
+    if entity_resolver is not None:
 
-        Backs the ``EntityDropdown`` widget in conductor-aware frontends.
-        Hosts provide the list via the ``entity_resolver`` hook; the
-        exact shape of each entry is host-defined, but the frontend
-        convention is ``{"id": "...", "label": "..."}``.
-        """
-        if entity_resolver is None:
-            from fastapi import HTTPException
+        @router.get("/entities/{kind}")
+        def list_entities(kind: str, request: Request) -> list[dict[str, Any]]:
+            """Return candidate entities of ``kind`` for the current request.
 
-            raise HTTPException(
-                status_code=501,
-                detail=(
-                    "No entity_resolver configured. Pass one to "
-                    "conductor_router(entity_resolver=...) to enable "
-                    f"/entities/{kind} lookups."
-                ),
-            )
-        return entity_resolver(kind, request)
+            Backs the ``EntityDropdown`` widget in conductor-aware frontends.
+            The exact shape of each entry is host-defined, but the frontend
+            convention is ``{"id": "...", "label": "..."}``.
+            """
+            return entity_resolver(kind, request)
 
     @router.post("/compile", response_model=list[Problem])
     def compile_only(req: ExecuteRequest) -> list[Problem]:
@@ -152,7 +161,3 @@ def conductor_router(
 
     return router
 
-
-# Silence "imported but unused" warnings: Depends is a documented option for
-# callers to import alongside `conductor_router`, not used in this module.
-_ = Depends

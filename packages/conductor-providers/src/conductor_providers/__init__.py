@@ -18,7 +18,7 @@ Transport subpackages declare their framework dep as an optional extra
 consumers don't pay for it.
 
     from conductor_providers import react
-    palette = react.palette_from_registry(registry)
+    wire = react.graph_to_react(graph)
 
     from conductor_providers.fastapi import conductor_router
     app.include_router(conductor_router(registry, prefix="/conductor"))
@@ -26,6 +26,4 @@ consumers don't pay for it.
 
 from conductor_providers import react
 
-PROVIDERS: list[str] = ["react", "fastapi"]
-
-__all__ = ["PROVIDERS", "react"]
+__all__ = ["react"]

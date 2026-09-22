@@ -85,7 +85,7 @@ A widget dumps through pydantic; the three lifted fields are excluded because th
 {'kind': 'text', 'min_length': None, 'max_length': None, 'pattern': 'https?://.*'}
 ```
 
-At the node level, `cls.describe()` is the whole palette entry — every version's `Input` and `Output` records, each `Input` carrying its widget — and `conductor_providers.react.palette_from_registry(registry)` is `[cls.describe() for cls in registry.nodes]`.
+At the node level, `cls.describe()` is the whole palette entry — every version's `Input` and `Output` records, each `Input` carrying its widget — and `registry.describe()` is the palette: every node's record and the vocabulary.
 
 ## Adding a new widget
 
