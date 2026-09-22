@@ -18,7 +18,6 @@ from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.metadata import Result
 from conductor.node import NodeDefinition, Policy, version
-from conductor.ref import Ref
 from conductor.series import Series
 from conductor.widgets import Textarea
 
@@ -98,7 +97,7 @@ def _run(nodes):
 def test_a_graph_of_bindings_compiles_and_runs():
     results = _run([
         GraphNode(id="a", type="upper", version=1, bindings={"text": Static("hi")}),
-        GraphNode(id="b", type="upper", version=1, bindings={"text": From(Ref("a", "result"))}),
+        GraphNode(id="b", type="upper", version=1, bindings={"text": From("a.result")}),
     ])
 
     assert results["a"]["result"] == "HI"
@@ -113,8 +112,8 @@ def test_a_branch_not_taken_is_skipped_downstream():
     """A branch is an output; SKIPPED on it skips what hangs off it."""
     results = _run([
         GraphNode(id="g", type="gate", version=1, bindings={"x": Static("hi")}),
-        GraphNode(id="yes", type="upper", version=1, bindings={"text": From(Ref("g", "yes"))}),
-        GraphNode(id="no", type="upper", version=1, bindings={"text": From(Ref("g", "no"))}),
+        GraphNode(id="yes", type="upper", version=1, bindings={"text": From("g.yes")}),
+        GraphNode(id="no", type="upper", version=1, bindings={"text": From("g.no")}),
     ])
 
     assert results["yes"]["result"] == "HI"
@@ -125,7 +124,7 @@ def test_a_gather_arrives_as_a_series():
     results = _run([
         GraphNode(id="a", type="upper", version=1, bindings={"text": Static("a")}),
         GraphNode(id="b", type="upper", version=1, bindings={"text": Static("b")}),
-        GraphNode(id="j", type="join", version=1, bindings={"texts": From(Ref("a", "result"), Ref("b", "result"))}),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": From("a.result", "b.result")}),
     ])
 
     assert results["j"]["result"] == "A+B"

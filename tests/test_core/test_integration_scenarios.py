@@ -14,7 +14,6 @@ from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
 from conductor.metadata import Result
 from conductor.node import NodeDefinition, Policy, version
-from conductor.ref import Ref
 from conductor.widgets import NumberWidget, Textarea
 
 
@@ -142,8 +141,8 @@ class TestDecisionCombinations:
         """The branch not taken holds a failing node that never runs."""
         compiled = CompiledGraph.from_graph(Graph(nodes=[
                 GraphNode(id="d", type="decide", version=1, bindings={"value": Static(100)}),
-                GraphNode(id="a", type="tally", version=1, bindings={"label": Static("A"), "number": From(Ref('d', 'high'))}),
-                GraphNode(id="b", type="always-fail", version=1, bindings={"number": From(Ref('d', 'low'))}),
+                GraphNode(id="a", type="tally", version=1, bindings={"label": Static("A"), "number": From('d.high')}),
+                GraphNode(id="b", type="always-fail", version=1, bindings={"number": From('d.low')}),
             ]), _registry())
         r = run_sync(compiled)["results"]
         # A ran; B was skipped so it never failed
@@ -223,8 +222,8 @@ class TestEdgeCases:
     def test_decision_routes_only_the_taken_branch(self):
         compiled = CompiledGraph.from_graph(Graph(nodes=[
                 GraphNode(id="d", type="decide", version=1, bindings={"value": Static(100)}),
-                GraphNode(id="taken", type="tally", version=1, bindings={"label": Static("TAKEN"), "number": From(Ref('d', 'high'))}),
-                GraphNode(id="other", type="tally", version=1, bindings={"label": Static("OTHER"), "number": From(Ref('d', 'low'))}),
+                GraphNode(id="taken", type="tally", version=1, bindings={"label": Static("TAKEN"), "number": From('d.high')}),
+                GraphNode(id="other", type="tally", version=1, bindings={"label": Static("OTHER"), "number": From('d.low')}),
             ]), _registry())
         r = run_sync(compiled)["results"]
         assert r["taken"]["result"] == "TAKEN"
@@ -235,9 +234,9 @@ class TestEdgeCases:
 
         compiled = CompiledGraph.from_graph(Graph(nodes=[
                 GraphNode(id="source", type="echo", version=1, bindings={"text": Static("data")}),
-                GraphNode(id="d", type="route", version=1, bindings={"text": From(Ref('source', 'result'))}),
-                GraphNode(id="taken", type="echo", version=1, bindings={"text": From(Ref('d', 'match'))}),
-                GraphNode(id="else_b", type="echo", version=1, bindings={"text": From(Ref('d', 'other'))}),
+                GraphNode(id="d", type="route", version=1, bindings={"text": From('source.result')}),
+                GraphNode(id="taken", type="echo", version=1, bindings={"text": From('d.match')}),
+                GraphNode(id="else_b", type="echo", version=1, bindings={"text": From('d.other')}),
             ]), _registry(Route))
         r = run_sync(compiled)["results"]
         assert r["taken"]["result"] == "data"

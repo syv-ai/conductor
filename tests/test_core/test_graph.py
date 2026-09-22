@@ -10,7 +10,6 @@ from conductor.graph.model import Graph, GraphNode
 from conductor.graph.topology import order_of
 from conductor.metadata import Param, Result
 from conductor.node import NodeDefinition
-from conductor.ref import Ref
 from conductor.widgets import Textarea
 from pydantic import ValidationError
 
@@ -89,7 +88,7 @@ class TestCompile:
         registry.register(Echo)
         nodes = [
             GraphNode(id="n1", type="echo", version=1, bindings={"text": Static("hello")}),
-            GraphNode(id="n2", type="echo", version=1, bindings={"text": From(Ref('n1', 'result'))}),
+            GraphNode(id="n2", type="echo", version=1, bindings={"text": From('n1.result')}),
         ]
 
         compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry)
@@ -104,7 +103,7 @@ class TestCompile:
 
     def test_compile_edge_from_a_missing_node_is_a_problem(self, registry):
         registry.register(Echo)
-        nodes = [GraphNode(id="n1", type="echo", version=1, bindings={"text": From(Ref("n_missing", "result"))})]
+        nodes = [GraphNode(id="n1", type="echo", version=1, bindings={"text": From("n_missing.result")})]
 
         compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry)
         assert [p.code for p in compiled.problems] == ["unknown_ref_node"]
@@ -112,8 +111,8 @@ class TestCompile:
     def test_compile_cycle_is_a_problem_on_each_node_in_it(self, registry):
         registry.register(Echo)
         nodes = [
-            GraphNode(id="n1", type="echo", version=1, bindings={"text": From(Ref('n2', 'result'))}),
-            GraphNode(id="n2", type="echo", version=1, bindings={"text": From(Ref('n1', 'result'))}),
+            GraphNode(id="n1", type="echo", version=1, bindings={"text": From('n2.result')}),
+            GraphNode(id="n2", type="echo", version=1, bindings={"text": From('n1.result')}),
         ]
         compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry)
         assert [(p.code, p.node_id) for p in compiled.problems] == [("cycle", "n1"), ("cycle", "n2")]

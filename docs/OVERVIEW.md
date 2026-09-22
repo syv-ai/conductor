@@ -73,7 +73,7 @@ A graph is its nodes; there is no edge list. Each placed node says per input whe
 
 ```python
 GraphNode(id="mapper", type="build-map", version=1, bindings={"seed": Static("x")})
-GraphNode(id="redactor", type="redact", version=1, bindings={"mapping": From(Ref("mapper", "result"))})
+GraphNode(id="redactor", type="redact", version=1, bindings={"mapping": From("mapper.result")})
 # the From binding is the edge and the dependency
 ```
 

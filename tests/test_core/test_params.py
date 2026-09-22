@@ -177,7 +177,7 @@ def _asking_per_row(text: str) -> CompiledGraph:
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="docs", type="docs", version=1, bindings={"text": Static(text)}),
-            GraphNode(id="ask", type="ask-each", version=1, bindings={"proposal": From(Ref("docs", "result"))}),
+            GraphNode(id="ask", type="ask-each", version=1, bindings={"proposal": From("docs.result")}),
         ]),
         _registry(),
     )
@@ -213,8 +213,8 @@ def test_a_list_answers_the_rows_still_open_and_leaves_a_skipped_row_alone():
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="docs", type="docs", version=1, bindings={"text": Static("aa,b,cc")}),
-            GraphNode(id="skip", type="skip-short", version=1, bindings={"text": From(Ref("docs", "result"))}),
-            GraphNode(id="ask", type="ask-each", version=1, bindings={"proposal": From(Ref("skip", "result"))}),
+            GraphNode(id="skip", type="skip-short", version=1, bindings={"text": From("docs.result")}),
+            GraphNode(id="ask", type="ask-each", version=1, bindings={"proposal": From("skip.result")}),
         ]),
         _registry(),
     )

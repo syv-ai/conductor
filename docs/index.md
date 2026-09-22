@@ -22,7 +22,7 @@ A reusable, host-agnostic engine that compiles and runs graphs of typed nodes. D
 ```python
 from typing import Annotated
 
-from conductor import CompiledGraph, From, Graph, GraphNode, NodeDefinition, NodeRegistry, Param, Policy, Ref, Result, run_sync, Static, version
+from conductor import CompiledGraph, From, Graph, GraphNode, NodeDefinition, NodeRegistry, Param, Policy, Result, run_sync, Static, version
 from conductor.widgets import TextWidget
 from conductor_nodes.types import Number, Text          # or DTypes of your own
 
@@ -55,7 +55,7 @@ registry.register(Length)
 compiled = CompiledGraph.from_graph(
     Graph(nodes=[
         GraphNode(id="page", type="fetch", version=1, bindings={"url": Static(["https://a.example", "https://b.example"])}),
-        GraphNode(id="size", type="length", version=1, bindings={"text": From(Ref("page", "result"))}),
+        GraphNode(id="size", type="length", version=1, bindings={"text": From("page.result")}),
     ]),
     registry,
 )
@@ -74,7 +74,7 @@ graph = Graph(nodes=[
     GraphNode(id="mapper", type="build-map", version=1, bindings={"seed": Static("x")}),
     GraphNode(id="redactor", type="redact", version=1, bindings={
         "text": Static("Alice met Bob."),
-        "mapping": From(Ref("mapper", "result")),
+        "mapping": From("mapper.result"),
     }),
 ])
 ```

@@ -21,7 +21,7 @@ registry = conductor_nodes.registry(categories=["text"])
 
 ```python
 broken = CompiledGraph.from_graph(
-    Graph(nodes=[GraphNode(id="loud", type="text-uppercase", version=1, bindings={"text": From(Ref("ghost", "result"))})]),
+    Graph(nodes=[GraphNode(id="loud", type="text-uppercase", version=1, bindings={"text": From("ghost.result")})]),
     registry,
 )
 assert not broken.is_runnable
@@ -46,8 +46,8 @@ A series arriving on an input declared for one value runs the node once per row;
 rows = CompiledGraph.from_graph(
     Graph(nodes=[
         GraphNode(id="words", type="text-split", version=1, bindings={"text": Static("red,green,blue")}),
-        GraphNode(id="loud", type="text-uppercase", version=1, bindings={"text": From(Ref("words", "result"))}),
-        GraphNode(id="joined", type="text-join", version=1, bindings={"parts": From(Ref("loud", "result"))}),
+        GraphNode(id="loud", type="text-uppercase", version=1, bindings={"text": From("words.result")}),
+        GraphNode(id="joined", type="text-join", version=1, bindings={"parts": From("loud.result")}),
     ]),
     registry,
 )
@@ -115,7 +115,7 @@ registry.register(Approve)
 asking = CompiledGraph.from_graph(
     Graph(nodes=[
         GraphNode(id="drafts", type="text-split", version=1, bindings={"text": Static("first,second")}),
-        GraphNode(id="approve", type="approve", version=1, bindings={"proposal": From(Ref("drafts", "result"))}),
+        GraphNode(id="approve", type="approve", version=1, bindings={"proposal": From("drafts.result")}),
     ]),
     registry,
 )

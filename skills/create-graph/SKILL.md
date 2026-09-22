@@ -25,8 +25,8 @@ from conductor import CompiledGraph, From, Graph, GraphNode, Ref, run_sync, Stat
 
 graph = Graph(nodes=[
     GraphNode(id="words", type="text-split", version=1, bindings={"text": Static("red,green")}),
-    GraphNode(id="loud", type="text-uppercase", version=1, bindings={"text": From(Ref("words", "result"))}),
-    GraphNode(id="joined", type="text-join", version=1, bindings={"parts": From(Ref("loud", "result")), "separator": Static(" + ")}),
+    GraphNode(id="loud", type="text-uppercase", version=1, bindings={"text": From("words.result")}),
+    GraphNode(id="joined", type="text-join", version=1, bindings={"parts": From("loud.result"), "separator": Static(" + ")}),
 ])
 
 compiled = CompiledGraph.from_graph(graph, registry)
@@ -41,7 +41,7 @@ results["joined"]["result"]               # "RED + GREEN"; loud ran once per wor
 
 Each input holds at most one binding:
 
-- **`From(Ref("node", "output"), ...)`**: over edges. A node with one output names it `result`; a record's outputs are its field names.
+- **`From("node.output", ...)`**: over edges. A node with one output names it `result`; a record's outputs are its field names.
 - **`Static(...)`**: typed in by the author. A list typed into an input declared for one value runs the node once per value.
 - **No binding**: the declared default.
 

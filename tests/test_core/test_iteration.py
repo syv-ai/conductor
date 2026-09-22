@@ -376,7 +376,7 @@ def test_a_refuses_whole_that_returns_its_refusal_fails_loud():
     registry = NodeRegistry([Makes, Reads])
     graph = Graph(nodes=[
         GraphNode(id="m", type="makes", version=1),
-        GraphNode(id="r", type="reads", version=1, bindings={"x": From(Ref("m", "result"))}),
+        GraphNode(id="r", type="reads", version=1, bindings={"x": From("m.result")}),
     ])
 
     with pytest.raises(TypeError, match=r"Returns.refuses_whole\(\) returned"):
@@ -440,8 +440,8 @@ def test_a_source_may_refuse_to_be_received_whole_naming_the_fix():
     for node_cls in (Halves, Reads, Routes):
         registry.register(node_cls)
     edge = {"h": GraphNode(id="h", type="halves", version=1)}
-    read = CompiledGraph.from_graph(Graph(nodes=[edge["h"], GraphNode(id="r", type="reads", version=1, bindings={"x": From(Ref("h", "result"))})]), registry)
-    routed = CompiledGraph.from_graph(Graph(nodes=[edge["h"], GraphNode(id="r", type="routes", version=1, bindings={"value": From(Ref("h", "result"))})]), registry)
+    read = CompiledGraph.from_graph(Graph(nodes=[edge["h"], GraphNode(id="r", type="reads", version=1, bindings={"x": From("h.result")})]), registry)
+    routed = CompiledGraph.from_graph(Graph(nodes=[edge["h"], GraphNode(id="r", type="routes", version=1, bindings={"value": From("h.result")})]), registry)
 
     (problem,) = [p for p in read.problems if p.node_id == "r"]
     assert (problem.code, problem.fatal, problem.field) == ("columns_unknown", True, "x")

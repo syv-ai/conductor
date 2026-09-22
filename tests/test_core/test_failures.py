@@ -28,7 +28,6 @@ from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
 from conductor.metadata import Result
 from conductor.node import NodeDefinition, Policy, version
-from conductor.ref import Ref
 from conductor.series import Series
 from conductor.widgets import Textarea
 
@@ -324,7 +323,7 @@ def test_a_failed_row_is_retried_alone():
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="split", type="split", version=1, bindings={"text": Static("a,b,c")}),
-            GraphNode(id="rows", type="flaky-on-b", version=1, bindings={"text": From(Ref("split", "result"))}),
+            GraphNode(id="rows", type="flaky-on-b", version=1, bindings={"text": From("split.result")}),
         ]),
         reg,
     )
@@ -377,7 +376,7 @@ def test_a_flaky_node_in_one_branch_retries_while_the_other_branch_completes():
         Graph(nodes=[
             GraphNode(id="n1", type="flaky-a", version=1, bindings={"text": Static("x")}),
             GraphNode(id="n2", type="fast-b", version=1, bindings={"text": Static("y")}),
-            GraphNode(id="n3", type="join", version=1, bindings={"a": From(Ref("n1", "result")), "b": From(Ref("n2", "result"))}),
+            GraphNode(id="n3", type="join", version=1, bindings={"a": From("n1.result"), "b": From("n2.result")}),
         ]),
         reg,
     )

@@ -20,7 +20,6 @@ from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
 from conductor.metadata import Result
 from conductor.node import NodeDefinition, Policy, version
-from conductor.ref import Ref
 from conductor.series import Series
 from conductor.widgets import Textarea
 
@@ -58,7 +57,7 @@ def _per_row(slow_cls: type[NodeDefinition], rows: int, *more: type[NodeDefiniti
         reg.register(cls)
     nodes = [
         GraphNode(id="split", type="split", version=1, bindings={"text": Static(_rows(rows))}),
-        GraphNode(id="slow", type=slow_cls.id, version=1, bindings={"text": From(Ref("split", "result"))}),
+        GraphNode(id="slow", type=slow_cls.id, version=1, bindings={"text": From("split.result")}),
         *[GraphNode(id=cls.id, type=cls.id, version=1, bindings={"text": Static("x")}) for cls in more],
     ]
     return CompiledGraph.from_graph(Graph(nodes=nodes), reg)
@@ -172,8 +171,8 @@ def test_an_instant_node_beside_forty_slow_rows_does_not_time_out():
         reg.register(cls)
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         GraphNode(id="split", type="split", version=1, bindings={"text": Static(_rows(40))}),
-        GraphNode(id="slow", type="sleeper", version=1, bindings={"text": From(Ref("split", "result"))}),
-        GraphNode(id="instant", type="instant", version=1, bindings={"texts": From(Ref("split", "result"))}),
+        GraphNode(id="slow", type="sleeper", version=1, bindings={"text": From("split.result")}),
+        GraphNode(id="instant", type="instant", version=1, bindings={"texts": From("split.result")}),
     ]), reg)
 
     events = _events(compiled)

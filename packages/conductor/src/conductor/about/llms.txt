@@ -11,7 +11,7 @@ Two nodes: one written for a single value, one for a whole series. That differen
 ```python
 from typing import Annotated
 
-from conductor import CompiledGraph, DType, From, Graph, GraphNode, NodeDefinition, NodeRegistry, Param, Ref, Result, Series, Static, run
+from conductor import CompiledGraph, DType, From, Graph, GraphNode, NodeDefinition, NodeRegistry, Param, Result, Series, Static, run
 from conductor.widgets import Textarea
 
 
@@ -46,7 +46,7 @@ registry.register(Join)
 
 graph = Graph(nodes=[
     GraphNode(id="upper", type="upper", version=1, bindings={"text": Static(["a", "b", "c"])}),
-    GraphNode(id="join", type="join", version=1, bindings={"texts": From(Ref("upper", "result"))}),
+    GraphNode(id="join", type="join", version=1, bindings={"texts": From("upper.result")}),
 ])
 compiled = CompiledGraph.from_graph(graph, registry)
 assert compiled.is_runnable, compiled.problems
@@ -135,7 +135,7 @@ class Number(DType, float):
 
 A graph is `Graph(nodes=[...])`, and a placed node is `GraphNode(id=, type=, version=, bindings=, locked=, title=, description=, fields=, display=)`. There is no edge record: each input holds at most one binding.
 
-- `From(Ref("a", "result"), ...)` — the value arrives over edges. Several refs into a `Series[X]` input on different indexes gather into one series; several on one index are a union, and a row two of them cover fails the node with `row_covered_twice`.
+- `From("a.result", ...)` — the value arrives over edges. Several refs into a `Series[X]` input on different indexes gather into one series; several on one index are a union, and a row two of them cover fails the node with `row_covered_twice`.
 - `Static(...)` — the author typed the value. A list typed into a scalar input makes the node run once per value.
 - No binding — the declared default applies.
 - `locked` names inputs no caller of the graph may fill.

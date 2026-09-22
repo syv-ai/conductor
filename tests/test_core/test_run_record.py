@@ -124,7 +124,7 @@ def _leg(compiled: CompiledGraph, **kw) -> list[dict]:
 
 
 def _edge(node: str, field: str = "result") -> From:
-    return From(Ref(node, field))
+    return From(f"{node}.{field}")
 
 
 def _through_json(record: RunRecord) -> RunRecord:

@@ -20,7 +20,6 @@ from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.interface import Interface
 from conductor.metadata import Input, Output, Param, Result
 from conductor.node import GraphVersion, NodeDefinition, upgrade, version
-from conductor.ref import Ref
 from conductor.widgets import Textarea
 
 
@@ -97,7 +96,7 @@ def _registry() -> NodeRegistry:
 def _graph(version: int = 1) -> Graph:
     return Graph(nodes=[
         GraphNode(id="r", type="rename", version=version, bindings={"name": Static("Ada Lovelace")} if version == 1 else {}),
-        GraphNode(id="e", type="echo", version=1, bindings={"text": From(Ref("r", "result"))}),
+        GraphNode(id="e", type="echo", version=1, bindings={"text": From("r.result")}),
     ])
 
 
@@ -160,7 +159,7 @@ def test_a_renamed_output_rewrites_the_readers_edges_and_the_graph_compiles_clea
     upgraded = registry.upgraded(_graph(), "r")
 
     reader = next(n for n in upgraded.nodes if n.id == "e")
-    assert reader.bindings["text"] == From(Ref("r", "text"))
+    assert reader.bindings["text"] == From("r.text")
     compiled = CompiledGraph.from_graph(upgraded, registry)
     assert compiled.is_runnable and compiled.problems == (), compiled.problems
 
@@ -169,7 +168,7 @@ def test_to_stops_the_chain_early():
     upgraded = _registry().upgraded(_graph(), "r", to=2)
 
     assert next(n for n in upgraded.nodes if n.id == "r").version == 2
-    assert next(n for n in upgraded.nodes if n.id == "e").bindings["text"] == From(Ref("r", "result"))
+    assert next(n for n in upgraded.nodes if n.id == "e").bindings["text"] == From("r.result")
 
 
 def test_a_node_already_there_returns_the_graph_unchanged():
@@ -180,7 +179,7 @@ def test_a_node_already_there_returns_the_graph_unchanged():
 def test_an_edge_into_an_input_the_step_renames_moves_with_it():
     graph = Graph(nodes=[
         GraphNode(id="src", type="echo", version=1),
-        GraphNode(id="r", type="rename", version=1, bindings={"name": From(Ref("src", "result"))}),
+        GraphNode(id="r", type="rename", version=1, bindings={"name": From("src.result")}),
     ])
 
     class Carry(NodeDefinition):
@@ -207,7 +206,7 @@ def test_an_edge_into_an_input_the_step_renames_moves_with_it():
     graph = Graph(nodes=[graph.nodes[0], GraphNode(id="r", type="carry", version=1, bindings=graph.nodes[1].bindings)])
 
     upgraded = registry.upgraded(graph, "r")
-    assert next(n for n in upgraded.nodes if n.id == "r").bindings == {"full": From(Ref("src", "result"))}
+    assert next(n for n in upgraded.nodes if n.id == "r").bindings == {"full": From("src.result")}
 
 
 def test_a_downgrade_or_an_unknown_node_raises():
@@ -257,7 +256,7 @@ def test_a_renamed_input_takes_its_binding_lock_and_content_with_it():
             id="r", type="renames", version=1, bindings={"name": Static("Ada")}, locked=("name",),
             fields={"name": FieldContent(title="Navn"), "result": FieldContent(title="Resultat")},
         ),
-        GraphNode(id="e", type="echo", version=1, bindings={"text": From(Ref("r", "result"))}),
+        GraphNode(id="e", type="echo", version=1, bindings={"text": From("r.result")}),
     ])
 
     upgraded = registry.upgraded(graph, "r")
@@ -306,12 +305,12 @@ def test_a_later_step_reusing_a_renamed_away_name_does_not_catch_an_older_edge()
     registry = NodeRegistry([Echo, Reuse])
     graph = Graph(nodes=[
         GraphNode(id="u", type="reuse", version=1),
-        GraphNode(id="e", type="echo", version=1, bindings={"text": From(Ref("u", "result"))}),
+        GraphNode(id="e", type="echo", version=1, bindings={"text": From("u.result")}),
     ])
 
     upgraded = registry.upgraded(graph, "u")
 
-    assert upgraded.nodes[1].bindings["text"] == From(Ref("u", "first"))
+    assert upgraded.nodes[1].bindings["text"] == From("u.first")
 
 
 def test_a_definition_with_no_steps_only_has_its_version_set():

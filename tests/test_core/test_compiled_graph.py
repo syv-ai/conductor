@@ -178,7 +178,7 @@ def test_callers_never_touch_a_binding_table():
 
 def test_execution_order_follows_the_edges():
     compiled = _compiled([
-        GraphNode(id="b", type="echo", version=1, bindings={"x": From(Ref("a", "result"))}),
+        GraphNode(id="b", type="echo", version=1, bindings={"x": From("a.result")}),
         GraphNode(id="a", type="echo", version=1),
     ])
 
@@ -191,7 +191,7 @@ def test_execution_order_follows_the_edges():
 def test_binding_answers_where_an_input_comes_from():
     compiled = _compiled([
         GraphNode(id="a", type="echo", version=1, bindings={"x": Static("hi")}),
-        GraphNode(id="b", type="echo", version=1, bindings={"x": From(Ref("a", "result"))}),
+        GraphNode(id="b", type="echo", version=1, bindings={"x": From("a.result")}),
     ])
 
     assert isinstance(compiled.field(Ref("a", "x")).binding, Static)
@@ -282,7 +282,7 @@ def test_a_roster_depends_only_on_what_the_author_typed():
     back to the declaration for it."""
     compiled = _compiled([
         GraphNode(id="src", type="text-input", version=1, bindings={"value": Static("b")}),
-        GraphNode(id="m", type="modes", version=1, bindings={"mode": From(Ref("src", "result"))}),
+        GraphNode(id="m", type="modes", version=1, bindings={"mode": From("src.result")}),
     ])
 
     assert [i.name for i in compiled.node("m").interface.inputs] == ["mode"]
@@ -333,7 +333,7 @@ def test_needs_is_the_union_of_the_placements_needs():
     given."""
     compiled = _compiled([
         GraphNode(id="a", type="stamped", version=1),
-        GraphNode(id="b", type="stamped", version=1, bindings={"x": From(Ref("a", "result"))}),
+        GraphNode(id="b", type="stamped", version=1, bindings={"x": From("a.result")}),
         GraphNode(id="c", type="echo", version=1),
     ], _registry(Stamped))
 
@@ -380,7 +380,7 @@ def test_compiling_the_same_graph_twice_gives_the_same_answers():
     def build():
         return Graph(nodes=[
             GraphNode(id="a", type="echo", version=1, bindings={"x": Static("hi")}),
-            GraphNode(id="b", type="echo", version=1, bindings={"x": From(Ref("a", "result"))}),
+            GraphNode(id="b", type="echo", version=1, bindings={"x": From("a.result")}),
         ])
 
     first = CompiledGraph.from_graph(build(), _registry())
@@ -429,7 +429,7 @@ def test_a_compiled_node_validates_a_call_and_hands_back_its_keyword_arguments()
     with pytest.raises(ValidationError):
         node.validate({"x": ["not", "text"]})
     with pytest.raises(KeyError):
-        _compiled([GraphNode(id="b", type="echo", version=1, bindings={"x": From(Ref("ghost", "result"))})]).node("b").validate({})
+        _compiled([GraphNode(id="b", type="echo", version=1, bindings={"x": From("ghost.result")})]).node("b").validate({})
 
 
 def test_the_record_keeps_the_authored_graph_and_the_registry_and_drops_what_nothing_calls():

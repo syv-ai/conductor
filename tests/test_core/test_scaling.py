@@ -20,7 +20,6 @@ from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.metadata import Result
 from conductor.node import NodeDefinition
-from conductor.ref import Ref
 from conductor.series import Series
 from conductor.widgets import Textarea
 
@@ -97,7 +96,7 @@ class LongOnly(NodeDefinition):
 
 
 def _edge(node_id: str, field: str) -> From:
-    return From(Ref(node_id, field))
+    return From(f"{node_id}.{field}")
 
 
 def _compiled(rows: int) -> CompiledGraph:

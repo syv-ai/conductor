@@ -21,7 +21,6 @@ from conductor.node import (
     Policy,
     VersionDescription,
 )
-from conductor.ref import Ref
 from conductor.series import Index
 from conductor.widgets import Choice, Dropdown, OperatorChoice, SchemaBuilder, Textarea, Widget
 from pydantic import ValidationError
@@ -36,7 +35,7 @@ def _graph() -> Graph:
     return Graph(
         nodes=[
             GraphNode(id="a", type="echo", version=1, bindings={"x": Static("hi")}, locked=("x",), title="A", fields={"x": FieldContent(title="X")}),
-            GraphNode(id="b", type="echo", version=1, bindings={"x": From(Ref("a", "result"))}, display={"x": 1}),
+            GraphNode(id="b", type="echo", version=1, bindings={"x": From("a.result")}, display={"x": 1}),
         ],
     )
 
@@ -115,7 +114,7 @@ def test_a_schema_builder_keeps_its_schema_key_on_the_wire():
 
 READ_BACK = (
     FieldContent(title="X", description="x"),
-    From(Ref("a", "result"), Ref("b", "result")),
+    From("a.result", "b.result"),
     Static({"rows": [1, 2]}),
     Problem(code="cycle", message="m", fatal=True, node_id="a", field="x", details={"path": ["a", "b"]}),
     ErrorCause(code="timeout", message="m", details={"seconds": 3}, row=(0, 2)),

@@ -75,7 +75,7 @@ A value on an edge has a `DType`. Conductor declares none, so start by naming th
 
 ```python
 from typing import Annotated
-from conductor import Asks, CompiledGraph, deprecated, DType, From, FromRun, Graph, GraphNode, Input, NodeDefinition, NodeRegistry, Param, Policy, Ref, Result, run_sync, Series, SKIPPED, Static, upgrade, version
+from conductor import Asks, CompiledGraph, deprecated, DType, From, FromRun, Graph, GraphNode, Input, NodeDefinition, NodeRegistry, Param, Policy, Result, run_sync, Series, SKIPPED, Static, upgrade, version
 from conductor.widgets import Textarea, TextWidget
 from conductor_nodes.types import Text
 
@@ -116,7 +116,7 @@ A placement pins a node by `type` and `version` and says, per input, where its v
 
 graph = Graph(nodes=[
     GraphNode(id="n1", type="echo", version=1, bindings={"text": Static("hello world")}),
-    GraphNode(id="n2", type="uppercase", version=1, bindings={"text": From(Ref("n1", "result"))}),
+    GraphNode(id="n2", type="uppercase", version=1, bindings={"text": From("n1.result")}),
 ])
 compiled = CompiledGraph.from_graph(graph, registry)
 
@@ -426,7 +426,7 @@ Raise `ExternalFailure` from `run` where the node knows the outside world failed
 
 ### Bindings
 
-One input holds one binding, so an edge and a typed value can never both claim the same input. `From(Ref("a", "result"), Ref("b", "result"))` is in operand order — into a `Series[X]` input several refs gather into one series. `Static(...)` is what the author typed. An absent binding means the declared default applies. A graph's dependencies (`dependencies_of`) and which placements are its input nodes (`is_input_node`, no edge into any input) are read off the bindings; nothing stores them. A failed node fails the run.
+One input holds one binding, so an edge and a typed value can never both claim the same input. `From("a.result", "b.result")` is in operand order — into a `Series[X]` input several refs gather into one series. `Static(...)` is what the author typed. An absent binding means the declared default applies. A graph's dependencies (`dependencies_of`) and which placements are its input nodes (`is_input_node`, no edge into any input) are read off the bindings; nothing stores them. A failed node fails the run.
 
 A host that loads definitions the static registry lacks builds them and hands compile `registry.extended_with({...})` — a new registry per run in which a registered type wins over a loaded one.
 

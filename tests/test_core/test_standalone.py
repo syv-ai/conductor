@@ -19,7 +19,6 @@ import pytest
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
-from conductor.ref import Ref
 
 PACKAGES = Path(__file__).resolve().parents[2] / "packages"
 SOURCES = sorted(
@@ -218,8 +217,8 @@ def test_an_iteration_and_a_reduction_run_on_the_standard_nodes_alone():
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="split", type="text-split", version=1, bindings={"text": Static("a,b,c")}),
-            GraphNode(id="upper", type="text-uppercase", version=1, bindings={"text": From(Ref("split", "result"))}),
-            GraphNode(id="join", type="text-join", version=1, bindings={"parts": From(Ref("upper", "result")), "separator": Static("+")}),
+            GraphNode(id="upper", type="text-uppercase", version=1, bindings={"text": From("split.result")}),
+            GraphNode(id="join", type="text-join", version=1, bindings={"parts": From("upper.result"), "separator": Static("+")}),
         ]),
         conductor_nodes.registry(),
     )

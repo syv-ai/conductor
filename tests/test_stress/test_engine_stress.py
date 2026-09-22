@@ -28,7 +28,6 @@ from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
 from conductor.metadata import Result
 from conductor.node import NodeDefinition, Policy, version
-from conductor.ref import Ref
 from conductor.widgets import Textarea
 from conductor_nodes.types import Text
 
@@ -68,7 +67,7 @@ def test_500_node_linear_chain_compile_and_execute() -> None:
     # the previous node's ``result`` on its ``text`` parameter.
     nodes.append(GraphNode(id="n0", type="upper", version=1, bindings={"text": Static("hello")}))
     for i in range(1, n):
-        nodes.append(GraphNode(id=f"n{i}", type="upper", version=1, bindings={"text": From(Ref(f"n{i - 1}", "result"))},
+        nodes.append(GraphNode(id=f"n{i}", type="upper", version=1, bindings={"text": From(f"n{i - 1}.result")},
         ))
 
     t0 = time.monotonic()

@@ -13,7 +13,6 @@ from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.metadata import Result
 from conductor.node import NodeDefinition
-from conductor.ref import Ref
 from conductor.widgets import Textarea
 
 
@@ -104,9 +103,9 @@ class TestStreamingExecution:
         compiled = CompiledGraph.from_graph(Graph(nodes=[
             GraphNode(id="a", type="slow", version=1, bindings={"text": Static("hello")}),
             GraphNode(id="b", type="slow", version=1, bindings={"text": Static("world")}),
-            GraphNode(id="c", type="slow", version=1, bindings={"text": From(Ref("a", "result"))}),
-            GraphNode(id="d", type="slow", version=1, bindings={"text": From(Ref("b", "result"))}),
-            GraphNode(id="e", type="combine", version=1, bindings={"a": From(Ref("c", "result")), "b": From(Ref("d", "result"))}),
+            GraphNode(id="c", type="slow", version=1, bindings={"text": From("a.result")}),
+            GraphNode(id="d", type="slow", version=1, bindings={"text": From("b.result")}),
+            GraphNode(id="e", type="combine", version=1, bindings={"a": From("c.result"), "b": From("d.result")}),
         ]), registry)
 
         start = time.monotonic()
@@ -121,7 +120,7 @@ class TestStreamingExecution:
         """echo -> upper should produce start/complete events for each node."""
         compiled = CompiledGraph.from_graph(Graph(nodes=[
                 GraphNode(id="n1", type="echo", version=1, bindings={"text": Static("hello")}),
-                GraphNode(id="n2", type="upper", version=1, bindings={"text": From(Ref('n1', 'result'))}),
+                GraphNode(id="n2", type="upper", version=1, bindings={"text": From('n1.result')}),
             ]), three_node_registry)
 
         events = []
@@ -137,7 +136,7 @@ class TestStreamingExecution:
         """echo('hello') -> upper -> 'HELLO'."""
         compiled = CompiledGraph.from_graph(Graph(nodes=[
                 GraphNode(id="n1", type="echo", version=1, bindings={"text": Static("hello")}),
-                GraphNode(id="n2", type="upper", version=1, bindings={"text": From(Ref('n1', 'result'))}),
+                GraphNode(id="n2", type="upper", version=1, bindings={"text": From('n1.result')}),
             ]), three_node_registry)
 
         results = (await run(compiled))["results"]
@@ -150,9 +149,9 @@ class TestStreamingExecution:
         """
         compiled = CompiledGraph.from_graph(Graph(nodes=[
                 GraphNode(id="n1", type="echo", version=1, bindings={"text": Static("hello")}),
-                GraphNode(id="n2", type="upper", version=1, bindings={"text": From(Ref('n1', 'result'))}),
-                GraphNode(id="n3", type="echo", version=1, bindings={"text": From(Ref('n1', 'result'))}),
-                GraphNode(id="n4", type="combine", version=1, bindings={"a": From(Ref('n2', 'result')), "b": From(Ref('n3', 'result'))}),
+                GraphNode(id="n2", type="upper", version=1, bindings={"text": From('n1.result')}),
+                GraphNode(id="n3", type="echo", version=1, bindings={"text": From('n1.result')}),
+                GraphNode(id="n4", type="combine", version=1, bindings={"a": From('n2.result'), "b": From('n3.result')}),
             ]), three_node_registry)
 
         results = (await run(compiled))["results"]
@@ -168,7 +167,7 @@ class TestSyncExecution:
         """Blocking API: echo -> upper."""
         compiled = CompiledGraph.from_graph(Graph(nodes=[
                 GraphNode(id="n1", type="echo", version=1, bindings={"text": Static("world")}),
-                GraphNode(id="n2", type="upper", version=1, bindings={"text": From(Ref('n1', 'result'))}),
+                GraphNode(id="n2", type="upper", version=1, bindings={"text": From('n1.result')}),
             ]), three_node_registry)
 
         results = run_sync(compiled)["results"]
@@ -191,7 +190,7 @@ class TestCaching:
         """Passing cache skips execution and uses cached value."""
         compiled = CompiledGraph.from_graph(Graph(nodes=[
                 GraphNode(id="n1", type="echo", version=1, bindings={"text": Static("hello")}),
-                GraphNode(id="n2", type="upper", version=1, bindings={"text": From(Ref('n1', 'result'))}),
+                GraphNode(id="n2", type="upper", version=1, bindings={"text": From('n1.result')}),
             ]), three_node_registry)
 
         results = (await run(
@@ -282,7 +281,7 @@ class TestSkipPropagation:
         registry.register(Conditional)
         compiled = CompiledGraph.from_graph(Graph(nodes=[
                 GraphNode(id="n1", type="conditional", version=1, bindings={"text": Static("hello")}),
-                GraphNode(id="n2", type="echo", version=1, bindings={"text": From(Ref('n1', 'not_taken'))}),  # connected to the branch not taken
+                GraphNode(id="n2", type="echo", version=1, bindings={"text": From('n1.not_taken')}),  # connected to the branch not taken
             ]), registry)
 
         events = []

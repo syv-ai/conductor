@@ -15,7 +15,6 @@ from conductor import CompiledGraph, GraphNode, NodeRegistry, run_sync
 from conductor._sentinel import SKIPPED
 from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
-from conductor.ref import Ref
 from conductor_nodes.decision import Decision
 from conductor_nodes.types import Flag, Json, Text
 
@@ -238,7 +237,7 @@ class TestLogic:
             full_registry,
             [
                 GraphNode(id="cond", type="logic-if-empty", version=1, bindings={"text": Static("   ")}),
-                GraphNode(id="down", type="text-uppercase", version=1, bindings={"text": From(Ref('cond', 'empty'))}),
+                GraphNode(id="down", type="text-uppercase", version=1, bindings={"text": From('cond.empty')}),
             ],
         )
         # Empty branch delivered "   " to the downstream node
@@ -250,8 +249,8 @@ class TestLogic:
             full_registry,
             [
                 GraphNode(id="cond", type="logic-if-empty", version=1, bindings={"text": Static("hi")}),
-                GraphNode(id="up", type="text-uppercase", version=1, bindings={"text": From(Ref('cond', 'not_empty'))}),
-                GraphNode(id="other", type="text-uppercase", version=1, bindings={"text": From(Ref('cond', 'empty'))}),
+                GraphNode(id="up", type="text-uppercase", version=1, bindings={"text": From('cond.not_empty')}),
+                GraphNode(id="other", type="text-uppercase", version=1, bindings={"text": From('cond.empty')}),
             ],
         )
         assert r["up"]["result"] == "HI"
@@ -262,7 +261,7 @@ class TestLogic:
             full_registry,
             [
                 GraphNode(id="cond", type="logic-if-equals", version=1, bindings={"a": Static("foo"), "b": Static("foo")}),
-                GraphNode(id="eq", type="text-uppercase", version=1, bindings={"text": From(Ref('cond', 'equal'))}),
+                GraphNode(id="eq", type="text-uppercase", version=1, bindings={"text": From('cond.equal')}),
             ],
         )
         assert r["eq"]["result"] == "FOO"
@@ -273,7 +272,7 @@ class TestLogic:
             [
                 GraphNode(id="cond", type="logic-if-equals", version=1,
                           bindings={"a": Static("Foo"), "b": Static("FOO"), "case_sensitive": Static(False)}),
-                GraphNode(id="eq", type="text-uppercase", version=1, bindings={"text": From(Ref('cond', 'equal'))}),
+                GraphNode(id="eq", type="text-uppercase", version=1, bindings={"text": From('cond.equal')}),
             ],
         )
         assert r["eq"]["result"] == "FOO"
@@ -408,8 +407,8 @@ class TestIntegration:
                 GraphNode(id="src", type="text-split", version=1,
                           bindings={"text": Static(" a ,  b , c "), "separator": Static(",")}),
                 # Reuse the split result, upper-cased after a join
-                GraphNode(id="joined", type="text-join", version=1, bindings={"separator": Static("|"), "parts": From(Ref('src', 'result'))}),
-                GraphNode(id="upper", type="text-uppercase", version=1, bindings={"text": From(Ref('joined', 'result'))}),
+                GraphNode(id="joined", type="text-join", version=1, bindings={"separator": Static("|"), "parts": From('src.result')}),
+                GraphNode(id="upper", type="text-uppercase", version=1, bindings={"text": From('joined.result')}),
             ],
         )
         # split produces [" a ", "  b ", " c "], join preserves whitespace,
@@ -422,8 +421,8 @@ class TestIntegration:
             full_registry,
             [
                 GraphNode(id="a", type="math-add", version=1, bindings={"a": Static(2), "b": Static(3)}),     # 5
-                GraphNode(id="b", type="math-multiply", version=1, bindings={"b": Static(4), "a": From(Ref('a', 'result'))}),          # 5 * 4 = 20
-                GraphNode(id="c", type="math-round", version=1, bindings={"decimals": Static(0), "value": From(Ref('b', 'result'))}),      # 20
+                GraphNode(id="b", type="math-multiply", version=1, bindings={"b": Static(4), "a": From('a.result')}),          # 5 * 4 = 20
+                GraphNode(id="c", type="math-round", version=1, bindings={"decimals": Static(0), "value": From('b.result')}),      # 20
             ],
         )
         assert r["c"]["result"] == 20

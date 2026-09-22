@@ -19,7 +19,6 @@ from conductor import CompiledGraph, Graph, GraphNode, NodeRegistry, run_sync
 from conductor.graph.binding import From, Static
 from conductor.metadata import Result
 from conductor.node import NodeDefinition
-from conductor.ref import Ref
 from conductor_nodes.types import Text
 from conductor_providers import react
 
@@ -50,8 +49,8 @@ def sample_graph() -> Graph:
         GraphNode(id="n3", type="text-concat", version=1,
             bindings={
                 "separator": Static("+"),
-                "a": From(Ref("n1", "result")),
-                "b": From(Ref("n2", "result")),
+                "a": From("n1.result"),
+                "b": From("n2.result"),
             },
         ),
     ])
@@ -145,7 +144,7 @@ class TestEndToEnd:
     def test_wire_format_can_be_compiled_and_executed(self, registry):
         graph_in = Graph(nodes=[
             GraphNode(id="src", type="text-uppercase", version=1, bindings={"text": Static("hello")}),
-            GraphNode(id="down", type="text-reverse", version=1, bindings={"text": From(Ref("src", "result"))}),
+            GraphNode(id="down", type="text-reverse", version=1, bindings={"text": From("src.result")}),
         ])
 
         wire = react.graph_to_react(graph_in)
