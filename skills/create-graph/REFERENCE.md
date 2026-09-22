@@ -145,7 +145,7 @@ assert list(done["results"]["approve"]["result"]) == ["First, approved", "Second
 - For a node that runs once, the answer is the value itself: `cache={"approve": {"result": Text("Yes")}}`.
 - A row the answer does not name keeps what it has: done stays done, and a waiting row asks again.
 - Answering a unit already done, or a row the run has not produced, raises `ValueError`.
-- `record` is a `RunRecord`, JSON through `model_dump()`: a host stores it with the run and hands it back; a node the graph has changed since, or that reads one, runs again. Nothing is checkpointed or resumed.
+- `record` is a `RunRecord`, JSON through `model_dump()`: a host stores the dump with the run and hands it back as `RunRecord.model_validate(stored)`; a node the graph has changed since, or that reads one, runs again. Nothing is checkpointed or resumed.
 - Every ending carries `record`, so a new run can also start from a failed or stopped one.
 - From a script: `paused = run_sync(compiled)` ends with `paused["type"] == "graph_pending"`, and `run_sync(compiled, record=paused["record"], cache=...)` is the next leg.
 

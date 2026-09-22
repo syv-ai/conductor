@@ -49,7 +49,7 @@ nothing is deprecated first, everything below is gone in 2.0.0.
   Only an `ExternalFailure` or an exception named in `retry_on` retries; anything else fails once.
 - **A pause** is a node returning `Asks`; the leg ends pending, and the next leg is
   `execute(compiled, record=ending["record"], cache={node_id: answers})`. The record is JSON, and
-  `execute` takes it back as the `RunRecord` or as the dump a host stored; a node changed between legs runs again with everything downstream.
+  a host that stored its dump reads it back with `RunRecord.model_validate`; a node changed between legs runs again with everything downstream.
 - **Types** belong to a registry: the types its nodes declare, plus `registry.add_types(...)`.
 - **Upgrading a node in a graph** is `registry.upgraded(graph, node_id)`: it runs the node's
   `@upgrade` steps, moves a renamed input's binding, lock and content, and points every edge that

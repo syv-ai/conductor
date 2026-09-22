@@ -92,7 +92,7 @@ from conductor.returns import unpack
 async def execute(
     compiled: CompiledGraph,
     *,
-    record: RunRecord | Mapping[str, Any] | None = None,
+    record: RunRecord | None = None,
     cache: dict[str, dict[str, Any]] | None = None,
     from_run: Mapping[type, Any] | None = None,
     timeout: float | None = None,
@@ -104,9 +104,10 @@ async def execute(
     annotated ``Annotated[X, FromRun()]`` receives ``from_run[X]``. A graph
     needing a type the host did not provide is refused before anything
     runs. ``record`` restores the ledger of an earlier leg, cell by cell —
-    the ``RunRecord`` an ending carried, or its ``model_dump()`` as a host
-    stored it; a node the graph has changed since that leg, and everything
-    reading it, is left out and runs again. ``cache`` records outputs by node id without running the node — a
+    the ``RunRecord`` an ending carried; a host that stored its dump reads
+    it back with ``RunRecord.model_validate``. A node the graph has changed
+    since that leg, and everything reading it, is left out and runs again.
+    ``cache`` records outputs by node id without running the node — a
     person's answers to a pending unit, or an earlier run's results a caller
     reuses. For a node running per row each output is a series, and only
     the rows it names are recorded. A node the cache completes is reported
@@ -127,8 +128,6 @@ async def execute(
     """
     if not compiled.is_runnable:
         raise CompilationError("the graph cannot run", problems=compiled.problems)
-    if record is not None and not isinstance(record, RunRecord):
-        record = RunRecord.model_validate(record)
     leg = _Leg(
         compiled,
         record=record,
