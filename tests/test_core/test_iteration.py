@@ -336,6 +336,53 @@ def test_a_static_on_an_any_input_is_unbound_too():
     assert [p.code for p in compiled.problems] == ["unbound_required"]
 
 
+def test_a_refuses_whole_that_returns_its_refusal_fails_loud():
+    """A type refuses by raising ``Refuses``; one that returns its reason
+    instead would let the edge through, so compile says so."""
+    from typing import Annotated
+
+    import pytest
+    from conductor import NodeRegistry
+    from conductor.dtype import DType, Single
+    from conductor.metadata import Result
+    from conductor.node import NodeDefinition
+
+    class Returns(DType):
+        id = "returns-its-refusal"
+        title = "R"
+
+        @classmethod
+        def refuses_whole(cls):
+            return ("columns_unknown", "The columns are unknown.")
+
+    class Makes(NodeDefinition):
+        id = "makes"
+        title = "M"
+        description = "d"
+        category = "test"
+
+        def run(self) -> Annotated[Returns, Result(title="R")]:
+            return Returns()
+
+    class Reads(NodeDefinition):
+        id = "reads"
+        title = "R"
+        description = "d"
+        category = "test"
+
+        def run(self, **inputs: Single) -> Annotated[Txt, Result(title="Text")]:
+            return Txt("")
+
+    registry = NodeRegistry([Makes, Reads])
+    graph = Graph(nodes=[
+        GraphNode(id="m", type="makes", version=1),
+        GraphNode(id="r", type="reads", version=1, bindings={"x": From(Ref("m", "result"))}),
+    ])
+
+    with pytest.raises(TypeError, match=r"Returns.refuses_whole\(\) returned"):
+        CompiledGraph.from_graph(graph, registry)
+
+
 def test_a_source_may_refuse_to_be_received_whole_naming_the_fix():
     """A type stated incompletely — a table with no columns — cannot
     be handed whole to a node that will read it by name. The type says so

@@ -157,6 +157,20 @@ def test_a_paused_legs_record_survives_json_and_the_next_leg_returns_typed_resul
     assert calls.count("split") == 1
 
 
+def test_a_record_stored_as_its_dump_is_handed_back_as_it_is():
+    """A host stores ``record.model_dump()`` as JSON and hands the dict back;
+    ``execute`` reads it as the record."""
+    compiled = _compiled([
+        GraphNode(id="split", type="split", version=1, bindings={"text": Static("a,b")}),
+        GraphNode(id="ask", type="ask", version=1, bindings={"text": _edge("split")}),
+    ])
+    stored = json.loads(json.dumps(_leg(compiled)[-1]["record"].model_dump()))
+
+    again = _leg(compiled, record=stored)
+
+    assert again[-1]["type"] == "graph_pending"
+
+
 def test_the_record_carries_a_fingerprint_per_node():
     compiled = _compiled([
         GraphNode(id="a", type="echo", version=1, bindings={"text": Static("x")}),

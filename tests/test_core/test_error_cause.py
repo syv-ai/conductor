@@ -1,7 +1,14 @@
 """A failure carries its own explanation."""
 
 import pytest
-from conductor.errors import CompilationError, ErrorCause, NodeError, NodeExecutionError
+from conductor.errors import (
+    CompilationError,
+    ConductorError,
+    ErrorCause,
+    NodeError,
+    NodeExecutionError,
+    StartRefused,
+)
 
 
 def test_a_cause_names_a_code_a_message_and_its_details():
@@ -43,9 +50,11 @@ def test_compilation_error_carries_the_problems_it_refused_on():
     assert CompilationError("no", problems=(problem,)).problems == (problem,)
 
 
-def test_the_hierarchy_is_what_is_raised_and_nothing_else():
-
-    assert issubclass(NodeExecutionError, NodeError)
+def test_the_errors_a_caller_catches_sit_under_conductor_error():
+    """A failed node is a ``NodeError``; a refused start is a ``ValueError``
+    as well, so a host that caught that before still does."""
+    assert issubclass(NodeExecutionError, NodeError) and issubclass(NodeError, ConductorError)
+    assert issubclass(StartRefused, ConductorError) and issubclass(StartRefused, ValueError)
 
 
 def test_every_code_the_engine_emits_is_declared_once():

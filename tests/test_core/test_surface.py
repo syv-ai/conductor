@@ -320,6 +320,17 @@ def test_a_registry_is_a_container_of_its_nodes_by_id():
     assert list(registry) == ["scale", "shaped"]
 
 
+def test_a_registry_is_a_container_and_not_a_mapping():
+    """It answers ``in``, ``[]``, ``len`` and iteration over its ids, and
+    nothing more: no ``get`` returning ``None`` for a typo, no ``items``."""
+    from collections.abc import Container, Mapping
+
+    registry = _registry()
+
+    assert isinstance(registry, Container) and not isinstance(registry, Mapping)
+    assert not hasattr(registry, "get") and not hasattr(registry, "items")
+
+
 def test_an_unknown_id_is_a_key_error_that_lists_the_ids():
     with pytest.raises(KeyError, match=r"'scal'.*scale, shaped"):
         _registry()["scal"]

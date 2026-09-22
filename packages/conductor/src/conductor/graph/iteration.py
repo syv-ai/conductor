@@ -536,12 +536,18 @@ class _Walk:
         ``**inputs`` parameter; an ``Any`` input only passes the value on, and
         nothing is asked.
         """
+        asked = dtype.element or dtype
         try:
-            (dtype.element or dtype).refuses_whole()
+            answered = asked.refuses_whole()
         except Refuses as refusal:
             return Problem(
                 code=refusal.code, message=f"Field '{field}': {refusal.message}", fatal=True, node_id=node_id,
                 field=field, details={"inner_message": refusal.message},
+            )
+        if answered is not None:
+            raise TypeError(
+                f"{asked.__name__}.refuses_whole() returned {answered!r}; a type refuses by raising Refuses "
+                "and returns None otherwise"
             )
         return None
 

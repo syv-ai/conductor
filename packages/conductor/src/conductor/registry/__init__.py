@@ -68,9 +68,10 @@ class NodeRegistry:
 
     One entry per node id, not per (id, version): the class knows which
     versions it declares, and a caller picks one with
-    ``registry[node.type].versions[node.version]``. It reads as a mapping
-    from id to class: ``"upper" in registry``, ``registry["upper"]``,
-    ``len(registry)``, and iteration over the ids. One entry per
+    ``registry[node.type].versions[node.version]``. It is a container of
+    classes by id — ``"upper" in registry``, ``registry["upper"]``,
+    ``len(registry)``, and iteration over the ids — and not a ``Mapping``:
+    there is no ``get`` to answer a misspelled id with ``None``. One entry per
     type id: the vocabulary, read through ``types``.
     """
 
