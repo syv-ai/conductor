@@ -39,7 +39,7 @@ import inspect
 from dataclasses import dataclass, field
 from typing import Annotated, Any, Callable, Literal, get_args, get_origin, get_type_hints
 
-from pydantic import BaseModel, ConfigDict, create_model
+from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from conductor.dtype import DType, Single, dtype_of
 from conductor.metadata import Input, Output, Param, Result
@@ -126,6 +126,8 @@ class Interface:
             if name == "self":
                 continue
             annotation = hints.get(name, parameter.annotation)
+            if parameter.kind not in (inspect.Parameter.VAR_KEYWORD, inspect.Parameter.VAR_POSITIONAL):
+                _refuse_name(name)
             if parameter.kind is inspect.Parameter.VAR_KEYWORD:
                 if annotation is Single:
                     # ``**inputs: Single``: an open interface, every connected name
@@ -136,6 +138,11 @@ class Interface:
                     # ``**inputs: Series``: an open interface, every edge a
                     # reduction.
                     open_shape = "series"
+                elif isinstance(annotation, type) and issubclass(annotation, Series):
+                    raise TypeError(
+                        f"**{name}: {annotation.__name__} would close the interface silently; an open "
+                        f"interface whose every edge is a reduction is **{name}: Series"
+                    )
                 # Any other ``**values``: the inputs this node's ``compute_inputs``
                 # adds arrive here by name. The hook declares them, not the signature.
                 continue
@@ -163,6 +170,8 @@ class Interface:
                 )
             param = Param.on(annotation) or Param()
             dtype = dtype_of(annotation)
+            if isinstance(dtype, type) and issubclass(dtype, Series) and dtype.element is None:
+                raise TypeError(f"parameter {name!r} is a bare Series; declare Series[X] with the element type")
             if param.show_handle:
                 # An edge can land here, so the type must be one an edge carries:
                 # a DType, or Any for "whatever arrives".
@@ -218,15 +227,30 @@ def model_of(inputs: tuple[Input, ...]) -> type[BaseModel]:
     interfaces derived from one signature compare unequal. An ``Any`` input
     validates anything; the compiler has already established what arrives
     there.
+
+    A field is the input's own name, except where ``BaseModel`` already
+    has that name (``schema``, ``json``, ``model_config``): that input gets
+    a field of its own naming, ``field_<n>``, and is taken by its name as the
+    alias, so it neither shadows the model nor warns. Read the values back
+    by alias where there is one (``CompiledNode.validate`` does).
     """
     return create_model(
         "Inputs",
         __config__=ConfigDict(extra="ignore", arbitrary_types_allowed=True),
         **{
-            inp.name: (inp.dtype, inp.default if inp.optional else ...)
-            for inp in inputs
+            (f"field_{n}" if hasattr(BaseModel, inp.name) else inp.name): (
+                inp.dtype,
+                Field(inp.default if inp.optional else ..., alias=inp.name if hasattr(BaseModel, inp.name) else None),
+            )
+            for n, inp in enumerate(inputs)
         },
     )
+
+def _refuse_name(name: str) -> None:
+    """Refuse a parameter name no input can carry: one starting with an
+    underscore, private by convention and never a field an author fills."""
+    if name.startswith("_"):
+        raise TypeError(f"parameter {name!r}: an input's name cannot start with an underscore")
 
 
 def _declared(hint: Any) -> Any:

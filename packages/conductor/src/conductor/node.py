@@ -402,6 +402,12 @@ class NodeDefinition(ABC, metaclass=_NodeMeta):
             )
         cls.upgrades = cls._collect_upgrades()
         given = "versions" in vars(cls)
+        if not given and "id" in vars(cls) and "run" not in vars(cls):
+            defined = sorted(n for n, v in vars(cls).items() if callable(v) and not n.startswith("__"))
+            raise TypeError(
+                f"{cls.__name__} declares an id but no run; a node's work is the method named run "
+                f"(the class defines {defined})"
+            )
         if not given and (inspect.isabstract(cls) or "run" not in vars(cls)):
             # An intermediate base that adds no ``run`` — and hands over no
             # ``versions`` — declares nothing.

@@ -344,7 +344,7 @@ class CompiledNode:
         edges derived — a node with a fault upstream has none, and asking
         raises."""
         validated = self._graph._call_models[self.id](**inputs)
-        return {name: getattr(validated, name) for name in type(validated).model_fields}
+        return {info.alias or field: getattr(validated, field) for field, info in type(validated).model_fields.items()}
 
     @property
     def iterates_on(self) -> Index | None:

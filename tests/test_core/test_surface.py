@@ -165,3 +165,66 @@ def test_a_compilation_error_lists_its_fatal_problems():
         "the graph cannot run:\n"
         "  s.facter — stale_binding: Field 'facter' is not an input of the node; it has factor, value."
     )
+
+
+# --- a declaration mistake is refused where it is written (F6) ------------------------
+
+
+def _declare(**body):
+    return type("Bad", (NodeDefinition,), {"id": "bad", "title": "Bad", "description": "d", "category": "test", **body})
+
+
+def _run(annotations: dict, **kinds):
+    """A ``run`` with the given parameter annotations, built from source so a
+    parameter kind (``*args``, ``**inputs``) can be spelled."""
+    params = ", ".join(kinds.get(name, name) + f": A_{name}" for name in annotations)
+    scope = {f"A_{name}": annotation for name, annotation in annotations.items()} | {"Out": Out, "Txt": Txt}
+    exec(f"def run(self, {params}) -> Out:\n    return Txt('')", scope)
+    return scope["run"]
+
+
+def test_a_misspelled_run_is_refused_naming_what_the_class_does_define():
+    with pytest.raises(TypeError, match=r"Bad declares an id but no run.*rnu"):
+        _declare(rnu=lambda self: None)
+
+
+def test_a_bare_series_parameter_is_refused():
+    from conductor.series import Series
+
+    with pytest.raises(TypeError, match=r"'rows'.*Series\[X\]"):
+        _declare(run=_run({"rows": Annotated[Series, Param(title="Rows")]}))
+
+
+def test_an_open_interface_typed_as_one_series_is_refused():
+    from conductor.series import Series
+
+    with pytest.raises(TypeError, match=r"\*\*inputs: Series\[Txt\].*\*\*inputs: Series"):
+        _declare(run=_run({"inputs": Series[Txt]}, inputs="**inputs"))
+
+
+def test_an_underscore_parameter_is_refused():
+    with pytest.raises(TypeError, match="'_hidden'"):
+        _declare(run=_run({"_hidden": Annotated[Txt, Param(title="H", widget=Textarea())]}))
+
+
+@pytest.mark.parametrize("name", ["schema", "copy", "json", "model_config"])
+def test_a_parameter_named_like_a_pydantic_model_attribute_validates_without_a_warning(name):
+    """A call is validated through a pydantic model with one field per input,
+    so an input named ``schema`` used to shadow ``BaseModel.schema`` and warn.
+    The model names its fields itself and takes each input by its alias."""
+    import warnings
+
+    from conductor import run_sync
+
+    node = _declare(run=_run({name: Annotated[Txt, Param(title="X", widget=Textarea())]}))
+    registry = NodeRegistry(nodes=(node,))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n", type="bad", version=1, bindings={name: Static(value="x")})]), registry)
+        assert compiled.node("n").validate({name: Txt("x")}) == {name: "x"}
+    assert run_sync(compiled)["type"] == "graph_complete"
+
+
+def test_args_stay_refused():
+    with pytest.raises(TypeError, match=r"\*args"):
+        _declare(run=_run({"args": Txt}, args="*args"))
