@@ -213,7 +213,7 @@ def test_a_stale_key_on_the_placement_is_reported_on_the_placement():
     compiled = _compiled([GraphNode(id="emb", type="inner-graph", version=1, bindings={"nope.value": Static(value=1)})])
 
     (problem,) = compiled.problems
-    assert (problem.code, problem.fatal, problem.node_id, problem.field) == ("stale_binding", False, "emb", "nope.value")
+    assert (problem.code, problem.fatal, problem.node_id, problem.field) == ("stale_binding", True, "emb", "nope.value")
 
 
 # --- the boundary scope ---------------------------------------------------------

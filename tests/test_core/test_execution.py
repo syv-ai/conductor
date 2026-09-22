@@ -300,11 +300,3 @@ class TestSkipPropagation:
 # so every node drops them rather than failing on an unexpected keyword.
 # ---------------------------------------------------------------------------
 
-class TestStrayDataKeyFiltering:
-    def test_node_ignores_stray_data_key(self, three_node_registry):
-        compiled = CompiledGraph.from_graph(Graph(nodes=[
-                GraphNode(id="n1", type="upper", version=1, bindings={"text": Static(value="hi"), "_host_note": Static(value=["x"])}),
-            ]), three_node_registry)
-
-        results = run_sync(compiled)["results"]
-        assert results["n1"]["result"] == "HI"

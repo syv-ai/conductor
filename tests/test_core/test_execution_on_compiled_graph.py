@@ -109,14 +109,6 @@ def test_an_unbound_input_falls_back_to_its_declared_default():
     assert _run([GraphNode(id="a", type="upper", version=1)])["a"]["result"] == ""
 
 
-def test_a_stale_static_never_reaches_the_node():
-    """The resolver reads the node's interface, so a binding nothing declares is not
-    a value anything receives."""
-    results = _run([GraphNode(id="a", type="upper", version=1, bindings={"text": Static(value="x"), "gone": Static(value=1)})])
-
-    assert results["a"]["result"] == "X"
-
-
 def test_a_branch_not_taken_is_skipped_downstream():
     """A branch is an output; SKIPPED on it skips what hangs off it."""
     results = _run([

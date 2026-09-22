@@ -279,7 +279,7 @@ def test_a_clean_graph_reports_no_problems():
 def test_a_binding_on_an_input_the_placement_does_not_have_is_stale():
     (problem,) = _problems([GraphNode(id="a", type="echo", version=1, bindings={"z": Static(value=1)})])
 
-    assert (problem.code, problem.fatal, problem.node_id, problem.field) == ("stale_binding", False, "a", "z")
+    assert (problem.code, problem.fatal, problem.node_id, problem.field) == ("stale_binding", True, "a", "z")
 
 
 def test_an_edge_into_a_closed_handle_is_fatal():
@@ -405,7 +405,7 @@ def test_problems_can_be_read_whole_or_by_node():
 
 def test_a_non_fatal_problem_leaves_the_graph_runnable():
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[GraphNode(id="a", type="echo", version=1, bindings={"z": Static(value=1)})]), _registry()
+        Graph(nodes=[GraphNode(id="a", type="echo", version=1, locked=("ghost",))]), _registry()
     )
 
     assert compiled.is_runnable
@@ -442,7 +442,7 @@ def test_a_problem_is_formatted_from_its_details_and_keeps_them():
     assert p.message == "Field 'text' is connected to 'a', which is not in the graph."
     assert p.details == {"source_node": "a"}
     assert p.fatal is True
-    assert problem("stale_binding", "b", "old").fatal is False
+    assert problem("unknown_locked_field", "b", "old").fatal is False
 
 
 # --- what compile refuses that it used to let through ----------------------------------

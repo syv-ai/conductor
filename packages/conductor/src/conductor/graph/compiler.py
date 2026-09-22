@@ -39,7 +39,7 @@ from conductor.graph.topology import dependencies_of, order_of
 from conductor.graph.views import derive_interface, field_problems, lock_problems
 from conductor.interface import Interface, model_of
 from conductor.metadata import Input
-from conductor.node import GraphVersion, NodeVersion, Refuses
+from conductor.node import GraphVersion, NodeDefinition, NodeVersion, Refuses
 from conductor.ref import Ref
 from conductor.registry import NodeRegistry
 from conductor.series import Series
@@ -259,8 +259,9 @@ class _Compilation:
         """Check the stored bindings against the inputs each node actually has, and those inputs against the field rules.
 
         Reports a lock on a field the node does not have (``unknown_locked_field``,
-        not fatal), a binding on a field the node does not have (``stale_binding``,
-        not fatal), an edge into an input that cannot be connected
+        not fatal), a binding on a field the node does not have (``stale_binding``:
+        fatal, a typo that would otherwise run with the default, unless the
+        node's ``compute_inputs`` makes its fields come and go), an edge into an input that cannot be connected
         (``show_handle=False``), an edge from a node that does not exist, an
         edge into a field an embedded graph does not have, and a required
         input nothing binds (``unbound_required``). A parameter typed ``Any``
@@ -289,7 +290,10 @@ class _Compilation:
 
             for name, binding in node.bindings.items():
                 if name not in declared:
-                    self.problems.append(problem("stale_binding", node_id, name))
+                    dead = problem("stale_binding", node_id, name, inputs=", ".join(sorted(declared)) or "none")
+                    if self.registry.get(node.type).compute_inputs is not NodeDefinition.compute_inputs:
+                        dead = dead.model_copy(update={"fatal": False})
+                    self.problems.append(dead)
                     continue
                 if not isinstance(binding, Edges):
                     continue

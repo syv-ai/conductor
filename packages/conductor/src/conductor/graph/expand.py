@@ -171,14 +171,15 @@ class _Expander:
         A binding on ``check.amount`` replaces whatever the inner ``check``
         held on ``amount`` — a value its author typed or an inner edge — for
         this placement. A key naming no inner node is a stale binding,
-        reported on the placement.
+        reported on the placement with the inner nodes it could have named.
         """
         moved: dict[str, dict[str, Binding]] = {}
         for key, binding in placement.bindings.items():
             first, _, field = key.partition(".")
             inner = f"{placement.id}{SEPARATOR}{first}"
             if not field or inner not in inner_nodes:
-                self.problems.append(problem("stale_binding", placement.id, key))
+                offered = sorted(f"{inner_id.removeprefix(placement.id + SEPARATOR)}.*" for inner_id in inner_nodes)
+                self.problems.append(problem("stale_binding", placement.id, key, inputs=", ".join(offered) or "none"))
                 continue
             moved.setdefault(inner, {})[field] = binding
         return {
