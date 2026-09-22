@@ -46,7 +46,7 @@ class ConductorModel(BaseModel):
     does not read back (the module docstring says why).
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     def __repr_args__(self) -> Iterator[tuple[str | None, Any]]:
         """Pydantic's repr arguments without the fields at their default, as scikit-learn prints an estimator.

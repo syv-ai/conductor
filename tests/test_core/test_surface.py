@@ -9,6 +9,7 @@ text names what went wrong, a declaration refused where it is written.
 from collections.abc import Mapping
 from typing import Annotated, Any
 
+import pytest
 from conductor import NodeRegistry
 from conductor.dtype import DType
 from conductor.graph.binding import Static
@@ -93,3 +94,28 @@ def test_a_node_whose_inputs_come_and_go_keeps_the_binding_as_a_note():
     (problem,) = compiled.problems
     assert (problem.code, problem.fatal) == ("stale_binding", False)
     assert compiled.is_runnable
+
+
+# --- a stored record refuses a key it does not have (F1) ----------------------------
+
+
+def test_a_stored_graph_with_a_misspelled_key_is_refused_naming_it():
+    """A stored graph is a trust boundary: 'bindngs' used to load as a node
+    with no bindings at all."""
+    from pydantic import ValidationError
+
+    text = "nodes:\n  - id: s\n    type: scale\n    version: 1\n    bindngs: {}\n"
+    with pytest.raises(ValidationError, match="bindngs"):
+        Graph.from_yaml(text)
+
+
+def test_a_widget_refuses_a_key_it_does_not_have():
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="row"):
+        Textarea(row=5)
+
+
+def test_display_is_the_canvas_own_and_takes_any_key():
+    node = GraphNode(id="s", type="scale", version=1, display={"position": {"x": 1}, "colour": "red"})
+    assert node.display["colour"] == "red"
