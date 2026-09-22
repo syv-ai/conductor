@@ -31,20 +31,28 @@ nothing is deprecated first, everything below is gone in 2.0.0.
 
 - **A node** is a `NodeDefinition` subclass with `id`, `title`, `description` and `category`,
   whose typed `run` signature is its interface; `@registry.node` and `BaseNode` are gone. Every
-  parameter is `Annotated[DType, Widget(title=...)]`, and one output is
+  parameter is `Annotated[DType, Param(title=..., widget=...)]` — the title, description and
+  handle live on the `Param`, the widget is the control alone — and one output is
   `-> Annotated[DType, Result(title=...)]`. `run` is a plain function, called in a worker thread;
-  an `async def run` is refused.
+  an `async def run` is refused, and so is a class with an `id` and no `run`.
 - **A graph** is `Graph(nodes=[GraphNode(id=, type=, version=, bindings=)])`. An input is bound
-  by `Edges(refs=(Ref("node", "output"),))` or `Static(value=...)`; there is no edge list.
+  by `From("node.output")` or `Static(value)`; there is no edge list. A stored graph with a key
+  the record does not have is refused rather than read without it.
 - **Compile** is `CompiledGraph.from_graph(graph, registry)`. It never raises for a fault in
-  the graph: read `problems` and `is_runnable`.
-- **Run** with `execute` / `execute_sync` from `conductor.execution.engine`; neither is exported
-  from `conductor` any more. A result is `results[node_id][output_name]`; an iterating node's
-  outputs are a `Series`. Events and errors say `graph`, not `flow`.
-- **Retries** go on the version: `@version(1, policy=Policy(retries=3))`.
+  the graph: read `problems` and `is_runnable`. A binding on an input the node does not have is
+  a fatal `stale_binding` unless the node has `compute_inputs`.
+- **Run** with `await conductor.run(compiled)` for the ending, `conductor.execute(compiled)` for
+  the stream, or `conductor.run_sync(compiled)` outside an event loop. A result is
+  `results[node_id][output_name]`; an iterating node's outputs are a `Series`. Close a stream you
+  leave early — `async with aclosing(execute(compiled)) as events:` — and every unit stops.
+- **Retries** go on the version: `@version(1, policy=Policy(retries=3, retry_on=(httpx.HTTPError,)))`.
+  Only an `ExternalFailure` or an exception named in `retry_on` retries; anything else fails once.
 - **A pause** is a node returning `Asks`; the leg ends pending, and the next leg is
-  `execute(compiled, cells=..., cache={node_id: answers})`. For an iterating node the answer is
-  a `Series` naming the rows it answers. Checkpoints and `resume` are gone.
+  `execute(compiled, record=ending["record"], cache={node_id: answers})`. The record is JSON and
+  reads back typed; a node changed between legs runs again with everything downstream.
+- **Types** belong to a registry: the types its nodes declare, plus `registry.add_types(...)`.
+- **Upgrading a node in a graph** is `registry.upgraded(graph, node_id)`; compile runs a pinned
+  version as pinned.
 - **What a run supplies** (1.x's `FlowStore` and `store_data`) is `Annotated[T, FromRun()]` on
   `run`, filled from `execute(from_run={T: value})`.
 - **Save a graph** with `graph.to_path("graph.yaml")` / `Graph.from_path(...)`; `conductor.flow_format`
@@ -57,8 +65,20 @@ nothing is deprecated first, everything below is gone in 2.0.0.
 - `FromRun`, `Refuses`, `ErrorCause`, `Problem`.
 - `CompiledGraph`, asked at the graph, the node and the field; `GraphVersion`, a version whose
   body is a graph.
-- `registry.extended_with(...)`, `registry.nodes`, `registry.upgrade_path(...)`,
-  `NodeDescription`.
+- `registry.extended_with(...)`, `registry.nodes`, `registry.upgraded(graph, node_id, to=None)`,
+  `registry.add_types(...)`, `registry.types`, `registry.accepted_as(...)`, `registry.describe()`,
+  `NodeDescription`. A registry reads as a mapping from id to class: `"upper" in registry`,
+  `registry["upper"]`, `len`, iteration over the ids.
+- `run` and `run_sync` beside `execute`, all at the root; `Param`, `From`, `ExternalFailure`,
+  `Refuses` at the root too.
+- `conductor.codec` (`to_wire`, `from_wire`): a value to JSON and back by its declared type.
+- `RunRecord`, the typed record every ending carries: cells in wire form, rows, the done set
+  and a fingerprint per node.
+- `CompiledField.receives`: how each input receives its value — `Iterate`, `Broadcast`, `Whole`,
+  `Group` or `Gather` (`conductor.graph.receive`).
+- `CompiledNode.validate(inputs)`: a call checked against the node's interface.
+- `Policy.retry_on`, and bounds on every `Policy` field.
+- `@upgrade(a, b, outputs={old: new})`, checked when the class is defined.
 - `ConductorModel`: `to_yaml` / `from_yaml` / `to_path` / `from_path` on every saved record.
 - The widgets' `Choice` and `OperatorChoice`.
 - Objects print their data: a node class as `Greet(id='greet', title='Greeting', category='text', versions=(1,))`,
@@ -77,35 +97,41 @@ nothing is deprecated first, everything below is gone in 2.0.0.
   is an interface computed by `compute_outputs`. Versions are `@version(n)`
   methods on the class, each with a `Policy` (`retries`, `delay`, `timeout`,
   `concurrency`); `@upgrade(a, b)` rewrites saved values and the class collects
-  them into `cls.upgrades`; `@deprecated` retires a node or a version. A class
+  them into `cls.upgrades`, one step per adjacent pair of versions or the class
+  is refused; `@deprecated` retires a node or a version. A class
   without `id`, `title`, `description` or `category` is refused, and so is an
-  `async def run`, and a `run` with no `@version` beside methods that have one.
+  `async def run`, a `run` with no `@version` beside methods that have one, a
+  class with an `id` and no `run`, a bare `Series` parameter,
+  `**inputs: Series[X]`, `*args` and an underscore parameter name.
 - **Fields are `Input` and `Output`** (1.x's `InputMetadata` / `OutputMetadata`).
   The hooks are `compute_inputs(declared, values)` and
   `compute_outputs(declared, values, arriving)`, with no context object; a hook
-  that cannot answer raises `Refuses`, and compile reports it as the node's
-  fatal `Problem`.
-- **The registry holds classes.** `NodeRegistry.get(id)` returns the class,
-  `registry.runner_for(id, version)` is what runs one version, and `describe()`
-  is the one serialisation of a node.
-- **The type vocabulary is the host's.** `DType` is a real class registered by
-  `id`; `target.accepts(source)` is the one edge question. `Ref` is the address
-  `"node.field"`. Conductor itself registers no type but `Series`.
+  that cannot answer raises `Refuses` (a `ConductorError`), and compile reports
+  it as the node's fatal `Problem`; a type's `refuses_whole()` raises the same.
+- **The registry holds classes.** `registry[id]` returns the class (a `KeyError`
+  names the ids there are), `registry.runner_for(id, version)` is what runs one
+  version, and `describe()` is the one serialisation of a node.
+- **The type vocabulary is a registry's.** A type is a `DType` class with its own
+  `id`; a registry holds the types its nodes declare plus what the host adds, and
+  one id from two classes on one registry is refused naming both. Nothing about a
+  type is process-wide, so a notebook cell that declares a type runs twice.
+  `target.accepts(source)` is the one edge question. `Ref` is the address
+  `"node.field"`. A field's `dtype` is a `DType` class, `Any` or a type.
 - **A node pins `type` and `version`** as two fields on `GraphNode`; the
   `"id@version"` string is gone.
 - **`Flow` is `Graph`, and bindings are its stored shape.** A graph is its
   nodes: `id`, `version`, `name`, `description`, `edges`, `dependencies`,
   `triggers` and `on_error_default` are gone. On `GraphNode`, `data`,
   `node_label` and `output_labels` are `bindings`, `title` and `fields`. Each
-  input holds one `Edges` or `Static` binding, or none. What a node waits for
+  input holds one `From` or `Static` binding, or none; `nodes` is a tuple. What a node waits for
   (`dependencies_of`), which nodes are input nodes (`is_input_node`) and what a
   graph takes and returns (`CompiledGraph.interface`) are derived.
   `GraphNode.locked` closes an input to callers.
 - **Compile is `CompiledGraph.from_graph`**, an immutable record asked at three
-  scales: the graph (`problems`, `is_runnable`, `interface`, `execution_order`,
-  `decisions`), one node (`node(node_id)`: `interface`, `iterates_on`,
-  `statics`, `runner`, …) and one field (`field(ref)`: `type`, `index`,
-  `binding`, `condition`). Everything wrong with the graph is a `Problem` with a
+  scales: the graph (`problems`, `is_runnable`, `interface`, and the properties
+  `execution_order` and `decisions`), one node (`node(node_id)`: `interface`,
+  `validate(inputs)`, `iterates_on`, `statics`, `runner`, …) and one field
+  (`field(ref)`: `type`, `index`, `binding`, `receives`, `condition`). Everything wrong with the graph is a `Problem` with a
   stable `code`, a message and `details`; `accepts` is asked on every edge. A
   `GraphVersion` expands at compile under its placement's id (`outer/inner`)
   and runs as nodes of the one run.
@@ -120,57 +146,76 @@ nothing is deprecated first, everything below is gone in 2.0.0.
   everything under it.
 - **A run has legs.** A node that needs a person returns `Asks(questions)`,
   annotated `-> X | Asks`. The leg runs on and ends `graph_pending` with every
-  question; the next leg is `execute(compiled, cells=..., cache=...)`. `cache`
+  question; the next leg is `execute(compiled, record=..., cache=...)`. `cache`
   records a node's outputs without running it; for an iterating node, only
   the rows its series names, so a row that ran keeps its value and a row left out
   asks again. A unit already done, or a row not yet produced, raises
-  `ValueError`. Every ending carries `results` and `cells`.
-- **`execute` takes `timeout_seconds`, `cells`, `cache`, `from_run` and
-  `cancel`**; `context=`, `retry=` and `store_data=` are gone. It raises
-  `CompilationError` for a graph that cannot run.
+  `ValueError`. Every ending carries `results` and `record`, a `RunRecord` that
+  survives JSON and reads back typed through the codec; a node whose placement
+  changed between legs is dropped from it with everything downstream, and runs again.
+- **`execute` takes `record`, `cache`, `from_run`, `timeout` and `cancel`**;
+  `timeout=None`, the default, sets no limit. `context=`, `retry=` and
+  `store_data=` are gone. It raises `CompilationError` for a graph that cannot
+  run, and its text lists the fatal problems. A leg owns its threads and tasks:
+  closing the stream, a cancel or a timeout stops every unit. `Policy.timeout`
+  is a backstop per attempt and a timed-out attempt is not retried; the thread
+  itself cannot be interrupted.
 - **Failures carry an `ErrorCause`** (`code`, `message`, `details`, `row`) on the
-  exception and on `node_error` / `graph_error`. `GraphExecutionError` and
-  `GraphPendingError` are what `execute_sync` raises.
+  exception and on `node_error` / `graph_error`. The message is generic per code
+  unless the node raised a `NodeError` with a sentence for people; a foreign
+  exception's text stays on `original` and on no event. A wrong-typed return
+  fails the node that returned it (`invalid_output`).
 - **Events are `node_start`, `node_progress`, `node_complete`, `node_skipped`,
   `node_retry`, `node_error`** and the endings `graph_complete`,
   `graph_pending`, `graph_error`, `graph_cancelled`, `graph_timeout`.
   `flow_paused` is `graph_pending`, which carries a `pending` list; the other
   `flow_*` endings are `graph_*`. `execute(cancel=...)` stops a leg.
 - **Saved and sent records are pydantic models** on `ConductorModel` (`Graph`,
-  `GraphNode`, `Edges`, `Static`, `Problem`, `ErrorCause`, `Policy`,
+  `GraphNode`, `From`, `Static`, `Problem`, `ErrorCause`, `Policy`,
   `NodeDescription`, `Input`, `Output`, the widgets, `Index`, …), with
   `to_yaml` / `from_yaml` / `to_path` / `from_path` beside pydantic's JSON. A
   saved record reads back what it wrote; a record that describes a node
   (`NodeDescription`, `Input`, `Output`, the widgets) is written for an editor
   and not read back.
-- **Widgets** have a `kind` discriminator and a required `title`; `description`
-  and `show_handle` on the widget belong to the field. There is no default
-  widget for any type.
+- **Widgets** have a `kind` discriminator and are the control alone; the title,
+  description and handle are the `Param`'s. An input only an edge fills has no
+  widget. There is no default widget for any type.
 - **The standard library declares its own vocabulary**: `conductor_nodes.types`
   ships `Text`, `Number`, `Flag`, `Json`, and `StdlibNode` pins each node's
   `category`. `conductor_nodes.registry(categories=...)` builds a registry of them
-  (1.x's `get_default_registry`). Its categories are `text`, `math`, `logic`, `json`, `regex` and
-  `decision`; asking `register_all` for `loop`, `while`, `subprocess` or
-  `signal` raises `KeyError`.
-- **Providers.** `ExecuteRequest` is `{graph, cells, cache}`, and `/execute` answers
+  (1.x's `get_default_registry`), filtering on each node's own `category`:
+  `control`, `json`, `logic`, `math`, `regex` and `text`; an unknown name raises
+  `KeyError`. The regex nodes run on the `regex` package with a timeout.
+- **Providers.** `ExecuteRequest` is `{graph, record, cache}`, and `/execute` answers
   with the frame the leg ended on, `graph_complete` or `graph_pending`, so a run
   that asks goes on in legs over HTTP; a leg that fails still fails the request. `conductor_router`'s
   per-request hook is `from_run`; `/compile` returns the problems themselves; a
   server-sent frame dumps records, series and what they hold through pydantic,
   a float that is not a number is `null`, and a value with no JSON form raises.
   A run refused before anything runs fails `/execute-stream` the way it fails
-  `/execute`, rather than streaming nothing. `graph_to_react` puts the node record under `data`,
-  `react_to_graph` returns a `Graph`, and `palette_from_registry` returns
-  `NodeDescription`s. The fastapi handlers are `execute_graph` /
-  `execute_graph_stream`.
+  `/execute`, rather than streaming nothing: a graph that cannot run or a `cache` the run
+  refuses is a 422. `/entities/{kind}` is mounted only with an `entity_resolver`.
+  `graph_to_react` puts the node record under `data`, its `display` whole, and
+  `react_to_graph` returns a `Graph` with the canvas's position merged into it.
+  The fastapi handlers are `execute_graph` / `execute_graph_stream`.
 - **Messages say graph.** Problem, error and engine messages no longer say
   "flow".
+- **A `Series` equals only another `Series`** (index, rows and values) and is hashable.
+- **Objects print as the call that makes them**: `Series[Text](Index('lines'), ['a'])`,
+  `CompiledGraph(nodes=(...), is_runnable=True, problems=0)`, a version's run by name.
+- **Packaging**: the sibling packages pin `syv-conductor==2.0.0`; every wheel carries
+  `py.typed`, a README and its licence.
 - **Requires pydantic 2.11** or later.
 
 ### Removed
 
-- The root exports of the engine and compiler: `from conductor import execute,
-  execute_sync, compile, RetryConfig, …` no longer works.
+- `execute_sync`, `collect`, `compile` and `RetryConfig`; `execute`, `run` and
+  `run_sync` are the run entry.
+- `Edges` (now `From`), `NodeRegistry.get` and `contains`, `registry.upgrade_path`,
+  `NodeConnectionError` (now `ExternalFailure`), `NodeError.retryable`,
+  `ConnectionList`, `DType._by_id` and `registered_dtypes()`, `discover_nodes`,
+  `conductor_nodes.CATEGORIES`, the providers' `PROVIDERS` and
+  `palette_from_registry`, and the `"__skipped__"` string marker.
 - `@registry.node()`, `BaseNode`, `registry.register_class()`, `NodeCategory`,
   `registry.include()`, `registry.merge()`, `registry.discover()`,
   `get_latest()`, `all()`, `all_current()`, `is_deprecated()`,

@@ -145,6 +145,8 @@ async for event in execute(compiled):
             print(f"Done: {event['results']}")
 ```
 
+A stream you leave early — a `break`, an exception — should be closed, or its units run on until the generator is collected: `async with aclosing(execute(compiled)) as events:` (from `contextlib`) closes it however the block ends, and closing it stops every unit.
+
 ## Project structure
 
 ```
@@ -553,7 +555,7 @@ wire = react.graph_to_react(graph)                # Graph → ReactFlow JSON (th
 graph2 = react.react_to_graph(wire)               # ReactFlow JSON → Graph
 ```
 
-`conductor_providers.fastapi.conductor_router(registry)` returns an APIRouter with `GET /nodes` (the palette), `POST /compile`, `POST /execute`, `POST /execute-stream` (server-sent events), and `GET /entities/{kind}` for `EntityDropdown` choices when an `entity_resolver` is given. A graph that cannot run, or a `cache` the run refuses, is a 422 on the execute routes; `/compile` answers a broken graph with 200 and its problems. `/execute` answers with the frame the leg ended on, `graph_complete` or `graph_pending`; a run that asks goes on by posting the ending's `cells` back with the answers in `cache` (for a node on rows, `{"rows": [...], "values": [...]}`). Its `from_run` hook turns a request into the values `execute(from_run=...)` supplies.
+`conductor_providers.fastapi.conductor_router(registry)` returns an APIRouter with `GET /nodes` (the palette), `POST /compile`, `POST /execute`, `POST /execute-stream` (server-sent events), and `GET /entities/{kind}` for `EntityDropdown` choices when an `entity_resolver` is given. A graph that cannot run, or a `cache` the run refuses, is a 422 on the execute routes; `/compile` answers a broken graph with 200 and its problems. `/execute` answers with the frame the leg ended on, `graph_complete` or `graph_pending`; a run that asks goes on by posting the ending's `record` back with the answers in `cache` (for a node on rows, `{"rows": [...], "values": [...]}`). Its `from_run` hook turns a request into the values `execute(from_run=...)` supplies.
 
 New providers (Svelte, Vue, Gradio, …) go in sibling subpackages under `conductor_providers.` — no abstract base class to satisfy; each provider picks the shape that matches its framework.
 

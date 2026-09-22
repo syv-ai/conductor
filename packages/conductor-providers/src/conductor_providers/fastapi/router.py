@@ -160,4 +160,3 @@ def conductor_router(
         return list(CompiledGraph.from_graph(req.graph, registry).problems)
 
     return router
-
