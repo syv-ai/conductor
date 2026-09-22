@@ -8,7 +8,7 @@ Reusable DAG execution engine extracted from production node editors. One node c
 conductor/
 ├── packages/conductor/        # Core library
 │   └── src/conductor/
-│       ├── node.py             # NodeDefinition ABC, NodeVersion/GraphVersion, Policy, version/upgrade/deprecated, describe(), Refuses
+│       ├── node.py             # NodeDefinition ABC, NodeVersion/GraphVersion, Policy, version/upgrade/deprecated, describe()
 │       ├── interface.py        # Interface.of(run) — the signature read once; FromRun; model_of
 │       ├── metadata.py         # Field, Input, Output records
 │       ├── model.py            # ConductorModel — the base of every saved or sent record: to_yaml / from_yaml / to_path / from_path

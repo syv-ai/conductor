@@ -76,6 +76,7 @@ from typing import Any
 
 from conductor.dtype import DType
 from conductor.dtype_ref import description_of, name_of
+from conductor.errors import Refuses
 from conductor.graph.binding import Edges
 from conductor.graph.expand import authored_ref
 from conductor.graph.model import GraphNode
@@ -84,7 +85,7 @@ from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Receive, 
 from conductor.graph.views import field_problems
 from conductor.interface import Interface
 from conductor.metadata import Input, Output
-from conductor.node import NodeVersion, Refuses
+from conductor.node import NodeVersion
 from conductor.ref import Ref
 from conductor.registry import NodeRegistry
 from conductor.series import Index, Series
@@ -535,14 +536,14 @@ class _Walk:
         ``**inputs`` parameter; an ``Any`` input only passes the value on, and
         nothing is asked.
         """
-        refusal = (dtype.element or dtype).refuses_whole()
-        if refusal is None:
-            return None
-        code, message = refusal
-        return Problem(
-            code=code, message=f"Field '{field}': {message}", fatal=True, node_id=node_id, field=field,
-            details={"inner_message": message},
-        )
+        try:
+            (dtype.element or dtype).refuses_whole()
+        except Refuses as refusal:
+            return Problem(
+                code=refusal.code, message=f"Field '{field}': {refusal.message}", fatal=True, node_id=node_id,
+                field=field, details={"inner_message": refusal.message},
+            )
+        return None
 
     @staticmethod
     def _originates(inp: Input, ref: Ref, listed: bool, scope: Index | None) -> tuple[_Carried, Receive]:

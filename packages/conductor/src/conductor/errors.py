@@ -57,6 +57,23 @@ class ConductorError(Exception):
     """Base for every engine error."""
 
 
+class Refuses(ConductorError):
+    """A node's hook or a type cannot answer for what it was given, and says why.
+
+    Raised by ``compute_inputs`` and ``compute_outputs`` when the values
+    or what arrives do not fit, and by ``DType.refuses_whole`` when a value
+    of the type cannot be handed over whole. The compiler catches it and
+    reports ``code`` and ``message`` — both the host's own, in the host's
+    language — as a fatal problem on the node or the field. Not an error a
+    run raises: a graph that meets one does not run.
+    """
+
+    def __init__(self, code: str, message: str) -> None:
+        self.code = code
+        self.message = message
+        super().__init__(message)
+
+
 class CompilationError(ConductorError):
     """A caller asked the engine to run a graph that compile rejected.
 

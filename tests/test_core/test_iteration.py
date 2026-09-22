@@ -354,7 +354,9 @@ def test_a_source_may_refuse_to_be_received_whole_naming_the_fix():
 
         @classmethod
         def refuses_whole(cls):
-            return ("columns_unknown", "The columns are unknown; state them.")
+            from conductor.errors import Refuses
+
+            raise Refuses("columns_unknown", "The columns are unknown; state them.")
 
     class Halves(NodeDefinition):
         id = "halves"
@@ -526,7 +528,7 @@ def test_a_hook_that_cannot_answer_refuses_and_the_refusal_is_the_placements_pro
     arrivals — lands as the node's one fatal `Problem`: the host
     names the code and writes the sentence, compile only anchors it, and
     there is no `no_outputs` echo beside it."""
-    from conductor.node import Refuses
+    from conductor.errors import Refuses
 
     class Fussy(NodeDefinition):
         id = "fussy"
@@ -557,7 +559,7 @@ def test_an_inputs_hook_that_cannot_answer_refuses_and_compile_does_not_raise():
     """`Refuses` from `compute_inputs` is the node's one fatal `Problem`
     too, asked before any edge is walked: compile never raises for a fault
     in the graph, and a node reading the refused one carries no echo."""
-    from conductor.node import Refuses
+    from conductor.errors import Refuses
 
     class Fussy(NodeDefinition):
         id = "fussy-inputs"

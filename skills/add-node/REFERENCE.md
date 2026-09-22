@@ -208,7 +208,7 @@ When what one placed node has depends on how the author configured it, override 
 ```python
 from collections.abc import Mapping
 
-from conductor.node import Refuses
+from conductor import Refuses
 
 
 class Columns(NodeDefinition):

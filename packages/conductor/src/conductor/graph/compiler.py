@@ -28,6 +28,7 @@ from typing import Any
 from pydantic import TypeAdapter, ValidationError
 
 from conductor.dtype_ref import name_of
+from conductor.errors import Refuses
 from conductor.graph.binding import Edges, static_values
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.conditions import Condition, conditions_of
@@ -39,7 +40,7 @@ from conductor.graph.topology import dependencies_of, order_of
 from conductor.graph.views import derive_interface, field_problems, lock_problems
 from conductor.interface import Interface, model_of
 from conductor.metadata import Input
-from conductor.node import GraphVersion, NodeDefinition, NodeVersion, Refuses
+from conductor.node import GraphVersion, NodeDefinition, NodeVersion
 from conductor.ref import Ref
 from conductor.registry import NodeRegistry
 from conductor.series import Series

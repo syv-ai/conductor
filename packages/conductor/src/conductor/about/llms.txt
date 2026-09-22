@@ -124,7 +124,7 @@ class Number(DType, float):
 ```
 
 - `target.accepts(source)` is the one edge question: may a value of type `source` land on an input declared `target`? The default is `issubclass`; a series is judged by its element.
-- A `DType` does not convert, does not pick a widget, and formats itself only through `as_text`. `refuses_whole` lets a type refuse to be received whole, with a message naming the fix.
+- A `DType` does not convert, does not pick a widget, and formats itself only through `as_text`. `refuses_whole` lets a type refuse to be received whole: it raises the same `Refuses(code, message)` a hook raises, with a message naming the fix.
 - `describe()` is `{"id"}`; `dtype_of(annotation)` reads the type off an annotation. Which types exist is a registry's decision: `registry.types` is its vocabulary — the words its nodes declare plus `registry.add_types(...)` — and `registry.accepted_as(T)` is every id in it a `T` may land on, its own included. One id from two classes on one registry is refused at `register` or `add_types`, naming both; two registries may each hold a `text`.
 - `Series[X]` is the one collection: many values of one type on an `Index`. `Series[Series[X]]` does not exist.
 - `Index(id, parent=None)` names where a series' rows come from and is compared by `id`. A row is a path: `(i,)` on a root index, `(i, j)` for the j-th row under parent row `(i,)`, so `Index.depth` is the length of its rows.

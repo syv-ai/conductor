@@ -239,3 +239,30 @@ def test_a_graphs_nodes_are_a_tuple():
     assert isinstance(graph.nodes, tuple)
     with pytest.raises(AttributeError):
         graph.nodes.append(GraphNode(id="t", type="scale", version=1))
+
+
+# --- one refusal, raised (F12) --------------------------------------------------------
+
+
+def test_refuses_is_a_conductor_error_at_the_root():
+    import conductor
+    from conductor.errors import ConductorError, Refuses
+
+    assert conductor.Refuses is Refuses and issubclass(Refuses, ConductorError)
+
+
+def test_a_type_refuses_to_be_read_whole_by_raising_the_same_refusal():
+    from conductor.errors import Refuses
+
+    class Loose(DType):
+        id = "surface-loose"
+        title = "Loose"
+
+        @classmethod
+        def refuses_whole(cls) -> None:
+            raise Refuses("columns_unknown", "Nobody said the columns.")
+
+    with pytest.raises(Refuses) as refused:
+        Loose.refuses_whole()
+    assert (refused.value.code, refused.value.message) == ("columns_unknown", "Nobody said the columns.")
+    assert Txt.refuses_whole() is None

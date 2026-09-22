@@ -769,11 +769,11 @@ def test_a_hook_that_cannot_answer_raises_refuses():
     """`Refuses(code, message)` is the one refusal a field hook has: the
     host names the code and writes the sentence, and the compiler anchors both
     as the placement's fatal `Problem` (the graph plans)."""
-    from conductor.node import Refuses
+    from conductor.errors import ConductorError, Refuses
 
     refusal = Refuses("wrong_shape", "What arrives does not fit.")
     assert (refusal.code, refusal.message) == ("wrong_shape", "What arrives does not fit.")
-    assert isinstance(refusal, Exception)
+    assert isinstance(refusal, ConductorError)
 
 
 def test_a_reduction_declares_a_series_input():

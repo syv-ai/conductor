@@ -10,6 +10,7 @@ from conductor.errors import (
     NodeExecutionError,
     NodeTimeoutError,
     NodeValidationError,
+    Refuses,
 )
 from conductor.execution.engine import execute, run, run_sync
 from conductor.graph.binding import Binding, Edges, Static
@@ -28,7 +29,6 @@ from conductor.node import (
     NodeDescription,
     NodeVersion,
     Policy,
-    Refuses,
     deprecated,
     upgrade,
     version,

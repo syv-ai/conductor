@@ -55,17 +55,6 @@ if TYPE_CHECKING:
     from conductor.graph.model import GraphNode
 
 
-class Refuses(Exception):
-    """Raised by a field hook that cannot answer for the values it was given.
-
-    ``code`` and ``message`` are the host's, and the compiler reports them
-    as the node's problem — the same shape as ``DType.refuses_whole``.
-    """
-
-    def __init__(self, code: str, message: str) -> None:
-        self.code = code
-        self.message = message
-        super().__init__(message)
 
 class Deprecation(ConductorModel):
     """A notice that a node, or one of its versions, is going away.
