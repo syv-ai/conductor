@@ -27,7 +27,7 @@ Built to be the shared core behind visual node editors — declare a node once a
 - **A person in the loop** — a node returns `Asks` with its questions; the run ends pending, and the next call to `execute` carries the answers.
 - **Field hooks** — a node whose inputs or outputs depend on its configuration overrides `compute_inputs` / `compute_outputs`.
 - **Embedded graphs** — a version whose body is a graph expands under its node's name and runs as nodes of the one run.
-- **Auto-discovery** — import a package and every node it registers is in the registry.
+- **One way to wire a package's nodes** — each module exposes `register(registry)`, and the host calls it.
 - **Records that save themselves** — `Graph.from_path("approval.yaml")`, `graph.to_yaml()`, and pydantic's own JSON.
 - **Zero host dependencies** — no FastAPI, no database, no auth in the core; pydantic is the one hard dependency.
 - **Standard node library** — `conductor-nodes` ships text, math, logic, JSON and regex nodes and a decision gate, declared in a four-word vocabulary of its own.
@@ -163,7 +163,7 @@ conductor/
 │   │       ├── widgets.py          # The controls: Text, Textarea, Dropdown, …; AnyWidget
 │   │       ├── errors.py           # ErrorCause and the exception hierarchy
 │   │       ├── _sentinel.py        # SKIPPED and Asks
-│   │       ├── registry/           # NodeRegistry, discover_nodes
+│   │       ├── registry/           # NodeRegistry
 │   │       ├── graph/              # GraphNode/Graph, the Binding variants, CompiledGraph.from_graph() and the CompiledGraph it returns, iteration, expansion, conditions, Problem
 │   │       ├── execution/          # execute(), run(), run_sync(), the ledger, events
 │   │       └── about/              # Runnable library reference: python -m conductor.about
@@ -316,12 +316,13 @@ registry.describe()                        # the palette: every node's record an
 
 `describe()` is the one serialisation of a node: a `NodeDescription` with its versions, fields, policy and deprecation notice, dumped through pydantic when a palette needs JSON. Nothing is stored, so a description is always derived from the live declaration. `registry.describe()` is the palette: those records plus one `TypeDescription` per type — `id`, `title` and `accepted_as`, the ids of every type in that registry whose `accepts` admits it — so an editor reads where a value may land once per type, and a field's own record is its id. Two registries in one process may each hold a `text`; one registry refuses a second class under an id it already holds, naming both.
 
-**Auto-discovery** imports every module in a package so the registrations in them run:
+A package of nodes gives each module a `register(registry)` that registers the classes it offers, and the host calls them; importing a module registers nothing:
 
 ```python
-from conductor.registry.discovery import discover_nodes
+def register(registry: NodeRegistry) -> None:
+    registry.register(Greet)
 
-discover_nodes("myapp.nodes", registry)    # returns how many definitions were added
+register(registry)                         # the host decides which registry
 ```
 
 ### Field hooks
@@ -565,7 +566,7 @@ The examples are Jupyter notebooks under `examples/` — open them in VS Code, J
 | `01_basic_nodes.ipynb` | Declaring nodes: widgets, defaults, multi-output records, inspecting a registry |
 | `02_build_and_run_a_graph.ipynb` | Bindings, asking the compiled graph, problems, collecting results, streaming events, once per row, saving |
 | `03_class_nodes.ipynb` | A node with its own methods, and a value the run supplies (`FromRun`) |
-| `05_auto_discovery.ipynb` | Package scanning, versions and deprecation, the palette as JSON |
+| `05_auto_discovery.ipynb` | Versions, upgrades and deprecation, wiring a package's nodes with `register(registry)`, the palette as JSON |
 | `06_human_in_the_loop.ipynb` | A node that asks, the run ending pending, and the next leg with the answer |
 | `08_widgets.ipynb` | Every control, inspecting a widget's schema |
 
@@ -583,7 +584,7 @@ From `1.0.0` onward, conductor follows [Semantic Versioning](https://semver.org/
 **Public API.** A name is part of the public API if it is exported from a package's `__init__` or documented in this README / `docs/`. Anything else — `_`-prefixed names, modules not re-exported from a public surface — is internal and may change in any release without warning. The public surface:
 
 - Top-level `conductor`: the node contract (`NodeDefinition`, `NodeVersion`, `GraphVersion`, `Policy`, `Deprecation`, `NodeDescription`, `version`, `upgrade`, `deprecated`, `Interface`, `FromRun`, `Input`, `Output`, `AnyWidget`, `SKIPPED`, `Asks`, `is_skipped`, `is_asking`), the type vocabulary (`DType`, `DTypeRef`, `Single`, `dtype_of`, `Series`, `Index`, `Ref`, `Result`), the registry (`NodeRegistry`, `RegistryDescription`, `TypeDescription`), and the graph (`Graph`, `GraphNode`, `FieldContent`, `Binding`, `From`, `Static`, `dependencies_of`, `is_input_node`, `CompiledGraph`, `CompiledNode`, `CompiledField`, `Problem`, `Condition`, `Atom`, `ALWAYS`)
-- `conductor.execution.engine` (`execute`, `run`, `run_sync`, also exported at the root), `conductor.errors` (`ErrorCause` and the error classes), `conductor.model` (`ConductorModel`), `conductor.widgets`, `conductor.metadata`, `conductor.execution.events` (the `*Event` `TypedDict`s), `conductor.registry.discovery` (`discover_nodes`)
+- `conductor.execution.engine` (`execute`, `run`, `run_sync`, also exported at the root), `conductor.errors` (`ErrorCause` and the error classes), `conductor.model` (`ConductorModel`), `conductor.widgets`, `conductor.metadata`, `conductor.execution.events` (the `*Event` `TypedDict`s)
 - `conductor_nodes` (`registry`, `register_all`, the category modules, `conductor_nodes.types`) and `conductor_providers.react` / `conductor_providers.fastapi`
 
 **Compatibility guarantees from `1.0.0`.**

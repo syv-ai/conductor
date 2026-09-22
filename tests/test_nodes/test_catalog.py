@@ -161,6 +161,4 @@ def test_a_registry_of_the_standard_nodes_is_one_call():
     import conductor_nodes
 
     assert {cls.id for cls in conductor_nodes.registry().nodes} == EXPECTED_IDS
-    assert {cls.id for cls in conductor_nodes.registry(categories=["logic"]).nodes} == {
-        "logic-if-empty", "logic-if-equals", "logic-not",
-    }
+    assert {cls.id for cls in conductor_nodes.registry(categories=["logic"]).nodes} == {"logic-not"}

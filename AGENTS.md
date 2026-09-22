@@ -20,7 +20,7 @@ conductor/
 │       ├── widgets.py          # Widget + the controls; AnyWidget discriminated union
 │       ├── errors.py           # ErrorCause and the exception hierarchy
 │       ├── _sentinel.py        # SKIPPED and Asks — the two values a run returns that are not results
-│       ├── registry/           # NodeRegistry (register, nodes, runner_for, extended_with, upgraded); discover_nodes
+│       ├── registry/           # NodeRegistry (register, nodes, runner_for, extended_with, upgraded)
 │       ├── graph/              # model (Graph/GraphNode), binding (From/Static), compiler + compiled (CompiledGraph and its node/field views), iteration (the edge walk), expand (embedded graphs), conditions, problem, topology, views
 │       ├── execution/          # engine (execute, run, run_sync; one leg per call), ledger (what a run produced, and what that makes ready), events
 │       └── about/              # Runnable library context: `python -m conductor.about`

@@ -427,3 +427,60 @@ class TestIntegration:
             ],
         )
         assert r["c"]["result"] == 20
+
+
+# --- the regex nodes cannot freeze a run, and categories filter by category ---------
+
+
+def test_a_catastrophic_pattern_answers_at_once():
+    """``(a+)+$`` over 27 a's and a b held the GIL for seconds under ``re``;
+    the ``regex`` engine does not backtrack on it."""
+    import asyncio
+    import time
+
+    from conductor import execute
+
+    graph = Graph(nodes=[GraphNode(id="m", type="regex-match", version=1, bindings={
+        "text": Static("a" * 27 + "b"), "pattern": Static("(a+)+$"),
+    })])
+    compiled = CompiledGraph.from_graph(graph, conductor_nodes.registry())
+
+    async def events():
+        return [event async for event in execute(compiled)]
+
+    started = time.monotonic()
+    seen = asyncio.run(events())
+    assert time.monotonic() - started < conductor_nodes.regex_ops.Match.timeout
+    assert "node_start" in [e["type"] for e in seen]
+    assert seen[-1]["results"]["m"]["result"] == Flag(False)
+
+
+def test_a_pattern_that_times_out_fails_its_node_with_a_sentence_for_people(monkeypatch):
+    import regex
+
+    def too_slow(*args, **kwargs):
+        raise TimeoutError("regex timed out")
+
+    monkeypatch.setattr(regex, "search", too_slow)
+    graph = Graph(nodes=[GraphNode(id="m", type="regex-match", version=1, bindings={"text": Static("x"), "pattern": Static("x")})])
+    ending = run_sync(CompiledGraph.from_graph(graph, conductor_nodes.registry()))
+
+    assert ending["type"] == "graph_error"
+    assert (ending["cause"].code, ending["error"]) == ("pattern_timeout", "The pattern took too long.")
+
+
+def test_categories_filter_on_each_nodes_own_category():
+    logic = conductor_nodes.registry(categories=["logic"])
+    control = conductor_nodes.registry(categories=["control"])
+
+    assert {cls.category for cls in logic.nodes} == {"logic"}
+    assert {cls.id for cls in control.nodes} == {"decision", "logic-if-empty", "logic-if-equals"}
+
+
+def test_a_category_given_as_a_string_is_refused():
+    with pytest.raises(TypeError, match="list of category names"):
+        conductor_nodes.registry(categories="text")
+
+
+def test_there_is_no_category_table():
+    assert not hasattr(conductor_nodes, "CATEGORIES")

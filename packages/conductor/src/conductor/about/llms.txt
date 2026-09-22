@@ -321,10 +321,6 @@ Every control is a frozen model with a `kind`; `AnyWidget` is their union. A wid
 
 Conductor ships no default widget for any type; every input declares its own. The vocabulary inside a control is the host's, as data.
 
-### conductor.registry.discovery
-
-`discover_nodes(package_name, registry)` imports every module in a package so the registrations in it run, and returns how many definitions were added.
-
 ### conductor.interface
 
 `Interface` (`inputs`, `outputs`, `returns`, `needs`, `open`; `Interface.of(run)`), `FromRun`, `model_of(inputs)` — the pydantic model a call is validated through.
@@ -366,7 +362,7 @@ packages/
 ├── conductor/src/conductor/
 │   ├── node.py, interface.py, metadata.py, returns.py, model.py
 │   ├── dtype.py, dtype_ref.py, series.py, ref.py, widgets.py, errors.py, _sentinel.py
-│   ├── registry/        — NodeRegistry, discovery
+│   ├── registry/        — NodeRegistry
 │   ├── graph/           — model, binding, compiler, compiled, iteration, expand, conditions, problem, topology, views
 │   ├── execution/       — engine, ledger, events
 │   └── about/           — this reference (python -m conductor.about)

@@ -31,7 +31,7 @@ SOURCES = sorted(
 #: comes with pydantic). The core imports no other package of the three.
 IMPORTS = {
     "conductor": {"conductor", "pydantic", "pydantic_core", "yaml"},
-    "conductor-nodes": {"conductor_nodes", "conductor", "pydantic", "pydantic_core"},
+    "conductor-nodes": {"conductor_nodes", "conductor", "pydantic", "pydantic_core", "regex"},
     "conductor-providers": {"conductor_providers", "conductor", "pydantic", "pydantic_core", "fastapi"},
 }
 
@@ -39,7 +39,7 @@ IMPORTS = {
 #: there fails here until it is listed, so a host's package cannot arrive unseen.
 DISTRIBUTIONS = {
     "conductor": {"pydantic", "pyyaml", "syv-conductor-nodes", "syv-conductor-providers"},
-    "conductor-nodes": {"syv-conductor", "pydantic"},
+    "conductor-nodes": {"syv-conductor", "pydantic", "regex"},
     "conductor-providers": {"syv-conductor", "fastapi", "pydantic"},
 }
 

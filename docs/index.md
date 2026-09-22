@@ -108,4 +108,4 @@ Raise `ExternalFailure` from `run` where the node knows the outside world failed
 - [`OVERVIEW.md`](./OVERVIEW.md): the architecture on one page.
 - [`widgets.md`](./widgets.md): the controls, and how an input declares one.
 - [`packages/conductor/src/conductor/about/llms.txt`](../packages/conductor/src/conductor/about/llms.txt): the packaged reference (also `python -m conductor.about`).
-- The notebooks in [`examples/`](https://github.com/syv-ai/conductor/tree/main/examples) cover nodes, graphs, class nodes, versions and discovery, a person in the loop, and widgets.
+- The notebooks in [`examples/`](https://github.com/syv-ai/conductor/tree/main/examples) cover nodes, graphs, class nodes, versions and wiring a package's nodes, a person in the loop, and widgets.
