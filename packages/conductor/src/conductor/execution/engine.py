@@ -257,7 +257,7 @@ class _Leg:
         self.timeout = timeout
         self.cancel = cancel
         self.started_at = time.monotonic()
-        self.started = {node_id for node_id in compiled.execution_order if self.ledger.complete(node_id)}
+        self.started = self.ledger.completed_nodes()
         in_flight = sum(compiled.node(node_id).version.policy.concurrency for node_id in compiled.execution_order)
         self.executor = ThreadPoolExecutor(max_workers=max(1, in_flight), thread_name_prefix="conductor")
         self.gates: dict[str, asyncio.Semaphore] = {}

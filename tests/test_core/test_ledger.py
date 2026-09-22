@@ -567,6 +567,19 @@ def test_the_ledger_restores_from_its_cells():
     assert restored.results()["docs"]["texts"].rows == ((0,), (1,))
 
 
+def test_a_restored_ledger_names_the_nodes_an_earlier_leg_completed():
+    """A node is completed when every unit it will have is done; one with a row still to run is not."""
+    ledger = _ledger([DOCS, GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))})])
+    ledger.record(("docs", None), {"texts": ["a", "b"], "names": ["x", "y"]})
+    ledger.record(("up", (0,)), {"result": "A"})
+
+    restored = Ledger.restore(ledger._compiled, ledger.cells())
+
+    assert restored.completed_nodes() == {"docs"}
+    restored.record(("up", (1,)), {"result": "B"})
+    assert restored.completed_nodes() == {"docs", "up"}
+
+
 def test_a_pending_unit_waits_and_so_does_what_reads_it():
     """A unit whose node asked a person is neither done nor
     failed; its node is incomplete, its consumers are not ready, and the

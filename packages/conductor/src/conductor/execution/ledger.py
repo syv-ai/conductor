@@ -285,6 +285,15 @@ class Ledger:
             and self._done_standing_in.get(node_id, 0) == len(self._no_rows_under.get(iterate.id, ()))
         )
 
+    def completed_nodes(self) -> set[str]:
+        """The nodes ``complete`` holds for, among those with a unit done.
+
+        A leg starting on a restored ledger reads it so it does not announce
+        ``node_start`` again for a node an earlier leg finished. A node with
+        no units at all — its index sealed with no rows — is not in it; it
+        never starts, so there is nothing to announce."""
+        return {node_id for node_id, _ in self._done if self.complete(node_id)}
+
     def progress(self, node_id: str) -> tuple[int, int | None]:
         """``(done, total)`` rows for a node; ``total`` is ``None`` until the
         node's index is sealed. Cover units stand in for rows that were never
