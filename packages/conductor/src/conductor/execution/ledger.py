@@ -58,7 +58,7 @@ from conductor.codec import from_wire, to_wire
 from conductor.errors import ErrorCause, NodeExecutionError
 from conductor.execution.events import PendingUnit
 from conductor.execution.record import RunRecord
-from conductor.graph.binding import Edges, Static
+from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Receive, Whole
 from conductor.metadata import Input
@@ -210,7 +210,7 @@ class Ledger:
         connected: list[_Reader] = []
         for inp in node.interface.inputs:
             compiled_field = self._compiled.field(Ref(node_id, inp.name))
-            if not isinstance(compiled_field.binding, Edges):
+            if not isinstance(compiled_field.binding, From):
                 continue
             for ref in compiled_field.binding.refs:
                 reader = _Reader(node_id, ref, compiled_field.receives)

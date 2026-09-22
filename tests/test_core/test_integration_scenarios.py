@@ -10,7 +10,7 @@ from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
 from conductor.errors import ExternalFailure, NodeExecutionError
 from conductor.execution.engine import execute
-from conductor.graph.binding import Edges, Static
+from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
 from conductor.metadata import Result
 from conductor.node import NodeDefinition, Policy, version
@@ -141,9 +141,9 @@ class TestDecisionCombinations:
     def test_decision_branch_failure_does_not_affect_other_branch(self):
         """The branch not taken holds a failing node that never runs."""
         compiled = CompiledGraph.from_graph(Graph(nodes=[
-                GraphNode(id="d", type="decide", version=1, bindings={"value": Static(value=100)}),
-                GraphNode(id="a", type="tally", version=1, bindings={"label": Static(value="A"), "number": Edges(refs=(Ref('d', 'high'),))}),
-                GraphNode(id="b", type="always-fail", version=1, bindings={"number": Edges(refs=(Ref('d', 'low'),))}),
+                GraphNode(id="d", type="decide", version=1, bindings={"value": Static(100)}),
+                GraphNode(id="a", type="tally", version=1, bindings={"label": Static("A"), "number": From(Ref('d', 'high'))}),
+                GraphNode(id="b", type="always-fail", version=1, bindings={"number": From(Ref('d', 'low'))}),
             ]), _registry())
         r = run_sync(compiled)["results"]
         # A ran; B was skipped so it never failed
@@ -222,9 +222,9 @@ class TestEdgeCases:
 
     def test_decision_routes_only_the_taken_branch(self):
         compiled = CompiledGraph.from_graph(Graph(nodes=[
-                GraphNode(id="d", type="decide", version=1, bindings={"value": Static(value=100)}),
-                GraphNode(id="taken", type="tally", version=1, bindings={"label": Static(value="TAKEN"), "number": Edges(refs=(Ref('d', 'high'),))}),
-                GraphNode(id="other", type="tally", version=1, bindings={"label": Static(value="OTHER"), "number": Edges(refs=(Ref('d', 'low'),))}),
+                GraphNode(id="d", type="decide", version=1, bindings={"value": Static(100)}),
+                GraphNode(id="taken", type="tally", version=1, bindings={"label": Static("TAKEN"), "number": From(Ref('d', 'high'))}),
+                GraphNode(id="other", type="tally", version=1, bindings={"label": Static("OTHER"), "number": From(Ref('d', 'low'))}),
             ]), _registry())
         r = run_sync(compiled)["results"]
         assert r["taken"]["result"] == "TAKEN"
@@ -234,10 +234,10 @@ class TestEdgeCases:
         """A deciding node fed by an edge routes the taken branch; the else branch is skipped."""
 
         compiled = CompiledGraph.from_graph(Graph(nodes=[
-                GraphNode(id="source", type="echo", version=1, bindings={"text": Static(value="data")}),
-                GraphNode(id="d", type="route", version=1, bindings={"text": Edges(refs=(Ref('source', 'result'),))}),
-                GraphNode(id="taken", type="echo", version=1, bindings={"text": Edges(refs=(Ref('d', 'match'),))}),
-                GraphNode(id="else_b", type="echo", version=1, bindings={"text": Edges(refs=(Ref('d', 'other'),))}),
+                GraphNode(id="source", type="echo", version=1, bindings={"text": Static("data")}),
+                GraphNode(id="d", type="route", version=1, bindings={"text": From(Ref('source', 'result'))}),
+                GraphNode(id="taken", type="echo", version=1, bindings={"text": From(Ref('d', 'match'))}),
+                GraphNode(id="else_b", type="echo", version=1, bindings={"text": From(Ref('d', 'other'))}),
             ]), _registry(Route))
         r = run_sync(compiled)["results"]
         assert r["taken"]["result"] == "data"

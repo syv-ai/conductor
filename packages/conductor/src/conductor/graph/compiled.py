@@ -407,7 +407,7 @@ class CompiledField:
 
     @property
     def binding(self) -> Binding | None:
-        """Where this input's value comes from: ``Edges`` from other nodes'
+        """Where this input's value comes from: ``From`` from other nodes'
         outputs, ``Static`` for a value the author typed, or ``None`` when
         nothing binds it and its declared default applies. Only an input
         has one; asking on an output raises."""

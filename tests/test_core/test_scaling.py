@@ -17,7 +17,7 @@ from conductor import NodeRegistry, Param, run_sync
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
 from conductor.execution.ledger import Ledger
-from conductor.graph.binding import Edges, Static
+from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.metadata import Result
@@ -98,8 +98,8 @@ class LongOnly(NodeDefinition):
         return Length(long=text, short=SKIPPED) if len(text) > 4 else Length(long=SKIPPED, short=text)
 
 
-def _edge(node_id: str, field: str) -> Edges:
-    return Edges(refs=(Ref(node_id, field),))
+def _edge(node_id: str, field: str) -> From:
+    return From(Ref(node_id, field))
 
 
 def _compiled(rows: int) -> CompiledGraph:
@@ -109,8 +109,8 @@ def _compiled(rows: int) -> CompiledGraph:
         registry.register(node_cls)
     text = ",".join(f"row{i}" if i % 3 else "r" for i in range(rows))
     graph = Graph(nodes=[
-        GraphNode(id="docs", type="docs", version=1, bindings={"text": Static(value=text)}),
-        GraphNode(id="prefix", type="upper", version=1, bindings={"text": Static(value="p")}),
+        GraphNode(id="docs", type="docs", version=1, bindings={"text": Static(text)}),
+        GraphNode(id="prefix", type="upper", version=1, bindings={"text": Static("p")}),
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge("docs", "texts")}),
         GraphNode(id="pair", type="pair", version=1, bindings={"a": _edge("prefix", "result"), "b": _edge("up", "result")}),
         GraphNode(id="gate", type="long-only", version=1, bindings={"text": _edge("pair", "result")}),

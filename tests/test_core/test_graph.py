@@ -4,7 +4,7 @@ from typing import Annotated
 
 import pytest
 from conductor.dtype import DType
-from conductor.graph.binding import Edges, Static
+from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.graph.topology import order_of
@@ -35,7 +35,7 @@ class Echo(NodeDefinition):
 
 class TestGraphModel:
     def test_graph_node_is_frozen(self):
-        node = GraphNode(id="n1", type="echo", version=1, bindings={"text": Static(value="hello")})
+        node = GraphNode(id="n1", type="echo", version=1, bindings={"text": Static("hello")})
         assert node.id == "n1"
         assert node.type == "echo"
         assert node.version == 1
@@ -88,8 +88,8 @@ class TestCompile:
     def test_compile_returns_compiled_graph(self, registry):
         registry.register(Echo)
         nodes = [
-            GraphNode(id="n1", type="echo", version=1, bindings={"text": Static(value="hello")}),
-            GraphNode(id="n2", type="echo", version=1, bindings={"text": Edges(refs=(Ref('n1', 'result'),))}),
+            GraphNode(id="n1", type="echo", version=1, bindings={"text": Static("hello")}),
+            GraphNode(id="n2", type="echo", version=1, bindings={"text": From(Ref('n1', 'result'))}),
         ]
 
         compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry)
@@ -104,7 +104,7 @@ class TestCompile:
 
     def test_compile_edge_from_a_missing_node_is_a_problem(self, registry):
         registry.register(Echo)
-        nodes = [GraphNode(id="n1", type="echo", version=1, bindings={"text": Edges(refs=(Ref("n_missing", "result"),))})]
+        nodes = [GraphNode(id="n1", type="echo", version=1, bindings={"text": From(Ref("n_missing", "result"))})]
 
         compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry)
         assert [p.code for p in compiled.problems] == ["unknown_ref_node"]
@@ -112,8 +112,8 @@ class TestCompile:
     def test_compile_cycle_is_a_problem_on_each_node_in_it(self, registry):
         registry.register(Echo)
         nodes = [
-            GraphNode(id="n1", type="echo", version=1, bindings={"text": Edges(refs=(Ref('n2', 'result'),))}),
-            GraphNode(id="n2", type="echo", version=1, bindings={"text": Edges(refs=(Ref('n1', 'result'),))}),
+            GraphNode(id="n1", type="echo", version=1, bindings={"text": From(Ref('n2', 'result'))}),
+            GraphNode(id="n2", type="echo", version=1, bindings={"text": From(Ref('n1', 'result'))}),
         ]
         compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry)
         assert [(p.code, p.node_id) for p in compiled.problems] == [("cycle", "n1"), ("cycle", "n2")]

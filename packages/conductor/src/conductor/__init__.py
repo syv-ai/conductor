@@ -13,7 +13,7 @@ from conductor.errors import (
     Refuses,
 )
 from conductor.execution.engine import execute, run, run_sync
-from conductor.graph.binding import Binding, Edges, Static
+from conductor.graph.binding import Binding, From, Static
 from conductor.graph.compiled import CompiledField, CompiledGraph, CompiledNode
 from conductor.graph.conditions import ALWAYS, Atom, Condition
 from conductor.graph.model import FieldContent, Graph, GraphNode

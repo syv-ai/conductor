@@ -29,7 +29,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from conductor.dtype_ref import name_of
 from conductor.errors import Refuses
-from conductor.graph.binding import Edges, static_values
+from conductor.graph.binding import From, static_values
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.conditions import Condition, conditions_of
 from conductor.graph.expand import SEPARATOR, Expansion, authored_ref, expand, surfaced
@@ -249,7 +249,7 @@ class _Compilation:
                 inputs = (*inputs, *(
                     Input(name=name, dtype=shape, title=name)
                     for name, binding in node.bindings.items()
-                    if name not in named and isinstance(binding, Edges)
+                    if name not in named and isinstance(binding, From)
                 ))
             self.interfaces[node_id] = replace(version.interface, inputs=inputs)
             self.statics[node_id] = typed
@@ -295,7 +295,7 @@ class _Compilation:
                         dead = dead.model_copy(update={"fatal": False})
                     self.problems.append(dead)
                     continue
-                if not isinstance(binding, Edges):
+                if not isinstance(binding, From):
                     continue
                 target = declared[name]
                 if not target.show_handle:
@@ -315,7 +315,7 @@ class _Compilation:
 
             for inp in interface.inputs:
                 if inp.dtype is Any:
-                    if not isinstance(node.bindings.get(inp.name), Edges):
+                    if not isinstance(node.bindings.get(inp.name), From):
                         broken.add(node_id)
                         self.problems.append(problem("unbound_required", node_id, inp.name))
                 elif not inp.optional and inp.name not in node.bindings:

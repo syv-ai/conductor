@@ -35,7 +35,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
-from conductor.graph.binding import Binding, Edges
+from conductor.graph.binding import Binding, From
 from conductor.graph.model import GraphNode
 from conductor.graph.problem import Problem, problem
 from conductor.graph.topology import dependencies_of, order_of
@@ -192,8 +192,8 @@ class _Expander:
         into a nested one alike."""
         for node_id, node in list(self.nodes.items()):
             reconnected = {
-                name: Edges(refs=tuple(expanded_ref(ref, self.placements) for ref in binding.refs))
-                if isinstance(binding, Edges) else binding
+                name: From(*(expanded_ref(ref, self.placements) for ref in binding.refs))
+                if isinstance(binding, From) else binding
                 for name, binding in node.bindings.items()
             }
             self.nodes[node_id] = node.model_copy(update={"bindings": reconnected})
@@ -219,8 +219,8 @@ class _Expander:
             **dict(inner),
             "id": f"{placement}{SEPARATOR}{inner.id}",
             "bindings": {
-                name: Edges(refs=tuple(Ref(f"{placement}{SEPARATOR}{ref.node_id}", ref.field) for ref in binding.refs))
-                if isinstance(binding, Edges) else binding
+                name: From(*(Ref(f"{placement}{SEPARATOR}{ref.node_id}", ref.field) for ref in binding.refs))
+                if isinstance(binding, From) else binding
                 for name, binding in inner.bindings.items()
             },
             "locked": (),

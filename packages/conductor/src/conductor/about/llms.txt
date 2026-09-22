@@ -11,7 +11,7 @@ Two nodes: one written for a single value, one for a whole series. That differen
 ```python
 from typing import Annotated
 
-from conductor import CompiledGraph, DType, Edges, Graph, GraphNode, NodeDefinition, NodeRegistry, Param, Ref, Result, Series, Static, run
+from conductor import CompiledGraph, DType, From, Graph, GraphNode, NodeDefinition, NodeRegistry, Param, Ref, Result, Series, Static, run
 from conductor.widgets import Textarea
 
 
@@ -45,8 +45,8 @@ registry.register(Upper)
 registry.register(Join)
 
 graph = Graph(nodes=[
-    GraphNode(id="upper", type="upper", version=1, bindings={"text": Static(value=["a", "b", "c"])}),
-    GraphNode(id="join", type="join", version=1, bindings={"texts": Edges(refs=(Ref("upper", "result"),))}),
+    GraphNode(id="upper", type="upper", version=1, bindings={"text": Static(["a", "b", "c"])}),
+    GraphNode(id="join", type="join", version=1, bindings={"texts": From(Ref("upper", "result"))}),
 ])
 compiled = CompiledGraph.from_graph(graph, registry)
 assert compiled.is_runnable, compiled.problems
@@ -97,7 +97,7 @@ class Greet(NodeDefinition):
 ```
 
 - `Policy(retries=0, delay=1.0, timeout=None, concurrency=8, retry_on=())` — how the engine runs this version. `concurrency` bounds how many rows run at once; `retry_on` names the client exception classes that mean the outside world failed. Bounds: `retries >= 0`, `delay >= 0`, `timeout > 0` or `None`, `concurrency >= 1`.
-- `@upgrade(a, b, outputs={old: new})` rewrites a node's bindings saved against version `a` into what `b = a + 1` expects (a typed-in value as itself, an edge as its `Edges`) and names the outputs it renames; a class with several versions declares one step per adjacent pair or is refused when it is defined. `registry.upgraded(graph, node_id, to=None)` returns the graph with that node moved to `to` (the current version by default) and every edge that read a renamed output rewritten. Compile never upgrades: a pinned version runs as pinned.
+- `@upgrade(a, b, outputs={old: new})` rewrites a node's bindings saved against version `a` into what `b = a + 1` expects (a typed-in value as itself, an edge as its `From`) and names the outputs it renames; a class with several versions declares one step per adjacent pair or is refused when it is defined. `registry.upgraded(graph, node_id, to=None)` returns the graph with that node moved to `to` (the current version by default) and every edge that read a renamed output rewritten. Compile never upgrades: a pinned version runs as pinned.
 - `@deprecated(header=..., description=..., alternative=..., migration=...)` (all keyword, all optional) on the class retires the node; on a version method, that version.
 - `NodeRegistry.register(cls)` requires versions numbered from 1 with no holes and an `alternative` that exists.
 - A version whose body is a graph is a `GraphVersion(graph=(GraphNode, ...), interface=Interface(...))`, placed in `versions` like any other. Compile expands it under the placing node's name (`approve/check`), so its inner nodes run as nodes of the one run.
@@ -135,8 +135,8 @@ class Number(DType, float):
 
 A graph is `Graph(nodes=[...])`, and a placed node is `GraphNode(id=, type=, version=, bindings=, locked=, title=, description=, fields=, display=)`. There is no edge record: each input holds at most one binding.
 
-- `Edges(refs=(Ref("a", "result"), ...))` — the value arrives over edges. Several refs into a `Series[X]` input on different indexes gather into one series; several on one index are a union, and a row two of them cover fails the node with `row_covered_twice`.
-- `Static(value=...)` — the author typed the value. A list typed into a scalar input makes the node run once per value.
+- `From(Ref("a", "result"), ...)` — the value arrives over edges. Several refs into a `Series[X]` input on different indexes gather into one series; several on one index are a union, and a row two of them cover fails the node with `row_covered_twice`.
+- `Static(...)` — the author typed the value. A list typed into a scalar input makes the node run once per value.
 - No binding — the declared default applies.
 - `locked` names inputs no caller of the graph may fill.
 
@@ -234,7 +234,7 @@ A frame carries records (a `Series`, an `ErrorCause`, an `Input`), not their JSO
 
 ### Saving a Graph
 
-Every record a host saves or sends is a `ConductorModel`, a frozen pydantic model: `Graph`, `GraphNode`, `FieldContent`, `Edges`, `Static`, `Problem`, `ErrorCause`, `Policy`, `Deprecation`, `NodeDescription`, `VersionDescription`, `Input`, `Output`, every widget, `Choice`, `OperatorChoice`, `Index`.
+Every record a host saves or sends is a `ConductorModel`, a frozen pydantic model: `Graph`, `GraphNode`, `FieldContent`, `From`, `Static`, `Problem`, `ErrorCause`, `Policy`, `Deprecation`, `NodeDescription`, `VersionDescription`, `Input`, `Output`, every widget, `Choice`, `OperatorChoice`, `Index`.
 
 What a host saves reads back what it wrote: a `Graph` and its parts, `Problem`, `ErrorCause`, `Policy`, `Deprecation`, `Choice`, `OperatorChoice`, `Index`. What describes a node — `NodeDescription`, `VersionDescription`, `Input`, `Output` and the widgets — is written for an editor: its `dtype` dumps as the type's description and does not read back — `dtype` takes a `DType` class, `Any` or a type, never a description; a widget reads back as written. Call `describe()` for the classes.
 
@@ -272,7 +272,7 @@ The node-authoring surface, re-exported from the modules that define it:
 - Values a run returns: `SKIPPED`, `Asks`, `is_skipped`, `is_asking`
 - Types: `DType`, `DTypeRef`, `Single`, `dtype_of`, `Series`, `Index`, `Ref`
 - Registry: `NodeRegistry` (`register`, `in`, `[]`, `len`, iteration over the ids, `nodes`, `types`, `accepted_as`, `describe`, `upgraded`, `extended_with`, `runner_for`), `RegistryDescription`, `TypeDescription`
-- Graph: `Graph`, `GraphNode`, `FieldContent`, `Binding`, `Edges`, `Static`, `dependencies_of`, `is_input_node`, `CompiledGraph`, `CompiledNode`, `CompiledField`, `Problem`, `Condition`, `Atom`, `ALWAYS`
+- Graph: `Graph`, `GraphNode`, `FieldContent`, `Binding`, `From`, `Static`, `dependencies_of`, `is_input_node`, `CompiledGraph`, `CompiledNode`, `CompiledField`, `Problem`, `Condition`, `Atom`, `ALWAYS`
 
 Everything else is imported from the module that defines it.
 
@@ -381,7 +381,7 @@ packages/
 
 | You want... | Use |
 |---|---|
-| A node to read another node's output | `Edges` on the input |
+| A node to read another node's output | `From` on the input |
 | A value the author types | `Static` on the input |
 | A node to run once per item | Connect a series to a scalar input, or type a list into it |
 | One call over all items | Declare the input `Series[X]` |

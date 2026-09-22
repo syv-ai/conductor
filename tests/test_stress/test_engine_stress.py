@@ -24,7 +24,7 @@ import pytest
 from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, run_sync
 from conductor.errors import ExternalFailure
 from conductor.execution.engine import execute
-from conductor.graph.binding import Edges, Static
+from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
 from conductor.metadata import Result
 from conductor.node import NodeDefinition, Policy, version
@@ -66,9 +66,9 @@ def test_500_node_linear_chain_compile_and_execute() -> None:
 
     # The first node carries a static input; every subsequent node takes
     # the previous node's ``result`` on its ``text`` parameter.
-    nodes.append(GraphNode(id="n0", type="upper", version=1, bindings={"text": Static(value="hello")}))
+    nodes.append(GraphNode(id="n0", type="upper", version=1, bindings={"text": Static("hello")}))
     for i in range(1, n):
-        nodes.append(GraphNode(id=f"n{i}", type="upper", version=1, bindings={"text": Edges(refs=(Ref(f"n{i - 1}", "result"),))},
+        nodes.append(GraphNode(id=f"n{i}", type="upper", version=1, bindings={"text": From(Ref(f"n{i - 1}", "result"))},
         ))
 
     t0 = time.monotonic()
@@ -121,7 +121,7 @@ async def test_cancellation_honored_during_retry_sleep() -> None:
     registry = NodeRegistry()
     registry.register(AlwaysFlaky)
 
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="always-flaky", version=1, bindings={"text": Static(value="x")})]), registry)
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="always-flaky", version=1, bindings={"text": Static("x")})]), registry)
 
     cancel = asyncio.Event()
     events: list[dict] = []

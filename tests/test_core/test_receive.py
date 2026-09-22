@@ -13,7 +13,7 @@ from typing import Annotated, ClassVar
 import pytest
 from conductor import NodeRegistry, run_sync
 from conductor.dtype import DType, Single
-from conductor.graph.binding import Edges, Static
+from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Whole
@@ -122,7 +122,7 @@ def _compiled(nodes, *extra):
 
 
 def _edge(*refs):
-    return Edges(refs=tuple(Ref(n, f) for n, f in refs))
+    return From(*(Ref(n, f) for n, f in refs))
 
 
 def _receives(compiled, node_id, field):
@@ -134,7 +134,7 @@ def _receives(compiled, node_id, field):
 
 def test_a_scalar_input_fed_a_scalar_receives_one_value_once():
     compiled = _compiled([
-        GraphNode(id="a", type="upper", version=1, bindings={"text": Static(value="hi")}),
+        GraphNode(id="a", type="upper", version=1, bindings={"text": Static("hi")}),
         GraphNode(id="b", type="upper", version=1, bindings={"text": _edge(("a", "result"))}),
     ])
 
@@ -174,8 +174,8 @@ def test_a_series_input_fed_a_series_on_a_child_reduces_under_the_parent_row():
 
 def test_a_series_input_fed_unrelated_sources_gathers_them_onto_the_fields_own_index():
     compiled = _compiled([
-        GraphNode(id="a", type="upper", version=1, bindings={"text": Static(value="a")}),
-        GraphNode(id="b", type="upper", version=1, bindings={"text": Static(value="b")}),
+        GraphNode(id="a", type="upper", version=1, bindings={"text": Static("a")}),
+        GraphNode(id="b", type="upper", version=1, bindings={"text": Static("b")}),
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("a", "result"), ("b", "result"))}),
     ])
 
@@ -199,8 +199,8 @@ def test_an_open_parameter_receives_its_edge_whole_even_when_a_series_arrives():
 
 def test_a_typed_in_scalar_is_received_once_and_a_typed_in_list_once_per_value():
     compiled = _compiled([
-        GraphNode(id="one", type="upper", version=1, bindings={"text": Static(value="hi")}),
-        GraphNode(id="many", type="upper", version=1, bindings={"text": Static(value=["a", "b"])}),
+        GraphNode(id="one", type="upper", version=1, bindings={"text": Static("hi")}),
+        GraphNode(id="many", type="upper", version=1, bindings={"text": Static(["a", "b"])}),
         GraphNode(id="default", type="upper", version=1),
     ])
 
@@ -212,7 +212,7 @@ def test_a_typed_in_scalar_is_received_once_and_a_typed_in_list_once_per_value()
 
 def test_a_series_input_with_a_typed_in_list_or_a_default_receives_it_whole_on_its_own_index():
     compiled = _compiled([
-        GraphNode(id="typed", type="join", version=1, bindings={"texts": Static(value=["a", "b"])}),
+        GraphNode(id="typed", type="join", version=1, bindings={"texts": Static(["a", "b"])}),
         GraphNode(id="default", type="join", version=1),
     ])
 
@@ -225,7 +225,7 @@ def test_a_closed_input_typed_as_a_list_holds_one_value_and_the_node_runs_once()
     """C3: ``['a', 'b', 'c']`` on ``tags: list[str]`` is the one value the
     type read, not three values to run per; whether the author typed many is
     decided by which validation succeeded, never by the shape of the result."""
-    compiled = _compiled([GraphNode(id="t", type="tags", version=1, bindings={"tags": Static(value=["a", "b", "c"])})])
+    compiled = _compiled([GraphNode(id="t", type="tags", version=1, bindings={"tags": Static(["a", "b", "c"])})])
 
     assert compiled.is_runnable, compiled.problems
     assert _receives(compiled, "t", "tags") == Broadcast()
@@ -244,7 +244,7 @@ def test_a_default_is_not_a_static():
 
 
 def test_an_output_has_no_receive_record():
-    compiled = _compiled([GraphNode(id="a", type="upper", version=1, bindings={"text": Static(value="hi")})])
+    compiled = _compiled([GraphNode(id="a", type="upper", version=1, bindings={"text": Static("hi")})])
 
     with pytest.raises(KeyError):
         compiled.field(Ref("a", "result")).receives
@@ -305,7 +305,7 @@ def test_an_edge_from_another_nodes_input_is_not_a_source():
     """C2: only outputs are sources. An edge from ``h.value``, an input,
     compiled and then the run died with nothing left to run."""
     compiled = _compiled([
-        GraphNode(id="h", type="upper", version=1, bindings={"text": Static(value="hi")}),
+        GraphNode(id="h", type="upper", version=1, bindings={"text": Static("hi")}),
         GraphNode(id="u", type="upper", version=1, bindings={"text": _edge(("h", "text"))}),
     ])
 
@@ -338,7 +338,7 @@ def test_an_open_parameter_inside_an_embedded_graph_receives_whole_as_it_does_st
 
 
 def test_a_closed_list_input_runs_once_with_its_list_and_with_its_default():
-    typed = _compiled([GraphNode(id="t", type="tags", version=1, bindings={"tags": Static(value=["a", "b", "c"])})])
+    typed = _compiled([GraphNode(id="t", type="tags", version=1, bindings={"tags": Static(["a", "b", "c"])})])
     defaulted = _compiled([GraphNode(id="t", type="tags", version=1)])
 
     assert run_sync(typed)["results"]["t"]["result"] == "a|b|c"
@@ -353,11 +353,11 @@ def test_an_open_parameter_embedded_receives_the_series_whole_at_run_time():
         outputs=(Output(name="s.result", dtype=Txt, title="Result"),),
     )
     standalone = _compiled([
-        GraphNode(id="docs", type="docs", version=1, bindings={"folder": Static(value="fa,fb")}),
+        GraphNode(id="docs", type="docs", version=1, bindings={"folder": Static("fa,fb")}),
         GraphNode(id="s", type="script", version=1, bindings={"v": _edge(("docs", "result"))}),
     ])
     embedded = _compiled([
-        GraphNode(id="docs", type="docs", version=1, bindings={"folder": Static(value="fa,fb")}),
+        GraphNode(id="docs", type="docs", version=1, bindings={"folder": Static("fa,fb")}),
         GraphNode(id="emb", type="script-graph", version=1, bindings={"s.v": _edge(("docs", "result"))}),
     ], inner)
 

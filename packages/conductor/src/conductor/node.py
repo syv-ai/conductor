@@ -183,7 +183,7 @@ class GraphVersion:
     neither record can be half-filled.
     """
 
-    #: The nodes this version expands to. Edges live in their
+    #: The nodes this version expands to. From live in their
     #: bindings, so the nodes are the whole graph.
     graph: tuple[GraphNode, ...]
     interface: Interface
@@ -221,7 +221,7 @@ class Upgrade:
     upgrades, so a graph pinned at an old version runs that version.
 
     ``rewrite`` takes the node's bindings as a dict, a typed-in value as
-    the value itself and an edge as its ``Edges`` record, and returns the
+    the value itself and an edge as its ``From`` record, and returns the
     same shape for the new version: renaming an input moves its edge with
     it. ``outputs`` maps an old output name to its new one, and the
     registry rewrites every edge in the graph that read the old name.
@@ -238,7 +238,7 @@ def upgrade(
 
     It takes the bindings saved against the old version and returns the
     ones the new version expects — a typed-in value as itself, an edge as
-    its ``Edges``. ``outputs`` names the outputs the step renames, old to
+    its ``From``. ``outputs`` names the outputs the step renames, old to
     new. A ``staticmethod``, because it rewrites data and has no instance
     to consult::
 

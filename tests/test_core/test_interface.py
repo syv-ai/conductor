@@ -89,7 +89,7 @@ def test_an_input_carries_a_dtype_not_a_type_string():
 
 def test_a_series_parameter_carries_its_element_type():
     def collects(
-        sources: Annotated[Series[Text], Param(title="Edges")],
+        sources: Annotated[Series[Text], Param(title="From")],
     ) -> Annotated[Text, Result(title="R")]:
         return Text("")
 

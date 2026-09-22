@@ -26,7 +26,7 @@ from types import MappingProxyType
 from typing import Any, Callable
 
 from conductor.dtype import DType
-from conductor.graph.binding import Edges, Static
+from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph, GraphNode
 from conductor.model import ConductorModel
 from conductor.node import NodeDefinition, NodeDescription, NodeVersion
@@ -191,7 +191,7 @@ class NodeRegistry:
             }
         moved = node.model_copy(update={
             "version": target,
-            "bindings": {name: v if isinstance(v, Edges) else Static(value=v) for name, v in values.items()},
+            "bindings": {name: v if isinstance(v, From) else Static(v) for name, v in values.items()},
         })
         return graph.model_copy(update={
             "nodes": tuple(moved if n is node else _reading_renamed(n, node_id, renamed) for n in graph.nodes),
@@ -353,10 +353,10 @@ def _declared_words(node_cls: type[NodeDefinition]) -> list[type[DType]]:
 def _reading_renamed(node: GraphNode, source: str, renamed: Mapping[str, str]) -> GraphNode:
     """``node`` with every edge it has from ``source``'s renamed outputs pointing at the new names."""
     bindings = {
-        name: Edges(refs=tuple(
+        name: From(*(
             Ref(source, renamed[ref.field]) if ref.node_id == source and ref.field in renamed else ref
             for ref in binding.refs
-        )) if isinstance(binding, Edges) else binding
+        )) if isinstance(binding, From) else binding
         for name, binding in node.bindings.items()
     }
     return node if bindings == dict(node.bindings) else node.model_copy(update={"bindings": bindings})

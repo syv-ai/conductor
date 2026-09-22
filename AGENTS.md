@@ -21,7 +21,7 @@ conductor/
 │       ├── errors.py           # ErrorCause and the exception hierarchy
 │       ├── _sentinel.py        # SKIPPED and Asks — the two values a run returns that are not results
 │       ├── registry/           # NodeRegistry (register, nodes, runner_for, extended_with, upgraded); discover_nodes
-│       ├── graph/              # model (Graph/GraphNode), binding (Edges/Static), compiler + compiled (CompiledGraph and its node/field views), iteration (the edge walk), expand (embedded graphs), conditions, problem, topology, views
+│       ├── graph/              # model (Graph/GraphNode), binding (From/Static), compiler + compiled (CompiledGraph and its node/field views), iteration (the edge walk), expand (embedded graphs), conditions, problem, topology, views
 │       ├── execution/          # engine (execute, run, run_sync; one leg per call), ledger (what a run produced, and what that makes ready), events
 │       └── about/              # Runnable library context: `python -m conductor.about`
 ├── packages/conductor-nodes/   # Standard node library (text, math, logic, json_ops, regex_ops, decision) + its types
@@ -112,8 +112,8 @@ class Upper(NodeDefinition):
 
 Each input of a placement holds at most one binding (`GraphNode.bindings`):
 
-1. **`Edges(refs=(...))`** — the value arrives from other placements' outputs; `refs` is in operand order. Several refs into a `Series[X]` input on different indexes gather into one series; several on one index are a union, one value per row.
-2. **`Static(value=...)`** — the author typed the value in. A list typed into a scalar input makes the node run once per value.
+1. **`From(...)`** — the value arrives from other placements' outputs; `refs` is in operand order. Several refs into a `Series[X]` input on different indexes gather into one series; several on one index are a union, one value per row.
+2. **`Static(...)`** — the author typed the value in. A list typed into a scalar input makes the node run once per value.
 3. **No binding** — the parameter's default.
 
 There is no per-edge record: a canvas derives its edges from the bindings, and `dependencies_of(nodes)` derives what each node waits for.
@@ -159,7 +159,7 @@ All exceptions inherit from `ConductorError` (see `errors.py`). A run-time failu
 
 ### Saving a graph
 
-`Graph`, and every record a host saves or sends (`GraphNode`, `Edges`, `Static`, `Problem`, `ErrorCause`, `Policy`, `NodeDescription`, `Input`, `Output`, the widgets, `Index`), is a `ConductorModel`: a frozen pydantic model. JSON is pydantic's own (`model_dump_json` / `model_validate_json`); `to_yaml` / `from_yaml` and `to_path` / `from_path` save and load YAML or JSON by suffix. A saved record reads back what it wrote; what describes a node (`NodeDescription`, `VersionDescription`, `Input`, `Output`, the widgets) is written for an editor and not read back — its `dtype` dumps as a description and a widget's title travels on its `Input`. A ref stores as its address, `"node.field"`. What compile and the engine build per call (`CompiledGraph` and its views, versions, `Interface`, the ledger's records) stays a frozen dataclass.
+`Graph`, and every record a host saves or sends (`GraphNode`, `From`, `Static`, `Problem`, `ErrorCause`, `Policy`, `NodeDescription`, `Input`, `Output`, the widgets, `Index`), is a `ConductorModel`: a frozen pydantic model. JSON is pydantic's own (`model_dump_json` / `model_validate_json`); `to_yaml` / `from_yaml` and `to_path` / `from_path` save and load YAML or JSON by suffix. A saved record reads back what it wrote; what describes a node (`NodeDescription`, `VersionDescription`, `Input`, `Output`, the widgets) is written for an editor and not read back — its `dtype` dumps as a description and a widget's title travels on its `Input`. A ref stores as its address, `"node.field"`. What compile and the engine build per call (`CompiledGraph` and its views, versions, `Interface`, the ledger's records) stays a frozen dataclass.
 
 ### Documentation maintenance
 
@@ -204,7 +204,7 @@ registry.register(MyNode)     # ids are unique; registering a second class under
 ### Building and running a graph
 ```python
 
-compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="my-node", version=1, bindings={"text": Static(value="hello")})]), registry)
+compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="my-node", version=1, bindings={"text": Static("hello")})]), registry)
 results = run_sync(compiled)["results"]     # results["n1"]["result"] == "HELLO"
 ```
 
@@ -241,7 +241,7 @@ palette = [cls.describe() for cls in registry.nodes]     # NodeDescription recor
 
 ## Conventions
 
-- A placement is `GraphNode(id=, type=, version=, bindings=)`; `type` is the node id and `version` the pinned version. There is no `"id@version"` string anywhere, and no edge record: an edge is an `Edges` on the target's input.
+- A placement is `GraphNode(id=, type=, version=, bindings=)`; `type` is the node id and `version` the pinned version. There is no `"id@version"` string anywhere, and no edge record: an edge is an `From` on the target's input.
 - A result is `results[node_id][output_name]`; a single output is named `result`.
 - `SKIPPED` propagates by depth — a reader finds it at its own row or above and skips that far; a gather drops skipped sources.
 - A `run` returns values of its declared dtypes (`Text(...)`, never a bare `str`), because a value arrives downstream as the type the edge carried.

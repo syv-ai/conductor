@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from conductor.graph.binding import Edges
+from conductor.graph.binding import From
 from conductor.graph.model import Graph, GraphNode
 
 from conductor_providers.react.layout import topological_positions
@@ -43,7 +43,7 @@ def graph_to_react(graph: Graph) -> dict[str, Any]:
         }
         for node in graph.nodes
         for handle, binding in node.bindings.items()
-        if isinstance(binding, Edges)
+        if isinstance(binding, From)
         for ref in binding.refs
     ]
     return {"nodes": rf_nodes, "edges": rf_edges}

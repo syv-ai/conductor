@@ -9,7 +9,7 @@ from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
 from conductor.errors import NodeExecutionError
 from conductor.execution.ledger import Ledger, Skip
-from conductor.graph.binding import Edges, Static
+from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.metadata import Result
@@ -115,7 +115,7 @@ def _ledger(nodes):
 
 
 def _edge(*refs):
-    return Edges(refs=tuple(Ref(n, f) for n, f in refs))
+    return From(*(Ref(n, f) for n, f in refs))
 
 
 DOCS = GraphNode(id="docs", type="docs", version=1)
@@ -177,7 +177,7 @@ def test_an_iterating_unit_receives_its_row():
 def test_a_scalar_beside_a_series_broadcasts():
     ledger = _ledger([
         DOCS,
-        GraphNode(id="prefix", type="upper", version=1, bindings={"text": Static(value="p")}),
+        GraphNode(id="prefix", type="upper", version=1, bindings={"text": Static("p")}),
         GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("prefix", "result")), "b": _edge(("docs", "texts"))}),
     ])
     ledger.record(("docs", None), {"texts": ["a", "b"], "names": ["x", "y"]})
@@ -264,8 +264,8 @@ def test_a_reduction_on_a_root_waits_for_the_whole_series():
 
 def test_a_gather_lands_on_the_inputs_own_index_and_drops_skipped_sources():
     ledger = _ledger([
-        GraphNode(id="a", type="upper", version=1, bindings={"text": Static(value="a")}),
-        GraphNode(id="b", type="upper", version=1, bindings={"text": Static(value="b")}),
+        GraphNode(id="a", type="upper", version=1, bindings={"text": Static("a")}),
+        GraphNode(id="b", type="upper", version=1, bindings={"text": Static("b")}),
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("a", "result"), ("b", "result"))}),
     ])
     ledger.record(("a", None), {"result": "A"})
@@ -286,7 +286,7 @@ def test_an_unbound_series_input_receives_its_default_on_its_own_index():
 
 
 def test_a_typed_list_on_a_series_input_lands_on_the_inputs_own_index():
-    ledger = _ledger([GraphNode(id="j", type="join", version=1, bindings={"texts": Static(value=["a", "b"])})])
+    ledger = _ledger([GraphNode(id="j", type="join", version=1, bindings={"texts": Static(["a", "b"])})])
 
     texts = ledger.inputs_for(("j", None))["texts"]
     assert texts.index == Index("j.texts")
@@ -298,7 +298,7 @@ def test_a_static_list_on_a_scalar_input_births_the_rows_compile_named():
     ledger births its rows there — before anything runs,
     sealed — and reads each unit's element off it. The ledger tests the
     value with nothing of its own."""
-    ledger = _ledger([GraphNode(id="u", type="upper", version=1, bindings={"text": Static(value=["a", "b"])})])
+    ledger = _ledger([GraphNode(id="u", type="upper", version=1, bindings={"text": Static(["a", "b"])})])
 
     assert ledger._compiled.field(Ref("u", "text")).index == Index("u.text")
     assert ledger.units("u") == [("u", (0,)), ("u", (1,))]
@@ -311,7 +311,7 @@ def test_a_static_list_on_a_scalar_input_births_the_rows_compile_named():
 
 def test_a_skipped_scalar_input_skips_the_unit():
     ledger = _ledger([
-        GraphNode(id="a", type="upper", version=1, bindings={"text": Static(value="a")}),
+        GraphNode(id="a", type="upper", version=1, bindings={"text": Static("a")}),
         GraphNode(id="b", type="upper", version=1, bindings={"text": _edge(("a", "result"))}),
     ])
     ledger.record(("a", None), Skip(at=None))
@@ -519,7 +519,7 @@ def test_two_refs_on_one_index_into_a_series_input_are_one_series_on_it():
 
 
 def test_a_skipped_node_is_absent_from_the_results():
-    ledger = _ledger([GraphNode(id="a", type="upper", version=1, bindings={"text": Static(value="a")})])
+    ledger = _ledger([GraphNode(id="a", type="upper", version=1, bindings={"text": Static("a")})])
     ledger.record(("a", None), Skip(at=None))
 
     assert ledger.results() == {}
@@ -575,7 +575,7 @@ def test_a_pending_unit_waits_and_so_does_what_reads_it():
     from conductor.widgets import Textarea
 
     ledger = _ledger([
-        GraphNode(id="a", type="upper", version=1, bindings={"text": Static(value="a")}),
+        GraphNode(id="a", type="upper", version=1, bindings={"text": Static("a")}),
         GraphNode(id="b", type="upper", version=1, bindings={"text": _edge(("a", "result"))}),
     ])
     ledger.pend(("a", None), (Input(name="result", dtype=Txt, title="Svar", widget=Textarea()),))

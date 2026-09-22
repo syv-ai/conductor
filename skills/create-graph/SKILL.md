@@ -1,6 +1,6 @@
 ---
 name: create-graph
-description: Places conductor nodes in a Graph, compiles it with CompiledGraph.from_graph and runs it with execute. Use when building, saving, compiling or running a conductor graph, binding inputs with Edges or Static, reading compile problems, streaming events, running a node once per row, answering a node that returned Asks (graph_pending, cells, cache), passing from_run values, serving graphs over HTTP, or debugging a run, or on "build a graph", "run a graph", "connect these nodes".
+description: Places conductor nodes in a Graph, compiles it with CompiledGraph.from_graph and runs it with execute. Use when building, saving, compiling or running a conductor graph, binding inputs with From or Static, reading compile problems, streaming events, running a node once per row, answering a node that returned Asks (graph_pending, cells, cache), passing from_run values, serving graphs over HTTP, or debugging a run, or on "build a graph", "run a graph", "connect these nodes".
 ---
 
 # Creating and running a conductor graph
@@ -21,12 +21,12 @@ The installed library wins over this file.
 ## Core pattern
 
 ```python
-from conductor import CompiledGraph, Edges, Graph, GraphNode, Ref, run_sync, Static
+from conductor import CompiledGraph, From, Graph, GraphNode, Ref, run_sync, Static
 
 graph = Graph(nodes=[
-    GraphNode(id="words", type="text-split", version=1, bindings={"text": Static(value="red,green")}),
-    GraphNode(id="loud", type="text-uppercase", version=1, bindings={"text": Edges(refs=(Ref("words", "result"),))}),
-    GraphNode(id="joined", type="text-join", version=1, bindings={"parts": Edges(refs=(Ref("loud", "result"),)), "separator": Static(value=" + ")}),
+    GraphNode(id="words", type="text-split", version=1, bindings={"text": Static("red,green")}),
+    GraphNode(id="loud", type="text-uppercase", version=1, bindings={"text": From(Ref("words", "result"))}),
+    GraphNode(id="joined", type="text-join", version=1, bindings={"parts": From(Ref("loud", "result")), "separator": Static(" + ")}),
 ])
 
 compiled = CompiledGraph.from_graph(graph, registry)
@@ -41,8 +41,8 @@ results["joined"]["result"]               # "RED + GREEN"; loud ran once per wor
 
 Each input holds at most one binding:
 
-- **`Edges(refs=(Ref("node", "output"), ...))`**: over edges. A node with one output names it `result`; a record's outputs are its field names.
-- **`Static(value=...)`**: typed in by the author. A list typed into an input declared for one value runs the node once per value.
+- **`From(Ref("node", "output"), ...)`**: over edges. A node with one output names it `result`; a record's outputs are its field names.
+- **`Static(...)`**: typed in by the author. A list typed into an input declared for one value runs the node once per value.
 - **No binding**: the declared default.
 
 There is no edge list. A `GraphNode` is keyword-only, and a node id may not contain `.`.
@@ -70,7 +70,7 @@ In a notebook the kernel owns an event loop: `await run(compiled)`, not `run_syn
 | Mistake | Fix |
 |---|---|
 | `GraphNode("a", "echo", 1, {...})` | keywords: `GraphNode(id=, type=, version=, bindings=)` |
-| `compile(nodes=..., edges=...)`, `GraphEdge` | `CompiledGraph.from_graph(Graph(nodes=[...]), registry)`; an edge is an `Edges` binding |
+| `compile(nodes=..., edges=...)`, `GraphEdge` | `CompiledGraph.from_graph(Graph(nodes=[...]), registry)`; an edge is an `From` binding |
 | Wrapping `from_graph` in `try` to catch a bad graph | it does not raise for one: read `is_runnable` and `problems` |
 | A loop node, or a `for` around `execute` per item | bind a series; the engine runs the node once per row |
 | `run_sync(compiled, retry=...)` | retries belong to the node version's `Policy` |

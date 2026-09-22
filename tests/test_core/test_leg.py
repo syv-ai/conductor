@@ -16,7 +16,7 @@ from typing import Annotated
 from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, run_sync
 from conductor.dtype import DType
 from conductor.execution.engine import execute
-from conductor.graph.binding import Edges, Static
+from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
 from conductor.metadata import Result
 from conductor.node import NodeDefinition, Policy, version
@@ -57,9 +57,9 @@ def _per_row(slow_cls: type[NodeDefinition], rows: int, *more: type[NodeDefiniti
     for cls in (Split, slow_cls, *more):
         reg.register(cls)
     nodes = [
-        GraphNode(id="split", type="split", version=1, bindings={"text": Static(value=_rows(rows))}),
-        GraphNode(id="slow", type=slow_cls.id, version=1, bindings={"text": Edges(refs=(Ref("split", "result"),))}),
-        *[GraphNode(id=cls.id, type=cls.id, version=1, bindings={"text": Static(value="x")}) for cls in more],
+        GraphNode(id="split", type="split", version=1, bindings={"text": Static(_rows(rows))}),
+        GraphNode(id="slow", type=slow_cls.id, version=1, bindings={"text": From(Ref("split", "result"))}),
+        *[GraphNode(id=cls.id, type=cls.id, version=1, bindings={"text": Static("x")}) for cls in more],
     ]
     return CompiledGraph.from_graph(Graph(nodes=nodes), reg)
 
@@ -68,7 +68,7 @@ def _single(cls: type[NodeDefinition]) -> CompiledGraph:
     reg = NodeRegistry()
     reg.register(cls)
     return CompiledGraph.from_graph(
-        Graph(nodes=[GraphNode(id="n1", type=cls.id, version=1, bindings={"text": Static(value="x")})]), reg
+        Graph(nodes=[GraphNode(id="n1", type=cls.id, version=1, bindings={"text": Static("x")})]), reg
     )
 
 
@@ -171,9 +171,9 @@ def test_an_instant_node_beside_forty_slow_rows_does_not_time_out():
     for cls in (Split, _sleeper(0.5, calls, concurrency=40), Instant):
         reg.register(cls)
     compiled = CompiledGraph.from_graph(Graph(nodes=[
-        GraphNode(id="split", type="split", version=1, bindings={"text": Static(value=_rows(40))}),
-        GraphNode(id="slow", type="sleeper", version=1, bindings={"text": Edges(refs=(Ref("split", "result"),))}),
-        GraphNode(id="instant", type="instant", version=1, bindings={"texts": Edges(refs=(Ref("split", "result"),))}),
+        GraphNode(id="split", type="split", version=1, bindings={"text": Static(_rows(40))}),
+        GraphNode(id="slow", type="sleeper", version=1, bindings={"text": From(Ref("split", "result"))}),
+        GraphNode(id="instant", type="instant", version=1, bindings={"texts": From(Ref("split", "result"))}),
     ]), reg)
 
     events = _events(compiled)

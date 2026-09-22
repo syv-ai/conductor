@@ -31,7 +31,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
-from conductor.graph.binding import Edges
+from conductor.graph.binding import From
 from conductor.graph.model import GraphNode
 from conductor.interface import Interface
 from conductor.ref import Ref
@@ -77,7 +77,7 @@ def conditions_of(
             continue
         at_node = ALWAYS
         for binding in node.bindings.values():
-            if isinstance(binding, Edges) and binding.refs:
+            if isinstance(binding, From) and binding.refs:
                 at_node = _all_of(at_node, _any_of(conditions.get(ref, ALWAYS) for ref in binding.refs))
         for out in interfaces[node.id].outputs:
             gates = out.choice is not None and iterated[node.id] is None

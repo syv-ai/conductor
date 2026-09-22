@@ -72,12 +72,12 @@ ConductorError
 A graph is its nodes; there is no edge list. Each placed node says per input where the value comes from:
 
 ```python
-GraphNode(id="mapper", type="build-map", version=1, bindings={"seed": Static(value="x")})
-GraphNode(id="redactor", type="redact", version=1, bindings={"mapping": Edges(refs=(Ref("mapper", "result"),))})
-# the Edges binding is the edge and the dependency
+GraphNode(id="mapper", type="build-map", version=1, bindings={"seed": Static("x")})
+GraphNode(id="redactor", type="redact", version=1, bindings={"mapping": From(Ref("mapper", "result"))})
+# the From binding is the edge and the dependency
 ```
 
-An `Edges` holds refs in operand order, a `Static` is what the author typed, and an absent binding means the declared default. Dependencies, cycles and what the graph takes and returns are derived from the bindings. A `Graph` saves itself: `graph.to_path("approval.yaml")`, `Graph.from_path(...)`.
+An `From` holds refs in operand order, a `Static` is what the author typed, and an absent binding means the declared default. Dependencies, cycles and what the graph takes and returns are derived from the bindings. A `Graph` saves itself: `graph.to_path("approval.yaml")`, `Graph.from_path(...)`.
 
 ## Standard nodes and providers
 

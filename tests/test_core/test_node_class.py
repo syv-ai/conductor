@@ -1025,7 +1025,7 @@ def test_a_class_node_executes_in_a_graph():
     registry = NodeRegistry()
     registry.register(Shout)
 
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="shout", version=1, bindings={"text": Static(value="hi")})]), registry)
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="shout", version=1, bindings={"text": Static("hi")})]), registry)
     results = run_sync(compiled)["results"]
     assert results["a"]["result"] == "HI!"
 
@@ -1057,7 +1057,7 @@ def test_two_versions_of_one_class_execute_independently():
     registry.register(Suffix)
 
     for pinned, expected in ((1, "hi"), (2, "hi?")):
-        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="suffix", version=pinned, bindings={"text": Static(value="hi")})]), registry)
+        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="suffix", version=pinned, bindings={"text": Static("hi")})]), registry)
         assert run_sync(compiled)["results"]["a"]["result"] == expected
 
 

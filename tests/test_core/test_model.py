@@ -6,7 +6,7 @@ import pytest
 from conductor.dtype import DType
 from conductor.errors import ErrorCause
 from conductor.execution.ledger import Skip
-from conductor.graph.binding import Edges, Static
+from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledField, CompiledGraph, CompiledNode
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.problem import Problem
@@ -35,8 +35,8 @@ class Txt(DType, str):
 def _graph() -> Graph:
     return Graph(
         nodes=[
-            GraphNode(id="a", type="echo", version=1, bindings={"x": Static(value="hi")}, locked=("x",), title="A", fields={"x": FieldContent(title="X")}),
-            GraphNode(id="b", type="echo", version=1, bindings={"x": Edges(refs=(Ref("a", "result"),))}, display={"x": 1}),
+            GraphNode(id="a", type="echo", version=1, bindings={"x": Static("hi")}, locked=("x",), title="A", fields={"x": FieldContent(title="X")}),
+            GraphNode(id="b", type="echo", version=1, bindings={"x": From(Ref("a", "result"))}, display={"x": 1}),
         ],
     )
 
@@ -115,8 +115,8 @@ def test_a_schema_builder_keeps_its_schema_key_on_the_wire():
 
 READ_BACK = (
     FieldContent(title="X", description="x"),
-    Edges(refs=(Ref("a", "result"), Ref("b", "result"))),
-    Static(value={"rows": [1, 2]}),
+    From(Ref("a", "result"), Ref("b", "result")),
+    Static({"rows": [1, 2]}),
     Problem(code="cycle", message="m", fatal=True, node_id="a", field="x", details={"path": ["a", "b"]}),
     ErrorCause(code="timeout", message="m", details={"seconds": 3}, row=(0, 2)),
     Deprecation(header="Gone", alternative="echo"),
@@ -150,7 +150,7 @@ def test_a_description_does_not_read_back_as_a_type():
 
 
 SAVED = (
-    Graph, GraphNode, FieldContent, Edges, Static, Problem, ErrorCause,
+    Graph, GraphNode, FieldContent, From, Static, Problem, ErrorCause,
     Deprecation, Policy, VersionDescription, NodeDescription,
     Field, Param, Result, Input, Output, Widget, Textarea, Dropdown, Choice, OperatorChoice, Index,
 )

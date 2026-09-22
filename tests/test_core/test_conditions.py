@@ -6,7 +6,7 @@ from typing import Annotated, Any
 from conductor import NodeRegistry, Param
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
-from conductor.graph.binding import Edges, Static
+from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.conditions import ALWAYS, Atom
 from conductor.graph.model import Graph, GraphNode
@@ -110,18 +110,18 @@ def _compiled(nodes):
 
 
 def _edge(*refs):
-    return Edges(refs=tuple(Ref(n, f) for n, f in refs))
+    return From(*(Ref(n, f) for n, f in refs))
 
 
 def test_an_output_nothing_gates_appears_always():
-    compiled = _compiled([GraphNode(id="h", type="holder", version=1, bindings={"value": Static(value="x")})])
+    compiled = _compiled([GraphNode(id="h", type="holder", version=1, bindings={"value": Static("x")})])
 
     assert compiled.field(Ref("h", "result")).condition == ALWAYS
 
 
 def test_a_branch_appears_when_its_decision_went_that_way():
     compiled = _compiled([
-        GraphNode(id="h", type="holder", version=1, bindings={"value": Static(value="x")}),
+        GraphNode(id="h", type="holder", version=1, bindings={"value": Static("x")}),
         GraphNode(id="g", type="gate", version=1, bindings={"value": _edge(("h", "result"))}),
         GraphNode(id="yes", type="upper", version=1, bindings={"text": _edge(("g", "if_true"))}),
     ])
@@ -136,7 +136,7 @@ def test_a_merge_adds_an_alternative():
     """A `Series[X]` input drops the skipped edges, so past the
     merge the output appears when either branch fired."""
     compiled = _compiled([
-        GraphNode(id="h", type="holder", version=1, bindings={"value": Static(value="x")}),
+        GraphNode(id="h", type="holder", version=1, bindings={"value": Static("x")}),
         GraphNode(id="g", type="gate", version=1, bindings={"value": _edge(("h", "result"))}),
         GraphNode(id="a", type="upper", version=1, bindings={"text": _edge(("g", "if_true"))}),
         GraphNode(id="b", type="upper", version=1, bindings={"text": _edge(("g", "if_false"))}),
@@ -151,7 +151,7 @@ def test_a_merge_adds_an_alternative():
 
 def test_two_decisions_in_series_conjoin_and_a_contradiction_is_dropped():
     compiled = _compiled([
-        GraphNode(id="h", type="holder", version=1, bindings={"value": Static(value="x")}),
+        GraphNode(id="h", type="holder", version=1, bindings={"value": Static("x")}),
         GraphNode(id="g1", type="gate", version=1, bindings={"value": _edge(("h", "result"))}),
         GraphNode(id="g2", type="gate", version=1, bindings={"value": _edge(("g1", "if_true"))}),
         GraphNode(id="both", type="single", version=1, bindings={"values": _edge(("g2", "if_true"), ("g1", "if_false"))}),

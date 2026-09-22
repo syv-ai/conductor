@@ -16,7 +16,7 @@ from typing import Annotated
 import conductor_nodes
 import pytest
 from conductor import CompiledGraph, Graph, GraphNode, NodeRegistry, run_sync
-from conductor.graph.binding import Edges, Static
+from conductor.graph.binding import From, Static
 from conductor.metadata import Result
 from conductor.node import NodeDefinition
 from conductor.ref import Ref
@@ -46,12 +46,12 @@ def registry() -> NodeRegistry:
 def sample_graph() -> Graph:
     return Graph(nodes=[
         GraphNode(id="n1", type="build-pair", version=1),
-        GraphNode(id="n2", type="text-uppercase", version=2, bindings={"text": Static(value="hi")}),
+        GraphNode(id="n2", type="text-uppercase", version=2, bindings={"text": Static("hi")}),
         GraphNode(id="n3", type="text-concat", version=1,
             bindings={
-                "separator": Static(value="+"),
-                "a": Edges(refs=(Ref("n1", "result"),)),
-                "b": Edges(refs=(Ref("n2", "result"),)),
+                "separator": Static("+"),
+                "a": From(Ref("n1", "result")),
+                "b": From(Ref("n2", "result")),
             },
         ),
     ])
@@ -144,8 +144,8 @@ class TestReactToGraph:
 class TestEndToEnd:
     def test_wire_format_can_be_compiled_and_executed(self, registry):
         graph_in = Graph(nodes=[
-            GraphNode(id="src", type="text-uppercase", version=1, bindings={"text": Static(value="hello")}),
-            GraphNode(id="down", type="text-reverse", version=1, bindings={"text": Edges(refs=(Ref("src", "result"),))}),
+            GraphNode(id="src", type="text-uppercase", version=1, bindings={"text": Static("hello")}),
+            GraphNode(id="down", type="text-reverse", version=1, bindings={"text": From(Ref("src", "result"))}),
         ])
 
         wire = react.graph_to_react(graph_in)

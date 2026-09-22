@@ -8,7 +8,7 @@ import pytest
 from conductor import NodeRegistry, run_sync
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
-from conductor.graph.binding import Edges, Static, static_values
+from conductor.graph.binding import From, Static, static_values
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.topology import dependencies_of
@@ -22,14 +22,14 @@ from pydantic import TypeAdapter
 
 
 def test_an_edge_carries_ordered_refs():
-    edge = Edges(refs=(Ref("a", "result"), Ref("b", "result")))
+    edge = From(Ref("a", "result"), Ref("b", "result"))
 
     assert [r.node_id for r in edge.refs] == ["a", "b"]
 
 
 def test_edge_order_is_operand_order():
-    first = Edges(refs=(Ref("a", "r"), Ref("b", "r")))
-    second = Edges(refs=(Ref("b", "r"), Ref("a", "r")))
+    first = From(Ref("a", "r"), Ref("b", "r"))
+    second = From(Ref("b", "r"), Ref("a", "r"))
     assert first != second
 
 
@@ -40,28 +40,28 @@ def test_there_are_exactly_two_variants():
 
     assert not hasattr(bindings, "Port")
     assert not hasattr(bindings, "Guard")
-    assert not hasattr(Edges(refs=(Ref("a", "result"),)), "when")
+    assert not hasattr(From(Ref("a", "result")), "when")
 
 
 def test_absence_means_the_declared_default_applies():
     """One state, not two — there is nothing to dismiss."""
-    bindings = {"b": Static(value=3)}
+    bindings = {"b": Static(3)}
 
     assert "a" not in bindings
 
 
 def test_static_values_extracts_only_static_bindings():
     bindings = {
-        "text": Static(value="hi"),
-        "number": Static(value=3),
-        "source": Edges(refs=(Ref("a", "result"),)),
+        "text": Static("hi"),
+        "number": Static(3),
+        "source": From(Ref("a", "result")),
     }
     assert static_values(bindings) == {"text": "hi", "number": 3}
 
 
 def test_bindings_are_frozen():
     with pytest.raises(Exception):
-        Static(value=1).value = 2
+        Static(1).value = 2
 def test_a_placement_id_contains_no_dot():
     """A Ref reads as 'node.field' everywhere it is spelled — an index
     name, a caller's payload key — so an id with a '.' is refused."""
@@ -86,8 +86,8 @@ def test_a_node_stores_bindings_and_derives_data():
         type="translate",
         version=1,
         bindings={
-            "text": Static(value="hi"),
-            "source": Edges(refs=(Ref("n0", "result"),)),
+            "text": Static("hi"),
+            "source": From(Ref("n0", "result")),
         },
     )
     assert node.data == {"text": "hi"}
@@ -114,7 +114,7 @@ def test_chrome_is_opaque():
 
 def test_the_record_is_the_schema():
     """A Graph dumps and loads through pydantic, bindings included. A
-    Static whose value happens to look like a Edges comes back a Static,
+    Static whose value happens to look like a From comes back a Static,
     because Static nests its payload under `value`."""
     graph = Graph(
         nodes=[
@@ -122,12 +122,12 @@ def test_the_record_is_the_schema():
                 id="a",
                 type="t",
                 version=1,
-                bindings={"x": Static(value={"refs": [{"node_id": "q", "field": "r"}]})},
+                bindings={"x": Static({"refs": [{"node_id": "q", "field": "r"}]})},
                 locked=("x",),
                 title="A",
                 fields={"x": FieldContent(title="X")},
             ),
-            GraphNode(id="b", type="t", version=2, bindings={"y": Edges(refs=(Ref("a", "result"),))}),
+            GraphNode(id="b", type="t", version=2, bindings={"y": From(Ref("a", "result"))}),
         ],
         display={"zoom": 1},
     )
@@ -137,14 +137,14 @@ def test_the_record_is_the_schema():
 def test_a_node_depends_on_every_node_its_edges_name():
     nodes = [
         GraphNode(id="a", type="t", version=1),
-        GraphNode(id="b", type="t", version=1, bindings={"x": Edges(refs=(Ref("a", "result"),))}),
+        GraphNode(id="b", type="t", version=1, bindings={"x": From(Ref("a", "result"))}),
     ]
 
     assert dependencies_of(nodes) == {"a": frozenset(), "b": frozenset({"a"})}
 
 
 def test_a_static_binding_creates_no_dependency():
-    nodes = [GraphNode(id="a", type="t", version=1, bindings={"x": Static(value="hi")})]
+    nodes = [GraphNode(id="a", type="t", version=1, bindings={"x": Static("hi")})]
 
     assert dependencies_of(nodes) == {"a": frozenset()}
 
@@ -153,7 +153,7 @@ def test_two_refs_on_one_input_are_one_dependency_each():
     nodes = [
         GraphNode(
             id="b", type="t", version=1,
-            bindings={"x": Edges(refs=(Ref("a", "result"), Ref("c", "result")))},
+            bindings={"x": From(Ref("a", "result"), Ref("c", "result"))},
         )
     ]
 
@@ -165,7 +165,7 @@ def test_two_edges_from_the_same_node_are_one_dependency():
     nodes = [
         GraphNode(
             id="b", type="t", version=1,
-            bindings={"x": Edges(refs=(Ref("a", "result"),)), "y": Edges(refs=(Ref("a", "other"),))},
+            bindings={"x": From(Ref("a", "result")), "y": From(Ref("a", "other"))},
         )
     ]
 
@@ -260,7 +260,7 @@ def _graph(application_locked=(), language_bindings=None):
             GraphNode(
                 id="application", type="text-input", version=1, title="Application",
                 fields={"value": FieldContent(title="Application")},
-                bindings={"value": Static(value="")},
+                bindings={"value": Static("")},
                 locked=application_locked,
             ),
             GraphNode(
@@ -271,7 +271,7 @@ def _graph(application_locked=(), language_bindings=None):
             GraphNode(
                 id="summary", type="summarise", version=1, title="Opsummering",
                 fields={"text": FieldContent(title="Text"), "result": FieldContent(title="Result")},
-                bindings={"text": Edges(refs=(Ref("application", "result"),))},
+                bindings={"text": From(Ref("application", "result"))},
             ),
         ],
     )
@@ -320,7 +320,7 @@ def test_needs_is_the_union_of_the_placements_needs():
     """What a run must provide to the graph is what its nodes need, by name."""
     graph = Graph(nodes=[
         GraphNode(id="a", type="stamped", version=1),
-        GraphNode(id="b", type="stamped", version=1, bindings={"text": Edges(refs=(Ref("a", "result"),))}),
+        GraphNode(id="b", type="stamped", version=1, bindings={"text": From(Ref("a", "result"))}),
         GraphNode(id="c", type="text-input", version=1),
     ])
 
@@ -362,7 +362,7 @@ def test_nodes_order_decides_the_order():
 
 
 def test_is_input_node_is_the_one_home_of_the_predicate():
-    """A Static does not disqualify a placement; any Edges does."""
+    """A Static does not disqualify a placement; any From does."""
     graph = _graph()
     assert is_input_node(graph.nodes[0]) and is_input_node(graph.nodes[1])
     assert not is_input_node(graph.nodes[2])
@@ -371,7 +371,7 @@ def test_is_input_node_is_the_one_home_of_the_predicate():
 def test_an_edge_into_any_field_makes_the_whole_node_static():
     """The rule is node-level: one edge in, and every other field of the
     placement is author config — not offered, not fillable."""
-    graph = _graph(language_bindings={"value": Edges(refs=(Ref("application", "result"),))})
+    graph = _graph(language_bindings={"value": From(Ref("application", "result"))})
 
     assert [i.name for i in _interface(graph).inputs] == ["application.value"]
 
@@ -433,7 +433,7 @@ def test_a_stale_lock_reports_on_a_connected_placement_too():
     """A dormant lock stays out of the derivation — a connected placement
     contributes no inputs — but a stale one is repairable wherever it
     sits, so it reports there as it would anywhere."""
-    graph = _graph(language_bindings={"value": Edges(refs=(Ref("application", "result"),))})
+    graph = _graph(language_bindings={"value": From(Ref("application", "result"))})
     graph = Graph(nodes=[
         node.model_copy(update={"locked": ("ghost",)}) if node.id == "language" else node
         for node in graph.nodes
@@ -508,8 +508,8 @@ def _echo_registry():
 def test_a_graph_of_bindings_compiles_and_runs():
     graph = Graph(
         nodes=[
-            GraphNode(id="a", type="echo", version=1, bindings={"x": Static(value="hi")}),
-            GraphNode(id="b", type="echo", version=1, bindings={"x": Edges(refs=(Ref("a", "result"),))}),
+            GraphNode(id="a", type="echo", version=1, bindings={"x": Static("hi")}),
+            GraphNode(id="b", type="echo", version=1, bindings={"x": From(Ref("a", "result"))}),
         ],
     )
     results = run_sync(CompiledGraph.from_graph(graph=graph, registry=_echo_registry()))["results"]
@@ -548,9 +548,9 @@ def test_a_branch_not_taken_is_skipped_downstream():
     registry.register(Gate)
     graph = Graph(
         nodes=[
-            GraphNode(id="g", type="gate", version=1, bindings={"x": Static(value="hi")}),
-            GraphNode(id="yes", type="echo", version=1, bindings={"x": Edges(refs=(Ref("g", "yes"),))}),
-            GraphNode(id="no", type="echo", version=1, bindings={"x": Edges(refs=(Ref("g", "no"),))}),
+            GraphNode(id="g", type="gate", version=1, bindings={"x": Static("hi")}),
+            GraphNode(id="yes", type="echo", version=1, bindings={"x": From(Ref("g", "yes"))}),
+            GraphNode(id="no", type="echo", version=1, bindings={"x": From(Ref("g", "no"))}),
         ],
     )
     results = run_sync(CompiledGraph.from_graph(graph=graph, registry=registry))["results"]

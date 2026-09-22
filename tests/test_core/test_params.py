@@ -17,7 +17,7 @@ import pytest
 from conductor import SKIPPED, Asks, CompiledGraph, GraphNode, NodeRegistry
 from conductor.dtype import DType
 from conductor.execution.engine import execute
-from conductor.graph.binding import Edges, Static
+from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
 from conductor.interface import Interface
 from conductor.metadata import Input, Param, Result
@@ -166,7 +166,7 @@ def _leg(compiled: CompiledGraph, **kw: Any) -> list[dict]:
 
 def _asking_once() -> CompiledGraph:
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[GraphNode(id="ask", type="ask-each", version=1, bindings={"proposal": Static(value="hi")})]),
+        Graph(nodes=[GraphNode(id="ask", type="ask-each", version=1, bindings={"proposal": Static("hi")})]),
         _registry(),
     )
     assert compiled.is_runnable, compiled.problems
@@ -176,8 +176,8 @@ def _asking_once() -> CompiledGraph:
 def _asking_per_row(text: str) -> CompiledGraph:
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
-            GraphNode(id="docs", type="docs", version=1, bindings={"text": Static(value=text)}),
-            GraphNode(id="ask", type="ask-each", version=1, bindings={"proposal": Edges(refs=(Ref("docs", "result"),))}),
+            GraphNode(id="docs", type="docs", version=1, bindings={"text": Static(text)}),
+            GraphNode(id="ask", type="ask-each", version=1, bindings={"proposal": From(Ref("docs", "result"))}),
         ]),
         _registry(),
     )
@@ -212,9 +212,9 @@ def test_a_list_answers_the_rows_still_open_and_leaves_a_skipped_row_alone():
     a list answers the two rows that are open, in order."""
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
-            GraphNode(id="docs", type="docs", version=1, bindings={"text": Static(value="aa,b,cc")}),
-            GraphNode(id="skip", type="skip-short", version=1, bindings={"text": Edges(refs=(Ref("docs", "result"),))}),
-            GraphNode(id="ask", type="ask-each", version=1, bindings={"proposal": Edges(refs=(Ref("skip", "result"),))}),
+            GraphNode(id="docs", type="docs", version=1, bindings={"text": Static("aa,b,cc")}),
+            GraphNode(id="skip", type="skip-short", version=1, bindings={"text": From(Ref("docs", "result"))}),
+            GraphNode(id="ask", type="ask-each", version=1, bindings={"proposal": From(Ref("skip", "result"))}),
         ]),
         _registry(),
     )

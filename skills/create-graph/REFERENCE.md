@@ -7,7 +7,7 @@ import asyncio
 from typing import Annotated
 
 import conductor_nodes
-from conductor import Asks, CompiledGraph, Edges, Graph, GraphNode, Input, NodeDefinition, Param, Ref, Result, run, run_sync, Series, Static
+from conductor import Asks, CompiledGraph, From, Graph, GraphNode, Input, NodeDefinition, Param, Ref, Result, run, run_sync, Series, Static
 from conductor.execution.engine import execute
 from conductor.widgets import Textarea
 from conductor_nodes.types import Text
@@ -21,7 +21,7 @@ registry = conductor_nodes.registry(categories=["text"])
 
 ```python
 broken = CompiledGraph.from_graph(
-    Graph(nodes=[GraphNode(id="loud", type="text-uppercase", version=1, bindings={"text": Edges(refs=(Ref("ghost", "result"),))})]),
+    Graph(nodes=[GraphNode(id="loud", type="text-uppercase", version=1, bindings={"text": From(Ref("ghost", "result"))})]),
     registry,
 )
 assert not broken.is_runnable
@@ -45,9 +45,9 @@ A series arriving on an input declared for one value runs the node once per row;
 ```python
 rows = CompiledGraph.from_graph(
     Graph(nodes=[
-        GraphNode(id="words", type="text-split", version=1, bindings={"text": Static(value="red,green,blue")}),
-        GraphNode(id="loud", type="text-uppercase", version=1, bindings={"text": Edges(refs=(Ref("words", "result"),))}),
-        GraphNode(id="joined", type="text-join", version=1, bindings={"parts": Edges(refs=(Ref("loud", "result"),))}),
+        GraphNode(id="words", type="text-split", version=1, bindings={"text": Static("red,green,blue")}),
+        GraphNode(id="loud", type="text-uppercase", version=1, bindings={"text": From(Ref("words", "result"))}),
+        GraphNode(id="joined", type="text-join", version=1, bindings={"parts": From(Ref("loud", "result"))}),
     ]),
     registry,
 )
@@ -114,8 +114,8 @@ registry.register(Approve)
 
 asking = CompiledGraph.from_graph(
     Graph(nodes=[
-        GraphNode(id="drafts", type="text-split", version=1, bindings={"text": Static(value="first,second")}),
-        GraphNode(id="approve", type="approve", version=1, bindings={"proposal": Edges(refs=(Ref("drafts", "result"),))}),
+        GraphNode(id="drafts", type="text-split", version=1, bindings={"text": Static("first,second")}),
+        GraphNode(id="approve", type="approve", version=1, bindings={"proposal": From(Ref("drafts", "result"))}),
     ]),
     registry,
 )
@@ -156,7 +156,7 @@ assert list(done["results"]["approve"]["result"]) == ["First, approved", "Second
 A `Graph` is a frozen pydantic model and reads back what it wrote:
 
 ```python
-graph = Graph(nodes=[GraphNode(id="words", type="text-split", version=1, bindings={"text": Static(value="a,b")})])
+graph = Graph(nodes=[GraphNode(id="words", type="text-split", version=1, bindings={"text": Static("a,b")})])
 text = graph.to_yaml()
 assert Graph.from_yaml(text) == graph
 ```
