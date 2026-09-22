@@ -266,3 +266,24 @@ def test_a_type_refuses_to_be_read_whole_by_raising_the_same_refusal():
         Loose.refuses_whole()
     assert (refused.value.code, refused.value.message) == ("columns_unknown", "Nobody said the columns.")
     assert Txt.refuses_whole() is None
+
+
+# --- a declared type is a type (F13) -------------------------------------------------
+
+
+@pytest.mark.parametrize("bogus", [42, "text", {"id": "text"}])
+def test_a_field_refuses_a_dtype_that_is_not_a_type(bogus):
+    """``Output(dtype=42)`` used to be accepted and dump ``dtype: null``, and
+    validating a dump set the dtype to a dict."""
+    from conductor.metadata import Output
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="dtype"):
+        Output(name="result", dtype=bogus, title="R")
+
+
+@pytest.mark.parametrize("declared", [Txt, Any, list[str], tuple[str, ...]])
+def test_a_field_takes_a_dtype_any_or_a_static_type(declared):
+    from conductor.metadata import Input
+
+    assert Input(name="x", dtype=declared, title="X", show_handle=False).dtype == declared

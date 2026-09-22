@@ -236,7 +236,7 @@ A frame carries records (a `Series`, an `ErrorCause`, an `Input`), not their JSO
 
 Every record a host saves or sends is a `ConductorModel`, a frozen pydantic model: `Graph`, `GraphNode`, `FieldContent`, `Edges`, `Static`, `Problem`, `ErrorCause`, `Policy`, `Deprecation`, `NodeDescription`, `VersionDescription`, `Input`, `Output`, every widget, `Choice`, `OperatorChoice`, `Index`.
 
-What a host saves reads back what it wrote: a `Graph` and its parts, `Problem`, `ErrorCause`, `Policy`, `Deprecation`, `Choice`, `OperatorChoice`, `Index`. What describes a node — `NodeDescription`, `VersionDescription`, `Input`, `Output` and the widgets — is written for an editor: its `dtype` dumps as the type's description and reads back as that description, not the class; the rest reads back as written. Call `describe()` for the classes.
+What a host saves reads back what it wrote: a `Graph` and its parts, `Problem`, `ErrorCause`, `Policy`, `Deprecation`, `Choice`, `OperatorChoice`, `Index`. What describes a node — `NodeDescription`, `VersionDescription`, `Input`, `Output` and the widgets — is written for an editor: its `dtype` dumps as the type's description and does not read back — `dtype` takes a `DType` class, `Any` or a type, never a description; a widget reads back as written. Call `describe()` for the classes.
 
 ```python
 graph.to_path("approval.yaml")          # .json, .yaml or .yml by suffix; anything else is refused

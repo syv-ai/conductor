@@ -134,18 +134,19 @@ def test_a_record_a_host_saves_reads_back_what_it_wrote(record):
     assert type(record).model_validate_json(record.model_dump_json()) == record
 
 
-def test_a_description_reads_back_with_its_type_as_a_description():
+def test_a_description_does_not_read_back_as_a_type():
     """An ``Input`` is written from a ``run`` signature: its type dumps as a
-    description, and the class the signature holds is not rebuilt from
-    it. Everything else — the title, the widget — reads back as written."""
+    description, and the class the signature holds is not rebuilt from it —
+    a description in the type's place is refused, never carried as a dict.
+    The widget reads back as written."""
     text = Input(name="text", dtype=Txt, title="Text", widget=Textarea())
     dumped = text.model_dump(mode="json")
 
     assert dumped["dtype"] == Txt.describe()
     assert "title" not in dumped["widget"]
-    back = Input.model_validate(dumped)
-    assert back.dtype == Txt.describe()
-    assert back.model_copy(update={"dtype": Txt}) == text
+    assert Textarea.model_validate(dumped["widget"]) == Textarea()
+    with pytest.raises(ValidationError, match="dtype"):
+        Input.model_validate(dumped)
 
 
 SAVED = (

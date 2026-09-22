@@ -26,8 +26,9 @@ no widget, reachable.
 
 These records are their own schema: ``dtype`` is a ``DTypeRef``, so a
 dump gives the type's ``describe()``, and a palette is these records
-dumped. A dump reads back as a record whose ``dtype`` is that
-description; the class itself lives on the signature.
+dumped. A dump does not read back into one of these records: ``dtype``
+takes a ``DType`` class, ``Any`` or a type, never a description, and the
+class itself lives on the signature.
 """
 
 from __future__ import annotations
