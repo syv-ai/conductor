@@ -469,6 +469,19 @@ def test_a_pattern_that_times_out_fails_its_node_with_a_sentence_for_people(monk
     assert (ending["cause"].code, ending["error"]) == ("pattern_timeout", "The pattern took too long.")
 
 
+def test_a_grouped_extract_that_times_out_fails_with_the_same_code(monkeypatch):
+    """With groups, Extract walks the matches one by one, and the timeout
+    fires during the walk rather than when the search starts."""
+    monkeypatch.setattr(conductor_nodes.regex_ops.Extract, "timeout", 0.05)
+    graph = Graph(nodes=[GraphNode(id="x", type="regex-extract", version=1, bindings={
+        "text": Static("a" * 40), "pattern": Static("((?:(?:a|aa)+)+b)"),
+    })])
+    ending = run_sync(CompiledGraph.from_graph(graph, conductor_nodes.registry()))
+
+    assert ending["type"] == "graph_error"
+    assert ending["cause"].code == "pattern_timeout"
+
+
 def test_categories_filter_on_each_nodes_own_category():
     logic = conductor_nodes.registry(categories=["logic"])
     control = conductor_nodes.registry(categories=["control"])

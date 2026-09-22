@@ -89,7 +89,10 @@ class Extract(PatternNode):
         flags = regex.IGNORECASE if ignore_case else 0
         compiled = regex.compile(pattern, flags=flags)
         if compiled.groups:
-            return [Text(m.group(1)) for m in self._timed(compiled.finditer, text)]
+            # ``finditer`` is lazy and the timeout fires while it is walked, so
+            # the walk happens inside ``_timed``.
+            matches = self._timed(lambda timeout: list(compiled.finditer(text, timeout=timeout)))
+            return [Text(m.group(1)) for m in matches]
         return [Text(m) for m in self._timed(compiled.findall, text)]
 
 
