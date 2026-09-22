@@ -182,7 +182,7 @@ class NodeRegistry:
             "bindings": {name: v if isinstance(v, Edges) else Static(value=v) for name, v in values.items()},
         })
         return graph.model_copy(update={
-            "nodes": [moved if n is node else _reading_renamed(n, node_id, renamed) for n in graph.nodes],
+            "nodes": tuple(moved if n is node else _reading_renamed(n, node_id, renamed) for n in graph.nodes),
         })
 
     def extended_with(

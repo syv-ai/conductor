@@ -228,3 +228,14 @@ def test_a_parameter_named_like_a_pydantic_model_attribute_validates_without_a_w
 def test_args_stay_refused():
     with pytest.raises(TypeError, match=r"\*args"):
         _declare(run=_run({"args": Txt}, args="*args"))
+
+
+# --- a frozen graph's node list is frozen too (F9) -----------------------------------
+
+
+def test_a_graphs_nodes_are_a_tuple():
+    graph = Graph(nodes=[GraphNode(id="s", type="scale", version=1)])
+
+    assert isinstance(graph.nodes, tuple)
+    with pytest.raises(AttributeError):
+        graph.nodes.append(GraphNode(id="t", type="scale", version=1))

@@ -111,6 +111,6 @@ class Graph(ConductorModel):
     compiled (``derive_interface``), never stored.
     """
 
-    nodes: list[GraphNode]
+    nodes: tuple[GraphNode, ...]
     #: Chrome, at graph level.
     display: Mapping[str, Any] = Field(default_factory=dict)
