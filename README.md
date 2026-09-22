@@ -266,7 +266,7 @@ class Number(DType, float):
 
 ### Versions
 
-Several versions live in one class as methods marked `@version(n)`, `run` included; the current one is the highest number, and by convention its method is the one named `run`. Each version has its own signature and `Policy`. `@upgrade(1, 2)` marks the function that rewrites values saved against version 1 into what version 2 expects, and a class with several versions declares one step per adjacent pair or is refused when it is defined; `@deprecated` marks a class or a version as going away, optionally naming an `alternative`:
+Several versions live in one class as methods marked `@version(n)`, `run` included; the current one is the highest number, and by convention its method is the one named `run`. Each version has its own signature and `Policy`. `@upgrade(1, 2)` marks the function that rewrites values saved against version 1 into what version 2 expects (`inputs=` and `outputs=` name the fields it renames), and a class with several versions declares one step per adjacent pair or is refused when it is defined; `@deprecated` marks a class or a version as going away, optionally naming an `alternative`:
 
 ```python
 
@@ -291,7 +291,7 @@ class Greet(NodeDefinition):
 
     @upgrade(1, 2)
     def _split_name(values: dict) -> dict:
-        first, _, last = values["name"].partition(" ")
+        first, _, last = values.pop("name").partition(" ")
         return {**values, "first": first, "last": last}
 ```
 
@@ -532,14 +532,16 @@ conductor_nodes.text.register(my_registry)                         # or one modu
 
 The library declares the four types its nodes take in `conductor_nodes.types` — `Text`, `Number`, `Flag`, `Json` — because a node library has to say what its nodes take, and conductor itself ships no vocabulary. A host with its own vocabulary declares its own types and does not need these.
 
-| Module | Node ids |
+| Category | Node ids |
 |---|---|
 | `text` | `text-uppercase`, `text-lowercase`, `text-trim`, `text-length`, `text-concat`, `text-replace`, `text-contains`, `text-split`, `text-join`, `text-reverse` |
 | `math` | `math-add`, `math-subtract`, `math-multiply`, `math-divide`, `math-modulo`, `math-round`, `math-min`, `math-max`, `math-abs` |
-| `logic` | `logic-if-empty`, `logic-if-equals`, `logic-not` (the two `if` nodes branch via `SKIPPED`) |
-| `json_ops` | `json-parse`, `json-stringify`, `json-get` (dotted path) |
-| `regex_ops` | `regex-match`, `regex-replace`, `regex-extract` |
-| `decision` | `decision` — routes any value to one of two branches on a `Flag` connected in |
+| `logic` | `logic-not` |
+| `control` | `logic-if-empty`, `logic-if-equals` (both branch via `SKIPPED`), `decision` — routes any value to one of two branches on a `Flag` connected in |
+| `json` | `json-parse`, `json-stringify`, `json-get` (dotted path) |
+| `regex` | `regex-match`, `regex-replace`, `regex-extract` |
+
+`categories=` filters on each node's own `category`, so `["logic"]` is `logic-not` alone; the branching nodes are `control`.
 
 Node ids are category-prefixed to avoid colliding with application-level ids. Registering two different classes under one id raises.
 

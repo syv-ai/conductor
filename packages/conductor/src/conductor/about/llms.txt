@@ -92,12 +92,12 @@ class Greet(NodeDefinition):
 
     @upgrade(1, 2)
     def _split_name(values: dict) -> dict:
-        first, _, last = values["name"].partition(" ")
+        first, _, last = values.pop("name").partition(" ")
         return {**values, "first": first, "last": last}
 ```
 
 - `Policy(retries=0, delay=1.0, timeout=None, concurrency=8, retry_on=())` — how the engine runs this version. `concurrency` bounds how many rows run at once; `retry_on` names the client exception classes that mean the outside world failed. Bounds: `retries >= 0`, `delay >= 0`, `timeout > 0` or `None`, `concurrency >= 1`.
-- `@upgrade(a, b, outputs={old: new})` rewrites a node's bindings saved against version `a` into what `b = a + 1` expects (a typed-in value as itself, an edge as its `From`) and names the outputs it renames; a class with several versions declares one step per adjacent pair or is refused when it is defined. `registry.upgraded(graph, node_id, to=None)` returns the graph with that node moved to `to` (the current version by default) and every edge that read a renamed output rewritten. Compile never upgrades: a pinned version runs as pinned.
+- `@upgrade(a, b, inputs={old: new}, outputs={old: new})` rewrites a node's bindings saved against version `a` into what `b = a + 1` expects (a typed-in value as itself, an edge as its `From`) and names the inputs and outputs it renames; a renamed input arrives under its new name with its lock and content, so a step that only renames returns `values` as they are. The rewrite returns only names version `b` has: a leftover old name is a fatal `stale_binding`. A class with several versions declares one step per adjacent pair or is refused when it is defined. `registry.upgraded(graph, node_id, to=None)` returns the graph with that node moved to `to` (the current version by default) and every edge that read a renamed output rewritten; a definition with no steps (an embedded graph handed over by value) only has its version set. Compile never upgrades: a pinned version runs as pinned.
 - `@deprecated(header=..., description=..., alternative=..., migration=...)` (all keyword, all optional) on the class retires the node; on a version method, that version.
 - `NodeRegistry.register(cls)` requires versions numbered from 1 with no holes and an `alternative` that exists.
 - A version whose body is a graph is a `GraphVersion(graph=(GraphNode, ...), interface=Interface(...))`, placed in `versions` like any other. Compile expands it under the placing node's name (`approve/check`), so its inner nodes run as nodes of the one run.
@@ -341,19 +341,19 @@ registry = conductor_nodes.registry(categories=["text", "math"])       # a subse
 conductor_nodes.register_all(my_registry, categories=["logic"])        # added to a registry you already have
 ```
 
-| Module | Node ids |
+| Category | Node ids |
 |---|---|
 | `text` | `text-uppercase`, `text-lowercase`, `text-trim`, `text-length`, `text-concat`, `text-replace`, `text-contains`, `text-split`, `text-join`, `text-reverse` |
 | `math` | `math-add`, `math-subtract`, `math-multiply`, `math-divide`, `math-modulo`, `math-round`, `math-min`, `math-max`, `math-abs` |
-| `logic` | `logic-if-empty`, `logic-if-equals`, `logic-not` |
-| `json_ops` | `json-parse`, `json-stringify`, `json-get` |
-| `regex_ops` | `regex-match`, `regex-replace`, `regex-extract` |
-| `decision` | `decision` — routes any value to one of two branches on a connected `Flag` |
+| `logic` | `logic-not` |
+| `control` | `logic-if-empty`, `logic-if-equals`, `decision` — routes any value to one of two branches on a connected `Flag` |
+| `json` | `json-parse`, `json-stringify`, `json-get` |
+| `regex` | `regex-match`, `regex-replace`, `regex-extract` (a pattern past `PatternNode.timeout`, two seconds, fails with `pattern_timeout`) |
 
 ### conductor-providers
 
 - `conductor_providers.react` — `graph_to_react(graph)` (ReactFlow JSON: the node record under each node's `data`, edges derived from the bindings, positions laid out where none is stored), `react_to_graph(wire)` (a node's `display` comes back whole with the canvas's position merged in, and the graph's own `display` too).
-- `conductor_providers.fastapi` — `conductor_router(registry, *, prefix, tags, dependencies, from_run, entity_resolver)`: `GET /nodes`, `POST /compile` (every problem), `POST /execute` (the frame the leg ended on, `graph_complete` or `graph_pending`; a failed leg fails the request), `POST /execute-stream` (server-sent events) and `GET /entities/{kind}`. The body is `ExecuteRequest` — `graph`, `record`, `cache` — so a run that asks goes on in legs: send the ending's `record` back with the answers in `cache`, and for a node on rows each answer as `{"rows": [...], "values": [...]}`. `from_run(request)` returns the values `execute(from_run=...)` supplies; `sse_frame(event)` serialises one event.
+- `conductor_providers.fastapi` — `conductor_router(registry, *, prefix, tags, dependencies, from_run, entity_resolver)`: `GET /nodes`, `POST /compile` (every problem), `POST /execute` (the frame the leg ended on, `graph_complete` or `graph_pending`; a failed leg fails the request), `POST /execute-stream` (server-sent events), and `GET /entities/{kind}` when an `entity_resolver` is given. A graph that cannot run, or a `cache` or `record` the run refuses (`StartRefused`), is a 422. The body is `ExecuteRequest` — `graph`, `record`, `cache` — so a run that asks goes on in legs: send the ending's `record` back with the answers in `cache`, and for a node on rows each answer as `{"rows": [...], "values": [...]}`. `from_run(request)` returns the values `execute(from_run=...)` supplies; `sse_frame(event)` serialises one event.
 
 ## Project Structure
 
