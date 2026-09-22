@@ -51,7 +51,7 @@ There is no edge list. A `GraphNode` is keyword-only, and a node id may not cont
 
 | You want… | Do | Details |
 |---|---|---|
-| A node's input and output names | `[i.name for i in registry.get("text-split").describe().versions[1].inputs]` | add-node → Where to register |
+| A node's input and output names | `[i.name for i in registry["text-split"].describe().versions[1].inputs]` | add-node → Where to register |
 | To know what is wrong | `compiled.problems`, each with `code`, `node_id`, `field`, `fatal` | REFERENCE.md → Compile |
 | One node or field after compile | `compiled.node(node_id)`, `compiled.field(Ref(node_id, name))` | REFERENCE.md → Compile |
 | Events as they happen | `async for event in execute(compiled)` | REFERENCE.md → Events |

@@ -381,7 +381,7 @@ def test_a_cycle_is_a_fatal_problem_on_each_node_in_it():
     )
 
     assert [(p.code, p.node_id) for p in compiled.problems] == [("cycle", "a"), ("cycle", "b")]
-    assert compiled.execution_order() == ("c",)
+    assert compiled.execution_order == ("c",)
     assert not compiled.is_runnable
 
 
@@ -477,7 +477,7 @@ def test_a_cycle_is_reported_on_its_members_only():
     )
 
     assert [(p.code, p.node_id) for p in compiled.problems] == [("cycle", "a"), ("cycle", "b")]
-    assert compiled.execution_order() == ("u", "v")
+    assert compiled.execution_order == ("u", "v")
     assert [i.name for i in compiled.node("u").interface.inputs] == ["x", "y"]
     assert not compiled.is_runnable
 

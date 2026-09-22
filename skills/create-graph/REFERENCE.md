@@ -32,7 +32,7 @@ Key on `code`, never on the message. `conductor.graph.problem.CATALOGUE` lists e
 
 The compiled graph is asked at three scales:
 
-- **The graph:** `problems`, `is_runnable`, `interface` (what the graph takes and returns, named by address), `execution_order()`, `decisions()`.
+- **The graph:** `problems`, `is_runnable`, `interface` (what the graph takes and returns, named by address), `execution_order`, `decisions`.
 - **One node:** `compiled.node(node_id)` gives `interface` (with every type the edges gave it), `iterates_on` (the `Index` it runs once per row of, or `None`), `statics`, `dependencies`, `version`, `embedded_in`, `problems`.
 - **One field:** `compiled.field(Ref(node_id, name))` gives `type`, `index`, `binding`, `condition`, `problems`.
 

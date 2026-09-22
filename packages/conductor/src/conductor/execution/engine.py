@@ -236,7 +236,7 @@ class _Leg:
     ) -> None:
         self.compiled = compiled
         self.ledger = Ledger(compiled) if record is None else Ledger.restore(compiled, record)
-        for node_id in compiled.execution_order():
+        for node_id in compiled.execution_order:
             for name, needed in compiled.node(node_id).version.interface.needs.items():
                 if needed not in from_run:
                     raise TypeError(
@@ -246,8 +246,8 @@ class _Leg:
         self.timeout = timeout
         self.cancel = cancel
         self.started_at = time.monotonic()
-        self.started = {node_id for node_id in compiled.execution_order() if self.ledger.complete(node_id)}
-        in_flight = sum(compiled.node(node_id).version.policy.concurrency for node_id in compiled.execution_order())
+        self.started = {node_id for node_id in compiled.execution_order if self.ledger.complete(node_id)}
+        in_flight = sum(compiled.node(node_id).version.policy.concurrency for node_id in compiled.execution_order)
         self.executor = ThreadPoolExecutor(max_workers=max(1, in_flight), thread_name_prefix="conductor")
         self.gates: dict[str, asyncio.Semaphore] = {}
         self.queue: asyncio.Queue[ExecutionEvent | _UnitDone] = asyncio.Queue()
@@ -325,7 +325,7 @@ class _Leg:
                 type="graph_pending", pending=pending, results=self.ledger.results(), record=self.ledger.cells()
             )
             return
-        unfinished = [node_id for node_id in self.compiled.execution_order() if not self.ledger.complete(node_id)]
+        unfinished = [node_id for node_id in self.compiled.execution_order if not self.ledger.complete(node_id)]
         if unfinished:
             raise RuntimeError(f"nothing left to run, but {unfinished} did not complete — an engine bug")
         yield GraphCompleteEvent(type="graph_complete", results=self.ledger.results(), record=self.ledger.cells())

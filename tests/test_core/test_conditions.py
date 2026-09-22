@@ -129,7 +129,7 @@ def test_a_branch_appears_when_its_decision_went_that_way():
     assert compiled.is_runnable, compiled.problems
     assert compiled.field(Ref("g", "if_true")).condition == frozenset({frozenset({Atom("g", "branches", "if_true")})})
     assert compiled.field(Ref("yes", "result")).condition == frozenset({frozenset({Atom("g", "branches", "if_true")})})
-    assert compiled.decisions() == {"g": {"branches": ("if_true", "if_false")}}
+    assert compiled.decisions == {"g": {"branches": ("if_true", "if_false")}}
 
 
 def test_a_merge_adds_an_alternative():
@@ -179,4 +179,4 @@ def test_an_iterating_decision_masks_rows_and_is_not_a_condition():
     assert compiled.is_runnable, compiled.problems
     assert compiled.node("g").iterates_on is not None
     assert compiled.field(Ref("yes", "result")).condition == ALWAYS
-    assert compiled.decisions() == {}
+    assert compiled.decisions == {}

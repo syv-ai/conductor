@@ -64,7 +64,7 @@ def test_the_markers_and_the_signals_are_gone(registry):
         "for-each-start", "for-each-end", "while-start", "while-end", "subprocess-call",
         "signal-wait", "signal-timer",
     ):
-        assert not registry.contains(gone), gone
+        assert gone not in registry, gone
 
 
 def test_every_node_declares_a_title_a_description_and_a_category(registry):
@@ -109,7 +109,7 @@ def test_only_the_gate_declares_any(registry):
         if any(f.dtype is Any for f in (*_current(node_cls).inputs, *_current(node_cls).outputs))
     }
     assert vague == {"decision"}
-    gate = _current(registry.get("decision"))
+    gate = _current(registry["decision"])
     assert gate.inputs[0].dtype is Any and all(o.dtype is Any for o in gate.outputs)
 
 

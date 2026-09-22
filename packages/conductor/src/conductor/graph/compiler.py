@@ -164,7 +164,7 @@ class _Compilation:
     def pin(self) -> None:
         """The version each node uses, looked up once, here.
 
-        A node stores a ``type`` and a ``version`` number; ``registry.get(type)``
+        A node stores a ``type`` and a ``version`` number; ``registry[type]``
         gives the definition and ``definition.versions[version]`` the version
         record. A stored graph can name a type the catalog has since lost or a
         version the class has since dropped, so either miss is a problem on
@@ -172,11 +172,10 @@ class _Compilation:
         an embedded graph — which ``expand`` inlines.
         """
         for node in self.authored.values():
-            definition = self.registry.get(node.type)
-            if definition is None:
+            if node.type not in self.registry:
                 self.problems.append(problem("unknown_node_type", node.id, node_type=node.type))
                 continue
-            version = definition.versions.get(node.version)
+            version = self.registry[node.type].versions.get(node.version)
             if version is None:
                 self.problems.append(
                     problem("unknown_node_version", node.id, node_type=node.type, version=node.version)
@@ -231,7 +230,7 @@ class _Compilation:
         """
         for node_id, version in self.expansion.versions.items():
             node = self.expansion.nodes[node_id]
-            instance = self.registry.get(node.type)()
+            instance = self.registry[node.type]()
             defaults = {i.name: i.default for i in version.interface.inputs if i.optional}
             for_hook, _, _ = self._typed_statics(version.interface.inputs, node)
             try:
@@ -292,7 +291,7 @@ class _Compilation:
             for name, binding in node.bindings.items():
                 if name not in declared:
                     dead = problem("stale_binding", node_id, name, inputs=", ".join(sorted(declared)) or "none")
-                    if self.registry.get(node.type).compute_inputs is not NodeDefinition.compute_inputs:
+                    if self.registry[node.type].compute_inputs is not NodeDefinition.compute_inputs:
                         dead = dead.model_copy(update={"fatal": False})
                     self.problems.append(dead)
                     continue

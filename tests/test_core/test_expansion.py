@@ -134,7 +134,7 @@ def test_the_inner_nodes_are_nodes_of_the_one_run_under_the_placements_name():
     ])
 
     assert compiled.is_runnable, compiled.problems
-    assert compiled.execution_order() == ("src", "emb/holder", "emb/up", "emb/join", "after")
+    assert compiled.execution_order == ("src", "emb/holder", "emb/up", "emb/join", "after")
     assert compiled.node("emb/up").embedded_in == "emb"
     assert compiled.node("src").embedded_in is None
     with pytest.raises(KeyError):
@@ -160,7 +160,7 @@ def test_an_unconnected_placement_keeps_the_inner_statics_and_expands_flat():
     assert compiled.is_runnable, compiled.problems
     assert compiled.field(Ref("emb/holder", "value")).binding == Static(value="inner")
     assert compiled.node("emb").iterates_on is None
-    assert all(compiled.node(node_id).iterates_on is None for node_id in compiled.execution_order())
+    assert all(compiled.node(node_id).iterates_on is None for node_id in compiled.execution_order)
 
 
 def test_a_placement_is_a_node_in_the_interface_named_by_inner_address():
@@ -408,7 +408,7 @@ def test_a_nested_placement_expands_under_both_names():
     )
 
     assert compiled.is_runnable, compiled.problems
-    assert compiled.execution_order() == ("top/pre", "top/inner/holder", "top/inner/up", "top/inner/join", "after")
+    assert compiled.execution_order == ("top/pre", "top/inner/holder", "top/inner/up", "top/inner/join", "after")
     assert compiled.node("top/inner/up").embedded_in == "top/inner"
     assert compiled.node("top/pre").embedded_in == "top"
     assert compiled.field(Ref("after", "text")).binding == Edges(refs=(Ref("top/inner/join", "result"),))
@@ -428,7 +428,7 @@ def test_an_authored_id_with_a_slash_is_refused_and_never_collides_with_an_inner
     ])
 
     assert [(p.code, p.fatal, p.node_id) for p in compiled.problems] == [("invalid_node_id", True, "e/holder")]
-    assert compiled.execution_order().count("e/holder") == 1
+    assert compiled.execution_order.count("e/holder") == 1
     assert compiled.field(Ref("e/holder", "value")).binding == Static(value="inner")
 
 

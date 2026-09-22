@@ -470,7 +470,7 @@ def test_the_registry_gives_back_the_class():
     registry = NodeRegistry()
     registry.register(Translate)
 
-    assert registry.get("translate") is Translate
+    assert registry["translate"] is Translate
 
 
 def test_a_caller_asks_the_class_rather_than_a_copy_of_it():
@@ -491,7 +491,7 @@ def test_a_caller_asks_the_class_rather_than_a_copy_of_it():
 
     registry = NodeRegistry()
     registry.register(Translate)
-    found = registry.get("translate-2")
+    found = registry["translate-2"]
 
     assert found.title == "Translation"
     iface = found.versions[1].interface
@@ -521,7 +521,7 @@ def test_every_declared_version_is_registered():
     registry = NodeRegistry()
     registry.register(Two)
 
-    assert set(registry.get("two-reg").versions) == {1, 2}
+    assert set(registry["two-reg"].versions) == {1, 2}
 
 
 def test_the_registry_keys_on_the_id():
@@ -537,8 +537,8 @@ def test_the_registry_keys_on_the_id():
     registry = NodeRegistry()
     registry.register(Echo)
 
-    assert registry.contains("echo-key")
-    assert not registry.contains("echo-nothing")
+    assert "echo-key" in registry
+    assert "echo-nothing" not in registry
     assert registry.nodes == (Echo,)
 
 
@@ -651,7 +651,7 @@ def test_an_alternative_names_a_node_in_the_same_catalog():
     registry = NodeRegistry()
     registry.register(New)
     registry.register(Old)
-    assert registry.get("old-node").deprecation.alternative == "new-node"
+    assert registry["old-node"].deprecation.alternative == "new-node"
 
 
 def test_the_flattened_record_is_gone():

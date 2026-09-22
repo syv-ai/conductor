@@ -287,3 +287,28 @@ def test_a_field_takes_a_dtype_any_or_a_static_type(declared):
     from conductor.metadata import Input
 
     assert Input(name="x", dtype=declared, title="X", show_handle=False).dtype == declared
+
+
+# --- the registry is a container, and a compiled graph's facts are properties (F10) ---
+
+
+def test_a_registry_is_a_container_of_its_nodes_by_id():
+    registry = _registry()
+
+    assert "scale" in registry and "nope" not in registry
+    assert len(registry) == 2
+    assert registry["scale"] is Scale
+    assert list(registry) == ["scale", "shaped"]
+    assert not hasattr(registry, "get") and not hasattr(registry, "contains")
+
+
+def test_an_unknown_id_is_a_key_error_that_lists_the_ids():
+    with pytest.raises(KeyError, match=r"'scal'.*scale, shaped"):
+        _registry()["scal"]
+
+
+def test_the_order_and_the_decisions_are_properties():
+    compiled = _compiled(GraphNode(id="s", type="scale", version=1))
+
+    assert compiled.execution_order == ("s",)
+    assert compiled.decisions == {}

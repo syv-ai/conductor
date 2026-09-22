@@ -303,8 +303,8 @@ A registered node numbers its versions from 1 with no holes; a placement pins an
 registry = NodeRegistry()
 registry.register(Greet)                   # files Greet, and Text under "text"
 registry.add_types(Number)                 # a word no node here declares
-registry.get("greet")                      # the class, or None
-registry.contains("greet")                 # True
+registry["greet"]                          # the class; an unknown id is a KeyError listing the ids
+"greet" in registry                        # True; len(registry) and iterating over the ids work too
 registry.nodes                             # every class, in registration order
 registry.types                             # {"text": Text, "number": Number}
 registry.accepted_as(Text)                 # ("text",) — where a Text may land, over this vocabulary

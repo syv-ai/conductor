@@ -172,7 +172,7 @@ class Ledger:
         # What the graph says, read off compile once: who reads which output
         # and how, which nodes birth rows on which index, and where the
         # author typed a list into a scalar input.
-        order = compiled.execution_order()
+        order = compiled.execution_order
         self._position = {node_id: n for n, node_id in enumerate(order)}
         #: Nodes that birth rows on an index: those with a series output.
         self._births = frozenset(
@@ -322,7 +322,7 @@ class Ledger:
         where a leg starts and where it goes quiet, never per write."""
         return [
             unit
-            for node_id in self._compiled.execution_order()
+            for node_id in self._compiled.execution_order
             if not self.complete(node_id)
             for unit in self.units(node_id)
             if unit not in self._done and unit not in self._pending and self.ready(unit)
@@ -847,7 +847,7 @@ class Ledger:
     def results(self) -> dict[str, dict[str, Any]]:
         """Every complete node's outputs, by node id. A node that did not run is absent."""
         produced: dict[str, dict[str, Any]] = {}
-        for node_id in self._compiled.execution_order():
+        for node_id in self._compiled.execution_order:
             if not self.complete(node_id):
                 continue
             result = self.result_of(node_id)
@@ -877,7 +877,7 @@ class Ledger:
                 for index_id, rows in self._no_rows_under.items()
             },
             done_units=[(node_id, None if row is None else list(row)) for node_id, row in self._done],
-            node_fingerprints={node_id: self._compiled.node(node_id).fingerprint for node_id in self._compiled.execution_order()},
+            node_fingerprints={node_id: self._compiled.node(node_id).fingerprint for node_id in self._compiled.execution_order},
         )
 
     def _cell_wire(self, ref: Ref, row: Row | None, value: Any) -> dict[str, Any]:
@@ -947,7 +947,7 @@ class Ledger:
         those the graph no longer has, everything that reads any of them,
         and the typed-in lists whose rows are born under theirs."""
         compiled = self._compiled
-        current = {node_id: compiled.node(node_id).fingerprint for node_id in compiled.execution_order()}
+        current = {node_id: compiled.node(node_id).fingerprint for node_id in compiled.execution_order}
         dropped = {node_id for node_id, fingerprint in current.items() if stored.get(node_id) != fingerprint}
         dropped.update(node_id for node_id in stored if node_id not in current)
         frontier = [node_id for node_id in dropped if node_id in current]

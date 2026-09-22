@@ -61,7 +61,7 @@ def test_discover_from_package(tmp_path):
     try:
         count = discover_nodes("fake_nodes", reg)
         assert count == 1
-        assert reg.get("discovered-echo") is not None
+        assert "discovered-echo" in reg
     finally:
         sys.path.pop(0)
         sys.modules.pop("fake_nodes", None)

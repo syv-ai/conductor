@@ -465,7 +465,7 @@ class _Walk:
         declared = (*version.interface.inputs, *self.asked[node.id].inputs)
         values = {**{i.name: i.default for i in declared if i.optional}, **self.statics[node.id]}
         try:
-            return self.registry.get(node.type)().compute_outputs(version.interface.outputs, values, arriving)
+            return self.registry[node.type]().compute_outputs(version.interface.outputs, values, arriving)
         except Refuses as refusal:
             return Problem(code=refusal.code, message=refusal.message, fatal=True, node_id=node.id)
 

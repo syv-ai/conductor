@@ -148,11 +148,10 @@ class _Expander:
         moved = self._moved(node, inner_nodes)
         inner_versions: dict[str, NodeVersion | GraphVersion] = {}
         for inner_id, inner in inner_nodes.items():
-            definition = self.registry.get(inner.type)
-            if definition is None:
+            if inner.type not in self.registry:
                 self.problems.append(problem("unknown_node_type", inner_id, node_type=inner.type))
                 continue
-            inner_version = definition.versions.get(inner.version)
+            inner_version = self.registry[inner.type].versions.get(inner.version)
             if inner_version is None:
                 self.problems.append(
                     problem("unknown_node_version", inner_id, node_type=inner.type, version=inner.version)

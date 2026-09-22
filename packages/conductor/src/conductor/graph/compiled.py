@@ -208,12 +208,14 @@ class CompiledGraph:
         placed = tuple(node.id for node in self._graph.nodes)
         return f"CompiledGraph(nodes={placed!r}, is_runnable={self.is_runnable}, problems={len(self.problems)})"
 
+    @property
     def execution_order(self) -> tuple[str, ...]:
         """Expanded node ids in an order where every edge's source precedes
         its target. A node in a cycle is not in it; it has a fatal
         ``Problem`` instead."""
         return self._order
 
+    @property
     def decisions(self) -> dict[str, dict[str, tuple[str, ...]]]:
         """Every decision a caller could observe: for each node that runs
         once and declares a ``choice`` group, the group's alternatives in

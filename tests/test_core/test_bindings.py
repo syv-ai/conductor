@@ -245,7 +245,7 @@ def _resolved(graph, registry=None):
     interfaces = {}
     versions = {}
     for node in graph.nodes:
-        version = registry.get(node.type).versions[node.version]
+        version = registry[node.type].versions[node.version]
         versions[node.id] = version
         interfaces[node.id] = version.interface
     return interfaces, versions

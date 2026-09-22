@@ -94,7 +94,7 @@ class TestCompile:
 
         compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry)
         assert compiled.is_runnable, compiled.problems
-        assert compiled.execution_order() == ("n1", "n2")
+        assert compiled.execution_order == ("n1", "n2")
 
     def test_compile_unknown_node_type_is_a_problem(self, registry):
         nodes = [GraphNode(id="n1", type="nonexistent", version=1)]

@@ -164,7 +164,7 @@ def test_compiling_returns_an_asked_artifact():
     compiled = _compiled([GraphNode(id="a", type="echo", version=1, bindings={"x": Static(value="hi")})])
 
     assert isinstance(compiled, CompiledGraph)
-    assert compiled.execution_order() == ("a",)
+    assert compiled.execution_order == ("a",)
     assert compiled.is_runnable
     assert compiled.problems == ()
 
@@ -182,7 +182,7 @@ def test_execution_order_follows_the_edges():
         GraphNode(id="a", type="echo", version=1),
     ])
 
-    assert compiled.execution_order() == ("a", "b")
+    assert compiled.execution_order == ("a", "b")
 
 
 # --- a field's binding ----------------------------------------------------
@@ -386,7 +386,7 @@ def test_compiling_the_same_graph_twice_gives_the_same_answers():
     first = CompiledGraph.from_graph(build(), _registry())
     second = CompiledGraph.from_graph(build(), _registry())
 
-    assert first.execution_order() == second.execution_order()
+    assert first.execution_order == second.execution_order
     assert first.problems == second.problems
     assert first.field(Ref("b", "x")).binding == second.field(Ref("b", "x")).binding
     assert first.interface == second.interface

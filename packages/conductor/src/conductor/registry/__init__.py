@@ -21,7 +21,7 @@ palette an editor reads: every node's record and every type's, once.
 from __future__ import annotations
 
 import inspect
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from types import MappingProxyType
 from typing import Any, Callable
 
@@ -68,7 +68,9 @@ class NodeRegistry:
 
     One entry per node id, not per (id, version): the class knows which
     versions it declares, and a caller picks one with
-    ``registry.get(node.type).versions[node.version]``. One entry per
+    ``registry[node.type].versions[node.version]``. It reads as a mapping
+    from id to class: ``"upper" in registry``, ``registry["upper"]``,
+    ``len(registry)``, and iteration over the ids. One entry per
     type id: the vocabulary, read through ``types``.
     """
 
@@ -126,7 +128,7 @@ class NodeRegistry:
             v.deprecation for v in node_cls.versions.values() if isinstance(v, NodeVersion)
         ]
         for notice in notices:
-            if notice is not None and notice.alternative is not None and not self.contains(notice.alternative):
+            if notice is not None and notice.alternative is not None and notice.alternative not in self:
                 raise ValueError(
                     f"{node_cls.id!r} names {notice.alternative!r} as its alternative, which is not "
                     "registered here; register the replacement before the node it replaces"
@@ -135,12 +137,22 @@ class NodeRegistry:
         self._nodes[node_cls.id] = node_cls
         self._types.update(words)
 
-    def get(self, node_id: str) -> type[NodeDefinition] | None:
-        """The class registered under ``node_id``, or ``None``."""
-        return self._nodes.get(node_id)
-
-    def contains(self, node_id: str) -> bool:
+    def __contains__(self, node_id: object) -> bool:
         return node_id in self._nodes
+
+    def __getitem__(self, node_id: str) -> type[NodeDefinition]:
+        """The class registered under ``node_id``; an unknown id is a ``KeyError`` naming the ids there are."""
+        try:
+            return self._nodes[node_id]
+        except KeyError:
+            raise KeyError(f"{node_id!r} is not registered here; the ids are {', '.join(self._nodes) or 'none'}") from None
+
+    def __len__(self) -> int:
+        return len(self._nodes)
+
+    def __iter__(self) -> Iterator[str]:
+        """The registered ids, in registration order."""
+        return iter(self._nodes)
 
     @property
     def nodes(self) -> tuple[type[NodeDefinition], ...]:
@@ -267,9 +279,7 @@ class NodeRegistry:
         engine never runs it as one unit. Nothing is cached, so a reloaded
         module runs its new definition.
         """
-        node_cls = self.get(node_id)
-        if node_cls is None:
-            raise KeyError(f"no definition registered under {node_id!r}")
+        node_cls = self[node_id]
         declared = node_cls.versions[version]
         if not isinstance(declared, NodeVersion):
             raise TypeError(

@@ -148,7 +148,7 @@ A graph is `Graph(nodes=[...])`, and a placed node is `GraphNode(id=, type=, ver
 
 Ask it at three scales:
 
-- **The graph** — `problems`, `is_runnable`, `interface` (what the graph takes and returns: the unlocked inputs of nodes nothing feeds, and every output of the nodes nothing reads from, named by address), `execution_order()`, `decisions()`, `expanded(ref)`.
+- **The graph** — `problems`, `is_runnable`, `interface` (what the graph takes and returns: the unlocked inputs of nodes nothing feeds, and every output of the nodes nothing reads from, named by address), `execution_order`, `decisions`, `expanded(ref)`.
 - **One node** — `compiled.node(node_id)` is a `CompiledNode`: `interface`, `validate(inputs)` (the keyword arguments a call runs with, checked against the interface through a model built once), `iterates_on` (the `Index` it runs once per row of, or `None`), `statics`, `runner`, `version`, `graph_node`, `embedded_in`. Problems are read off `compiled.problems`, filtered by node id.
 - **One field** — `compiled.field(ref)` is a `CompiledField`: `type`, `index`, `binding`, `receives` (how a unit receives the input: `Iterate`, `Broadcast`, `Whole`, `Group` or `Gather` from `conductor.graph.receive`), `condition` (a formula over the decisions upstream: `Condition`, `Atom`, `ALWAYS`), `problems`.
 
@@ -271,7 +271,7 @@ The node-authoring surface, re-exported from the modules that define it:
 - Nodes: `NodeDefinition`, `NodeVersion`, `GraphVersion`, `Policy`, `Deprecation`, `NodeDescription`, `version`, `upgrade`, `deprecated`, `Interface`, `FromRun`, `Input`, `Output`, `Param`, `Result`, `AnyWidget`
 - Values a run returns: `SKIPPED`, `Asks`, `is_skipped`, `is_asking`
 - Types: `DType`, `DTypeRef`, `Single`, `dtype_of`, `Series`, `Index`, `Ref`
-- Registry: `NodeRegistry` (`register`, `add_types`, `get`, `contains`, `nodes`, `types`, `accepted_as`, `describe`, `upgraded`, `extended_with`, `runner_for`), `RegistryDescription`, `TypeDescription`
+- Registry: `NodeRegistry` (`register`, `in`, `[]`, `len`, iteration over the ids, `nodes`, `types`, `accepted_as`, `describe`, `upgraded`, `extended_with`, `runner_for`), `RegistryDescription`, `TypeDescription`
 - Graph: `Graph`, `GraphNode`, `FieldContent`, `Binding`, `Edges`, `Static`, `dependencies_of`, `is_input_node`, `CompiledGraph`, `CompiledNode`, `CompiledField`, `Problem`, `Condition`, `Atom`, `ALWAYS`
 
 Everything else is imported from the module that defines it.

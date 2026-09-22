@@ -141,7 +141,7 @@ def test_two_classes_with_one_id_in_one_call_are_refused_together():
 
     with pytest.raises(ValueError, match="'text'"):
         registry.register(Echo)
-    assert registry.types == {} and not registry.contains("echo")
+    assert registry.types == {} and "echo" not in registry
 
 
 def test_register_adds_the_types_a_node_declares():
@@ -169,7 +169,7 @@ def test_a_collision_through_register_names_both_classes_and_files_nothing():
 
     assert f"{Text.__module__}.Text" in str(refused.value)
     assert f"{AnotherText.__module__}.AnotherText" in str(refused.value)
-    assert not registry.contains("whisper")
+    assert "whisper" not in registry
     assert registry.types == {"text": Text, "number": Number}
 
 
