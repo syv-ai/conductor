@@ -119,7 +119,7 @@ def test_a_record_prints_only_what_is_not_at_its_default():
     assert repr(Policy(retries=2)) == "Policy(retries=2)"
     assert repr(Deprecation()) == "Deprecation()"
     assert repr(Problem(code="cycle", message="m", fatal=True, node_id="a")) == "Problem(code='cycle', message='m', fatal=True, node_id='a')"
-    assert repr(Index("lines", parent=Index("docs"))) == "Index(id='lines', parent=Index(id='docs'))"
+    assert repr(Index("lines", parent=Index("docs"))) == "Index('lines', parent=Index('docs'))"
 
 
 def test_a_record_prints_a_field_set_back_to_its_default_value_as_absent():

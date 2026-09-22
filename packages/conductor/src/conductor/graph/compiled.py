@@ -95,7 +95,7 @@ def _written(value: Any, dtype: Any, listed: bool) -> Any:
     return to_wire(value, dtype)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class CompiledGraph:
     """The result of compiling one graph. Ask it; do not read through it.
 
@@ -202,6 +202,11 @@ class CompiledGraph:
         return expanded_ref(ref, self._placements)
 
     # -- the run ------------------------------------------------------------------
+
+    def __repr__(self) -> str:
+        """One line: the nodes the author placed, whether it runs, how many problems."""
+        placed = tuple(node.id for node in self._graph.nodes)
+        return f"CompiledGraph(nodes={placed!r}, is_runnable={self.is_runnable}, problems={len(self.problems)})"
 
     def execution_order(self) -> tuple[str, ...]:
         """Expanded node ids in an order where every edge's source precedes

@@ -76,6 +76,11 @@ class Index(ConductorModel):
     def __eq__(self, other: object) -> bool:
         return isinstance(other, Index) and other.id == self.id
 
+    def __repr__(self) -> str:
+        """``Index('lines', parent=Index('docs'))``: the call that makes it."""
+        parent = "" if self.parent is None else f", parent={self.parent!r}"
+        return f"Index({self.id!r}{parent})"
+
     def __hash__(self) -> int:
         return hash(self.id)
 
@@ -179,7 +184,11 @@ class Series(DType, Sequence[T]):
         return NotImplemented
 
     def __repr__(self) -> str:
-        return f"Series({list(self.values)!r})"
+        """``Series[Text](Index('lines'), ['a'])``: the call that makes it, rows
+        only when they are not the dense default a root gives."""
+        dense = self.rows == tuple((i,) for i in range(len(self.values)))
+        rows = "" if dense else f", rows={list(self.rows)!r}"
+        return f"{type(self).__name__}({self.index!r}, {list(self.values)!r}{rows})"
 
     # -- the wire ----------------------------------------------------------
 

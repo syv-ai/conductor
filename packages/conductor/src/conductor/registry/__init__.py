@@ -72,11 +72,14 @@ class NodeRegistry:
     type id: the vocabulary, read through ``types``.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, nodes: Iterable[type[NodeDefinition]] = ()) -> None:
+        """A registry holding ``nodes``, each registered in order — the form its repr prints."""
         #: The classes, by id, in registration order.
         self._nodes: dict[str, type[NodeDefinition]] = {}
         #: The vocabulary, by id, in the order the words arrived.
         self._types: dict[str, type[DType]] = {}
+        for node_cls in nodes:
+            self.register(node_cls)
 
     def __repr__(self) -> str:
         """Its nodes, each as its own repr, one per line: ``NodeRegistry(nodes=(Greet(...),))``."""

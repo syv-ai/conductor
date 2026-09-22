@@ -153,7 +153,7 @@ class Policy(ConductorModel):
     retry_on: SkipJsonSchema[tuple[type[BaseException], ...]] = Field(default=(), exclude=True)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class NodeVersion:
     """One declared version of a node: its ``run``, ``Interface``, ``Policy`` and notice.
 
@@ -173,6 +173,11 @@ class NodeVersion:
     #: This version's own notice, from ``@deprecated`` on its run method;
     #: ``None`` means it is not going away.
     deprecation: Deprecation | None = None
+
+    def __repr__(self) -> str:
+        """The run by its qualified name rather than a function address."""
+        notice = "" if self.deprecation is None else f", deprecation={self.deprecation!r}"
+        return f"NodeVersion(run={self.run.__qualname__}, interface={self.interface!r}, policy={self.policy!r}{notice})"
 
 
 @dataclass(frozen=True)

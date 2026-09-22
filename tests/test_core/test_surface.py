@@ -119,3 +119,31 @@ def test_a_widget_refuses_a_key_it_does_not_have():
 def test_display_is_the_canvas_own_and_takes_any_key():
     node = GraphNode(id="s", type="scale", version=1, display={"position": {"x": 1}, "colour": "red"})
     assert node.display["colour"] == "red"
+
+
+# --- a repr is the call that makes the object (F3) -----------------------------------
+
+
+def test_a_series_prints_as_its_constructor():
+    from conductor.series import Index, Series
+
+    assert repr(Series[Txt](Index("lines"), [Txt("a")])) == "Series[Txt](Index('lines'), ['a'])"
+    sparse = Series[Txt](Index("lines"), [Txt("b")], rows=[(1,)])
+    assert repr(sparse) == "Series[Txt](Index('lines'), ['b'], rows=[(1,)])"
+    assert repr(Index("b", parent=Index("a"))) == "Index('b', parent=Index('a'))"
+
+
+def test_a_node_version_prints_its_run_by_name():
+    assert repr(Scale.versions[1]).startswith("NodeVersion(run=Scale.run, ")
+
+
+def test_a_compiled_graph_prints_a_one_line_summary():
+    compiled = _compiled(GraphNode(id="s", type="scale", version=1))
+    assert repr(compiled) == "CompiledGraph(nodes=('s',), is_runnable=True, problems=0)"
+
+
+def test_a_registry_prints_a_call_its_constructor_accepts():
+    registry = NodeRegistry(nodes=(Scale, Shaped))
+
+    assert registry.nodes == (Scale, Shaped)
+    assert repr(registry).startswith("NodeRegistry(nodes=(\n    Scale(id='scale'")
