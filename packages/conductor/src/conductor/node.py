@@ -16,7 +16,10 @@ whose typed signature is its interface::
 Several versions live in one class as methods marked ``@version(n)``; the
 current one is the method named ``run``. ``@upgrade(1, 2)`` marks the
 function that rewrites values saved against version 1 into what version 2
-expects. ``@deprecated`` marks a class or a version as going away.
+expects; a class with several versions declares one step per adjacent
+pair, checked when the class is defined, and ``NodeRegistry.upgraded``
+applies them to a graph. ``@deprecated`` marks a class or a version as
+going away.
 
 The parts, by when they exist:
 
@@ -213,23 +216,48 @@ def version(
 
     return decorate
 
-def upgrade(
-    from_version: int, to_version: int
-) -> Callable[[Callable[..., Any]], staticmethod]:
-    """Mark a function as the value rewrite from ``from_version`` to ``to_version``.
+@dataclass(frozen=True)
+class Upgrade:
+    """How a node saved at one version becomes the next one: a rewrite of its bindings, and the outputs it renames.
 
-    It takes the values saved against the old version and returns the
-    values the new one expects. A ``staticmethod``, because it rewrites
-    data and has no instance to consult::
+    Declared with ``@upgrade`` in the class body and collected into
+    ``cls.upgrades`` when the class is defined, one per adjacent pair of
+    versions. Read only by ``NodeRegistry.upgraded``, which runs the chain
+    over one node of a graph when a person asks for it; compile never
+    upgrades, so a graph pinned at an old version runs that version.
+
+    ``rewrite`` takes the node's bindings as a dict, a typed-in value as
+    the value itself and an edge as its ``Edges`` record, and returns the
+    same shape for the new version: renaming an input moves its edge with
+    it. ``outputs`` maps an old output name to its new one, and the
+    registry rewrites every edge in the graph that read the old name.
+    """
+
+    rewrite: Callable[[dict[str, Any]], dict[str, Any]]
+    outputs: Mapping[str, str]
+
+
+def upgrade(
+    from_version: int, to_version: int, *, outputs: Mapping[str, str] | None = None
+) -> Callable[[Callable[..., Any]], staticmethod]:
+    """Mark a function as the rewrite from ``from_version`` to ``to_version``.
+
+    It takes the bindings saved against the old version and returns the
+    ones the new version expects — a typed-in value as itself, an edge as
+    its ``Edges``. ``outputs`` names the outputs the step renames, old to
+    new. A ``staticmethod``, because it rewrites data and has no instance
+    to consult::
 
         @upgrade(1, 2)
         def _split_name(values: dict) -> dict:
-            first, _, last = values["name"].partition(" ")
+            first, _, last = values.pop("name").partition(" ")
             return {**values, "first": first, "last": last}
+
+    ``to_version`` is ``from_version + 1``; a longer jump is a chain of steps.
     """
 
     def decorate(func: Callable[..., Any]) -> staticmethod:
-        func.__node_upgrade__ = (from_version, to_version)
+        func.__node_upgrade__ = (from_version, to_version, Upgrade(rewrite=func, outputs=dict(outputs or {})))
         return staticmethod(func)
 
     return decorate
@@ -342,13 +370,14 @@ class NodeDefinition(ABC, metaclass=_NodeMeta):
     #: ``GraphVersion`` records by value.
     versions: ClassVar[dict[int, "NodeVersion | GraphVersion"]]
     current: ClassVar[int]
-    #: Every value rewrite the class declares with ``@upgrade``, keyed by
-    #: the step it spans, ``(from_version, to_version)``. Collected when the
-    #: class is defined, from the class and its bases; the registry answers
-    #: ``upgrade_path`` from it. Derived only: unlike ``versions`` it is never
-    #: given, so a class body that sets it is refused, and an ``@upgrade``
-    #: attached to the class after it is defined is not seen.
-    upgrades: ClassVar[dict[tuple[int, int], Callable[..., Any]]]
+    #: Every step the class declares with ``@upgrade``, keyed by the pair it
+    #: spans, ``(from_version, to_version)``. Collected when the class is
+    #: defined, from the class and its bases, and checked against the
+    #: versions: one step per adjacent pair, each forward by one.
+    #: ``NodeRegistry.upgraded`` runs them. Derived only: unlike
+    #: ``versions`` it is never given, so a class body that sets it is
+    #: refused, and an ``@upgrade`` attached after definition is not seen.
+    upgrades: ClassVar[dict[tuple[int, int], Upgrade]]
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         """Check the declaration, derive its versions and collect its upgrades when the class is defined.
@@ -387,6 +416,7 @@ class NodeDefinition(ABC, metaclass=_NodeMeta):
             cls.current = max(cls.versions)
             return
         cls._derive_versions()
+        cls._check_upgrades()
         if cls.compute_outputs is NodeDefinition.compute_outputs and any(
             out.dtype is Any
             for version in cls.versions.values()
@@ -469,20 +499,48 @@ class NodeDefinition(ABC, metaclass=_NodeMeta):
         cls.current = max(methods)
 
     @classmethod
-    def _collect_upgrades(cls) -> dict[tuple[int, int], Callable[..., Any]]:
-        """Every value rewrite this class and its bases declare, keyed by the
-        step it spans — what ``__init_subclass__`` stores on ``cls.upgrades``."""
-        found: dict[tuple[int, int], Callable[..., Any]] = {}
+    def _collect_upgrades(cls) -> dict[tuple[int, int], Upgrade]:
+        """Every step this class and its bases declare, keyed by the pair it
+        spans — what ``__init_subclass__`` stores on ``cls.upgrades``. Two
+        steps for one pair in one class body are refused; a subclass's step
+        replaces its base's."""
+        found: dict[tuple[int, int], Upgrade] = {}
         for klass in reversed(cls.__mro__):
+            claimed: set[tuple[int, int]] = set()
             for name in vars(klass):
                 # `getattr`, not `vars()[name]`: a `staticmethod` descriptor does
                 # not forward attribute lookups to the function it wraps, so the
                 # marker is invisible from the outside.
-                fn = getattr(cls, name, None)
-                step = getattr(fn, "__node_upgrade__", None)
-                if step is not None:
-                    found[step] = fn
+                marker = getattr(getattr(cls, name, None), "__node_upgrade__", None)
+                if marker is None:
+                    continue
+                from_version, to_version, step = marker
+                if (from_version, to_version) in claimed:
+                    raise TypeError(
+                        f"{cls.__name__}: two methods declare @upgrade({from_version}, {to_version}); "
+                        "one step per pair of versions"
+                    )
+                claimed.add((from_version, to_version))
+                found[(from_version, to_version)] = step
         return found
+
+    @classmethod
+    def _check_upgrades(cls) -> None:
+        """Refuse a step that is not one version forward between two declared
+        versions, and an adjacent pair of versions with no step, naming it."""
+        for from_version, to_version in cls.upgrades:
+            if to_version != from_version + 1 or not {from_version, to_version} <= cls.versions.keys():
+                raise TypeError(
+                    f"{cls.__name__}: @upgrade({from_version}, {to_version}) is not a step between "
+                    f"two adjacent versions it declares ({sorted(cls.versions)}); each step goes "
+                    "one version forward, and a longer jump is a chain of steps"
+                )
+        for number in sorted(cls.versions):
+            if number + 1 in cls.versions and (number, number + 1) not in cls.upgrades:
+                raise TypeError(
+                    f"{cls.__name__} declares versions {number} and {number + 1} but no "
+                    f"@upgrade({number}, {number + 1}); a graph saved at {number} could never move on"
+                )
 
     @abstractmethod
     def run(self, *args: Any, **kwargs: Any) -> Any:

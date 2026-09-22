@@ -11,7 +11,7 @@ from typing import Annotated, Any
 import pytest
 from conductor.dtype import DType
 from conductor.metadata import Param, Result
-from conductor.node import NodeDefinition, version
+from conductor.node import NodeDefinition, upgrade, version
 from conductor.registry import NodeRegistry
 from conductor.widgets import Textarea
 
@@ -29,6 +29,10 @@ class Echo(NodeDefinition):
     title = "Echo"
     description = "Returns input unchanged"
     category = "test"
+
+    @upgrade(1, 2)
+    def _v1_to_v2(values):
+        return values
 
     @version(1)
     def run_v1(self, text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:

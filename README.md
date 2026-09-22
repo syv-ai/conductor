@@ -264,7 +264,7 @@ class Number(DType, float):
 
 ### Versions
 
-Several versions live in one class as methods marked `@version(n)`, `run` included; the current one is the highest number, and by convention its method is the one named `run`. Each version has its own signature and `Policy`. `@upgrade(1, 2)` marks the function that rewrites values saved against version 1 into what version 2 expects; `@deprecated` marks a class or a version as going away, optionally naming an `alternative`:
+Several versions live in one class as methods marked `@version(n)`, `run` included; the current one is the highest number, and by convention its method is the one named `run`. Each version has its own signature and `Policy`. `@upgrade(1, 2)` marks the function that rewrites values saved against version 1 into what version 2 expects, and a class with several versions declares one step per adjacent pair or is refused when it is defined; `@deprecated` marks a class or a version as going away, optionally naming an `alternative`:
 
 ```python
 
@@ -311,7 +311,7 @@ registry.accepted_as(Text)                 # ("text",) — where a Text may land
 Greet.versions[2].interface.inputs         # the Input records of version 2
 Greet.describe()                           # the palette entry, derived on demand
 registry.describe()                        # the palette: every node's record and every type's
-registry.upgrade_path("greet", 1, 2)       # the @upgrade function, or None
+# registry.upgraded(graph, "greet-1")      # the graph with one node moved to the current version
 ```
 
 `describe()` is the one serialisation of a node: a `NodeDescription` with its versions, fields, policy and deprecation notice, dumped through pydantic when a palette needs JSON. Nothing is stored, so a description is always derived from the live declaration. `registry.describe()` is the palette: those records plus one `TypeDescription` per type — `id`, `title` and `accepted_as`, the ids of every type in that registry whose `accepts` admits it — so an editor reads where a value may land once per type, and a field's own record is its id. Two registries in one process may each hold a `text`; one registry refuses a second class under an id it already holds, naming both.

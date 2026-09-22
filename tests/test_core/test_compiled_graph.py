@@ -12,7 +12,7 @@ from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.problem import Problem
 from conductor.interface import FromRun, Interface, model_of
 from conductor.metadata import Output, Param, Result
-from conductor.node import NodeDefinition, Policy, version
+from conductor.node import NodeDefinition, Policy, upgrade, version
 from conductor.ref import Ref
 from conductor.widgets import Choice, Dropdown, Textarea
 from pydantic import ValidationError
@@ -100,6 +100,10 @@ class Renamed(NodeDefinition):
     title = "Renamed"
     description = "d"
     category = "test"
+
+    @upgrade(1, 2)
+    def _v1_to_v2(values):
+        return values
 
     @version(1)
     def run_v1(self, old: Annotated[Txt, Param(title="Old", widget=Textarea())] = Txt("")) -> Out:

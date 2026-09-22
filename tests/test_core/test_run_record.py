@@ -21,7 +21,7 @@ from conductor.execution.record import RunRecord
 from conductor.graph.binding import Edges, Static
 from conductor.graph.model import Graph
 from conductor.metadata import Input, Param, Result
-from conductor.node import NodeDefinition, version
+from conductor.node import NodeDefinition, upgrade, version
 from conductor.ref import Ref
 from conductor.series import Series
 from conductor.widgets import Textarea
@@ -65,6 +65,10 @@ class Wrap(NodeDefinition):
     title = "Wrap"
     description = "d"
     category = "test"
+
+    @upgrade(1, 2)
+    def _v1_to_v2(values):
+        return values
 
     @version(1)
     def run_v1(self, text: In = Txt("")) -> Out:

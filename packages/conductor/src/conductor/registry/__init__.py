@@ -26,8 +26,11 @@ from types import MappingProxyType
 from typing import Any, Callable
 
 from conductor.dtype import DType
+from conductor.graph.binding import Edges, Static
+from conductor.graph.model import Graph, GraphNode
 from conductor.model import ConductorModel
 from conductor.node import NodeDefinition, NodeDescription, NodeVersion
+from conductor.ref import Ref
 from conductor.series import Series
 
 
@@ -141,12 +144,43 @@ class NodeRegistry:
         """Every registered node class, in registration order."""
         return tuple(self._nodes.values())
 
-    def upgrade_path(
-        self, node_id: str, from_version: int, to_version: int
-    ) -> Callable[..., Any] | None:
-        """The ``@upgrade`` function for one version step, or ``None``."""
-        node_cls = self._nodes.get(node_id)
-        return None if node_cls is None else node_cls.upgrades.get((from_version, to_version))
+    def upgraded(self, graph: Graph, node_id: str, *, to: int | None = None) -> Graph:
+        """``graph`` with one node moved from the version it was saved at to ``to``, the current one by default.
+
+        Runs the node's ``@upgrade`` steps in order over its bindings and
+        sets its version; every edge elsewhere in the graph that read an
+        output a step renamed now reads the new name. A node already at
+        ``to`` returns ``graph`` itself. A version with no chain of steps to
+        ``to`` — a downgrade, or a definition a host handed over by value
+        with no steps — is a ``ValueError``; a node the graph does not have
+        is a ``KeyError``. The graph is not compiled here: a host compiles
+        the result to show the author what the new version makes of it.
+        """
+        node = next((n for n in graph.nodes if n.id == node_id), None)
+        if node is None:
+            raise KeyError(f"{node_id!r} is not a node of this graph; it has {[n.id for n in graph.nodes]}")
+        node_cls = self._nodes[node.type]
+        target = node_cls.current if to is None else to
+        if target == node.version:
+            return graph
+        steps = [node_cls.upgrades.get((n, n + 1)) for n in range(node.version, target)]
+        if target < node.version or None in steps:
+            raise ValueError(f"{node.type!r} has no upgrade from version {node.version} to {target}")
+        values = {name: b.value if isinstance(b, Static) else b for name, b in node.bindings.items()}
+        #: Each output the chain renames, from its name at the saved version to its name at ``target``.
+        renamed: dict[str, str] = {}
+        for step in steps:
+            values = step.rewrite(dict(values))
+            renamed = {old: step.outputs.get(now, now) for old, now in renamed.items()} | {
+                old: new for old, new in step.outputs.items() if old not in renamed.values()
+            }
+        moved = node.model_copy(update={
+            "version": target,
+            "bindings": {name: v if isinstance(v, Edges) else Static(value=v) for name, v in values.items()},
+        })
+        return graph.model_copy(update={
+            "nodes": [moved if n is node else _reading_renamed(n, node_id, renamed) for n in graph.nodes],
+        })
 
     def extended_with(
         self, definitions: Mapping[str, type[NodeDefinition]]
@@ -301,6 +335,18 @@ def _declared_words(node_cls: type[NodeDefinition]) -> list[type[DType]]:
         if word is not None and word not in words:
             words.append(word)
     return words
+
+
+def _reading_renamed(node: GraphNode, source: str, renamed: Mapping[str, str]) -> GraphNode:
+    """``node`` with every edge it has from ``source``'s renamed outputs pointing at the new names."""
+    bindings = {
+        name: Edges(refs=tuple(
+            Ref(source, renamed[ref.field]) if ref.node_id == source and ref.field in renamed else ref
+            for ref in binding.refs
+        )) if isinstance(binding, Edges) else binding
+        for name, binding in node.bindings.items()
+    }
+    return node if bindings == dict(node.bindings) else node.model_copy(update={"bindings": bindings})
 
 
 def _where(dtype: type[DType]) -> str:

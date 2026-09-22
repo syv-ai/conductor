@@ -17,7 +17,7 @@ from conductor.node import (
     version,
 )
 from conductor.series import Series
-from conductor.widgets import Choice, Dropdown, Switch, Textarea
+from conductor.widgets import Choice, Dropdown, Textarea
 from pydantic import TypeAdapter
 
 
@@ -201,6 +201,10 @@ def test_versions_live_together_in_one_class():
         description = "d"
         category = "test"
 
+        @upgrade(1, 2)
+        def _v1_to_v2(values):
+            return values
+
         @version(1)
         def run_v1(self, old: Annotated[Txt, Param(title="Old", widget=Textarea())] = Txt("")) -> Out:
             return old
@@ -221,6 +225,10 @@ def test_the_current_version_is_the_one_called_run():
         title = "Two"
         description = "d"
         category = "test"
+
+        @upgrade(1, 2)
+        def _v1_to_v2(values):
+            return values
 
         @version(1)
         def run_v1(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
@@ -254,6 +262,10 @@ def test_policy_is_declared_per_version():
         title = "Fetch"
         description = "d"
         category = "test"
+
+        @upgrade(1, 2)
+        def _v1_to_v2(values):
+            return values
 
         @version(1, policy=Policy(retries=3, delay=1.0))
         def run_v1(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
@@ -316,6 +328,10 @@ def test_an_async_run_is_refused():
             title = "Waits"
             description = "d"
             category = "test"
+
+            @upgrade(1, 2)
+            def _v1_to_v2(values):
+                return values
 
             @version(1)
             def run_v1(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
@@ -402,6 +418,10 @@ def test_a_version_may_be_deprecated_on_its_own():
         description = "d"
         category = "test"
 
+        @upgrade(1, 2)
+        def _v1_to_v2(values):
+            return values
+
         @deprecated(header="Use v2", migration="The field 'old' is now 'new'.")
         @version(1)
         def run_v1(self, old: Annotated[Txt, Param(title="Old", widget=Textarea())] = Txt("")) -> Out:
@@ -485,6 +505,10 @@ def test_every_declared_version_is_registered():
         title = "Two"
         description = "d"
         category = "test"
+
+        @upgrade(1, 2)
+        def _v1_to_v2(values):
+            return values
 
         @version(1)
         def run_v1(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
@@ -701,6 +725,10 @@ def test_a_hook_shapes_the_version_the_placement_pins_not_the_newest():
         description = "d"
         category = "test"
 
+        @upgrade(1, 2)
+        def _v1_to_v2(values):
+            return values
+
         @version(1)
         def run_v1(self, old: Annotated[Txt, Param(title="Old", widget=Textarea())] = Txt("")) -> Out:
             return old
@@ -774,6 +802,10 @@ def test_describe_is_the_class_as_a_record():
         category = "test"
         tags = ("Language model",)
 
+        @upgrade(1, 2)
+        def _v1_to_v2(values):
+            return values
+
         @version(1)
         def run_v1(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
             return text
@@ -808,6 +840,10 @@ def test_describe_carries_both_notices():
         title = "Old"
         description = "d"
         category = "test"
+
+        @upgrade(1, 2)
+        def _v1_to_v2(values):
+            return values
 
         @deprecated(header="v1 retired", migration="Use v2.")
         @version(1)
@@ -890,46 +926,6 @@ class Flag(DType):
         return isinstance(other, Flag) and other.value == self.value
 
 
-def test_an_upgrade_rewrites_saved_values_between_versions():
-    class Docs(NodeDefinition):
-        id = "docs"
-        title = "Docs"
-        description = "d"
-        category = "test"
-
-        @version(1)
-        def run_v1(
-            self,
-            files: Annotated[Txt, Param(title="Files", widget=Textarea())] = Txt(""),
-            strategy: Annotated[Txt, Param(title="Strategy", widget=Textarea())] = Txt("whole"),
-        ) -> Out:
-            return Txt(f"{files}:{strategy}")
-
-        @version(2)
-        def run(
-            self,
-            files: Annotated[Txt, Param(title="Files", widget=Textarea())] = Txt(""),
-            split: Annotated[Flag, Param(title="Split", widget=Switch())] = Flag(False),
-        ) -> Out:
-            return Txt(f"{files}:{split.value}")
-
-        @upgrade(1, 2)
-        def _v1_to_v2(values):
-            rewritten = dict(values)
-            rewritten["split"] = Flag(rewritten.pop("strategy", None) == "per_page")
-            return rewritten
-
-    registry = NodeRegistry()
-    registry.register(Docs)
-
-    rewrite = registry.upgrade_path("docs", 1, 2)
-    assert rewrite is not None
-    assert rewrite({"files": "a.pdf", "strategy": "per_page"}) == {
-        "files": "a.pdf",
-        "split": Flag(True),
-    }
-
-
 def test_an_upgrade_takes_values_and_not_an_instance():
     """It rewrites data. There is no placement to consult and no state."""
 
@@ -953,21 +949,6 @@ def test_an_upgrade_takes_values_and_not_an_instance():
 
     assert isinstance(vars(Docs2)["_v1_to_v2"], staticmethod)
     assert Docs2._v1_to_v2({"a": Txt("x")}) == {"b": "x"}
-
-
-def test_a_missing_upgrade_path_is_none_not_an_error():
-    class Plain(NodeDefinition):
-        id = "plain"
-        title = "Plain"
-        description = "d"
-        category = "test"
-
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return x
-
-    registry = NodeRegistry()
-    registry.register(Plain)
-    assert registry.upgrade_path("plain", 1, 2) is None
 
 
 def test_a_class_that_sets_its_own_upgrades_is_refused():
@@ -1055,6 +1036,10 @@ def test_two_versions_of_one_class_execute_independently():
         title = "Suffix"
         description = "d"
         category = "test"
+
+        @upgrade(1, 2)
+        def _v1_to_v2(values):
+            return values
 
         @version(1)
         def run_v1(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
