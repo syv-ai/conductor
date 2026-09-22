@@ -67,5 +67,3 @@ def test_discover_from_package(tmp_path):
         sys.modules.pop("fake_nodes", None)
         sys.modules.pop("fake_nodes.text_nodes", None)
         delattr(conductor, "_test_discovery_registry")
-
-

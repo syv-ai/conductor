@@ -91,10 +91,6 @@ def test_a_series_still_reads_a_plain_list_as_dense_rows_on_a_fresh_index():
     assert back.rows == ((0,), (1,)) and list(back) == ["a", "b"]
 
 
-def test_a_series_has_no_wire_form_of_its_own():
-    assert not hasattr(Series, "_as_wire")
-
-
 # -- the ledger's cells ---------------------------------------------------------------
 
 

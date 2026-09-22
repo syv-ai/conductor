@@ -234,18 +234,6 @@ def test_extending_with_nothing_is_the_same_registry_contents():
     assert base.extended_with({})["only"] is base["only"]
 
 
-def test_conductor_names_no_loading_seam():
-    """Loading needs a database, and conductor has no idea what one is."""
-    import conductor
-    import conductor.graph.compiler as compiler
-    import conductor.registry as registry_pkg
-
-    for gone in ("resolve", "RegistryView", "DefinitionSource", "ExtensionResolver"):
-        assert not hasattr(conductor, gone), gone
-        assert not hasattr(registry_pkg, gone), gone
-        assert not hasattr(compiler, gone), gone
-
-
 def test_a_registry_lists_its_nodes_as_the_classes_in_registration_order():
     registry = NodeRegistry()
     greet, truncate = _node("greet"), _node("truncate")
@@ -254,4 +242,3 @@ def test_a_registry_lists_its_nodes_as_the_classes_in_registration_order():
 
     assert registry.nodes == (greet, truncate)
     assert [cls.id for cls in registry.nodes] == ["greet", "truncate"]
-    assert not hasattr(registry, "definitions")

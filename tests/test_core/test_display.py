@@ -125,4 +125,3 @@ def test_a_record_prints_only_what_is_not_at_its_default():
 def test_a_record_prints_a_field_set_back_to_its_default_value_as_absent():
     """The repr is the data, not the history: a value equal to the default is not news."""
     assert repr(Policy(retries=0, concurrency=8)) == "Policy()"
-

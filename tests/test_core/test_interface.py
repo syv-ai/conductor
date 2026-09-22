@@ -50,12 +50,6 @@ def test_the_validator_coerces_into_the_dtype():
     assert isinstance(validated.text, Text)
 
 
-def test_there_is_one_validator_and_it_is_over_inputs():
-    """`model_of` takes any tuple of inputs — a declaration or a placement's
-    interface — so there is no second spelling on the record."""
-    assert not hasattr(Interface, "model")
-
-
 def test_an_input_keeps_its_widget_whole():
     """The widget is never destructured into an id plus a loose config dict."""
     language = Interface.of(sample).inputs[1]

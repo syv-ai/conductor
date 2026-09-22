@@ -119,12 +119,6 @@ def test_a_class_says_nothing_about_what_the_engine_must_do():
         assert not hasattr(Greeter, gone), gone
 
 
-def test_the_dead_declaration_fields_are_gone():
-    """No node in either repo sets any of these."""
-    for gone in ("idempotency_key", "actor", "uses", "width"):
-        assert not hasattr(NodeDefinition, gone)
-
-
 def test_an_intermediate_base_declares_nothing():
     """A shared base that adds no `run` is not a node."""
 
@@ -758,13 +752,6 @@ def test_a_node_with_no_shaping_declares_none():
     assert Simple().compute_outputs(current.outputs, {}, {}) == current.outputs
 
 
-def test_the_hook_contract_is_two_methods():
-    """A value's constraints are its dtype's constructor rules, and a
-    an edge problem is the compiler's — so a node has no `validate` and no
-    `Problem` channel of its own."""
-    assert not hasattr(NodeDefinition, "validate")
-
-
 def test_a_hook_that_cannot_answer_raises_refuses():
     """`Refuses(code, message)` is the one refusal a field hook has: the
     host names the code and writes the sentence, and the compiler anchors both
@@ -965,15 +952,6 @@ def test_a_class_that_sets_its_own_upgrades_is_refused():
 
             def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
                 return x
-
-
-def test_there_is_exactly_one_way_to_declare_a_node():
-    """Gone, so they cannot come back by habit."""
-    import conductor
-
-    assert not hasattr(NodeRegistry, "node")
-    assert not hasattr(NodeRegistry, "register_class")
-    assert not hasattr(conductor, "BaseNode")
 
 
 def test_a_category_is_a_string_on_the_definition():

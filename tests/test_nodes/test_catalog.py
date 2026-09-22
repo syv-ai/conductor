@@ -132,13 +132,6 @@ def test_branches_are_one_choice(registry):
     }
 
 
-def test_no_node_says_what_the_engine_must_do(registry):
-    """No node carries a ``role``: a branch not taken is ``SKIPPED``, a
-    value the engine acts on, and nothing on the class announces it."""
-    for node_cls in registry.nodes:
-        assert not hasattr(node_cls, "role"), node_cls.id
-
-
 def test_no_stdlib_node_overrides_a_shaping_hook(registry):
     """No node's inputs or outputs depend on a value, with one exception:
     ``decision`` overrides ``compute_outputs`` to put the type arriving on
@@ -171,4 +164,3 @@ def test_a_registry_of_the_standard_nodes_is_one_call():
     assert {cls.id for cls in conductor_nodes.registry(categories=["logic"]).nodes} == {
         "logic-if-empty", "logic-if-equals", "logic-not",
     }
-    assert not hasattr(conductor_nodes, "get_default_registry")

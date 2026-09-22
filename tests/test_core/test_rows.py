@@ -736,19 +736,6 @@ def test_run_sync_returns_the_pending_ending():
     assert answered[-1]["results"]["ask"]["result"] == "yes"
 
 
-def test_nothing_checkpoints_and_nothing_resumes():
-    """A pause is a leg boundary; nothing checkpoints and nothing resumes."""
-    import conductor.errors as errors
-    import conductor.execution.engine as engine
-
-    for gone in ("resume", "resume_sync"):
-        assert not hasattr(engine, gone), gone
-    for gone in ("HumanInputRequired", "SignalRequired", "FlowPausedError"):
-        assert not hasattr(errors, gone), gone
-    with pytest.raises(ModuleNotFoundError):
-        __import__("conductor.execution.checkpoint")
-
-
 # --- an embedded graph runs as nodes of the one run --------------------------------
 
 

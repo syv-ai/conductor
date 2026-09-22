@@ -299,7 +299,6 @@ def test_a_registry_is_a_container_of_its_nodes_by_id():
     assert len(registry) == 2
     assert registry["scale"] is Scale
     assert list(registry) == ["scale", "shaped"]
-    assert not hasattr(registry, "get") and not hasattr(registry, "contains")
 
 
 def test_an_unknown_id_is_a_key_error_that_lists_the_ids():

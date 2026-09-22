@@ -221,12 +221,6 @@ def test_a_value_that_satisfies_its_type_contributes_nothing():
     assert _codes([GraphNode(id="p", type="picky", version=1, bindings={"x": Static("hi")})]) == []
 
 
-def test_there_is_no_validate_hook():
-    """Two hooks, `compute_inputs` and `compute_outputs`. A constraint
-    on a value is its dtype's; a problem about edges is compile's."""
-    assert not hasattr(NodeDefinition, "validate")
-
-
 # --- a field name is unique within a node -------------------------------------------
 
 

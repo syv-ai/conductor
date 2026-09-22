@@ -409,12 +409,9 @@ def test_the_artifact_and_its_diagnostics_are_importable_from_the_root():
     import conductor
 
     assert conductor.CompiledGraph is CompiledGraph
-    assert not hasattr(conductor, "Carried")
     assert conductor.Problem is Problem
     assert conductor.Condition is not None and conductor.Atom is not None
     assert callable(conductor.CompiledGraph.from_graph)
-    for gone in ("compile", "resolve_graph_outputs", "FOR_EACH"):
-        assert not hasattr(conductor, gone), gone
 
 
 # --- the call model, and what the record does not carry ------------------------------

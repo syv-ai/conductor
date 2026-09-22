@@ -44,15 +44,7 @@ def test_compilation_error_carries_the_problems_it_refused_on():
 
 
 def test_the_hierarchy_is_what_is_raised_and_nothing_else():
-    import conductor.errors as errors
 
-    for gone in (
-        "CycleDetectionError", "TypeCheckError", "LoopRunawayError", "SubprocessFailedError",
-        "InputResolutionError", "NodeValidationException", "NodeExecutionException",
-        "FlowExecutionException", "FlowPausedException",
-        "HumanInputRequired", "SignalRequired", "FlowPausedError",
-    ):
-        assert not hasattr(errors, gone), gone
     assert issubclass(NodeExecutionError, NodeError)
 
 

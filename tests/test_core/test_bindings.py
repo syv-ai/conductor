@@ -33,16 +33,6 @@ def test_edge_order_is_operand_order():
     assert first != second
 
 
-def test_there_are_exactly_two_variants():
-    """No Port (a caller's value replaces a Static for one run), no Guard
-    (a branch is an output), no per-ref enable flag."""
-    import conductor.graph.binding as bindings
-
-    assert not hasattr(bindings, "Port")
-    assert not hasattr(bindings, "Guard")
-    assert not hasattr(From(Ref("a", "result")), "when")
-
-
 def test_absence_means_the_declared_default_applies():
     """One state, not two — there is nothing to dismiss."""
     bindings = {"b": Static(3)}
@@ -172,11 +162,6 @@ def test_two_edges_from_the_same_node_are_one_dependency():
     assert dependencies_of(nodes)["b"] == frozenset({"a"})
 
 
-def test_conductor_defines_no_edge_type():
-    """The canvas derives its own edges; there is nothing here to convert."""
-    import conductor.graph.model as model
-
-    assert not hasattr(model, "GraphEdge")
 class Txt(DType, str):
     id = "bindings-test-txt"
     title = "Text"

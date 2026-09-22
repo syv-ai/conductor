@@ -299,4 +299,3 @@ class TestSkipPropagation:
 # the node (host metadata). The engine validates a call with extra="ignore",
 # so every node drops them rather than failing on an unexpected keyword.
 # ---------------------------------------------------------------------------
-
