@@ -1,16 +1,25 @@
 """Run a compiled graph: every ready unit, as soon as it is ready.
 
-A unit is ``(node, row)``: a node that runs once is one unit with row
-``None``; a node that runs once per row of a series — a value with many
-rows, whose *index* names where the rows come from — is one unit per
-row. The loop asks the ledger (the run's record of every value produced
+The engine doesn't schedule whole nodes. It schedules *units* — one call
+of a node's ``run``. A node that runs once is one unit. A node that runs
+once for each item in a list — each row of a series — is one unit per
+item, so item 3 can move on down the graph while item 10 is still
+waiting its turn. In the code a unit is ``(node_id, row)``, with row
+``None`` for a node that runs once; a series is a value with many rows,
+whose *index* names where the rows come from.
+
+A *leg* is one call of ``execute``: it starts every unit it can, and
+stops when nothing more can start — because the graph is done, or
+because it's waiting for a person. The next leg picks up from what this
+one recorded.
+
+The leg's loop asks the ledger (the run's record of every value produced
 so far, ``conductor.execution.ledger``) which units are ready, starts
 each under its node's concurrency limit and records what comes back; the
 ledger answers each record with the units it made ready, and the loop
-starts those — a unit finishing is what makes other units ready. Row 1
-of a chain can finish before row 10 of the first node has started; a
-node that receives a whole group of rows at once (a reduction) has its
-unit ready once the whole group is.
+starts those — a unit finishing is what makes other units ready. A node
+that receives a whole group of rows at once (a reduction) has its unit
+ready once the whole group is.
 
 A failed unit fails the run: the other units are cancelled and the cause,
 with the row, goes out on the event stream.
@@ -19,16 +28,16 @@ with the row, goes out on the event stream.
 leg owns, from a pool with one worker per unit that may be in flight, so
 a unit never waits for a worker and a node's timeout counts only the time
 its thread ran. Closing the event stream — ``aclose()``, or a cancelled
-consumer — stops every unit before the stream is gone. What
-the leg cannot do is interrupt a thread: a ``run`` that has started
+consumer — stops every unit before the stream is gone. What the leg
+cannot do is interrupt a thread: a ``run`` that has started
 finishes on its own, and what it returns is dropped. A timed-out attempt
 is therefore final, and the thread keeps the node's concurrency slot until
 it returns.
 
-**A run has legs.** One call of ``execute`` is one leg, and it runs until
-nothing is runnable and nothing is in flight. A unit whose node returned
-``Asks`` is neither done nor failed: it waits, everything that reads it
-waits, and the rest of the graph runs on. If anything is waiting when the
+**A run has legs.** A leg runs until nothing is runnable and nothing is
+in flight. A unit whose node returned ``Asks`` is neither done nor
+failed: it waits, everything that reads it waits, and the rest of the
+graph runs on. If anything is waiting when the
 leg goes quiet, the leg ends with ``graph_pending`` carrying every waiting
 unit's questions, plus what the leg completed and the ledger's record (a
 ``RunRecord``: every cell in wire form, and a fingerprint per node). The
