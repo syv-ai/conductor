@@ -173,15 +173,15 @@ class Series(DType, Sequence[T]):
         return iter(self.values)
 
     def __eq__(self, other: object) -> bool:
+        """Equal to another series on the same index with the same rows and
+        values; never equal to a list, which has neither an index nor rows.
+        Compare ``list(series)`` or ``series.values`` to ask about the values alone."""
         if isinstance(other, Series):
-            return (self.index, self.rows, self.values) == (
-                other.index,
-                other.rows,
-                other.values,
-            )
-        if isinstance(other, Sequence) and not isinstance(other, (str, bytes)):
-            return list(self) == list(other)
+            return (self.index, self.rows, self.values) == (other.index, other.rows, other.values)
         return NotImplemented
+
+    def __hash__(self) -> int:
+        return hash((self.index, self.rows, self.values))
 
     def __repr__(self) -> str:
         """``Series[Text](Index('lines'), ['a'])``: the call that makes it, rows

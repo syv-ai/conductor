@@ -271,3 +271,27 @@ def test_a_series_of_wire_formed_values_dumps_each_through_its_own_schema():
     dumped = TypeAdapter(Series[Blob]).dump_python(Series[Blob](Index("x"), [Blob("a")]), mode="json")
 
     assert dumped["values"] == [{"data": "a"}]
+
+
+# --- a series equals only a series --------------------------------------------------
+
+
+def test_a_series_and_a_list_are_unequal_both_ways():
+    from conductor.series import Index
+
+    s = Series[Text](Index("a"), [Text("x")])
+    assert s != [Text("x")] and [Text("x")] != s
+    assert list(s) == ["x"]
+
+
+def test_two_series_differing_only_in_rows_are_unequal():
+    from conductor.series import Index
+
+    assert Series[Text](Index("a"), [Text("x")], rows=[(0,)]) != Series[Text](Index("a"), [Text("x")], rows=[(5,)])
+
+
+def test_a_series_is_hashable_by_what_it_equals_on():
+    from conductor.series import Index
+
+    one, same = Series[Text](Index("a"), [Text("x")]), Series[Text](Index("a"), [Text("x")])
+    assert hash(one) == hash(same) and len({one, same}) == 1

@@ -134,7 +134,7 @@ class TestText:
             full_registry,
             [GraphNode(id="n", type="text-split", version=1, bindings={"text": Static("a,b,c"), "separator": Static(",")})],
         )
-        assert r["n"]["result"] == ["a", "b", "c"]
+        assert list(r["n"]["result"]) == ["a", "b", "c"]
 
     def test_join(self, full_registry):
         r = _run(
@@ -387,7 +387,7 @@ class TestRegex:
             [GraphNode(id="n", type="regex-extract", version=1,
                        bindings={"text": Static("a1 b22 c333"), "pattern": Static(r"\d+")})],
         )
-        assert r["n"]["result"] == ["1", "22", "333"]
+        assert list(r["n"]["result"]) == ["1", "22", "333"]
 
     def test_extract_uses_first_group(self, full_registry):
         r = _run(
@@ -395,7 +395,7 @@ class TestRegex:
             [GraphNode(id="n", type="regex-extract", version=1,
                        bindings={"text": Static("name=Ada, age=36"), "pattern": Static(r"name=(\w+)")})],
         )
-        assert r["n"]["result"] == ["Ada"]
+        assert list(r["n"]["result"]) == ["Ada"]
 
 
 class TestIntegration:
