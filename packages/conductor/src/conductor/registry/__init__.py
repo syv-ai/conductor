@@ -162,39 +162,48 @@ class NodeRegistry:
     def upgraded(self, graph: Graph, node_id: str, *, to: int | None = None) -> Graph:
         """``graph`` with one node moved from the version it was saved at to ``to``, the current one by default.
 
-        Runs the node's ``@upgrade`` steps in order over its bindings and
-        sets its version; every edge elsewhere in the graph that read an
-        output a step renamed now reads the new name. A node already at
-        ``to`` returns ``graph`` itself. A version with no chain of steps to
-        ``to`` — a downgrade, or a definition a host handed over by value
-        with no steps — is a ``ValueError``; a node the graph does not have
-        is a ``KeyError``. The graph is not compiled here: a host compiles
-        the result to show the author what the new version makes of it.
+        Runs the node's ``@upgrade`` steps in order and sets its version.
+        Each step first moves the inputs it renames — binding, lock and
+        content — then rewrites the bindings, then moves the content of the
+        outputs it renames; every edge elsewhere in the graph that read a
+        renamed output now reads the new name. A node already at ``to``
+        returns ``graph`` itself. A definition that declares no steps at
+        all — one a host handed over by value, such as an embedded graph —
+        only has its version set: its bindings stay as saved, and compile
+        reports any the new version does not have. A downgrade, or a gap
+        in a class's chain, is a ``ValueError``; a node the graph does not
+        have, or a type this registry does not, is a ``KeyError``. The
+        graph is not compiled here: a host compiles the result to show the
+        author what the new version makes of it.
         """
         node = next((n for n in graph.nodes if n.id == node_id), None)
         if node is None:
             raise KeyError(f"{node_id!r} is not a node of this graph; it has {[n.id for n in graph.nodes]}")
-        node_cls = self._nodes[node.type]
+        node_cls = self[node.type]
         target = node_cls.current if to is None else to
         if target == node.version:
             return graph
-        steps = [node_cls.upgrades.get((n, n + 1)) for n in range(node.version, target)]
-        if target < node.version or None in steps:
+        if target < node.version:
             raise ValueError(f"{node.type!r} has no upgrade from version {node.version} to {target}")
-        values = {name: b.value if isinstance(b, Static) else b for name, b in node.bindings.items()}
-        #: Each output the chain renames, from its name at the saved version to its name at ``target``.
-        renamed: dict[str, str] = {}
+        if not node_cls.upgrades:
+            if target not in node_cls.versions:
+                raise ValueError(f"{node.type!r} has no version {target}; it has {sorted(node_cls.versions)}")
+            return graph.model_copy(update={
+                "nodes": tuple(n.model_copy(update={"version": target}) if n is node else n for n in graph.nodes),
+            })
+        steps = [node_cls.upgrades.get((n, n + 1)) for n in range(node.version, target)]
+        if None in steps:
+            raise ValueError(f"{node.type!r} has no upgrade from version {node.version} to {target}")
+        bindings, locked, fields = dict(node.bindings), node.locked, dict(node.fields)
         for step in steps:
-            values = step.rewrite(dict(values))
-            renamed = {old: step.outputs.get(now, now) for old, now in renamed.items()} | {
-                old: new for old, new in step.outputs.items() if old not in renamed.values()
-            }
-        moved = node.model_copy(update={
-            "version": target,
-            "bindings": {name: v if isinstance(v, From) else Static(v) for name, v in values.items()},
-        })
+            bindings, locked, fields = _renamed(bindings, step.inputs), _renamed_all(locked, step.inputs), _renamed(fields, step.inputs)
+            values = step.rewrite({name: b.value if isinstance(b, Static) else b for name, b in bindings.items()})
+            bindings = {name: v if isinstance(v, From) else Static(v) for name, v in values.items()}
+            fields = _renamed(fields, step.outputs)
+        moved = node.model_copy(update={"version": target, "bindings": bindings, "locked": locked, "fields": fields})
+        output_steps = [step.outputs for step in steps]
         return graph.model_copy(update={
-            "nodes": tuple(moved if n is node else _reading_renamed(n, node_id, renamed) for n in graph.nodes),
+            "nodes": tuple(moved if n is node else _reading_renamed(n, node_id, output_steps) for n in graph.nodes),
         })
 
     def extended_with(
@@ -350,11 +359,30 @@ def _declared_words(node_cls: type[NodeDefinition]) -> list[type[DType]]:
     return words
 
 
-def _reading_renamed(node: GraphNode, source: str, renamed: Mapping[str, str]) -> GraphNode:
-    """``node`` with every edge it has from ``source``'s renamed outputs pointing at the new names."""
+def _renamed(by_name: Mapping[str, Any], renames: Mapping[str, str]) -> dict[str, Any]:
+    """``by_name`` with each key a step renames under its new name."""
+    return {renames.get(name, name): value for name, value in by_name.items()}
+
+
+def _renamed_all(names: tuple[str, ...], renames: Mapping[str, str]) -> tuple[str, ...]:
+    """``names`` with each one a step renames replaced by its new name."""
+    return tuple(renames.get(name, name) for name in names)
+
+
+def _reading_renamed(node: GraphNode, source: str, output_steps: list[Mapping[str, str]]) -> GraphNode:
+    """``node`` with every edge it has from ``source`` pointing at the output's name after every step.
+
+    Each ref is taken through the steps one by one, so a later step that
+    reuses a name an earlier one renamed away does not catch it."""
+
+    def through(field: str) -> str:
+        for renames in output_steps:
+            field = renames.get(field, field)
+        return field
+
     bindings = {
         name: From(*(
-            Ref(source, renamed[ref.field]) if ref.node_id == source and ref.field in renamed else ref
+            Ref(source, through(ref.field)) if ref.node_id == source else ref
             for ref in binding.refs
         )) if isinstance(binding, From) else binding
         for name, binding in node.bindings.items()

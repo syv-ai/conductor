@@ -220,38 +220,56 @@ class Upgrade:
     over one node of a graph when a person asks for it; compile never
     upgrades, so a graph pinned at an old version runs that version.
 
-    ``rewrite`` takes the node's bindings as a dict, a typed-in value as
-    the value itself and an edge as its ``From`` record, and returns the
-    same shape for the new version: renaming an input moves its edge with
-    it. ``outputs`` maps an old output name to its new one, and the
-    registry rewrites every edge in the graph that read the old name.
+    ``inputs`` maps an old input name to its new one; the registry moves
+    the input's binding, its lock and its author-written content to the new
+    name before ``rewrite`` runs. ``rewrite`` then takes the node's
+    bindings as a dict, a typed-in value as the value itself and an edge as
+    its ``From`` record, and returns the same shape for the new version.
+    ``outputs`` maps an old output name to its new one, and the registry
+    moves the output's content and rewrites every edge in the graph that
+    read the old name.
     """
 
     rewrite: Callable[[dict[str, Any]], dict[str, Any]]
+    inputs: Mapping[str, str]
     outputs: Mapping[str, str]
 
 
 def upgrade(
-    from_version: int, to_version: int, *, outputs: Mapping[str, str] | None = None
+    from_version: int,
+    to_version: int,
+    *,
+    inputs: Mapping[str, str] | None = None,
+    outputs: Mapping[str, str] | None = None,
 ) -> Callable[[Callable[..., Any]], staticmethod]:
     """Mark a function as the rewrite from ``from_version`` to ``to_version``.
 
     It takes the bindings saved against the old version and returns the
     ones the new version expects — a typed-in value as itself, an edge as
-    its ``From``. ``outputs`` names the outputs the step renames, old to
-    new. A ``staticmethod``, because it rewrites data and has no instance
-    to consult::
+    its ``From``. ``inputs`` and ``outputs`` name the fields the step
+    renames, old to new; a renamed input arrives under its new name, with
+    its lock and content, so a step that only renames returns the values
+    as they are. A ``staticmethod``, because it rewrites data and has no
+    instance to consult::
 
         @upgrade(1, 2)
         def _split_name(values: dict) -> dict:
             first, _, last = values.pop("name").partition(" ")
             return {**values, "first": first, "last": last}
 
+        @upgrade(2, 3, inputs={"first": "given"}, outputs={"result": "text"})
+        def _rename(values: dict) -> dict:
+            return values
+
     ``to_version`` is ``from_version + 1``; a longer jump is a chain of steps.
     """
 
     def decorate(func: Callable[..., Any]) -> staticmethod:
-        func.__node_upgrade__ = (from_version, to_version, Upgrade(rewrite=func, outputs=dict(outputs or {})))
+        func.__node_upgrade__ = (
+            from_version,
+            to_version,
+            Upgrade(rewrite=func, inputs=dict(inputs or {}), outputs=dict(outputs or {})),
+        )
         return staticmethod(func)
 
     return decorate

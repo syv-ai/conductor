@@ -7,17 +7,19 @@ renamed. Compile never upgrades on its own; a graph pinned at an old
 version runs that version.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, ClassVar
 
 import pytest
 from conductor import NodeRegistry
 from conductor.dtype import DType
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
-from conductor.graph.model import Graph, GraphNode
-from conductor.metadata import Param, Result
-from conductor.node import NodeDefinition, upgrade, version
+from conductor.graph.model import FieldContent, Graph, GraphNode
+from conductor.interface import Interface
+from conductor.metadata import Input, Output, Param, Result
+from conductor.node import GraphVersion, NodeDefinition, upgrade, version
 from conductor.ref import Ref
 from conductor.widgets import Textarea
 
@@ -222,3 +224,121 @@ def test_compile_leaves_a_pinned_version_alone():
 
     assert compiled.node("r").version == Rename.versions[1]
     assert compiled.is_runnable, compiled.problems
+
+
+# --- what moves with a renamed field ---------------------------------------------
+
+
+class Renames(NodeDefinition):
+    """Version 2 renames the input ``name`` to ``full`` and the output ``result`` to ``text``."""
+
+    id = "renames"
+    title = "Renames"
+    description = "d"
+    category = "test"
+
+    @version(1)
+    def run_v1(self, name: Annotated[Txt, _param("Name")] = Txt("")) -> Annotated[Txt, Result(title="R")]:
+        return name
+
+    @version(2)
+    def run(self, full: Annotated[Txt, _param("Full")] = Txt("")) -> Named:
+        return Named(text=full)
+
+    @upgrade(1, 2, inputs={"name": "full"}, outputs={"result": "text"})
+    def _rename(values):
+        return values
+
+
+def test_a_renamed_input_takes_its_binding_lock_and_content_with_it():
+    registry = NodeRegistry([Echo, Renames])
+    graph = Graph(nodes=[
+        GraphNode(
+            id="r", type="renames", version=1, bindings={"name": Static("Ada")}, locked=("name",),
+            fields={"name": FieldContent(title="Navn"), "result": FieldContent(title="Resultat")},
+        ),
+        GraphNode(id="e", type="echo", version=1, bindings={"text": From(Ref("r", "result"))}),
+    ])
+
+    upgraded = registry.upgraded(graph, "r")
+
+    node = upgraded.nodes[0]
+    assert node.bindings == {"full": Static("Ada")}
+    assert node.locked == ("full",)
+    assert node.fields == {"full": FieldContent(title="Navn"), "text": FieldContent(title="Resultat")}
+    assert CompiledGraph.from_graph(upgraded, registry).problems == ()
+
+
+def test_a_later_step_reusing_a_renamed_away_name_does_not_catch_an_older_edge():
+    """Step 1 renames ``result`` to ``first``; step 2 brings back an output
+    named ``result`` and renames it to ``second``. An edge saved at version 1
+    read the output that is ``first`` now."""
+
+    class Reuse(NodeDefinition):
+        id = "reuse"
+        title = "Reuse"
+        description = "d"
+        category = "test"
+
+        @version(1)
+        def run_v1(self) -> Annotated[Txt, Result(title="R")]:
+            return Txt("")
+
+        @version(2)
+        def run_v2(self) -> Mapping[str, Txt]:
+            return {}
+
+        @version(3)
+        def run(self) -> Mapping[str, Txt]:
+            return {}
+
+        @upgrade(1, 2, outputs={"result": "first"})
+        def _one(values):
+            return values
+
+        @upgrade(2, 3, outputs={"result": "second"})
+        def _two(values):
+            return values
+
+        def compute_outputs(self, values, receives):
+            return ()
+
+    registry = NodeRegistry([Echo, Reuse])
+    graph = Graph(nodes=[
+        GraphNode(id="u", type="reuse", version=1),
+        GraphNode(id="e", type="echo", version=1, bindings={"text": From(Ref("u", "result"))}),
+    ])
+
+    upgraded = registry.upgraded(graph, "u")
+
+    assert upgraded.nodes[1].bindings["text"] == From(Ref("u", "first"))
+
+
+def test_a_definition_with_no_steps_only_has_its_version_set():
+    """An embedded graph arrives by value, one version per saved flow, with
+    no ``@upgrade`` to run: the node moves to the new version with its
+    bindings as saved, and compile says what the new version makes of them."""
+
+    def embedded(name: str) -> GraphVersion:
+        return GraphVersion(graph=(), interface=Interface(
+            inputs=(Input(name=name, dtype=Txt, title="T", widget=Textarea()),),
+            outputs=(Output(name="inner.result", dtype=Txt, title="R"),),
+            returns=Mapping,
+        ))
+
+    class Embedded(NodeDefinition):
+        id = "embedded"
+        title = "Embedded"
+        description = "d"
+        category = "test"
+        versions: ClassVar[dict[int, GraphVersion]] = {1: embedded("inner.text"), 2: embedded("inner.words")}
+
+    registry = NodeRegistry().extended_with({"embedded": Embedded})
+    graph = Graph(nodes=[GraphNode(id="f", type="embedded", version=1, bindings={"inner.text": Static("x")})])
+
+    upgraded = registry.upgraded(graph, "f")
+
+    assert upgraded.nodes[0].version == 2
+    assert upgraded.nodes[0].bindings == {"inner.text": Static("x")}
+    with pytest.raises(ValueError, match="no version 5"):
+        registry.upgraded(graph, "f", to=5)
