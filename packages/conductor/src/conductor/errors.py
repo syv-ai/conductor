@@ -74,6 +74,18 @@ class Refuses(ConductorError):
         super().__init__(message)
 
 
+class StartRefused(ConductorError, ValueError):
+    """A run cannot start from what its caller handed it: a ``cache`` or a ``record`` that does not fit the graph.
+
+    Raised by the ledger while it seeds a leg — an answer for a node the
+    graph does not have, an output left out or not declared, a value that
+    is not its output's type, a row the run has not produced, or a record
+    cell whose value does not read back as its field's type. The caller's
+    fault rather than the engine's, so a provider answers it as a 422; a
+    ``ValueError`` too, so a host that caught that before still does.
+    """
+
+
 class CompilationError(ConductorError):
     """A caller asked the engine to run a graph that compile rejected.
 

@@ -79,6 +79,38 @@ def test_a_cache_the_run_cannot_take_is_a_422_naming_why(client):
     assert resp.json()["detail"] == "'n1' has no output 'nope'"
 
 
+def test_a_cache_for_a_node_the_graph_does_not_have_is_a_422(client):
+    graph = {"nodes": [{"id": "n1", "type": "shout", "version": 1, "bindings": {"text": {"value": "hi"}}}]}
+    resp = client.post("/execute", json={"graph": graph, "cache": {"ghost": {"result": "x"}}})
+
+    assert resp.status_code == 422
+    assert "'ghost' is not a node of this graph" in resp.json()["detail"]
+
+
+def test_a_record_naming_a_node_the_graph_does_not_have_leaves_it_out(client):
+    graph = {"nodes": [{"id": "n1", "type": "shout", "version": 1, "bindings": {"text": {"value": "hi"}}}]}
+    record = {"cells": [{"ref": ["ghost", "result"], "row": None, "value": "x"}], "done_units": [["ghost", None]]}
+    resp = client.post("/execute", json={"graph": graph, "record": record})
+
+    assert resp.status_code == 200
+    assert resp.json()["type"] == "graph_complete"
+
+
+def test_an_error_that_is_not_a_refusal_stays_the_servers(client, monkeypatch):
+    """Only a refused graph or a refused cache or record is the caller's
+    fault; a ``ValueError`` from anywhere else is a bug and a 500."""
+    import conductor.execution.engine as engine
+
+    def broken(*args, **kwargs):
+        raise ValueError("a bug")
+
+    monkeypatch.setattr(engine._Leg, "__init__", broken)
+    graph = {"nodes": [{"id": "n1", "type": "shout", "version": 1, "bindings": {"text": {"value": "hi"}}}]}
+    resp = TestClient(client.app, raise_server_exceptions=False).post("/execute", json={"graph": graph})
+
+    assert resp.status_code == 500
+
+
 def test_the_entities_route_exists_only_with_a_resolver(client):
     assert client.get("/entities/document").status_code == 404
 

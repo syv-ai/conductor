@@ -6,7 +6,7 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from conductor import NodeRegistry
-from conductor.errors import CompilationError
+from conductor.errors import CompilationError, StartRefused
 from conductor.execution.engine import execute
 from conductor.execution.events import ExecutionEvent
 from conductor.graph.compiled import CompiledGraph
@@ -63,8 +63,9 @@ def conductor_router(
 
     A request the run cannot start from is the caller's fault and a 422:
     a graph with a fatal problem (``detail.problems``, the same records
-    ``/compile`` answers with) or a ``cache`` the run refuses (``detail`` is
-    the reason). ``/compile`` answers a broken graph with 200 and its
+    ``/compile`` answers with), or a ``cache`` or ``record`` the run refuses
+    (``StartRefused``; ``detail`` is the reason). Anything else raised
+    before the first event is the server's and stays a 500. ``/compile`` answers a broken graph with 200 and its
     problems, since describing it is what was asked.
     """
     router = APIRouter(
@@ -94,7 +95,7 @@ def conductor_router(
                 status_code=422,
                 detail={"message": "the graph cannot run", "problems": [p.model_dump(mode="json") for p in refused.problems]},
             ) from refused
-        except ValueError as refused:
+        except StartRefused as refused:
             raise HTTPException(status_code=422, detail=str(refused)) from refused
 
     @router.get("/nodes", response_model=list[NodeDescription])

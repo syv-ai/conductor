@@ -11,6 +11,7 @@ from conductor.errors import (
     NodeTimeoutError,
     NodeValidationError,
     Refuses,
+    StartRefused,
 )
 from conductor.execution.engine import execute, run, run_sync
 from conductor.graph.binding import Binding, From, Static

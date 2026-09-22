@@ -302,6 +302,29 @@ def test_a_misspelled_output_in_the_cache_names_the_node_and_the_output():
         _leg(compiled, cache={"e": {}})
 
 
+def test_a_cache_for_a_node_the_graph_does_not_have_is_refused():
+    import pytest
+    from conductor import StartRefused
+
+    compiled = _compiled([GraphNode(id="e", type="echo", version=1, bindings={"text": Static("x")})])
+
+    with pytest.raises(StartRefused, match=r"'ghost' is not a node of this graph"):
+        _leg(compiled, cache={"ghost": {"result": Txt("y")}})
+
+
+def test_a_record_cell_that_does_not_read_back_as_its_type_is_refused():
+    import pytest
+    from conductor import StartRefused
+
+    compiled = _compiled([GraphNode(id="e", type="echo", version=1, bindings={"text": Static("x")})])
+    record = _leg(compiled)[-1]["record"]
+    dumped = record.model_dump()
+    dumped["cells"] = [{**cell, "value": {"not": "text"}} for cell in dumped["cells"]]
+
+    with pytest.raises(StartRefused, match=r"e\.result"):
+        _leg(compiled, record=RunRecord.model_validate(dumped))
+
+
 def test_an_answer_decodes_through_the_codec_by_the_outputs_type():
     """A host may hand an answer in wire form — as it came over HTTP — or as
     the typed value; both land as the type the output declares, and a
