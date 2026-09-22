@@ -5,6 +5,8 @@ description = "Reusable DAG execution engine — a typed node contract, graph co
 requires-python = ">=3.12"
 authors = [{ name = "Syvai", email = "billy@syv.ai" }]
 license = "Apache-2.0"
+license-files = ["LICENSE"]
+readme = "README.md"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",

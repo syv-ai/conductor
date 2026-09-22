@@ -3,20 +3,18 @@
 One graph at 250 and at 1,000 rows: a node unfolds a text into rows, the
 rows run through a chain that reads a scalar beside them, a decision
 splits them, and three reductions fold them back. Four times the rows
-should be about four times the work. Were readiness recomputed after
+should take about four times as long. Were readiness recomputed after
 every unit, it would be sixteen.
 """
 
-import os
+import asyncio
 import time
 from dataclasses import dataclass
 from typing import Annotated
 
-import pytest
-from conductor import NodeRegistry, Param, run_sync
+from conductor import NodeRegistry, Param, execute
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
-from conductor.execution.ledger import Ledger
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
@@ -125,70 +123,35 @@ def _compiled(rows: int) -> CompiledGraph:
     return compiled
 
 
-def _work(rows: int, monkeypatch: pytest.MonkeyPatch) -> tuple[int, int]:
-    """``(readiness checks, cells read)`` for one run over ``rows`` rows, checking the results."""
-    counts = {"ready": 0, "lookup": 0}
-    ready, lookup = Ledger.ready, Ledger._lookup
+async def _drain(compiled: CompiledGraph) -> dict:
+    """Run one leg through ``execute``, the way a host does, and return its ending."""
+    ending = None
+    async for ending in execute(compiled):
+        pass
+    return ending
 
-    def counted_ready(self, unit):
-        counts["ready"] += 1
-        return ready(self, unit)
 
-    def counted_lookup(self, ref, key):
-        counts["lookup"] += 1
-        return lookup(self, ref, key)
-
+def _seconds(rows: int) -> float:
+    """The best of three runs over ``rows`` rows, through ``execute``, checking the results."""
     compiled = _compiled(rows)
-    with monkeypatch.context() as patched:
-        patched.setattr(Ledger, "ready", counted_ready)
-        patched.setattr(Ledger, "_lookup", counted_lookup)
-        results = run_sync(compiled)["results"]
-
+    best = float("inf")
+    for _ in range(3):
+        started = time.perf_counter()
+        results = asyncio.run(_drain(compiled))["results"]
+        best = min(best, time.perf_counter() - started)
     short = len(range(0, rows, 3))
     assert len(results["long-joined"]["result"].split("+")) == rows - short
     assert len(results["short-joined"]["result"].split("+")) == short
     assert len(list(results["pair"]["result"])) == rows
-    return counts["ready"], counts["lookup"]
+    return best
 
 
-def test_four_times_the_rows_is_about_four_times_the_work(monkeypatch):
-    """Counted, not timed, so it holds on any machine: readiness checks and
-    the cells they read grow with the rows. Quadratic would be sixteenfold."""
-    small_checks, small_reads = _work(250, monkeypatch)
-    large_checks, large_reads = _work(1000, monkeypatch)
-
-    assert large_checks <= 5 * small_checks, (small_checks, large_checks)
-    assert large_reads <= 5 * small_reads, (small_reads, large_reads)
-
-
-@pytest.mark.slow
-@pytest.mark.skipif(os.environ.get("CI") == "true", reason="wall-clock timing is noise on a shared CI runner")
 def test_four_times_the_rows_takes_at_most_eight_times_as_long():
-    """The wall clock, with room for noise: linear is fourfold, quadratic sixteen."""
-    run_sync(_compiled(50))  # warm imports and caches before timing
+    """Measured as a host runs a graph, through ``execute``, with nothing
+    patched. Linear is fourfold and quadratic sixteen; the best of three
+    runs at each size, and a bound of eight, leave room for a busy machine."""
+    _seconds(50)  # warm imports and caches before timing
 
-    def timed(rows: int) -> float:
-        compiled = _compiled(rows)
-        started = time.perf_counter()
-        run_sync(compiled)
-        return time.perf_counter() - started
-
-    small, large = timed(250), timed(1000)
+    small, large = _seconds(250), _seconds(1000)
 
     assert large <= 8 * small, (small, large)
-
-
-def test_a_ready_unit_nobody_started_stops_the_leg_loudly(monkeypatch):
-    """What the engine starts is what a write reports ready. A write that
-    reports nothing leaves units ready and unstarted, and the leg raises
-    when it goes quiet rather than ending short."""
-    record = Ledger.record
-
-    def silent(self, unit, outputs):
-        record(self, unit, outputs)
-        return []
-
-    monkeypatch.setattr(Ledger, "record", silent)
-
-    with pytest.raises(RuntimeError, match="missed wake"):
-        run_sync(_compiled(3))

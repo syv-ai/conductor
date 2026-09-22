@@ -5,6 +5,8 @@ description = "Standard-library nodes for conductor — text, math, logic, JSON,
 requires-python = ">=3.12"
 authors = [{ name = "Syvai", email = "billy@syv.ai" }]
 license = "Apache-2.0"
+license-files = ["LICENSE"]
+readme = "README.md"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -14,13 +16,13 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "syv-conductor",
+    "syv-conductor==2.0.0",
     "pydantic>=2.11",
     "regex>=2024.11.6",
 ]
 
 [project.urls]
-Repository = "https://github.com/syvai/conductor"
+Repository = "https://github.com/syv-ai/conductor"
 
 [build-system]
 requires = ["hatchling"]
