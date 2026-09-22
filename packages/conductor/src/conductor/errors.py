@@ -69,6 +69,15 @@ class CompilationError(ConductorError):
         self.problems = problems
         super().__init__(message)
 
+    def __str__(self) -> str:
+        """The message, then one line per fatal problem: where, its code, what it says."""
+        lines = [
+            f"  {p.node_id}{'' if p.field is None else '.' + p.field} — {p.code}: {p.message}"
+            for p in self.problems if p.fatal
+        ]
+        head = super().__str__()
+        return head if not lines else "\n".join([f"{head}:", *lines])
+
 
 #: Every ``ErrorCause.code`` the engine itself emits, declared once. A host
 #: that translates causes by code covers exactly these; a code a node

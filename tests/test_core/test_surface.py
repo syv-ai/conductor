@@ -147,3 +147,21 @@ def test_a_registry_prints_a_call_its_constructor_accepts():
 
     assert registry.nodes == (Scale, Shaped)
     assert repr(registry).startswith("NodeRegistry(nodes=(\n    Scale(id='scale'")
+
+
+# --- an error's text names what went wrong (F5) ---------------------------------------
+
+
+def test_a_compilation_error_lists_its_fatal_problems():
+    """It used to say only 'the graph cannot run'; the problems were on an attribute."""
+    from conductor import run_sync
+    from conductor.errors import CompilationError
+
+    compiled = _compiled(GraphNode(id="s", type="scale", version=1, bindings={"facter": Static(value="3")}))
+    with pytest.raises(CompilationError) as raised:
+        run_sync(compiled)
+
+    assert str(raised.value) == (
+        "the graph cannot run:\n"
+        "  s.facter — stale_binding: Field 'facter' is not an input of the node; it has factor, value."
+    )
