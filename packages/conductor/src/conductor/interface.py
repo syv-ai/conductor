@@ -230,21 +230,27 @@ def model_of(inputs: tuple[Input, ...]) -> type[BaseModel]:
 
     A field is the input's own name, except where ``BaseModel`` already
     has that name (``schema``, ``json``, ``model_config``): that input gets
-    a field of its own naming, ``field_<n>``, and is taken by its name as the
-    alias, so it neither shadows the model nor warns. Read the values back
-    by alias where there is one (``CompiledNode.validate`` does).
+    the field ``schema_`` — its name with underscores added until no
+    ``BaseModel`` attribute and no other input has it — and is taken by its
+    name as the alias, so it neither shadows the model nor collides with an
+    input really named ``schema_``. Read the values back by alias where there
+    is one (``CompiledNode.validate`` does).
     """
+    taken = {inp.name for inp in inputs}
+    fields: dict[str, Any] = {}
+    for inp in inputs:
+        field_name = inp.name
+        while hasattr(BaseModel, field_name) or (field_name != inp.name and field_name in taken):
+            field_name += "_"
+        taken.add(field_name)
+        alias = None if field_name == inp.name else inp.name
+        fields[field_name] = (inp.dtype, Field(inp.default if inp.optional else ..., alias=alias))
     return create_model(
         "Inputs",
         __config__=ConfigDict(extra="ignore", arbitrary_types_allowed=True),
-        **{
-            (f"field_{n}" if hasattr(BaseModel, inp.name) else inp.name): (
-                inp.dtype,
-                Field(inp.default if inp.optional else ..., alias=inp.name if hasattr(BaseModel, inp.name) else None),
-            )
-            for n, inp in enumerate(inputs)
-        },
+        **fields,
     )
+
 
 def _refuse_name(name: str) -> None:
     """Refuse a parameter name no input can carry: one starting with an

@@ -202,7 +202,7 @@ def test_a_closed_param_may_declare_a_static_type():
     assert inp.dtype is Schema
     # ``schema`` is a name ``BaseModel`` has, so the model keeps it under a
     # field of its own naming and takes it by alias.
-    assert isinstance(dict(model_of((inp,))(schema={"fields": ("a",)}))["field_0"], Schema)
+    assert isinstance(dict(model_of((inp,))(schema={"fields": ("a",)}))["schema_"], Schema)
     assert TypeAdapter(type(inp)).dump_python(inp, mode="json")["dtype"] is None
 
 
