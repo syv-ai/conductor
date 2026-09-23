@@ -11,7 +11,7 @@ Two nodes: one written for a single value, one for a whole series. That differen
 ```python
 from typing import Annotated
 
-from conductor import CompiledGraph, DType, From, Graph, GraphNode, NodeDefinition, NodeRegistry, Param, Result, Series, Static, run
+from conductor import CompiledGraph, DType, From, Graph, GraphNode, NodeDefinition, NodeRegistry, Param, Result, Series, run
 from conductor.widgets import Textarea
 
 
@@ -45,15 +45,17 @@ registry.register(Upper)
 registry.register(Join)
 
 graph = Graph(nodes=[
-    GraphNode(id="upper", type="upper", version=1, bindings={"text": Static(["a", "b", "c"])}),
+    GraphNode(id="upper", type="upper", version=1),
     GraphNode(id="join", type="join", version=1, bindings={"texts": From("upper.result")}),
 ])
-compiled = CompiledGraph.from_graph(graph, registry)
-assert compiled.is_runnable, compiled.problems
+compiled = CompiledGraph.from_graph(graph, registry)   # upper.text is the graph's one open input
+ready = compiled.with_inputs(text=["a", "b", "c"])     # filled by name; by address, **{"upper.text": ...}
+assert ready.is_runnable, ready.problems
 
-ending = await run(compiled)       # a notebook cell; from a script, run_sync(compiled) — the same ending event
-results = ending.state.results(compiled)   # the ending carries the run's state; the compiled graph reads it
-list(results["upper"]["result"])   # ["A", "B", "C"] — three values typed into one input: it ran once per value
+ending = await run(ready)          # a notebook cell; from a script, run_sync(ready) — the same ending event
+results = ending.state.results(ready)   # every node's outputs, by node id, read from the run's state
+ready.outputs(results)             # {"join.result": "A+B+C"} — what the graph returns, by address
+list(results["upper"]["result"])   # ["A", "B", "C"] — three values into one input: it ran once per value
 results["join"]["result"]          # "A+B+C" — Series[Text] received the whole series, once
 ```
 
@@ -283,6 +285,11 @@ Everything else is imported from the module that defines it.
 - `run_sync(compiled, **kwargs)` — `run` under `asyncio.run`, for a script or a test; under a running loop (a notebook, a server) it refuses, naming `await conductor.run(...)`.
 
 All three are root exports: `from conductor import execute, run, run_sync`.
+
+### A compiled graph's interface, from each side
+
+- `compiled.with_inputs(**inputs)` — a copy with those inputs filled as `Static`s, compiled again; `run` takes it. A keyword is an input's bare field name when no other input has it, else its address (`**{"a.text": ...}`); an input inside an embedded graph is named by address only. A name the interface does not offer is a `TypeError` listing the names it does.
+- `compiled.outputs(results)` — `interface.outputs` from any ending's `results`, keyed by address; an output not produced, or skipped, is absent.
 
 ### conductor.errors
 

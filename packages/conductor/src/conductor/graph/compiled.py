@@ -65,6 +65,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
 
+from conductor._sentinel import is_skipped
 from conductor.codec import to_wire
 from conductor.graph.binding import Binding, Static
 from conductor.graph.expand import expanded_ref
@@ -115,7 +116,7 @@ class CompiledGraph:
 
     #: The graph as the author saved it, and the registry it was compiled
     #: against: kept so a compiled graph can produce another from the same
-    #: two (``bound``), never read back for what compile already learned.
+    #: two (``with_inputs``), never read back for what compile already learned.
     _graph: Graph
     _registry: NodeRegistry
     _nodes: Mapping[str, GraphNode]
@@ -200,6 +201,76 @@ class CompiledGraph:
         A host reads engine results by the expanded address, since the
         engine knows only the expanded graph."""
         return expanded_ref(ref, self._placements)
+
+    # -- the interface, from each side --------------------------------------------
+
+    def with_inputs(self, **inputs: Any) -> CompiledGraph:
+        """This graph with some of its inputs filled, compiled again: what ``run`` takes to run it with those values.
+
+        Each keyword names an input of ``interface.inputs``: by its bare
+        field name (``text=...``) when no other input has that name, else
+        by its address (``**{"a.text": ...}``); an input inside an embedded
+        graph has a dotted field name and is named by address only. A name
+        the interface does not offer — unknown, locked, fed by an edge, or
+        shared by several inputs — is a ``TypeError`` that lists the names
+        it does offer. Each value becomes a ``Static`` on its input in a
+        copy of the authored graph, which compiles against the same
+        registry, so compile is what reads it: a list on an input for one
+        value runs the graph once per item, a value the type cannot read is
+        ``invalid_static``. The copy still offers every input: a static is a
+        value a caller may answer over, so filling an input again replaces it.
+
+        Not a run, and it validates nothing itself. ``Ledger.inject`` is the
+        different act of recording a node's *outputs* from ``cache``.
+        """
+        offered = [inp.name for inp in self.interface.inputs]
+        filled: dict[str, dict[str, Static]] = {}
+        for name, value in inputs.items():
+            ref = self._offered(name, offered)
+            filled.setdefault(ref.node_id, {})[ref.field] = Static(value)
+        graph = self._graph.model_copy(update={"nodes": tuple(
+            node.model_copy(update={"bindings": {**node.bindings, **filled.get(node.id, {})}})
+            for node in self._graph.nodes
+        )})
+        return CompiledGraph.from_graph(graph, self._registry)
+
+    def _offered(self, name: str, offered: list[Ref]) -> Ref:
+        """The input a keyword to ``with_inputs`` names, or a ``TypeError`` listing what is offered."""
+        listing = ", ".join(str(ref) for ref in offered) if offered else "none"
+        if "." in name:
+            ref = Ref(name)
+            if ref in offered:
+                return ref
+            raise TypeError(f"{name!r} is not an input this graph offers; it offers {listing}"
+                            if offered else f"{name!r}: this graph takes no inputs")
+        matches = [ref for ref in offered if ref.field == name]
+        if len(matches) == 1:
+            return matches[0]
+        if matches:
+            both = ", ".join(str(ref) for ref in matches)
+            raise TypeError(f"{name!r} is an input of several nodes ({both}); name one by its address")
+        raise TypeError(f"{name!r} is not an input this graph offers; it offers {listing}"
+                        if offered else f"{name!r}: this graph takes no inputs")
+
+    def outputs(self, results: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+        """What the graph returns, from a leg's ``results``: each output of ``interface.outputs``, keyed by address.
+
+        ``results`` is keyed by expanded node id, the way the engine knows
+        the graph; an output inside an embedded graph is looked up on the
+        inner node that produced it (``emb.up.result`` on ``emb/up``). An
+        output whose node did not run, or that the node skipped, is absent,
+        so any ending's ``results`` reads — a failed or paused leg returns
+        what it did produce. A single value is a value; one with many rows
+        is a ``Series``.
+        """
+        returned: dict[str, Any] = {}
+        for output in self.interface.outputs:
+            at = self.expanded(output.name)
+            produced = results.get(at.node_id)
+            if produced is None or at.field not in produced or is_skipped(produced[at.field]):
+                continue
+            returned[str(output.name)] = produced[at.field]
+        return returned
 
     # -- the run ------------------------------------------------------------------
 
