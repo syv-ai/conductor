@@ -290,6 +290,7 @@ All three are root exports: `from conductor import execute, run, run_sync`.
 
 - `compiled.with_inputs(**inputs)` — a copy with those inputs filled as `Static`s, compiled again; `run` takes it. A keyword is an input's bare field name when no other input has it, else its address (`**{"a.text": ...}`); an input inside an embedded graph is named by address only. A name the interface does not offer is a `TypeError` listing the names it does.
 - `compiled.outputs(results)` — `interface.outputs` from any ending's `results`, keyed by address; an output not produced, or skipped, is absent.
+- `compiled.graph` — the authored graph it was compiled from, with the values `with_inputs` filled: what a host stores as what ran.
 
 ### conductor.errors
 

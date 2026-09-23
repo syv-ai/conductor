@@ -118,6 +118,16 @@ def test_a_bare_name_fills_the_one_input_that_has_it():
     assert _outputs(ready) == {"a.result": "HI"}
 
 
+def test_the_copy_carries_the_authored_graph_with_the_value_on_it():
+    """A host stores what ran; the graph it was compiled from is on the copy, the original untouched."""
+    compiled = _compiled(GraphNode(id="a", type="upper", version=1))
+
+    ready = compiled.with_inputs(text="hi")
+
+    assert ready.graph.nodes[0].bindings == {"text": Static("hi")}
+    assert compiled.graph.nodes[0].bindings == {}
+
+
 def test_a_filled_input_stays_offered_and_filling_it_again_overrides_it():
     """A static is a value a caller may answer over, so the copy still offers the input."""
     compiled = _compiled(GraphNode(id="a", type="upper", version=1))
@@ -186,6 +196,15 @@ def test_outputs_leave_out_a_skipped_output_and_read_what_a_failed_leg_produced(
     ending = run_sync(failed)
     assert isinstance(ending, GraphErrorEvent)
     assert failed.outputs(ending.results) == {"a.result": "OK"}
+
+
+def test_an_output_missing_from_a_node_that_ran_raises():
+    """Compile refused a graph naming a field that does not exist, so a node
+    that ran without it is a defect, not an absence to paper over."""
+    compiled = _compiled(GraphNode(id="a", type="upper", version=1))
+
+    with pytest.raises(KeyError, match="result"):
+        compiled.outputs({"a": {}})
 
 
 def test_two_fillings_are_two_graphs_with_two_fingerprints():

@@ -106,7 +106,7 @@ class CompiledGraph:
     ``field`` for everything it draws), and anything deciding whether a
     run may start (``is_runnable``).
 
-    Two attributes are public, ``interface`` and ``problems``; every other
+    Three attributes are public, ``graph``, ``interface`` and ``problems``; every other
     attribute is private and read through the methods here and through
     ``node`` and ``field``. A node compile could not resolve — unknown type
     or version — or could not order — on a cycle — has a fatal ``Problem``
@@ -114,10 +114,8 @@ class CompiledGraph:
     raises, and an editor paints it from ``problems`` alone.
     """
 
-    #: The graph as the author saved it, and the registry it was compiled
-    #: against: kept so a compiled graph can produce another from the same
-    #: two (``with_inputs``), never read back for what compile already learned.
-    _graph: Graph
+    #: The registry the graph was compiled against, kept so a compiled
+    #: graph can produce another (``with_inputs``).
     _registry: NodeRegistry
     _nodes: Mapping[str, GraphNode]
     _versions: Mapping[str, NodeVersion | GraphVersion]
@@ -148,6 +146,10 @@ class CompiledGraph:
     #: reads from, both named by address (``"node.field"``); ``returns`` is
     #: ``Mapping``.
     interface: Interface
+    #: The graph as the author saved it — with the values ``with_inputs``
+    #: filled, on a copy it made — which a host stores as what ran. Not read
+    #: back for what compile learned: ask ``node`` and ``field`` for that.
+    graph: Graph
     #: Everything wrong with the graph, fatal or not, each on the node and
     #: field it is about. Anchored on the authored graph: a problem found
     #: inside an embedded graph sits on the node the author placed, with the
@@ -228,9 +230,9 @@ class CompiledGraph:
         for name, value in inputs.items():
             ref = self._offered(name, offered)
             filled.setdefault(ref.node_id, {})[ref.field] = Static(value)
-        graph = self._graph.model_copy(update={"nodes": tuple(
+        graph = self.graph.model_copy(update={"nodes": tuple(
             node.model_copy(update={"bindings": {**node.bindings, **filled.get(node.id, {})}})
-            for node in self._graph.nodes
+            for node in self.graph.nodes
         )})
         return CompiledGraph.from_graph(graph, self._registry)
 
@@ -261,22 +263,25 @@ class CompiledGraph:
         output whose node did not run, or that the node skipped, is absent,
         so any ending's ``results`` reads — a failed or paused leg returns
         what it did produce. A single value is a value; one with many rows
-        is a ``Series``.
+        is a ``Series``. A node that ran without an output it declares
+        raises ``KeyError``: compile refused a graph naming a field that does
+        not exist, so that is a defect, not an absence.
         """
         returned: dict[str, Any] = {}
         for output in self.interface.outputs:
             at = self.expanded(output.name)
-            produced = results.get(at.node_id)
-            if produced is None or at.field not in produced or is_skipped(produced[at.field]):
+            if at.node_id not in results:
                 continue
-            returned[str(output.name)] = produced[at.field]
+            value = results[at.node_id][at.field]
+            if not is_skipped(value):
+                returned[str(output.name)] = value
         return returned
 
     # -- the run ------------------------------------------------------------------
 
     def __repr__(self) -> str:
         """One line: the nodes the author placed, whether it runs, how many problems."""
-        placed = tuple(node.id for node in self._graph.nodes)
+        placed = tuple(node.id for node in self.graph.nodes)
         return f"CompiledGraph(nodes={placed!r}, is_runnable={self.is_runnable}, problems={len(self.problems)})"
 
     @property
