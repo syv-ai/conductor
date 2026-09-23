@@ -28,7 +28,8 @@ from typing import Any
 from pydantic import TypeAdapter, ValidationError
 
 from conductor.dtype_ref import name_of
-from conductor.graph.binding import Edges, static_values
+from conductor.errors import Refuses
+from conductor.graph.binding import From, static_values
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.conditions import Condition, conditions_of
 from conductor.graph.expand import SEPARATOR, Expansion, authored_ref, expand, surfaced
@@ -39,7 +40,7 @@ from conductor.graph.topology import dependencies_of, order_of
 from conductor.graph.views import derive_interface, field_problems, lock_problems
 from conductor.interface import Interface, model_of
 from conductor.metadata import Input
-from conductor.node import GraphVersion, NodeVersion, Refuses
+from conductor.node import GraphVersion, NodeDefinition, NodeVersion
 from conductor.ref import Ref
 from conductor.registry import NodeRegistry
 from conductor.series import Series
@@ -163,7 +164,7 @@ class _Compilation:
     def pin(self) -> None:
         """The version each node uses, looked up once, here.
 
-        A node stores a ``type`` and a ``version`` number; ``registry.get(type)``
+        A node stores a ``type`` and a ``version`` number; ``registry[type]``
         gives the definition and ``definition.versions[version]`` the version
         record. A stored graph can name a type the catalog has since lost or a
         version the class has since dropped, so either miss is a problem on
@@ -171,11 +172,10 @@ class _Compilation:
         an embedded graph — which ``expand`` inlines.
         """
         for node in self.authored.values():
-            definition = self.registry.get(node.type)
-            if definition is None:
+            if node.type not in self.registry:
                 self.problems.append(problem("unknown_node_type", node.id, node_type=node.type))
                 continue
-            version = definition.versions.get(node.version)
+            version = self.registry[node.type].versions.get(node.version)
             if version is None:
                 self.problems.append(
                     problem("unknown_node_version", node.id, node_type=node.type, version=node.version)
@@ -230,7 +230,7 @@ class _Compilation:
         """
         for node_id, version in self.expansion.versions.items():
             node = self.expansion.nodes[node_id]
-            instance = self.registry.get(node.type)()
+            instance = self.registry[node.type]()
             defaults = {i.name: i.default for i in version.interface.inputs if i.optional}
             for_hook, _, _ = self._typed_statics(version.interface.inputs, node)
             try:
@@ -249,7 +249,7 @@ class _Compilation:
                 inputs = (*inputs, *(
                     Input(name=name, dtype=shape, title=name)
                     for name, binding in node.bindings.items()
-                    if name not in named and isinstance(binding, Edges)
+                    if name not in named and isinstance(binding, From)
                 ))
             self.interfaces[node_id] = replace(version.interface, inputs=inputs)
             self.statics[node_id] = typed
@@ -259,8 +259,9 @@ class _Compilation:
         """Check the stored bindings against the inputs each node actually has, and those inputs against the field rules.
 
         Reports a lock on a field the node does not have (``unknown_locked_field``,
-        not fatal), a binding on a field the node does not have (``stale_binding``,
-        not fatal), an edge into an input that cannot be connected
+        not fatal), a binding on a field the node does not have (``stale_binding``:
+        fatal, a typo that would otherwise run with the default, unless the
+        node's ``compute_inputs`` makes its fields come and go), an edge into an input that cannot be connected
         (``show_handle=False``), an edge from a node that does not exist, an
         edge into a field an embedded graph does not have, and a required
         input nothing binds (``unbound_required``). A parameter typed ``Any``
@@ -289,9 +290,12 @@ class _Compilation:
 
             for name, binding in node.bindings.items():
                 if name not in declared:
-                    self.problems.append(problem("stale_binding", node_id, name))
+                    dead = problem("stale_binding", node_id, name, inputs=", ".join(sorted(declared)) or "none")
+                    if self.registry[node.type].compute_inputs is not NodeDefinition.compute_inputs:
+                        dead = dead.model_copy(update={"fatal": False})
+                    self.problems.append(dead)
                     continue
-                if not isinstance(binding, Edges):
+                if not isinstance(binding, From):
                     continue
                 target = declared[name]
                 if not target.show_handle:
@@ -311,7 +315,7 @@ class _Compilation:
 
             for inp in interface.inputs:
                 if inp.dtype is Any:
-                    if not isinstance(node.bindings.get(inp.name), Edges):
+                    if not isinstance(node.bindings.get(inp.name), From):
                         broken.add(node_id)
                         self.problems.append(problem("unbound_required", node_id, inp.name))
                 elif not inp.optional and inp.name not in node.bindings:

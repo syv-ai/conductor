@@ -43,7 +43,7 @@ def _compiled() -> CompiledGraph:
     registry = NodeRegistry()
     registry.register(Upper)
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[GraphNode(id="u", type="upper", version=1, bindings={"text": Static(value="hi")})]), registry
+        Graph(nodes=[GraphNode(id="u", type="upper", version=1, bindings={"text": Static("hi")})]), registry
     )
     assert compiled.is_runnable, compiled.problems
     return compiled

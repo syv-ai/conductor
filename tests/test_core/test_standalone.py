@@ -16,10 +16,9 @@ import tomllib
 from pathlib import Path
 
 import pytest
-from conductor.graph.binding import Edges, Static
+from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
-from conductor.ref import Ref
 
 PACKAGES = Path(__file__).resolve().parents[2] / "packages"
 SOURCES = sorted(
@@ -31,7 +30,7 @@ SOURCES = sorted(
 #: comes with pydantic). The core imports no other package of the three.
 IMPORTS = {
     "conductor": {"conductor", "pydantic", "pydantic_core", "yaml"},
-    "conductor-nodes": {"conductor_nodes", "conductor", "pydantic", "pydantic_core"},
+    "conductor-nodes": {"conductor_nodes", "conductor", "pydantic", "pydantic_core", "regex"},
     "conductor-providers": {"conductor_providers", "conductor", "pydantic", "pydantic_core", "fastapi"},
 }
 
@@ -39,7 +38,7 @@ IMPORTS = {
 #: there fails here until it is listed, so a host's package cannot arrive unseen.
 DISTRIBUTIONS = {
     "conductor": {"pydantic", "pyyaml", "syv-conductor-nodes", "syv-conductor-providers"},
-    "conductor-nodes": {"syv-conductor", "pydantic"},
+    "conductor-nodes": {"syv-conductor", "pydantic", "regex"},
     "conductor-providers": {"syv-conductor", "fastapi", "pydantic"},
 }
 
@@ -217,9 +216,9 @@ def test_an_iteration_and_a_reduction_run_on_the_standard_nodes_alone():
 
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
-            GraphNode(id="split", type="text-split", version=1, bindings={"text": Static(value="a,b,c")}),
-            GraphNode(id="upper", type="text-uppercase", version=1, bindings={"text": Edges(refs=(Ref("split", "result"),))}),
-            GraphNode(id="join", type="text-join", version=1, bindings={"parts": Edges(refs=(Ref("upper", "result"),)), "separator": Static(value="+")}),
+            GraphNode(id="split", type="text-split", version=1, bindings={"text": Static("a,b,c")}),
+            GraphNode(id="upper", type="text-uppercase", version=1, bindings={"text": From("split.result")}),
+            GraphNode(id="join", type="text-join", version=1, bindings={"parts": From("upper.result"), "separator": Static("+")}),
         ]),
         conductor_nodes.registry(),
     )

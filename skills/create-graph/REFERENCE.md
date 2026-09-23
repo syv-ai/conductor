@@ -7,7 +7,7 @@ import asyncio
 from typing import Annotated
 
 import conductor_nodes
-from conductor import Asks, CompiledGraph, Edges, Graph, GraphNode, Input, NodeDefinition, Param, Ref, Result, run, run_sync, Series, Static
+from conductor import Asks, CompiledGraph, From, Graph, GraphNode, Input, NodeDefinition, Param, Ref, Result, run, run_sync, Series, Static
 from conductor.execution.engine import execute
 from conductor.widgets import Textarea
 from conductor_nodes.types import Text
@@ -21,7 +21,7 @@ registry = conductor_nodes.registry(categories=["text"])
 
 ```python
 broken = CompiledGraph.from_graph(
-    Graph(nodes=[GraphNode(id="loud", type="text-uppercase", version=1, bindings={"text": Edges(refs=(Ref("ghost", "result"),))})]),
+    Graph(nodes=[GraphNode(id="loud", type="text-uppercase", version=1, bindings={"text": From("ghost.result")})]),
     registry,
 )
 assert not broken.is_runnable
@@ -32,7 +32,7 @@ Key on `code`, never on the message. `conductor.graph.problem.CATALOGUE` lists e
 
 The compiled graph is asked at three scales:
 
-- **The graph:** `problems`, `is_runnable`, `interface` (what the graph takes and returns, named by address), `execution_order()`, `decisions()`.
+- **The graph:** `problems`, `is_runnable`, `interface` (what the graph takes and returns, named by address), `execution_order`, `decisions`.
 - **One node:** `compiled.node(node_id)` gives `interface` (with every type the edges gave it), `iterates_on` (the `Index` it runs once per row of, or `None`), `statics`, `dependencies`, `version`, `embedded_in`, `problems`.
 - **One field:** `compiled.field(Ref(node_id, name))` gives `type`, `index`, `binding`, `condition`, `problems`.
 
@@ -45,9 +45,9 @@ A series arriving on an input declared for one value runs the node once per row;
 ```python
 rows = CompiledGraph.from_graph(
     Graph(nodes=[
-        GraphNode(id="words", type="text-split", version=1, bindings={"text": Static(value="red,green,blue")}),
-        GraphNode(id="loud", type="text-uppercase", version=1, bindings={"text": Edges(refs=(Ref("words", "result"),))}),
-        GraphNode(id="joined", type="text-join", version=1, bindings={"parts": Edges(refs=(Ref("loud", "result"),))}),
+        GraphNode(id="words", type="text-split", version=1, bindings={"text": Static("red,green,blue")}),
+        GraphNode(id="loud", type="text-uppercase", version=1, bindings={"text": From("words.result")}),
+        GraphNode(id="joined", type="text-join", version=1, bindings={"parts": From("loud.result")}),
     ]),
     registry,
 )
@@ -114,8 +114,8 @@ registry.register(Approve)
 
 asking = CompiledGraph.from_graph(
     Graph(nodes=[
-        GraphNode(id="drafts", type="text-split", version=1, bindings={"text": Static(value="first,second")}),
-        GraphNode(id="approve", type="approve", version=1, bindings={"proposal": Edges(refs=(Ref("drafts", "result"),))}),
+        GraphNode(id="drafts", type="text-split", version=1, bindings={"text": Static("first,second")}),
+        GraphNode(id="approve", type="approve", version=1, bindings={"proposal": From("drafts.result")}),
     ]),
     registry,
 )
@@ -145,7 +145,7 @@ assert list(done["results"]["approve"]["result"]) == ["First, approved", "Second
 - For a node that runs once, the answer is the value itself: `cache={"approve": {"result": Text("Yes")}}`.
 - A row the answer does not name keeps what it has: done stays done, and a waiting row asks again.
 - Answering a unit already done, or a row the run has not produced, raises `ValueError`.
-- `record` is a `RunRecord`, JSON through `model_dump()`: a host stores it with the run and hands it back; a node the graph has changed since, or that reads one, runs again. Nothing is checkpointed or resumed.
+- `record` is a `RunRecord`, JSON through `model_dump()`: a host stores the dump with the run and hands it back as `RunRecord.model_validate(stored)`; a node the graph has changed since, or that reads one, runs again. Nothing is checkpointed or resumed.
 - Every ending carries `record`, so a new run can also start from a failed or stopped one.
 - From a script: `paused = run_sync(compiled)` ends with `paused["type"] == "graph_pending"`, and `run_sync(compiled, record=paused["record"], cache=...)` is the next leg.
 
@@ -156,7 +156,7 @@ assert list(done["results"]["approve"]["result"]) == ["First, approved", "Second
 A `Graph` is a frozen pydantic model and reads back what it wrote:
 
 ```python
-graph = Graph(nodes=[GraphNode(id="words", type="text-split", version=1, bindings={"text": Static(value="a,b")})])
+graph = Graph(nodes=[GraphNode(id="words", type="text-split", version=1, bindings={"text": Static("a,b")})])
 text = graph.to_yaml()
 assert Graph.from_yaml(text) == graph
 ```
@@ -170,7 +170,7 @@ assert Graph.from_yaml(text) == graph
 ```python
 from conductor_providers import react
 
-palette = react.palette_from_registry(registry)   # [cls.describe() for cls in registry.nodes]
+palette = registry.describe()                     # the palette is the registry's own
 wire = react.graph_to_react(graph)                # the node record under each node's data; edges derived
 assert react.react_to_graph(wire).nodes[0].id == "words"
 ```
@@ -191,4 +191,4 @@ The body is `{graph, record, cache}`. Over HTTP a per-row answer is `{"rows": [[
 - [ ] Every `Ref` names a node in the graph and one of its outputs; every bindings key names an input.
 - [ ] `compiled.is_runnable` is checked, and `problems` is shown when it is not.
 - [ ] The host keeps `record` from a pending ending, and every `from_run` type a node needs is passed.
-- [ ] A long run has `timeout=` or a `cancel` event the caller owns; closing the stream (`aclose()`, a cancelled task) stops every unit.
+- [ ] A long run has `timeout=` or a `cancel` event the caller owns; closing the stream (`aclose()`, a cancelled task, or `async with aclosing(execute(compiled)) as events:`) stops every unit.

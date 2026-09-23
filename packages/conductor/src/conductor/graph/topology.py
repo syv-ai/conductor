@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Iterable, Mapping
 
-from conductor.graph.binding import Edges
+from conductor.graph.binding import From
 from conductor.graph.model import GraphNode
 
 
@@ -18,14 +18,14 @@ def dependencies_of(nodes: Iterable[GraphNode]) -> dict[str, frozenset[str]]:
     """Which nodes each node waits for, by id.
 
     A set: a node that feeds two inputs of the same target is one
-    dependency. Operand order matters only within a ``Edges`` and is
+    dependency. Operand order matters only within a ``From`` and is
     kept there. An empty set means an input node — nothing is connected in.
     """
     return {
         node.id: frozenset(
             ref.node_id
             for binding in node.bindings.values()
-            if isinstance(binding, Edges)
+            if isinstance(binding, From)
             for ref in binding.refs
         )
         for node in nodes

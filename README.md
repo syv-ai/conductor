@@ -27,7 +27,7 @@ Built to be the shared core behind visual node editors — declare a node once a
 - **A person in the loop** — a node returns `Asks` with its questions; the run ends pending, and the next call to `execute` carries the answers.
 - **Field hooks** — a node whose inputs or outputs depend on its configuration overrides `compute_inputs` / `compute_outputs`.
 - **Embedded graphs** — a version whose body is a graph expands under its node's name and runs as nodes of the one run.
-- **Auto-discovery** — import a package and every node it registers is in the registry.
+- **One way to wire a package's nodes** — each module exposes `register(registry)`, and the host calls it.
 - **Records that save themselves** — `Graph.from_path("approval.yaml")`, `graph.to_yaml()`, and pydantic's own JSON.
 - **Zero host dependencies** — no FastAPI, no database, no auth in the core; pydantic is the one hard dependency.
 - **Standard node library** — `conductor-nodes` ships text, math, logic, JSON and regex nodes and a decision gate, declared in a four-word vocabulary of its own.
@@ -75,7 +75,7 @@ A value on an edge has a `DType`. Conductor declares none, so start by naming th
 
 ```python
 from typing import Annotated
-from conductor import Asks, CompiledGraph, deprecated, DType, Edges, FromRun, Graph, GraphNode, Input, NodeDefinition, NodeRegistry, Param, Policy, Ref, Result, run_sync, Series, SKIPPED, Static, upgrade, version
+from conductor import Asks, CompiledGraph, deprecated, DType, From, FromRun, Graph, GraphNode, Input, NodeDefinition, NodeRegistry, Param, Policy, Result, run_sync, Series, SKIPPED, Static, upgrade, version
 from conductor.widgets import Textarea, TextWidget
 from conductor_nodes.types import Text
 
@@ -110,13 +110,13 @@ The class is checked the moment it is defined: a missing `id`, `title`, `descrip
 
 ### 2. Build and execute a graph
 
-A placement pins a node by `type` and `version` and says, per input, where its value comes from: an `Edges` binding names other placements' outputs (an edge), a `Static` binding holds a typed-in value, and an input with no binding takes its declared default. There is no edge list — a graph is its nodes.
+A placement pins a node by `type` and `version` and says, per input, where its value comes from: an `From` binding names other placements' outputs (an edge), a `Static` binding holds a typed-in value, and an input with no binding takes its declared default. There is no edge list — a graph is its nodes.
 
 ```python
 
 graph = Graph(nodes=[
-    GraphNode(id="n1", type="echo", version=1, bindings={"text": Static(value="hello world")}),
-    GraphNode(id="n2", type="uppercase", version=1, bindings={"text": Edges(refs=(Ref("n1", "result"),))}),
+    GraphNode(id="n1", type="echo", version=1, bindings={"text": Static("hello world")}),
+    GraphNode(id="n2", type="uppercase", version=1, bindings={"text": From("n1.result")}),
 ])
 compiled = CompiledGraph.from_graph(graph, registry)
 
@@ -145,6 +145,8 @@ async for event in execute(compiled):
             print(f"Done: {event['results']}")
 ```
 
+A stream you leave early — a `break`, an exception — should be closed, or its units run on until the generator is collected: `async with aclosing(execute(compiled)) as events:` (from `contextlib`) closes it however the block ends, and closing it stops every unit.
+
 ## Project structure
 
 ```
@@ -163,9 +165,9 @@ conductor/
 │   │       ├── widgets.py          # The controls: Text, Textarea, Dropdown, …; AnyWidget
 │   │       ├── errors.py           # ErrorCause and the exception hierarchy
 │   │       ├── _sentinel.py        # SKIPPED and Asks
-│   │       ├── registry/           # NodeRegistry, discover_nodes
+│   │       ├── registry/           # NodeRegistry
 │   │       ├── graph/              # GraphNode/Graph, the Binding variants, CompiledGraph.from_graph() and the CompiledGraph it returns, iteration, expansion, conditions, Problem
-│   │       ├── execution/          # execute(), run(), run_sync(), the ledger, events
+│   │       ├── execution/          # execute(), run(), run_sync(), the leg, the ledger, events
 │   │       └── about/              # Runnable library reference: python -m conductor.about
 │   ├── conductor-nodes/            # Standard node library — uv add syv-conductor-nodes
 │   └── conductor-providers/        # Framework adapters (react, fastapi) — uv add syv-conductor-providers
@@ -264,7 +266,7 @@ class Number(DType, float):
 
 ### Versions
 
-Several versions live in one class as methods marked `@version(n)`, `run` included; the current one is the highest number, and by convention its method is the one named `run`. Each version has its own signature and `Policy`. `@upgrade(1, 2)` marks the function that rewrites values saved against version 1 into what version 2 expects; `@deprecated` marks a class or a version as going away, optionally naming an `alternative`:
+Several versions live in one class as methods marked `@version(n)`, `run` included; the current one is the highest number, and by convention its method is the one named `run`. Each version has its own signature and `Policy`. `@upgrade(1, 2)` marks the function that rewrites values saved against version 1 into what version 2 expects (`inputs=` and `outputs=` name the fields it renames), and a class with several versions declares one step per adjacent pair or is refused when it is defined; `@deprecated` marks a class or a version as going away, optionally naming an `alternative`:
 
 ```python
 
@@ -289,7 +291,7 @@ class Greet(NodeDefinition):
 
     @upgrade(1, 2)
     def _split_name(values: dict) -> dict:
-        first, _, last = values["name"].partition(" ")
+        first, _, last = values.pop("name").partition(" ")
         return {**values, "first": first, "last": last}
 ```
 
@@ -303,25 +305,26 @@ A registered node numbers its versions from 1 with no holes; a placement pins an
 registry = NodeRegistry()
 registry.register(Greet)                   # files Greet, and Text under "text"
 registry.add_types(Number)                 # a word no node here declares
-registry.get("greet")                      # the class, or None
-registry.contains("greet")                 # True
+registry["greet"]                          # the class; an unknown id is a KeyError listing the ids
+"greet" in registry                        # True; len(registry) and iterating over the ids work too
 registry.nodes                             # every class, in registration order
 registry.types                             # {"text": Text, "number": Number}
 registry.accepted_as(Text)                 # ("text",) — where a Text may land, over this vocabulary
 Greet.versions[2].interface.inputs         # the Input records of version 2
 Greet.describe()                           # the palette entry, derived on demand
 registry.describe()                        # the palette: every node's record and every type's
-registry.upgrade_path("greet", 1, 2)       # the @upgrade function, or None
+# registry.upgraded(graph, "greet-1")      # the graph with one node moved to the current version
 ```
 
 `describe()` is the one serialisation of a node: a `NodeDescription` with its versions, fields, policy and deprecation notice, dumped through pydantic when a palette needs JSON. Nothing is stored, so a description is always derived from the live declaration. `registry.describe()` is the palette: those records plus one `TypeDescription` per type — `id`, `title` and `accepted_as`, the ids of every type in that registry whose `accepts` admits it — so an editor reads where a value may land once per type, and a field's own record is its id. Two registries in one process may each hold a `text`; one registry refuses a second class under an id it already holds, naming both.
 
-**Auto-discovery** imports every module in a package so the registrations in them run:
+A package of nodes gives each module a `register(registry)` that registers the classes it offers, and the host calls them; importing a module registers nothing:
 
 ```python
-from conductor.registry.discovery import discover_nodes
+def register(registry: NodeRegistry) -> None:
+    registry.register(Greet)
 
-discover_nodes("myapp.nodes", registry)    # returns how many definitions were added
+register(registry)                         # the host decides which registry
 ```
 
 ### Field hooks
@@ -371,7 +374,7 @@ class Approve(NodeDefinition):
 
 registry.register(Approve)
 compiled = CompiledGraph.from_graph(Graph(nodes=[
-    GraphNode(id="approve", type="approve", version=1, bindings={"proposal": Static(value="Ship it")}),
+    GraphNode(id="approve", type="approve", version=1, bindings={"proposal": Static("Ship it")}),
 ]), registry)
 
 paused = run_sync(compiled)                                   # paused["type"] == "graph_pending"; paused["pending"]: the questions, by address
@@ -423,7 +426,7 @@ Raise `ExternalFailure` from `run` where the node knows the outside world failed
 
 ### Bindings
 
-One input holds one binding, so an edge and a typed value can never both claim the same input. `Edges(refs=(Ref("a", "result"), Ref("b", "result")))` is in operand order — into a `Series[X]` input several refs gather into one series. `Static(value=...)` is what the author typed. An absent binding means the declared default applies. A graph's dependencies (`dependencies_of`) and which placements are its input nodes (`is_input_node`, no edge into any input) are read off the bindings; nothing stores them. A failed node fails the run.
+One input holds one binding, so an edge and a typed value can never both claim the same input. `From("a.result", "b.result")` is in operand order — into a `Series[X]` input several refs gather into one series. `Static(...)` is what the author typed. An absent binding means the declared default applies. A graph's dependencies (`dependencies_of`) and which placements are its input nodes (`is_input_node`, no edge into any input) are read off the bindings; nothing stores them. A failed node fails the run.
 
 A host that loads definitions the static registry lacks builds them and hands compile `registry.extended_with({...})` — a new registry per run in which a registered type wins over a loaded one.
 
@@ -529,14 +532,16 @@ conductor_nodes.text.register(my_registry)                         # or one modu
 
 The library declares the four types its nodes take in `conductor_nodes.types` — `Text`, `Number`, `Flag`, `Json` — because a node library has to say what its nodes take, and conductor itself ships no vocabulary. A host with its own vocabulary declares its own types and does not need these.
 
-| Module | Node ids |
+| Category | Node ids |
 |---|---|
 | `text` | `text-uppercase`, `text-lowercase`, `text-trim`, `text-length`, `text-concat`, `text-replace`, `text-contains`, `text-split`, `text-join`, `text-reverse` |
 | `math` | `math-add`, `math-subtract`, `math-multiply`, `math-divide`, `math-modulo`, `math-round`, `math-min`, `math-max`, `math-abs` |
-| `logic` | `logic-if-empty`, `logic-if-equals`, `logic-not` (the two `if` nodes branch via `SKIPPED`) |
-| `json_ops` | `json-parse`, `json-stringify`, `json-get` (dotted path) |
-| `regex_ops` | `regex-match`, `regex-replace`, `regex-extract` |
-| `decision` | `decision` — routes any value to one of two branches on a `Flag` connected in |
+| `logic` | `logic-not` |
+| `control` | `logic-if-empty`, `logic-if-equals` (both branch via `SKIPPED`), `decision` — routes any value to one of two branches on a `Flag` connected in |
+| `json` | `json-parse`, `json-stringify`, `json-get` (dotted path) |
+| `regex` | `regex-match`, `regex-replace`, `regex-extract` |
+
+`categories=` filters on each node's own `category`, so `["logic"]` is `logic-not` alone; the branching nodes are `control`.
 
 Node ids are category-prefixed to avoid colliding with application-level ids. Registering two different classes under one id raises.
 
@@ -547,12 +552,12 @@ Framework adapters. Each provider is a subpackage translating between conductor'
 ```python
 from conductor_providers import react
 
-palette = react.palette_from_registry(registry)   # [cls.describe() for every definition]
-wire = react.graph_to_react(graph)                # Graph → ReactFlow JSON (the placement record under each node's data; edges derived; positions laid out if a placement has none)
+palette = registry.describe()                     # the palette is the registry's own
+wire = react.graph_to_react(graph)                # Graph → ReactFlow JSON (the placement record under each node's data, display whole; edges derived; positions laid out if a placement has none)
 graph2 = react.react_to_graph(wire)               # ReactFlow JSON → Graph
 ```
 
-`conductor_providers.fastapi.conductor_router(registry)` returns an APIRouter with `GET /nodes` (the palette), `POST /compile`, `POST /execute`, `POST /execute-stream` (server-sent events) and `GET /entities/{kind}` for `EntityDropdown` choices. `/execute` answers with the frame the leg ended on, `graph_complete` or `graph_pending`; a run that asks goes on by posting the ending's `cells` back with the answers in `cache` (for a node on rows, `{"rows": [...], "values": [...]}`). Its `from_run` hook turns a request into the values `execute(from_run=...)` supplies.
+`conductor_providers.fastapi.conductor_router(registry)` returns an APIRouter with `GET /nodes` (the palette), `POST /compile`, `POST /execute`, `POST /execute-stream` (server-sent events), and `GET /entities/{kind}` for `EntityDropdown` choices when an `entity_resolver` is given. A graph that cannot run, or a `cache` the run refuses, is a 422 on the execute routes; `/compile` answers a broken graph with 200 and its problems. `/execute` answers with the frame the leg ended on, `graph_complete` or `graph_pending`; a run that asks goes on by posting the ending's `record` back with the answers in `cache` (for a node on rows, `{"rows": [...], "values": [...]}`). Its `from_run` hook turns a request into the values `execute(from_run=...)` supplies.
 
 New providers (Svelte, Vue, Gradio, …) go in sibling subpackages under `conductor_providers.` — no abstract base class to satisfy; each provider picks the shape that matches its framework.
 
@@ -565,7 +570,7 @@ The examples are Jupyter notebooks under `examples/` — open them in VS Code, J
 | `01_basic_nodes.ipynb` | Declaring nodes: widgets, defaults, multi-output records, inspecting a registry |
 | `02_build_and_run_a_graph.ipynb` | Bindings, asking the compiled graph, problems, collecting results, streaming events, once per row, saving |
 | `03_class_nodes.ipynb` | A node with its own methods, and a value the run supplies (`FromRun`) |
-| `05_auto_discovery.ipynb` | Package scanning, versions and deprecation, the palette as JSON |
+| `05_auto_discovery.ipynb` | Versions, upgrades and deprecation, wiring a package's nodes with `register(registry)`, the palette as JSON |
 | `06_human_in_the_loop.ipynb` | A node that asks, the run ending pending, and the next leg with the answer |
 | `08_widgets.ipynb` | Every control, inspecting a widget's schema |
 
@@ -582,8 +587,8 @@ From `1.0.0` onward, conductor follows [Semantic Versioning](https://semver.org/
 
 **Public API.** A name is part of the public API if it is exported from a package's `__init__` or documented in this README / `docs/`. Anything else — `_`-prefixed names, modules not re-exported from a public surface — is internal and may change in any release without warning. The public surface:
 
-- Top-level `conductor`: the node contract (`NodeDefinition`, `NodeVersion`, `GraphVersion`, `Policy`, `Deprecation`, `NodeDescription`, `version`, `upgrade`, `deprecated`, `Interface`, `FromRun`, `Input`, `Output`, `AnyWidget`, `SKIPPED`, `Asks`, `is_skipped`, `is_asking`), the type vocabulary (`DType`, `DTypeRef`, `Single`, `dtype_of`, `Series`, `Index`, `Ref`, `Result`), the registry (`NodeRegistry`, `RegistryDescription`, `TypeDescription`), and the graph (`Graph`, `GraphNode`, `FieldContent`, `Binding`, `Edges`, `Static`, `dependencies_of`, `is_input_node`, `CompiledGraph`, `CompiledNode`, `CompiledField`, `Problem`, `Condition`, `Atom`, `ALWAYS`)
-- `conductor.execution.engine` (`execute`, `run`, `run_sync`, also exported at the root), `conductor.errors` (`ErrorCause` and the error classes), `conductor.model` (`ConductorModel`), `conductor.widgets`, `conductor.metadata`, `conductor.execution.events` (the `*Event` `TypedDict`s), `conductor.registry.discovery` (`discover_nodes`)
+- Top-level `conductor`: the node contract (`NodeDefinition`, `NodeVersion`, `GraphVersion`, `Policy`, `Deprecation`, `NodeDescription`, `version`, `upgrade`, `deprecated`, `Interface`, `FromRun`, `Input`, `Output`, `AnyWidget`, `SKIPPED`, `Asks`, `is_skipped`, `is_asking`), the type vocabulary (`DType`, `DTypeRef`, `Single`, `dtype_of`, `Series`, `Index`, `Ref`, `Result`), the registry (`NodeRegistry`, `RegistryDescription`, `TypeDescription`), and the graph (`Graph`, `GraphNode`, `FieldContent`, `Binding`, `From`, `Static`, `dependencies_of`, `is_input_node`, `CompiledGraph`, `CompiledNode`, `CompiledField`, `Problem`, `Condition`, `Atom`, `ALWAYS`)
+- `conductor.execution.engine` (`execute`, `run`, `run_sync`, also exported at the root), `conductor.errors` (`ErrorCause` and the error classes), `conductor.model` (`ConductorModel`), `conductor.widgets`, `conductor.metadata`, `conductor.execution.events` (the `*Event` `TypedDict`s)
 - `conductor_nodes` (`registry`, `register_all`, the category modules, `conductor_nodes.types`) and `conductor_providers.react` / `conductor_providers.fastapi`
 
 **Compatibility guarantees from `1.0.0`.**

@@ -13,9 +13,8 @@ import conductor_nodes
 import pytest
 from conductor import CompiledGraph, GraphNode, NodeRegistry, run_sync
 from conductor._sentinel import SKIPPED
-from conductor.graph.binding import Edges, Static
+from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
-from conductor.ref import Ref
 from conductor_nodes.decision import Decision
 from conductor_nodes.types import Flag, Json, Text
 
@@ -73,35 +72,35 @@ class TestText:
     def test_uppercase(self, full_registry):
         r = _run(
             full_registry,
-            [GraphNode(id="n", type="text-uppercase", version=1, bindings={"text": Static(value="hello")})],
+            [GraphNode(id="n", type="text-uppercase", version=1, bindings={"text": Static("hello")})],
         )
         assert r["n"]["result"] == "HELLO"
 
     def test_lowercase(self, full_registry):
         r = _run(
             full_registry,
-            [GraphNode(id="n", type="text-lowercase", version=1, bindings={"text": Static(value="HELLO")})],
+            [GraphNode(id="n", type="text-lowercase", version=1, bindings={"text": Static("HELLO")})],
         )
         assert r["n"]["result"] == "hello"
 
     def test_trim(self, full_registry):
         r = _run(
             full_registry,
-            [GraphNode(id="n", type="text-trim", version=1, bindings={"text": Static(value="  hi  ")})],
+            [GraphNode(id="n", type="text-trim", version=1, bindings={"text": Static("  hi  ")})],
         )
         assert r["n"]["result"] == "hi"
 
     def test_length(self, full_registry):
         r = _run(
             full_registry,
-            [GraphNode(id="n", type="text-length", version=1, bindings={"text": Static(value="hello")})],
+            [GraphNode(id="n", type="text-length", version=1, bindings={"text": Static("hello")})],
         )
         assert r["n"]["result"] == 5
 
     def test_concat_with_separator(self, full_registry):
         r = _run(
             full_registry,
-            [GraphNode(id="n", type="text-concat", version=1, bindings={"a": Static(value="foo"), "b": Static(value="bar"), "separator": Static(value="-")})],
+            [GraphNode(id="n", type="text-concat", version=1, bindings={"a": Static("foo"), "b": Static("bar"), "separator": Static("-")})],
         )
         assert r["n"]["result"] == "foo-bar"
 
@@ -109,7 +108,7 @@ class TestText:
         r = _run(
             full_registry,
             [GraphNode(id="n", type="text-replace", version=1,
-                       bindings={"text": Static(value="hello world"), "needle": Static(value="world"), "replacement": Static(value="there")})],
+                       bindings={"text": Static("hello world"), "needle": Static("world"), "replacement": Static("there")})],
         )
         assert r["n"]["result"] == "hello there"
 
@@ -117,7 +116,7 @@ class TestText:
         r = _run(
             full_registry,
             [GraphNode(id="n", type="text-contains", version=1,
-                       bindings={"text": Static(value="Hello"), "needle": Static(value="hello"), "case_sensitive": Static(value=False)})],
+                       bindings={"text": Static("Hello"), "needle": Static("hello"), "case_sensitive": Static(False)})],
         )
         assert r["n"]["result"] == Flag(True)
 
@@ -125,28 +124,28 @@ class TestText:
         r = _run(
             full_registry,
             [GraphNode(id="n", type="text-contains", version=1,
-                       bindings={"text": Static(value="Hello"), "needle": Static(value="hello"), "case_sensitive": Static(value=True)})],
+                       bindings={"text": Static("Hello"), "needle": Static("hello"), "case_sensitive": Static(True)})],
         )
         assert r["n"]["result"] == Flag(False)
 
     def test_split(self, full_registry):
         r = _run(
             full_registry,
-            [GraphNode(id="n", type="text-split", version=1, bindings={"text": Static(value="a,b,c"), "separator": Static(value=",")})],
+            [GraphNode(id="n", type="text-split", version=1, bindings={"text": Static("a,b,c"), "separator": Static(",")})],
         )
-        assert r["n"]["result"] == ["a", "b", "c"]
+        assert list(r["n"]["result"]) == ["a", "b", "c"]
 
     def test_join(self, full_registry):
         r = _run(
             full_registry,
-            [GraphNode(id="n", type="text-join", version=1, bindings={"parts": Static(value=["a", "b", "c"]), "separator": Static(value="-")})],
+            [GraphNode(id="n", type="text-join", version=1, bindings={"parts": Static(["a", "b", "c"]), "separator": Static("-")})],
         )
         assert r["n"]["result"] == "a-b-c"
 
     def test_reverse(self, full_registry):
         r = _run(
             full_registry,
-            [GraphNode(id="n", type="text-reverse", version=1, bindings={"text": Static(value="hello")})],
+            [GraphNode(id="n", type="text-reverse", version=1, bindings={"text": Static("hello")})],
         )
         assert r["n"]["result"] == "olleh"
 
@@ -155,77 +154,77 @@ class TestMath:
     def test_add(self, full_registry):
         r = _run(
             full_registry,
-            [GraphNode(id="n", type="math-add", version=1, bindings={"a": Static(value=2), "b": Static(value=3)})],
+            [GraphNode(id="n", type="math-add", version=1, bindings={"a": Static(2), "b": Static(3)})],
         )
         assert r["n"]["result"] == 5
 
     def test_subtract(self, full_registry):
         r = _run(
             full_registry,
-            [GraphNode(id="n", type="math-subtract", version=1, bindings={"a": Static(value=5), "b": Static(value=3)})],
+            [GraphNode(id="n", type="math-subtract", version=1, bindings={"a": Static(5), "b": Static(3)})],
         )
         assert r["n"]["result"] == 2
 
     def test_multiply(self, full_registry):
         r = _run(
             full_registry,
-            [GraphNode(id="n", type="math-multiply", version=1, bindings={"a": Static(value=4), "b": Static(value=3)})],
+            [GraphNode(id="n", type="math-multiply", version=1, bindings={"a": Static(4), "b": Static(3)})],
         )
         assert r["n"]["result"] == 12
 
     def test_divide(self, full_registry):
         r = _run(
             full_registry,
-            [GraphNode(id="n", type="math-divide", version=1, bindings={"a": Static(value=10), "b": Static(value=4)})],
+            [GraphNode(id="n", type="math-divide", version=1, bindings={"a": Static(10), "b": Static(4)})],
         )
         assert r["n"]["result"] == 2.5
 
     def test_divide_by_zero_raises(self, full_registry):
         ending = _ending(
             full_registry,
-            [GraphNode(id="n", type="math-divide", version=1, bindings={"a": Static(value=1), "b": Static(value=0)})],
+            [GraphNode(id="n", type="math-divide", version=1, bindings={"a": Static(1), "b": Static(0)})],
         )
         assert ending["type"] == "graph_error"
 
     def test_modulo(self, full_registry):
         r = _run(
             full_registry,
-            [GraphNode(id="n", type="math-modulo", version=1, bindings={"a": Static(value=10), "b": Static(value=3)})],
+            [GraphNode(id="n", type="math-modulo", version=1, bindings={"a": Static(10), "b": Static(3)})],
         )
         assert r["n"]["result"] == 1
 
     def test_round_default(self, full_registry):
         r = _run(
             full_registry,
-            [GraphNode(id="n", type="math-round", version=1, bindings={"value": Static(value=3.7)})],
+            [GraphNode(id="n", type="math-round", version=1, bindings={"value": Static(3.7)})],
         )
         assert r["n"]["result"] == 4
 
     def test_round_to_decimals(self, full_registry):
         r = _run(
             full_registry,
-            [GraphNode(id="n", type="math-round", version=1, bindings={"value": Static(value=3.14159), "decimals": Static(value=2)})],
+            [GraphNode(id="n", type="math-round", version=1, bindings={"value": Static(3.14159), "decimals": Static(2)})],
         )
         assert r["n"]["result"] == 3.14
 
     def test_min(self, full_registry):
         r = _run(
             full_registry,
-            [GraphNode(id="n", type="math-min", version=1, bindings={"values": Static(value=[3, 1, 2])})],
+            [GraphNode(id="n", type="math-min", version=1, bindings={"values": Static([3, 1, 2])})],
         )
         assert r["n"]["result"] == 1
 
     def test_max(self, full_registry):
         r = _run(
             full_registry,
-            [GraphNode(id="n", type="math-max", version=1, bindings={"values": Static(value=[3, 1, 2])})],
+            [GraphNode(id="n", type="math-max", version=1, bindings={"values": Static([3, 1, 2])})],
         )
         assert r["n"]["result"] == 3
 
     def test_abs(self, full_registry):
         r = _run(
             full_registry,
-            [GraphNode(id="n", type="math-abs", version=1, bindings={"value": Static(value=-7)})],
+            [GraphNode(id="n", type="math-abs", version=1, bindings={"value": Static(-7)})],
         )
         assert r["n"]["result"] == 7
 
@@ -237,8 +236,8 @@ class TestLogic:
         r = _run(
             full_registry,
             [
-                GraphNode(id="cond", type="logic-if-empty", version=1, bindings={"text": Static(value="   ")}),
-                GraphNode(id="down", type="text-uppercase", version=1, bindings={"text": Edges(refs=(Ref('cond', 'empty'),))}),
+                GraphNode(id="cond", type="logic-if-empty", version=1, bindings={"text": Static("   ")}),
+                GraphNode(id="down", type="text-uppercase", version=1, bindings={"text": From('cond.empty')}),
             ],
         )
         # Empty branch delivered "   " to the downstream node
@@ -249,9 +248,9 @@ class TestLogic:
         r = _run(
             full_registry,
             [
-                GraphNode(id="cond", type="logic-if-empty", version=1, bindings={"text": Static(value="hi")}),
-                GraphNode(id="up", type="text-uppercase", version=1, bindings={"text": Edges(refs=(Ref('cond', 'not_empty'),))}),
-                GraphNode(id="other", type="text-uppercase", version=1, bindings={"text": Edges(refs=(Ref('cond', 'empty'),))}),
+                GraphNode(id="cond", type="logic-if-empty", version=1, bindings={"text": Static("hi")}),
+                GraphNode(id="up", type="text-uppercase", version=1, bindings={"text": From('cond.not_empty')}),
+                GraphNode(id="other", type="text-uppercase", version=1, bindings={"text": From('cond.empty')}),
             ],
         )
         assert r["up"]["result"] == "HI"
@@ -261,8 +260,8 @@ class TestLogic:
         r = _run(
             full_registry,
             [
-                GraphNode(id="cond", type="logic-if-equals", version=1, bindings={"a": Static(value="foo"), "b": Static(value="foo")}),
-                GraphNode(id="eq", type="text-uppercase", version=1, bindings={"text": Edges(refs=(Ref('cond', 'equal'),))}),
+                GraphNode(id="cond", type="logic-if-equals", version=1, bindings={"a": Static("foo"), "b": Static("foo")}),
+                GraphNode(id="eq", type="text-uppercase", version=1, bindings={"text": From('cond.equal')}),
             ],
         )
         assert r["eq"]["result"] == "FOO"
@@ -272,8 +271,8 @@ class TestLogic:
             full_registry,
             [
                 GraphNode(id="cond", type="logic-if-equals", version=1,
-                          bindings={"a": Static(value="Foo"), "b": Static(value="FOO"), "case_sensitive": Static(value=False)}),
-                GraphNode(id="eq", type="text-uppercase", version=1, bindings={"text": Edges(refs=(Ref('cond', 'equal'),))}),
+                          bindings={"a": Static("Foo"), "b": Static("FOO"), "case_sensitive": Static(False)}),
+                GraphNode(id="eq", type="text-uppercase", version=1, bindings={"text": From('cond.equal')}),
             ],
         )
         assert r["eq"]["result"] == "FOO"
@@ -281,7 +280,7 @@ class TestLogic:
     def test_not(self, full_registry):
         r = _run(
             full_registry,
-            [GraphNode(id="n", type="logic-not", version=1, bindings={"value": Static(value=True)})],
+            [GraphNode(id="n", type="logic-not", version=1, bindings={"value": Static(True)})],
         )
         assert r["n"]["result"] == Flag(False)
 
@@ -304,7 +303,7 @@ class TestJSON:
     def test_parse(self, full_registry):
         r = _run(
             full_registry,
-            [GraphNode(id="n", type="json-parse", version=1, bindings={"text": Static(value='{"a": 1, "b": [2, 3]}')})],
+            [GraphNode(id="n", type="json-parse", version=1, bindings={"text": Static('{"a": 1, "b": [2, 3]}')})],
         )
         assert r["n"]["result"] == Json({"a": 1, "b": [2, 3]})
 
@@ -312,14 +311,14 @@ class TestJSON:
         r = _run(
             full_registry,
             [GraphNode(id="n", type="json-stringify", version=1,
-                       bindings={"value": Static(value={"b": 2, "a": 1}), "sort_keys": Static(value=True)})],
+                       bindings={"value": Static({"b": 2, "a": 1}), "sort_keys": Static(True)})],
         )
         assert r["n"]["result"] == '{"a": 1, "b": 2}'
 
     def test_stringify_indented(self, full_registry):
         r = _run(
             full_registry,
-            [GraphNode(id="n", type="json-stringify", version=1, bindings={"value": Static(value={"x": 1}), "indent": Static(value=2)})],
+            [GraphNode(id="n", type="json-stringify", version=1, bindings={"value": Static({"x": 1}), "indent": Static(2)})],
         )
         assert "\n" in r["n"]["result"]
 
@@ -327,7 +326,7 @@ class TestJSON:
         r = _run(
             full_registry,
             [GraphNode(id="n", type="json-get", version=1,
-                       bindings={"value": Static(value={"user": {"name": "Ada"}}), "path": Static(value="user.name")})],
+                       bindings={"value": Static({"user": {"name": "Ada"}}), "path": Static("user.name")})],
         )
         assert r["n"]["result"] == Json("Ada")
 
@@ -335,7 +334,7 @@ class TestJSON:
         r = _run(
             full_registry,
             [GraphNode(id="n", type="json-get", version=1,
-                       bindings={"value": Static(value={"items": [{"id": "a"}, {"id": "b"}]}), "path": Static(value="items.1.id")})],
+                       bindings={"value": Static({"items": [{"id": "a"}, {"id": "b"}]}), "path": Static("items.1.id")})],
         )
         assert r["n"]["result"] == Json("b")
 
@@ -343,7 +342,7 @@ class TestJSON:
         r = _run(
             full_registry,
             [GraphNode(id="n", type="json-get", version=1,
-                       bindings={"value": Static(value={"a": 1}), "path": Static(value="does.not.exist")})],
+                       bindings={"value": Static({"a": 1}), "path": Static("does.not.exist")})],
         )
         assert r["n"]["result"] == Json(None)
 
@@ -353,7 +352,7 @@ class TestRegex:
         r = _run(
             full_registry,
             [GraphNode(id="n", type="regex-match", version=1,
-                       bindings={"text": Static(value="hello 123 world"), "pattern": Static(value=r"\d+")})],
+                       bindings={"text": Static("hello 123 world"), "pattern": Static(r"\d+")})],
         )
         assert r["n"]["result"] == Flag(True)
 
@@ -361,7 +360,7 @@ class TestRegex:
         r = _run(
             full_registry,
             [GraphNode(id="n", type="regex-match", version=1,
-                       bindings={"text": Static(value="nothing numeric"), "pattern": Static(value=r"\d+")})],
+                       bindings={"text": Static("nothing numeric"), "pattern": Static(r"\d+")})],
         )
         assert r["n"]["result"] == Flag(False)
 
@@ -369,7 +368,7 @@ class TestRegex:
         r = _run(
             full_registry,
             [GraphNode(id="n", type="regex-match", version=1,
-                       bindings={"text": Static(value="Hello"), "pattern": Static(value=r"hello"), "ignore_case": Static(value=True)})],
+                       bindings={"text": Static("Hello"), "pattern": Static(r"hello"), "ignore_case": Static(True)})],
         )
         assert r["n"]["result"] == Flag(True)
 
@@ -377,7 +376,7 @@ class TestRegex:
         r = _run(
             full_registry,
             [GraphNode(id="n", type="regex-replace", version=1,
-                       bindings={"text": Static(value="a1b2c3"), "pattern": Static(value=r"\d"), "replacement": Static(value="-")})],
+                       bindings={"text": Static("a1b2c3"), "pattern": Static(r"\d"), "replacement": Static("-")})],
         )
         assert r["n"]["result"] == "a-b-c-"
 
@@ -385,17 +384,17 @@ class TestRegex:
         r = _run(
             full_registry,
             [GraphNode(id="n", type="regex-extract", version=1,
-                       bindings={"text": Static(value="a1 b22 c333"), "pattern": Static(value=r"\d+")})],
+                       bindings={"text": Static("a1 b22 c333"), "pattern": Static(r"\d+")})],
         )
-        assert r["n"]["result"] == ["1", "22", "333"]
+        assert list(r["n"]["result"]) == ["1", "22", "333"]
 
     def test_extract_uses_first_group(self, full_registry):
         r = _run(
             full_registry,
             [GraphNode(id="n", type="regex-extract", version=1,
-                       bindings={"text": Static(value="name=Ada, age=36"), "pattern": Static(value=r"name=(\w+)")})],
+                       bindings={"text": Static("name=Ada, age=36"), "pattern": Static(r"name=(\w+)")})],
         )
-        assert r["n"]["result"] == ["Ada"]
+        assert list(r["n"]["result"]) == ["Ada"]
 
 
 class TestIntegration:
@@ -406,10 +405,10 @@ class TestIntegration:
             full_registry,
             [
                 GraphNode(id="src", type="text-split", version=1,
-                          bindings={"text": Static(value=" a ,  b , c "), "separator": Static(value=",")}),
+                          bindings={"text": Static(" a ,  b , c "), "separator": Static(",")}),
                 # Reuse the split result, upper-cased after a join
-                GraphNode(id="joined", type="text-join", version=1, bindings={"separator": Static(value="|"), "parts": Edges(refs=(Ref('src', 'result'),))}),
-                GraphNode(id="upper", type="text-uppercase", version=1, bindings={"text": Edges(refs=(Ref('joined', 'result'),))}),
+                GraphNode(id="joined", type="text-join", version=1, bindings={"separator": Static("|"), "parts": From('src.result')}),
+                GraphNode(id="upper", type="text-uppercase", version=1, bindings={"text": From('joined.result')}),
             ],
         )
         # split produces [" a ", "  b ", " c "], join preserves whitespace,
@@ -421,9 +420,79 @@ class TestIntegration:
         r = _run(
             full_registry,
             [
-                GraphNode(id="a", type="math-add", version=1, bindings={"a": Static(value=2), "b": Static(value=3)}),     # 5
-                GraphNode(id="b", type="math-multiply", version=1, bindings={"b": Static(value=4), "a": Edges(refs=(Ref('a', 'result'),))}),          # 5 * 4 = 20
-                GraphNode(id="c", type="math-round", version=1, bindings={"decimals": Static(value=0), "value": Edges(refs=(Ref('b', 'result'),))}),      # 20
+                GraphNode(id="a", type="math-add", version=1, bindings={"a": Static(2), "b": Static(3)}),     # 5
+                GraphNode(id="b", type="math-multiply", version=1, bindings={"b": Static(4), "a": From('a.result')}),          # 5 * 4 = 20
+                GraphNode(id="c", type="math-round", version=1, bindings={"decimals": Static(0), "value": From('b.result')}),      # 20
             ],
         )
         assert r["c"]["result"] == 20
+
+
+# --- the regex nodes cannot freeze a run, and categories filter by category ---------
+
+
+def test_a_catastrophic_pattern_answers_at_once():
+    """``(a+)+$`` over 27 a's and a b held the GIL for seconds under ``re``;
+    the ``regex`` engine does not backtrack on it."""
+    import asyncio
+    import time
+
+    from conductor import execute
+
+    graph = Graph(nodes=[GraphNode(id="m", type="regex-match", version=1, bindings={
+        "text": Static("a" * 27 + "b"), "pattern": Static("(a+)+$"),
+    })])
+    compiled = CompiledGraph.from_graph(graph, conductor_nodes.registry())
+
+    async def events():
+        return [event async for event in execute(compiled)]
+
+    started = time.monotonic()
+    seen = asyncio.run(events())
+    assert time.monotonic() - started < conductor_nodes.regex_ops.Match.timeout
+    assert "node_start" in [e["type"] for e in seen]
+    assert seen[-1]["results"]["m"]["result"] == Flag(False)
+
+
+def test_a_pattern_that_times_out_fails_its_node_with_a_sentence_for_people(monkeypatch):
+    import regex
+
+    def too_slow(*args, **kwargs):
+        raise TimeoutError("regex timed out")
+
+    monkeypatch.setattr(regex, "search", too_slow)
+    graph = Graph(nodes=[GraphNode(id="m", type="regex-match", version=1, bindings={"text": Static("x"), "pattern": Static("x")})])
+    ending = run_sync(CompiledGraph.from_graph(graph, conductor_nodes.registry()))
+
+    assert ending["type"] == "graph_error"
+    assert (ending["cause"].code, ending["error"]) == ("pattern_timeout", "The pattern took too long.")
+
+
+def test_a_grouped_extract_that_times_out_fails_with_the_same_code(monkeypatch):
+    """With groups, Extract walks the matches one by one, and the timeout
+    fires during the walk rather than when the search starts."""
+    monkeypatch.setattr(conductor_nodes.regex_ops.Extract, "timeout", 0.05)
+    graph = Graph(nodes=[GraphNode(id="x", type="regex-extract", version=1, bindings={
+        "text": Static("a" * 40), "pattern": Static("((?:(?:a|aa)+)+b)"),
+    })])
+    ending = run_sync(CompiledGraph.from_graph(graph, conductor_nodes.registry()))
+
+    assert ending["type"] == "graph_error"
+    assert ending["cause"].code == "pattern_timeout"
+
+
+def test_categories_filter_on_each_nodes_own_category():
+    logic = conductor_nodes.registry(categories=["logic"])
+    control = conductor_nodes.registry(categories=["control"])
+
+    assert {cls.category for cls in logic.nodes} == {"logic"}
+    assert {cls.id for cls in control.nodes} == {"decision", "logic-if-empty", "logic-if-equals"}
+
+
+def test_a_category_given_as_a_string_is_refused():
+    with pytest.raises(TypeError, match="list of category names"):
+        conductor_nodes.registry(categories="text")
+
+
+def test_there_is_no_category_table():
+    assert not hasattr(conductor_nodes, "CATEGORIES")

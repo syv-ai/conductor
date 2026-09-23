@@ -5,7 +5,7 @@ from typing import Annotated
 import pytest
 from conductor import NodeRegistry
 from conductor.dtype import DType
-from conductor.graph.binding import Edges, Static
+from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.graph.problem import Problem
@@ -192,7 +192,7 @@ def test_a_values_own_rule_is_its_types_constructor_and_reaches_compile_anchored
     static that breaks it is the statics pass's `invalid_static` — on the
     field, on the node. No hook is asked, and no node is told where it was
     placed."""
-    (problem,) = _problems([GraphNode(id="p", type="picky", version=1, bindings={"x": Static(value="")})])
+    (problem,) = _problems([GraphNode(id="p", type="picky", version=1, bindings={"x": Static("")})])
 
     assert (problem.code, problem.fatal, problem.node_id, problem.field) == ("invalid_static", True, "p", "x")
 
@@ -202,7 +202,7 @@ def test_the_problem_carries_what_the_type_itself_said():
     type is where a value's rule is written, so the type's own words are the
     only ones that say what to change. The generic sentence leads, because it
     names the field; the type's follows it."""
-    (problem,) = _problems([GraphNode(id="p", type="picky", version=1, bindings={"x": Static(value="")})])
+    (problem,) = _problems([GraphNode(id="p", type="picky", version=1, bindings={"x": Static("")})])
 
     assert problem.message == "The value in 'x' cannot be read as the field's type. The field must be filled in."
     assert problem.details == {"reason": "The field must be filled in."}
@@ -211,20 +211,14 @@ def test_the_problem_carries_what_the_type_itself_said():
 def test_a_type_that_said_nothing_of_its_own_leaves_the_generic_sentence_alone():
     """Pydantic's own report is English and about a JSON shape. A `Series`
     input handed a scalar is the same: nothing a person should read."""
-    (problem,) = _problems([GraphNode(id="j", type="join", version=1, bindings={"texts": Static(value=3)})])
+    (problem,) = _problems([GraphNode(id="j", type="join", version=1, bindings={"texts": Static(3)})])
 
     assert problem.message == "The value in 'texts' cannot be read as the field's type."
     assert problem.details == {}
 
 
 def test_a_value_that_satisfies_its_type_contributes_nothing():
-    assert _codes([GraphNode(id="p", type="picky", version=1, bindings={"x": Static(value="hi")})]) == []
-
-
-def test_there_is_no_validate_hook():
-    """Two hooks, `compute_inputs` and `compute_outputs`. A constraint
-    on a value is its dtype's; a problem about edges is compile's."""
-    assert not hasattr(NodeDefinition, "validate")
+    assert _codes([GraphNode(id="p", type="picky", version=1, bindings={"x": Static("hi")})]) == []
 
 
 # --- a field name is unique within a node -------------------------------------------
@@ -271,15 +265,15 @@ def test_a_computed_field_with_a_handle_needs_an_edge_type():
 
 def test_a_clean_graph_reports_no_problems():
     assert _codes([
-        GraphNode(id="a", type="echo", version=1, bindings={"x": Static(value="hi")}),
-        GraphNode(id="b", type="echo", version=1, bindings={"x": Edges(refs=(Ref("a", "result"),))}),
+        GraphNode(id="a", type="echo", version=1, bindings={"x": Static("hi")}),
+        GraphNode(id="b", type="echo", version=1, bindings={"x": From("a.result")}),
     ]) == []
 
 
 def test_a_binding_on_an_input_the_placement_does_not_have_is_stale():
-    (problem,) = _problems([GraphNode(id="a", type="echo", version=1, bindings={"z": Static(value=1)})])
+    (problem,) = _problems([GraphNode(id="a", type="echo", version=1, bindings={"z": Static(1)})])
 
-    assert (problem.code, problem.fatal, problem.node_id, problem.field) == ("stale_binding", False, "a", "z")
+    assert (problem.code, problem.fatal, problem.node_id, problem.field) == ("stale_binding", True, "a", "z")
 
 
 def test_an_edge_into_a_closed_handle_is_fatal():
@@ -287,7 +281,7 @@ def test_an_edge_into_a_closed_handle_is_fatal():
     integrity it protects is structural — nothing upstream reaches `code`."""
     (problem,) = _problems([
         GraphNode(id="a", type="echo", version=1),
-        GraphNode(id="s", type="script", version=1, bindings={"code": Edges(refs=(Ref("a", "result"),))}),
+        GraphNode(id="s", type="script", version=1, bindings={"code": From("a.result")}),
     ])
 
     assert (problem.code, problem.fatal, problem.field) == ("edge_into_closed_handle", True, "code")
@@ -299,7 +293,7 @@ def test_two_scalar_refs_into_a_scalar_input_is_fatal():
     codes = _codes([
         GraphNode(id="a", type="echo", version=1),
         GraphNode(id="b", type="echo", version=1),
-        GraphNode(id="c", type="echo", version=1, bindings={"x": Edges(refs=(Ref("a", "result"), Ref("b", "result")))}),
+        GraphNode(id="c", type="echo", version=1, bindings={"x": From("a.result", "b.result")}),
     ])
 
     assert codes == ["union_needs_one_index"]
@@ -309,12 +303,12 @@ def test_two_refs_into_a_series_input_is_a_gather_not_a_problem():
     assert _codes([
         GraphNode(id="a", type="echo", version=1),
         GraphNode(id="b", type="echo", version=1),
-        GraphNode(id="j", type="join", version=1, bindings={"texts": Edges(refs=(Ref("a", "result"), Ref("b", "result")))}),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": From("a.result", "b.result")}),
     ]) == []
 
 
 def test_a_ref_to_a_node_not_in_the_graph_is_fatal():
-    (problem,) = _problems([GraphNode(id="b", type="echo", version=1, bindings={"x": Edges(refs=(Ref("ghost", "result"),))})])
+    (problem,) = _problems([GraphNode(id="b", type="echo", version=1, bindings={"x": From("ghost.result")})])
 
     assert (problem.code, problem.node_id, problem.field) == ("unknown_ref_node", "b", "x")
     assert problem.details == {"source_node": "ghost"}
@@ -323,7 +317,7 @@ def test_a_ref_to_a_node_not_in_the_graph_is_fatal():
 def test_a_ref_to_an_output_the_node_does_not_have_is_fatal():
     (problem,) = _problems([
         GraphNode(id="a", type="echo", version=1),
-        GraphNode(id="b", type="echo", version=1, bindings={"x": Edges(refs=(Ref("a", "nope"),))}),
+        GraphNode(id="b", type="echo", version=1, bindings={"x": From("a.nope")}),
     ])
 
     assert (problem.code, problem.node_id, problem.field) == ("unknown_ref_output", "b", "x")
@@ -367,21 +361,21 @@ def test_an_any_input_with_no_edge_is_unbound_required():
 
 
 def test_a_required_input_with_a_static_is_fine():
-    assert _codes([GraphNode(id="n", type="needs", version=1, bindings={"x": Static(value="hi")})]) == []
+    assert _codes([GraphNode(id="n", type="needs", version=1, bindings={"x": Static("hi")})]) == []
 
 
 def test_a_cycle_is_a_fatal_problem_on_each_node_in_it():
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
-            GraphNode(id="a", type="echo", version=1, bindings={"x": Edges(refs=(Ref("b", "result"),))}),
-            GraphNode(id="b", type="echo", version=1, bindings={"x": Edges(refs=(Ref("a", "result"),))}),
+            GraphNode(id="a", type="echo", version=1, bindings={"x": From("b.result")}),
+            GraphNode(id="b", type="echo", version=1, bindings={"x": From("a.result")}),
             GraphNode(id="c", type="echo", version=1),
         ]),
         _registry(),
     )
 
     assert [(p.code, p.node_id) for p in compiled.problems] == [("cycle", "a"), ("cycle", "b")]
-    assert compiled.execution_order() == ("c",)
+    assert compiled.execution_order == ("c",)
     assert not compiled.is_runnable
 
 
@@ -391,7 +385,7 @@ def test_problems_can_be_read_whole_or_by_node():
     are read, filtered by node, and no field view exists to ask."""
     compiled = CompiledGraph.from_graph(
         Graph(
-            nodes=[GraphNode(id="a", type="echo", version=1, locked=("ghost",), bindings={"z": Static(value=1), "w": Static(value=2)})],
+            nodes=[GraphNode(id="a", type="echo", version=1, locked=("ghost",), bindings={"z": Static(1), "w": Static(2)})],
         ),
         _registry(),
     )
@@ -405,7 +399,7 @@ def test_problems_can_be_read_whole_or_by_node():
 
 def test_a_non_fatal_problem_leaves_the_graph_runnable():
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[GraphNode(id="a", type="echo", version=1, bindings={"z": Static(value=1)})]), _registry()
+        Graph(nodes=[GraphNode(id="a", type="echo", version=1, locked=("ghost",))]), _registry()
     )
 
     assert compiled.is_runnable
@@ -442,7 +436,7 @@ def test_a_problem_is_formatted_from_its_details_and_keeps_them():
     assert p.message == "Field 'text' is connected to 'a', which is not in the graph."
     assert p.details == {"source_node": "a"}
     assert p.fatal is True
-    assert problem("stale_binding", "b", "old").fatal is False
+    assert problem("unknown_locked_field", "b", "old").fatal is False
 
 
 # --- what compile refuses that it used to let through ----------------------------------
@@ -456,11 +450,11 @@ def test_a_slash_in_an_authored_id_is_fatal():
 
 
 def test_an_edge_with_no_refs_is_refused_where_it_is_written():
-    """C7: ``Edges(refs=())`` is not a binding; it used to crash compile."""
+    """C7: ``From()`` is not a binding; it used to crash compile."""
     from pydantic import ValidationError
 
     with pytest.raises(ValidationError):
-        Edges(refs=())
+        From()
 
 
 def test_a_cycle_is_reported_on_its_members_only():
@@ -468,16 +462,16 @@ def test_a_cycle_is_reported_on_its_members_only():
     interface, so an editor draws it, and the cycle alone stops the run."""
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
-            GraphNode(id="a", type="echo", version=1, bindings={"x": Edges(refs=(Ref("b", "result"),))}),
-            GraphNode(id="b", type="echo", version=1, bindings={"x": Edges(refs=(Ref("a", "result"),))}),
-            GraphNode(id="u", type="echo", version=1, bindings={"x": Edges(refs=(Ref("a", "result"),))}),
-            GraphNode(id="v", type="echo", version=1, bindings={"x": Edges(refs=(Ref("u", "result"),))}),
+            GraphNode(id="a", type="echo", version=1, bindings={"x": From("b.result")}),
+            GraphNode(id="b", type="echo", version=1, bindings={"x": From("a.result")}),
+            GraphNode(id="u", type="echo", version=1, bindings={"x": From("a.result")}),
+            GraphNode(id="v", type="echo", version=1, bindings={"x": From("u.result")}),
         ]),
         _registry(),
     )
 
     assert [(p.code, p.node_id) for p in compiled.problems] == [("cycle", "a"), ("cycle", "b")]
-    assert compiled.execution_order() == ("u", "v")
+    assert compiled.execution_order == ("u", "v")
     assert [i.name for i in compiled.node("u").interface.inputs] == ["x", "y"]
     assert not compiled.is_runnable
 
@@ -487,7 +481,7 @@ def test_an_edge_from_a_node_that_failed_to_resolve_is_not_reported_again():
     rather than told the node 'is not in the graph', which it is."""
     problems = _problems([
         GraphNode(id="x", type="no-such", version=1),
-        GraphNode(id="u", type="echo", version=1, bindings={"x": Edges(refs=(Ref("x", "result"),))}),
+        GraphNode(id="u", type="echo", version=1, bindings={"x": From("x.result")}),
     ])
 
     assert [(p.code, p.node_id) for p in problems] == [("unknown_node_type", "x")]
@@ -524,8 +518,8 @@ def test_an_edge_into_a_field_an_embedded_graph_lacks_names_the_authors_address(
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="e", type="emb-graph", version=1),
-            GraphNode(id="u", type="echo", version=1, bindings={"x": Edges(refs=(Ref("e", "nope"),))}),
-            GraphNode(id="w", type="echo", version=1, bindings={"x": Edges(refs=(Ref("e", "ghost.out"),))}),
+            GraphNode(id="u", type="echo", version=1, bindings={"x": From("e.nope")}),
+            GraphNode(id="w", type="echo", version=1, bindings={"x": From("e.ghost.out")}),
         ]),
         registry,
     )
@@ -545,7 +539,7 @@ def test_an_edge_from_a_slashed_name_under_a_plain_node_is_not_in_the_graph():
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="a", type="echo", version=1),
-            GraphNode(id="u", type="echo", version=1, bindings={"x": Edges(refs=(Ref("a/b", "result"),))}),
+            GraphNode(id="u", type="echo", version=1, bindings={"x": From("a/b.result")}),
         ]),
         _registry(),
     )
@@ -558,7 +552,7 @@ def test_an_edge_from_a_refused_id_is_not_reported_again():
     """C11 with C5: the id carries ``invalid_node_id``; its reader is silent."""
     problems = _problems([
         GraphNode(id="x/y", type="echo", version=1),
-        GraphNode(id="u", type="echo", version=1, bindings={"x": Edges(refs=(Ref("x/y", "result"),))}),
+        GraphNode(id="u", type="echo", version=1, bindings={"x": From("x/y.result")}),
     ])
 
     assert [(p.code, p.node_id) for p in problems] == [("invalid_node_id", "x/y")]

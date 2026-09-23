@@ -43,7 +43,7 @@ Conductor ships no default widget for any type, since the same `Text` may be a t
 
 - **Declaring** a node checks it when the class is defined. A missing `id`, `title`, `description` or `category`, a widget written bare instead of on a `Param`, a return without a `Result`, an `async def run`: each fails with the traceback at the class. `NodeRegistry.register(cls)` adds the catalogue's rules (versions from 1 with no holes, an `alternative` that exists).
 - **`CompiledGraph.from_graph(graph, registry)`** resolves every pin, validates the bindings, types every field from its edges, decides which nodes run once per row, asks the field hooks and expands embedded graphs. It never raises for a fault in the graph: everything wrong is a `Problem` with a stable `code`, anchored on a node, and `is_runnable` says whether a run may start. The result is asked at three scales: the graph, `compiled.node(node_id)` and `compiled.field(ref)`.
-- **`execute(compiled)`** runs one leg as an async generator of events: `node_start`, `node_progress`, `node_complete`, `node_retry`, `node_skipped`, `node_error`, and an ending, `graph_complete`, `graph_pending`, `graph_error`, `graph_cancelled` or `graph_timeout`. Every ending carries `results` and `record`. `await run(compiled)` drains it and returns the ending; `run_sync(compiled)` is the same call from a script.
+- **`execute(compiled)`** runs one leg as an async generator of events: `node_start`, `node_progress`, `node_complete`, `node_retry`, `node_skipped`, `node_error`, and an ending, `graph_complete`, `graph_pending`, `graph_error`, `graph_cancelled` or `graph_timeout`. Every ending carries `results` and `record`. `await run(compiled)` drains it and returns the ending; `run_sync(compiled)` is the same call from a script. A stream left early is closed with `async with aclosing(execute(compiled)) as events:`, which stops every unit.
 
 ## The row engine
 
@@ -65,19 +65,19 @@ ConductorError
 
 **Branching** is a value. A node returns `SKIPPED` on the branch it did not take; a skip at a row leaves the series downstream sparse, and a skip above a node's rows skips everything under it. Outputs that are exclusive alternatives share a `choice`, so an editor knows exactly one arrives.
 
-**A person in the loop** is a value too. A node returns `Asks` with its questions; the rest of the graph runs on, and the leg ends `graph_pending` with every question. Answering is the next leg: `execute(compiled, cells=..., cache=...)`, where `cells` is what the earlier leg produced and `cache` holds the answers as the asking node's outputs. Nothing runs twice and nothing is resumed.
+**A person in the loop** is a value too. A node returns `Asks` with its questions; the rest of the graph runs on, and the leg ends `graph_pending` with every question. Answering is the next leg: `execute(compiled, record=..., cache=...)`, where `record` is the earlier leg's ending's run record and `cache` holds the answers as the asking node's outputs. Nothing runs twice and nothing is resumed.
 
 ## Bindings — one input, one source
 
 A graph is its nodes; there is no edge list. Each placed node says per input where the value comes from:
 
 ```python
-GraphNode(id="mapper", type="build-map", version=1, bindings={"seed": Static(value="x")})
-GraphNode(id="redactor", type="redact", version=1, bindings={"mapping": Edges(refs=(Ref("mapper", "result"),))})
-# the Edges binding is the edge and the dependency
+GraphNode(id="mapper", type="build-map", version=1, bindings={"seed": Static("x")})
+GraphNode(id="redactor", type="redact", version=1, bindings={"mapping": From("mapper.result")})
+# the From binding is the edge and the dependency
 ```
 
-An `Edges` holds refs in operand order, a `Static` is what the author typed, and an absent binding means the declared default. Dependencies, cycles and what the graph takes and returns are derived from the bindings. A `Graph` saves itself: `graph.to_path("approval.yaml")`, `Graph.from_path(...)`.
+An `From` holds refs in operand order, a `Static` is what the author typed, and an absent binding means the declared default. Dependencies, cycles and what the graph takes and returns are derived from the bindings. A `Graph` saves itself: `graph.to_path("approval.yaml")`, `Graph.from_path(...)`.
 
 ## Standard nodes and providers
 
@@ -98,7 +98,7 @@ The nodes are declared in `conductor_nodes.types` (`Text`, `Number`, `Flag`, `Js
 from conductor_providers import react
 from conductor.metadata import Param
 
-palette = react.palette_from_registry(registry)   # [cls.describe() ...]
+palette = registry.describe()                     # the palette is the registry's own
 wire = react.graph_to_react(graph)                # Graph → ReactFlow JSON
 graph = react.react_to_graph(wire)                # ReactFlow JSON → Graph
 ```

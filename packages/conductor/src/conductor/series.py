@@ -76,6 +76,11 @@ class Index(ConductorModel):
     def __eq__(self, other: object) -> bool:
         return isinstance(other, Index) and other.id == self.id
 
+    def __repr__(self) -> str:
+        """``Index('lines', parent=Index('docs'))``: the call that makes it."""
+        parent = "" if self.parent is None else f", parent={self.parent!r}"
+        return f"Index({self.id!r}{parent})"
+
     def __hash__(self) -> int:
         return hash(self.id)
 
@@ -168,18 +173,22 @@ class Series(DType, Sequence[T]):
         return iter(self.values)
 
     def __eq__(self, other: object) -> bool:
+        """Equal to another series on the same index with the same rows and
+        values; never equal to a list, which has neither an index nor rows.
+        Compare ``list(series)`` or ``series.values`` to ask about the values alone."""
         if isinstance(other, Series):
-            return (self.index, self.rows, self.values) == (
-                other.index,
-                other.rows,
-                other.values,
-            )
-        if isinstance(other, Sequence) and not isinstance(other, (str, bytes)):
-            return list(self) == list(other)
+            return (self.index, self.rows, self.values) == (other.index, other.rows, other.values)
         return NotImplemented
 
+    def __hash__(self) -> int:
+        return hash((self.index, self.rows, self.values))
+
     def __repr__(self) -> str:
-        return f"Series({list(self.values)!r})"
+        """``Series[Text](Index('lines'), ['a'])``: the call that makes it, rows
+        only when they are not the dense default a root gives."""
+        dense = self.rows == tuple((i,) for i in range(len(self.values)))
+        rows = "" if dense else f", rows={list(self.rows)!r}"
+        return f"{type(self).__name__}({self.index!r}, {list(self.values)!r}{rows})"
 
     # -- the wire ----------------------------------------------------------
 

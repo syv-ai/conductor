@@ -30,15 +30,6 @@ jobs:
         with:
           enable-cache: true
 
-      # Hatchling reads LICENSE from the project root (the dir holding
-      # pyproject.toml). Stage the repo-level LICENSE into each package
-      # so every wheel ships its own copy.
-      - name: Stage LICENSE into each package
-        run: |
-          for pkg in conductor conductor-nodes conductor-providers; do
-            cp LICENSE "packages/$pkg/LICENSE"
-          done
-
       # Build straight into a shared ``dist/`` so the publish step has
       # a single, predictable directory to upload.
       - name: Build wheels + sdists

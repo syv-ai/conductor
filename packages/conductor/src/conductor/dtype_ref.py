@@ -24,7 +24,7 @@ type in ``NodeRegistry.describe()``.
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, NewType, TypeAliasType, get_origin
 
 from pydantic import PlainSerializer, PlainValidator, WithJsonSchema
 
@@ -57,12 +57,17 @@ def name_of(declared: Any) -> str:
 
 
 def _declared(value: Any) -> Any:
-    """Validator for a ``DTypeRef`` field: keep the declared class as it is.
+    """Validator for a ``DTypeRef`` field: keep the declared type as it is, and refuse anything that is not one.
 
     A record's ``dtype`` is read off a signature, never off the wire, so
-    there is nothing to coerce.
+    there is nothing to coerce: a ``DType`` class, ``Any``, or the static
+    type of an input no edge reaches — a class, a typing form such as
+    ``list[str]``, a ``NewType`` or a ``type X = ...`` alias. A value (``42``, ``"text"``, a dumped ``{"id": ...}``)
+    is refused rather than carried as a type nobody can describe.
     """
-    return value
+    if value is Any or isinstance(value, (type, NewType, TypeAliasType)) or get_origin(value) is not None:
+        return value
+    raise ValueError(f"dtype must be a DType class, Any or a type, not {value!r}")
 
 
 #: The JSON schema of ``describe()``'s record.

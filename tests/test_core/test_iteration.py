@@ -6,7 +6,7 @@ from typing import Annotated, Any
 import pytest
 from conductor import NodeRegistry
 from conductor.dtype import DType, Single
-from conductor.graph.binding import Edges, Static
+from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.metadata import Input, Output, Param, Result
@@ -163,7 +163,7 @@ def _compiled(nodes, **kw):
 
 
 def _edge(*refs):
-    return Edges(refs=tuple(Ref(n, f) for n, f in refs))
+    return From(*(Ref(n, f) for n, f in refs))
 
 
 # --- a series into a scalar input makes the node iterate --------------------------------
@@ -171,7 +171,7 @@ def _edge(*refs):
 
 def test_a_scalar_node_fed_scalars_does_not_iterate():
     compiled = _compiled([
-        GraphNode(id="a", type="upper", version=1, bindings={"text": Static(value="hi")}),
+        GraphNode(id="a", type="upper", version=1, bindings={"text": Static("hi")}),
         GraphNode(id="b", type="upper", version=1, bindings={"text": _edge(("a", "result"))}),
     ])
 
@@ -235,7 +235,7 @@ def test_a_scalar_beside_a_series_broadcasts():
     """The same value every row — and no mode on the wire says so."""
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="prefix", type="upper", version=1, bindings={"text": Static(value="Attachment: ")}),
+        GraphNode(id="prefix", type="upper", version=1, bindings={"text": Static("Attachment: ")}),
         GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("prefix", "result")), "b": _edge(("docs", "texts"))}),
     ])
 
@@ -250,7 +250,7 @@ def test_a_scalar_beside_a_series_broadcasts():
 
 def test_a_mismatched_edge_is_a_fatal_problem_on_the_target_field():
     compiled = _compiled([
-        GraphNode(id="n", type="count", version=1, bindings={"text": Static(value="hi")}),
+        GraphNode(id="n", type="count", version=1, bindings={"text": Static("hi")}),
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("n", "result"))}),
     ])
 
@@ -277,7 +277,7 @@ def test_a_pass_through_binds_its_type_from_the_edge():
     `arriving`, and the node's interface is concrete — nothing downstream sees a
     lost type."""
     compiled = _compiled([
-        GraphNode(id="n", type="count", version=1, bindings={"text": Static(value="hi")}),
+        GraphNode(id="n", type="count", version=1, bindings={"text": Static("hi")}),
         GraphNode(id="r", type="route", version=1, bindings={"value": _edge(("n", "result"))}),
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("r", "result"))}),
     ])
@@ -331,9 +331,56 @@ def test_an_unconnected_any_input_is_unbound_required_and_the_node_has_no_shape(
 
 def test_a_static_on_an_any_input_is_unbound_too():
     """Only an edge can say what the type is."""
-    compiled = _compiled([GraphNode(id="r", type="route", version=1, bindings={"value": Static(value="hi")})])
+    compiled = _compiled([GraphNode(id="r", type="route", version=1, bindings={"value": Static("hi")})])
 
     assert [p.code for p in compiled.problems] == ["unbound_required"]
+
+
+def test_a_refuses_whole_that_returns_its_refusal_fails_loud():
+    """A type refuses by raising ``Refuses``; one that returns its reason
+    instead would let the edge through, so compile says so."""
+    from typing import Annotated
+
+    import pytest
+    from conductor import NodeRegistry
+    from conductor.dtype import DType, Single
+    from conductor.metadata import Result
+    from conductor.node import NodeDefinition
+
+    class Returns(DType):
+        id = "returns-its-refusal"
+        title = "R"
+
+        @classmethod
+        def refuses_whole(cls):
+            return ("columns_unknown", "The columns are unknown.")
+
+    class Makes(NodeDefinition):
+        id = "makes"
+        title = "M"
+        description = "d"
+        category = "test"
+
+        def run(self) -> Annotated[Returns, Result(title="R")]:
+            return Returns()
+
+    class Reads(NodeDefinition):
+        id = "reads"
+        title = "R"
+        description = "d"
+        category = "test"
+
+        def run(self, **inputs: Single) -> Annotated[Txt, Result(title="Text")]:
+            return Txt("")
+
+    registry = NodeRegistry([Makes, Reads])
+    graph = Graph(nodes=[
+        GraphNode(id="m", type="makes", version=1),
+        GraphNode(id="r", type="reads", version=1, bindings={"x": From("m.result")}),
+    ])
+
+    with pytest.raises(TypeError, match=r"Returns.refuses_whole\(\) returned"):
+        CompiledGraph.from_graph(graph, registry)
 
 
 def test_a_source_may_refuse_to_be_received_whole_naming_the_fix():
@@ -354,7 +401,9 @@ def test_a_source_may_refuse_to_be_received_whole_naming_the_fix():
 
         @classmethod
         def refuses_whole(cls):
-            return ("columns_unknown", "The columns are unknown; state them.")
+            from conductor.errors import Refuses
+
+            raise Refuses("columns_unknown", "The columns are unknown; state them.")
 
     class Halves(NodeDefinition):
         id = "halves"
@@ -391,8 +440,8 @@ def test_a_source_may_refuse_to_be_received_whole_naming_the_fix():
     for node_cls in (Halves, Reads, Routes):
         registry.register(node_cls)
     edge = {"h": GraphNode(id="h", type="halves", version=1)}
-    read = CompiledGraph.from_graph(Graph(nodes=[edge["h"], GraphNode(id="r", type="reads", version=1, bindings={"x": Edges(refs=(Ref("h", "result"),))})]), registry)
-    routed = CompiledGraph.from_graph(Graph(nodes=[edge["h"], GraphNode(id="r", type="routes", version=1, bindings={"value": Edges(refs=(Ref("h", "result"),))})]), registry)
+    read = CompiledGraph.from_graph(Graph(nodes=[edge["h"], GraphNode(id="r", type="reads", version=1, bindings={"x": From("h.result")})]), registry)
+    routed = CompiledGraph.from_graph(Graph(nodes=[edge["h"], GraphNode(id="r", type="routes", version=1, bindings={"value": From("h.result")})]), registry)
 
     (problem,) = [p for p in read.problems if p.node_id == "r"]
     assert (problem.code, problem.fatal, problem.field) == ("columns_unknown", True, "x")
@@ -405,9 +454,9 @@ def test_an_open_roster_takes_one_input_per_edge_received_whole():
     series arrives whole and makes nothing iterate."""
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="n", type="count", version=1, bindings={"text": Static(value="hi")}),
+        GraphNode(id="n", type="count", version=1, bindings={"text": Static("hi")}),
         GraphNode(id="s", type="script", version=1, bindings={
-            "code": Static(value="return {}"),
+            "code": Static("return {}"),
             "antal": _edge(("n", "result")),
             "tekster": _edge(("docs", "texts")),
         }),
@@ -423,9 +472,9 @@ def test_an_open_roster_takes_one_input_per_edge_received_whole():
 
 def test_an_open_roster_parameter_takes_one_edge():
     compiled = _compiled([
-        GraphNode(id="a", type="upper", version=1, bindings={"text": Static(value="a")}),
-        GraphNode(id="b", type="upper", version=1, bindings={"text": Static(value="b")}),
-        GraphNode(id="s", type="script", version=1, bindings={"code": Static(value=""), "x": _edge(("a", "result"), ("b", "result"))}),
+        GraphNode(id="a", type="upper", version=1, bindings={"text": Static("a")}),
+        GraphNode(id="b", type="upper", version=1, bindings={"text": Static("b")}),
+        GraphNode(id="s", type="script", version=1, bindings={"code": Static(""), "x": _edge(("a", "result"), ("b", "result"))}),
     ])
 
     assert [p.code for p in compiled.problems] == ["one_edge_per_parameter"]
@@ -435,8 +484,8 @@ def test_an_open_roster_parameter_is_named_like_a_keyword_argument():
     """`**inputs` is Python's own spelling: a parameter's name is an
     identifier, or the node has no signature to receive it in."""
     compiled = _compiled([
-        GraphNode(id="a", type="upper", version=1, bindings={"text": Static(value="a")}),
-        GraphNode(id="s", type="script", version=1, bindings={"code": Static(value=""), "my value": _edge(("a", "result"))}),
+        GraphNode(id="a", type="upper", version=1, bindings={"text": Static("a")}),
+        GraphNode(id="s", type="script", version=1, bindings={"code": Static(""), "my value": _edge(("a", "result"))}),
     ])
 
     assert [(p.code, p.field) for p in compiled.problems] == [("parameter_name_invalid", "my value")]
@@ -526,7 +575,7 @@ def test_a_hook_that_cannot_answer_refuses_and_the_refusal_is_the_placements_pro
     arrivals — lands as the node's one fatal `Problem`: the host
     names the code and writes the sentence, compile only anchors it, and
     there is no `no_outputs` echo beside it."""
-    from conductor.node import Refuses
+    from conductor.errors import Refuses
 
     class Fussy(NodeDefinition):
         id = "fussy"
@@ -557,7 +606,7 @@ def test_an_inputs_hook_that_cannot_answer_refuses_and_compile_does_not_raise():
     """`Refuses` from `compute_inputs` is the node's one fatal `Problem`
     too, asked before any edge is walked: compile never raises for a fault
     in the graph, and a node reading the refused one carries no echo."""
-    from conductor.node import Refuses
+    from conductor.errors import Refuses
 
     class Fussy(NodeDefinition):
         id = "fussy-inputs"
@@ -574,7 +623,7 @@ def test_an_inputs_hook_that_cannot_answer_refuses_and_compile_does_not_raise():
     registry = _registry()
     registry.register(Fussy)
     compiled = CompiledGraph.from_graph(Graph(nodes=[
-        GraphNode(id="f", type="fussy-inputs", version=1, bindings={"value": Static(value="x")}),
+        GraphNode(id="f", type="fussy-inputs", version=1, bindings={"value": Static("x")}),
         GraphNode(id="u", type="upper", version=1, bindings={"text": _edge(("f", "result"))}),
     ]), registry)
 
@@ -713,8 +762,8 @@ def test_two_children_of_one_parent_do_not_align():
 
 def test_n_scalar_refs_into_a_series_input_gather_onto_a_fresh_index():
     compiled = _compiled([
-        GraphNode(id="a", type="upper", version=1, bindings={"text": Static(value="a")}),
-        GraphNode(id="b", type="upper", version=1, bindings={"text": Static(value="b")}),
+        GraphNode(id="a", type="upper", version=1, bindings={"text": Static("a")}),
+        GraphNode(id="b", type="upper", version=1, bindings={"text": Static("b")}),
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("a", "result"), ("b", "result"))}),
     ])
 
@@ -776,7 +825,7 @@ def test_two_series_refs_on_one_index_into_a_series_input_read_that_index_not_a_
 
 def test_one_scalar_ref_into_a_series_input_is_a_gather_of_one():
     compiled = _compiled([
-        GraphNode(id="a", type="upper", version=1, bindings={"text": Static(value="a")}),
+        GraphNode(id="a", type="upper", version=1, bindings={"text": Static("a")}),
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("a", "result"))}),
     ])
 
@@ -785,7 +834,7 @@ def test_one_scalar_ref_into_a_series_input_is_a_gather_of_one():
 
 def test_a_typed_list_and_a_default_live_on_the_inputs_own_index():
     compiled = _compiled([
-        GraphNode(id="typed", type="join", version=1, bindings={"texts": Static(value=["a", "b"])}),
+        GraphNode(id="typed", type="join", version=1, bindings={"texts": Static(["a", "b"])}),
         GraphNode(id="absent", type="join", version=1),
     ])
 
@@ -795,8 +844,8 @@ def test_a_typed_list_and_a_default_live_on_the_inputs_own_index():
 
 def test_a_gathered_series_judges_each_ref_by_the_element():
     compiled = _compiled([
-        GraphNode(id="a", type="upper", version=1, bindings={"text": Static(value="a")}),
-        GraphNode(id="n", type="count", version=1, bindings={"text": Static(value="a")}),
+        GraphNode(id="a", type="upper", version=1, bindings={"text": Static("a")}),
+        GraphNode(id="n", type="count", version=1, bindings={"text": Static("a")}),
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("a", "result"), ("n", "result"))}),
     ])
 
@@ -840,7 +889,7 @@ def test_a_hook_that_adds_a_connected_input_without_an_edge_type_is_a_problem_no
     registry = _registry()
     registry.register(Adds)
     compiled = CompiledGraph.from_graph(Graph(nodes=[
-        GraphNode(id="n", type="count", version=1, bindings={"text": Static(value="hi")}),
+        GraphNode(id="n", type="count", version=1, bindings={"text": Static("hi")}),
         GraphNode(id="a", type="adds", version=1, bindings={"raw": _edge(("n", "result"))}),
     ]), registry)
 
@@ -868,7 +917,7 @@ def test_a_hook_that_leaves_a_connected_output_untyped_is_a_problem_not_a_crash(
     registry = _registry()
     registry.register(Vague)
     compiled = CompiledGraph.from_graph(Graph(nodes=[
-        GraphNode(id="v", type="vague", version=1, bindings={"value": Static(value="hi")}),
+        GraphNode(id="v", type="vague", version=1, bindings={"value": Static("hi")}),
         GraphNode(id="u", type="upper", version=1, bindings={"text": _edge(("v", "result"))}),
     ]), registry)
 
@@ -894,8 +943,8 @@ def test_a_static_is_typed_against_the_interface_the_hook_returned():
 
     registry = _registry()
     registry.register(Retypes)
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="r", type="retypes", version=1, bindings={"value": Static(value="abc")})]), registry)
-    numeric = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="r", type="retypes", version=1, bindings={"value": Static(value="2")})]), registry)
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="r", type="retypes", version=1, bindings={"value": Static("abc")})]), registry)
+    numeric = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="r", type="retypes", version=1, bindings={"value": Static("2")})]), registry)
 
     assert [(p.code, p.field) for p in compiled.problems] == [("invalid_static", "value")]
     assert numeric.is_runnable and numeric.node("r").statics == {"value": Num(2)}

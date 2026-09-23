@@ -191,10 +191,12 @@ class Fetch(NodeDefinition):
         except TimeoutError as e:
             raise ExternalFailure(str(e)) from e
 
-    @upgrade(1, 2)
+    @upgrade(1, 2, inputs={"url": "address"})
     def _rename(values: dict) -> dict:
-        return {"address": values["url"]}
+        return values
 ```
+
+- A step that renames a field says so in `inputs=` / `outputs=`: the registry moves the binding, the author's lock and content, and every downstream edge. The function rewrites values only, and returns only names the new version has.
 
 - Retried: an `ExternalFailure` the node raises, or a foreign exception whose class `Policy(retry_on=(...))` names. Never: any other exception from `run` (wrapped as `NodeExecutionError`), `NodeValidationError`, a timeout.
 - The delay before attempt `n` is `delay * 2 ** (n - 1)`. `timeout` is how long the leg waits on one attempt; it never interrupts the thread, and a timed-out attempt is final. Set the timeout worth retrying on the client inside `run`.
@@ -208,7 +210,7 @@ When what one placed node has depends on how the author configured it, override 
 ```python
 from collections.abc import Mapping
 
-from conductor.node import Refuses
+from conductor import Refuses
 
 
 class Columns(NodeDefinition):

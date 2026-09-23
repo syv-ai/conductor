@@ -57,6 +57,35 @@ class ConductorError(Exception):
     """Base for every engine error."""
 
 
+class Refuses(ConductorError):
+    """A node's hook or a type cannot answer for what it was given, and says why.
+
+    Raised by ``compute_inputs`` and ``compute_outputs`` when the values
+    or what arrives do not fit, and by ``DType.refuses_whole`` when a value
+    of the type cannot be handed over whole. The compiler catches it and
+    reports ``code`` and ``message`` — both the host's own, in the host's
+    language — as a fatal problem on the node or the field. Not an error a
+    run raises: a graph that meets one does not run.
+    """
+
+    def __init__(self, code: str, message: str) -> None:
+        self.code = code
+        self.message = message
+        super().__init__(message)
+
+
+class StartRefused(ConductorError, ValueError):
+    """A run cannot start from what its caller handed it: a ``cache`` or a ``record`` that does not fit the graph.
+
+    Raised by the ledger while it seeds a leg — an answer for a node the
+    graph does not have, an output left out or not declared, a value that
+    is not its output's type, a row the run has not produced, or a record
+    cell whose value does not read back as its field's type. The caller's
+    fault rather than the engine's, so a provider answers it as a 422; a
+    ``ValueError`` too, so a host that caught that before still does.
+    """
+
+
 class CompilationError(ConductorError):
     """A caller asked the engine to run a graph that compile rejected.
 
@@ -68,6 +97,15 @@ class CompilationError(ConductorError):
     def __init__(self, message: str, *, problems: tuple[Problem, ...] = ()) -> None:
         self.problems = problems
         super().__init__(message)
+
+    def __str__(self) -> str:
+        """The message, then one line per fatal problem: where, its code, what it says."""
+        lines = [
+            f"  {p.node_id}{'' if p.field is None else '.' + p.field} — {p.code}: {p.message}"
+            for p in self.problems if p.fatal
+        ]
+        head = super().__str__()
+        return head if not lines else "\n".join([f"{head}:", *lines])
 
 
 #: Every ``ErrorCause.code`` the engine itself emits, declared once. A host

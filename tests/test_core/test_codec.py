@@ -16,11 +16,10 @@ from conductor.codec import from_wire, to_wire
 from conductor.dtype import DType
 from conductor.execution.ledger import Ledger
 from conductor.execution.record import RunRecord
-from conductor.graph.binding import Edges, Static
+from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
 from conductor.metadata import Result
 from conductor.node import NodeDefinition
-from conductor.ref import Ref
 from conductor.series import Index, Series
 from conductor.widgets import Textarea
 from conductor_nodes.types import Flag, Json, Number, Text
@@ -91,10 +90,6 @@ def test_a_series_still_reads_a_plain_list_as_dense_rows_on_a_fresh_index():
     assert back.rows == ((0,), (1,)) and list(back) == ["a", "b"]
 
 
-def test_a_series_has_no_wire_form_of_its_own():
-    assert not hasattr(Series, "_as_wire")
-
-
 # -- the ledger's cells ---------------------------------------------------------------
 
 
@@ -127,8 +122,8 @@ def _compiled(*classes: type[NodeDefinition], nodes: list[GraphNode]) -> Compile
 
 def test_a_text_that_spells_the_old_skip_marker_is_a_text_after_a_round_trip():
     compiled = _compiled(Split, Upper, nodes=[
-        GraphNode(id="split", type="split", version=1, bindings={"text": Static(value="__skipped__,x")}),
-        GraphNode(id="up", type="upper", version=1, bindings={"text": Edges(refs=(Ref("split", "result"),))}),
+        GraphNode(id="split", type="split", version=1, bindings={"text": Static("__skipped__,x")}),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": From("split.result")}),
     ])
     ledger = Ledger(compiled)
     ledger.record(("split", None), {"result": [Txt("__skipped__"), Txt("x")]})
@@ -148,8 +143,8 @@ def test_a_skip_is_marked_beside_the_cell_with_its_depth():
     from conductor import SKIPPED
 
     compiled = _compiled(Split, Upper, nodes=[
-        GraphNode(id="split", type="split", version=1, bindings={"text": Static(value="a,b")}),
-        GraphNode(id="up", type="upper", version=1, bindings={"text": Edges(refs=(Ref("split", "result"),))}),
+        GraphNode(id="split", type="split", version=1, bindings={"text": Static("a,b")}),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": From("split.result")}),
     ])
     ledger = Ledger(compiled)
     ledger.record(("split", None), {"result": [Txt("a"), Txt("b")]})
@@ -183,7 +178,7 @@ def test_a_value_with_no_json_form_raises_naming_the_field():
         def run(self, text: Annotated[Txt, Param(title="In", widget=Textarea())] = Txt("")) -> Annotated[Opaque, Result(title="Handle")]:
             return Opaque(object())
 
-    compiled = _compiled(Opens, nodes=[GraphNode(id="o", type="opens", version=1, bindings={"text": Static(value="x")})])
+    compiled = _compiled(Opens, nodes=[GraphNode(id="o", type="opens", version=1, bindings={"text": Static("x")})])
     ledger = Ledger(compiled)
     ledger.record(("o", None), {"result": Opaque(object())})
 

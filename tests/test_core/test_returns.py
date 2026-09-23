@@ -191,11 +191,3 @@ def test_unpack_reads_a_mapping_against_the_roster():
     assert unpack(Mapping, {"name": "Ida", "age": 3}, interface) == {"name": "Ida", "age": 3}
     with pytest.raises(ValueError, match="exactly the outputs"):
         unpack(Mapping, {"name": "Ida"}, interface)
-
-
-def test_nothing_is_positional():
-    """A field's name is the persisted binding key and the Ref an author
-    edges, so there is no Results carrying titles by position."""
-    import conductor.returns as returns_module
-
-    assert not hasattr(returns_module, "Results")

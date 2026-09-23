@@ -35,7 +35,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
-from conductor.graph.binding import Binding, Edges
+from conductor.graph.binding import Binding, From
 from conductor.graph.model import GraphNode
 from conductor.graph.problem import Problem, problem
 from conductor.graph.topology import dependencies_of, order_of
@@ -148,11 +148,10 @@ class _Expander:
         moved = self._moved(node, inner_nodes)
         inner_versions: dict[str, NodeVersion | GraphVersion] = {}
         for inner_id, inner in inner_nodes.items():
-            definition = self.registry.get(inner.type)
-            if definition is None:
+            if inner.type not in self.registry:
                 self.problems.append(problem("unknown_node_type", inner_id, node_type=inner.type))
                 continue
-            inner_version = definition.versions.get(inner.version)
+            inner_version = self.registry[inner.type].versions.get(inner.version)
             if inner_version is None:
                 self.problems.append(
                     problem("unknown_node_version", inner_id, node_type=inner.type, version=inner.version)
@@ -171,14 +170,15 @@ class _Expander:
         A binding on ``check.amount`` replaces whatever the inner ``check``
         held on ``amount`` — a value its author typed or an inner edge — for
         this placement. A key naming no inner node is a stale binding,
-        reported on the placement.
+        reported on the placement with the inner nodes it could have named.
         """
         moved: dict[str, dict[str, Binding]] = {}
         for key, binding in placement.bindings.items():
             first, _, field = key.partition(".")
             inner = f"{placement.id}{SEPARATOR}{first}"
             if not field or inner not in inner_nodes:
-                self.problems.append(problem("stale_binding", placement.id, key))
+                offered = sorted(f"{inner_id.removeprefix(placement.id + SEPARATOR)}.*" for inner_id in inner_nodes)
+                self.problems.append(problem("stale_binding", placement.id, key, inputs=", ".join(offered) or "none"))
                 continue
             moved.setdefault(inner, {})[field] = binding
         return {
@@ -192,8 +192,8 @@ class _Expander:
         into a nested one alike."""
         for node_id, node in list(self.nodes.items()):
             reconnected = {
-                name: Edges(refs=tuple(expanded_ref(ref, self.placements) for ref in binding.refs))
-                if isinstance(binding, Edges) else binding
+                name: From(*(expanded_ref(ref, self.placements) for ref in binding.refs))
+                if isinstance(binding, From) else binding
                 for name, binding in node.bindings.items()
             }
             self.nodes[node_id] = node.model_copy(update={"bindings": reconnected})
@@ -219,8 +219,8 @@ class _Expander:
             **dict(inner),
             "id": f"{placement}{SEPARATOR}{inner.id}",
             "bindings": {
-                name: Edges(refs=tuple(Ref(f"{placement}{SEPARATOR}{ref.node_id}", ref.field) for ref in binding.refs))
-                if isinstance(binding, Edges) else binding
+                name: From(*(Ref(f"{placement}{SEPARATOR}{ref.node_id}", ref.field) for ref in binding.refs))
+                if isinstance(binding, From) else binding
                 for name, binding in inner.bindings.items()
             },
             "locked": (),

@@ -22,7 +22,7 @@ A reusable, host-agnostic engine that compiles and runs graphs of typed nodes. D
 ```python
 from typing import Annotated
 
-from conductor import CompiledGraph, Edges, Graph, GraphNode, NodeDefinition, NodeRegistry, Param, Policy, Ref, Result, run_sync, Static, version
+from conductor import CompiledGraph, From, Graph, GraphNode, NodeDefinition, NodeRegistry, Param, Policy, Result, run_sync, Static, version
 from conductor.widgets import TextWidget
 from conductor_nodes.types import Number, Text          # or DTypes of your own
 
@@ -54,8 +54,8 @@ registry.register(Length)
 
 compiled = CompiledGraph.from_graph(
     Graph(nodes=[
-        GraphNode(id="page", type="fetch", version=1, bindings={"url": Static(value=["https://a.example", "https://b.example"])}),
-        GraphNode(id="size", type="length", version=1, bindings={"text": Edges(refs=(Ref("page", "result"),))}),
+        GraphNode(id="page", type="fetch", version=1, bindings={"url": Static(["https://a.example", "https://b.example"])}),
+        GraphNode(id="size", type="length", version=1, bindings={"text": From("page.result")}),
     ]),
     registry,
 )
@@ -67,14 +67,14 @@ list(results["size"]["result"])     # [30.0, 30.0]: two URLs typed in, so both n
 
 ## Bindings: one input, one source
 
-A graph is its nodes; there is no edge list. Each placed node says per input where the value comes from: `Edges` names other nodes' outputs, `Static` holds a typed-in value, and an input with no binding takes its declared default. Dependencies, cycles and what the graph takes and returns are all read off the bindings, so an edge has exactly one representation.
+A graph is its nodes; there is no edge list. Each placed node says per input where the value comes from: `From` names other nodes' outputs, `Static` holds a typed-in value, and an input with no binding takes its declared default. Dependencies, cycles and what the graph takes and returns are all read off the bindings, so an edge has exactly one representation.
 
 ```python
 graph = Graph(nodes=[
-    GraphNode(id="mapper", type="build-map", version=1, bindings={"seed": Static(value="x")}),
+    GraphNode(id="mapper", type="build-map", version=1, bindings={"seed": Static("x")}),
     GraphNode(id="redactor", type="redact", version=1, bindings={
-        "text": Static(value="Alice met Bob."),
-        "mapping": Edges(refs=(Ref("mapper", "result"),)),
+        "text": Static("Alice met Bob."),
+        "mapping": From("mapper.result"),
     }),
 ])
 ```
@@ -108,4 +108,4 @@ Raise `ExternalFailure` from `run` where the node knows the outside world failed
 - [`OVERVIEW.md`](./OVERVIEW.md): the architecture on one page.
 - [`widgets.md`](./widgets.md): the controls, and how an input declares one.
 - [`packages/conductor/src/conductor/about/llms.txt`](../packages/conductor/src/conductor/about/llms.txt): the packaged reference (also `python -m conductor.about`).
-- The notebooks in [`examples/`](https://github.com/syv-ai/conductor/tree/main/examples) cover nodes, graphs, class nodes, versions and discovery, a person in the loop, and widgets.
+- The notebooks in [`examples/`](https://github.com/syv-ai/conductor/tree/main/examples) cover nodes, graphs, class nodes, versions and wiring a package's nodes, a person in the loop, and widgets.

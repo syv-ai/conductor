@@ -14,9 +14,9 @@ What a host saves reads back what it wrote — a ``Graph`` and its parts, a
 What describes a node — ``NodeDescription``, ``VersionDescription``,
 ``Input``, ``Output`` and the widgets — is written for an editor. It is
 built from a ``run`` signature, so its ``dtype`` dumps as the type's
-description and reads back as that description, not the class; the rest
-of the record — the title, the widget — reads back as written. The class
-is still there to ``describe()``.
+description, and a dump does not read back: a description is not a type,
+and a record holding one is refused. A widget reads back as written. The
+class is still there to ``describe()``.
 
 What compile and the engine build on every call — ``CompiledGraph`` and
 its node and field views, a version, an interface, the ledger's records —
@@ -46,7 +46,7 @@ class ConductorModel(BaseModel):
     does not read back (the module docstring says why).
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     def __repr_args__(self) -> Iterator[tuple[str | None, Any]]:
         """Pydantic's repr arguments without the fields at their default, as scikit-learn prints an estimator.

@@ -13,12 +13,11 @@ from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
 from conductor.errors import CompilationError
 from conductor.execution.engine import execute
-from conductor.graph.binding import Edges, Static
+from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.metadata import Result
 from conductor.node import NodeDefinition, Policy, version
-from conductor.ref import Ref
 from conductor.series import Series
 from conductor.widgets import Textarea
 
@@ -97,8 +96,8 @@ def _run(nodes):
 
 def test_a_graph_of_bindings_compiles_and_runs():
     results = _run([
-        GraphNode(id="a", type="upper", version=1, bindings={"text": Static(value="hi")}),
-        GraphNode(id="b", type="upper", version=1, bindings={"text": Edges(refs=(Ref("a", "result"),))}),
+        GraphNode(id="a", type="upper", version=1, bindings={"text": Static("hi")}),
+        GraphNode(id="b", type="upper", version=1, bindings={"text": From("a.result")}),
     ])
 
     assert results["a"]["result"] == "HI"
@@ -109,20 +108,12 @@ def test_an_unbound_input_falls_back_to_its_declared_default():
     assert _run([GraphNode(id="a", type="upper", version=1)])["a"]["result"] == ""
 
 
-def test_a_stale_static_never_reaches_the_node():
-    """The resolver reads the node's interface, so a binding nothing declares is not
-    a value anything receives."""
-    results = _run([GraphNode(id="a", type="upper", version=1, bindings={"text": Static(value="x"), "gone": Static(value=1)})])
-
-    assert results["a"]["result"] == "X"
-
-
 def test_a_branch_not_taken_is_skipped_downstream():
     """A branch is an output; SKIPPED on it skips what hangs off it."""
     results = _run([
-        GraphNode(id="g", type="gate", version=1, bindings={"x": Static(value="hi")}),
-        GraphNode(id="yes", type="upper", version=1, bindings={"text": Edges(refs=(Ref("g", "yes"),))}),
-        GraphNode(id="no", type="upper", version=1, bindings={"text": Edges(refs=(Ref("g", "no"),))}),
+        GraphNode(id="g", type="gate", version=1, bindings={"x": Static("hi")}),
+        GraphNode(id="yes", type="upper", version=1, bindings={"text": From("g.yes")}),
+        GraphNode(id="no", type="upper", version=1, bindings={"text": From("g.no")}),
     ])
 
     assert results["yes"]["result"] == "HI"
@@ -131,9 +122,9 @@ def test_a_branch_not_taken_is_skipped_downstream():
 
 def test_a_gather_arrives_as_a_series():
     results = _run([
-        GraphNode(id="a", type="upper", version=1, bindings={"text": Static(value="a")}),
-        GraphNode(id="b", type="upper", version=1, bindings={"text": Static(value="b")}),
-        GraphNode(id="j", type="join", version=1, bindings={"texts": Edges(refs=(Ref("a", "result"), Ref("b", "result")))}),
+        GraphNode(id="a", type="upper", version=1, bindings={"text": Static("a")}),
+        GraphNode(id="b", type="upper", version=1, bindings={"text": Static("b")}),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": From("a.result", "b.result")}),
     ])
 
     assert results["j"]["result"] == "A+B"
@@ -141,7 +132,7 @@ def test_a_gather_arrives_as_a_series():
 
 def test_policy_is_read_off_the_pinned_version():
     Flaky.calls = 0
-    results = _run([GraphNode(id="f", type="flaky", version=1, bindings={"text": Static(value="ok")})])
+    results = _run([GraphNode(id="f", type="flaky", version=1, bindings={"text": Static("ok")})])
 
     assert results["f"]["result"] == "ok"
     assert Flaky.calls == 3
@@ -157,7 +148,7 @@ def test_a_graph_compile_rejected_is_refused_with_its_problems():
 
 def test_events_carry_the_placement_title():
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[GraphNode(id="a", type="upper", version=1, title="Shout", bindings={"text": Static(value="hi")})]),
+        Graph(nodes=[GraphNode(id="a", type="upper", version=1, title="Shout", bindings={"text": Static("hi")})]),
         _registry(),
     )
 

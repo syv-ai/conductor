@@ -76,7 +76,8 @@ from typing import Any
 
 from conductor.dtype import DType
 from conductor.dtype_ref import description_of, name_of
-from conductor.graph.binding import Edges
+from conductor.errors import Refuses
+from conductor.graph.binding import From
 from conductor.graph.expand import authored_ref
 from conductor.graph.model import GraphNode
 from conductor.graph.problem import Problem, problem
@@ -84,7 +85,7 @@ from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Receive, 
 from conductor.graph.views import field_problems
 from conductor.interface import Interface
 from conductor.metadata import Input, Output
-from conductor.node import NodeVersion, Refuses
+from conductor.node import NodeVersion
 from conductor.ref import Ref
 from conductor.registry import NodeRegistry
 from conductor.series import Index, Series
@@ -304,7 +305,7 @@ class _Walk:
         for inp in interface.inputs:
             ref = Ref(node.id, inp.name)
             binding = node.bindings.get(inp.name)
-            if not isinstance(binding, Edges):
+            if not isinstance(binding, From):
                 carried, receive = self._originates(inp, ref, inp.name in self.listed[node.id], scope_index)
                 found.arrivals[inp.name], found.receives[inp.name] = carried, receive
                 if isinstance(receive, Iterate):
@@ -464,7 +465,7 @@ class _Walk:
         declared = (*version.interface.inputs, *self.asked[node.id].inputs)
         values = {**{i.name: i.default for i in declared if i.optional}, **self.statics[node.id]}
         try:
-            return self.registry.get(node.type)().compute_outputs(version.interface.outputs, values, arriving)
+            return self.registry[node.type]().compute_outputs(version.interface.outputs, values, arriving)
         except Refuses as refusal:
             return Problem(code=refusal.code, message=refusal.message, fatal=True, node_id=node.id)
 
@@ -488,7 +489,7 @@ class _Walk:
             node = self.nodes[node_id]
             for inp in self.asked[node_id].inputs:
                 binding = node.bindings.get(inp.name)
-                if not isinstance(binding, Edges) or getattr(inp.dtype, "element", None) is not None or self._whole(node_id, inp):
+                if not isinstance(binding, From) or getattr(inp.dtype, "element", None) is not None or self._whole(node_id, inp):
                     continue
                 entering = {
                     self.carried[source].index
@@ -535,14 +536,20 @@ class _Walk:
         ``**inputs`` parameter; an ``Any`` input only passes the value on, and
         nothing is asked.
         """
-        refusal = (dtype.element or dtype).refuses_whole()
-        if refusal is None:
-            return None
-        code, message = refusal
-        return Problem(
-            code=code, message=f"Field '{field}': {message}", fatal=True, node_id=node_id, field=field,
-            details={"inner_message": message},
-        )
+        asked = dtype.element or dtype
+        try:
+            answered = asked.refuses_whole()
+        except Refuses as refusal:
+            return Problem(
+                code=refusal.code, message=f"Field '{field}': {refusal.message}", fatal=True, node_id=node_id,
+                field=field, details={"inner_message": refusal.message},
+            )
+        if answered is not None:
+            raise TypeError(
+                f"{asked.__name__}.refuses_whole() returned {answered!r}; a type refuses by raising Refuses "
+                "and returns None otherwise"
+            )
+        return None
 
     @staticmethod
     def _originates(inp: Input, ref: Ref, listed: bool, scope: Index | None) -> tuple[_Carried, Receive]:

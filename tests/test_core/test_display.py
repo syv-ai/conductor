@@ -20,6 +20,7 @@ from conductor import (
 from conductor.dtype import DType
 from conductor.graph.problem import Problem
 from conductor.metadata import Input, Param
+from conductor.node import upgrade
 from conductor.series import Index
 from conductor.widgets import Textarea, TextWidget
 
@@ -44,6 +45,10 @@ class Truncate(NodeDefinition):
     title = "Truncate"
     description = "Cuts a text short"
     category = "text"
+
+    @upgrade(1, 2)
+    def _v1_to_v2(values):
+        return values
 
     @version(1)
     def run_v1(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())]) -> Annotated[Txt, Result(title="Short")]:
@@ -114,10 +119,9 @@ def test_a_record_prints_only_what_is_not_at_its_default():
     assert repr(Policy(retries=2)) == "Policy(retries=2)"
     assert repr(Deprecation()) == "Deprecation()"
     assert repr(Problem(code="cycle", message="m", fatal=True, node_id="a")) == "Problem(code='cycle', message='m', fatal=True, node_id='a')"
-    assert repr(Index("lines", parent=Index("docs"))) == "Index(id='lines', parent=Index(id='docs'))"
+    assert repr(Index("lines", parent=Index("docs"))) == "Index('lines', parent=Index('docs'))"
 
 
 def test_a_record_prints_a_field_set_back_to_its_default_value_as_absent():
     """The repr is the data, not the history: a value equal to the default is not news."""
     assert repr(Policy(retries=0, concurrency=8)) == "Policy()"
-

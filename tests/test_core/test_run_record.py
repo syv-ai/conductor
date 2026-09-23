@@ -18,10 +18,10 @@ from conductor import Asks, CompiledGraph, GraphNode, NodeRegistry
 from conductor.dtype import DType
 from conductor.execution.engine import execute
 from conductor.execution.record import RunRecord
-from conductor.graph.binding import Edges, Static
+from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
 from conductor.metadata import Input, Param, Result
-from conductor.node import NodeDefinition, version
+from conductor.node import NodeDefinition, upgrade, version
 from conductor.ref import Ref
 from conductor.series import Series
 from conductor.widgets import Textarea
@@ -65,6 +65,10 @@ class Wrap(NodeDefinition):
     title = "Wrap"
     description = "d"
     category = "test"
+
+    @upgrade(1, 2)
+    def _v1_to_v2(values):
+        return values
 
     @version(1)
     def run_v1(self, text: In = Txt("")) -> Out:
@@ -119,8 +123,8 @@ def _leg(compiled: CompiledGraph, **kw) -> list[dict]:
     return asyncio.run(run())
 
 
-def _edge(node: str, field: str = "result") -> Edges:
-    return Edges(refs=(Ref(node, field),))
+def _edge(node: str, field: str = "result") -> From:
+    return From(f"{node}.{field}")
 
 
 def _through_json(record: RunRecord) -> RunRecord:
@@ -133,7 +137,7 @@ def _through_json(record: RunRecord) -> RunRecord:
 def test_a_paused_legs_record_survives_json_and_the_next_leg_returns_typed_results():
     calls.clear()
     compiled = _compiled([
-        GraphNode(id="split", type="split", version=1, bindings={"text": Static(value="a,b")}),
+        GraphNode(id="split", type="split", version=1, bindings={"text": Static("a,b")}),
         GraphNode(id="ask", type="ask", version=1, bindings={"text": _edge("split")}),
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge("ask")}),
     ])
@@ -155,7 +159,7 @@ def test_a_paused_legs_record_survives_json_and_the_next_leg_returns_typed_resul
 
 def test_the_record_carries_a_fingerprint_per_node():
     compiled = _compiled([
-        GraphNode(id="a", type="echo", version=1, bindings={"text": Static(value="x")}),
+        GraphNode(id="a", type="echo", version=1, bindings={"text": Static("x")}),
         GraphNode(id="b", type="upper", version=1, bindings={"text": _edge("a")}),
     ])
 
@@ -172,15 +176,15 @@ def test_the_record_carries_a_fingerprint_per_node():
 def test_a_static_edited_between_legs_reruns_that_node_and_its_readers_and_nothing_else():
     calls.clear()
     nodes = [
-        GraphNode(id="a", type="echo", version=1, bindings={"text": Static(value="x")}),
+        GraphNode(id="a", type="echo", version=1, bindings={"text": Static("x")}),
         GraphNode(id="b", type="upper", version=1, bindings={"text": _edge("a")}),
         GraphNode(id="c", type="wrap", version=1, bindings={"text": _edge("b")}),
-        GraphNode(id="d", type="echo", version=1, bindings={"text": Static(value="alone")}),
+        GraphNode(id="d", type="echo", version=1, bindings={"text": Static("alone")}),
     ]
     record = _leg(_compiled(nodes))[-1]["record"]
     calls.clear()
 
-    edited = _compiled([GraphNode(id="a", type="echo", version=1, bindings={"text": Static(value="y")}), *nodes[1:]])
+    edited = _compiled([GraphNode(id="a", type="echo", version=1, bindings={"text": Static("y")}), *nodes[1:]])
     ending = _leg(edited, record=_through_json(record))[-1]
 
     assert ending["type"] == "graph_complete"
@@ -192,16 +196,16 @@ def test_a_static_edited_between_legs_reruns_that_node_and_its_readers_and_nothi
 def test_a_node_removed_between_legs_is_dropped_with_its_readers():
     calls.clear()
     record = _leg(_compiled([
-        GraphNode(id="a", type="echo", version=1, bindings={"text": Static(value="x")}),
+        GraphNode(id="a", type="echo", version=1, bindings={"text": Static("x")}),
         GraphNode(id="b", type="upper", version=1, bindings={"text": _edge("a")}),
-        GraphNode(id="c", type="echo", version=1, bindings={"text": Static(value="c")}),
+        GraphNode(id="c", type="echo", version=1, bindings={"text": Static("c")}),
         GraphNode(id="d", type="wrap", version=1, bindings={"text": _edge("c")}),
     ]))[-1]["record"]
     calls.clear()
 
     # ``c`` is gone and ``d`` now reads ``a``: ``c``'s cells are dropped, ``d`` runs again, ``a`` and ``b`` do not.
     smaller = _compiled([
-        GraphNode(id="a", type="echo", version=1, bindings={"text": Static(value="x")}),
+        GraphNode(id="a", type="echo", version=1, bindings={"text": Static("x")}),
         GraphNode(id="b", type="upper", version=1, bindings={"text": _edge("a")}),
         GraphNode(id="d", type="wrap", version=1, bindings={"text": _edge("a")}),
     ])
@@ -216,7 +220,7 @@ def test_a_node_removed_between_legs_is_dropped_with_its_readers():
 def test_a_nodes_shape_changed_between_legs_reruns_it():
     calls.clear()
     nodes = [
-        GraphNode(id="a", type="echo", version=1, bindings={"text": Static(value="x")}),
+        GraphNode(id="a", type="echo", version=1, bindings={"text": Static("x")}),
         GraphNode(id="w", type="wrap", version=1, bindings={"text": _edge("a")}),
     ]
     record = _leg(_compiled(nodes))[-1]["record"]
@@ -234,10 +238,10 @@ def test_without_drops_a_node_on_purpose_with_everything_downstream():
     restore drops what reads it, so they run again while the rest is kept."""
     calls.clear()
     compiled = _compiled([
-        GraphNode(id="split", type="split", version=1, bindings={"text": Static(value="a,b")}),
+        GraphNode(id="split", type="split", version=1, bindings={"text": Static("a,b")}),
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge("split")}),
         GraphNode(id="w", type="wrap", version=1, bindings={"text": _edge("up")}),
-        GraphNode(id="d", type="echo", version=1, bindings={"text": Static(value="alone")}),
+        GraphNode(id="d", type="echo", version=1, bindings={"text": Static("alone")}),
     ])
     record = _leg(compiled)[-1]["record"]
     calls.clear()
@@ -272,7 +276,7 @@ def test_a_return_of_the_wrong_type_fails_the_returning_node_with_invalid_output
     for cls in (Wrong, Upper):
         reg.register(cls)
     compiled = CompiledGraph.from_graph(Graph(nodes=[
-        GraphNode(id="w", type="wrong", version=1, bindings={"text": Static(value="x")}),
+        GraphNode(id="w", type="wrong", version=1, bindings={"text": Static("x")}),
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge("w")}),
     ]), reg)
 
@@ -288,7 +292,7 @@ def test_a_return_of_the_wrong_type_fails_the_returning_node_with_invalid_output
 
 
 def test_a_misspelled_output_in_the_cache_names_the_node_and_the_output():
-    compiled = _compiled([GraphNode(id="e", type="echo", version=1, bindings={"text": Static(value="x")})])
+    compiled = _compiled([GraphNode(id="e", type="echo", version=1, bindings={"text": Static("x")})])
 
     import pytest
 
@@ -298,13 +302,36 @@ def test_a_misspelled_output_in_the_cache_names_the_node_and_the_output():
         _leg(compiled, cache={"e": {}})
 
 
+def test_a_cache_for_a_node_the_graph_does_not_have_is_refused():
+    import pytest
+    from conductor import StartRefused
+
+    compiled = _compiled([GraphNode(id="e", type="echo", version=1, bindings={"text": Static("x")})])
+
+    with pytest.raises(StartRefused, match=r"'ghost' is not a node of this graph"):
+        _leg(compiled, cache={"ghost": {"result": Txt("y")}})
+
+
+def test_a_record_cell_that_does_not_read_back_as_its_type_is_refused():
+    import pytest
+    from conductor import StartRefused
+
+    compiled = _compiled([GraphNode(id="e", type="echo", version=1, bindings={"text": Static("x")})])
+    record = _leg(compiled)[-1]["record"]
+    dumped = record.model_dump()
+    dumped["cells"] = [{**cell, "value": {"not": "text"}} for cell in dumped["cells"]]
+
+    with pytest.raises(StartRefused, match=r"e\.result"):
+        _leg(compiled, record=RunRecord.model_validate(dumped))
+
+
 def test_an_answer_decodes_through_the_codec_by_the_outputs_type():
     """A host may hand an answer in wire form — as it came over HTTP — or as
     the typed value; both land as the type the output declares, and a
     per-row answer as a series on the node's own index."""
     calls.clear()
     once = _compiled([
-        GraphNode(id="ask", type="ask", version=1, bindings={"text": Static(value="q")}),
+        GraphNode(id="ask", type="ask", version=1, bindings={"text": Static("q")}),
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge("ask")}),
     ])
     ending = _leg(once, cache={"ask": {"result": "typed in"}})[-1]
@@ -312,7 +339,7 @@ def test_an_answer_decodes_through_the_codec_by_the_outputs_type():
     assert type(ending["results"]["ask"]["result"]) is Txt
 
     per_row = _compiled([
-        GraphNode(id="split", type="split", version=1, bindings={"text": Static(value="a,b")}),
+        GraphNode(id="split", type="split", version=1, bindings={"text": Static("a,b")}),
         GraphNode(id="ask", type="ask", version=1, bindings={"text": _edge("split")}),
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge("ask")}),
     ])
@@ -346,7 +373,7 @@ def test_a_per_row_answer_that_leaves_a_row_out_of_one_output_is_refused():
     for cls in (Split, Pair):
         reg.register(cls)
     compiled = CompiledGraph.from_graph(Graph(nodes=[
-        GraphNode(id="split", type="split", version=1, bindings={"text": Static(value="a,b")}),
+        GraphNode(id="split", type="split", version=1, bindings={"text": Static("a,b")}),
         GraphNode(id="p", type="pair", version=1, bindings={"text": _edge("split")}),
     ]), reg)
     ledger = Ledger(compiled)
@@ -380,7 +407,7 @@ def test_a_unit_whose_second_output_is_invalid_writes_nothing():
 
     reg = NodeRegistry()
     reg.register(Splits)
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="s", type="splits", version=1, bindings={"text": Static(value="x")})]), reg)
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="s", type="splits", version=1, bindings={"text": Static("x")})]), reg)
     ledger = Ledger(compiled)
 
     import pytest
@@ -398,16 +425,16 @@ def test_a_typed_in_list_edited_between_legs_reruns_on_the_new_rows():
     """The rows of a typed-in list are the graph's, never the record's: grown,
     shrunk or added between legs, the node runs on what the author typed now."""
     calls.clear()
-    record = _leg(_compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(value=["a", "b"])})]))[-1]["record"]
+    record = _leg(_compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a", "b"])})]))[-1]["record"]
     calls.clear()
 
-    grown = _leg(_compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(value=["a", "b", "c"])})]), record=_through_json(record))[-1]
+    grown = _leg(_compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a", "b", "c"])})]), record=_through_json(record))[-1]
     assert grown["type"] == "graph_complete" and list(grown["results"]["e"]["result"]) == ["A", "B", "C"]
-    shrunk = _leg(_compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(value=["a"])})]), record=_through_json(record))[-1]
+    shrunk = _leg(_compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a"])})]), record=_through_json(record))[-1]
     assert shrunk["type"] == "graph_complete" and list(shrunk["results"]["e"]["result"]) == ["A"]
     added = _leg(_compiled([
-        GraphNode(id="e", type="upper", version=1, bindings={"text": Static(value=["a", "b"])}),
-        GraphNode(id="f", type="upper", version=1, bindings={"text": Static(value=["x", "y"])}),
+        GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a", "b"])}),
+        GraphNode(id="f", type="upper", version=1, bindings={"text": Static(["x", "y"])}),
     ]), record=_through_json(record))[-1]
     assert added["type"] == "graph_complete" and list(added["results"]["f"]["result"]) == ["X", "Y"]
     assert "upper:a" not in calls[-2:]  # ``e`` was kept on the last leg
@@ -430,7 +457,7 @@ def test_a_static_hashes_as_its_type_writes_it_not_as_the_author_spelled_it():
     def fingerprint(value):
         reg = NodeRegistry()
         reg.register(Half)
-        return CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="h", type="half", version=1, bindings={"n": Static(value=value)})]), reg).node("h").fingerprint
+        return CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="h", type="half", version=1, bindings={"n": Static(value)})]), reg).node("h").fingerprint
 
     assert fingerprint(2) == fingerprint(2.0) == fingerprint(Num(2))
     assert fingerprint(2) != fingerprint(3)
@@ -455,7 +482,7 @@ def test_series_outputs_of_two_lengths_fail_the_returning_node_with_invalid_outp
 
     reg = NodeRegistry()
     reg.register(Uneven)
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="u", type="uneven", version=1, bindings={"text": Static(value="x")})]), reg)
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="u", type="uneven", version=1, bindings={"text": Static("x")})]), reg)
 
     error = next(e for e in _leg(compiled) if e["type"] == "node_error")
 
@@ -466,12 +493,12 @@ def test_an_answer_of_the_wrong_shape_or_naming_a_row_twice_names_the_node_and_o
     import pytest
     from conductor.execution.ledger import Ledger
 
-    once = _compiled([GraphNode(id="split", type="split", version=1, bindings={"text": Static(value="a,b")})])
+    once = _compiled([GraphNode(id="split", type="split", version=1, bindings={"text": Static("a,b")})])
     with pytest.raises(ValueError, match=r"'split' was given a value for 'result'"):
         Ledger(once).inject("split", {"result": "not a series"})
 
     per_row = _compiled([
-        GraphNode(id="split", type="split", version=1, bindings={"text": Static(value="a,b")}),
+        GraphNode(id="split", type="split", version=1, bindings={"text": Static("a,b")}),
         GraphNode(id="ask", type="ask", version=1, bindings={"text": _edge("split")}),
     ])
     ledger = Ledger(per_row)

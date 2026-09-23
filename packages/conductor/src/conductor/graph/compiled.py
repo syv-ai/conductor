@@ -95,7 +95,7 @@ def _written(value: Any, dtype: Any, listed: bool) -> Any:
     return to_wire(value, dtype)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class CompiledGraph:
     """The result of compiling one graph. Ask it; do not read through it.
 
@@ -203,12 +203,19 @@ class CompiledGraph:
 
     # -- the run ------------------------------------------------------------------
 
+    def __repr__(self) -> str:
+        """One line: the nodes the author placed, whether it runs, how many problems."""
+        placed = tuple(node.id for node in self._graph.nodes)
+        return f"CompiledGraph(nodes={placed!r}, is_runnable={self.is_runnable}, problems={len(self.problems)})"
+
+    @property
     def execution_order(self) -> tuple[str, ...]:
         """Expanded node ids in an order where every edge's source precedes
         its target. A node in a cycle is not in it; it has a fatal
         ``Problem`` instead."""
         return self._order
 
+    @property
     def decisions(self) -> dict[str, dict[str, tuple[str, ...]]]:
         """Every decision a caller could observe: for each node that runs
         once and declares a ``choice`` group, the group's alternatives in
@@ -339,7 +346,7 @@ class CompiledNode:
         edges derived — a node with a fault upstream has none, and asking
         raises."""
         validated = self._graph._call_models[self.id](**inputs)
-        return {name: getattr(validated, name) for name in type(validated).model_fields}
+        return {info.alias or field: getattr(validated, field) for field, info in type(validated).model_fields.items()}
 
     @property
     def iterates_on(self) -> Index | None:
@@ -400,7 +407,7 @@ class CompiledField:
 
     @property
     def binding(self) -> Binding | None:
-        """Where this input's value comes from: ``Edges`` from other nodes'
+        """Where this input's value comes from: ``From`` from other nodes'
         outputs, ``Static`` for a value the author typed, or ``None`` when
         nothing binds it and its declared default applies. Only an input
         has one; asking on an output raises."""

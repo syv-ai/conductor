@@ -8,7 +8,7 @@ Reusable DAG execution engine extracted from production node editors. One node c
 conductor/
 ├── packages/conductor/        # Core library
 │   └── src/conductor/
-│       ├── node.py             # NodeDefinition ABC, NodeVersion/GraphVersion, Policy, version/upgrade/deprecated, describe(), Refuses
+│       ├── node.py             # NodeDefinition ABC, NodeVersion/GraphVersion, Policy, version/upgrade/deprecated, describe()
 │       ├── interface.py        # Interface.of(run) — the signature read once; FromRun; model_of
 │       ├── metadata.py         # Field, Input, Output records
 │       ├── model.py            # ConductorModel — the base of every saved or sent record: to_yaml / from_yaml / to_path / from_path
@@ -20,15 +20,15 @@ conductor/
 │       ├── widgets.py          # Widget + the controls; AnyWidget discriminated union
 │       ├── errors.py           # ErrorCause and the exception hierarchy
 │       ├── _sentinel.py        # SKIPPED and Asks — the two values a run returns that are not results
-│       ├── registry/           # NodeRegistry (register, nodes, runner_for, extended_with, upgrade_path); discover_nodes
-│       ├── graph/              # model (Graph/GraphNode), binding (Edges/Static), compiler + compiled (CompiledGraph and its node/field views), iteration (the edge walk), expand (embedded graphs), conditions, problem, topology, views
-│       ├── execution/          # engine (execute, run, run_sync; one leg per call), ledger (what a run produced, and what that makes ready), events
+│       ├── registry/           # NodeRegistry (register, nodes, runner_for, extended_with, upgraded)
+│       ├── graph/              # model (Graph/GraphNode), binding (From/Static), compiler + compiled (CompiledGraph and its node/field views), iteration (the edge walk), expand (embedded graphs), conditions, problem, topology, views
+│       ├── execution/          # engine (execute, run, run_sync; one leg per call), leg (the loop, each unit, the teardown), ledger (what a run produced, and what that makes ready), events
 │       └── about/              # Runnable library context: `python -m conductor.about`
 ├── packages/conductor-nodes/   # Standard node library (text, math, logic, json_ops, regex_ops, decision) + its types
 │   └── src/conductor_nodes/    # Each module exposes register(registry); top-level register_all()
 ├── packages/conductor-providers/ # Framework adapters — react + fastapi subpackages
 │   └── src/conductor_providers/
-│       ├── react/              # graph_to_react / react_to_graph / palette_from_registry
+│       ├── react/              # graph_to_react / react_to_graph
 │       └── fastapi/            # conductor_router factory (/nodes, /compile, /execute, /execute-stream, /entities/{kind})
 ├── tests/test_core/            # conductor core
 ├── tests/test_nodes/           # conductor-nodes (types, the catalog contract, every node end to end)
@@ -46,7 +46,7 @@ PyPI distribution names are `syv-conductor`, `syv-conductor-nodes`, `syv-conduct
 
 - **`conductor`** (dist: `syv-conductor`) — the engine: the node contract, the type mechanism (`DType`, `Series`, `Ref`), compile, execute, widgets, errors, records that save themselves as JSON or YAML. It ships every mechanism and no vocabulary: which concrete types exist is the host's decision.
 - **`conductor-nodes`** (dist: `syv-conductor-nodes`) — standard-library nodes. `conductor_nodes.types` declares the four types the catalog takes (`Text`, `Number`, `Flag`, `Json`) and `StdlibNode`, the base that pins `category` to the package's `Category` literal. Each category module exposes `register(registry)`, which lists its nodes; `register_all(registry, categories=...)` registers everything or a subset. Node ids are category-prefixed (`text-uppercase`, `math-add`, …).
-- **`conductor-providers`** (dist: `syv-conductor-providers`) — framework adapters. `conductor_providers.react` ships `graph_to_react` / `react_to_graph` / `palette_from_registry`; `conductor_providers.fastapi` ships `conductor_router`. New providers go in sibling subpackages — no abstract base class to satisfy.
+- **`conductor-providers`** (dist: `syv-conductor-providers`) — framework adapters. `conductor_providers.react` ships `graph_to_react` / `react_to_graph`; `conductor_providers.fastapi` ships `conductor_router`. New providers go in sibling subpackages — no abstract base class to satisfy.
 
 Tag-driven publishing: pushing a `v*` tag fires `.github/workflows/publish.yml`, which builds wheels + sdists and uploads all three to PyPI (`PYPI_API_TOKEN`, idempotent via `skip-existing`).
 
@@ -80,7 +80,7 @@ Slash command: `/docs-audit` — runs a docs review against the last N commits a
 Three phases: `declare → compile → execute`.
 
 1. **Declare** — a node is a `NodeDefinition` subclass. `__init_subclass__` checks `id`, `title`, `description`, `category`, derives one `NodeVersion` per `@version` method (an undecorated `run` is version 1; beside `@version` methods, `run` must carry one too) by reading the signature once with `Interface.of`, and collects its `@upgrade` rewrites into `cls.upgrades`. `NodeRegistry.register(cls)` files the class under its id and checks the catalogue rules (versions numbered from 1 with no holes, a deprecated current version pointing somewhere, an `alternative` that exists).
-2. **Compile** — `CompiledGraph.from_graph(graph, registry)` resolves each node's pin, asks `compute_inputs` on the typed statics, validates the stored bindings, expands an embedded graph under its node's name, walks the edges once in order — typing every unconstrained field from what arrives, asking `accepts`, making a node fed a series run once per row of it, asking `compute_outputs` with what arrives — and derives the condition under which each output appears. Returns an immutable `CompiledGraph` that callers ask at three scales — the graph (`problems`, `is_runnable`, `interface`, `execution_order`, `decisions`), one node (`node(id)`: `interface`, `call_model`, `iterates_on`, `statics`, `runner`, `embedded_in`) and one field (`field(ref)`: `type`, `index`, `binding`, `receives`, `condition`); everything wrong with the graph is an anchored `Problem` on it, never an exception. Every definition the graph names must be in the registry; a host that loads one calls `registry.extended_with(...)` first.
+2. **Compile** — `CompiledGraph.from_graph(graph, registry)` resolves each node's pin, asks `compute_inputs` on the typed statics, validates the stored bindings, expands an embedded graph under its node's name, walks the edges once in order — typing every unconstrained field from what arrives, asking `accepts`, making a node fed a series run once per row of it, asking `compute_outputs` with what arrives — and derives the condition under which each output appears. Returns an immutable `CompiledGraph` that callers ask at three scales — the graph (`problems`, `is_runnable`, `interface`, `execution_order`, `decisions`), one node (`node(id)`: `interface`, `validate(inputs)`, `iterates_on`, `statics`, `runner`, `embedded_in`) and one field (`field(ref)`: `type`, `index`, `binding`, `receives`, `condition`); everything wrong with the graph is an anchored `Problem` on it, never an exception. Every definition the graph names must be in the registry; a host that loads one calls `registry.extended_with(...)` first.
 3. **Execute** — `execute(compiled)` is an async generator yielding `ExecutionEvent`s. Its unit of work is `(node, row)`: a node that runs once is one unit, a node that runs per row is one unit per row. The `Ledger` holds every value the run has produced, cell by cell, and answers each write with the units it made ready; the engine starts those under each node's `Policy.concurrency`. A call is validated through `model_of(interface.inputs)` and made on a fresh instance (`compiled.node(id).runner`). One call of `execute` is one **leg**: it runs until nothing is runnable and nothing is in flight. `await run(compiled)` drains it and returns the ending event; `run_sync(compiled)` is the same call for a script, and refuses under a running loop.
 
 ### The node contract
@@ -112,8 +112,8 @@ class Upper(NodeDefinition):
 
 Each input of a placement holds at most one binding (`GraphNode.bindings`):
 
-1. **`Edges(refs=(...))`** — the value arrives from other placements' outputs; `refs` is in operand order. Several refs into a `Series[X]` input on different indexes gather into one series; several on one index are a union, one value per row.
-2. **`Static(value=...)`** — the author typed the value in. A list typed into a scalar input makes the node run once per value.
+1. **`From(...)`** — the value arrives from other placements' outputs; `refs` is in operand order. Several refs into a `Series[X]` input on different indexes gather into one series; several on one index are a union, one value per row.
+2. **`Static(...)`** — the author typed the value in. A list typed into a scalar input makes the node run once per value.
 3. **No binding** — the parameter's default.
 
 There is no per-edge record: a canvas derives its edges from the bindings, and `dependencies_of(nodes)` derives what each node waits for.
@@ -139,7 +139,7 @@ Retries live on the version's `Policy` (`retries`, `delay`, `timeout`, `concurre
 - Delay formula: `delay * 2 ** (attempt - 1)`; each retry emits a `node_retry` event with `{row, attempt, retries, error, delay}`.
 - `Policy.timeout` is how long the leg waits on one attempt, counted from the moment the node's thread starts: the leg owns a thread pool with one worker per unit that may be in flight, so no unit ever waits for a worker. It never interrupts the thread. A timed-out attempt is final (`NodeTimeoutError`, code `timeout`); the thread finishes on its own, keeps the node's concurrency slot until it does, and what it returns is dropped. The timeout worth retrying is the client's own, set on the client inside `run`: when the client gives up, the thread has returned and a retry runs nothing twice.
 - A `run` that holds the GIL — a regex that never finishes, a tight loop over a huge input — blocks the whole process, and nothing in the engine can stop it. Where legs run, in the API process or in a worker of their own, is the host's decision.
-- `execute(timeout=None)` by default; `execute(timeout=60)` bounds the whole leg in seconds and ends it `graph_timeout`; `execute(cancel=event)` stops it with `graph_cancelled` the moment the event is set. Closing the stream — `aclose()`, or cancelling the task that reads it — stops every unit; a bare `break` leaves the generator open until it is closed or collected, so close it.
+- `execute(timeout=None)` by default; `execute(timeout=60)` bounds the whole leg in seconds and ends it `graph_timeout`; `execute(cancel=event)` stops it with `graph_cancelled` the moment the event is set. Closing the stream — `aclose()`, or cancelling the task that reads it — stops every unit; a bare `break` leaves the generator open until it is closed or collected, so close it: `async with aclosing(execute(compiled)) as events:` (from `contextlib`) closes it however the block ends.
 - What people read: a cause the engine writes carries the generic message for its code (`conductor.errors.MESSAGES`); a `NodeError` the node raised keeps the message the node chose. A foreign exception's text is on the wrapping error's `original` and on no event.
 
 ### Error hierarchy
@@ -159,7 +159,7 @@ All exceptions inherit from `ConductorError` (see `errors.py`). A run-time failu
 
 ### Saving a graph
 
-`Graph`, and every record a host saves or sends (`GraphNode`, `Edges`, `Static`, `Problem`, `ErrorCause`, `Policy`, `NodeDescription`, `Input`, `Output`, the widgets, `Index`), is a `ConductorModel`: a frozen pydantic model. JSON is pydantic's own (`model_dump_json` / `model_validate_json`); `to_yaml` / `from_yaml` and `to_path` / `from_path` save and load YAML or JSON by suffix. A saved record reads back what it wrote; what describes a node (`NodeDescription`, `VersionDescription`, `Input`, `Output`, the widgets) is written for an editor and not read back — its `dtype` dumps as a description and a widget's title travels on its `Input`. A ref stores as its address, `"node.field"`. What compile and the engine build per call (`CompiledGraph` and its views, versions, `Interface`, the ledger's records) stays a frozen dataclass.
+`Graph`, and every record a host saves or sends (`GraphNode`, `From`, `Static`, `Problem`, `ErrorCause`, `Policy`, `NodeDescription`, `Input`, `Output`, the widgets, `Index`), is a `ConductorModel`: a frozen pydantic model. JSON is pydantic's own (`model_dump_json` / `model_validate_json`); `to_yaml` / `from_yaml` and `to_path` / `from_path` save and load YAML or JSON by suffix. A saved record reads back what it wrote; what describes a node (`NodeDescription`, `VersionDescription`, `Input`, `Output`, the widgets) is written for an editor and not read back — its `dtype` dumps as a description and a widget's title travels on its `Input`. A ref stores as its address, `"node.field"`. What compile and the engine build per call (`CompiledGraph` and its views, versions, `Interface`, the ledger's records) stays a frozen dataclass.
 
 ### Documentation maintenance
 
@@ -204,7 +204,7 @@ registry.register(MyNode)     # ids are unique; registering a second class under
 ### Building and running a graph
 ```python
 
-compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="my-node", version=1, bindings={"text": Static(value="hello")})]), registry)
+compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="my-node", version=1, bindings={"text": Static("hello")})]), registry)
 results = run_sync(compiled)["results"]     # results["n1"]["result"] == "HELLO"
 ```
 
@@ -241,7 +241,7 @@ palette = [cls.describe() for cls in registry.nodes]     # NodeDescription recor
 
 ## Conventions
 
-- A placement is `GraphNode(id=, type=, version=, bindings=)`; `type` is the node id and `version` the pinned version. There is no `"id@version"` string anywhere, and no edge record: an edge is an `Edges` on the target's input.
+- A placement is `GraphNode(id=, type=, version=, bindings=)`; `type` is the node id and `version` the pinned version. There is no `"id@version"` string anywhere, and no edge record: an edge is an `From` on the target's input.
 - A result is `results[node_id][output_name]`; a single output is named `result`.
 - `SKIPPED` propagates by depth — a reader finds it at its own row or above and skips that far; a gather drops skipped sources.
 - A `run` returns values of its declared dtypes (`Text(...)`, never a bare `str`), because a value arrives downstream as the type the edge carried.

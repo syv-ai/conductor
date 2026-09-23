@@ -107,21 +107,19 @@ class DType(ABC, metaclass=_DTypeMeta):
     parameterises: ClassVar[type["DType"] | None] = None
 
     @classmethod
-    def refuses_whole(cls) -> tuple[str, str] | None:
-        """Why a node may not receive a value of this type as a whole, if
-        there is a reason.
+    def refuses_whole(cls) -> None:
+        """Raise ``conductor.errors.Refuses`` when a node may not receive a value of this type as a whole.
 
-        Returns a problem ``(code, message)``, or ``None`` — the answer for
-        nearly every type, and the default. Only a type that can be declared
-        incompletely (a table whose columns nobody stated) overrides it.
+        Returns quietly for nearly every type, and by default. Only a type
+        that can be declared incompletely (a table whose columns nobody
+        stated) overrides it, raising the same ``Refuses(code, message)`` a
+        node's hook raises.
 
         The compiler asks it of a source type connected into an open interface
         (``**inputs: Single``), where the node will read the value; a
-        ``None`` lets the edge through, a pair becomes a fatal problem on
-        the field with that code and message. A value only routed through
-        an ``Any`` input is never asked.
+        refusal becomes a fatal problem on the field with that code and
+        message. A value only routed through an ``Any`` input is never asked.
         """
-        return None
 
     def __init_subclass__(cls, *, parameterises: type["DType"] | None = None, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)

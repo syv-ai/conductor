@@ -58,7 +58,7 @@ class GraphNode(ConductorModel):
 
         GraphNode(
             id="upper-1", type="upper", version=1,
-            bindings={"text": Edges(refs=(Ref("reader-1", "text"),))},
+            bindings={"text": From("reader-1.text")},
             title="Upper case",
         )
 
@@ -111,6 +111,6 @@ class Graph(ConductorModel):
     compiled (``derive_interface``), never stored.
     """
 
-    nodes: list[GraphNode]
+    nodes: tuple[GraphNode, ...]
     #: Chrome, at graph level.
     display: Mapping[str, Any] = Field(default_factory=dict)

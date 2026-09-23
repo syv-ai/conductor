@@ -27,17 +27,6 @@ def test_a_dtype_declares_its_id_and_its_title():
     assert Text.title == "Text"
 
 
-def test_a_dtype_declares_no_widget():
-    """A type does not get to choose the control an input renders as."""
-    assert not hasattr(Text, "default_widget")
-
-
-def test_a_dtype_has_no_conversions():
-    """A value arrives as the type the edge carried."""
-    assert not hasattr(Text, "converts_to")
-    assert not hasattr(Text, "convert")
-
-
 def test_a_type_renders_its_own_text():
     """The one hook a user-facing rendering calls. The default is ``str``;
     a host whose values read differently overrides it on the type."""
@@ -215,10 +204,3 @@ def test_the_vocabulary_is_importable_from_the_root():
 
     for name in ("DType", "DTypeRef", "Single", "Series", "Index", "Ref", "Result"):
         assert getattr(conductor, name) is not None
-
-
-def test_nothing_named_many_or_spread_is_exported():
-    import conductor
-
-    assert not hasattr(conductor, "Many")
-    assert not hasattr(conductor, "Spread")

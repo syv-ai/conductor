@@ -55,10 +55,10 @@ from typing import Any, Iterator
 
 from conductor._sentinel import SKIPPED, is_skipped
 from conductor.codec import from_wire, to_wire
-from conductor.errors import ErrorCause, NodeExecutionError
+from conductor.errors import ErrorCause, NodeExecutionError, StartRefused
 from conductor.execution.events import PendingUnit
 from conductor.execution.record import RunRecord
-from conductor.graph.binding import Edges, Static
+from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Receive, Whole
 from conductor.metadata import Input
@@ -172,7 +172,7 @@ class Ledger:
         # What the graph says, read off compile once: who reads which output
         # and how, which nodes birth rows on which index, and where the
         # author typed a list into a scalar input.
-        order = compiled.execution_order()
+        order = compiled.execution_order
         self._position = {node_id: n for n, node_id in enumerate(order)}
         #: Nodes that birth rows on an index: those with a series output.
         self._births = frozenset(
@@ -210,7 +210,7 @@ class Ledger:
         connected: list[_Reader] = []
         for inp in node.interface.inputs:
             compiled_field = self._compiled.field(Ref(node_id, inp.name))
-            if not isinstance(compiled_field.binding, Edges):
+            if not isinstance(compiled_field.binding, From):
                 continue
             for ref in compiled_field.binding.refs:
                 reader = _Reader(node_id, ref, compiled_field.receives)
@@ -285,6 +285,15 @@ class Ledger:
             and self._done_standing_in.get(node_id, 0) == len(self._no_rows_under.get(iterate.id, ()))
         )
 
+    def completed_nodes(self) -> set[str]:
+        """The nodes ``complete`` holds for, among those with a unit done.
+
+        A leg starting on a restored ledger reads it so it does not announce
+        ``node_start`` again for a node an earlier leg finished. A node with
+        no units at all — its index sealed with no rows — is not in it; it
+        never starts, so there is nothing to announce."""
+        return {node_id for node_id, _ in self._done if self.complete(node_id)}
+
     def progress(self, node_id: str) -> tuple[int, int | None]:
         """``(done, total)`` rows for a node; ``total`` is ``None`` until the
         node's index is sealed. Cover units stand in for rows that were never
@@ -322,7 +331,7 @@ class Ledger:
         where a leg starts and where it goes quiet, never per write."""
         return [
             unit
-            for node_id in self._compiled.execution_order()
+            for node_id in self._compiled.execution_order
             if not self.complete(node_id)
             for unit in self.units(node_id)
             if unit not in self._done and unit not in self._pending and self.ready(unit)
@@ -732,19 +741,22 @@ class Ledger:
         answering row ``(1,)`` leaves rows ``(0,)`` and ``(2,)`` as they
         were, done or still to run; every output answers the same rows.
 
-        An output the node does not have, an output left out, a unit that
-        is already done, a row the run has not produced, and a row one
-        output answers and another does not all raise, naming the node and
-        the output.
+        A node the graph does not have, an output the node does not have,
+        an output left out, a unit that is already done, a row the run has
+        not produced, and a row one output answers and another does not all
+        raise ``StartRefused``, naming the node and the output.
         """
-        node = self._compiled.node(node_id)
+        try:
+            node = self._compiled.node(node_id)
+        except KeyError:
+            raise StartRefused(f"'{node_id}' is not a node of this graph, so it cannot be given a result") from None
         declared = [out.name for out in node.interface.outputs]
         for name in outputs:
             if name not in declared:
-                raise ValueError(f"'{node_id}' has no output '{name}'")
+                raise StartRefused(f"'{node_id}' has no output '{name}'")
         for name in declared:
             if name not in outputs:
-                raise ValueError(f"'{node_id}' was given no value for its output '{name}'")
+                raise StartRefused(f"'{node_id}' was given no value for its output '{name}'")
         iterate = node.iterates_on
         if iterate is None:
             # The node's whole output at once: a series output is answered as the series.
@@ -757,10 +769,10 @@ class Ledger:
         by_output = {name: self._answered_rows(node_id, name, value, open_rows) for name, value in outputs.items()}
         for row in sorted({row for rows in by_output.values() for row in rows}):
             if row not in born:
-                raise ValueError(f"'{node_id}' has no row {list(row)} to record: the run has not produced it")
+                raise StartRefused(f"'{node_id}' has no row {list(row)} to record: the run has not produced it")
             for name, answered in by_output.items():
                 if row not in answered:
-                    raise ValueError(f"'{node_id}' answers '{name}' for no row {list(row)}: every output answers the same rows")
+                    raise StartRefused(f"'{node_id}' answers '{name}' for no row {list(row)}: every output answers the same rows")
             at_row = {name: answered[row] for name, answered in by_output.items()}
             self._inject((node_id, row), Skip(at=row) if all(is_skipped(v) for v in at_row.values()) else at_row)
 
@@ -772,7 +784,7 @@ class Ledger:
         try:
             return from_wire(value, declared)
         except (TypeError, ValueError) as invalid:
-            raise ValueError(f"'{node_id}' was given a value for '{name}' that is not a {getattr(declared, '__name__', declared)}") from invalid
+            raise StartRefused(f"'{node_id}' was given a value for '{name}' that is not a {getattr(declared, '__name__', declared)}") from invalid
 
     def _answered_rows(self, node_id: str, name: str, value: Any, open_rows: list[Row]) -> dict[Row, Any]:
         """A per-row answer as ``{row: value}``: from a ``Series``, from
@@ -785,21 +797,21 @@ class Ledger:
             rows, values = [tuple(row) for row in value["rows"]], value["values"]
         elif isinstance(value, Sequence) and not isinstance(value, str | bytes):
             if len(value) != len(open_rows):
-                raise ValueError(f"'{node_id}': '{name}' answers {len(value)} values for {len(open_rows)} rows still open; a list answers every open row in order")
+                raise StartRefused(f"'{node_id}': '{name}' answers {len(value)} values for {len(open_rows)} rows still open; a list answers every open row in order")
             rows, values = open_rows, list(value)
         else:
-            raise ValueError(f"'{node_id}' runs per row, so '{name}' is answered as a series, as rows and values, or as a list")
+            raise StartRefused(f"'{node_id}' runs per row, so '{name}' is answered as a series, as rows and values, or as a list")
         if len(rows) != len(values):
-            raise ValueError(f"'{node_id}': '{name}' names {len(rows)} rows for {len(values)} values")
+            raise StartRefused(f"'{node_id}': '{name}' names {len(rows)} rows for {len(values)} values")
         if len(set(rows)) != len(rows):
-            raise ValueError(f"'{node_id}': '{name}' names a row twice")
+            raise StartRefused(f"'{node_id}': '{name}' names a row twice")
         return {row: self._answer(node_id, name, item) for row, item in zip(rows, values, strict=True)}
 
     def _inject(self, unit: Unit, outputs: dict[str, Any] | Skip) -> None:
         if unit in self._done:
             node_id, row = unit
             where = "" if row is None else f" at row {list(row)}"
-            raise ValueError(f"'{node_id}'{where} is already done, so it cannot be given a result")
+            raise StartRefused(f"'{node_id}'{where} is already done, so it cannot be given a result")
         self.record(unit, outputs)
 
     # -- waiting on a person ---------------------------------------------
@@ -847,7 +859,7 @@ class Ledger:
     def results(self) -> dict[str, dict[str, Any]]:
         """Every complete node's outputs, by node id. A node that did not run is absent."""
         produced: dict[str, dict[str, Any]] = {}
-        for node_id in self._compiled.execution_order():
+        for node_id in self._compiled.execution_order:
             if not self.complete(node_id):
                 continue
             result = self.result_of(node_id)
@@ -877,7 +889,7 @@ class Ledger:
                 for index_id, rows in self._no_rows_under.items()
             },
             done_units=[(node_id, None if row is None else list(row)) for node_id, row in self._done],
-            node_fingerprints={node_id: self._compiled.node(node_id).fingerprint for node_id in self._compiled.execution_order()},
+            node_fingerprints={node_id: self._compiled.node(node_id).fingerprint for node_id in self._compiled.execution_order},
         )
 
     def _cell_wire(self, ref: Ref, row: Row | None, value: Any) -> dict[str, Any]:
@@ -909,17 +921,30 @@ class Ledger:
         again; the rest is restored cell for cell, each value read back
         through the codec by its field's type. The rows of a typed-in list
         are never taken from the record: the graph as it is now says how
-        many values the author typed, and a fresh ledger births them.
+        many values the author typed, and a fresh ledger births them. A
+        cell or a done unit for a node the graph does not have is left out
+        too; a cell whose value does not read back as its field's type is a
+        ``StartRefused``.
         """
         ledger = cls(compiled)
-        dropped = ledger._dropped(record.node_fingerprints)
+        #: A node the record names in a cell or a done unit but never fingerprinted, and the graph does not have.
+        unknown = (
+            {Ref(*cell["ref"]).node_id for cell in record.cells} | {node_id for node_id, _ in record.done_units}
+        ) - set(compiled.execution_order)
+        dropped = ledger._dropped(record.node_fingerprints) | unknown
         typed = ledger._typed_roots | ledger._typed_children
         for cell in record.cells:
             ref = Ref(*cell["ref"])
             if ref.node_id in dropped:
                 continue
             row = None if cell["row"] is None else tuple(cell["row"])
-            value = SKIPPED if "skipped" in cell else from_wire(cell["value"], ledger._cell_type(ref))
+            if "skipped" in cell:
+                value = SKIPPED
+            else:
+                try:
+                    value = from_wire(cell["value"], ledger._cell_type(ref))
+                except (KeyError, TypeError, ValueError) as unreadable:
+                    raise StartRefused(f"the record's value for {ref} does not read back: {unreadable}") from unreadable
             ledger._cells.setdefault(ref, {})[row] = value
         for index_id, rows in record.rows_by_index.items():
             if index_id in dropped or index_id in typed:
@@ -947,7 +972,7 @@ class Ledger:
         those the graph no longer has, everything that reads any of them,
         and the typed-in lists whose rows are born under theirs."""
         compiled = self._compiled
-        current = {node_id: compiled.node(node_id).fingerprint for node_id in compiled.execution_order()}
+        current = {node_id: compiled.node(node_id).fingerprint for node_id in compiled.execution_order}
         dropped = {node_id for node_id, fingerprint in current.items() if stored.get(node_id) != fingerprint}
         dropped.update(node_id for node_id in stored if node_id not in current)
         frontier = [node_id for node_id in dropped if node_id in current]

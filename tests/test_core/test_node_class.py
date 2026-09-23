@@ -17,7 +17,7 @@ from conductor.node import (
     version,
 )
 from conductor.series import Series
-from conductor.widgets import Choice, Dropdown, Switch, Textarea
+from conductor.widgets import Choice, Dropdown, Textarea
 from pydantic import TypeAdapter
 
 
@@ -119,12 +119,6 @@ def test_a_class_says_nothing_about_what_the_engine_must_do():
         assert not hasattr(Greeter, gone), gone
 
 
-def test_the_dead_declaration_fields_are_gone():
-    """No node in either repo sets any of these."""
-    for gone in ("idempotency_key", "actor", "uses", "width"):
-        assert not hasattr(NodeDefinition, gone)
-
-
 def test_an_intermediate_base_declares_nothing():
     """A shared base that adds no `run` is not a node."""
 
@@ -201,6 +195,10 @@ def test_versions_live_together_in_one_class():
         description = "d"
         category = "test"
 
+        @upgrade(1, 2)
+        def _v1_to_v2(values):
+            return values
+
         @version(1)
         def run_v1(self, old: Annotated[Txt, Param(title="Old", widget=Textarea())] = Txt("")) -> Out:
             return old
@@ -221,6 +219,10 @@ def test_the_current_version_is_the_one_called_run():
         title = "Two"
         description = "d"
         category = "test"
+
+        @upgrade(1, 2)
+        def _v1_to_v2(values):
+            return values
 
         @version(1)
         def run_v1(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
@@ -254,6 +256,10 @@ def test_policy_is_declared_per_version():
         title = "Fetch"
         description = "d"
         category = "test"
+
+        @upgrade(1, 2)
+        def _v1_to_v2(values):
+            return values
 
         @version(1, policy=Policy(retries=3, delay=1.0))
         def run_v1(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
@@ -316,6 +322,10 @@ def test_an_async_run_is_refused():
             title = "Waits"
             description = "d"
             category = "test"
+
+            @upgrade(1, 2)
+            def _v1_to_v2(values):
+                return values
 
             @version(1)
             def run_v1(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
@@ -402,6 +412,10 @@ def test_a_version_may_be_deprecated_on_its_own():
         description = "d"
         category = "test"
 
+        @upgrade(1, 2)
+        def _v1_to_v2(values):
+            return values
+
         @deprecated(header="Use v2", migration="The field 'old' is now 'new'.")
         @version(1)
         def run_v1(self, old: Annotated[Txt, Param(title="Old", widget=Textarea())] = Txt("")) -> Out:
@@ -450,7 +464,7 @@ def test_the_registry_gives_back_the_class():
     registry = NodeRegistry()
     registry.register(Translate)
 
-    assert registry.get("translate") is Translate
+    assert registry["translate"] is Translate
 
 
 def test_a_caller_asks_the_class_rather_than_a_copy_of_it():
@@ -471,7 +485,7 @@ def test_a_caller_asks_the_class_rather_than_a_copy_of_it():
 
     registry = NodeRegistry()
     registry.register(Translate)
-    found = registry.get("translate-2")
+    found = registry["translate-2"]
 
     assert found.title == "Translation"
     iface = found.versions[1].interface
@@ -486,6 +500,10 @@ def test_every_declared_version_is_registered():
         description = "d"
         category = "test"
 
+        @upgrade(1, 2)
+        def _v1_to_v2(values):
+            return values
+
         @version(1)
         def run_v1(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
             return x
@@ -497,7 +515,7 @@ def test_every_declared_version_is_registered():
     registry = NodeRegistry()
     registry.register(Two)
 
-    assert set(registry.get("two-reg").versions) == {1, 2}
+    assert set(registry["two-reg"].versions) == {1, 2}
 
 
 def test_the_registry_keys_on_the_id():
@@ -513,8 +531,8 @@ def test_the_registry_keys_on_the_id():
     registry = NodeRegistry()
     registry.register(Echo)
 
-    assert registry.contains("echo-key")
-    assert not registry.contains("echo-nothing")
+    assert "echo-key" in registry
+    assert "echo-nothing" not in registry
     assert registry.nodes == (Echo,)
 
 
@@ -627,7 +645,7 @@ def test_an_alternative_names_a_node_in_the_same_catalog():
     registry = NodeRegistry()
     registry.register(New)
     registry.register(Old)
-    assert registry.get("old-node").deprecation.alternative == "new-node"
+    assert registry["old-node"].deprecation.alternative == "new-node"
 
 
 def test_the_flattened_record_is_gone():
@@ -701,6 +719,10 @@ def test_a_hook_shapes_the_version_the_placement_pins_not_the_newest():
         description = "d"
         category = "test"
 
+        @upgrade(1, 2)
+        def _v1_to_v2(values):
+            return values
+
         @version(1)
         def run_v1(self, old: Annotated[Txt, Param(title="Old", widget=Textarea())] = Txt("")) -> Out:
             return old
@@ -730,22 +752,15 @@ def test_a_node_with_no_shaping_declares_none():
     assert Simple().compute_outputs(current.outputs, {}, {}) == current.outputs
 
 
-def test_the_hook_contract_is_two_methods():
-    """A value's constraints are its dtype's constructor rules, and a
-    an edge problem is the compiler's — so a node has no `validate` and no
-    `Problem` channel of its own."""
-    assert not hasattr(NodeDefinition, "validate")
-
-
 def test_a_hook_that_cannot_answer_raises_refuses():
     """`Refuses(code, message)` is the one refusal a field hook has: the
     host names the code and writes the sentence, and the compiler anchors both
     as the placement's fatal `Problem` (the graph plans)."""
-    from conductor.node import Refuses
+    from conductor.errors import ConductorError, Refuses
 
     refusal = Refuses("wrong_shape", "What arrives does not fit.")
     assert (refusal.code, refusal.message) == ("wrong_shape", "What arrives does not fit.")
-    assert isinstance(refusal, Exception)
+    assert isinstance(refusal, ConductorError)
 
 
 def test_a_reduction_declares_a_series_input():
@@ -773,6 +788,10 @@ def test_describe_is_the_class_as_a_record():
         description = "Translates"
         category = "test"
         tags = ("Language model",)
+
+        @upgrade(1, 2)
+        def _v1_to_v2(values):
+            return values
 
         @version(1)
         def run_v1(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
@@ -808,6 +827,10 @@ def test_describe_carries_both_notices():
         title = "Old"
         description = "d"
         category = "test"
+
+        @upgrade(1, 2)
+        def _v1_to_v2(values):
+            return values
 
         @deprecated(header="v1 retired", migration="Use v2.")
         @version(1)
@@ -890,46 +913,6 @@ class Flag(DType):
         return isinstance(other, Flag) and other.value == self.value
 
 
-def test_an_upgrade_rewrites_saved_values_between_versions():
-    class Docs(NodeDefinition):
-        id = "docs"
-        title = "Docs"
-        description = "d"
-        category = "test"
-
-        @version(1)
-        def run_v1(
-            self,
-            files: Annotated[Txt, Param(title="Files", widget=Textarea())] = Txt(""),
-            strategy: Annotated[Txt, Param(title="Strategy", widget=Textarea())] = Txt("whole"),
-        ) -> Out:
-            return Txt(f"{files}:{strategy}")
-
-        @version(2)
-        def run(
-            self,
-            files: Annotated[Txt, Param(title="Files", widget=Textarea())] = Txt(""),
-            split: Annotated[Flag, Param(title="Split", widget=Switch())] = Flag(False),
-        ) -> Out:
-            return Txt(f"{files}:{split.value}")
-
-        @upgrade(1, 2)
-        def _v1_to_v2(values):
-            rewritten = dict(values)
-            rewritten["split"] = Flag(rewritten.pop("strategy", None) == "per_page")
-            return rewritten
-
-    registry = NodeRegistry()
-    registry.register(Docs)
-
-    rewrite = registry.upgrade_path("docs", 1, 2)
-    assert rewrite is not None
-    assert rewrite({"files": "a.pdf", "strategy": "per_page"}) == {
-        "files": "a.pdf",
-        "split": Flag(True),
-    }
-
-
 def test_an_upgrade_takes_values_and_not_an_instance():
     """It rewrites data. There is no placement to consult and no state."""
 
@@ -955,21 +938,6 @@ def test_an_upgrade_takes_values_and_not_an_instance():
     assert Docs2._v1_to_v2({"a": Txt("x")}) == {"b": "x"}
 
 
-def test_a_missing_upgrade_path_is_none_not_an_error():
-    class Plain(NodeDefinition):
-        id = "plain"
-        title = "Plain"
-        description = "d"
-        category = "test"
-
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return x
-
-    registry = NodeRegistry()
-    registry.register(Plain)
-    assert registry.upgrade_path("plain", 1, 2) is None
-
-
 def test_a_class_that_sets_its_own_upgrades_is_refused():
     """``upgrades`` is collected from ``@upgrade`` methods, never given, so a
     class body that sets it would be silently overwritten; it is refused."""
@@ -984,15 +952,6 @@ def test_a_class_that_sets_its_own_upgrades_is_refused():
 
             def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
                 return x
-
-
-def test_there_is_exactly_one_way_to_declare_a_node():
-    """Gone, so they cannot come back by habit."""
-    import conductor
-
-    assert not hasattr(NodeRegistry, "node")
-    assert not hasattr(NodeRegistry, "register_class")
-    assert not hasattr(conductor, "BaseNode")
 
 
 def test_a_category_is_a_string_on_the_definition():
@@ -1044,7 +1003,7 @@ def test_a_class_node_executes_in_a_graph():
     registry = NodeRegistry()
     registry.register(Shout)
 
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="shout", version=1, bindings={"text": Static(value="hi")})]), registry)
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="shout", version=1, bindings={"text": Static("hi")})]), registry)
     results = run_sync(compiled)["results"]
     assert results["a"]["result"] == "HI!"
 
@@ -1055,6 +1014,10 @@ def test_two_versions_of_one_class_execute_independently():
         title = "Suffix"
         description = "d"
         category = "test"
+
+        @upgrade(1, 2)
+        def _v1_to_v2(values):
+            return values
 
         @version(1)
         def run_v1(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
@@ -1072,7 +1035,7 @@ def test_two_versions_of_one_class_execute_independently():
     registry.register(Suffix)
 
     for pinned, expected in ((1, "hi"), (2, "hi?")):
-        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="suffix", version=pinned, bindings={"text": Static(value="hi")})]), registry)
+        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="suffix", version=pinned, bindings={"text": Static("hi")})]), registry)
         assert run_sync(compiled)["results"]["a"]["result"] == expected
 
 

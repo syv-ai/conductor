@@ -50,12 +50,6 @@ def test_the_validator_coerces_into_the_dtype():
     assert isinstance(validated.text, Text)
 
 
-def test_there_is_one_validator_and_it_is_over_inputs():
-    """`model_of` takes any tuple of inputs — a declaration or a placement's
-    interface — so there is no second spelling on the record."""
-    assert not hasattr(Interface, "model")
-
-
 def test_an_input_keeps_its_widget_whole():
     """The widget is never destructured into an id plus a loose config dict."""
     language = Interface.of(sample).inputs[1]
@@ -89,7 +83,7 @@ def test_an_input_carries_a_dtype_not_a_type_string():
 
 def test_a_series_parameter_carries_its_element_type():
     def collects(
-        sources: Annotated[Series[Text], Param(title="Edges")],
+        sources: Annotated[Series[Text], Param(title="From")],
     ) -> Annotated[Text, Result(title="R")]:
         return Text("")
 
@@ -206,7 +200,9 @@ def test_a_closed_param_may_declare_a_static_type():
 
     (inp,) = Interface.of(structured).inputs
     assert inp.dtype is Schema
-    assert isinstance(model_of((inp,))(schema={"fields": ("a",)}).schema, Schema)
+    # ``schema`` is a name ``BaseModel`` has, so the model keeps it under a
+    # field of its own naming and takes it by alias.
+    assert isinstance(dict(model_of((inp,))(schema={"fields": ("a",)}))["schema_"], Schema)
     assert TypeAdapter(type(inp)).dump_python(inp, mode="json")["dtype"] is None
 
 

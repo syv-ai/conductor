@@ -17,7 +17,7 @@ import pytest
 from conductor import SKIPPED, Asks, CompiledGraph, GraphNode, NodeRegistry
 from conductor.dtype import DType
 from conductor.execution.engine import execute
-from conductor.graph.binding import Edges, Static
+from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
 from conductor.interface import Interface
 from conductor.metadata import Input, Param, Result
@@ -100,17 +100,16 @@ def test_show_handle_false_closes_the_input_and_admits_a_static_type():
     assert tags.show_handle is False and tags.dtype == list[str]
 
 
-def test_an_input_reads_back_its_dump():
+def test_an_inputs_widget_reads_back_its_dump():
     """The widget carries nothing that is left out of its dump, so what an
-    editor was sent reads back whole; the type reads back as its
-    description, since the class lives on the signature."""
+    editor was sent reads back whole. The type does not: the class lives on
+    the signature, and its description is not a type."""
     text = Input(name="text", dtype=Txt, title="Text", widget=Textarea(rows=2))
     dumped = text.model_dump(mode="json")
 
-    back = Input.model_validate(dumped)
-
-    assert (back.name, back.title, back.widget, back.show_handle) == ("text", "Text", Textarea(rows=2), True)
-    assert back.dtype == Txt.describe()
+    assert (dumped["name"], dumped["title"], dumped["show_handle"]) == ("text", "Text", True)
+    assert Textarea.model_validate(dumped["widget"]) == Textarea(rows=2)
+    assert dumped["dtype"] == Txt.describe()
 
 
 # -- Asks() asks the declared outputs ---------------------------------------------------
@@ -167,7 +166,7 @@ def _leg(compiled: CompiledGraph, **kw: Any) -> list[dict]:
 
 def _asking_once() -> CompiledGraph:
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[GraphNode(id="ask", type="ask-each", version=1, bindings={"proposal": Static(value="hi")})]),
+        Graph(nodes=[GraphNode(id="ask", type="ask-each", version=1, bindings={"proposal": Static("hi")})]),
         _registry(),
     )
     assert compiled.is_runnable, compiled.problems
@@ -177,8 +176,8 @@ def _asking_once() -> CompiledGraph:
 def _asking_per_row(text: str) -> CompiledGraph:
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
-            GraphNode(id="docs", type="docs", version=1, bindings={"text": Static(value=text)}),
-            GraphNode(id="ask", type="ask-each", version=1, bindings={"proposal": Edges(refs=(Ref("docs", "result"),))}),
+            GraphNode(id="docs", type="docs", version=1, bindings={"text": Static(text)}),
+            GraphNode(id="ask", type="ask-each", version=1, bindings={"proposal": From("docs.result")}),
         ]),
         _registry(),
     )
@@ -213,9 +212,9 @@ def test_a_list_answers_the_rows_still_open_and_leaves_a_skipped_row_alone():
     a list answers the two rows that are open, in order."""
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
-            GraphNode(id="docs", type="docs", version=1, bindings={"text": Static(value="aa,b,cc")}),
-            GraphNode(id="skip", type="skip-short", version=1, bindings={"text": Edges(refs=(Ref("docs", "result"),))}),
-            GraphNode(id="ask", type="ask-each", version=1, bindings={"proposal": Edges(refs=(Ref("skip", "result"),))}),
+            GraphNode(id="docs", type="docs", version=1, bindings={"text": Static("aa,b,cc")}),
+            GraphNode(id="skip", type="skip-short", version=1, bindings={"text": From("docs.result")}),
+            GraphNode(id="ask", type="ask-each", version=1, bindings={"proposal": From("skip.result")}),
         ]),
         _registry(),
     )

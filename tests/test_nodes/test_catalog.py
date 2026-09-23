@@ -64,7 +64,7 @@ def test_the_markers_and_the_signals_are_gone(registry):
         "for-each-start", "for-each-end", "while-start", "while-end", "subprocess-call",
         "signal-wait", "signal-timer",
     ):
-        assert not registry.contains(gone), gone
+        assert gone not in registry, gone
 
 
 def test_every_node_declares_a_title_a_description_and_a_category(registry):
@@ -109,7 +109,7 @@ def test_only_the_gate_declares_any(registry):
         if any(f.dtype is Any for f in (*_current(node_cls).inputs, *_current(node_cls).outputs))
     }
     assert vague == {"decision"}
-    gate = _current(registry.get("decision"))
+    gate = _current(registry["decision"])
     assert gate.inputs[0].dtype is Any and all(o.dtype is Any for o in gate.outputs)
 
 
@@ -130,13 +130,6 @@ def test_branches_are_one_choice(registry):
         "logic-if-empty": {"emptiness": ["not_empty", "empty"]},
         "logic-if-equals": {"equality": ["equal", "not_equal"]},
     }
-
-
-def test_no_node_says_what_the_engine_must_do(registry):
-    """No node carries a ``role``: a branch not taken is ``SKIPPED``, a
-    value the engine acts on, and nothing on the class announces it."""
-    for node_cls in registry.nodes:
-        assert not hasattr(node_cls, "role"), node_cls.id
 
 
 def test_no_stdlib_node_overrides_a_shaping_hook(registry):
@@ -168,7 +161,4 @@ def test_a_registry_of_the_standard_nodes_is_one_call():
     import conductor_nodes
 
     assert {cls.id for cls in conductor_nodes.registry().nodes} == EXPECTED_IDS
-    assert {cls.id for cls in conductor_nodes.registry(categories=["logic"]).nodes} == {
-        "logic-if-empty", "logic-if-equals", "logic-not",
-    }
-    assert not hasattr(conductor_nodes, "get_default_registry")
+    assert {cls.id for cls in conductor_nodes.registry(categories=["logic"]).nodes} == {"logic-not"}

@@ -23,12 +23,12 @@ from conductor.errors import (
     NodeExecutionError,
     NodeValidationError,
 )
-from conductor.execution.engine import _Leg, execute
-from conductor.graph.binding import Edges, Static
+from conductor.execution.engine import execute
+from conductor.execution.leg import Leg
+from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
 from conductor.metadata import Result
 from conductor.node import NodeDefinition, Policy, version
-from conductor.ref import Ref
 from conductor.series import Series
 from conductor.widgets import Textarea
 
@@ -48,7 +48,7 @@ def _compiled(node_cls: type[NodeDefinition], *more: type[NodeDefinition]) -> Co
     for cls in (node_cls, *more):
         reg.register(cls)
     return CompiledGraph.from_graph(
-        Graph(nodes=[GraphNode(id="n1", type=node_cls.id, version=1, bindings={"text": Static(value="x")})]), reg
+        Graph(nodes=[GraphNode(id="n1", type=node_cls.id, version=1, bindings={"text": Static("x")})]), reg
     )
 
 
@@ -244,7 +244,7 @@ def test_a_foreign_exceptions_text_is_on_original_and_nowhere_else():
             raise KeyError("secret-token")
 
     compiled = _compiled(Buggy)
-    leg = _Leg(compiled, record=None, from_run={}, timeout=None, cancel=asyncio.Event())
+    leg = Leg(compiled, record=None, from_run={}, timeout=None, cancel=asyncio.Event())
 
     with pytest.raises(NodeExecutionError) as caught:
         leg._call(("n1", None), {"text": "x"})
@@ -323,8 +323,8 @@ def test_a_failed_row_is_retried_alone():
     reg.register(FlakyOnB)
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
-            GraphNode(id="split", type="split", version=1, bindings={"text": Static(value="a,b,c")}),
-            GraphNode(id="rows", type="flaky-on-b", version=1, bindings={"text": Edges(refs=(Ref("split", "result"),))}),
+            GraphNode(id="split", type="split", version=1, bindings={"text": Static("a,b,c")}),
+            GraphNode(id="rows", type="flaky-on-b", version=1, bindings={"text": From("split.result")}),
         ]),
         reg,
     )
@@ -375,9 +375,9 @@ def test_a_flaky_node_in_one_branch_retries_while_the_other_branch_completes():
         reg.register(cls)
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
-            GraphNode(id="n1", type="flaky-a", version=1, bindings={"text": Static(value="x")}),
-            GraphNode(id="n2", type="fast-b", version=1, bindings={"text": Static(value="y")}),
-            GraphNode(id="n3", type="join", version=1, bindings={"a": Edges(refs=(Ref("n1", "result"),)), "b": Edges(refs=(Ref("n2", "result"),))}),
+            GraphNode(id="n1", type="flaky-a", version=1, bindings={"text": Static("x")}),
+            GraphNode(id="n2", type="fast-b", version=1, bindings={"text": Static("y")}),
+            GraphNode(id="n3", type="join", version=1, bindings={"a": From("n1.result"), "b": From("n2.result")}),
         ]),
         reg,
     )

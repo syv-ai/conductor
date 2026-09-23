@@ -6,7 +6,7 @@ from typing import Annotated, ClassVar
 import pytest
 from conductor import NodeRegistry
 from conductor.dtype import DType
-from conductor.graph.binding import Edges, Static
+from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.interface import Interface
@@ -81,9 +81,9 @@ def _inner_graph():
     """The embedded graph: a holder, uppercased, then joined. Standalone it
     takes one text at `holder.value` and returns `join.result`."""
     return (
-        GraphNode(id="holder", type="holder", version=1, title="Text", bindings={"value": Static(value="inner")}),
-        GraphNode(id="up", type="upper", version=1, title="Upper", bindings={"text": Edges(refs=(Ref("holder", "result"),))}),
-        GraphNode(id="join", type="join", version=1, title="Join", bindings={"texts": Edges(refs=(Ref("up", "result"),))}),
+        GraphNode(id="holder", type="holder", version=1, title="Text", bindings={"value": Static("inner")}),
+        GraphNode(id="up", type="upper", version=1, title="Upper", bindings={"text": From("holder.result")}),
+        GraphNode(id="join", type="join", version=1, title="Join", bindings={"texts": From("up.result")}),
     )
 
 
@@ -128,13 +128,13 @@ def _compiled(nodes, *extra):
 
 def test_the_inner_nodes_are_nodes_of_the_one_run_under_the_placements_name():
     compiled = _compiled([
-        GraphNode(id="src", type="holder", version=1, bindings={"value": Static(value="outer")}),
-        GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.value": Edges(refs=(Ref("src", "result"),))}),
-        GraphNode(id="after", type="upper", version=1, bindings={"text": Edges(refs=(Ref("emb", "join.result"),))}),
+        GraphNode(id="src", type="holder", version=1, bindings={"value": Static("outer")}),
+        GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.value": From("src.result")}),
+        GraphNode(id="after", type="upper", version=1, bindings={"text": From("emb.join.result")}),
     ])
 
     assert compiled.is_runnable, compiled.problems
-    assert compiled.execution_order() == ("src", "emb/holder", "emb/up", "emb/join", "after")
+    assert compiled.execution_order == ("src", "emb/holder", "emb/up", "emb/join", "after")
     assert compiled.node("emb/up").embedded_in == "emb"
     assert compiled.node("src").embedded_in is None
     with pytest.raises(KeyError):
@@ -145,22 +145,22 @@ def test_the_placements_bindings_move_onto_the_inner_fields_they_name():
     """An edge into `emb.holder.value` replaces the inner author's static;
     an outer edge from `emb.join.result` reads the inner node's output."""
     compiled = _compiled([
-        GraphNode(id="src", type="holder", version=1, bindings={"value": Static(value="outer")}),
-        GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.value": Edges(refs=(Ref("src", "result"),))}),
-        GraphNode(id="after", type="upper", version=1, bindings={"text": Edges(refs=(Ref("emb", "join.result"),))}),
+        GraphNode(id="src", type="holder", version=1, bindings={"value": Static("outer")}),
+        GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.value": From("src.result")}),
+        GraphNode(id="after", type="upper", version=1, bindings={"text": From("emb.join.result")}),
     ])
 
-    assert compiled.field(Ref("emb/holder", "value")).binding == Edges(refs=(Ref("src", "result"),))
-    assert compiled.field(Ref("after", "text")).binding == Edges(refs=(Ref("emb/join", "result"),))
+    assert compiled.field(Ref("emb/holder", "value")).binding == From("src.result")
+    assert compiled.field(Ref("after", "text")).binding == From("emb/join.result")
 
 
 def test_an_unconnected_placement_keeps_the_inner_statics_and_expands_flat():
     compiled = _compiled([GraphNode(id="emb", type="inner-graph", version=1)])
 
     assert compiled.is_runnable, compiled.problems
-    assert compiled.field(Ref("emb/holder", "value")).binding == Static(value="inner")
+    assert compiled.field(Ref("emb/holder", "value")).binding == Static("inner")
     assert compiled.node("emb").iterates_on is None
-    assert all(compiled.node(node_id).iterates_on is None for node_id in compiled.execution_order())
+    assert all(compiled.node(node_id).iterates_on is None for node_id in compiled.execution_order)
 
 
 def test_a_placement_is_a_node_in_the_interface_named_by_inner_address():
@@ -180,8 +180,8 @@ def test_a_placement_is_a_node_in_the_interface_named_by_inner_address():
 
 def test_a_question_about_a_placements_field_reads_through_to_the_inner_field():
     compiled = _compiled([
-        GraphNode(id="src", type="holder", version=1, bindings={"value": Static(value="outer")}),
-        GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.value": Edges(refs=(Ref("src", "result"),))}),
+        GraphNode(id="src", type="holder", version=1, bindings={"value": Static("outer")}),
+        GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.value": From("src.result")}),
     ])
 
     assert compiled.field(Ref("emb", "join.result")).type is compiled.field(Ref("emb/join", "result")).type
@@ -193,8 +193,8 @@ def test_a_problem_found_inside_surfaces_on_the_placement():
     """The author sees `emb`, under the inner address, with the inner node named."""
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="n", type="upper", version=1, bindings={"text": Edges(refs=(Ref("docs", "result"),))}),
-        GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.value": Edges(refs=(Ref("ghost", "result"),))}),
+        GraphNode(id="n", type="upper", version=1, bindings={"text": From("docs.result")}),
+        GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.value": From("ghost.result")}),
     ])
 
     problems = [p for p in compiled.problems if p.node_id == "emb"]
@@ -210,10 +210,10 @@ def test_a_problem_found_inside_surfaces_on_the_placement():
 
 
 def test_a_stale_key_on_the_placement_is_reported_on_the_placement():
-    compiled = _compiled([GraphNode(id="emb", type="inner-graph", version=1, bindings={"nope.value": Static(value=1)})])
+    compiled = _compiled([GraphNode(id="emb", type="inner-graph", version=1, bindings={"nope.value": Static(1)})])
 
     (problem,) = compiled.problems
-    assert (problem.code, problem.fatal, problem.node_id, problem.field) == ("stale_binding", False, "emb", "nope.value")
+    assert (problem.code, problem.fatal, problem.node_id, problem.field) == ("stale_binding", True, "emb", "nope.value")
 
 
 # --- the boundary scope ---------------------------------------------------------
@@ -222,7 +222,7 @@ def test_a_stale_key_on_the_placement_is_reported_on_the_placement():
 def test_a_series_entering_through_a_scalar_field_makes_the_placement_iterate():
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.value": Edges(refs=(Ref("docs", "result"),))}),
+        GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.value": From("docs.result")}),
     ])
 
     assert compiled.is_runnable, compiled.problems
@@ -236,7 +236,7 @@ def test_an_inner_reduction_over_the_entering_series_is_a_fold_of_one():
     three, it joins one text three times — never all three once."""
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.value": Edges(refs=(Ref("docs", "result"),))}),
+        GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.value": From("docs.result")}),
     ])
 
     assert compiled.node("emb/join").iterates_on == Index("docs")
@@ -250,9 +250,9 @@ def test_a_series_born_inside_reduces_to_the_outer_row_by_lineage_alone():
     inner = _embedded_definition(
         "splitter",
         (
-            GraphNode(id="holder", type="holder", version=1, bindings={"value": Static(value="a\nb")}),
-            GraphNode(id="lines", type="lines", version=1, bindings={"text": Edges(refs=(Ref("holder", "result"),))}),
-            GraphNode(id="join", type="join", version=1, bindings={"texts": Edges(refs=(Ref("lines", "result"),))}),
+            GraphNode(id="holder", type="holder", version=1, bindings={"value": Static("a\nb")}),
+            GraphNode(id="lines", type="lines", version=1, bindings={"text": From("holder.result")}),
+            GraphNode(id="join", type="join", version=1, bindings={"texts": From("lines.result")}),
         ),
         inputs=(Input(name="holder.value", dtype=Txt, title="Text", widget=Textarea(), default=Txt(""), optional=True),),
         outputs=(Output(name="join.result", dtype=Txt, title="Result"),),
@@ -260,7 +260,7 @@ def test_a_series_born_inside_reduces_to_the_outer_row_by_lineage_alone():
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="docs", type="docs", version=1),
-            GraphNode(id="emb", type="splitter", version=1, bindings={"holder.value": Edges(refs=(Ref("docs", "result"),))}),
+            GraphNode(id="emb", type="splitter", version=1, bindings={"holder.value": From("docs.result")}),
         ]),
         _registry(inner, Lines),
     )
@@ -276,10 +276,10 @@ def test_a_series_born_inside_reduces_to_the_outer_row_by_lineage_alone():
     unfed = _embedded_definition(
         "splitter-unfed",
         (
-            GraphNode(id="holder", type="holder", version=1, bindings={"value": Static(value="a\nb")}),
+            GraphNode(id="holder", type="holder", version=1, bindings={"value": Static("a\nb")}),
             GraphNode(id="entered", type="holder", version=1),
-            GraphNode(id="lines", type="lines", version=1, bindings={"text": Edges(refs=(Ref("holder", "result"),))}),
-            GraphNode(id="join", type="join", version=1, bindings={"texts": Edges(refs=(Ref("lines", "result"),))}),
+            GraphNode(id="lines", type="lines", version=1, bindings={"text": From("holder.result")}),
+            GraphNode(id="join", type="join", version=1, bindings={"texts": From("lines.result")}),
         ),
         inputs=(Input(name="entered.value", dtype=Txt, title="Text", widget=Textarea(), default=Txt(""), optional=True),),
         outputs=(Output(name="join.result", dtype=Txt, title="Result"),),
@@ -287,7 +287,7 @@ def test_a_series_born_inside_reduces_to_the_outer_row_by_lineage_alone():
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="docs", type="docs", version=1),
-            GraphNode(id="emb", type="splitter-unfed", version=1, bindings={"entered.value": Edges(refs=(Ref("docs", "result"),))}),
+            GraphNode(id="emb", type="splitter-unfed", version=1, bindings={"entered.value": From("docs.result")}),
         ]),
         _registry(unfed, Lines),
     )
@@ -310,7 +310,7 @@ def test_two_crossings_on_one_lineage_make_the_whole_block_iterate_on_the_deeper
         (
             GraphNode(id="a", type="holder", version=1),
             GraphNode(id="b", type="holder", version=1),
-            GraphNode(id="ua", type="upper", version=1, bindings={"text": Edges(refs=(Ref("a", "result"),))}),
+            GraphNode(id="ua", type="upper", version=1, bindings={"text": From("a.result")}),
         ),
         inputs=(
             Input(name="a.value", dtype=Txt, title="A", widget=Textarea(), default=Txt(""), optional=True),
@@ -321,10 +321,10 @@ def test_two_crossings_on_one_lineage_make_the_whole_block_iterate_on_the_deeper
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="docs", type="docs", version=1),
-            GraphNode(id="lines", type="lines", version=1, bindings={"text": Edges(refs=(Ref("docs", "result"),))}),
+            GraphNode(id="lines", type="lines", version=1, bindings={"text": From("docs.result")}),
             GraphNode(id="emb", type="pair", version=1, bindings={
-                "a.value": Edges(refs=(Ref("docs", "result"),)),
-                "b.value": Edges(refs=(Ref("lines", "result"),)),
+                "a.value": From("docs.result"),
+                "b.value": From("lines.result"),
             }),
         ]),
         _registry(inner, Lines),
@@ -351,7 +351,7 @@ def test_a_series_entering_a_series_field_is_read_whole_and_the_block_expands_fl
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="docs", type="docs", version=1),
-            GraphNode(id="emb", type="joiner", version=1, bindings={"join.texts": Edges(refs=(Ref("docs", "result"),))}),
+            GraphNode(id="emb", type="joiner", version=1, bindings={"join.texts": From("docs.result")}),
         ]),
         _registry(inner),
     )
@@ -380,7 +380,7 @@ def test_two_unrelated_series_entering_one_placement_are_its_misaligned():
             GraphNode(id="d1", type="docs", version=1),
             GraphNode(id="d2", type="docs", version=1),
             GraphNode(id="emb", type="pair", version=1, bindings={
-                "a.value": Edges(refs=(Ref("d1", "result"),)), "b.value": Edges(refs=(Ref("d2", "result"),)),
+                "a.value": From("d1.result"), "b.value": From("d2.result"),
             }),
         ]),
         _registry(inner),
@@ -393,8 +393,8 @@ def test_a_nested_placement_expands_under_both_names():
     outer = _embedded_definition(
         "outer-graph",
         (
-            GraphNode(id="pre", type="holder", version=1, bindings={"value": Static(value="x")}),
-            GraphNode(id="inner", type="inner-graph", version=1, bindings={"holder.value": Edges(refs=(Ref("pre", "result"),))}),
+            GraphNode(id="pre", type="holder", version=1, bindings={"value": Static("x")}),
+            GraphNode(id="inner", type="inner-graph", version=1, bindings={"holder.value": From("pre.result")}),
         ),
         inputs=(Input(name="pre.value", dtype=Txt, title="Text", widget=Textarea(), default=Txt("x"), optional=True),),
         outputs=(Output(name="inner.join.result", dtype=Txt, title="Result"),),
@@ -402,16 +402,16 @@ def test_a_nested_placement_expands_under_both_names():
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="top", type="outer-graph", version=1),
-            GraphNode(id="after", type="upper", version=1, bindings={"text": Edges(refs=(Ref("top", "inner.join.result"),))}),
+            GraphNode(id="after", type="upper", version=1, bindings={"text": From("top.inner.join.result")}),
         ]),
         _registry(_inner_definition(), outer),
     )
 
     assert compiled.is_runnable, compiled.problems
-    assert compiled.execution_order() == ("top/pre", "top/inner/holder", "top/inner/up", "top/inner/join", "after")
+    assert compiled.execution_order == ("top/pre", "top/inner/holder", "top/inner/up", "top/inner/join", "after")
     assert compiled.node("top/inner/up").embedded_in == "top/inner"
     assert compiled.node("top/pre").embedded_in == "top"
-    assert compiled.field(Ref("after", "text")).binding == Edges(refs=(Ref("top/inner/join", "result"),))
+    assert compiled.field(Ref("after", "text")).binding == From("top/inner/join.result")
     assert compiled.field(Ref("top", "inner.join.result")).type is Txt
 
 
@@ -423,13 +423,13 @@ def test_an_authored_id_with_a_slash_is_refused_and_never_collides_with_an_inner
     beside a placement ``e`` used to appear twice in the order and be read by
     the inner nodes; now it is refused on its own."""
     compiled = _compiled([
-        GraphNode(id="e/holder", type="holder", version=1, bindings={"value": Static(value="impostor")}),
+        GraphNode(id="e/holder", type="holder", version=1, bindings={"value": Static("impostor")}),
         GraphNode(id="e", type="inner-graph", version=1),
     ])
 
     assert [(p.code, p.fatal, p.node_id) for p in compiled.problems] == [("invalid_node_id", True, "e/holder")]
-    assert compiled.execution_order().count("e/holder") == 1
-    assert compiled.field(Ref("e/holder", "value")).binding == Static(value="inner")
+    assert compiled.execution_order.count("e/holder") == 1
+    assert compiled.field(Ref("e/holder", "value")).binding == Static("inner")
 
 
 def test_a_graph_that_embeds_itself_is_a_cycle_not_a_recursion_error():
@@ -537,7 +537,7 @@ def test_misaligned_inside_an_embedded_graph_is_reported_once_with_the_authors_a
         Graph(nodes=[
             GraphNode(id="d1", type="docs", version=1),
             GraphNode(id="d2", type="docs", version=1),
-            GraphNode(id="emb", type="pairs", version=1, bindings={"p.a": Edges(refs=(Ref("d1", "result"),)), "p.b": Edges(refs=(Ref("d2", "result"),))}),
+            GraphNode(id="emb", type="pairs", version=1, bindings={"p.a": From("d1.result"), "p.b": From("d2.result")}),
         ]),
         _registry(inner, Pair),
     )
@@ -555,7 +555,7 @@ def test_a_problem_surfaced_from_inside_keeps_its_details_and_rewrites_the_addre
     compiled = _compiled([
         GraphNode(id="d1", type="docs", version=1),
         GraphNode(id="d2", type="docs", version=1),
-        GraphNode(id="emb", type="inner-graph", version=1, bindings={"up.text": Edges(refs=(Ref("d1", "result"), Ref("d2", "result")))}),
+        GraphNode(id="emb", type="inner-graph", version=1, bindings={"up.text": From("d1.result", "d2.result")}),
     ])
 
     (problem,) = compiled.problems

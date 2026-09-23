@@ -19,7 +19,7 @@ from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 from conductor.dtype import DType
-from conductor.graph.binding import Edges
+from conductor.graph.binding import From
 from conductor.graph.model import GraphNode
 from conductor.graph.problem import Problem, problem
 from conductor.interface import Interface
@@ -33,12 +33,12 @@ if TYPE_CHECKING:
 def is_input_node(node: GraphNode) -> bool:
     """Does no edge lead into any input of this node?
 
-    A typed-in ``Static`` does not count; any ``Edges`` does. Such a node
+    A typed-in ``Static`` does not count; any ``From`` does. Such a node
     is an input node: its inputs are the graph's inputs. The one home of
     the rule, so ``derive_interface``, an editor and a migration agree; in
     a dependency map it reads as an empty set.
     """
-    return not any(isinstance(binding, Edges) for binding in node.bindings.values())
+    return not any(isinstance(binding, From) for binding in node.bindings.values())
 
 
 def lock_problems(nodes: Mapping[str, GraphNode], interfaces: Mapping[str, Interface]) -> tuple[Problem, ...]:

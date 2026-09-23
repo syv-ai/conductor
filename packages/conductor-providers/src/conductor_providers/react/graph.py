@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from conductor.graph.binding import Edges
+from conductor.graph.binding import From
 from conductor.graph.model import Graph, GraphNode
 
 from conductor_providers.react.layout import topological_positions
@@ -29,7 +29,7 @@ def graph_to_react(graph: Graph) -> dict[str, Any]:
             "id": node.id,
             "type": node.type,
             "position": node.display.get("position", auto[node.id]),
-            "data": node.model_dump(mode="json", exclude={"display"}),
+            "data": node.model_dump(mode="json"),
         }
         for node in graph.nodes
     ]
@@ -43,21 +43,28 @@ def graph_to_react(graph: Graph) -> dict[str, Any]:
         }
         for node in graph.nodes
         for handle, binding in node.bindings.items()
-        if isinstance(binding, Edges)
+        if isinstance(binding, From)
         for ref in binding.refs
     ]
-    return {"nodes": rf_nodes, "edges": rf_edges}
+    return {"nodes": rf_nodes, "edges": rf_edges, "display": dict(graph.display)}
 
 
 def react_to_graph(wire: dict[str, Any]) -> Graph:
     """Parse a ReactFlow dict back into a ``Graph``.
 
-    Each node's ``data`` is the node record; the canvas's ``position``
-    lands in the node's ``display``. Keys the canvas added beside
+    Each node's ``data`` is the node record, its ``display`` whole, and the
+    canvas's ``position`` is merged into that ``display``; the graph's own
+    ``display`` comes back from the wire's. Keys the canvas added beside
     those are ignored, so a host can decorate the wire without breaking
     the round trip.
     """
-    return Graph(nodes=[
-        GraphNode.model_validate({**raw["data"], "display": {"position": raw["position"]}})
-        for raw in wire["nodes"]
-    ])
+    return Graph(
+        nodes=[
+            GraphNode.model_validate({
+                **raw["data"],
+                "display": {**raw["data"].get("display", {}), "position": raw["position"]},
+            })
+            for raw in wire["nodes"]
+        ],
+        display=wire.get("display", {}),
+    )
