@@ -128,7 +128,7 @@ What the graph takes and returns is its interface: `n1.text`, the input of the n
 
 ```python
 ready = compiled.with_inputs(text="good night")
-print(ready.outputs(run_sync(ready).results))  # {"n2.result": "GOOD NIGHT"}
+print(ready.outputs(run_sync(ready).state))  # {"n2.result": "GOOD NIGHT"}
 ```
 
 A single-output node's output is named `result`; a multi-output node's outputs are the field names of the record it returns (below).

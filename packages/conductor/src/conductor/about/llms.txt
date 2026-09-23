@@ -53,8 +53,8 @@ ready = compiled.with_inputs(text=["a", "b", "c"])     # filled by name; by addr
 assert ready.is_runnable, ready.problems
 
 ending = await run(ready)          # a notebook cell; from a script, run_sync(ready) — the same ending event
+ready.outputs(ending.state)        # {"join.result": "A+B+C"} — what the graph returns, by address
 results = ending.state.results(ready)   # every node's outputs, by node id, read from the run's state
-ready.outputs(results)             # {"join.result": "A+B+C"} — what the graph returns, by address
 list(results["upper"]["result"])   # ["A", "B", "C"] — three values into one input: it ran once per value
 results["join"]["result"]          # "A+B+C" — Series[Text] received the whole series, once
 ```
@@ -289,7 +289,8 @@ All three are root exports: `from conductor import execute, run, run_sync`.
 ### A compiled graph's interface, from each side
 
 - `compiled.with_inputs(**inputs)` — a copy with those inputs filled as `Static`s, compiled again; `run` takes it. A keyword is an input's bare field name when no other input has it, else its address (`**{"a.text": ...}`); an input inside an embedded graph is named by address only. A name the interface does not offer is a `TypeError` listing the names it does.
-- `compiled.outputs(results)` — `interface.outputs` from any ending's `results`, keyed by address; an output not produced, or skipped, is absent.
+- `compiled.results(state)` — every complete node's outputs, typed, by node id, read from any state, live or stored.
+- `compiled.outputs(state)` — `results(state)` narrowed to `interface.outputs`, keyed by address; an output not produced, or skipped, is absent.
 - `compiled.graph` — the authored graph it was compiled from, with the values `with_inputs` filled: what a host stores as what ran.
 - `compiled.render()` — the graph as a Mermaid flowchart: a box per placed node, a subgraph per embedded graph, each edge labelled with how its input receives it (`per row of <index>`, `whole`, `grouped by <index>`, `gathered`, nothing for a broadcast), and a `fault` class on a node with a fatal problem.
 
