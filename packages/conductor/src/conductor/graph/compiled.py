@@ -277,6 +277,17 @@ class CompiledGraph:
                 returned[str(output.name)] = value
         return returned
 
+    # -- a picture -----------------------------------------------------------------
+
+    def render(self) -> str:
+        """The graph as a Mermaid flowchart, for a person reading it: a box per
+        node the author placed, a subgraph per embedded graph, an arrow per
+        edge labelled with how its input receives it, and a ``fault`` class on
+        a node with a fatal problem (``conductor.graph.render`` says the rest)."""
+        from conductor.graph.render import render
+
+        return render(self)
+
     # -- the run ------------------------------------------------------------------
 
     def __repr__(self) -> str:
