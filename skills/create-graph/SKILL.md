@@ -1,6 +1,6 @@
 ---
 name: create-graph
-description: Places conductor nodes in a Graph, compiles it with CompiledGraph.from_graph and runs it with execute. Use when building, saving, compiling or running a conductor graph, binding inputs with From or Static, reading compile problems, streaming events, running a node once per row, answering a node that returned Asks (graph_pending, state, cache), passing from_run values, serving graphs over HTTP, or debugging a run, or on "build a graph", "run a graph", "connect these nodes".
+description: Places conductor nodes in a Graph, compiles it with CompiledGraph.from_graph and runs it with execute. Use when building, saving, compiling or running a conductor graph, binding inputs with From or Static, filling a graph's inputs from outside and reading what it returns (with_inputs, outputs), reading compile problems, streaming events, running a node once per row, answering a node that returned Asks (graph_pending, state, cache), passing from_run values, serving graphs over HTTP, or drawing or debugging a run, or on "build a graph", "run a graph", "connect these nodes".
 ---
 
 # Creating and running a conductor graph
@@ -53,6 +53,9 @@ There is no edge list. A `GraphNode` is keyword-only, and a node id may not cont
 |---|---|---|
 | A node's input and output names | `[i.name for i in registry["text-split"].describe().versions[1].inputs]` | add-node → Where to register |
 | To know what is wrong | `compiled.problems`, each with `code`, `node_id`, `field`, `fatal` | REFERENCE.md → Compile |
+| To fill the graph's open inputs from outside | `ready = compiled.with_inputs(text=...)`, then `run_sync(ready)` | REFERENCE.md → Inputs and outputs |
+| What the graph returns | `ready.outputs(ending.state)`, keyed by address | REFERENCE.md → Inputs and outputs |
+| To see the graph | `print(compiled.render())`, a Mermaid flowchart | REFERENCE.md → Inputs and outputs |
 | One node or field after compile | `compiled.node(node_id)`, `compiled.field(Ref(node_id, name))` | REFERENCE.md → Compile |
 | Events as they happen | `async for event in execute(compiled)` | REFERENCE.md → Events |
 | One call over all rows | declare the input `Series[X]` | REFERENCE.md → Rows |
@@ -72,6 +75,7 @@ In a notebook the kernel owns an event loop: `await run(compiled)`, not `run_syn
 | `GraphNode("a", "echo", 1, {...})` | keywords: `GraphNode(id=, type=, version=, bindings=)` |
 | `compile(nodes=..., edges=...)`, `GraphEdge` | `CompiledGraph.from_graph(Graph(nodes=[...]), registry)`; an edge is an `From` binding |
 | Wrapping `from_graph` in `try` to catch a bad graph | it does not raise for one: read `is_runnable` and `problems` |
+| Rebuilding the `Graph` to change a `Static` before each run | `compiled.with_inputs(name=value)`; store `ready.graph` as what ran |
 | A loop node, or a `for` around `execute` per item | bind a series; the engine runs the node once per row |
 | `run_sync(compiled, retry=...)` | retries belong to the node version's `Policy` |
 | `except GraphPendingError` around `run_sync` | nothing raises for a pause: read `ending.type`, and answer with `state=ending.state` |
