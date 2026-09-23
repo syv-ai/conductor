@@ -597,6 +597,6 @@ def test_a_pending_unit_waits_and_so_does_what_reads_it():
     assert not ledger.complete("a")
     assert not ledger.ready(("b", None))
     (waiting,) = ledger.pending()
-    assert (waiting["node_id"], waiting["row"]) == ("a", None)
-    assert waiting["questions"][0].name == Ref("a", "result")
+    assert (waiting.node_id, waiting.row) == ("a", None)
+    assert waiting.questions[0].name == Ref("a", "result")
     assert ("a", None) not in {(n, None if r is None else tuple(r)) for n, r in Ledger.restore(ledger._compiled, ledger.cells())._done}

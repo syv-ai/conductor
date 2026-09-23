@@ -214,9 +214,9 @@ class Leg:
                 yield message.error
                 yield GraphErrorEvent(
                     type="graph_error",
-                    node_id=message.error["node_id"],
-                    error=message.error["error"],
-                    cause=message.error["cause"],
+                    node_id=message.error.node_id,
+                    error=message.error.error,
+                    cause=message.error.cause,
                     results=self.ledger.results(),
                     record=self.ledger.cells(),
                 )

@@ -18,10 +18,11 @@ description, and a dump does not read back: a description is not a type,
 and a record holding one is refused. A widget reads back as written. The
 class is still there to ``describe()``.
 
-What compile and the engine build on every call — ``CompiledGraph`` and
-its node and field views, a version, an interface, the ledger's records —
-is not a model: those are frozen dataclasses, built far more often than
-they are ever parsed. A node's return declaration is not one either: a
+The events a leg yields are models too, since a host sends every one of
+them on. What compile and the engine build and keep to themselves —
+``CompiledGraph`` and its node and field views, a version, an interface,
+the ledger's records — is not a model: those are frozen dataclasses,
+built far more often than they are ever parsed. A node's return declaration is not one either: a
 ``run`` that returns a model returns one value, not one output per field.
 """
 

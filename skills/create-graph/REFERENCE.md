@@ -53,7 +53,7 @@ rows = CompiledGraph.from_graph(
 )
 assert rows.node("loud").iterates_on is not None and rows.node("joined").iterates_on is None
 
-results = run_sync(rows)["results"]
+results = run_sync(rows).results
 assert list(results["loud"]["result"]) == ["RED", "GREEN", "BLUE"]
 assert results["loud"]["result"].rows == ((0,), (1,), (2,))
 ```
@@ -64,13 +64,13 @@ assert results["loud"]["result"].rows == ((0,), (1,), (2,))
 
 ## Events
 
-`execute(compiled, *, record=None, cache=None, from_run=None, timeout=None, cancel=None)` is one **leg**, an async generator of `TypedDict` events:
+`execute(compiled, *, record=None, cache=None, from_run=None, timeout=None, cancel=None)` is one **leg**, an async generator of events, each a frozen model read by attribute (`event.type`, `ending.results`):
 
 | Event | Carries |
 |---|---|
 | `node_start` | `node_id` |
 | `node_progress` | `node_id`, `done`, `total` (`None` until every row exists) |
-| `node_complete` | `node_id`, `result`; `cached` only when `cache` supplied the node |
+| `node_complete` | `node_id`, `result`, `cached` (`True` when `cache` supplied the node) |
 | `node_skipped` | `node_id` |
 | `node_retry` | `node_id`, `row`, `attempt`, `retries`, `error`, `delay` |
 | `node_error` | `node_id`, `error`, `cause` |
@@ -83,14 +83,14 @@ assert results["loud"]["result"].rows == ((0,), (1,), (2,))
 ```python
 async def watch(compiled):
     async for event in execute(compiled):
-        if event["type"] == "node_progress":
-            print(event["node_id"], event["done"], "of", event["total"])
-        elif event["type"].startswith("graph_"):
+        if event.type == "node_progress":
+            print(event.node_id, event.done, "of", event.total)
+        elif event.type.startswith("graph_"):
             return event
 
 
 ending = asyncio.run(watch(rows))
-assert ending["type"] == "graph_complete"
+assert ending.type == "graph_complete"
 ```
 
 A frame carries records (a `Series`, an `ErrorCause`, an `Input`), not JSON; serialise at the host's edge (`conductor_providers.fastapi.sse.sse_frame` does it for server-sent events). `await run(compiled)` drains the stream and returns the event the leg ended on — a pause, an error, a cancel and a timeout are endings, not exceptions; `run_sync` is `run` under `asyncio.run`, and refuses under a running loop.
@@ -123,31 +123,31 @@ asking = CompiledGraph.from_graph(
 
 async def legs():
     first = [event async for event in execute(asking)][-1]
-    assert first["type"] == "graph_pending"
-    assert [unit["row"] for unit in first["pending"]] == [[0], [1]]
+    assert first.type == "graph_pending"
+    assert [unit.row for unit in first.pending] == [(0,), (1,)]
 
     # The node runs per row, so its answer is a Series on its index, naming the rows it answers.
     index = asking.node("approve").iterates_on
     only_second = Series(index, [Text("Second, approved")], rows=[(1,)])
-    second = [event async for event in execute(asking, record=first["record"], cache={"approve": {"result": only_second}})][-1]
-    assert [unit["row"] for unit in second["pending"]] == [[0]]
+    second = [event async for event in execute(asking, record=first.record, cache={"approve": {"result": only_second}})][-1]
+    assert [unit.row for unit in second.pending] == [(0,)]
 
     only_first = Series(index, [Text("First, approved")], rows=[(0,)])
-    third = [event async for event in execute(asking, record=second["record"], cache={"approve": {"result": only_first}})][-1]
+    third = [event async for event in execute(asking, record=second.record, cache={"approve": {"result": only_first}})][-1]
     return third
 
 
 done = asyncio.run(legs())
-assert list(done["results"]["approve"]["result"]) == ["First, approved", "Second, approved"]
+assert list(done.results["approve"]["result"]) == ["First, approved", "Second, approved"]
 ```
 
-- A pending unit's `row` is a list (`[1]`), as it would be in JSON; `Series(rows=...)` takes tuples: `rows=[tuple(unit["row"]) for unit in units]`.
+- A pending unit's `row` is a tuple (`(1,)`), the form `Series(rows=...)` takes: `rows=[unit.row for unit in units]`.
 - For a node that runs once, the answer is the value itself: `cache={"approve": {"result": Text("Yes")}}`.
 - A row the answer does not name keeps what it has: done stays done, and a waiting row asks again.
 - Answering a unit already done, or a row the run has not produced, raises `ValueError`.
 - `record` is a `RunRecord`, JSON through `model_dump()`: a host stores the dump with the run and hands it back as `RunRecord.model_validate(stored)`; a node the graph has changed since, or that reads one, runs again. Nothing is checkpointed or resumed.
 - Every ending carries `record`, so a new run can also start from a failed or stopped one.
-- From a script: `paused = run_sync(compiled)` ends with `paused["type"] == "graph_pending"`, and `run_sync(compiled, record=paused["record"], cache=...)` is the next leg.
+- From a script: `paused = run_sync(compiled)` ends with `paused.type == "graph_pending"`, and `run_sync(compiled, record=paused.record, cache=...)` is the next leg.
 
 **Values the run supplies.** A node parameter `Annotated[T, FromRun()]` receives `from_run[T]`: `execute(compiled, from_run={Caller: caller})`. A leg not given a type some node needs raises `TypeError` before anything runs.
 

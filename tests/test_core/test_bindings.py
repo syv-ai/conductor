@@ -497,7 +497,7 @@ def test_a_graph_of_bindings_compiles_and_runs():
             GraphNode(id="b", type="echo", version=1, bindings={"x": From("a.result")}),
         ],
     )
-    results = run_sync(CompiledGraph.from_graph(graph=graph, registry=_echo_registry()))["results"]
+    results = run_sync(CompiledGraph.from_graph(graph=graph, registry=_echo_registry())).results
 
     assert results["a"]["result"] == "HI"
     assert results["b"]["result"] == "HI"
@@ -507,7 +507,7 @@ def test_an_unbound_input_falls_back_to_its_declared_default():
     """Absence is the only "nothing binds this" state there is."""
     graph = Graph(nodes=[GraphNode(id="a", type="echo", version=1)])
 
-    assert run_sync(CompiledGraph.from_graph(graph=graph, registry=_echo_registry()))["results"]["a"]["result"] == ""
+    assert run_sync(CompiledGraph.from_graph(graph=graph, registry=_echo_registry())).results["a"]["result"] == ""
 
 
 def test_a_branch_not_taken_is_skipped_downstream():
@@ -538,7 +538,7 @@ def test_a_branch_not_taken_is_skipped_downstream():
             GraphNode(id="no", type="echo", version=1, bindings={"x": From("g.no")}),
         ],
     )
-    results = run_sync(CompiledGraph.from_graph(graph=graph, registry=registry))["results"]
+    results = run_sync(CompiledGraph.from_graph(graph=graph, registry=registry)).results
 
     assert results["yes"]["result"] == "HI"
     # The results a leg ends with omit a skipped node.

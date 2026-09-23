@@ -151,7 +151,7 @@ class TestEndToEnd:
         back = json.loads(json.dumps(wire))  # simulate network
         graph_out = react.react_to_graph(back)
 
-        results = run_sync(CompiledGraph.from_graph(graph_out, registry))["results"]
+        results = run_sync(CompiledGraph.from_graph(graph_out, registry)).results
         assert results["down"]["result"] == "OLLEH"
 
 

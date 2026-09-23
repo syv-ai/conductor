@@ -91,7 +91,7 @@ def _registry():
 
 
 def _run(nodes):
-    return run_sync(CompiledGraph.from_graph(Graph(nodes=nodes), _registry()))["results"]
+    return run_sync(CompiledGraph.from_graph(Graph(nodes=nodes), _registry())).results
 
 
 def test_a_graph_of_bindings_compiles_and_runs():
@@ -156,4 +156,4 @@ def test_events_carry_the_placement_title():
         return [e async for e in execute(compiled)]
 
     events = asyncio.run(gathered())
-    assert [e["type"] for e in events] == ["node_start", "node_complete", "graph_complete"]
+    assert [e.type for e in events] == ["node_start", "node_complete", "graph_complete"]

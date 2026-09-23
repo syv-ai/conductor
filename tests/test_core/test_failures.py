@@ -60,7 +60,7 @@ def _events(compiled: CompiledGraph) -> list[dict]:
 
 
 def _error(events: list[dict]) -> dict:
-    return next(e for e in events if e["type"] == "node_error")
+    return next(e for e in events if e.type == "node_error")
 
 
 # -- the families -----------------------------------------------------------------
@@ -85,12 +85,12 @@ def test_a_foreign_exception_runs_once_and_is_execution_failed():
     events = _events(_compiled(Buggy))
 
     assert len(calls) == 1
-    assert [e["type"] for e in events if e["type"] == "node_retry"] == []
+    assert [e.type for e in events if e.type == "node_retry"] == []
     error = _error(events)
-    assert error["cause"].code == "execution_failed"
-    assert error["cause"].message == "The node failed."
-    assert error["error"] == "The node failed."
-    assert "missing" not in json.dumps(error["cause"].model_dump(mode="json"))
+    assert error.cause.code == "execution_failed"
+    assert error.cause.message == "The node failed."
+    assert error.error == "The node failed."
+    assert "missing" not in json.dumps(error.cause.model_dump(mode="json"))
 
 
 def test_a_foreign_exception_named_in_retry_on_is_external_and_retries():
@@ -112,11 +112,11 @@ def test_a_foreign_exception_named_in_retry_on_is_external_and_retries():
     events = _events(_compiled(Flaky))
 
     assert len(calls) == 3
-    retries = [e for e in events if e["type"] == "node_retry"]
-    assert [(e["attempt"], e["retries"], e["node_id"]) for e in retries] == [(1, 2, "n1"), (2, 2, "n1")]
-    assert retries[0]["error"] == "An outside service did not answer."
-    assert events[-1]["type"] == "graph_complete"
-    assert events[-1]["results"]["n1"]["result"] == "ok"
+    retries = [e for e in events if e.type == "node_retry"]
+    assert [(e.attempt, e.retries, e.node_id) for e in retries] == [(1, 2, "n1"), (2, 2, "n1")]
+    assert retries[0].error == "An outside service did not answer."
+    assert events[-1].type == "graph_complete"
+    assert events[-1].results["n1"]["result"] == "ok"
 
 
 def test_an_exhausted_external_failure_is_external_failed():
@@ -138,10 +138,10 @@ def test_an_exhausted_external_failure_is_external_failed():
 
     assert len(calls) == 3
     error = _error(events)
-    assert error["cause"].code == "external_failed"
-    assert error["cause"].message == "An outside service did not answer."
-    assert "socket" not in error["error"]
-    assert run_sync(compiled)["type"] == "graph_error"
+    assert error.cause.code == "external_failed"
+    assert error.cause.message == "An outside service did not answer."
+    assert "socket" not in error.error
+    assert run_sync(compiled).type == "graph_error"
 
 
 def test_an_external_failure_the_node_raised_retries_and_keeps_its_message():
@@ -163,8 +163,8 @@ def test_an_external_failure_the_node_raised_retries_and_keeps_its_message():
     error = _error(_events(_compiled(Bank)))
 
     assert len(calls) == 2
-    assert error["cause"].code == "external_failed"
-    assert error["cause"].message == "Nationalbanken svarede ikke."
+    assert error.cause.code == "external_failed"
+    assert error.cause.message == "Nationalbanken svarede ikke."
 
 
 def test_a_node_error_the_node_raised_runs_once_and_keeps_its_message():
@@ -188,7 +188,7 @@ def test_a_node_error_the_node_raised_runs_once_and_keeps_its_message():
     error = _error(_events(_compiled(Reader)))
 
     assert len(calls) == 1
-    assert (error["cause"].code, error["cause"].message) == ("failed", "Dokumentet kunne ikke læses.")
+    assert (error.cause.code, error.cause.message) == ("failed", "Dokumentet kunne ikke læses.")
 
 
 def test_a_nodes_own_cause_streams_as_written():
@@ -205,7 +205,7 @@ def test_a_nodes_own_cause_streams_as_written():
 
     error = _error(_events(_compiled(Reader)))
 
-    assert (error["cause"].code, error["cause"].message) == ("unreadable", "Dokumentet er beskadiget.")
+    assert (error.cause.code, error.cause.message) == ("unreadable", "Dokumentet er beskadiget.")
 
 
 def test_a_validation_error_the_node_raised_is_never_retried():
@@ -222,7 +222,7 @@ def test_a_validation_error_the_node_raised_is_never_retried():
             calls.append(1)
             raise NodeValidationError("intentionally invalid input")
 
-    assert run_sync(_compiled(Picky))["type"] == "graph_error"
+    assert run_sync(_compiled(Picky)).type == "graph_error"
 
     assert len(calls) == 1
 
@@ -329,7 +329,7 @@ def test_a_failed_row_is_retried_alone():
         reg,
     )
 
-    results = run_sync(compiled)["results"]
+    results = run_sync(compiled).results
 
     assert list(results["rows"]["result"]) == ["A", "B", "C"]
     assert sorted(calls) == ["a", "b", "b", "c"]
@@ -382,7 +382,7 @@ def test_a_flaky_node_in_one_branch_retries_while_the_other_branch_completes():
         reg,
     )
 
-    results = run_sync(compiled)["results"]
+    results = run_sync(compiled).results
 
     assert results["n3"]["result"] == "A:x+B:y"
     assert calls == {"a": 2, "b": 1}

@@ -52,7 +52,7 @@ compiled = CompiledGraph.from_graph(graph, registry)
 assert compiled.is_runnable, compiled.problems
 
 ending = await run(compiled)       # a notebook cell; from a script, run_sync(compiled) — the same ending event
-results = ending["results"]
+results = ending.results
 list(results["upper"]["result"])   # ["A", "B", "C"] — three values typed into one input: it ran once per value
 results["join"]["result"]          # "A+B+C" — Series[Text] received the whole series, once
 ```
@@ -178,7 +178,7 @@ Answering is the next leg, and it is `execute` again:
 first = [event async for event in execute(compiled)]
 ending = first[-1]                                              # type == "graph_pending"
 answers = {"approve": {"result": Text("Approved")}}             # for a node on rows, a Series naming the rows it answers
-second = [event async for event in execute(compiled, record=ending["record"], cache=answers)]
+second = [event async for event in execute(compiled, record=ending.record, cache=answers)]
 ```
 
 `record` is the `RunRecord` of everything earlier legs produced — every cell in wire form and a fingerprint per node — so nothing done is done twice, and a node the graph has changed since (a static edited, a version bumped, an edge moved), or that reads one, runs again; `record.without(node_id)` drops a node on purpose, so it and its readers run again; `cache` records a node's outputs without running it. For a node on rows only the rows the series names are recorded, so a row that ran keeps its value and a row left out asks again; a unit already done, or a row not yet produced, raises `ValueError`. A node the cache completes is reported as `node_complete` with `cached=True`, one it only advances as `node_progress`. A person's answer and a reused result are the same statement to the engine. Nothing is checkpointed and nothing resumes.
@@ -214,13 +214,13 @@ A failed unit fails the run: no further unit starts, and the leg ends at once. A
 
 ### Events
 
-`execute` yields `TypedDict` events (`conductor.execution.events`):
+`execute` yields events (`conductor.execution.events`), each a frozen model read by attribute — `event.type`, `ending.results` — and one of the union `ExecutionEvent`, discriminated on `type`:
 
 | Event | Carries |
 |---|---|
 | `node_start` | `node_id` — the node's first unit started |
 | `node_progress` | `node_id`, `done`, `total` (`None` until every row exists) |
-| `node_complete` | `node_id`, `result` (a `Series` for outputs on rows); `cached: true` only when `cache` supplied the node |
+| `node_complete` | `node_id`, `result` (a `Series` for outputs on rows); `cached` (`true` when `cache` supplied the node) |
 | `node_skipped` | `node_id` — skipped above its rows |
 | `node_retry` | `node_id`, `row`, `attempt`, `retries`, `error`, `delay` |
 | `node_error` | `node_id`, `error`, `cause` |

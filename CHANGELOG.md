@@ -174,7 +174,10 @@ nothing is deprecated first, everything below is gone in 2.0.0.
   `node_retry`, `node_error`** and the endings `graph_complete`,
   `graph_pending`, `graph_error`, `graph_cancelled`, `graph_timeout`.
   `flow_paused` is `graph_pending`, which carries a `pending` list; the other
-  `flow_*` endings are `graph_*`. `execute(cancel=...)` stops a leg.
+  `flow_*` endings are `graph_*`. `execute(cancel=...)` stops a leg. Each
+  event is a frozen model, one of a union discriminated on `type`, read by
+  attribute: `ending.results`, `ending.record`, `event.type`. The JSON a host
+  sends is unchanged, except that `node_complete` always carries `cached`.
 - **Saved and sent records are pydantic models** on `ConductorModel` (`Graph`,
   `GraphNode`, `From`, `Static`, `Problem`, `ErrorCause`, `Policy`,
   `NodeDescription`, `Input`, `Output`, the widgets, `Index`, …), with
