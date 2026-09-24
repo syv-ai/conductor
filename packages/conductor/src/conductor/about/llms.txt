@@ -52,7 +52,7 @@ compiled = CompiledGraph.from_graph(graph, registry)
 assert compiled.is_runnable, compiled.problems
 
 ending = await run(compiled)       # a notebook cell; from a script, run_sync(compiled) — the same ending event
-results = ending.results
+results = compiled.results(ending.state)   # the ending carries the run's state; the compiled graph reads it
 list(results["upper"]["result"])   # ["A", "B", "C"] — three values typed into one input: it ran once per value
 results["join"]["result"]          # "A+B+C" — Series[Text] received the whole series, once
 ```
@@ -214,7 +214,7 @@ A failed unit fails the run: no further unit starts, and the leg ends at once. A
 
 ### Events
 
-`execute` yields events (`conductor.execution.events`), each a frozen model read by attribute — `event.type`, `ending.results` — and one of the union `ExecutionEvent`, discriminated on `type`:
+`execute` yields events (`conductor.execution.events`), each a frozen model read by attribute — `event.type`, `ending.state` — and one of the union `ExecutionEvent`, discriminated on `type`:
 
 | Event | Carries |
 |---|---|
@@ -224,13 +224,13 @@ A failed unit fails the run: no further unit starts, and the leg ends at once. A
 | `node_skipped` | `node_id` — skipped above its rows |
 | `node_retry` | `node_id`, `row`, `attempt`, `retries`, `error`, `delay` |
 | `node_error` | `node_id`, `error`, `cause` |
-| `graph_complete` | `results`, `state` |
-| `graph_pending` | `pending`, `results`, `state` |
-| `graph_error` | `node_id`, `error`, `cause`, `results`, `state` |
-| `graph_cancelled` | `results`, `state` |
-| `graph_timeout` | `results`, `state`, `elapsed_seconds`, `timeout_seconds` |
+| `graph_complete` | `state` |
+| `graph_pending` | `pending`, `state` |
+| `graph_error` | `node_id`, `error`, `cause`, `state` |
+| `graph_cancelled` | `state` |
+| `graph_timeout` | `state`, `elapsed_seconds`, `timeout_seconds` |
 
-A frame carries records (a `Series`, an `ErrorCause`, an `Input`), not their JSON; the host serialises them at its edge. `results` is `{node_id: {output_name: value}}`.
+A frame carries records (a `Series`, an `ErrorCause`, an `Input`), not their JSON; the host serialises them at its edge. An ending says why the leg stopped and carries the run's state, `state`; `compiled.results(state)` is `{node_id: {output_name: value}}`, read from any state, live or stored.
 
 ### Saving a Graph
 

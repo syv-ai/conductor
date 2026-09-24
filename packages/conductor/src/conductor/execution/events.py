@@ -2,17 +2,19 @@
 ``execute``; a run takes several when a node waits on a person in between.
 
 Each event is a frozen ``ConductorModel``, one of a union discriminated on
-``type``: a caller reads ``ending.results`` and can ``match`` on the class.
+``type``: a caller reads ``ending.state`` and can ``match`` on the class.
 The engine builds each one validated, like every other record; an event is
 built about once a unit and costs well under a microsecond, where a unit
-costs a hundred or more. An event carries records, not their serialisations — an ``ErrorCause`` on ``node_error``
-and ``graph_error``, a ``Series`` (a value with many rows) inside
-``results`` — and the host that sends an event over the network
-serialises it at that edge.
+costs a hundred or more. An event carries records, not their
+serialisations — an ``ErrorCause`` on ``node_error`` and ``graph_error``,
+a ``Series`` (a value with many rows) inside ``node_complete``'s
+``result`` — and the host that sends an event over the network serialises
+it at that edge.
 
-Every event that ends a leg carries ``results`` (what the leg produced,
-by node and output) and ``state`` (the whole ``RunState`` of the run so
-far, in wire form, which ``execute(state=...)`` starts the next leg from).
+Every event that ends a leg says why it stopped and carries ``state``:
+the ``RunState`` of the run so far, a frozen snapshot in wire form,
+which ``execute(state=...)`` starts the next leg from. The values in it
+are read through the compiled graph: ``compiled.results(state)``.
 A row on an event is a ``Row``, the path of positions the ledger uses.
 """
 
@@ -83,13 +85,11 @@ class NodeRetryEvent(ConductorModel):
 
 
 class GraphCompleteEvent(ConductorModel):
-    """The leg completed. ``results`` is what it produced, by node and
-    output; ``state`` is the run's whole state, which a host can
-    store and hand back to ``execute(state=...)`` to start a new run from
-    this one."""
+    """The leg completed. ``state`` is the run's whole state, which a host
+    can store and hand back to ``execute(state=...)`` to start a new run
+    from this one; ``compiled.results(state)`` is what it produced."""
 
     type: Literal["graph_complete"]
-    results: dict[str, dict[str, Any]]
     state: RunState
 
 
@@ -106,45 +106,40 @@ class PendingUnit(ConductorModel):
 
 class GraphPendingEvent(ConductorModel):
     """The leg ended with nodes (or rows of them) waiting on a person — all
-    of them at once. ``results`` is what the leg completed and ``state``
-    the run's whole state; the next leg starts from it with the answers
-    in ``cache``."""
+    of them at once. ``state`` holds what the leg completed; the next leg
+    starts from it with the answers in ``cache``."""
 
     type: Literal["graph_pending"]
     pending: list[PendingUnit]
-    results: dict[str, dict[str, Any]]
     state: RunState
 
 
 class GraphErrorEvent(ConductorModel):
     """A node (or one row of one) failed and the leg stopped. Like every
-    ending it carries ``results`` so far and ``state`` beside the cause, so
-    a host can start a new run from a failed one without losing what ran."""
+    ending it carries ``state`` beside the cause, so a host can start a new
+    run from a failed one without losing what ran."""
 
     type: Literal["graph_error"]
     node_id: str
     error: str
     cause: ErrorCause
-    results: dict[str, dict[str, Any]]
     state: RunState
 
 
 class GraphCancelledEvent(ConductorModel):
-    """The host set ``cancel``. ``results`` so far and ``state`` travel
-    with the reason, as on every ending."""
+    """The host set ``cancel``. ``state`` travels with the reason, as on
+    every ending."""
 
     type: Literal["graph_cancelled"]
-    results: dict[str, dict[str, Any]]
     state: RunState
 
 
 class GraphTimeoutEvent(ConductorModel):
     """The leg ran longer than the ``timeout`` its caller set (carried as
-    ``timeout_seconds``). ``results`` so far and ``state`` travel with the
-    reason, as on every ending."""
+    ``timeout_seconds``). ``state`` travels with the reason, as on every
+    ending."""
 
     type: Literal["graph_timeout"]
-    results: dict[str, dict[str, Any]]
     state: RunState
     elapsed_seconds: float
     timeout_seconds: float

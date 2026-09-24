@@ -53,7 +53,7 @@ rows = CompiledGraph.from_graph(
 )
 assert rows.node("loud").iterates_on is not None and rows.node("joined").iterates_on is None
 
-results = run_sync(rows).results
+results = rows.results(run_sync(rows).state)
 assert list(results["loud"]["result"]) == ["RED", "GREEN", "BLUE"]
 assert results["loud"]["result"].rows == ((0,), (1,), (2,))
 ```
@@ -74,11 +74,13 @@ assert results["loud"]["result"].rows == ((0,), (1,), (2,))
 | `node_skipped` | `node_id` |
 | `node_retry` | `node_id`, `row`, `attempt`, `retries`, `error`, `delay` |
 | `node_error` | `node_id`, `error`, `cause` |
-| `graph_complete` | `results`, `state` |
-| `graph_pending` | `pending`, `results`, `state` |
-| `graph_error` | `node_id`, `error`, `cause`, `results`, `state` |
-| `graph_cancelled` | `results`, `state` |
-| `graph_timeout` | `results`, `state`, `elapsed_seconds`, `timeout_seconds` |
+| `graph_complete` | `state` |
+| `graph_pending` | `pending`, `state` |
+| `graph_error` | `node_id`, `error`, `cause`, `state` |
+| `graph_cancelled` | `state` |
+| `graph_timeout` | `state`, `elapsed_seconds`, `timeout_seconds` |
+
+An ending says why the leg stopped and carries `state`, the run's state; `compiled.results(state)` reads every node's values out of any state, live or stored.
 
 ```python
 async def watch(compiled):
@@ -138,7 +140,7 @@ async def legs():
 
 
 done = asyncio.run(legs())
-assert list(done.results["approve"]["result"]) == ["First, approved", "Second, approved"]
+assert list(asking.results(done.state)["approve"]["result"]) == ["First, approved", "Second, approved"]
 ```
 
 - A pending unit's `row` is a tuple (`(1,)`), the form `Series(rows=...)` takes: `rows=[unit.row for unit in units]`.

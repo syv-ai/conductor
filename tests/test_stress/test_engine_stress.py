@@ -78,7 +78,7 @@ def test_500_node_linear_chain_compile_and_execute() -> None:
     )
 
     t0 = time.monotonic()
-    results = run_sync(compiled, timeout=120).results
+    results = compiled.results(run_sync(compiled, timeout=120).state)
     elapsed = time.monotonic() - t0
     assert elapsed < 60.0, (
         f"execution took {elapsed:.2f}s; expected <60s"

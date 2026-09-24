@@ -1,8 +1,10 @@
 """The events are records.
 
 Every event ``execute`` yields is a frozen model, one of a union
-discriminated on ``type``: a caller reads ``ending.results`` the way it
-reads ``state.values``, and can ``match`` on the class. The JSON a host
+discriminated on ``type``: a caller reads ``ending.state`` and can
+``match`` on the class. An ending says why the leg stopped and carries the
+run's state; the values in it are read through the compiled
+graph, ``compiled.results(state)``. The JSON a host
 sends is the dict it always was, and the schema a host generates its
 client from names the same fields, with ``type`` required on every event.
 """
@@ -21,6 +23,7 @@ from conductor.execution.events import (
     NodeProgressEvent,
     NodeStartEvent,
 )
+from conductor.execution.state import RunState
 from conductor.graph.binding import Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph
@@ -67,16 +70,13 @@ def _compiled(text: str) -> CompiledGraph:
 
 #: Every event's fields and required fields, by its ``type``.
 SHAPES = {
-    "graph_cancelled": (["results", "state", "type"], ["results", "state", "type"]),
-    "graph_complete": (["results", "state", "type"], ["results", "state", "type"]),
-    "graph_error": (
-        ["cause", "error", "node_id", "results", "state", "type"],
-        ["cause", "error", "node_id", "results", "state", "type"],
-    ),
-    "graph_pending": (["pending", "results", "state", "type"], ["pending", "results", "state", "type"]),
+    "graph_cancelled": (["state", "type"], ["state", "type"]),
+    "graph_complete": (["state", "type"], ["state", "type"]),
+    "graph_error": (["cause", "error", "node_id", "state", "type"], ["cause", "error", "node_id", "state", "type"]),
+    "graph_pending": (["pending", "state", "type"], ["pending", "state", "type"]),
     "graph_timeout": (
-        ["elapsed_seconds", "results", "state", "timeout_seconds", "type"],
-        ["elapsed_seconds", "results", "state", "timeout_seconds", "type"],
+        ["elapsed_seconds", "state", "timeout_seconds", "type"],
+        ["elapsed_seconds", "state", "timeout_seconds", "type"],
     ),
     "node_complete": (["cached", "node_id", "result", "type"], ["node_id", "result", "type"]),
     "node_error": (["cause", "error", "node_id", "type"], ["cause", "error", "node_id", "type"]),
@@ -103,14 +103,25 @@ def test_every_event_names_its_fields_and_requires_its_type_in_the_schema():
 
 
 def test_an_ending_is_read_by_attribute_and_matched_by_class():
-    ending = run_sync(_compiled("a,b"))
+    compiled = _compiled("a,b")
+    ending = run_sync(compiled)
 
     match ending:
-        case GraphCompleteEvent(results=results):
-            assert list(results["s"]["result"]) == ["a", "b"]
+        case GraphCompleteEvent(state=state):
+            assert list(compiled.results(state)["s"]["result"]) == ["a", "b"]
         case _:
             pytest.fail(f"the leg ended {ending.type}")
-    assert ending.state.values
+
+
+def test_the_values_are_read_from_the_state_live_or_stored():
+    """An ending carries the run's state; a stored dump reads back to the same values."""
+    compiled = _compiled("a,b")
+    state = run_sync(compiled).state
+
+    stored = RunState.model_validate(json.loads(state.model_dump_json()))
+
+    assert compiled.results(stored) == compiled.results(state)
+    assert list(compiled.results(stored)["s"]["result"]) == ["a", "b"]
 
 
 def test_an_event_is_frozen_and_refuses_a_key_it_does_not_have():
@@ -144,7 +155,7 @@ def test_a_frame_is_the_json_the_dict_was():
     }
 
 
-def test_a_pending_unit_is_a_state_too():
+def test_a_pending_unit_is_a_record_too():
     registry = NodeRegistry()
     registry.register(Ask)
     compiled = CompiledGraph.from_graph(

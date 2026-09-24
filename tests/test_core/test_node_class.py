@@ -391,7 +391,7 @@ def test_two_methods_claiming_one_version_are_refused():
                 return x
 
 
-def test_a_version_state_does_not_restate_its_number():
+def test_a_version_record_does_not_restate_its_number():
     import dataclasses
 
     from conductor.node import GraphVersion, NodeVersion
@@ -648,7 +648,7 @@ def test_an_alternative_names_a_node_in_the_same_catalog():
     assert registry["old-node"].deprecation.alternative == "new-node"
 
 
-def test_the_flattened_state_is_gone():
+def test_the_flattened_record_is_gone():
     import importlib
 
     with pytest.raises(ModuleNotFoundError):
@@ -781,7 +781,7 @@ def test_a_reduction_declares_a_series_input():
 
 
 
-def test_describe_is_the_class_as_a_state():
+def test_describe_is_the_class_as_a_record():
     class Translate(NodeDefinition):
         id = "describe-translate"
         title = "Translation"
@@ -1004,7 +1004,7 @@ def test_a_class_node_executes_in_a_graph():
     registry.register(Shout)
 
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="shout", version=1, bindings={"text": Static("hi")})]), registry)
-    results = run_sync(compiled).results
+    results = compiled.results(run_sync(compiled).state)
     assert results["a"]["result"] == "HI!"
 
 
@@ -1036,7 +1036,7 @@ def test_two_versions_of_one_class_execute_independently():
 
     for pinned, expected in ((1, "hi"), (2, "hi?")):
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="suffix", version=pinned, bindings={"text": Static("hi")})]), registry)
-        assert run_sync(compiled).results["a"]["result"] == expected
+        assert compiled.results(run_sync(compiled).state)["a"]["result"] == expected
 
 
 def test_a_version_a_class_does_not_declare_is_refused():

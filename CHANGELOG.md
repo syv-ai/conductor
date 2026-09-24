@@ -155,8 +155,8 @@ nothing is deprecated first, everything below is gone in 2.0.0.
   the rows its series names, so a row that ran keeps its value and a row left out
   asks again. A node the graph does not have, a unit already done, or a row not
   yet produced raises `StartRefused`, a `ValueError`. Every ending carries
-  `results` and `state`, a `RunState` that survives JSON and reads back typed
-  through the codec — a value in a state that does not is `StartRefused` too; a node whose placement
+  `state`, a `RunState` that survives JSON and reads back typed
+  through the codec — a stored value that does not is `StartRefused` too; a node whose placement
   changed between legs is dropped from it with everything downstream, and runs again.
 - **`execute` takes `state`, `cache`, `from_run`, `timeout` and `cancel`**;
   `timeout=None`, the default, sets no limit. `context=`, `retry=` and
@@ -176,8 +176,10 @@ nothing is deprecated first, everything below is gone in 2.0.0.
   `flow_paused` is `graph_pending`, which carries a `pending` list; the other
   `flow_*` endings are `graph_*`. `execute(cancel=...)` stops a leg. Each
   event is a frozen model, one of a union discriminated on `type`, read by
-  attribute: `ending.results`, `ending.state`, `event.type`. The JSON a host
-  sends is unchanged, except that `node_complete` always carries `cached`.
+  attribute: `ending.state`, `event.type`. An ending says why the leg stopped
+  and carries the run's `state`, not a second copy of it as `results`:
+  `compiled.results(state)` reads every node's values out of any state, live or
+  stored. `node_complete` always carries `cached`.
 - **Saved and sent records are pydantic models** on `ConductorModel` (`Graph`,
   `GraphNode`, `From`, `Static`, `Problem`, `ErrorCause`, `Policy`,
   `NodeDescription`, `Input`, `Output`, the widgets, `Index`, …), with

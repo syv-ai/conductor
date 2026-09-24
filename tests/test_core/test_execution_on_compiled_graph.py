@@ -91,7 +91,8 @@ def _registry():
 
 
 def _run(nodes):
-    return run_sync(CompiledGraph.from_graph(Graph(nodes=nodes), _registry())).results
+    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), _registry())
+    return compiled.results(run_sync(compiled).state)
 
 
 def test_a_graph_of_bindings_compiles_and_runs():

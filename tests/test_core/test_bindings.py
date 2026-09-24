@@ -102,7 +102,7 @@ def test_chrome_is_opaque():
     assert node.display == {"x": 10, "y": 20, "anything": [1]}
 
 
-def test_the_state_is_the_schema():
+def test_the_record_is_the_schema():
     """A Graph dumps and loads through pydantic, bindings included. A
     Static whose value happens to look like a From comes back a Static,
     because Static nests its payload under `value`."""
@@ -281,7 +281,7 @@ def test_the_interface_is_derived_node_level():
     assert [o.name for o in interface.outputs] == ["language.result", "summary.result"]
 
 
-def test_the_interface_is_the_state_a_node_version_declares():
+def test_the_interface_is_the_record_a_node_version_declares():
     """One type at both scales. A graph returns a computed interface by
     address, so `returns` is `Mapping`; these nodes need nothing provided."""
     interface = _interface(_graph())
@@ -330,7 +330,7 @@ def test_an_output_reports_the_title_its_placement_carries():
     assert _interface(_graph()).outputs[1].title == "Result"
 
 
-def test_a_nodes_computed_interface_is_the_same_state_its_version_declares():
+def test_a_nodes_computed_interface_is_the_same_record_its_version_declares():
     """One record at every scale: a version declares an ``Interface``, compile
     computes one per placed node, and derives one for the graph."""
     from conductor.interface import Interface
@@ -497,7 +497,8 @@ def test_a_graph_of_bindings_compiles_and_runs():
             GraphNode(id="b", type="echo", version=1, bindings={"x": From("a.result")}),
         ],
     )
-    results = run_sync(CompiledGraph.from_graph(graph=graph, registry=_echo_registry())).results
+    compiled = CompiledGraph.from_graph(graph=graph, registry=_echo_registry())
+    results = compiled.results(run_sync(compiled).state)
 
     assert results["a"]["result"] == "HI"
     assert results["b"]["result"] == "HI"
@@ -507,7 +508,9 @@ def test_an_unbound_input_falls_back_to_its_declared_default():
     """Absence is the only "nothing binds this" state there is."""
     graph = Graph(nodes=[GraphNode(id="a", type="echo", version=1)])
 
-    assert run_sync(CompiledGraph.from_graph(graph=graph, registry=_echo_registry())).results["a"]["result"] == ""
+    compiled = CompiledGraph.from_graph(graph=graph, registry=_echo_registry())
+
+    assert compiled.results(run_sync(compiled).state)["a"]["result"] == ""
 
 
 def test_a_branch_not_taken_is_skipped_downstream():
@@ -538,7 +541,8 @@ def test_a_branch_not_taken_is_skipped_downstream():
             GraphNode(id="no", type="echo", version=1, bindings={"x": From("g.no")}),
         ],
     )
-    results = run_sync(CompiledGraph.from_graph(graph=graph, registry=registry)).results
+    compiled = CompiledGraph.from_graph(graph=graph, registry=registry)
+    results = compiled.results(run_sync(compiled).state)
 
     assert results["yes"]["result"] == "HI"
     # The results a leg ends with omit a skipped node.

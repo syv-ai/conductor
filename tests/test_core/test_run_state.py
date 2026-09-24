@@ -151,9 +151,9 @@ def test_a_paused_legs_state_survives_json_and_the_next_leg_returns_typed_result
     second = _leg(compiled, state=restored, cache={"ask": {"result": Series(compiled.field(Ref("split", "result")).index, [Txt("x"), Txt("y")])}})
 
     assert second[-1].type == "graph_complete"
-    parts = second[-1].results["split"]["result"]
+    parts = compiled.results(second[-1].state)["split"]["result"]
     assert isinstance(parts, Series) and all(type(v) is Txt for v in parts)
-    assert list(second[-1].results["up"]["result"]) == ["X", "Y"]
+    assert list(compiled.results(second[-1].state)["up"]["result"]) == ["X", "Y"]
     assert calls.count("split") == 1
 
 
@@ -188,8 +188,8 @@ def test_a_static_edited_between_legs_reruns_that_node_and_its_readers_and_nothi
     ending = _leg(edited, state=_through_json(state))[-1]
 
     assert ending.type == "graph_complete"
-    assert ending.results["c"]["result"] == "[Y]"
-    assert ending.results["d"]["result"] == "alone"
+    assert edited.results(ending.state)["c"]["result"] == "[Y]"
+    assert edited.results(ending.state)["d"]["result"] == "alone"
     assert sorted(calls) == ["echo:y", "upper:y", "wrap:Y"]
 
 
@@ -212,8 +212,8 @@ def test_a_node_removed_between_legs_is_dropped_with_its_readers():
     ending = _leg(smaller, state=_through_json(state))[-1]
 
     assert ending.type == "graph_complete"
-    assert set(ending.results) == {"a", "b", "d"}
-    assert ending.results["d"]["result"] == "[x]"
+    assert set(smaller.results(ending.state)) == {"a", "b", "d"}
+    assert smaller.results(ending.state)["d"]["result"] == "[x]"
     assert calls == ["wrap:x"]
 
 
@@ -229,7 +229,7 @@ def test_a_nodes_shape_changed_between_legs_reruns_it():
     bumped = _compiled([nodes[0], GraphNode(id="w", type="wrap", version=2, bindings={"text": _edge("a")})])
     ending = _leg(bumped, state=_through_json(state))[-1]
 
-    assert ending.results["w"]["result"] == "<x>"
+    assert bumped.results(ending.state)["w"]["result"] == "<x>"
     assert calls == ["wrap2:x"]
 
 
@@ -249,7 +249,7 @@ def test_without_drops_a_node_on_purpose_with_everything_downstream():
     ending = _leg(compiled, state=_through_json(state.without("up")))[-1]
 
     assert ending.type == "graph_complete"
-    assert list(ending.results["w"]["result"]) == ["[A]", "[B]"]
+    assert list(compiled.results(ending.state)["w"]["result"]) == ["[A]", "[B]"]
     assert sorted(calls) == ["upper:a", "upper:b", "wrap:A", "wrap:B"]
     assert "up" not in state.without("up").node_fingerprints and "split" in state.without("up").node_fingerprints
 
@@ -335,8 +335,8 @@ def test_an_answer_decodes_through_the_codec_by_the_outputs_type():
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge("ask")}),
     ])
     ending = _leg(once, cache={"ask": {"result": "typed in"}})[-1]
-    assert ending.type == "graph_complete" and ending.results["up"]["result"] == "TYPED IN"
-    assert type(ending.results["ask"]["result"]) is Txt
+    assert ending.type == "graph_complete" and once.results(ending.state)["up"]["result"] == "TYPED IN"
+    assert type(once.results(ending.state)["ask"]["result"]) is Txt
 
     per_row = _compiled([
         GraphNode(id="split", type="split", version=1, bindings={"text": Static("a,b")}),
@@ -345,7 +345,7 @@ def test_an_answer_decodes_through_the_codec_by_the_outputs_type():
     ])
     first = _leg(per_row)
     second = _leg(per_row, state=first[-1].state, cache={"ask": {"result": {"rows": [[0], [1]], "values": ["x", "y"]}}})
-    assert list(second[-1].results["up"]["result"]) == ["X", "Y"]
+    assert list(per_row.results(second[-1].state)["up"]["result"]) == ["X", "Y"]
 
 
 def test_a_per_row_answer_that_leaves_a_row_out_of_one_output_is_refused():
@@ -428,15 +428,18 @@ def test_a_typed_in_list_edited_between_legs_reruns_on_the_new_rows():
     state = _leg(_compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a", "b"])})]))[-1].state
     calls.clear()
 
-    grown = _leg(_compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a", "b", "c"])})]), state=_through_json(state))[-1]
-    assert grown.type == "graph_complete" and list(grown.results["e"]["result"]) == ["A", "B", "C"]
-    shrunk = _leg(_compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a"])})]), state=_through_json(state))[-1]
-    assert shrunk.type == "graph_complete" and list(shrunk.results["e"]["result"]) == ["A"]
-    added = _leg(_compiled([
+    longer = _compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a", "b", "c"])})])
+    grown = _leg(longer, state=_through_json(state))[-1]
+    assert grown.type == "graph_complete" and list(longer.results(grown.state)["e"]["result"]) == ["A", "B", "C"]
+    shorter = _compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a"])})])
+    shrunk = _leg(shorter, state=_through_json(state))[-1]
+    assert shrunk.type == "graph_complete" and list(shorter.results(shrunk.state)["e"]["result"]) == ["A"]
+    wider = _compiled([
         GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a", "b"])}),
         GraphNode(id="f", type="upper", version=1, bindings={"text": Static(["x", "y"])}),
-    ]), state=_through_json(state))[-1]
-    assert added.type == "graph_complete" and list(added.results["f"]["result"]) == ["X", "Y"]
+    ])
+    added = _leg(wider, state=_through_json(state))[-1]
+    assert added.type == "graph_complete" and list(wider.results(added.state)["f"]["result"]) == ["X", "Y"]
     assert "upper:a" not in calls[-2:]  # ``e`` was kept on the last leg
 
 
