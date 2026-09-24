@@ -122,7 +122,7 @@ class _Compilation:
         self.interface()
         expansion, iteration = self.expansion, self.iteration
         return CompiledGraph(
-            _graph=self.graph,
+            graph=self.graph,
             _registry=self.registry,
             _nodes=expansion.nodes,
             _versions={**expansion.versions, **expansion.placement_versions},

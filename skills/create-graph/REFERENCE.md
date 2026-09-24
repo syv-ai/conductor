@@ -33,11 +33,38 @@ Key on `code`, never on the message. `conductor.graph.problem.CATALOGUE` lists e
 
 The compiled graph is asked at three scales:
 
-- **The graph:** `problems`, `is_runnable`, `interface` (what the graph takes and returns, named by address), `execution_order`, `decisions`.
+- **The graph:** `problems`, `is_runnable`, `interface` (what the graph takes and returns, named by address), `graph` (the authored graph it was compiled from), `execution_order`, `decisions`, `render()`.
 - **One node:** `compiled.node(node_id)` gives `interface` (with every type the edges gave it), `iterates_on` (the `Index` it runs once per row of, or `None`), `statics`, `dependencies`, `version`, `embedded_in`, `problems`.
 - **One field:** `compiled.field(Ref(node_id, name))` gives `type`, `index`, `binding`, `condition`, `problems`.
 
 A graph may name a definition the registry does not hold, such as a stored graph embedded as a node: build its `NodeDefinition` and compile against `registry.extended_with({"that-id": ThatClass})`.
+
+## Inputs and outputs
+
+A graph's interface is what it takes and returns: `interface.inputs` are the open inputs of the nodes nothing feeds, `interface.outputs` the outputs nothing reads, each named by address. A caller fills the one and reads the other without touching the graph:
+
+```python
+open_graph = CompiledGraph.from_graph(
+    Graph(nodes=[
+        GraphNode(id="words", type="text-split", version=1),
+        GraphNode(id="loud", type="text-uppercase", version=1, bindings={"text": From("words.result")}),
+        GraphNode(id="joined", type="text-join", version=1, bindings={"parts": From("loud.result"), "separator": Static(" + ")}),
+    ]),
+    registry,
+)
+assert [str(i.name) for i in open_graph.interface.inputs] == ["words.text", "words.separator"]
+assert not open_graph.is_runnable                 # words.text has no value yet: unbound_required
+
+ready = open_graph.with_inputs(text="red,green")  # by address: **{"words.text": "red,green"}
+assert run_sync(ready).state.outputs(ready) == {"joined.result": "RED + GREEN"}
+```
+
+- `with_inputs(**inputs)` returns a compiled copy with each value as a `Static` on its input; it runs nothing. Run the copy with `run`, `run_sync` or `execute` like any other.
+- A keyword is an input's bare field name when only one input has it, else its address; an input inside an embedded graph goes by address only. A name the interface does not offer is a `TypeError` listing the names it does.
+- Compile reads the value, so a list on an input for one value runs once per item, and a value the type cannot read is the copy's `invalid_static` problem. Filling an input again replaces it.
+- `outputs(state)` reads any ending's state, keyed by address; an output that did not run or was skipped is absent, so a failed or paused leg returns what it produced. `results(state)` is every node's outputs, by node id.
+- `compiled.graph` is the authored graph with the filled values on it: what a host stores as what ran.
+- `print(compiled.render())` draws the graph as a Mermaid flowchart, each edge labelled with how its input receives it (`per row of words`, `whole`, …) and a node with a fatal problem in the `fault` class.
 
 ## Rows
 
@@ -193,5 +220,6 @@ The body is `{graph, state, cache}`. Over HTTP a per-row answer is `{"rows": [[1
 - [ ] Every `type` is in the registry passed to compile, at the pinned `version`; otherwise `problems` says so.
 - [ ] Every `Ref` names a node in the graph and one of its outputs; every bindings key names an input.
 - [ ] `compiled.is_runnable` is checked, and `problems` is shown when it is not.
+- [ ] Values from outside go in through `with_inputs`, and the answer comes out through `outputs(state)`, not by editing the `Graph` or digging in `results`.
 - [ ] The host keeps `state` from a pending ending, and every `from_run` type a node needs is passed.
 - [ ] A long run has `timeout=` or a `cancel` event the caller owns; closing the stream (`aclose()`, a cancelled task, or `async with aclosing(execute(compiled)) as events:`) stops every unit.

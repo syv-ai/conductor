@@ -124,6 +124,13 @@ results = run_sync(compiled).state.results(compiled)
 print(results["n2"]["result"])  # "HELLO WORLD"
 ```
 
+What the graph takes and returns is its interface: `n1.text`, the input of the node nothing feeds, and `n2.result`, the output nothing reads. `with_inputs` is a copy with inputs filled — by bare name when one input has it, else by address (`**{"n1.text": ...}`) — and `outputs` reads what a leg returned, by address:
+
+```python
+ready = compiled.with_inputs(text="good night")
+print(run_sync(ready).state.outputs(ready))  # {"n2.result": "GOOD NIGHT"}
+```
+
 A single-output node's output is named `result`; a multi-output node's outputs are the field names of the record it returns (below).
 
 ### 3. Stream execution events

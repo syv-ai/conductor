@@ -67,6 +67,10 @@ nothing is deprecated first, everything below is gone in 2.0.0.
 - `FromRun`, `Refuses`, `ErrorCause`, `Problem`.
 - `CompiledGraph`, asked at the graph, the node and the field; `GraphVersion`, a version whose
   body is a graph.
+- `compiled.with_inputs(**inputs)`, a copy with the graph's inputs filled by name or address
+  and compiled again, and `state.outputs(compiled)`, what the graph returned, keyed by address.
+- `compiled.render()`, the graph as a Mermaid flowchart, each edge labelled with how its input
+  receives it.
 - `registry.extended_with(...)`, `registry.nodes`, `registry.upgraded(graph, node_id, to=None)`,
   `registry.add_types(...)`, `registry.types`, `registry.accepted_as(...)`, `registry.describe()`,
   `NodeDescription`. A registry is a container of classes by id — `"upper" in registry`,
