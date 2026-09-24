@@ -15,7 +15,7 @@ from conductor import CompiledGraph, GraphNode, NodeRegistry, Param
 from conductor.codec import from_wire, to_wire
 from conductor.dtype import DType
 from conductor.execution.ledger import Ledger
-from conductor.execution.state import RunState
+from conductor.execution.state import RunState, StateSkip
 from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
 from conductor.metadata import Result
@@ -136,7 +136,7 @@ def test_a_text_that_spells_the_old_skip_marker_is_a_text_after_a_round_trip():
     values = restored.result_of("split")["result"]
     assert list(values) == ["__skipped__", "x"] and all(type(v) is Txt for v in values)
     assert list(restored.result_of("up")["result"]) == ["__SKIPPED__", "X"]
-    assert all("skipped" not in entry for entry in state.values)
+    assert not any(isinstance(entry, StateSkip) for entry in state.values)
 
 
 def test_a_skip_is_marked_beside_its_address_with_its_depth():
@@ -152,10 +152,14 @@ def test_a_skip_is_marked_beside_its_address_with_its_depth():
     ledger.record(("up", (1,)), {"result": Txt("B")})
 
     state = ledger.state()
-    skipped = [entry for entry in state.values if "skipped" in entry]
+    wire = json.loads(state.model_dump_json())["values"]
 
-    assert skipped == [{"ref": ["up", "result"], "row": [0], "skipped": 1}]
-    assert all("value" not in entry for entry in skipped)
+    assert [entry for entry in wire if "skipped" in entry] == [{"ref": ["up", "result"], "row": [0], "skipped": 1}]
+    assert [entry for entry in wire if "value" in entry] == [
+        {"ref": ["split", "result"], "row": [0], "value": "a"},
+        {"ref": ["split", "result"], "row": [1], "value": "b"},
+        {"ref": ["up", "result"], "row": [1], "value": "B"},
+    ]
     restored = Ledger.restore(compiled, RunState.model_validate(json.loads(json.dumps(state.model_dump()))))
     assert list(restored.result_of("up")["result"]) == ["B"]
     assert restored.result_of("up")["result"].rows == ((1,),)

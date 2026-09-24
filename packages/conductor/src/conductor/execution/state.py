@@ -32,6 +32,30 @@ from pydantic import Field
 from conductor.model import ConductorModel
 
 
+class StateValue(ConductorModel):
+    """One value the run holds: an output of a node at a row, in wire form.
+
+    ``ref`` is the output as ``(node_id, field)``; ``row`` is the row it sits
+    at, ``None`` on a node that ran once; ``value`` is what the codec wrote
+    for it, which may be ``null``. Its twin is ``StateSkip``: an entry is one
+    or the other, told apart by which key it has.
+    """
+
+    ref: tuple[str, str]
+    row: tuple[int, ...] | None
+    value: Any
+
+
+class StateSkip(ConductorModel):
+    """A skip the run holds in place of a value: the output, its row, and
+    ``skipped``, the depth of the row the skip was written at. A skip has no
+    type, so nothing is written for a value."""
+
+    ref: tuple[str, str]
+    row: tuple[int, ...] | None
+    skipped: int
+
+
 class RunState(ConductorModel):
     """A frozen snapshot of a run's state: the ledger in wire form, plus a fingerprint per node.
 
@@ -39,9 +63,10 @@ class RunState(ConductorModel):
     and this is what it wrote down when the leg ended. Nothing changes it
     in place; ``without`` returns a new one.
 
-    ``values`` are what each output holds at each row, each ``{"ref": [node,
-    field], "row": [...] or null}`` with either ``"value"`` in JSON form or
-    ``"skipped"`` (the depth of the row the skip was written at).
+    ``values`` are what each output holds at each row: a ``StateValue``, or a
+    ``StateSkip`` where the output was skipped. An entry that is neither is
+    refused when the state is read, so a malformed state fails where it
+    arrives rather than inside a restore.
     ``done_units`` are the units that ran to completion, a node and the row
     it ran for (``null`` for a node that ran once). ``node_fingerprints`` is
     one hash per node of its placement in the graph,
@@ -49,7 +74,7 @@ class RunState(ConductorModel):
     has produced nothing.
     """
 
-    values: list[dict[str, Any]] = Field(default_factory=list)
+    values: list[StateValue | StateSkip] = Field(default_factory=list)
     done_units: list[tuple[str, list[int] | None]] = Field(default_factory=list)
     node_fingerprints: dict[str, str] = Field(default_factory=dict)
 
@@ -65,7 +90,7 @@ class RunState(ConductorModel):
             return any(node_id == dropped or node_id.startswith(f"{dropped}/") for dropped in node_ids)
 
         return self.model_copy(update={
-            "values": [entry for entry in self.values if not gone(entry["ref"][0])],
+            "values": [entry for entry in self.values if not gone(entry.ref[0])],
             "done_units": [(node_id, row) for node_id, row in self.done_units if not gone(node_id)],
             "node_fingerprints": {node_id: fingerprint for node_id, fingerprint in self.node_fingerprints.items() if not gone(node_id)},
         })

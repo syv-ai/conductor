@@ -58,7 +58,7 @@ from conductor._sentinel import SKIPPED, is_skipped
 from conductor.codec import from_wire, to_wire
 from conductor.errors import ErrorCause, NodeExecutionError, StartRefused
 from conductor.execution.events import PendingUnit
-from conductor.execution.state import RunState
+from conductor.execution.state import RunState, StateSkip, StateValue
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Receive, Whole
@@ -891,17 +891,16 @@ class Ledger:
             node_fingerprints={node_id: self._compiled.node(node_id).fingerprint for node_id in self._compiled.execution_order},
         )
 
-    def _value_wire(self, ref: Ref, row: Row | None, value: Any) -> dict[str, Any]:
+    def _value_wire(self, ref: Ref, row: Row | None, value: Any) -> StateValue | StateSkip:
         """One value as the state carries it: its address, and the value through the codec or its skip."""
-        entry: dict[str, Any] = {"ref": [ref.node_id, ref.field], "row": None if row is None else list(row)}
+        address = (ref.node_id, ref.field)
         if is_skipped(value):
-            entry["skipped"] = _depth(row)
-            return entry
+            return StateSkip(ref=address, row=row, skipped=_depth(row))
         try:
-            entry["value"] = to_wire(value, self._value_type(ref))
+            wire = to_wire(value, self._value_type(ref))
         except Exception as unwritable:
             raise TypeError(f"{ref} at row {row}: the value has no JSON form ({unwritable})") from unwritable
-        return entry
+        return StateValue(ref=address, row=row, value=wire)
 
     def _value_type(self, ref: Ref) -> Any:
         """The type of one value of ``ref``: the element of the series on a
@@ -930,22 +929,21 @@ class Ledger:
         ledger = cls(compiled)
         #: A node the state names in a value or a done unit but never fingerprinted, and the graph does not have.
         unknown = (
-            {Ref(*entry["ref"]).node_id for entry in state.values} | {node_id for node_id, _ in state.done_units}
+            {entry.ref[0] for entry in state.values} | {node_id for node_id, _ in state.done_units}
         ) - set(compiled.execution_order)
         dropped = ledger._dropped(state.node_fingerprints) | unknown
         for entry in state.values:
-            ref = Ref(*entry["ref"])
+            ref = Ref(*entry.ref)
             if ref.node_id in dropped:
                 continue
-            row = None if entry["row"] is None else tuple(entry["row"])
-            if "skipped" in entry:
+            if isinstance(entry, StateSkip):
                 value = SKIPPED
             else:
                 try:
-                    value = from_wire(entry["value"], ledger._value_type(ref))
+                    value = from_wire(entry.value, ledger._value_type(ref))
                 except (KeyError, TypeError, ValueError) as unreadable:
                     raise StartRefused(f"the state's value for {ref} does not read back: {unreadable}") from unreadable
-            ledger._values.setdefault(ref, {})[row] = value
+            ledger._values.setdefault(ref, {})[entry.row] = value
         done = [(node_id, None if row is None else tuple(row)) for node_id, row in state.done_units if node_id not in dropped]
         ledger._rebirth(done)
         for unit in done:
