@@ -152,7 +152,7 @@ class TestEndToEnd:
         graph_out = react.react_to_graph(back)
 
         compiled = CompiledGraph.from_graph(graph_out, registry)
-        results = compiled.results(run_sync(compiled).state)
+        results = run_sync(compiled).state.results(compiled)
         assert results["down"]["result"] == "OLLEH"
 
 

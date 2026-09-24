@@ -109,7 +109,7 @@ class TestStreamingExecution:
         ]), registry)
 
         start = time.monotonic()
-        results = compiled.results(run_sync(compiled).state)
+        results = run_sync(compiled).state.results(compiled)
         elapsed = time.monotonic() - start
 
         # Sequential would be 5 * 0.3 = 1.5s; eager is A+B, C+D, E = ~0.9s.
@@ -139,7 +139,7 @@ class TestStreamingExecution:
                 GraphNode(id="n2", type="upper", version=1, bindings={"text": From('n1.result')}),
             ]), three_node_registry)
 
-        results = compiled.results((await run(compiled)).state)
+        results = (await run(compiled)).state.results(compiled)
         assert results["n2"]["result"] == "HELLO"
 
     async def test_diamond_execution(self, three_node_registry):
@@ -154,7 +154,7 @@ class TestStreamingExecution:
                 GraphNode(id="n4", type="combine", version=1, bindings={"a": From('n2.result'), "b": From('n3.result')}),
             ]), three_node_registry)
 
-        results = compiled.results((await run(compiled)).state)
+        results = (await run(compiled)).state.results(compiled)
         assert results["n4"]["result"] == "HELLO hello"
 
 
@@ -170,14 +170,14 @@ class TestSyncExecution:
                 GraphNode(id="n2", type="upper", version=1, bindings={"text": From('n1.result')}),
             ]), three_node_registry)
 
-        results = compiled.results(run_sync(compiled).state)
+        results = run_sync(compiled).state.results(compiled)
         assert results["n2"]["result"] == "WORLD"
 
     def test_single_node_no_edges(self, three_node_registry):
         """A single node with static data, no edges."""
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="echo", version=1, bindings={"text": Static("standalone")})]), three_node_registry)
 
-        results = compiled.results(run_sync(compiled).state)
+        results = run_sync(compiled).state.results(compiled)
         assert results["n1"]["result"] == "standalone"
 
 
@@ -193,10 +193,10 @@ class TestCaching:
                 GraphNode(id="n2", type="upper", version=1, bindings={"text": From('n1.result')}),
             ]), three_node_registry)
 
-        results = compiled.results((await run(
+        results = (await run(
             compiled,
             cache={"n1": {"result": "cached_value"}},
-        )).state)
+        )).state.results(compiled)
         # n2 should uppercase the cached value, not "hello"
         assert results["n2"]["result"] == "CACHED_VALUE"
 

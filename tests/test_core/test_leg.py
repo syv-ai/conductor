@@ -178,7 +178,7 @@ def test_an_instant_node_beside_forty_slow_rows_does_not_time_out():
     events = _events(compiled)
 
     assert events[-1].type == "graph_complete", events[-1]
-    assert compiled.results(events[-1].state)["instant"]["result"] == "now"
+    assert events[-1].state.results(compiled)["instant"]["result"] == "now"
     assert len(calls) == 40
 
 
@@ -271,7 +271,7 @@ def test_execute_has_no_deadline_by_default_and_runs_a_slow_node_to_the_end():
     assert "timeout_seconds" not in inspect.signature(execute).parameters
 
     compiled = _single(Slow)
-    assert compiled.results(run_sync(compiled).state)["n1"]["result"] == "done"
+    assert run_sync(compiled).state.results(compiled)["n1"]["result"] == "done"
 
 
 def test_a_leg_deadline_ends_the_leg_at_once_with_graph_timeout():

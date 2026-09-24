@@ -74,7 +74,6 @@ from conductor.ref import Ref
 from conductor.series import Series
 
 if TYPE_CHECKING:
-    from conductor.execution.state import RunState
     from conductor.graph.conditions import Condition
     from conductor.graph.model import Graph, GraphNode
     from conductor.graph.receive import Receive
@@ -201,22 +200,6 @@ class CompiledGraph:
         A host reads engine results by the expanded address, since the
         engine knows only the expanded graph."""
         return expanded_ref(ref, self._placements)
-
-    # -- what a run produced -------------------------------------------------------
-
-    def results(self, state: RunState) -> dict[str, dict[str, Any]]:
-        """What a run produced, from its state: every complete node's outputs, typed, by expanded node id.
-
-        Every ending carries the run's state; this reads it back through
-        the codec by each field's type. It reads any state —
-        a live ending's, or one a host stored — the way the next leg would:
-        a node this graph has changed since, and everything reading it, is
-        left out. A node that did not run is absent; one that ran per row
-        is a ``Series``, sparse where rows were skipped.
-        """
-        from conductor.execution.ledger import Ledger
-
-        return Ledger.restore(self, state).results()
 
     # -- the run ------------------------------------------------------------------
 

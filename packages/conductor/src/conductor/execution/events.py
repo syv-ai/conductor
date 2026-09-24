@@ -14,7 +14,7 @@ it at that edge.
 Every event that ends a leg is an ``Ending``: it says why it stopped and carries ``state``:
 the ``RunState`` of the run so far, a frozen snapshot in wire form,
 which ``execute(state=...)`` starts the next leg from. The values in it
-are read through the compiled graph: ``compiled.results(state)``.
+are read through the compiled graph: ``state.results(compiled)``.
 A row on an event is a ``Row``, the path of positions the ledger uses.
 """
 
@@ -98,7 +98,7 @@ class Ending(ConductorModel):
 class GraphCompleteEvent(Ending):
     """The leg completed. ``state`` is the run's whole state, which a host
     can store and hand back to ``execute(state=...)`` to start a new run
-    from this one; ``compiled.results(state)`` is what it produced."""
+    from this one; ``state.results(compiled)`` is what it produced."""
 
     type: Literal["graph_complete"]
 

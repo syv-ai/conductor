@@ -181,7 +181,7 @@ nothing is deprecated first, everything below is gone in 2.0.0.
   event is a frozen model, one of a union discriminated on `type`, read by
   attribute: `ending.state`, `event.type`. An ending says why the leg stopped
   and carries the run's `state`, not a second copy of it as `results`:
-  `compiled.results(state)` reads every node's values out of any state, live or
+  `state.results(compiled)` reads every node's values out of any state, live or
   stored. `node_complete` always carries `cached`. Each of the five endings is an
   `Ending`, the class carrying `state`, and `EndingEvent` is their union, which `run` and
   `run_sync` return.

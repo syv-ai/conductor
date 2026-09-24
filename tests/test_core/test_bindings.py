@@ -498,7 +498,7 @@ def test_a_graph_of_bindings_compiles_and_runs():
         ],
     )
     compiled = CompiledGraph.from_graph(graph=graph, registry=_echo_registry())
-    results = compiled.results(run_sync(compiled).state)
+    results = run_sync(compiled).state.results(compiled)
 
     assert results["a"]["result"] == "HI"
     assert results["b"]["result"] == "HI"
@@ -510,7 +510,7 @@ def test_an_unbound_input_falls_back_to_its_declared_default():
 
     compiled = CompiledGraph.from_graph(graph=graph, registry=_echo_registry())
 
-    assert compiled.results(run_sync(compiled).state)["a"]["result"] == ""
+    assert run_sync(compiled).state.results(compiled)["a"]["result"] == ""
 
 
 def test_a_branch_not_taken_is_skipped_downstream():
@@ -542,7 +542,7 @@ def test_a_branch_not_taken_is_skipped_downstream():
         ],
     )
     compiled = CompiledGraph.from_graph(graph=graph, registry=registry)
-    results = compiled.results(run_sync(compiled).state)
+    results = run_sync(compiled).state.results(compiled)
 
     assert results["yes"]["result"] == "HI"
     # The results a leg ends with omit a skipped node.

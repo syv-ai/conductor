@@ -117,7 +117,7 @@ def test_a_foreign_exception_named_in_retry_on_is_external_and_retries():
     assert [(e.attempt, e.retries, e.node_id) for e in retries] == [(1, 2, "n1"), (2, 2, "n1")]
     assert retries[0].error == "An outside service did not answer."
     assert events[-1].type == "graph_complete"
-    assert compiled.results(events[-1].state)["n1"]["result"] == "ok"
+    assert events[-1].state.results(compiled)["n1"]["result"] == "ok"
 
 
 def test_an_exhausted_external_failure_is_external_failed():
@@ -330,7 +330,7 @@ def test_a_failed_row_is_retried_alone():
         reg,
     )
 
-    results = compiled.results(run_sync(compiled).state)
+    results = run_sync(compiled).state.results(compiled)
 
     assert list(results["rows"]["result"]) == ["A", "B", "C"]
     assert sorted(calls) == ["a", "b", "b", "c"]
@@ -383,7 +383,7 @@ def test_a_flaky_node_in_one_branch_retries_while_the_other_branch_completes():
         reg,
     )
 
-    results = compiled.results(run_sync(compiled).state)
+    results = run_sync(compiled).state.results(compiled)
 
     assert results["n3"]["result"] == "A:x+B:y"
     assert calls == {"a": 2, "b": 1}

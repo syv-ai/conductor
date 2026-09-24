@@ -4,7 +4,7 @@ Every event ``execute`` yields is a frozen model, one of a union
 discriminated on ``type``: a caller reads ``ending.state`` and can
 ``match`` on the class. An ending says why the leg stopped and carries the
 run's state; the values in it are read through the compiled
-graph, ``compiled.results(state)``. The JSON a host
+graph, ``state.results(compiled)``. The JSON a host
 sends is the dict it always was, and the schema a host generates its
 client from names the same fields, with ``type`` required on every event.
 """
@@ -110,7 +110,7 @@ def test_an_ending_is_read_by_attribute_and_matched_by_class():
 
     match ending:
         case GraphCompleteEvent(state=state):
-            assert list(compiled.results(state)["s"]["result"]) == ["a", "b"]
+            assert list(state.results(compiled)["s"]["result"]) == ["a", "b"]
         case _:
             pytest.fail(f"the leg ended {ending.type}")
 
@@ -122,8 +122,8 @@ def test_the_values_are_read_from_the_state_live_or_stored():
 
     stored = RunState.model_validate(json.loads(state.model_dump_json()))
 
-    assert compiled.results(stored) == compiled.results(state)
-    assert list(compiled.results(stored)["s"]["result"]) == ["a", "b"]
+    assert stored.results(compiled) == state.results(compiled)
+    assert list(stored.results(compiled)["s"]["result"]) == ["a", "b"]
 
 
 def test_an_event_is_frozen_and_refuses_a_key_it_does_not_have():

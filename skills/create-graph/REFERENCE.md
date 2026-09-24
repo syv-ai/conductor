@@ -54,7 +54,7 @@ rows = CompiledGraph.from_graph(
 )
 assert rows.node("loud").iterates_on is not None and rows.node("joined").iterates_on is None
 
-results = rows.results(run_sync(rows).state)
+results = run_sync(rows).state.results(rows)
 assert list(results["loud"]["result"]) == ["RED", "GREEN", "BLUE"]
 assert results["loud"]["result"].rows == ((0,), (1,), (2,))
 ```
@@ -81,7 +81,7 @@ assert results["loud"]["result"].rows == ((0,), (1,), (2,))
 | `graph_cancelled` | `state` |
 | `graph_timeout` | `state`, `elapsed_seconds`, `timeout_seconds` |
 
-An ending — one of the five `graph_*` events, each an `Ending` — says why the leg stopped and carries `state`, the run's state; `compiled.results(state)` reads every node's values out of any state, live or stored.
+An ending — one of the five `graph_*` events, each an `Ending` — says why the leg stopped and carries `state`, the run's state; `state.results(compiled)` reads every node's values out of any state, live or stored.
 
 ```python
 async def watch(compiled):
@@ -141,7 +141,7 @@ async def legs():
 
 
 done = asyncio.run(legs())
-assert list(asking.results(done.state)["approve"]["result"]) == ["First, approved", "Second, approved"]
+assert list(done.state.results(asking)["approve"]["result"]) == ["First, approved", "Second, approved"]
 ```
 
 - A pending unit's `row` is a tuple (`(1,)`), the form `Series(rows=...)` takes: `rows=[unit.row for unit in units]`.

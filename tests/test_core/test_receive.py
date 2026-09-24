@@ -341,8 +341,8 @@ def test_a_closed_list_input_runs_once_with_its_list_and_with_its_default():
     typed = _compiled([GraphNode(id="t", type="tags", version=1, bindings={"tags": Static(["a", "b", "c"])})])
     defaulted = _compiled([GraphNode(id="t", type="tags", version=1)])
 
-    assert typed.results(run_sync(typed).state)["t"]["result"] == "a|b|c"
-    assert defaulted.results(run_sync(defaulted).state)["t"]["result"] == "x"
+    assert run_sync(typed).state.results(typed)["t"]["result"] == "a|b|c"
+    assert run_sync(defaulted).state.results(defaulted)["t"]["result"] == "x"
 
 
 def test_an_open_parameter_embedded_receives_the_series_whole_at_run_time():
@@ -361,5 +361,5 @@ def test_an_open_parameter_embedded_receives_the_series_whole_at_run_time():
         GraphNode(id="emb", type="script-graph", version=1, bindings={"s.v": _edge(("docs", "result"))}),
     ], inner)
 
-    assert standalone.results(run_sync(standalone).state)["s"]["result"] == "v=['fa', 'fb']"
-    assert embedded.results(run_sync(embedded).state)["emb/s"]["result"] == "v=['fa', 'fb']"
+    assert run_sync(standalone).state.results(standalone)["s"]["result"] == "v=['fa', 'fb']"
+    assert run_sync(embedded).state.results(embedded)["emb/s"]["result"] == "v=['fa', 'fb']"

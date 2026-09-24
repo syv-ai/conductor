@@ -50,6 +50,7 @@ the type compile gave its field, and a skip is marked ``{"skipped":
 
 from __future__ import annotations
 
+import weakref
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Iterator
@@ -141,6 +142,11 @@ class _Reader:
         object.__setattr__(self, "depth", self.received.depth if isinstance(self.received, Group) else None)
 
 
+#: The ledger each ``RunState`` it wrote came from, and how many units it had
+#: done then, keyed by the state's id while that state lives: reading the
+#: state an ending carries needs no decoding (``Ledger.results_of``).
+_WRITTEN_BY: dict[int, tuple[Ledger, int]] = {}
+
 class Ledger:
     """The live state of one run over one compiled graph, and what it makes ready.
 
@@ -161,6 +167,9 @@ class Ledger:
         #: something above them was skipped.
         self._no_rows_under: dict[str, set[Row | None]] = {}
         self._done: set[Unit] = set()
+        #: The type of one value of each field, worked out once: a state
+        #: writes or reads every value through it.
+        self._value_types: dict[Ref, Any] = {}
         #: Per node that runs once per row, how many of its units are done:
         #: at a row of its index, and standing in at a shorter row.
         self._done_rows: dict[str, int] = {}
@@ -885,11 +894,32 @@ class Ledger:
         ``skipped`` (the depth of its row) in place of ``value``; and every
         node's fingerprint is stored, so a restore can tell what changed.
         """
-        return RunState(
+        snapshot = RunState(
             values=[self._value_wire(ref, row, value) for ref, by_row in self._values.items() for row, value in by_row.items()],
             done_units=[DoneUnit(node_id=node_id, row=row) for node_id, row in self._done],
             node_fingerprints={node_id: self._compiled.node(node_id).fingerprint for node_id in self._compiled.execution_order},
         )
+        _WRITTEN_BY[id(snapshot)] = (self, len(self._done))
+        weakref.finalize(snapshot, _WRITTEN_BY.pop, id(snapshot), None)
+        return snapshot
+
+    @classmethod
+    def results_of(cls, compiled: CompiledGraph, state: RunState) -> dict[str, dict[str, Any]]:
+        """Every complete node's outputs in ``state``, typed, by node id: what ``RunState.results`` answers.
+
+        A state this process's ledger just wrote — the one an ending
+        carries — is read off that ledger, which still holds every value
+        typed, as long as it is asked about the graph it ran and has done
+        nothing since. Any other state, a stored one included, is restored
+        over ``compiled`` and read back through the codec, so a node the
+        graph has changed since, and everything reading it, is left out.
+        """
+        written = _WRITTEN_BY.get(id(state))
+        if written is not None:
+            ledger, done = written
+            if ledger._compiled is compiled and len(ledger._done) == done:
+                return ledger.results()
+        return cls.restore(compiled, state).results()
 
     def _value_wire(self, ref: Ref, row: Row | None, value: Any) -> StateValue | StateSkip:
         """One value as the state carries it: its address, and the value through the codec or its skip."""
@@ -904,9 +934,11 @@ class Ledger:
     def _value_type(self, ref: Ref) -> Any:
         """The type of one value of ``ref``: the element of the series on a
         field with rows, the field's own type otherwise."""
-        declared = self._compiled.field(ref).type
-        element = getattr(declared, "element", None)
-        return declared if self._compiled.field(ref).index is None or element is None else element
+        if ref not in self._value_types:
+            field = self._compiled.field(ref)
+            element = getattr(field.type, "element", None)
+            self._value_types[ref] = field.type if field.index is None or element is None else element
+        return self._value_types[ref]
 
     @classmethod
     def restore(cls, compiled: CompiledGraph, state: RunState) -> Ledger:

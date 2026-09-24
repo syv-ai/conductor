@@ -18,20 +18,23 @@ fingerprint differs from the graph's — a static edited, a version bumped,
 a binding moved — is dropped with everything downstream of it and runs
 again, and so is a node the graph no longer has.
 
-Not the results: ``compiled.results(state)`` is what the run produced by
+Not the results: ``state.results(compiled)`` is what the run produced by
 node and output, as values; the state is what the ledger needs to go on,
 in wire form, and a host never reads inside it.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import Field
 
 from conductor.model import ConductorModel
 from conductor.ref import Ref
 from conductor.series import Row
+
+if TYPE_CHECKING:
+    from conductor.graph.compiled import CompiledGraph
 
 
 class StateEntry(ConductorModel):
@@ -88,6 +91,21 @@ class RunState(ConductorModel):
     values: list[StateValue | StateSkip] = Field(default_factory=list)
     done_units: list[DoneUnit] = Field(default_factory=list)
     node_fingerprints: dict[str, str] = Field(default_factory=dict)
+
+    def results(self, compiled: CompiledGraph) -> dict[str, dict[str, Any]]:
+        """What the run produced: every complete node's outputs, typed, by expanded node id.
+
+        Read over ``compiled``, the graph the run is of, the way the next leg
+        would read this state: a node the graph has changed since, and
+        everything reading it, is left out. A node that did not run is
+        absent; one that ran per row is a ``Series``, sparse where rows were
+        skipped. The state an ending just carried is read off the ledger
+        that wrote it, with nothing decoded; a stored one is decoded
+        through the codec by each field's type.
+        """
+        from conductor.execution.ledger import Ledger
+
+        return Ledger.results_of(compiled, self)
 
     def without(self, *node_ids: str) -> RunState:
         """This state as if these nodes had never run: a host's "run from here".

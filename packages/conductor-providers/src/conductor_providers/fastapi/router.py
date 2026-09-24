@@ -162,5 +162,5 @@ def _answered(compiled: CompiledGraph, event: ExecutionEvent) -> dict[str, Any]:
     no compiled graph to ask."""
     data = as_data(event)
     if isinstance(event, Ending):
-        data["results"] = as_data(compiled.results(event.state))
+        data["results"] = as_data(event.state.results(compiled))
     return data

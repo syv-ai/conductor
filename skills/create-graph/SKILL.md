@@ -33,7 +33,7 @@ compiled = CompiledGraph.from_graph(graph, registry)
 if not compiled.is_runnable:
     raise ValueError([(p.code, p.node_id, p.message) for p in compiled.problems])
 
-results = compiled.results(run_sync(compiled).state)          # {node_id: {output_name: value}}
+results = run_sync(compiled).state.results(compiled)          # {node_id: {output_name: value}}
 results["joined"]["result"]               # "RED + GREEN"; loud ran once per word
 ```
 

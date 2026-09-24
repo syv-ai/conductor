@@ -203,8 +203,8 @@ def test_a_list_answers_a_per_row_node():
     second = _leg(compiled, state=first.state, cache={"ask": {"result": ["x", "y", "z"]}})
 
     assert second[-1].type == "graph_complete"
-    assert list(compiled.results(second[-1].state)["ask"]["result"]) == ["x", "y", "z"]
-    assert compiled.results(second[-1].state)["ask"]["result"] == Series(Index("docs"), [Txt("x"), Txt("y"), Txt("z")], rows=[(0,), (1,), (2,)])
+    assert list(second[-1].state.results(compiled)["ask"]["result"]) == ["x", "y", "z"]
+    assert second[-1].state.results(compiled)["ask"]["result"] == Series(Index("docs"), [Txt("x"), Txt("y"), Txt("z")], rows=[(0,), (1,), (2,)])
 
 
 def test_a_list_answers_the_rows_still_open_and_leaves_a_skipped_row_alone():
@@ -225,7 +225,7 @@ def test_a_list_answers_the_rows_still_open_and_leaves_a_skipped_row_alone():
     second = _leg(compiled, state=first.state, cache={"ask": {"result": ["x", "z"]}})
 
     assert second[-1].type == "graph_complete"
-    assert compiled.results(second[-1].state)["ask"]["result"] == Series(Index("docs"), [Txt("x"), Txt("z")], rows=[(0,), (2,)])
+    assert second[-1].state.results(compiled)["ask"]["result"] == Series(Index("docs"), [Txt("x"), Txt("z")], rows=[(0,), (2,)])
 
 
 def test_a_list_of_the_wrong_length_is_refused_naming_node_and_output():

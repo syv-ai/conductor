@@ -33,7 +33,7 @@ def _ending(reg: NodeRegistry, nodes):
 
 def _run(reg: NodeRegistry, nodes):
     compiled = CompiledGraph.from_graph(Graph(nodes=nodes), reg)
-    return compiled.results(run_sync(compiled).state)
+    return run_sync(compiled).state.results(compiled)
 
 
 class TestPackageSurface:
@@ -452,7 +452,7 @@ def test_a_catastrophic_pattern_answers_at_once():
     seen = asyncio.run(events())
     assert time.monotonic() - started < conductor_nodes.regex_ops.Match.timeout
     assert "node_start" in [e.type for e in seen]
-    assert compiled.results(seen[-1].state)["m"]["result"] == Flag(False)
+    assert seen[-1].state.results(compiled)["m"]["result"] == Flag(False)
 
 
 def test_a_pattern_that_times_out_fails_its_node_with_a_sentence_for_people(monkeypatch):

@@ -52,7 +52,7 @@ compiled = CompiledGraph.from_graph(graph, registry)
 assert compiled.is_runnable, compiled.problems
 
 ending = await run(compiled)       # a notebook cell; from a script, run_sync(compiled) — the same ending event
-results = compiled.results(ending.state)   # the ending carries the run's state; the compiled graph reads it
+results = ending.state.results(compiled)   # the ending carries the run's state; the compiled graph reads it
 list(results["upper"]["result"])   # ["A", "B", "C"] — three values typed into one input: it ran once per value
 results["join"]["result"]          # "A+B+C" — Series[Text] received the whole series, once
 ```
@@ -230,7 +230,7 @@ A failed unit fails the run: no further unit starts, and the leg ends at once. A
 | `graph_cancelled` | `state` |
 | `graph_timeout` | `state`, `elapsed_seconds`, `timeout_seconds` |
 
-A frame carries records (a `Series`, an `ErrorCause`, an `Input`), not their JSON; the host serialises them at its edge. An ending says why the leg stopped and carries the run's state, `state`; `compiled.results(state)` is `{node_id: {output_name: value}}`, read from any state, live or stored.
+A frame carries records (a `Series`, an `ErrorCause`, an `Input`), not their JSON; the host serialises them at its edge. An ending says why the leg stopped and carries the run's state, `state`; `state.results(compiled)` is `{node_id: {output_name: value}}`, read from any state, live or stored.
 
 ### Saving a Graph
 
