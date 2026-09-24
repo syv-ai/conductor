@@ -32,7 +32,8 @@ def _ending(reg: NodeRegistry, nodes):
 
 
 def _run(reg: NodeRegistry, nodes):
-    return _ending(reg, nodes)["results"]
+    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), reg)
+    return run_sync(compiled).state.results(compiled)
 
 
 class TestPackageSurface:
@@ -184,7 +185,7 @@ class TestMath:
             full_registry,
             [GraphNode(id="n", type="math-divide", version=1, bindings={"a": Static(1), "b": Static(0)})],
         )
-        assert ending["type"] == "graph_error"
+        assert ending.type == "graph_error"
 
     def test_modulo(self, full_registry):
         r = _run(
@@ -450,8 +451,8 @@ def test_a_catastrophic_pattern_answers_at_once():
     started = time.monotonic()
     seen = asyncio.run(events())
     assert time.monotonic() - started < conductor_nodes.regex_ops.Match.timeout
-    assert "node_start" in [e["type"] for e in seen]
-    assert seen[-1]["results"]["m"]["result"] == Flag(False)
+    assert "node_start" in [e.type for e in seen]
+    assert seen[-1].state.results(compiled)["m"]["result"] == Flag(False)
 
 
 def test_a_pattern_that_times_out_fails_its_node_with_a_sentence_for_people(monkeypatch):
@@ -464,8 +465,8 @@ def test_a_pattern_that_times_out_fails_its_node_with_a_sentence_for_people(monk
     graph = Graph(nodes=[GraphNode(id="m", type="regex-match", version=1, bindings={"text": Static("x"), "pattern": Static("x")})])
     ending = run_sync(CompiledGraph.from_graph(graph, conductor_nodes.registry()))
 
-    assert ending["type"] == "graph_error"
-    assert (ending["cause"].code, ending["error"]) == ("pattern_timeout", "The pattern took too long.")
+    assert ending.type == "graph_error"
+    assert (ending.cause.code, ending.error) == ("pattern_timeout", "The pattern took too long.")
 
 
 def test_a_grouped_extract_that_times_out_fails_with_the_same_code(monkeypatch):
@@ -477,8 +478,8 @@ def test_a_grouped_extract_that_times_out_fails_with_the_same_code(monkeypatch):
     })])
     ending = run_sync(CompiledGraph.from_graph(graph, conductor_nodes.registry()))
 
-    assert ending["type"] == "graph_error"
-    assert ending["cause"].code == "pattern_timeout"
+    assert ending.type == "graph_error"
+    assert ending.cause.code == "pattern_timeout"
 
 
 def test_categories_filter_on_each_nodes_own_category():

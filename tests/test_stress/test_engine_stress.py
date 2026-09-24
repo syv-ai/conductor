@@ -78,7 +78,7 @@ def test_500_node_linear_chain_compile_and_execute() -> None:
     )
 
     t0 = time.monotonic()
-    results = run_sync(compiled, timeout=120)["results"]
+    results = run_sync(compiled, timeout=120).state.results(compiled)
     elapsed = time.monotonic() - t0
     assert elapsed < 60.0, (
         f"execution took {elapsed:.2f}s; expected <60s"
@@ -129,7 +129,7 @@ async def test_cancellation_honored_during_retry_sleep() -> None:
     async def consume() -> None:
         async for ev in execute(compiled, timeout=60, cancel=cancel):
             events.append(ev)
-            if ev["type"] == "node_retry" and not first_retry_seen.is_set():
+            if ev.type == "node_retry" and not first_retry_seen.is_set():
                 first_retry_seen.set()
 
     async def canceller() -> None:
@@ -158,7 +158,7 @@ async def test_cancellation_honored_during_retry_sleep() -> None:
         canceller_task.cancel()
         raise
 
-    event_types = [e["type"] for e in events]
+    event_types = [e.type for e in events]
 
     assert "node_retry" in event_types, (
         f"expected at least one node_retry before cancel; got {event_types}"

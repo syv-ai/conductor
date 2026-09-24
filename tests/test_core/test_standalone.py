@@ -224,7 +224,7 @@ def test_an_iteration_and_a_reduction_run_on_the_standard_nodes_alone():
     )
     assert compiled.is_runnable, compiled.problems
 
-    results = run_sync(compiled)["results"]
+    results = run_sync(compiled).state.results(compiled)
 
     assert compiled.node("upper").iterates_on is not None
     assert list(results["upper"]["result"]) == ["A", "B", "C"]

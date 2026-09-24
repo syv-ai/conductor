@@ -9,6 +9,7 @@ from typing import Annotated
 import conductor_nodes
 from conductor import Asks, CompiledGraph, From, Graph, GraphNode, Input, NodeDefinition, Param, Ref, Result, run, run_sync, Series, Static
 from conductor.execution.engine import execute
+from conductor.execution.events import Ending
 from conductor.widgets import Textarea
 from conductor_nodes.types import Text
 
@@ -53,7 +54,7 @@ rows = CompiledGraph.from_graph(
 )
 assert rows.node("loud").iterates_on is not None and rows.node("joined").iterates_on is None
 
-results = run_sync(rows)["results"]
+results = run_sync(rows).state.results(rows)
 assert list(results["loud"]["result"]) == ["RED", "GREEN", "BLUE"]
 assert results["loud"]["result"].rows == ((0,), (1,), (2,))
 ```
@@ -64,40 +65,42 @@ assert results["loud"]["result"].rows == ((0,), (1,), (2,))
 
 ## Events
 
-`execute(compiled, *, record=None, cache=None, from_run=None, timeout=None, cancel=None)` is one **leg**, an async generator of `TypedDict` events:
+`execute(compiled, *, state=None, cache=None, from_run=None, timeout=None, cancel=None)` is one **leg**, an async generator of events, each a frozen model read by attribute (`event.type`, `ending.state`):
 
 | Event | Carries |
 |---|---|
 | `node_start` | `node_id` |
 | `node_progress` | `node_id`, `done`, `total` (`None` until every row exists) |
-| `node_complete` | `node_id`, `result`; `cached` only when `cache` supplied the node |
+| `node_complete` | `node_id`, `result`, `cached` (`True` when `cache` supplied the node) |
 | `node_skipped` | `node_id` |
 | `node_retry` | `node_id`, `row`, `attempt`, `retries`, `error`, `delay` |
 | `node_error` | `node_id`, `error`, `cause` |
-| `graph_complete` | `results`, `record` |
-| `graph_pending` | `pending`, `results`, `record` |
-| `graph_error` | `node_id`, `error`, `cause`, `results`, `record` |
-| `graph_cancelled` | `results`, `record` |
-| `graph_timeout` | `results`, `record`, `elapsed_seconds`, `timeout_seconds` |
+| `graph_complete` | `state` |
+| `graph_pending` | `pending`, `state` |
+| `graph_error` | `node_id`, `error`, `cause`, `state` |
+| `graph_cancelled` | `state` |
+| `graph_timeout` | `state`, `elapsed_seconds`, `timeout_seconds` |
+
+An ending — one of the five `graph_*` events, each an `Ending` — says why the leg stopped and carries `state`, the run's state; `state.results(compiled)` reads every node's values out of any state, live or stored.
 
 ```python
 async def watch(compiled):
     async for event in execute(compiled):
-        if event["type"] == "node_progress":
-            print(event["node_id"], event["done"], "of", event["total"])
-        elif event["type"].startswith("graph_"):
+        if event.type == "node_progress":
+            print(event.node_id, event.done, "of", event.total)
+        elif isinstance(event, Ending):
             return event
 
 
 ending = asyncio.run(watch(rows))
-assert ending["type"] == "graph_complete"
+assert ending.type == "graph_complete"
 ```
 
 A frame carries records (a `Series`, an `ErrorCause`, an `Input`), not JSON; serialise at the host's edge (`conductor_providers.fastapi.sse.sse_frame` does it for server-sent events). `await run(compiled)` drains the stream and returns the event the leg ended on — a pause, an error, a cancel and a timeout are endings, not exceptions; `run_sync` is `run` under `asyncio.run`, and refuses under a running loop.
 
 ## Legs
 
-A node that returns `Asks` waits, and so does everything that reads it; the rest runs on. The leg ends `graph_pending` with every waiting unit: `node_id`, `row`, `prompt`, and `questions` as `Input` records named by address (`node.field`). Answering is the next leg: `cells` from the ending, and the answers in `cache` as the asking node's outputs.
+A node that returns `Asks` waits, and so does everything that reads it; the rest runs on. The leg ends `graph_pending` with every waiting unit: `node_id`, `row`, `prompt`, and `questions` as `Input` records named by address (`node.field`). Answering is the next leg: `state` from the ending, and the answers in `cache` as the asking node's outputs.
 
 ```python
 class Approve(NodeDefinition):
@@ -123,31 +126,31 @@ asking = CompiledGraph.from_graph(
 
 async def legs():
     first = [event async for event in execute(asking)][-1]
-    assert first["type"] == "graph_pending"
-    assert [unit["row"] for unit in first["pending"]] == [[0], [1]]
+    assert first.type == "graph_pending"
+    assert [unit.row for unit in first.pending] == [(0,), (1,)]
 
     # The node runs per row, so its answer is a Series on its index, naming the rows it answers.
     index = asking.node("approve").iterates_on
     only_second = Series(index, [Text("Second, approved")], rows=[(1,)])
-    second = [event async for event in execute(asking, record=first["record"], cache={"approve": {"result": only_second}})][-1]
-    assert [unit["row"] for unit in second["pending"]] == [[0]]
+    second = [event async for event in execute(asking, state=first.state, cache={"approve": {"result": only_second}})][-1]
+    assert [unit.row for unit in second.pending] == [(0,)]
 
     only_first = Series(index, [Text("First, approved")], rows=[(0,)])
-    third = [event async for event in execute(asking, record=second["record"], cache={"approve": {"result": only_first}})][-1]
+    third = [event async for event in execute(asking, state=second.state, cache={"approve": {"result": only_first}})][-1]
     return third
 
 
 done = asyncio.run(legs())
-assert list(done["results"]["approve"]["result"]) == ["First, approved", "Second, approved"]
+assert list(done.state.results(asking)["approve"]["result"]) == ["First, approved", "Second, approved"]
 ```
 
-- A pending unit's `row` is a list (`[1]`), as it would be in JSON; `Series(rows=...)` takes tuples: `rows=[tuple(unit["row"]) for unit in units]`.
+- A pending unit's `row` is a tuple (`(1,)`), the form `Series(rows=...)` takes: `rows=[unit.row for unit in units]`.
 - For a node that runs once, the answer is the value itself: `cache={"approve": {"result": Text("Yes")}}`.
 - A row the answer does not name keeps what it has: done stays done, and a waiting row asks again.
 - Answering a unit already done, or a row the run has not produced, raises `ValueError`.
-- `record` is a `RunRecord`, JSON through `model_dump()`: a host stores the dump with the run and hands it back as `RunRecord.model_validate(stored)`; a node the graph has changed since, or that reads one, runs again. Nothing is checkpointed or resumed.
-- Every ending carries `record`, so a new run can also start from a failed or stopped one.
-- From a script: `paused = run_sync(compiled)` ends with `paused["type"] == "graph_pending"`, and `run_sync(compiled, record=paused["record"], cache=...)` is the next leg.
+- `state` is a `RunState`, JSON through `model_dump()`: a host stores the dump with the run and hands it back as `RunState.model_validate(stored)`; a node the graph has changed since, or that reads one, runs again. Nothing is checkpointed or resumed.
+- Every ending carries `state`, so a new run can also start from a failed or stopped one.
+- From a script: `paused = run_sync(compiled)` ends with `paused.type == "graph_pending"`, and `run_sync(compiled, state=paused.state, cache=...)` is the next leg.
 
 **Values the run supplies.** A node parameter `Annotated[T, FromRun()]` receives `from_run[T]`: `execute(compiled, from_run={Caller: caller})`. A leg not given a type some node needs raises `TypeError` before anything runs.
 
@@ -183,12 +186,12 @@ assert react.react_to_graph(wire).nodes[0].id == "words"
 - `POST /execute-stream`: server-sent events.
 - `GET /entities/{kind}`: `EntityDropdown` choices.
 
-The body is `{graph, record, cache}`. Over HTTP a per-row answer is `{"rows": [[1]], "values": [...]}`.
+The body is `{graph, state, cache}`. Over HTTP a per-row answer is `{"rows": [[1]], "values": [...]}`.
 
 ## Checklist before running a graph
 
 - [ ] Every `type` is in the registry passed to compile, at the pinned `version`; otherwise `problems` says so.
 - [ ] Every `Ref` names a node in the graph and one of its outputs; every bindings key names an input.
 - [ ] `compiled.is_runnable` is checked, and `problems` is shown when it is not.
-- [ ] The host keeps `record` from a pending ending, and every `from_run` type a node needs is passed.
+- [ ] The host keeps `state` from a pending ending, and every `from_run` type a node needs is passed.
 - [ ] A long run has `timeout=` or a `cancel` event the caller owns; closing the stream (`aclose()`, a cancelled task, or `async with aclosing(execute(compiled)) as events:`) stops every unit.

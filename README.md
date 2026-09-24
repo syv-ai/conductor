@@ -120,7 +120,7 @@ graph = Graph(nodes=[
 ])
 compiled = CompiledGraph.from_graph(graph, registry)
 
-results = run_sync(compiled)["results"]
+results = run_sync(compiled).state.results(compiled)
 print(results["n2"]["result"])  # "HELLO WORLD"
 ```
 
@@ -132,17 +132,17 @@ A single-output node's output is named `result`; a multi-output node's outputs a
 from conductor.execution.engine import execute
 
 async for event in execute(compiled):
-    match event["type"]:
+    match event.type:
         case "node_start":
-            print(f"Starting {event['node_id']}")
+            print(f"Starting {event.node_id}")
         case "node_complete":
-            print(f"Done {event['node_id']}: {event['result']}")
+            print(f"Done {event.node_id}: {event.result}")
         case "node_progress":
-            print(f"{event['node_id']}: {event['done']} of {event['total']}")
+            print(f"{event.node_id}: {event.done} of {event.total}")
         case "node_retry":
-            print(f"Retry {event['node_id']} ({event['attempt']}/{event['retries']}): {event['error']}")
+            print(f"Retry {event.node_id} ({event.attempt}/{event.retries}): {event.error}")
         case "graph_complete":
-            print(f"Done: {event['results']}")
+            print(f"Done: {event.state.results(compiled)}")
 ```
 
 A stream you leave early — a `break`, an exception — should be closed, or its units run on until the generator is collected: `async with aclosing(execute(compiled)) as events:` (from `contextlib`) closes it however the block ends, and closing it stops every unit.
@@ -346,7 +346,7 @@ A parameter marked `FromRun()` is not an input — no widget, no handle — but 
 
 def run(self, text: Annotated[Text, Param(title="Text", widget=Textarea())], clock: Annotated[Clock, FromRun()]) -> ...:
 
-results = run_sync(compiled, from_run={Clock: SystemClock()})["results"]
+results = run_sync(compiled, from_run={Clock: SystemClock()}).state.results(compiled)
 ```
 
 `Interface.needs` lists such parameters by name, and `execute` refuses to start a graph that needs a type it was not given.
@@ -377,11 +377,11 @@ compiled = CompiledGraph.from_graph(Graph(nodes=[
     GraphNode(id="approve", type="approve", version=1, bindings={"proposal": Static("Ship it")}),
 ]), registry)
 
-paused = run_sync(compiled)                                   # paused["type"] == "graph_pending"; paused["pending"]: the questions, by address
-results = run_sync(compiled, record=paused["record"], cache={"approve": {"result": Text("Approved")}})["results"]
+paused = run_sync(compiled)                                   # paused.type == "graph_pending"; paused.pending: the questions, by address
+results = run_sync(compiled, state=paused.state, cache={"approve": {"result": Text("Approved")}}).state.results(compiled)
 ```
 
-`record` is the engine's `RunRecord` of everything the earlier leg produced, so nothing is done twice, and a node the graph has changed since runs again; `cache` carries the answers as the asking node's outputs; for a node on rows, a `Series` naming the rows it answers, while a row that ran keeps its value and a row left out asks again. Every ending of a run carries its `results` and `record`, so a host can also start a new run from a failed or stopped one.
+`state` is the engine's `RunState` of everything the earlier leg produced, so nothing is done twice, and a node the graph has changed since runs again; `cache` carries the answers as the asking node's outputs; for a node on rows, a `Series` naming the rows it answers, while a row that ran keeps its value and a row left out asks again. Every ending of a run carries its `state`, so a host can also start a new run from a failed or stopped one.
 
 ### Retry
 
@@ -488,7 +488,7 @@ The `execute()` async generator yields these events:
 | `graph_timeout` | The leg ran longer than the `timeout` its caller set (carried as `timeout_seconds`) |
 | `graph_cancelled` | The `cancel` event was set |
 
-Every `graph_*` ending carries `results` and `record`.
+Every `graph_*` ending carries `state`, the run's `RunState`, a frozen snapshot; `state.results(compiled)` reads every node's values out of it.
 
 ## Using in other projects
 
@@ -557,7 +557,7 @@ wire = react.graph_to_react(graph)                # Graph → ReactFlow JSON (th
 graph2 = react.react_to_graph(wire)               # ReactFlow JSON → Graph
 ```
 
-`conductor_providers.fastapi.conductor_router(registry)` returns an APIRouter with `GET /nodes` (the palette), `POST /compile`, `POST /execute`, `POST /execute-stream` (server-sent events), and `GET /entities/{kind}` for `EntityDropdown` choices when an `entity_resolver` is given. A graph that cannot run, or a `cache` the run refuses, is a 422 on the execute routes; `/compile` answers a broken graph with 200 and its problems. `/execute` answers with the frame the leg ended on, `graph_complete` or `graph_pending`; a run that asks goes on by posting the ending's `record` back with the answers in `cache` (for a node on rows, `{"rows": [...], "values": [...]}`). Its `from_run` hook turns a request into the values `execute(from_run=...)` supplies.
+`conductor_providers.fastapi.conductor_router(registry)` returns an APIRouter with `GET /nodes` (the palette), `POST /compile`, `POST /execute`, `POST /execute-stream` (server-sent events), and `GET /entities/{kind}` for `EntityDropdown` choices when an `entity_resolver` is given. A graph that cannot run, or a `cache` the run refuses, is a 422 on the execute routes; `/compile` answers a broken graph with 200 and its problems. `/execute` answers with the frame the leg ended on, `graph_complete` or `graph_pending`; a run that asks goes on by posting the ending's `state` back with the answers in `cache` (for a node on rows, `{"rows": [...], "values": [...]}`). Its `from_run` hook turns a request into the values `execute(from_run=...)` supplies.
 
 New providers (Svelte, Vue, Gradio, …) go in sibling subpackages under `conductor_providers.` — no abstract base class to satisfy; each provider picks the shape that matches its framework.
 
@@ -588,7 +588,7 @@ From `1.0.0` onward, conductor follows [Semantic Versioning](https://semver.org/
 **Public API.** A name is part of the public API if it is exported from a package's `__init__` or documented in this README / `docs/`. Anything else — `_`-prefixed names, modules not re-exported from a public surface — is internal and may change in any release without warning. The public surface:
 
 - Top-level `conductor`: the node contract (`NodeDefinition`, `NodeVersion`, `GraphVersion`, `Policy`, `Deprecation`, `NodeDescription`, `version`, `upgrade`, `deprecated`, `Interface`, `FromRun`, `Input`, `Output`, `AnyWidget`, `SKIPPED`, `Asks`, `is_skipped`, `is_asking`), the type vocabulary (`DType`, `DTypeRef`, `Single`, `dtype_of`, `Series`, `Index`, `Ref`, `Result`), the registry (`NodeRegistry`, `RegistryDescription`, `TypeDescription`), and the graph (`Graph`, `GraphNode`, `FieldContent`, `Binding`, `From`, `Static`, `dependencies_of`, `is_input_node`, `CompiledGraph`, `CompiledNode`, `CompiledField`, `Problem`, `Condition`, `Atom`, `ALWAYS`)
-- `conductor.execution.engine` (`execute`, `run`, `run_sync`, also exported at the root), `conductor.errors` (`ErrorCause` and the error classes), `conductor.model` (`ConductorModel`), `conductor.widgets`, `conductor.metadata`, `conductor.execution.events` (the `*Event` `TypedDict`s)
+- `conductor.execution.engine` (`execute`, `run`, `run_sync`, also exported at the root), `conductor.errors` (`ErrorCause` and the error classes), `conductor.model` (`ConductorModel`), `conductor.widgets`, `conductor.metadata`, `conductor.execution.events` (the `*Event` models and the `ExecutionEvent` union)
 - `conductor_nodes` (`registry`, `register_all`, the category modules, `conductor_nodes.types`) and `conductor_providers.react` / `conductor_providers.fastapi`
 
 **Compatibility guarantees from `1.0.0`.**

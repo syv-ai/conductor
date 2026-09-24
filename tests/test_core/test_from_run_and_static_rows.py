@@ -72,7 +72,7 @@ def test_a_from_run_parameter_is_a_need_not_an_input():
 def test_the_run_supplies_a_need_by_type():
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="g", type="greet", version=1, bindings={"text": Static(Txt("hello"))})]), _registry())
     assert compiled.is_runnable, compiled.problems
-    assert run_sync(compiled, from_run={Who: Who("Ida")})["results"]["g"]["result"] == "hello Ida"
+    assert run_sync(compiled, from_run={Who: Who("Ida")}).state.results(compiled)["g"]["result"] == "hello Ida"
 
 
 def test_a_need_the_host_did_not_provide_is_refused_before_anything_runs():
@@ -90,7 +90,7 @@ def test_a_static_sequence_on_a_scalar_input_makes_the_node_iterate():
     assert compiled.node("u").iterates_on == Index("u.text")
     assert compiled.field(Ref("u", "text")).type is Series[Txt]
     assert compiled.field(Ref("u", "result")).index == Index("u.text")
-    results = run_sync(compiled)["results"]
+    results = run_sync(compiled).state.results(compiled)
     assert list(results["u"]["result"]) == ["A", "B", "C"]
     assert results["u"]["result"].rows == ((0,), (1,), (2,))
     assert results["j"]["result"] == "A-B-C"
@@ -101,7 +101,7 @@ def test_an_empty_static_sequence_is_an_empty_series():
         GraphNode(id="u", type="upper", version=1, bindings={"text": Static([])}),
         GraphNode(id="j", type="joinall", version=1, bindings={"texts": From("u.result")}),
     ]), _registry())
-    results = run_sync(compiled)["results"]
+    results = run_sync(compiled).state.results(compiled)
     assert list(results["u"]["result"]) == []
     assert results["j"]["result"] == ""
 
@@ -109,4 +109,4 @@ def test_an_empty_static_sequence_is_an_empty_series():
 def test_a_static_string_is_one_value_not_a_sequence():
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="u", type="upper", version=1, bindings={"text": Static(Txt("abc"))})]), _registry())
     assert compiled.node("u").iterates_on is None
-    assert run_sync(compiled)["results"]["u"]["result"] == "ABC"
+    assert run_sync(compiled).state.results(compiled)["u"]["result"] == "ABC"

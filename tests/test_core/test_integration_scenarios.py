@@ -120,7 +120,7 @@ async def _events(compiled) -> list[dict]:
 
 
 def _kinds(events: list[dict]) -> list[str]:
-    return [e["type"] for e in events]
+    return [e.type for e in events]
 
 
 def _completed(events: list[dict], node_id: str) -> bool:
@@ -144,7 +144,7 @@ class TestDecisionCombinations:
                 GraphNode(id="a", type="tally", version=1, bindings={"label": Static("A"), "number": From('d.high')}),
                 GraphNode(id="b", type="always-fail", version=1, bindings={"number": From('d.low')}),
             ]), _registry())
-        r = run_sync(compiled)["results"]
+        r = run_sync(compiled).state.results(compiled)
         # A ran; B was skipped so it never failed
         assert r["a"]["result"] == "A"
         assert "b" not in r
@@ -181,7 +181,7 @@ class TestRetry:
                 return Txt("ok")
 
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="flaky", version=1)]), _registry(Flaky))
-        r = run_sync(compiled)["results"]
+        r = run_sync(compiled).state.results(compiled)
         assert r["n1"]["result"] == "ok"
         assert calls == 2  # one failure + one success
 
@@ -225,7 +225,7 @@ class TestEdgeCases:
                 GraphNode(id="taken", type="tally", version=1, bindings={"label": Static("TAKEN"), "number": From('d.high')}),
                 GraphNode(id="other", type="tally", version=1, bindings={"label": Static("OTHER"), "number": From('d.low')}),
             ]), _registry())
-        r = run_sync(compiled)["results"]
+        r = run_sync(compiled).state.results(compiled)
         assert r["taken"]["result"] == "TAKEN"
         assert "other" not in r
 
@@ -238,6 +238,6 @@ class TestEdgeCases:
                 GraphNode(id="taken", type="echo", version=1, bindings={"text": From('d.match')}),
                 GraphNode(id="else_b", type="echo", version=1, bindings={"text": From('d.other')}),
             ]), _registry(Route))
-        r = run_sync(compiled)["results"]
+        r = run_sync(compiled).state.results(compiled)
         assert r["taken"]["result"] == "data"
         assert "else_b" not in r

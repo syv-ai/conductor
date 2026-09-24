@@ -106,7 +106,7 @@ def test_closing_the_stream_after_one_event_stops_the_rest():
     async def run() -> tuple[int, int]:
         events = execute(compiled)
         async for event in events:
-            if event["type"] == "node_start" and event["node_id"] == "slow":
+            if event.type == "node_start" and event.node_id == "slow":
                 break  # the twenty rows are started; one is in its thread
         await events.aclose()
         await asyncio.sleep(0.3)
@@ -129,7 +129,7 @@ def test_cancelling_the_consumer_stops_the_rest():
 
         async def consume() -> None:
             async for event in execute(compiled):
-                if event["type"] == "node_start" and event["node_id"] == "slow":
+                if event.type == "node_start" and event.node_id == "slow":
                     started.set()
 
         consumer = asyncio.create_task(consume())
@@ -177,8 +177,8 @@ def test_an_instant_node_beside_forty_slow_rows_does_not_time_out():
 
     events = _events(compiled)
 
-    assert events[-1]["type"] == "graph_complete", events[-1]
-    assert events[-1]["results"]["instant"]["result"] == "now"
+    assert events[-1].type == "graph_complete", events[-1]
+    assert events[-1].state.results(compiled)["instant"]["result"] == "now"
     assert len(calls) == 40
 
 
@@ -221,9 +221,9 @@ def test_concurrency_one_with_a_timeout_never_has_two_calls_in_flight():
     time.sleep(0.6)  # let the abandoned thread finish before reading the counters
 
     assert most == 1
-    assert [e["type"] for e in events if e["type"] == "node_retry"] == []
-    assert events[-1]["type"] == "graph_error"
-    assert events[-1]["cause"].code == "timeout"
+    assert [e.type for e in events if e.type == "node_retry"] == []
+    assert events[-1].type == "graph_error"
+    assert events[-1].cause.code == "timeout"
     assert elapsed < 0.45, f"the leg waited {elapsed:.2f}s for an abandoned thread"
 
 
@@ -246,11 +246,11 @@ def test_a_timed_out_attempt_is_final_and_its_cause_is_timeout():
     time.sleep(0.4)
 
     assert len(calls) == 1
-    error = next(e for e in events if e["type"] == "node_error")
-    assert error["cause"].code == "timeout"
-    assert error["cause"].message == "The node did not answer in time."
-    assert error["cause"].details == {"seconds": 0.1}
-    assert "node_retry" not in [e["type"] for e in events]
+    error = next(e for e in events if e.type == "node_error")
+    assert error.cause.code == "timeout"
+    assert error.cause.message == "The node did not answer in time."
+    assert error.cause.details == {"seconds": 0.1}
+    assert "node_retry" not in [e.type for e in events]
 
 
 # -- the leg's own bound ------------------------------------------------------------
@@ -270,7 +270,8 @@ def test_execute_has_no_deadline_by_default_and_runs_a_slow_node_to_the_end():
     assert inspect.signature(execute).parameters["timeout"].default is None
     assert "timeout_seconds" not in inspect.signature(execute).parameters
 
-    assert run_sync(_single(Slow))["results"]["n1"]["result"] == "done"
+    compiled = _single(Slow)
+    assert run_sync(compiled).state.results(compiled)["n1"]["result"] == "done"
 
 
 def test_a_leg_deadline_ends_the_leg_at_once_with_graph_timeout():
@@ -288,9 +289,9 @@ def test_a_leg_deadline_ends_the_leg_at_once_with_graph_timeout():
     events = _events(_single(Slow), timeout=0.2)
     elapsed = time.monotonic() - start
 
-    assert events[-1]["type"] == "graph_timeout"
-    assert events[-1]["timeout_seconds"] == 0.2
-    assert 0.2 <= events[-1]["elapsed_seconds"] < 0.5
+    assert events[-1].type == "graph_timeout"
+    assert events[-1].timeout_seconds == 0.2
+    assert 0.2 <= events[-1].elapsed_seconds < 0.5
     assert elapsed < 0.5
 
 
@@ -304,8 +305,8 @@ def test_a_cancel_set_mid_run_ends_the_leg_within_one_event():
         types: list[str] = []
         set_at = 0.0
         async for event in execute(compiled, cancel=cancel):
-            types.append(event["type"])
-            if event["type"] == "node_start" and event["node_id"] == "slow":
+            types.append(event.type)
+            if event.type == "node_start" and event.node_id == "slow":
                 cancel.set()
                 set_at = time.monotonic()
         return types, time.monotonic() - set_at

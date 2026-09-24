@@ -48,8 +48,8 @@ nothing is deprecated first, everything below is gone in 2.0.0.
 - **Retries** go on the version: `@version(1, policy=Policy(retries=3, retry_on=(httpx.HTTPError,)))`.
   Only an `ExternalFailure` or an exception named in `retry_on` retries; anything else fails once.
 - **A pause** is a node returning `Asks`; the leg ends pending, and the next leg is
-  `execute(compiled, record=ending["record"], cache={node_id: answers})`. The record is JSON, and
-  a host that stored its dump reads it back with `RunRecord.model_validate`; a node changed between legs runs again with everything downstream.
+  `execute(compiled, state=ending.state, cache={node_id: answers})`. The state is JSON, and
+  a host that stored its dump reads it back with `RunState.model_validate`; a node changed between legs runs again with everything downstream.
 - **Types** belong to a registry: the types its nodes declare, plus `registry.add_types(...)`.
 - **Upgrading a node in a graph** is `registry.upgraded(graph, node_id)`: it runs the node's
   `@upgrade` steps, moves a renamed input's binding, lock and content, and points every edge that
@@ -72,10 +72,13 @@ nothing is deprecated first, everything below is gone in 2.0.0.
   `NodeDescription`. A registry is a container of classes by id — `"upper" in registry`,
   `registry["upper"]`, `len`, iteration over the ids — and not a `Mapping`.
 - `run` and `run_sync` beside `execute`, all at the root; `Param`, `From`, `ExternalFailure`,
-  `Refuses`, `StartRefused` and `RunRecord` at the root too.
+  `Refuses`, `StartRefused` and `RunState` at the root too.
 - `conductor.codec` (`to_wire`, `from_wire`): a value to JSON and back by its declared type.
-- `RunRecord`, the typed record every ending carries: cells in wire form, rows, the done set
-  and a fingerprint per node.
+- `RunState`, a frozen snapshot of the run's state that every ending carries: its values in wire form, the units done and a
+  fingerprint per node; a restore works the rows out again from the values. Each value is a
+  `StateValue` or, where the output was skipped, a `StateSkip`, so a malformed state is refused
+  as it is read (a 422 over HTTP) rather than inside the restore. An entry names its output by
+  address (`"ref": "node.field"`), and each done unit is a `DoneUnit` (`node_id`, `row`).
 - `CompiledField.receives`: how each input receives its value — `Iterate`, `Broadcast`, `Whole`,
   `Group` or `Gather` (`conductor.graph.receive`).
 - `CompiledNode.validate(inputs)`: a call checked against the node's interface.
@@ -150,15 +153,15 @@ nothing is deprecated first, everything below is gone in 2.0.0.
   everything under it.
 - **A run has legs.** A node that needs a person returns `Asks(questions)`,
   annotated `-> X | Asks`. The leg runs on and ends `graph_pending` with every
-  question; the next leg is `execute(compiled, record=..., cache=...)`. `cache`
+  question; the next leg is `execute(compiled, state=..., cache=...)`. `cache`
   records a node's outputs without running it; for an iterating node, only
   the rows its series names, so a row that ran keeps its value and a row left out
   asks again. A node the graph does not have, a unit already done, or a row not
   yet produced raises `StartRefused`, a `ValueError`. Every ending carries
-  `results` and `record`, a `RunRecord` that survives JSON and reads back typed
-  through the codec — a record cell that does not is `StartRefused` too; a node whose placement
+  `state`, a `RunState` that survives JSON and reads back typed
+  through the codec — a stored value that does not is `StartRefused` too; a node whose placement
   changed between legs is dropped from it with everything downstream, and runs again.
-- **`execute` takes `record`, `cache`, `from_run`, `timeout` and `cancel`**;
+- **`execute` takes `state`, `cache`, `from_run`, `timeout` and `cancel`**;
   `timeout=None`, the default, sets no limit. `context=`, `retry=` and
   `store_data=` are gone. It raises `CompilationError` for a graph that cannot
   run, and its text lists the fatal problems. A leg owns its threads and tasks:
@@ -174,7 +177,14 @@ nothing is deprecated first, everything below is gone in 2.0.0.
   `node_retry`, `node_error`** and the endings `graph_complete`,
   `graph_pending`, `graph_error`, `graph_cancelled`, `graph_timeout`.
   `flow_paused` is `graph_pending`, which carries a `pending` list; the other
-  `flow_*` endings are `graph_*`. `execute(cancel=...)` stops a leg.
+  `flow_*` endings are `graph_*`. `execute(cancel=...)` stops a leg. Each
+  event is a frozen model, one of a union discriminated on `type`, read by
+  attribute: `ending.state`, `event.type`. An ending says why the leg stopped
+  and carries the run's `state`, not a second copy of it as `results`:
+  `state.results(compiled)` reads every node's values out of any state, live or
+  stored. `node_complete` always carries `cached`. Each of the five endings is an
+  `Ending`, the class carrying `state`, and `EndingEvent` is their union, which `run` and
+  `run_sync` return.
 - **Saved and sent records are pydantic models** on `ConductorModel` (`Graph`,
   `GraphNode`, `From`, `Static`, `Problem`, `ErrorCause`, `Policy`,
   `NodeDescription`, `Input`, `Output`, the widgets, `Index`, …), with
@@ -192,14 +202,15 @@ nothing is deprecated first, everything below is gone in 2.0.0.
   `control`, `json`, `logic`, `math`, `regex` and `text`; an unknown name raises
   `KeyError`. The regex nodes run on the `regex` package with a timeout (`PatternNode.timeout`,
   two seconds); a pattern that runs past it fails the node with the code `pattern_timeout`.
-- **Providers.** `ExecuteRequest` is `{graph, record, cache}`, and `/execute` answers
+- **Providers.** `ExecuteRequest` is `{graph, state, cache}` — `state` is the `state` an
+  earlier ending carried, a wire change for any client that posts a leg — and `/execute` answers
   with the frame the leg ended on, `graph_complete` or `graph_pending`, so a run
   that asks goes on in legs over HTTP; a leg that fails still fails the request. `conductor_router`'s
   per-request hook is `from_run`; `/compile` returns the problems themselves; a
   server-sent frame dumps records, series and what they hold through pydantic,
   a float that is not a number is `null`, and a value with no JSON form raises.
   A run refused before anything runs fails `/execute-stream` the way it fails
-  `/execute`, rather than streaming nothing: a graph that cannot run, or a `cache` or `record`
+  `/execute`, rather than streaming nothing: a graph that cannot run, or a `cache` or `state`
   the run refuses (`StartRefused`), is a 422; anything else raised before the first event is a 500. `/entities/{kind}` is mounted only with an `entity_resolver`.
   `graph_to_react` puts the node record under `data`, its `display` whole, and
   `react_to_graph` returns a `Graph` with the canvas's position merged into it.

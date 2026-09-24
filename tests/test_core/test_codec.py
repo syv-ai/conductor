@@ -1,9 +1,9 @@
 """One codec: a value goes to JSON and back by its declared type.
 
 ``to_wire`` and ``from_wire`` are the one crossing between a value in
-memory and its JSON form — the ledger's cells, a cached answer, a run's
+memory and its JSON form — the ledger's values, a cached answer, a run's
 return all go through them. A series carries its index and rows and comes
-back on that index; a skip is marked beside a cell, never as a string in
+back on that index; a skip is marked beside its address, never as a string in
 the value's place.
 """
 
@@ -15,7 +15,7 @@ from conductor import CompiledGraph, GraphNode, NodeRegistry, Param
 from conductor.codec import from_wire, to_wire
 from conductor.dtype import DType
 from conductor.execution.ledger import Ledger
-from conductor.execution.record import RunRecord
+from conductor.execution.state import RunState, StateSkip
 from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
 from conductor.metadata import Result
@@ -90,7 +90,7 @@ def test_a_series_still_reads_a_plain_list_as_dense_rows_on_a_fresh_index():
     assert back.rows == ((0,), (1,)) and list(back) == ["a", "b"]
 
 
-# -- the ledger's cells ---------------------------------------------------------------
+# -- the ledger's values --------------------------------------------------------------
 
 
 class Split(NodeDefinition):
@@ -130,16 +130,16 @@ def test_a_text_that_spells_the_old_skip_marker_is_a_text_after_a_round_trip():
     ledger.record(("up", (0,)), {"result": Txt("__SKIPPED__")})
     ledger.record(("up", (1,)), {"result": Txt("X")})
 
-    record = ledger.cells()
-    restored = Ledger.restore(compiled, RunRecord.model_validate(json.loads(json.dumps(record.model_dump()))))
+    state = ledger.state()
+    restored = Ledger.restore(compiled, RunState.model_validate(json.loads(json.dumps(state.model_dump()))))
 
     values = restored.result_of("split")["result"]
     assert list(values) == ["__skipped__", "x"] and all(type(v) is Txt for v in values)
     assert list(restored.result_of("up")["result"]) == ["__SKIPPED__", "X"]
-    assert all("skipped" not in cell for cell in record.cells)
+    assert not any(isinstance(entry, StateSkip) for entry in state.values)
 
 
-def test_a_skip_is_marked_beside_the_cell_with_its_depth():
+def test_a_skip_is_marked_beside_its_address_with_its_depth():
     from conductor import SKIPPED
 
     compiled = _compiled(Split, Upper, nodes=[
@@ -151,12 +151,16 @@ def test_a_skip_is_marked_beside_the_cell_with_its_depth():
     ledger.record(("up", (0,)), {"result": SKIPPED})
     ledger.record(("up", (1,)), {"result": Txt("B")})
 
-    record = ledger.cells()
-    skipped = [cell for cell in record.cells if "skipped" in cell]
+    state = ledger.state()
+    wire = json.loads(state.model_dump_json())["values"]
 
-    assert skipped == [{"ref": ["up", "result"], "row": [0], "skipped": 1}]
-    assert all("value" not in cell for cell in skipped)
-    restored = Ledger.restore(compiled, RunRecord.model_validate(json.loads(json.dumps(record.model_dump()))))
+    assert [entry for entry in wire if "skipped" in entry] == [{"ref": "up.result", "row": [0], "skipped": 1}]
+    assert [entry for entry in wire if "value" in entry] == [
+        {"ref": "split.result", "row": [0], "value": "a"},
+        {"ref": "split.result", "row": [1], "value": "b"},
+        {"ref": "up.result", "row": [1], "value": "B"},
+    ]
+    restored = Ledger.restore(compiled, RunState.model_validate(json.loads(json.dumps(state.model_dump()))))
     assert list(restored.result_of("up")["result"]) == ["B"]
     assert restored.result_of("up")["result"].rows == ((1,),)
 
@@ -183,4 +187,4 @@ def test_a_value_with_no_json_form_raises_naming_the_field():
     ledger.record(("o", None), {"result": Opaque(object())})
 
     with pytest.raises(TypeError, match=r"o\.result"):
-        ledger.cells()
+        ledger.state()

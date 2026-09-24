@@ -136,8 +136,9 @@ def _seconds(rows: int) -> float:
     best = float("inf")
     for _ in range(3):
         started = time.perf_counter()
-        results = asyncio.run(_drain(compiled))["results"]
+        ending = asyncio.run(_drain(compiled))
         best = min(best, time.perf_counter() - started)
+        results = ending.state.results(compiled)
     short = len(range(0, rows, 3))
     assert len(results["long-joined"]["result"].split("+")) == rows - short
     assert len(results["short-joined"]["result"].split("+")) == short

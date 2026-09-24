@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import AsyncGenerator, Callable, Mapping, Sequence
 from typing import Any
 
 from conductor import NodeRegistry
 from conductor.errors import CompilationError, StartRefused
 from conductor.execution.engine import execute
-from conductor.execution.events import ExecutionEvent
+from conductor.execution.events import Ending, ExecutionEvent
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.problem import Problem
 from conductor.node import NodeDescription
@@ -39,7 +39,7 @@ def conductor_router(
       on, ``graph_complete`` or ``graph_pending``
     - ``POST {prefix}/execute-stream``  — SSE stream of ``ExecutionEvent`` frames
 
-    A run that asks goes on in legs: send the ending's ``record`` back with
+    A run that asks goes on in legs: send the ending's ``state`` back with
     the answers in ``cache`` (``ExecuteRequest``).
     - ``POST {prefix}/compile``         — compile without executing; returns
       every ``Problem`` the graph has
@@ -63,7 +63,7 @@ def conductor_router(
 
     A request the run cannot start from is the caller's fault and a 422:
     a graph with a fatal problem (``detail.problems``, the same records
-    ``/compile`` answers with), or a ``cache`` or ``record`` the run refuses
+    ``/compile`` answers with), or a ``cache`` or ``state`` the run refuses
     (``StartRefused``; ``detail`` is the reason). Anything else raised
     before the first event is the server's and stays a 500. ``/compile`` answers a broken graph with 200 and its
     problems, since describing it is what was asked.
@@ -76,20 +76,14 @@ def conductor_router(
     def _from_run(request: Request) -> Mapping[type, Any] | None:
         return from_run(request) if from_run else None
 
-    def _leg(req: ExecuteRequest, request: Request) -> Any:
+    async def _started(
+        req: ExecuteRequest, request: Request
+    ) -> tuple[CompiledGraph, AsyncGenerator[ExecutionEvent, None], ExecutionEvent]:
+        """The compiled graph, the leg and its first event, or the 422 a refused start is."""
         compiled = CompiledGraph.from_graph(req.graph, registry)
-        return execute(
-            compiled,
-            from_run=_from_run(request),
-            cache=req.cache or None,
-            record=req.record,
-        )
-
-    async def _started(req: ExecuteRequest, request: Request) -> tuple[Any, ExecutionEvent]:
-        """The leg and its first event, or the 422 a refused start is."""
-        events = _leg(req, request)
+        events = execute(compiled, from_run=_from_run(request), cache=req.cache or None, state=req.state)
         try:
-            return events, await anext(events)
+            return compiled, events, await anext(events)
         except CompilationError as refused:
             raise HTTPException(
                 status_code=422,
@@ -108,14 +102,14 @@ def conductor_router(
         """Run one leg and return the frame it ended on.
 
         Every ending is an answer: ``graph_complete`` carries the results,
-        ``graph_pending`` the questions and the record the next request
+        ``graph_pending`` the questions and the state the next request
         sends back, ``graph_error``, ``graph_cancelled`` and
         ``graph_timeout`` why the leg stopped.
         """
-        events, ending = await _started(req, request)
+        compiled, events, ending = await _started(req, request)
         async for ending in events:
             pass
-        return as_data(ending)
+        return _answered(compiled, ending)
 
     @router.post("/execute-stream")
     async def execute_graph_stream(
@@ -128,12 +122,12 @@ def conductor_router(
         ``FromRun`` value the hook did not supply) fails the request, as it
         does on ``/execute``, instead of a 200 with an empty stream.
         """
-        events, first = await _started(req, request)
+        compiled, events, first = await _started(req, request)
 
         async def event_stream() -> Any:
-            yield sse_frame(first)
+            yield sse_frame(_answered(compiled, first))
             async for event in events:
-                yield sse_frame(event)
+                yield sse_frame(_answered(compiled, event))
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -161,3 +155,14 @@ def conductor_router(
         return list(CompiledGraph.from_graph(req.graph, registry).problems)
 
     return router
+
+
+
+def _answered(compiled: CompiledGraph, event: ExecutionEvent) -> dict[str, Any]:
+    """An event as this provider's JSON: an ending also carries ``results``,
+    every node's values read from its state, since a client over HTTP has
+    no compiled graph to ask."""
+    data = as_data(event)
+    if isinstance(event, Ending):
+        data["results"] = as_data(event.state.results(compiled))
+    return data

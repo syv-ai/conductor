@@ -61,7 +61,7 @@ compiled = CompiledGraph.from_graph(
 )
 assert compiled.is_runnable, compiled.problems
 
-results = run_sync(compiled)["results"]
+results = run_sync(compiled).state.results(compiled)
 list(results["size"]["result"])     # [30.0, 30.0]: two URLs typed in, so both nodes ran once per URL
 ```
 

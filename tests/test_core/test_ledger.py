@@ -553,18 +553,65 @@ def test_progress_counts_rows_not_stand_ins():
     assert ledger.progress("up") == (1, 2)
 
 
-def test_the_ledger_restores_from_its_cells():
-    """The cells are the record; the next leg starts from them, nothing pruned."""
+def test_the_ledger_restores_from_its_state():
+    """What the ledger holds is the run's state; the next leg starts from it, nothing pruned."""
     ledger = _ledger([DOCS, GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))})])
     ledger.record(("docs", None), {"texts": ["a", "b"], "names": ["x", "y"]})
     ledger.record(("up", (0,)), Skip(at=(0,)))
 
-    restored = Ledger.restore(ledger._compiled, ledger.cells())
+    restored = Ledger.restore(ledger._compiled, ledger.state())
 
     assert restored.units("up") == ledger.units("up")
     assert restored.is_done(("up", (0,))) and not restored.is_done(("up", (1,)))
     assert restored.inputs_for(("up", (1,))) == {"text": "b"}
     assert restored.results()["docs"]["texts"].rows == ((0,), (1,))
+
+
+def _restores_as_it_was(ledger):
+    """A restore of this ledger's state has the units, completeness and progress it has."""
+    back = Ledger.restore(ledger._compiled, ledger.state())
+    for node_id in ledger._compiled.execution_order:
+        assert back.units(node_id) == ledger.units(node_id), node_id
+        assert back.complete(node_id) == ledger.complete(node_id), node_id
+        assert back.progress(node_id) == ledger.progress(node_id), node_id
+    assert back.completed_nodes() == ledger.completed_nodes()
+
+
+def test_a_restore_works_out_the_rows_a_nested_node_birthed_and_where_it_skipped():
+    """The state stores no rows: each done unit's values say which rows it
+    birthed, and a skip at its own row that it birthed none there."""
+    ledger = _ledger([
+        DOCS,
+        GraphNode(id="lines", type="lines", version=1, bindings={"text": _edge(("docs", "texts"))}),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("lines", "result"))}),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("up", "result"))}),
+    ])
+    ledger.record(("docs", None), {"texts": ["a\nb", "c"], "names": ["x", "y"]})
+    ledger.record(("lines", (0,)), {"result": ["a", "b"]})
+    ledger.record(("lines", (1,)), {"result": SKIPPED})
+    ledger.record(("up", (1,)), Skip(at=(1,)))
+    ledger.record(("up", (0, 0)), {"result": "A"})
+
+    _restores_as_it_was(ledger)
+
+
+def test_a_restore_works_out_a_skip_from_above():
+    """A node skipped at its row stands in once for every row it would have had."""
+    ledger = _ledger([DOCS, GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))})])
+    ledger.record(("docs", None), Skip(at=None))
+    ledger.record(("up", None), Skip(at=None))
+
+    _restores_as_it_was(ledger)
+
+
+@pytest.mark.parametrize("outputs", [{"texts": [], "names": []}, {"texts": SKIPPED, "names": SKIPPED}], ids=["empty", "skipped"])
+def test_a_restore_tells_an_empty_series_from_a_skipped_one(outputs):
+    """An empty series seals its index with no rows and nothing stands in; a
+    skipped one leaves the index with no rows under the unit's row, so a unit stands in."""
+    ledger = _ledger([DOCS, GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))})])
+    ledger.record(("docs", None), outputs)
+
+    _restores_as_it_was(ledger)
 
 
 def test_a_restored_ledger_names_the_nodes_an_earlier_leg_completed():
@@ -573,7 +620,7 @@ def test_a_restored_ledger_names_the_nodes_an_earlier_leg_completed():
     ledger.record(("docs", None), {"texts": ["a", "b"], "names": ["x", "y"]})
     ledger.record(("up", (0,)), {"result": "A"})
 
-    restored = Ledger.restore(ledger._compiled, ledger.cells())
+    restored = Ledger.restore(ledger._compiled, ledger.state())
 
     assert restored.completed_nodes() == {"docs"}
     restored.record(("up", (1,)), {"result": "B"})
@@ -597,6 +644,6 @@ def test_a_pending_unit_waits_and_so_does_what_reads_it():
     assert not ledger.complete("a")
     assert not ledger.ready(("b", None))
     (waiting,) = ledger.pending()
-    assert (waiting["node_id"], waiting["row"]) == ("a", None)
-    assert waiting["questions"][0].name == Ref("a", "result")
-    assert ("a", None) not in {(n, None if r is None else tuple(r)) for n, r in Ledger.restore(ledger._compiled, ledger.cells())._done}
+    assert (waiting.node_id, waiting.row) == ("a", None)
+    assert waiting.questions[0].name == Ref("a", "result")
+    assert ("a", None) not in {(n, None if r is None else tuple(r)) for n, r in Ledger.restore(ledger._compiled, ledger.state())._done}

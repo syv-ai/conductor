@@ -109,7 +109,7 @@ class TestStreamingExecution:
         ]), registry)
 
         start = time.monotonic()
-        results = run_sync(compiled)["results"]
+        results = run_sync(compiled).state.results(compiled)
         elapsed = time.monotonic() - start
 
         # Sequential would be 5 * 0.3 = 1.5s; eager is A+B, C+D, E = ~0.9s.
@@ -127,7 +127,7 @@ class TestStreamingExecution:
         async for event in execute(compiled):
             events.append(event)
 
-        event_types = [e["type"] for e in events]
+        event_types = [e.type for e in events]
         assert "node_start" in event_types
         assert "node_complete" in event_types
         assert "graph_complete" in event_types
@@ -139,7 +139,7 @@ class TestStreamingExecution:
                 GraphNode(id="n2", type="upper", version=1, bindings={"text": From('n1.result')}),
             ]), three_node_registry)
 
-        results = (await run(compiled))["results"]
+        results = (await run(compiled)).state.results(compiled)
         assert results["n2"]["result"] == "HELLO"
 
     async def test_diamond_execution(self, three_node_registry):
@@ -154,7 +154,7 @@ class TestStreamingExecution:
                 GraphNode(id="n4", type="combine", version=1, bindings={"a": From('n2.result'), "b": From('n3.result')}),
             ]), three_node_registry)
 
-        results = (await run(compiled))["results"]
+        results = (await run(compiled)).state.results(compiled)
         assert results["n4"]["result"] == "HELLO hello"
 
 
@@ -170,14 +170,14 @@ class TestSyncExecution:
                 GraphNode(id="n2", type="upper", version=1, bindings={"text": From('n1.result')}),
             ]), three_node_registry)
 
-        results = run_sync(compiled)["results"]
+        results = run_sync(compiled).state.results(compiled)
         assert results["n2"]["result"] == "WORLD"
 
     def test_single_node_no_edges(self, three_node_registry):
         """A single node with static data, no edges."""
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="echo", version=1, bindings={"text": Static("standalone")})]), three_node_registry)
 
-        results = run_sync(compiled)["results"]
+        results = run_sync(compiled).state.results(compiled)
         assert results["n1"]["result"] == "standalone"
 
 
@@ -196,7 +196,7 @@ class TestCaching:
         results = (await run(
             compiled,
             cache={"n1": {"result": "cached_value"}},
-        ))["results"]
+        )).state.results(compiled)
         # n2 should uppercase the cached value, not "hello"
         assert results["n2"]["result"] == "CACHED_VALUE"
 
@@ -214,7 +214,7 @@ class TestErrorHandling:
         async for event in execute(compiled):
             events.append(event)
 
-        event_types = [e["type"] for e in events]
+        event_types = [e.type for e in events]
         assert "node_error" in event_types
         assert "graph_error" in event_types
 
@@ -222,7 +222,7 @@ class TestErrorHandling:
         registry.register(Fail)
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="fail", version=1, bindings={"text": Static("hello")})]), registry)
 
-        assert run_sync(compiled)["type"] == "graph_error"
+        assert run_sync(compiled).type == "graph_error"
 
 
 # ---------------------------------------------------------------------------
@@ -248,7 +248,7 @@ class TestTimeout:
         async for event in execute(compiled, timeout=1):
             events.append(event)
 
-        event_types = [e["type"] for e in events]
+        event_types = [e.type for e in events]
         assert "graph_timeout" in event_types
 
 
@@ -289,8 +289,8 @@ class TestSkipPropagation:
             events.append(event)
 
         # n2 should be skipped because its only input is SKIPPED
-        skipped_events = [e for e in events if e["type"] == "node_skipped"]
-        assert any(e["node_id"] == "n2" for e in skipped_events)
+        skipped_events = [e for e in events if e.type == "node_skipped"]
+        assert any(e.node_id == "n2" for e in skipped_events)
 
 
 # ---------------------------------------------------------------------------

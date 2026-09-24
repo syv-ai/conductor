@@ -311,7 +311,7 @@ class CompiledNode:
     @property
     def fingerprint(self) -> str:
         """A hash of how the graph places this node: its type, version and
-        bindings. A run record stores one per node, and a leg restored into
+        bindings. A run's state stores one per node, and a leg restored into
         a graph whose fingerprint differs runs the node again — a static
         edited, a version bumped, an edge moved all change it; a title or a
         position does not."""
@@ -418,8 +418,8 @@ class CompiledField:
 
     @property
     def receives(self) -> Receive:
-        """How a unit of this input's node receives the value: the cell at
-        its own row (``Iterate``), the one cell there is (``Broadcast``),
+        """How a unit of this input's node receives the value: the value at
+        its own row (``Iterate``), the one value there is (``Broadcast``),
         everything on the field (``Whole``), the rows under its row
         (``Group``) or its unrelated sources collected (``Gather``) — see
         ``conductor.graph.receive``. Decided once by the

@@ -188,9 +188,9 @@ def _asking_per_row(text: str) -> CompiledGraph:
 def test_asks_with_no_questions_asks_the_declared_outputs():
     ending = _leg(_asking_once())[-1]
 
-    assert ending["type"] == "graph_pending"
-    (pending,) = ending["pending"]
-    (question,) = pending["questions"]
+    assert ending.type == "graph_pending"
+    (pending,) = ending.pending
+    (question,) = pending.questions
     assert question == Input(name=Ref("ask", "result"), dtype=Txt, title="Answer")
     assert question.widget is None
 
@@ -198,13 +198,13 @@ def test_asks_with_no_questions_asks_the_declared_outputs():
 def test_a_list_answers_a_per_row_node():
     compiled = _asking_per_row("a,b,c")
     first = _leg(compiled)[-1]
-    assert [w["row"] for w in first["pending"]] == [(0,), (1,), (2,)]
+    assert [w.row for w in first.pending] == [(0,), (1,), (2,)]
 
-    second = _leg(compiled, record=first["record"], cache={"ask": {"result": ["x", "y", "z"]}})
+    second = _leg(compiled, state=first.state, cache={"ask": {"result": ["x", "y", "z"]}})
 
-    assert second[-1]["type"] == "graph_complete"
-    assert list(second[-1]["results"]["ask"]["result"]) == ["x", "y", "z"]
-    assert second[-1]["results"]["ask"]["result"] == Series(Index("docs"), [Txt("x"), Txt("y"), Txt("z")], rows=[(0,), (1,), (2,)])
+    assert second[-1].type == "graph_complete"
+    assert list(second[-1].state.results(compiled)["ask"]["result"]) == ["x", "y", "z"]
+    assert second[-1].state.results(compiled)["ask"]["result"] == Series(Index("docs"), [Txt("x"), Txt("y"), Txt("z")], rows=[(0,), (1,), (2,)])
 
 
 def test_a_list_answers_the_rows_still_open_and_leaves_a_skipped_row_alone():
@@ -220,12 +220,12 @@ def test_a_list_answers_the_rows_still_open_and_leaves_a_skipped_row_alone():
     )
     assert compiled.is_runnable, compiled.problems
     first = _leg(compiled)[-1]
-    assert [w["row"] for w in first["pending"]] == [(0,), (2,)]
+    assert [w.row for w in first.pending] == [(0,), (2,)]
 
-    second = _leg(compiled, record=first["record"], cache={"ask": {"result": ["x", "z"]}})
+    second = _leg(compiled, state=first.state, cache={"ask": {"result": ["x", "z"]}})
 
-    assert second[-1]["type"] == "graph_complete"
-    assert second[-1]["results"]["ask"]["result"] == Series(Index("docs"), [Txt("x"), Txt("z")], rows=[(0,), (2,)])
+    assert second[-1].type == "graph_complete"
+    assert second[-1].state.results(compiled)["ask"]["result"] == Series(Index("docs"), [Txt("x"), Txt("z")], rows=[(0,), (2,)])
 
 
 def test_a_list_of_the_wrong_length_is_refused_naming_node_and_output():
@@ -233,4 +233,4 @@ def test_a_list_of_the_wrong_length_is_refused_naming_node_and_output():
     first = _leg(compiled)[-1]
 
     with pytest.raises(ValueError, match=r"'ask'.*'result'.*3 rows still open"):
-        _leg(compiled, record=first["record"], cache={"ask": {"result": ["x", "y"]}})
+        _leg(compiled, state=first.state, cache={"ask": {"result": ["x", "y"]}})

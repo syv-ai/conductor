@@ -60,7 +60,7 @@ def _events(compiled: CompiledGraph) -> list[dict]:
 
 
 def _error(events: list[dict]) -> dict:
-    return next(e for e in events if e["type"] == "node_error")
+    return next(e for e in events if e.type == "node_error")
 
 
 # -- the families -----------------------------------------------------------------
@@ -85,12 +85,12 @@ def test_a_foreign_exception_runs_once_and_is_execution_failed():
     events = _events(_compiled(Buggy))
 
     assert len(calls) == 1
-    assert [e["type"] for e in events if e["type"] == "node_retry"] == []
+    assert [e.type for e in events if e.type == "node_retry"] == []
     error = _error(events)
-    assert error["cause"].code == "execution_failed"
-    assert error["cause"].message == "The node failed."
-    assert error["error"] == "The node failed."
-    assert "missing" not in json.dumps(error["cause"].model_dump(mode="json"))
+    assert error.cause.code == "execution_failed"
+    assert error.cause.message == "The node failed."
+    assert error.error == "The node failed."
+    assert "missing" not in json.dumps(error.cause.model_dump(mode="json"))
 
 
 def test_a_foreign_exception_named_in_retry_on_is_external_and_retries():
@@ -109,14 +109,15 @@ def test_a_foreign_exception_named_in_retry_on_is_external_and_retries():
                 raise ConnectionError("socket closed")
             return Txt("ok")
 
-    events = _events(_compiled(Flaky))
+    compiled = _compiled(Flaky)
+    events = _events(compiled)
 
     assert len(calls) == 3
-    retries = [e for e in events if e["type"] == "node_retry"]
-    assert [(e["attempt"], e["retries"], e["node_id"]) for e in retries] == [(1, 2, "n1"), (2, 2, "n1")]
-    assert retries[0]["error"] == "An outside service did not answer."
-    assert events[-1]["type"] == "graph_complete"
-    assert events[-1]["results"]["n1"]["result"] == "ok"
+    retries = [e for e in events if e.type == "node_retry"]
+    assert [(e.attempt, e.retries, e.node_id) for e in retries] == [(1, 2, "n1"), (2, 2, "n1")]
+    assert retries[0].error == "An outside service did not answer."
+    assert events[-1].type == "graph_complete"
+    assert events[-1].state.results(compiled)["n1"]["result"] == "ok"
 
 
 def test_an_exhausted_external_failure_is_external_failed():
@@ -138,10 +139,10 @@ def test_an_exhausted_external_failure_is_external_failed():
 
     assert len(calls) == 3
     error = _error(events)
-    assert error["cause"].code == "external_failed"
-    assert error["cause"].message == "An outside service did not answer."
-    assert "socket" not in error["error"]
-    assert run_sync(compiled)["type"] == "graph_error"
+    assert error.cause.code == "external_failed"
+    assert error.cause.message == "An outside service did not answer."
+    assert "socket" not in error.error
+    assert run_sync(compiled).type == "graph_error"
 
 
 def test_an_external_failure_the_node_raised_retries_and_keeps_its_message():
@@ -163,8 +164,8 @@ def test_an_external_failure_the_node_raised_retries_and_keeps_its_message():
     error = _error(_events(_compiled(Bank)))
 
     assert len(calls) == 2
-    assert error["cause"].code == "external_failed"
-    assert error["cause"].message == "Nationalbanken svarede ikke."
+    assert error.cause.code == "external_failed"
+    assert error.cause.message == "Nationalbanken svarede ikke."
 
 
 def test_a_node_error_the_node_raised_runs_once_and_keeps_its_message():
@@ -188,7 +189,7 @@ def test_a_node_error_the_node_raised_runs_once_and_keeps_its_message():
     error = _error(_events(_compiled(Reader)))
 
     assert len(calls) == 1
-    assert (error["cause"].code, error["cause"].message) == ("failed", "Dokumentet kunne ikke læses.")
+    assert (error.cause.code, error.cause.message) == ("failed", "Dokumentet kunne ikke læses.")
 
 
 def test_a_nodes_own_cause_streams_as_written():
@@ -205,7 +206,7 @@ def test_a_nodes_own_cause_streams_as_written():
 
     error = _error(_events(_compiled(Reader)))
 
-    assert (error["cause"].code, error["cause"].message) == ("unreadable", "Dokumentet er beskadiget.")
+    assert (error.cause.code, error.cause.message) == ("unreadable", "Dokumentet er beskadiget.")
 
 
 def test_a_validation_error_the_node_raised_is_never_retried():
@@ -222,7 +223,7 @@ def test_a_validation_error_the_node_raised_is_never_retried():
             calls.append(1)
             raise NodeValidationError("intentionally invalid input")
 
-    assert run_sync(_compiled(Picky))["type"] == "graph_error"
+    assert run_sync(_compiled(Picky)).type == "graph_error"
 
     assert len(calls) == 1
 
@@ -244,7 +245,7 @@ def test_a_foreign_exceptions_text_is_on_original_and_nowhere_else():
             raise KeyError("secret-token")
 
     compiled = _compiled(Buggy)
-    leg = Leg(compiled, record=None, from_run={}, timeout=None, cancel=asyncio.Event())
+    leg = Leg(compiled, state=None, from_run={}, timeout=None, cancel=asyncio.Event())
 
     with pytest.raises(NodeExecutionError) as caught:
         leg._call(("n1", None), {"text": "x"})
@@ -329,7 +330,7 @@ def test_a_failed_row_is_retried_alone():
         reg,
     )
 
-    results = run_sync(compiled)["results"]
+    results = run_sync(compiled).state.results(compiled)
 
     assert list(results["rows"]["result"]) == ["A", "B", "C"]
     assert sorted(calls) == ["a", "b", "b", "c"]
@@ -382,7 +383,56 @@ def test_a_flaky_node_in_one_branch_retries_while_the_other_branch_completes():
         reg,
     )
 
-    results = run_sync(compiled)["results"]
+    results = run_sync(compiled).state.results(compiled)
 
     assert results["n3"]["result"] == "A:x+B:y"
     assert calls == {"a": 2, "b": 1}
+
+
+class Shape(DType, dict):
+    id = "failures-shape"
+    title = "Shape"
+
+
+class Square(Shape):
+    """A narrower type whose validator lets any ``Shape`` through as it is —
+    the hole a host type can have: in memory it accepts what it would never
+    build from JSON."""
+
+    id = "failures-square"
+    title = "Square"
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source_type, handler):
+        from pydantic_core import core_schema
+
+        return core_schema.no_info_plain_validator_function(
+            lambda value: value if isinstance(value, Shape) else cls(value)
+        )
+
+
+def test_a_type_whose_validator_does_not_return_the_type_fails_loud():
+    """An output is read as the type its field declares when the node
+    returns it. A type whose validator hands back something else is a bug
+    in the type, not in the node, and it fails the run naming the type,
+    rather than leaving a value on the field that its type would not build.
+    The error is the engine's kind, ``engine_error``: the node did nothing wrong."""
+
+    class Draws(NodeDefinition):
+        id = "draws"
+        title = "Draws"
+        description = "d"
+        category = "test"
+
+        def run(self) -> Annotated[Square, Result(title="Square")]:
+            return Shape(side=2)
+
+    registry = NodeRegistry()
+    registry.register(Draws)
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="d", type="draws", version=1)]), registry)
+
+    ending = run_sync(compiled)
+
+    assert ending.type == "graph_error" and ending.node_id == "d"
+    assert ending.cause.code == "engine_error" and ending.cause.details == {"exception": "TypeError"}
+    assert ending.state.results(compiled) == {}
