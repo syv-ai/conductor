@@ -56,7 +56,7 @@ assert [str(i.name) for i in open_graph.interface.inputs] == ["words.text", "wor
 assert not open_graph.is_runnable                 # words.text has no value yet: unbound_required
 
 ready = open_graph.with_inputs(text="red,green")  # by address: **{"words.text": "red,green"}
-assert ready.outputs(run_sync(ready).state) == {"joined.result": "RED + GREEN"}
+assert run_sync(ready).state.outputs(ready) == {"joined.result": "RED + GREEN"}
 ```
 
 - `with_inputs(**inputs)` returns a compiled copy with each value as a `Static` on its input; it runs nothing. Run the copy with `run`, `run_sync` or `execute` like any other.

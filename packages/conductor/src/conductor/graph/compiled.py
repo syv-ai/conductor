@@ -65,7 +65,6 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
 
-from conductor._sentinel import is_skipped
 from conductor.codec import to_wire
 from conductor.graph.binding import Binding, Static
 from conductor.graph.expand import expanded_ref
@@ -253,27 +252,6 @@ class CompiledGraph:
             raise TypeError(f"{name!r} is an input of several nodes ({both}); name one by its address")
         raise TypeError(f"{name!r} is not an input this graph offers; it offers {listing}"
                         if offered else f"{name!r}: this graph takes no inputs")
-
-    def outputs(self, state: RunState) -> dict[str, Any]:
-        """What the graph returns, from a run's state: each output of ``interface.outputs``, keyed by address.
-
-        ``results(state)`` narrowed to the interface: an output inside an
-        embedded graph is looked up on the inner node that produced it
-        (``emb.up.result`` on ``emb/up``). An output whose node did not run,
-        or that the node skipped, is absent, so any ending's state reads —
-        a failed or paused leg returns what it did produce. A single value is
-        a value; one with many rows is a ``Series``.
-        """
-        results = self.results(state)
-        returned: dict[str, Any] = {}
-        for output in self.interface.outputs:
-            at = self.expanded(output.name)
-            if at.node_id not in results:
-                continue
-            value = results[at.node_id][at.field]
-            if not is_skipped(value):
-                returned[str(output.name)] = value
-        return returned
 
     # -- a picture -----------------------------------------------------------------
 

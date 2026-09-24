@@ -2,7 +2,7 @@
 
 ``compiled.with_inputs(...)`` is a copy of the graph with those inputs
 filled, compiled again; ``run`` takes the copy like any other, and
-``compiled.outputs(ending.state)`` reads what the graph returns, keyed
+``ending.state.outputs(compiled)`` reads what the graph returns, keyed
 by address. The two are the graph's interface, used from each side.
 """
 
@@ -107,7 +107,7 @@ def _compiled(*nodes: GraphNode) -> CompiledGraph:
 def _outputs(compiled: CompiledGraph) -> dict:
     ending = run_sync(compiled)
     assert isinstance(ending, GraphCompleteEvent), ending
-    return compiled.outputs(ending.state)
+    return ending.state.outputs(compiled)
 
 
 def test_a_bare_name_fills_the_one_input_that_has_it():
@@ -195,7 +195,7 @@ def test_outputs_leave_out_a_skipped_output_and_read_what_a_failed_leg_produced(
     )
     ending = run_sync(failed)
     assert isinstance(ending, GraphErrorEvent)
-    assert failed.outputs(ending.state) == {"a.result": "OK"}
+    assert ending.state.outputs(failed) == {"a.result": "OK"}
 
 
 def test_two_fillings_are_two_graphs_with_two_fingerprints():
