@@ -11,7 +11,7 @@ a ``Series`` (a value with many rows) inside ``node_complete``'s
 ``result`` — and the host that sends an event over the network serialises
 it at that edge.
 
-Every event that ends a leg — an ``Ending`` — says why it stopped and carries ``state``:
+Every event that ends a leg is an ``Ending``: it says why it stopped and carries ``state``:
 the ``RunState`` of the run so far, a frozen snapshot in wire form,
 which ``execute(state=...)`` starts the next leg from. The values in it
 are read through the compiled graph: ``compiled.results(state)``.
@@ -84,13 +84,23 @@ class NodeRetryEvent(ConductorModel):
     delay: float
 
 
-class GraphCompleteEvent(ConductorModel):
+class Ending(ConductorModel):
+    """What every event that ends a leg is: the reason in ``type``, and the
+    run's ``state`` so far, which ``execute(state=...)`` starts the next leg
+    from. The five endings subclass it, so ``isinstance(event, Ending)``
+    tells an ending from the events a leg streams on the way; a caller that
+    wants each ending's own fields narrows on ``EndingEvent`` instead."""
+
+    type: str
+    state: RunState
+
+
+class GraphCompleteEvent(Ending):
     """The leg completed. ``state`` is the run's whole state, which a host
     can store and hand back to ``execute(state=...)`` to start a new run
     from this one; ``compiled.results(state)`` is what it produced."""
 
     type: Literal["graph_complete"]
-    state: RunState
 
 
 class PendingUnit(ConductorModel):
@@ -104,17 +114,16 @@ class PendingUnit(ConductorModel):
     questions: tuple[Any, ...]
 
 
-class GraphPendingEvent(ConductorModel):
+class GraphPendingEvent(Ending):
     """The leg ended with nodes (or rows of them) waiting on a person — all
     of them at once. ``state`` holds what the leg completed; the next leg
     starts from it with the answers in ``cache``."""
 
     type: Literal["graph_pending"]
     pending: list[PendingUnit]
-    state: RunState
 
 
-class GraphErrorEvent(ConductorModel):
+class GraphErrorEvent(Ending):
     """A node (or one row of one) failed and the leg stopped. Like every
     ending it carries ``state`` beside the cause, so a host can start a new
     run from a failed one without losing what ran."""
@@ -123,31 +132,28 @@ class GraphErrorEvent(ConductorModel):
     node_id: str
     error: str
     cause: ErrorCause
-    state: RunState
 
 
-class GraphCancelledEvent(ConductorModel):
+class GraphCancelledEvent(Ending):
     """The host set ``cancel``. ``state`` travels with the reason, as on
     every ending."""
 
     type: Literal["graph_cancelled"]
-    state: RunState
 
 
-class GraphTimeoutEvent(ConductorModel):
+class GraphTimeoutEvent(Ending):
     """The leg ran longer than the ``timeout`` its caller set (carried as
     ``timeout_seconds``). ``state`` travels with the reason, as on every
     ending."""
 
     type: Literal["graph_timeout"]
-    state: RunState
     elapsed_seconds: float
     timeout_seconds: float
 
 
-#: The events a leg ends on, each carrying ``state``: what ``run`` returns,
-#: and what ``isinstance(event, Ending)`` asks of a streamed event.
-Ending = GraphCompleteEvent | GraphPendingEvent | GraphErrorEvent | GraphCancelledEvent | GraphTimeoutEvent
+#: The five endings as one union, what ``run`` returns: narrowing on
+#: ``ending.type`` reaches each one's own fields (``pending``, ``cause``).
+EndingEvent = GraphCompleteEvent | GraphPendingEvent | GraphErrorEvent | GraphCancelledEvent | GraphTimeoutEvent
 
 ExecutionEvent = Annotated[
     NodeStartEvent
@@ -156,6 +162,6 @@ ExecutionEvent = Annotated[
     | NodeSkippedEvent
     | NodeErrorEvent
     | NodeRetryEvent
-    | Ending,
+    | EndingEvent,
     Field(discriminator="type"),
 ]

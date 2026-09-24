@@ -214,7 +214,7 @@ A failed unit fails the run: no further unit starts, and the leg ends at once. A
 
 ### Events
 
-`execute` yields events (`conductor.execution.events`), each a frozen model read by attribute — `event.type`, `ending.state` — and one of the union `ExecutionEvent`, discriminated on `type`. The five `graph_*` events are the union `Ending`, each carrying `state`; `isinstance(event, Ending)` asks whether a leg ended:
+`execute` yields events (`conductor.execution.events`), each a frozen model read by attribute — `event.type`, `ending.state` — and one of the union `ExecutionEvent`, discriminated on `type`. Each of the five `graph_*` events is an `Ending`, the class that carries `state`, and `EndingEvent` is their union; `isinstance(event, Ending)` asks whether a leg ended:
 
 | Event | Carries |
 |---|---|
@@ -279,7 +279,7 @@ Everything else is imported from the module that defines it.
 ### conductor.execution.engine
 
 - `execute(compiled, *, state=None, cache=None, from_run=None, timeout=None, cancel=None)` — one leg, as an async generator of events; `timeout` bounds the leg in seconds, `None` means no bound.
-- `run(compiled, **kwargs)` — `execute` drained: returns the `Ending` the leg ended on — `graph_complete`, `graph_pending`, `graph_error`, `graph_cancelled` or `graph_timeout`. A pause is an ending, not an exception.
+- `run(compiled, **kwargs)` — `execute` drained: returns the `EndingEvent` the leg ended on — `graph_complete`, `graph_pending`, `graph_error`, `graph_cancelled` or `graph_timeout`. A pause is an ending, not an exception.
 - `run_sync(compiled, **kwargs)` — `run` under `asyncio.run`, for a script or a test; under a running loop (a notebook, a server) it refuses, naming `await conductor.run(...)`.
 
 All three are root exports: `from conductor import execute, run, run_sync`.

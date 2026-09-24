@@ -181,8 +181,9 @@ nothing is deprecated first, everything below is gone in 2.0.0.
   attribute: `ending.state`, `event.type`. An ending says why the leg stopped
   and carries the run's `state`, not a second copy of it as `results`:
   `compiled.results(state)` reads every node's values out of any state, live or
-  stored. `node_complete` always carries `cached`. The five endings are the
-  union `Ending`, which `run` and `run_sync` return and `isinstance` accepts.
+  stored. `node_complete` always carries `cached`. Each of the five endings is an
+  `Ending`, the class carrying `state`, and `EndingEvent` is their union, which `run` and
+  `run_sync` return.
 - **Saved and sent records are pydantic models** on `ConductorModel` (`Graph`,
   `GraphNode`, `From`, `Static`, `Problem`, `ErrorCause`, `Policy`,
   `NodeDescription`, `Input`, `Output`, the widgets, `Index`, …), with

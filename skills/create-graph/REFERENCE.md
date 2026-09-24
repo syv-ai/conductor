@@ -81,7 +81,7 @@ assert results["loud"]["result"].rows == ((0,), (1,), (2,))
 | `graph_cancelled` | `state` |
 | `graph_timeout` | `state`, `elapsed_seconds`, `timeout_seconds` |
 
-An ending — an `Ending`, the five `graph_*` events — says why the leg stopped and carries `state`, the run's state; `compiled.results(state)` reads every node's values out of any state, live or stored.
+An ending — one of the five `graph_*` events, each an `Ending` — says why the leg stopped and carries `state`, the run's state; `compiled.results(state)` reads every node's values out of any state, live or stored.
 
 ```python
 async def watch(compiled):
