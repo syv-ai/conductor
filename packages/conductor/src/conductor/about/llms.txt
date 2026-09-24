@@ -52,7 +52,7 @@ compiled = CompiledGraph.from_graph(graph, registry)
 assert compiled.is_runnable, compiled.problems
 
 ending = await run(compiled)       # a notebook cell; from a script, run_sync(compiled) — the same ending event
-results = ending["results"]
+results = ending.results
 list(results["upper"]["result"])   # ["A", "B", "C"] — three values typed into one input: it ran once per value
 results["join"]["result"]          # "A+B+C" — Series[Text] received the whole series, once
 ```
@@ -170,7 +170,7 @@ The engine's unit of work is a node on a row. A node that runs once is one unit;
 
 One call of `execute` is one **leg**. It runs until nothing is runnable and nothing is in flight.
 
-A node that needs a person returns `Asks(questions=(Input(...), ...), prompt=None)` — or `Asks()`, which asks for its declared outputs with no widget, so the host picks the control from the type. Its unit waits, everything that reads it waits, and the rest of the graph runs on. When the leg goes quiet it ends `graph_pending` with every waiting unit — node, row, prompt and questions named by address — plus `results` and `cells`. An iterating asking node asks once per row, in one pending set.
+A node that needs a person returns `Asks(questions=(Input(...), ...), prompt=None)` — or `Asks()`, which asks for its declared outputs with no widget, so the host picks the control from the type. Its unit waits, everything that reads it waits, and the rest of the graph runs on. When the leg goes quiet it ends `graph_pending` with every waiting unit — node, row, prompt and questions named by address — plus `state`. An iterating asking node asks once per row, in one pending set.
 
 Answering is the next leg, and it is `execute` again:
 
@@ -178,10 +178,10 @@ Answering is the next leg, and it is `execute` again:
 first = [event async for event in execute(compiled)]
 ending = first[-1]                                              # type == "graph_pending"
 answers = {"approve": {"result": Text("Approved")}}             # for a node on rows, a Series naming the rows it answers
-second = [event async for event in execute(compiled, record=ending["record"], cache=answers)]
+second = [event async for event in execute(compiled, state=ending.state, cache=answers)]
 ```
 
-`record` is the `RunRecord` of everything earlier legs produced — every cell in wire form and a fingerprint per node — so nothing done is done twice, and a node the graph has changed since (a static edited, a version bumped, an edge moved), or that reads one, runs again; `record.without(node_id)` drops a node on purpose, so it and its readers run again; `cache` records a node's outputs without running it. For a node on rows only the rows the series names are recorded, so a row that ran keeps its value and a row left out asks again; a unit already done, or a row not yet produced, raises `ValueError`. A node the cache completes is reported as `node_complete` with `cached=True`, one it only advances as `node_progress`. A person's answer and a reused result are the same statement to the engine. Nothing is checkpointed and nothing resumes.
+`state` is the `RunState` of everything earlier legs produced, a frozen snapshot — every value in wire form and a fingerprint per node — so nothing done is done twice, and a node the graph has changed since (a static edited, a version bumped, an edge moved), or that reads one, runs again; `state.without(node_id)` drops a node on purpose, so it and its readers run again; `cache` records a node's outputs without running it. For a node on rows only the rows the series names are recorded, so a row that ran keeps its value and a row left out asks again; a unit already done, or a row not yet produced, raises `ValueError`. A node the cache completes is reported as `node_complete` with `cached=True`, one it only advances as `node_progress`. A person's answer and a reused result are the same statement to the engine. Nothing is checkpointed and nothing resumes.
 
 Values the run supplies arrive by type: a parameter annotated `Annotated[T, FromRun()]` receives the value keyed `T` in `execute(from_run={T: value})`. `Interface.needs` lists them, and a leg that lacks one refuses to start.
 
@@ -210,25 +210,25 @@ ConductorError
 │   └── NodeTimeoutError        the policy's timeout expired; final
 ```
 
-A failed unit fails the run: no further unit starts, and the leg ends at once. A `run` already in its worker thread is not interrupted; it finishes, and what it returns is dropped. Every ending carries `results` and `cells`, so a host can start a new run from a failed one.
+A failed unit fails the run: no further unit starts, and the leg ends at once. A `run` already in its worker thread is not interrupted; it finishes, and what it returns is dropped. Every ending carries `state`, so a host can start a new run from a failed one.
 
 ### Events
 
-`execute` yields `TypedDict` events (`conductor.execution.events`):
+`execute` yields events (`conductor.execution.events`), each a frozen model read by attribute — `event.type`, `ending.results` — and one of the union `ExecutionEvent`, discriminated on `type`:
 
 | Event | Carries |
 |---|---|
 | `node_start` | `node_id` — the node's first unit started |
 | `node_progress` | `node_id`, `done`, `total` (`None` until every row exists) |
-| `node_complete` | `node_id`, `result` (a `Series` for outputs on rows); `cached: true` only when `cache` supplied the node |
+| `node_complete` | `node_id`, `result` (a `Series` for outputs on rows); `cached` (`true` when `cache` supplied the node) |
 | `node_skipped` | `node_id` — skipped above its rows |
 | `node_retry` | `node_id`, `row`, `attempt`, `retries`, `error`, `delay` |
 | `node_error` | `node_id`, `error`, `cause` |
-| `graph_complete` | `results`, `record` |
-| `graph_pending` | `pending`, `results`, `record` |
-| `graph_error` | `node_id`, `error`, `cause`, `results`, `record` |
-| `graph_cancelled` | `results`, `record` |
-| `graph_timeout` | `results`, `record`, `elapsed_seconds`, `timeout_seconds` |
+| `graph_complete` | `results`, `state` |
+| `graph_pending` | `pending`, `results`, `state` |
+| `graph_error` | `node_id`, `error`, `cause`, `results`, `state` |
+| `graph_cancelled` | `results`, `state` |
+| `graph_timeout` | `results`, `state`, `elapsed_seconds`, `timeout_seconds` |
 
 A frame carries records (a `Series`, an `ErrorCause`, an `Input`), not their JSON; the host serialises them at its edge. `results` is `{node_id: {output_name: value}}`.
 
@@ -278,7 +278,7 @@ Everything else is imported from the module that defines it.
 
 ### conductor.execution.engine
 
-- `execute(compiled, *, record=None, cache=None, from_run=None, timeout=None, cancel=None)` — one leg, as an async generator of events; `timeout` bounds the leg in seconds, `None` means no bound.
+- `execute(compiled, *, state=None, cache=None, from_run=None, timeout=None, cancel=None)` — one leg, as an async generator of events; `timeout` bounds the leg in seconds, `None` means no bound.
 - `run(compiled, **kwargs)` — `execute` drained: returns the event the leg ended on — `graph_complete`, `graph_pending`, `graph_error`, `graph_cancelled` or `graph_timeout`. A pause is an ending, not an exception.
 - `run_sync(compiled, **kwargs)` — `run` under `asyncio.run`, for a script or a test; under a running loop (a notebook, a server) it refuses, naming `await conductor.run(...)`.
 
@@ -353,7 +353,7 @@ conductor_nodes.register_all(my_registry, categories=["logic"])        # added t
 ### conductor-providers
 
 - `conductor_providers.react` — `graph_to_react(graph)` (ReactFlow JSON: the node record under each node's `data`, edges derived from the bindings, positions laid out where none is stored), `react_to_graph(wire)` (a node's `display` comes back whole with the canvas's position merged in, and the graph's own `display` too).
-- `conductor_providers.fastapi` — `conductor_router(registry, *, prefix, tags, dependencies, from_run, entity_resolver)`: `GET /nodes`, `POST /compile` (every problem), `POST /execute` (the frame the leg ended on, `graph_complete` or `graph_pending`; a failed leg fails the request), `POST /execute-stream` (server-sent events), and `GET /entities/{kind}` when an `entity_resolver` is given. A graph that cannot run, or a `cache` or `record` the run refuses (`StartRefused`), is a 422. The body is `ExecuteRequest` — `graph`, `record`, `cache` — so a run that asks goes on in legs: send the ending's `record` back with the answers in `cache`, and for a node on rows each answer as `{"rows": [...], "values": [...]}`. `from_run(request)` returns the values `execute(from_run=...)` supplies; `sse_frame(event)` serialises one event.
+- `conductor_providers.fastapi` — `conductor_router(registry, *, prefix, tags, dependencies, from_run, entity_resolver)`: `GET /nodes`, `POST /compile` (every problem), `POST /execute` (the frame the leg ended on, `graph_complete` or `graph_pending`; a failed leg fails the request), `POST /execute-stream` (server-sent events), and `GET /entities/{kind}` when an `entity_resolver` is given. A graph that cannot run, or a `cache` or `state` the run refuses (`StartRefused`), is a 422. The body is `ExecuteRequest` — `graph`, `state`, `cache` — so a run that asks goes on in legs: send the ending's `state` back with the answers in `cache`, and for a node on rows each answer as `{"rows": [...], "values": [...]}`. `from_run(request)` returns the values `execute(from_run=...)` supplies; `sse_frame(event)` serialises one event.
 
 ## Project Structure
 
@@ -384,7 +384,7 @@ packages/
 | Several branches merged back per row | Several refs on one index into one input |
 | Items from unrelated sources in one list | Several refs on different indexes into a `Series[X]` input |
 | Route around a branch | Return `SKIPPED` on the output not taken; share a `choice` |
-| Pause for a person's answer | Return `Asks`; answer with `execute(record=..., cache=...)` |
+| Pause for a person's answer | Return `Asks`; answer with `execute(state=..., cache=...)` |
 | A service or identity inside a node | `Annotated[T, FromRun()]` and `execute(from_run={T: value})` |
 | Automatic retry on transient errors | `Policy(retries=..., delay=...)` on the version |
 | Limit how many rows run at once | `Policy(concurrency=...)` |

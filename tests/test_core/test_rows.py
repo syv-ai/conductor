@@ -199,7 +199,7 @@ def _docs(texts):
 def _run(nodes):
     compiled = CompiledGraph.from_graph(Graph(nodes=nodes), _registry())
     assert compiled.is_runnable, compiled.problems
-    return run_sync(compiled)["results"]
+    return run_sync(compiled).results
 
 
 def _events(nodes):
@@ -376,12 +376,12 @@ def test_a_failed_row_fails_the_node_and_the_cause_names_the_row():
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("f", "result"))}),
     ])
 
-    (error,) = [e for e in events if e["type"] == "node_error"]
-    assert error["node_id"] == "f"
-    assert error["cause"].code == "boom"
-    assert error["cause"].row == (1,)
-    assert events[-1]["type"] == "graph_error"
-    assert not any(e["type"] == "node_start" and e["node_id"] == "j" for e in events)
+    (error,) = [e for e in events if e.type == "node_error"]
+    assert error.node_id == "f"
+    assert error.cause.code == "boom"
+    assert error.cause.row == (1,)
+    assert events[-1].type == "graph_error"
+    assert not any(e.type == "node_start" and e.node_id == "j" for e in events)
 
 
 def test_run_sync_returns_the_error_ending_with_its_cause():
@@ -391,9 +391,9 @@ def test_run_sync_returns_the_error_ending_with_its_cause():
     )
 
     ending = run_sync(compiled)
-    assert ending["type"] == "graph_error"
-    assert ending["node_id"] == "f"
-    assert ending["cause"].row == (0,)
+    assert ending.type == "graph_error"
+    assert ending.node_id == "f"
+    assert ending.cause.row == (0,)
 
 
 def test_a_defect_in_the_engine_fails_the_leg_instead_of_hanging_it(monkeypatch):
@@ -403,7 +403,7 @@ def test_a_defect_in_the_engine_fails_the_leg_instead_of_hanging_it(monkeypatch)
     from conductor.execution.ledger import Ledger
 
     def broken(self, unit):
-        raise RuntimeError("the ledger lost a cell")
+        raise RuntimeError("the ledger lost a value")
 
     monkeypatch.setattr(Ledger, "inputs_for", broken)
     compiled = CompiledGraph.from_graph(Graph(nodes=[_docs("a,b")]), _registry())
@@ -413,10 +413,10 @@ def test_a_defect_in_the_engine_fails_the_leg_instead_of_hanging_it(monkeypatch)
 
     events = asyncio.run(gathered())
 
-    assert events[-1]["type"] == "graph_error"
-    assert events[-1]["cause"].code == "engine_error"
-    assert events[-1]["cause"].details == {"exception": "RuntimeError"}
-    assert "the ledger lost a cell" not in events[-1]["error"]
+    assert events[-1].type == "graph_error"
+    assert events[-1].cause.code == "engine_error"
+    assert events[-1].cause.details == {"exception": "RuntimeError"}
+    assert "the ledger lost a value" not in events[-1].error
 
 
 def test_a_graph_compile_rejected_is_refused_with_its_problems():
@@ -448,10 +448,10 @@ def test_a_policy_of_one_runs_rows_one_at_a_time():
 def test_progress_is_per_row_and_the_total_is_known_once_the_index_is_sealed():
     events = _events([_docs("a,b,c"), GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))})])
 
-    progress = [(e["done"], e["total"]) for e in events if e["type"] == "node_progress" and e["node_id"] == "up"]
+    progress = [(e.done, e.total) for e in events if e.type == "node_progress" and e.node_id == "up"]
     assert progress == [(1, 3), (2, 3), (3, 3)]
-    assert [e["type"] for e in events if e.get("node_id") == "up"][0] == "node_start"
-    assert [e["type"] for e in events if e.get("node_id") == "up"][-1] == "node_complete"
+    assert [e.type for e in events if getattr(e, "node_id", None) == "up"][0] == "node_start"
+    assert [e.type for e in events if getattr(e, "node_id", None) == "up"][-1] == "node_complete"
 
 
 def test_computed_inputs_reach_the_node_as_keywords():
@@ -491,24 +491,23 @@ def test_computed_inputs_reach_the_node_as_keywords():
     )
     assert compiled.is_runnable, compiled.problems
 
-    assert list(run_sync(compiled)["results"]["t"]["result"]) == ["Dear Ida (24-1)", "Dear Bo (24-1)"]
+    assert list(run_sync(compiled).results["t"]["result"]) == ["Dear Ida (24-1)", "Dear Bo (24-1)"]
 
 
 def test_node_complete_carries_the_series():
     events = _events([_docs("a,b"), GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))})])
 
-    (done,) = [e for e in events if e["type"] == "node_complete" and e["node_id"] == "up"]
-    assert list(done["result"]["result"]) == ["A", "B"]
-    assert events[-1]["type"] == "graph_complete"
+    (done,) = [e for e in events if e.type == "node_complete" and e.node_id == "up"]
+    assert list(done.result["result"]) == ["A", "B"]
+    assert events[-1].type == "graph_complete"
 
 
 # --- every ending is one shape ----------------------------------------------------
 
 
-def test_a_cancelled_leg_carries_its_results_and_record():
+def test_a_cancelled_leg_carries_its_state():
     """`graph_cancelled` and `graph_timeout` end a leg the way `graph_complete`
-    and `graph_pending` do — the results so far and the ledger's cells beside
-    their reason — so a host can start a new run from any ending."""
+    and `graph_pending` do — the run's state beside their reason — so a host can start a new run from any ending."""
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="a", type="upper", version=1, bindings={"text": Static("a")}),
@@ -522,14 +521,14 @@ def test_a_cancelled_leg_carries_its_results_and_record():
     async def leg(**kwargs):
         return [e async for e in execute(compiled, **kwargs)]
 
-    (ending,) = [e for e in asyncio.run(leg(cache={"a": {"result": Txt("klar")}}, cancel=stop)) if e["type"] == "graph_cancelled"]
-    assert ending["results"]["a"]["result"] == "klar"
+    (ending,) = [e for e in asyncio.run(leg(cache={"a": {"result": Txt("klar")}}, cancel=stop)) if e.type == "graph_cancelled"]
+    assert ending.results["a"]["result"] == "klar"
     assert "completed_nodes" not in ending
 
-    seeded = asyncio.run(leg(record=ending["record"]))
-    assert seeded[-1]["type"] == "graph_complete"
-    assert seeded[-1]["results"]["b"]["result"] == "B"
-    assert not any(e["type"] == "node_start" and e["node_id"] == "a" for e in seeded)
+    seeded = asyncio.run(leg(state=ending.state))
+    assert seeded[-1].type == "graph_complete"
+    assert seeded[-1].results["b"]["result"] == "B"
+    assert not any(e.type == "node_start" and e.node_id == "a" for e in seeded)
 
 
 # --- a leg ends pending ---------------------------------------------------
@@ -583,18 +582,18 @@ def test_a_node_that_asks_ends_the_leg_pending_with_its_question_named_by_addres
     )
     events = _leg(compiled)
 
-    assert events[-1]["type"] == "graph_pending"
-    (waiting,) = events[-1]["pending"]
-    assert (waiting["node_id"], waiting["row"]) == ("ask", None)
-    (question,) = waiting["questions"]
+    assert events[-1].type == "graph_pending"
+    (waiting,) = events[-1].pending
+    assert (waiting.node_id, waiting.row) == ("ask", None)
+    (question,) = waiting.questions
     assert question.name == "ask.result" and question.default == "proposal"
-    assert events[-1]["results"]["other"]["result"] == "X"
-    assert "up" not in events[-1]["results"]
-    assert not any(e["type"] == "node_start" and e["node_id"] == "up" for e in events)
+    assert events[-1].results["other"]["result"] == "X"
+    assert "up" not in events[-1].results
+    assert not any(e.type == "node_start" and e.node_id == "up" for e in events)
 
 
-def test_answering_is_the_next_leg_from_the_record_and_the_cache():
-    """The answer is the asking node's output in ``cache``; the cells carry
+def test_answering_is_the_next_leg_from_the_state_and_the_cache():
+    """The answer is the asking node's output in ``cache``; the state carries
     what the first leg produced, so nothing done is done twice."""
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
@@ -606,12 +605,12 @@ def test_answering_is_the_next_leg_from_the_record_and_the_cache():
     )
     first = _leg(compiled)[-1]
 
-    second = _leg(compiled, record=first["record"], cache={"ask": {"result": Txt("yes")}})
+    second = _leg(compiled, state=first.state, cache={"ask": {"result": Txt("yes")}})
 
-    assert second[-1]["type"] == "graph_complete"
-    assert second[-1]["results"]["up"]["result"] == "YES"
-    assert second[-1]["results"]["ask"]["result"] == "yes"
-    assert not any(e["type"] == "node_start" and e["node_id"] in ("other", "ask") for e in second)
+    assert second[-1].type == "graph_complete"
+    assert second[-1].results["up"]["result"] == "YES"
+    assert second[-1].results["ask"]["result"] == "yes"
+    assert not any(e.type == "node_start" and e.node_id in ("other", "ask") for e in second)
 
 
 def test_an_iterating_asking_node_pends_once_per_row_and_is_answered_as_a_series():
@@ -627,13 +626,13 @@ def test_an_iterating_asking_node_pends_once_per_row_and_is_answered_as_a_series
     )
     first = _leg(compiled)[-1]
 
-    assert first["type"] == "graph_pending"
-    assert [(w["node_id"], w["row"]) for w in first["pending"]] == [("ask", (0,)), ("ask", (1,))]
-    assert [w["questions"][0].default for w in first["pending"]] == ["a", "b"]
+    assert first.type == "graph_pending"
+    assert [(w.node_id, w.row) for w in first.pending] == [("ask", (0,)), ("ask", (1,))]
+    assert [w.questions[0].default for w in first.pending] == ["a", "b"]
 
-    second = _leg(compiled, record=first["record"], cache={"ask": {"result": Series(Index("docs"), [Txt("x"), Txt("y")])}})
+    second = _leg(compiled, state=first.state, cache={"ask": {"result": Series(Index("docs"), [Txt("x"), Txt("y")])}})
 
-    assert list(second[-1]["results"]["up"]["result"]) == ["X", "Y"]
+    assert list(second[-1].results["up"]["result"]) == ["X", "Y"]
 
 
 class AsksIfLong(NodeDefinition):
@@ -666,39 +665,39 @@ def test_an_answer_fills_the_rows_it_names_and_the_rows_already_done_stay():
     names row 1, and rows 0 and 2 keep what they produced."""
     compiled = _asks_if_long("a,long,b")
     first = _leg(compiled)[-1]
-    assert [(w["node_id"], w["row"]) for w in first["pending"]] == [("ask", (1,))]
+    assert [(w.node_id, w.row) for w in first.pending] == [("ask", (1,))]
 
-    second = _leg(compiled, record=first["record"], cache={"ask": {"result": Series(Index("docs"), [Txt("yes")], rows=[(1,)])}})
+    second = _leg(compiled, state=first.state, cache={"ask": {"result": Series(Index("docs"), [Txt("yes")], rows=[(1,)])}})
 
-    assert second[-1]["type"] == "graph_complete"
-    assert list(second[-1]["results"]["ask"]["result"]) == ["a", "yes", "b"]
-    assert list(second[-1]["results"]["up"]["result"]) == ["A", "YES", "B"]
-    (cached,) = [e for e in second if e["type"] == "node_complete" and e["node_id"] == "ask"]
-    assert cached["cached"] is True and list(cached["result"]["result"]) == ["a", "yes", "b"]
+    assert second[-1].type == "graph_complete"
+    assert list(second[-1].results["ask"]["result"]) == ["a", "yes", "b"]
+    assert list(second[-1].results["up"]["result"]) == ["A", "YES", "B"]
+    (cached,) = [e for e in second if e.type == "node_complete" and e.node_id == "ask"]
+    assert cached.cached is True and list(cached.result["result"]) == ["a", "yes", "b"]
 
 
 def test_a_row_left_unanswered_asks_again_in_the_next_leg():
     compiled = _asks_if_long("long,longer")
     first = _leg(compiled)[-1]
 
-    second = _leg(compiled, record=first["record"], cache={"ask": {"result": Series(Index("docs"), [Txt("yes")], rows=[(0,)])}})
+    second = _leg(compiled, state=first.state, cache={"ask": {"result": Series(Index("docs"), [Txt("yes")], rows=[(0,)])}})
 
-    assert second[-1]["type"] == "graph_pending"
-    assert [(w["node_id"], w["row"]) for w in second[-1]["pending"]] == [("ask", (1,))]
-    assert [(e["done"], e["total"]) for e in second if e["type"] == "node_progress" and e["node_id"] == "ask"] == [(1, 2)]
-    assert not any(e["type"] == "node_complete" and e["node_id"] == "ask" for e in second)
+    assert second[-1].type == "graph_pending"
+    assert [(w.node_id, w.row) for w in second[-1].pending] == [("ask", (1,))]
+    assert [(e.done, e.total) for e in second if e.type == "node_progress" and e.node_id == "ask"] == [(1, 2)]
+    assert not any(e.type == "node_complete" and e.node_id == "ask" for e in second)
 
 
 def test_a_unit_already_done_cannot_be_given_a_result():
-    """The cells say what a leg produced; a cache entry that contradicts
+    """The state says what a leg produced; a cache entry that contradicts
     them is refused rather than laid over them."""
     compiled = _asks_if_long("a,long")
     first = _leg(compiled)[-1]
 
     with pytest.raises(ValueError, match="'docs' is already done"):
-        _leg(compiled, record=first["record"], cache={"docs": {"texts": Series(Index("docs"), [Txt("z")]), "names": Series(Index("docs"), [Txt("n")])}})
+        _leg(compiled, state=first.state, cache={"docs": {"texts": Series(Index("docs"), [Txt("z")]), "names": Series(Index("docs"), [Txt("n")])}})
     with pytest.raises(ValueError, match=r"'ask' at row \[0\] is already done"):
-        _leg(compiled, record=first["record"], cache={"ask": {"result": Series(Index("docs"), [Txt("z"), Txt("yes")])}})
+        _leg(compiled, state=first.state, cache={"ask": {"result": Series(Index("docs"), [Txt("z"), Txt("yes")])}})
 
 
 def test_a_row_the_run_has_not_produced_cannot_be_answered():
@@ -716,9 +715,9 @@ def test_two_asking_nodes_in_parallel_are_one_pending_set():
         ]),
         _registry_with_asks(),
     )
-    (ending,) = [e for e in _leg(compiled) if e["type"] == "graph_pending"]
+    (ending,) = [e for e in _leg(compiled) if e.type == "graph_pending"]
 
-    assert sorted(w["node_id"] for w in ending["pending"]) == ["a", "b"]
+    assert sorted(w.node_id for w in ending.pending) == ["a", "b"]
 
 
 def test_run_sync_returns_the_pending_ending():
@@ -728,12 +727,12 @@ def test_run_sync_returns_the_pending_ending():
     )
 
     pending = run_sync(compiled)
-    assert pending["type"] == "graph_pending"
-    assert [w["node_id"] for w in pending["pending"]] == ["ask"]
+    assert pending.type == "graph_pending"
+    assert [w.node_id for w in pending.pending] == ["ask"]
 
-    answered = _leg(compiled, record=pending["record"], cache={"ask": {"result": Txt("yes")}})
-    assert answered[-1]["type"] == "graph_complete"
-    assert answered[-1]["results"]["ask"]["result"] == "yes"
+    answered = _leg(compiled, state=pending.state, cache={"ask": {"result": Txt("yes")}})
+    assert answered[-1].type == "graph_complete"
+    assert answered[-1].results["ask"]["result"] == "yes"
 
 
 # --- an embedded graph runs as nodes of the one run --------------------------------
@@ -776,7 +775,7 @@ def test_a_typed_in_list_inside_an_iterating_embedded_graph_is_a_child_row_under
     )
     assert compiled.node("emb/t").iterates_on.parent == Index("docs")
 
-    results = run_sync(compiled)["results"]
+    results = run_sync(compiled).results
 
     assert list(results["emb/j"]["result"]) == joined
     assert results["emb/t"]["result"].rows == tuple((i, n) for i in range(len(joined)) for n in range(2))
@@ -815,7 +814,7 @@ def test_an_inner_reduction_over_the_entering_series_runs_once_per_outer_row():
         _registry_with_asks(Embedded),
     )
     assert compiled.is_runnable, compiled.problems
-    results = run_sync(compiled)["results"]
+    results = run_sync(compiled).results
 
     assert list(results["emb/holder"]["result"]) == ["A", "B", "C"]
     assert list(results["emb/gather"]["result"]) == ["A", "B", "C"]

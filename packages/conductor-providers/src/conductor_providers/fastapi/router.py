@@ -39,7 +39,7 @@ def conductor_router(
       on, ``graph_complete`` or ``graph_pending``
     - ``POST {prefix}/execute-stream``  — SSE stream of ``ExecutionEvent`` frames
 
-    A run that asks goes on in legs: send the ending's ``record`` back with
+    A run that asks goes on in legs: send the ending's ``state`` back with
     the answers in ``cache`` (``ExecuteRequest``).
     - ``POST {prefix}/compile``         — compile without executing; returns
       every ``Problem`` the graph has
@@ -63,7 +63,7 @@ def conductor_router(
 
     A request the run cannot start from is the caller's fault and a 422:
     a graph with a fatal problem (``detail.problems``, the same records
-    ``/compile`` answers with), or a ``cache`` or ``record`` the run refuses
+    ``/compile`` answers with), or a ``cache`` or ``state`` the run refuses
     (``StartRefused``; ``detail`` is the reason). Anything else raised
     before the first event is the server's and stays a 500. ``/compile`` answers a broken graph with 200 and its
     problems, since describing it is what was asked.
@@ -82,7 +82,7 @@ def conductor_router(
             compiled,
             from_run=_from_run(request),
             cache=req.cache or None,
-            record=req.record,
+            state=req.state,
         )
 
     async def _started(req: ExecuteRequest, request: Request) -> tuple[Any, ExecutionEvent]:
@@ -108,7 +108,7 @@ def conductor_router(
         """Run one leg and return the frame it ended on.
 
         Every ending is an answer: ``graph_complete`` carries the results,
-        ``graph_pending`` the questions and the record the next request
+        ``graph_pending`` the questions and the state the next request
         sends back, ``graph_error``, ``graph_cancelled`` and
         ``graph_timeout`` why the leg stopped.
         """
