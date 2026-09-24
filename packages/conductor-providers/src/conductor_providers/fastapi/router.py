@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import AsyncGenerator, Callable, Mapping, Sequence
 from typing import Any
 
 from conductor import NodeRegistry
@@ -76,7 +76,9 @@ def conductor_router(
     def _from_run(request: Request) -> Mapping[type, Any] | None:
         return from_run(request) if from_run else None
 
-    async def _started(req: ExecuteRequest, request: Request) -> tuple[CompiledGraph, Any, ExecutionEvent]:
+    async def _started(
+        req: ExecuteRequest, request: Request
+    ) -> tuple[CompiledGraph, AsyncGenerator[ExecutionEvent, None], ExecutionEvent]:
         """The compiled graph, the leg and its first event, or the 422 a refused start is."""
         compiled = CompiledGraph.from_graph(req.graph, registry)
         events = execute(compiled, from_run=_from_run(request), cache=req.cache or None, state=req.state)
