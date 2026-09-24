@@ -154,11 +154,11 @@ def test_a_skip_is_marked_beside_its_address_with_its_depth():
     state = ledger.state()
     wire = json.loads(state.model_dump_json())["values"]
 
-    assert [entry for entry in wire if "skipped" in entry] == [{"ref": ["up", "result"], "row": [0], "skipped": 1}]
+    assert [entry for entry in wire if "skipped" in entry] == [{"ref": "up.result", "row": [0], "skipped": 1}]
     assert [entry for entry in wire if "value" in entry] == [
-        {"ref": ["split", "result"], "row": [0], "value": "a"},
-        {"ref": ["split", "result"], "row": [1], "value": "b"},
-        {"ref": ["up", "result"], "row": [1], "value": "B"},
+        {"ref": "split.result", "row": [0], "value": "a"},
+        {"ref": "split.result", "row": [1], "value": "b"},
+        {"ref": "up.result", "row": [1], "value": "B"},
     ]
     restored = Ledger.restore(compiled, RunState.model_validate(json.loads(json.dumps(state.model_dump()))))
     assert list(restored.result_of("up")["result"]) == ["B"]

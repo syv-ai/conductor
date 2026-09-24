@@ -30,30 +30,42 @@ from typing import Any
 from pydantic import Field
 
 from conductor.model import ConductorModel
+from conductor.ref import Ref
+from conductor.series import Row
 
 
-class StateValue(ConductorModel):
-    """One value the run holds: an output of a node at a row, in wire form.
+class StateEntry(ConductorModel):
+    """Where one entry of a run's state sits: an output of a node, by its
+    address (``ref``, ``"node.field"``), at a row (``None`` on a node that
+    ran once). What sits there is the subclass's: ``StateValue`` or
+    ``StateSkip``."""
 
-    ``ref`` is the output as ``(node_id, field)``; ``row`` is the row it sits
-    at, ``None`` on a node that ran once; ``value`` is what the codec wrote
-    for it, which may be ``null``. Its twin is ``StateSkip``: an entry is one
-    or the other, told apart by which key it has.
-    """
+    ref: Ref
+    row: Row | None
 
-    ref: tuple[str, str]
-    row: tuple[int, ...] | None
+
+class StateValue(StateEntry):
+    """A value the run holds there, as the codec wrote it (which may be
+    ``null``). Its twin is ``StateSkip``: an entry is one or the other, told
+    apart by which key it has."""
+
     value: Any
 
 
-class StateSkip(ConductorModel):
-    """A skip the run holds in place of a value: the output, its row, and
-    ``skipped``, the depth of the row the skip was written at. A skip has no
-    type, so nothing is written for a value."""
+class StateSkip(StateEntry):
+    """A skip the run holds there in place of a value: ``skipped`` is the
+    depth of the row the skip was written at. A skip has no type, so nothing
+    is written for a value."""
 
-    ref: tuple[str, str]
-    row: tuple[int, ...] | None
     skipped: int
+
+
+class DoneUnit(ConductorModel):
+    """A unit that ran to completion: a node, and the row it ran for
+    (``None`` for a node that ran once)."""
+
+    node_id: str
+    row: Row | None
 
 
 class RunState(ConductorModel):
@@ -67,15 +79,14 @@ class RunState(ConductorModel):
     ``StateSkip`` where the output was skipped. An entry that is neither is
     refused when the state is read, so a malformed state fails where it
     arrives rather than inside a restore.
-    ``done_units`` are the units that ran to completion, a node and the row
-    it ran for (``null`` for a node that ran once). ``node_fingerprints`` is
+    ``done_units`` are the units that ran to completion, each a ``DoneUnit``. ``node_fingerprints`` is
     one hash per node of its placement in the graph,
     ``CompiledNode.fingerprint``. ``RunState()`` is the state of a run that
     has produced nothing.
     """
 
     values: list[StateValue | StateSkip] = Field(default_factory=list)
-    done_units: list[tuple[str, list[int] | None]] = Field(default_factory=list)
+    done_units: list[DoneUnit] = Field(default_factory=list)
     node_fingerprints: dict[str, str] = Field(default_factory=dict)
 
     def without(self, *node_ids: str) -> RunState:
@@ -90,7 +101,7 @@ class RunState(ConductorModel):
             return any(node_id == dropped or node_id.startswith(f"{dropped}/") for dropped in node_ids)
 
         return self.model_copy(update={
-            "values": [entry for entry in self.values if not gone(entry.ref[0])],
-            "done_units": [(node_id, row) for node_id, row in self.done_units if not gone(node_id)],
+            "values": [entry for entry in self.values if not gone(entry.ref.node_id)],
+            "done_units": [unit for unit in self.done_units if not gone(unit.node_id)],
             "node_fingerprints": {node_id: fingerprint for node_id, fingerprint in self.node_fingerprints.items() if not gone(node_id)},
         })

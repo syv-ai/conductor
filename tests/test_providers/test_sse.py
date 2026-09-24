@@ -33,7 +33,7 @@ def _payload(event: ExecutionEvent) -> dict:
 
 def test_a_series_keeps_its_index_and_rows_and_an_ending_dumps_its_state():
     lines = Series(Index("lines", parent=Index("docs")), [Text("a"), Text("b")], rows=((0, 0), (1, 0)))
-    state = RunState(values=[{"ref": ["split", "result"], "row": [0], "value": "a"}], node_fingerprints={"split": "f" * 64})
+    state = RunState(values=[{"ref": "split.result", "row": [0], "value": "a"}], node_fingerprints={"split": "f" * 64})
 
     payload = _payload(NodeCompleteEvent(type="node_complete", node_id="split", result={"result": lines}))
     ending = _payload(GraphCompleteEvent(type="graph_complete", state=state))

@@ -329,10 +329,11 @@ def test_a_state_value_that_does_not_read_back_as_its_type_is_refused():
 
 @pytest.mark.parametrize("entry", [
     {"row": None, "value": "A"},
-    {"ref": ["e"], "row": None, "value": "A"},
-    {"ref": ["e", "result"], "row": None},
-    {"ref": ["e", "result"], "row": None, "value": "A", "skipped": 0},
-    {"ref": ["e", "result"], "value": "A"},
+    {"ref": "e", "row": None, "value": "A"},
+    {"ref": ["e", "result"], "row": None, "value": "A"},
+    {"ref": "e.result", "row": None},
+    {"ref": "e.result", "row": None, "value": "A", "skipped": 0},
+    {"ref": "e.result", "value": "A"},
 ])
 def test_a_state_entry_that_is_not_a_value_or_a_skip_is_refused_where_it_arrives(entry):
     """Each entry is an address, a row, and either ``value`` or ``skipped``;

@@ -77,7 +77,8 @@ nothing is deprecated first, everything below is gone in 2.0.0.
 - `RunState`, a frozen snapshot of the run's state that every ending carries: its values in wire form, the units done and a
   fingerprint per node; a restore works the rows out again from the values. Each value is a
   `StateValue` or, where the output was skipped, a `StateSkip`, so a malformed state is refused
-  as it is read (a 422 over HTTP) rather than inside the restore.
+  as it is read (a 422 over HTTP) rather than inside the restore. An entry names its output by
+  address (`"ref": "node.field"`), and each done unit is a `DoneUnit` (`node_id`, `row`).
 - `CompiledField.receives`: how each input receives its value — `Iterate`, `Broadcast`, `Whole`,
   `Group` or `Gather` (`conductor.graph.receive`).
 - `CompiledNode.validate(inputs)`: a call checked against the node's interface.
