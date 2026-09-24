@@ -60,7 +60,7 @@ from collections.abc import AsyncGenerator, Mapping
 from typing import Any
 
 from conductor.errors import CompilationError
-from conductor.execution.events import ExecutionEvent
+from conductor.execution.events import Ending, ExecutionEvent
 from conductor.execution.leg import Leg
 from conductor.execution.state import RunState
 from conductor.graph.compiled import CompiledGraph
@@ -128,11 +128,11 @@ async def execute(
             await events.aclose()
 
 
-async def run(compiled: CompiledGraph, **kwargs: Any) -> ExecutionEvent:
+async def run(compiled: CompiledGraph, **kwargs: Any) -> Ending:
     """Run one leg to its end and return the event it ended on.
 
-    ``execute`` with the same arguments, drained: the ending is
-    ``graph_complete`` (``state``), ``graph_pending`` (the questions a
+    ``execute`` with the same arguments, drained: the ending, an
+    ``Ending`` from ``conductor.execution.events``, is ``graph_complete`` (``state``), ``graph_pending`` (the questions a
     person must answer, and the ``state`` the next leg
     takes), ``graph_error``, ``graph_cancelled`` or ``graph_timeout``. A
     pause is an ending like any other, not an exception: the caller reads
@@ -142,12 +142,12 @@ async def run(compiled: CompiledGraph, **kwargs: Any) -> ExecutionEvent:
     ending: ExecutionEvent | None = None
     async for ending in execute(compiled, **kwargs):
         pass
-    if ending is None:
-        raise RuntimeError("the leg ended without an event")
+    if not isinstance(ending, Ending):
+        raise RuntimeError(f"the leg ended on {ending!r}, not an ending — an engine bug")
     return ending
 
 
-def run_sync(compiled: CompiledGraph, **kwargs: Any) -> ExecutionEvent:
+def run_sync(compiled: CompiledGraph, **kwargs: Any) -> Ending:
     """``run`` for a script or a test: the same call under ``asyncio.run``.
 
     Inside a running event loop — a notebook, a server — it refuses,

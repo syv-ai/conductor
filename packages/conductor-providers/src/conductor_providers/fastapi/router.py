@@ -8,14 +8,7 @@ from typing import Any
 from conductor import NodeRegistry
 from conductor.errors import CompilationError, StartRefused
 from conductor.execution.engine import execute
-from conductor.execution.events import (
-    ExecutionEvent,
-    GraphCancelledEvent,
-    GraphCompleteEvent,
-    GraphErrorEvent,
-    GraphPendingEvent,
-    GraphTimeoutEvent,
-)
+from conductor.execution.events import Ending, ExecutionEvent
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.problem import Problem
 from conductor.node import NodeDescription
@@ -162,14 +155,12 @@ def conductor_router(
     return router
 
 
-_ENDINGS = (GraphCompleteEvent, GraphPendingEvent, GraphErrorEvent, GraphCancelledEvent, GraphTimeoutEvent)
-
 
 def _answered(compiled: CompiledGraph, event: ExecutionEvent) -> dict[str, Any]:
     """An event as this provider's JSON: an ending also carries ``results``,
     every node's values read from its state, since a client over HTTP has
     no compiled graph to ask."""
     data = as_data(event)
-    if isinstance(event, _ENDINGS):
+    if isinstance(event, Ending):
         data["results"] = as_data(compiled.results(event.state))
     return data

@@ -11,7 +11,7 @@ a ``Series`` (a value with many rows) inside ``node_complete``'s
 ``result`` — and the host that sends an event over the network serialises
 it at that edge.
 
-Every event that ends a leg says why it stopped and carries ``state``:
+Every event that ends a leg — an ``Ending`` — says why it stopped and carries ``state``:
 the ``RunState`` of the run so far, a frozen snapshot in wire form,
 which ``execute(state=...)`` starts the next leg from. The values in it
 are read through the compiled graph: ``compiled.results(state)``.
@@ -145,6 +145,10 @@ class GraphTimeoutEvent(ConductorModel):
     timeout_seconds: float
 
 
+#: The events a leg ends on, each carrying ``state``: what ``run`` returns,
+#: and what ``isinstance(event, Ending)`` asks of a streamed event.
+Ending = GraphCompleteEvent | GraphPendingEvent | GraphErrorEvent | GraphCancelledEvent | GraphTimeoutEvent
+
 ExecutionEvent = Annotated[
     NodeStartEvent
     | NodeProgressEvent
@@ -152,10 +156,6 @@ ExecutionEvent = Annotated[
     | NodeSkippedEvent
     | NodeErrorEvent
     | NodeRetryEvent
-    | GraphCompleteEvent
-    | GraphPendingEvent
-    | GraphErrorEvent
-    | GraphCancelledEvent
-    | GraphTimeoutEvent,
+    | Ending,
     Field(discriminator="type"),
 ]

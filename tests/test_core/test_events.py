@@ -10,12 +10,13 @@ client from names the same fields, with ``type`` required on every event.
 """
 
 import json
-from typing import Annotated
+from typing import Annotated, get_args
 
 import pytest
 from conductor import Asks, GraphNode, NodeRegistry, Param, run_sync
 from conductor.dtype import DType
 from conductor.execution.events import (
+    Ending,
     ExecutionEvent,
     GraphCompleteEvent,
     GraphPendingEvent,
@@ -168,3 +169,13 @@ def test_a_pending_unit_is_a_record_too():
     (unit,) = ending.pending
     assert (unit.node_id, unit.row) == ("q", None)
     assert unit.questions[0].name == Ref("q", "result")
+
+
+def test_a_leg_ends_on_an_ending_and_run_returns_it():
+    """``Ending`` is the events a leg stops on — every ``graph_*`` event in the
+    union and nothing else — and ``run`` returns one, so its ``state`` is read
+    without narrowing first."""
+    endings = {get_args(event.model_fields["type"].annotation)[0] for event in get_args(Ending)}
+    assert endings == {name for name in SHAPES if name.startswith("graph_")}
+    assert isinstance(run_sync(_compiled("a,b")), Ending)
+    assert not isinstance(NodeStartEvent(type="node_start", node_id="s"), Ending)

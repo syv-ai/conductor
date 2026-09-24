@@ -9,6 +9,7 @@ from typing import Annotated
 import conductor_nodes
 from conductor import Asks, CompiledGraph, From, Graph, GraphNode, Input, NodeDefinition, Param, Ref, Result, run, run_sync, Series, Static
 from conductor.execution.engine import execute
+from conductor.execution.events import Ending
 from conductor.widgets import Textarea
 from conductor_nodes.types import Text
 
@@ -80,14 +81,14 @@ assert results["loud"]["result"].rows == ((0,), (1,), (2,))
 | `graph_cancelled` | `state` |
 | `graph_timeout` | `state`, `elapsed_seconds`, `timeout_seconds` |
 
-An ending says why the leg stopped and carries `state`, the run's state; `compiled.results(state)` reads every node's values out of any state, live or stored.
+An ending — an `Ending`, the five `graph_*` events — says why the leg stopped and carries `state`, the run's state; `compiled.results(state)` reads every node's values out of any state, live or stored.
 
 ```python
 async def watch(compiled):
     async for event in execute(compiled):
         if event.type == "node_progress":
             print(event.node_id, event.done, "of", event.total)
-        elif event.type.startswith("graph_"):
+        elif isinstance(event, Ending):
             return event
 
 
