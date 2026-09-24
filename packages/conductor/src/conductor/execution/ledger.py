@@ -38,13 +38,14 @@ found it. A unit whose every series output is skipped births no rows, so
 a node that would run per row of that index runs once at the shorter row
 instead. That is how a skip keeps its reach down a chain.
 
-What the ledger holds is the run's state. ``state()`` is everything a leg produced,
-and ``restore`` starts the next leg from it. A leg is one call of
-``execute``; a run takes several when a node waits on a person. Nothing
-is pruned, so a unit done in one leg stays done in the next. Every value
-crosses through the codec (``conductor.codec``) by the type compile gave
-its field, and a skip is marked ``{"skipped": <depth>}`` beside its
-address, since a skip has no type to cross by.
+What the ledger holds is the run's state. ``state()`` writes down its
+values, its done units and a fingerprint per node, and ``restore`` starts
+the next leg from them, working the rows out again from the values. A
+leg is one call of ``execute``; a run takes several when a node waits on
+a person. Nothing is pruned, so a unit done in one leg stays done in
+the next. Every value crosses through the codec (``conductor.codec``) by
+the type compile gave its field, and a skip is marked ``{"skipped":
+<depth>}`` beside its address, since a skip has no type to cross by.
 """
 
 from __future__ import annotations
@@ -85,6 +86,10 @@ class Skip:
     """
 
     at: Row | None
+
+
+#: A row no key can be: ``None`` is the row of a node that ran once.
+_NOWHERE = object()
 
 
 def _depth(row: Row | None) -> int:
@@ -882,12 +887,6 @@ class Ledger:
         """
         return RunState(
             values=[self._value_wire(ref, row, value) for ref, by_row in self._values.items() for row, value in by_row.items()],
-            rows_by_index={index_id: [list(r) for r in sorted(rows)] for index_id, rows in self._rows.items()},
-            sealed_indexes=sorted(self._sealed),
-            childless_parent_rows={
-                index_id: [None if r is None else list(r) for r in sorted(rows, key=lambda r: () if r is None else r)]
-                for index_id, rows in self._no_rows_under.items()
-            },
             done_units=[(node_id, None if row is None else list(row)) for node_id, row in self._done],
             node_fingerprints={node_id: self._compiled.node(node_id).fingerprint for node_id in self._compiled.execution_order},
         )
@@ -918,10 +917,12 @@ class Ledger:
         A node the state fingerprints differently from ``compiled`` — or
         does not fingerprint at all, or that ``compiled`` no longer has — is
         left out together with everything that reads it, so those units run
-        again; the rest is restored, each value read back
-        through the codec by its field's type. The rows of a typed-in list
-        are never taken from the state: the graph as it is now says how
-        many values the author typed, and a fresh ledger births them. A
+        again; the rest is restored, each value read back through the codec
+        by its field's type. The rows are not stored: each done unit's values
+        birth them again, as its write did (``_rebirth``), and the indexes
+        whose producers are complete are sealed again. The rows of a typed-in
+        list come from the graph as it is now, which says how many values
+        the author typed, and a fresh ledger births them. A
         value or a done unit for a node the graph does not have is left out
         too; a value that does not read back as its field's type is a
         ``StartRefused``.
@@ -932,7 +933,6 @@ class Ledger:
             {Ref(*entry["ref"]).node_id for entry in state.values} | {node_id for node_id, _ in state.done_units}
         ) - set(compiled.execution_order)
         dropped = ledger._dropped(state.node_fingerprints) | unknown
-        typed = ledger._typed_roots | ledger._typed_children
         for entry in state.values:
             ref = Ref(*entry["ref"])
             if ref.node_id in dropped:
@@ -946,25 +946,54 @@ class Ledger:
                 except (KeyError, TypeError, ValueError) as unreadable:
                     raise StartRefused(f"the state's value for {ref} does not read back: {unreadable}") from unreadable
             ledger._values.setdefault(ref, {})[row] = value
-        for index_id, rows in state.rows_by_index.items():
-            if index_id in dropped or index_id in typed:
-                continue
-            ledger._rows.setdefault(index_id, set())
-            for r in rows:
-                ledger._born(index_id, tuple(r))
-                ledger._born_typed(index_id, tuple(r))
-        ledger._sealed |= set(state.sealed_indexes) - dropped - typed
-        for index_id in sorted(ledger._sealed):
-            ledger._seal_typed(index_id, [])
-        ledger._no_rows_under.update({
-            index_id: {None if r is None else tuple(r) for r in rows}
-            for index_id, rows in state.childless_parent_rows.items()
-            if index_id not in dropped and index_id not in typed
-        })
-        for node_id, row in state.done_units:
-            if node_id not in dropped:
-                ledger._finish((node_id, None if row is None else tuple(row)))
+        done = [(node_id, None if row is None else tuple(row)) for node_id, row in state.done_units if node_id not in dropped]
+        ledger._rebirth(done)
+        for unit in done:
+            ledger._finish(unit)
+        ledger._seal([node_id for node_id in reversed(compiled.execution_order) if node_id in ledger._births and node_id not in dropped])
         return ledger
+
+    def _rebirth(self, done: list[Unit]) -> None:
+        """Birth again the rows the done units' writes birthed, and mark again
+        where they left an index with no rows: what ``record`` did as each
+        unit was written, read back off its values.
+
+        A unit of a node with a series output births the rows one level under
+        its own row that its series outputs hold values at. A unit that
+        birthed none and holds a skip on a series output at its row, or at a
+        shorter row its skip reached from, left its index with no rows under
+        that row. A unit whose series came back empty did neither. Rows are
+        born in order, and each row born births the typed-in lists under it,
+        as ``record`` does.
+        """
+        born: dict[str, set[Row]] = {}
+        for node_id, row in done:
+            if node_id not in self._births:
+                continue
+            self._rows.setdefault(node_id, set())
+            series = [
+                self._values.get(Ref(node_id, out.name), {})
+                for out in self._compiled.node(node_id).interface.outputs
+                if out.dtype.element is not None
+            ]
+            depth = _depth(row)
+            children = {
+                key
+                for by_row in series
+                for key in by_row
+                if key is not None and len(key) == depth + 1 and (row is None or key[:-1] == row)
+            }
+            if children:
+                born.setdefault(node_id, set()).update(children)
+                continue
+            at = next((key for key in _prefixes(row) for by_row in series if is_skipped(by_row.get(key, None))), _NOWHERE)
+            if at is not _NOWHERE:
+                self._no_rows_under.setdefault(node_id, set()).add(at)
+                self._barren_typed(node_id, at)
+        for node_id in self._compiled.execution_order:
+            for key in sorted(born.get(node_id, ())):
+                self._born(node_id, key)
+                self._born_typed(node_id, key)
 
     def _dropped(self, stored: Mapping[str, str]) -> set[str]:
         """The nodes a restore leaves out, given the state's fingerprints:

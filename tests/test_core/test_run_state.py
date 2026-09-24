@@ -1,7 +1,7 @@
 """A leg ends with a typed ``RunState``, and a node the graph changed runs again.
 
 The state is what a host stores between legs and hands back: every value
-in wire form, the rows born, what is done, and a fingerprint per node of
+in wire form, what is done, and a fingerprint per node of
 how the graph placed it. It survives JSON, and the next leg's results are
 typed like the first's. On restore, a node whose fingerprint differs from
 the graph it is restored into — a static edited, a version bumped, a

@@ -4,9 +4,10 @@ A run takes several legs when a node waits on a person: one call of
 ``execute`` is a leg, and the next leg has to start from everything the
 earlier ones produced. The run's state is that everything, in a form a
 host can keep in a row and hand back: every value the ledger holds, in
-JSON form, the rows born on each index, which indexes are sealed, where an
-index has no rows, which units are done — and a fingerprint per node of
-how the graph placed it. It accumulates across legs: each leg starts from
+JSON form, which units are done, and a fingerprint per node of how the
+graph placed it. Nothing else: which rows each index has, which indexes
+will gain no more and where one has none all follow from the values and
+the done units, and a restore works them out again. It accumulates across legs: each leg starts from
 the state the last one ended on and ends on a new one.
 
 Written by ``Ledger.state()`` at the end of every leg and carried on the
@@ -18,7 +19,7 @@ a binding moved — is dropped with everything downstream of it and runs
 again, and so is a node the graph no longer has.
 
 Not the results: ``compiled.results(state)`` is what the run produced by
-node and output, as values; the state is the ledger's whole bookkeeping,
+node and output, as values; the state is what the ledger needs to go on,
 in wire form, and a host never reads inside it.
 """
 
@@ -40,28 +41,22 @@ class RunState(ConductorModel):
 
     ``values`` are what each output holds at each row, each ``{"ref": [node,
     field], "row": [...] or null}`` with either ``"value"`` in JSON form or
-    ``"skipped"`` (the depth of the row the skip was written at). The next four are the
-    ledger's row bookkeeping, keyed by index id: ``rows_by_index`` is every
-    row born on an index; ``sealed_indexes`` are the indexes that will
-    never gain a row; ``childless_parent_rows`` are, per index, the parent
-    rows under which it bore no row at all; ``done_units`` are the units
-    that ran to completion, a node and the row it ran for (``null`` for a
-    node that ran once). ``node_fingerprints`` is one hash per node of its
-    placement in the graph, ``CompiledNode.fingerprint``. ``RunState()``
-    is the state of a run that has produced nothing.
+    ``"skipped"`` (the depth of the row the skip was written at).
+    ``done_units`` are the units that ran to completion, a node and the row
+    it ran for (``null`` for a node that ran once). ``node_fingerprints`` is
+    one hash per node of its placement in the graph,
+    ``CompiledNode.fingerprint``. ``RunState()`` is the state of a run that
+    has produced nothing.
     """
 
     values: list[dict[str, Any]] = Field(default_factory=list)
-    rows_by_index: dict[str, list[list[int]]] = Field(default_factory=dict)
-    sealed_indexes: list[str] = Field(default_factory=list)
-    childless_parent_rows: dict[str, list[list[int] | None]] = Field(default_factory=dict)
     done_units: list[tuple[str, list[int] | None]] = Field(default_factory=list)
     node_fingerprints: dict[str, str] = Field(default_factory=dict)
 
     def without(self, *node_ids: str) -> RunState:
         """This state as if these nodes had never run: a host's "run from here".
 
-        Their values, rows and done units go, and so do their fingerprints,
+        Their values and done units go, and so do their fingerprints,
         which is what tells ``Ledger.restore`` to run them again with
         everything that reads them. A node id also covers the inner nodes of
         an embedded graph placed under it (``approve`` covers ``approve/check``).
@@ -71,9 +66,6 @@ class RunState(ConductorModel):
 
         return self.model_copy(update={
             "values": [entry for entry in self.values if not gone(entry["ref"][0])],
-            "rows_by_index": {index_id: rows for index_id, rows in self.rows_by_index.items() if not gone(index_id)},
-            "sealed_indexes": [index_id for index_id in self.sealed_indexes if not gone(index_id)],
-            "childless_parent_rows": {index_id: rows for index_id, rows in self.childless_parent_rows.items() if not gone(index_id)},
             "done_units": [(node_id, row) for node_id, row in self.done_units if not gone(node_id)],
             "node_fingerprints": {node_id: fingerprint for node_id, fingerprint in self.node_fingerprints.items() if not gone(node_id)},
         })

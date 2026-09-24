@@ -74,8 +74,8 @@ nothing is deprecated first, everything below is gone in 2.0.0.
 - `run` and `run_sync` beside `execute`, all at the root; `Param`, `From`, `ExternalFailure`,
   `Refuses`, `StartRefused` and `RunState` at the root too.
 - `conductor.codec` (`to_wire`, `from_wire`): a value to JSON and back by its declared type.
-- `RunState`, a frozen snapshot of the run's state that every ending carries: values in wire form, rows, the done set
-  and a fingerprint per node.
+- `RunState`, a frozen snapshot of the run's state that every ending carries: its values in wire form, the units done and a
+  fingerprint per node; a restore works the rows out again from the values.
 - `CompiledField.receives`: how each input receives its value — `Iterate`, `Broadcast`, `Whole`,
   `Group` or `Gather` (`conductor.graph.receive`).
 - `CompiledNode.validate(inputs)`: a call checked against the node's interface.

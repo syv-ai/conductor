@@ -781,6 +781,27 @@ def test_a_typed_in_list_inside_an_iterating_embedded_graph_is_a_child_row_under
     assert results["emb/t"]["result"].rows == tuple((i, n) for i in range(len(joined)) for n in range(2))
 
 
+def test_a_restore_leaves_a_typed_in_list_under_a_skipped_outer_row_complete():
+    """A skip above the embedded graph leaves its typed-in list with no rows
+    under the outer row, and a restore works that out again, so the inner
+    node that stood in is still complete on the next leg."""
+    from conductor.execution.ledger import Ledger, Skip
+
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[_docs("a,b"), GraphNode(id="emb", type="typed-inside", version=1, bindings={"h.text": _edge(("docs", "texts"))})]),
+        _registry_with_asks(TypedInside),
+    )
+    live = Ledger(compiled)
+    live.record(("docs", None), Skip(at=None))
+    for node_id in compiled.execution_order[1:]:
+        live.record((node_id, None), live.inputs_for((node_id, None)))
+
+    restored = Ledger.restore(compiled, live.state())
+
+    assert restored.units("emb/t") == live.units("emb/t") == [("emb/t", None)]
+    assert restored.completed_nodes() == live.completed_nodes() == set(compiled.execution_order)
+
+
 def test_an_inner_reduction_over_the_entering_series_runs_once_per_outer_row():
     """Gathering end to end: three texts in, three joined texts out —
     the ledger groups by the iteration index's depth, so the fold of one is one
