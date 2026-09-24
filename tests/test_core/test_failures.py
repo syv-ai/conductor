@@ -387,3 +387,52 @@ def test_a_flaky_node_in_one_branch_retries_while_the_other_branch_completes():
 
     assert results["n3"]["result"] == "A:x+B:y"
     assert calls == {"a": 2, "b": 1}
+
+
+class Shape(DType, dict):
+    id = "failures-shape"
+    title = "Shape"
+
+
+class Square(Shape):
+    """A narrower type whose validator lets any ``Shape`` through as it is —
+    the hole a host type can have: in memory it accepts what it would never
+    build from JSON."""
+
+    id = "failures-square"
+    title = "Square"
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source_type, handler):
+        from pydantic_core import core_schema
+
+        return core_schema.no_info_plain_validator_function(
+            lambda value: value if isinstance(value, Shape) else cls(value)
+        )
+
+
+def test_a_type_whose_validator_does_not_return_the_type_fails_loud():
+    """An output is read as the type its field declares when the node
+    returns it. A type whose validator hands back something else is a bug
+    in the type, not in the node, and it fails the run naming the type,
+    rather than leaving a value on the field that its type would not build.
+    The error is the engine's kind, ``engine_error``: the node did nothing wrong."""
+
+    class Draws(NodeDefinition):
+        id = "draws"
+        title = "Draws"
+        description = "d"
+        category = "test"
+
+        def run(self) -> Annotated[Square, Result(title="Square")]:
+            return Shape(side=2)
+
+    registry = NodeRegistry()
+    registry.register(Draws)
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="d", type="draws", version=1)]), registry)
+
+    ending = run_sync(compiled)
+
+    assert ending.type == "graph_error" and ending.node_id == "d"
+    assert ending.cause.code == "engine_error" and ending.cause.details == {"exception": "TypeError"}
+    assert ending.state.results(compiled) == {}
