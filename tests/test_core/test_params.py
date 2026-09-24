@@ -200,7 +200,7 @@ def test_a_list_answers_a_per_row_node():
     first = _leg(compiled)[-1]
     assert [w.row for w in first.pending] == [(0,), (1,), (2,)]
 
-    second = _leg(compiled, record=first.record, cache={"ask": {"result": ["x", "y", "z"]}})
+    second = _leg(compiled, state=first.state, cache={"ask": {"result": ["x", "y", "z"]}})
 
     assert second[-1].type == "graph_complete"
     assert list(second[-1].results["ask"]["result"]) == ["x", "y", "z"]
@@ -222,7 +222,7 @@ def test_a_list_answers_the_rows_still_open_and_leaves_a_skipped_row_alone():
     first = _leg(compiled)[-1]
     assert [w.row for w in first.pending] == [(0,), (2,)]
 
-    second = _leg(compiled, record=first.record, cache={"ask": {"result": ["x", "z"]}})
+    second = _leg(compiled, state=first.state, cache={"ask": {"result": ["x", "z"]}})
 
     assert second[-1].type == "graph_complete"
     assert second[-1].results["ask"]["result"] == Series(Index("docs"), [Txt("x"), Txt("z")], rows=[(0,), (2,)])
@@ -233,4 +233,4 @@ def test_a_list_of_the_wrong_length_is_refused_naming_node_and_output():
     first = _leg(compiled)[-1]
 
     with pytest.raises(ValueError, match=r"'ask'.*'result'.*3 rows still open"):
-        _leg(compiled, record=first.record, cache={"ask": {"result": ["x", "y"]}})
+        _leg(compiled, state=first.state, cache={"ask": {"result": ["x", "y"]}})

@@ -13,7 +13,7 @@ stops when nothing more can start — because the graph is done, or
 because it's waiting for a person. The next leg picks up from what this
 one recorded.
 
-The leg's loop asks the ledger (the run's record of every value produced
+The leg's loop asks the ledger (the run's live state, every value produced
 so far, ``conductor.execution.ledger``) which units are ready, starts
 each under its node's concurrency limit and records what comes back; the
 ledger answers each record with the units it made ready, and the loop
@@ -39,9 +39,9 @@ in flight. A unit whose node returned ``Asks`` is neither done nor
 failed: it waits, everything that reads it waits, and the rest of the
 graph runs on. If anything is waiting when the
 leg goes quiet, the leg ends with ``graph_pending`` carrying every waiting
-unit's questions, plus what the leg completed and the ledger's record (a
-``RunRecord``: every cell in wire form, and a fingerprint per node). The
-next leg is ``execute`` again, with ``record`` restoring the ledger and
+unit's questions, plus the run's state (a ``RunState``: every value in
+wire form, and a fingerprint per node). The next leg is ``execute``
+again, with ``state`` restoring the ledger and
 the answers in ``cache`` as the asking node's outputs. Nothing is
 checkpointed and nothing resumes: a leg is an ordinary run over a ledger
 that already holds what earlier legs produced — and a node the graph has
@@ -49,8 +49,8 @@ changed since, or that reads one, runs again.
 
 **Every ending has one shape.** ``graph_complete``, ``graph_pending``,
 ``graph_error``, ``graph_cancelled`` and ``graph_timeout`` all carry the
-results so far and the ledger's record beside their reason, so a host can
-start a new run from any of them.
+run's state beside their reason, so a host can start a new run from any
+of them.
 """
 
 from __future__ import annotations
@@ -62,7 +62,7 @@ from typing import Any
 from conductor.errors import CompilationError
 from conductor.execution.events import ExecutionEvent
 from conductor.execution.leg import Leg
-from conductor.execution.record import RunRecord
+from conductor.execution.state import RunState
 from conductor.graph.compiled import CompiledGraph
 
 # -- entry points ---------------------------------------------------------------
@@ -71,7 +71,7 @@ from conductor.graph.compiled import CompiledGraph
 async def execute(
     compiled: CompiledGraph,
     *,
-    record: RunRecord | None = None,
+    state: RunState | None = None,
     cache: dict[str, dict[str, Any]] | None = None,
     from_run: Mapping[type, Any] | None = None,
     timeout: float | None = None,
@@ -82,9 +82,9 @@ async def execute(
     ``from_run`` supplies values to nodes by type: a ``run`` parameter
     annotated ``Annotated[X, FromRun()]`` receives ``from_run[X]``. A graph
     needing a type the host did not provide is refused before anything
-    runs. ``record`` restores the ledger of an earlier leg, cell by cell —
-    the ``RunRecord`` an ending carried; a host that stored its dump reads
-    it back with ``RunRecord.model_validate``. A node the graph has changed
+    runs. ``state`` restores the ledger of an earlier leg, value by value —
+    the ``RunState`` an ending carried; a host that stored its dump reads
+    it back with ``RunState.model_validate``. A node the graph has changed
     since that leg, and everything reading it, is left out and runs again.
     ``cache`` records outputs by node id without running the node — a
     person's answers to a pending unit, or an earlier run's results a caller
@@ -109,7 +109,7 @@ async def execute(
         raise CompilationError("the graph cannot run", problems=compiled.problems)
     leg = Leg(
         compiled,
-        record=record,
+        state=state,
         from_run=from_run or {},
         timeout=timeout,
         cancel=cancel or asyncio.Event(),
@@ -132,11 +132,11 @@ async def run(compiled: CompiledGraph, **kwargs: Any) -> ExecutionEvent:
     """Run one leg to its end and return the event it ended on.
 
     ``execute`` with the same arguments, drained: the ending is
-    ``graph_complete`` (``results`` and ``record``), ``graph_pending`` (the
-    questions a person must answer, and the ``record`` the next leg
+    ``graph_complete`` (``state``), ``graph_pending`` (the questions a
+    person must answer, and the ``state`` the next leg
     takes), ``graph_error``, ``graph_cancelled`` or ``graph_timeout``. A
     pause is an ending like any other, not an exception: the caller reads
-    ``type`` and, for a pending leg, calls again with ``record`` and
+    ``type`` and, for a pending leg, calls again with ``state`` and
     ``cache``. For code with no event loop, ``run_sync``.
     """
     ending: ExecutionEvent | None = None

@@ -67,7 +67,7 @@ class TestGraphToReact:
             assert isinstance(n["position"]["x"], int)
             assert isinstance(n["position"]["y"], int)
 
-    def test_data_is_the_placement_record(self, sample_graph):
+    def test_data_is_the_placement_state(self, sample_graph):
         """The record whole — ``version`` and the bindings included."""
         n2 = next(n for n in react.graph_to_react(sample_graph)["nodes"] if n["id"] == "n2")
         assert n2["data"]["version"] == 2

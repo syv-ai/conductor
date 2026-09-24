@@ -244,7 +244,7 @@ def test_a_foreign_exceptions_text_is_on_original_and_nowhere_else():
             raise KeyError("secret-token")
 
     compiled = _compiled(Buggy)
-    leg = Leg(compiled, record=None, from_run={}, timeout=None, cancel=asyncio.Event())
+    leg = Leg(compiled, state=None, from_run={}, timeout=None, cancel=asyncio.Event())
 
     with pytest.raises(NodeExecutionError) as caught:
         leg._call(("n1", None), {"text": "x"})

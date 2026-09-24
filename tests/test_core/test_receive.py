@@ -243,7 +243,7 @@ def test_a_default_is_not_a_static():
     assert _receives(compiled, "t", "tags") == Broadcast()
 
 
-def test_an_output_has_no_receive_record():
+def test_an_output_has_no_receive_state():
     compiled = _compiled([GraphNode(id="a", type="upper", version=1, bindings={"text": Static("hi")})])
 
     with pytest.raises(KeyError):

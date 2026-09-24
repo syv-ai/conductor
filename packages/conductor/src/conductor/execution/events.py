@@ -11,8 +11,8 @@ and ``graph_error``, a ``Series`` (a value with many rows) inside
 serialises it at that edge.
 
 Every event that ends a leg carries ``results`` (what the leg produced,
-by node and output) and ``record`` (the whole ``RunRecord`` of the run so
-far, in wire form, which ``execute(record=...)`` starts the next leg from).
+by node and output) and ``state`` (the whole ``RunState`` of the run so
+far, in wire form, which ``execute(state=...)`` starts the next leg from).
 A row on an event is a ``Row``, the path of positions the ledger uses.
 """
 
@@ -23,7 +23,7 @@ from typing import Annotated, Any, Literal
 from pydantic import Field
 
 from conductor.errors import ErrorCause
-from conductor.execution.record import RunRecord
+from conductor.execution.state import RunState
 from conductor.model import ConductorModel
 from conductor.series import Row
 
@@ -84,13 +84,13 @@ class NodeRetryEvent(ConductorModel):
 
 class GraphCompleteEvent(ConductorModel):
     """The leg completed. ``results`` is what it produced, by node and
-    output; ``record`` is the whole record of the run, which a host can
-    store and hand back to ``execute(record=...)`` to start a new run from
+    output; ``state`` is the run's whole state, which a host can
+    store and hand back to ``execute(state=...)`` to start a new run from
     this one."""
 
     type: Literal["graph_complete"]
     results: dict[str, dict[str, Any]]
-    record: RunRecord
+    state: RunState
 
 
 class PendingUnit(ConductorModel):
@@ -106,19 +106,19 @@ class PendingUnit(ConductorModel):
 
 class GraphPendingEvent(ConductorModel):
     """The leg ended with nodes (or rows of them) waiting on a person — all
-    of them at once. ``results`` is what the leg completed and ``record``
-    the whole record; the next leg starts from the record with the answers
+    of them at once. ``results`` is what the leg completed and ``state``
+    the run's whole state; the next leg starts from it with the answers
     in ``cache``."""
 
     type: Literal["graph_pending"]
     pending: list[PendingUnit]
     results: dict[str, dict[str, Any]]
-    record: RunRecord
+    state: RunState
 
 
 class GraphErrorEvent(ConductorModel):
     """A node (or one row of one) failed and the leg stopped. Like every
-    ending it carries ``results`` so far and ``record`` beside the cause, so
+    ending it carries ``results`` so far and ``state`` beside the cause, so
     a host can start a new run from a failed one without losing what ran."""
 
     type: Literal["graph_error"]
@@ -126,26 +126,26 @@ class GraphErrorEvent(ConductorModel):
     error: str
     cause: ErrorCause
     results: dict[str, dict[str, Any]]
-    record: RunRecord
+    state: RunState
 
 
 class GraphCancelledEvent(ConductorModel):
-    """The host set ``cancel``. ``results`` so far and ``record`` travel
+    """The host set ``cancel``. ``results`` so far and ``state`` travel
     with the reason, as on every ending."""
 
     type: Literal["graph_cancelled"]
     results: dict[str, dict[str, Any]]
-    record: RunRecord
+    state: RunState
 
 
 class GraphTimeoutEvent(ConductorModel):
     """The leg ran longer than the ``timeout`` its caller set (carried as
-    ``timeout_seconds``). ``results`` so far and ``record`` travel with the
+    ``timeout_seconds``). ``results`` so far and ``state`` travel with the
     reason, as on every ending."""
 
     type: Literal["graph_timeout"]
     results: dict[str, dict[str, Any]]
-    record: RunRecord
+    state: RunState
     elapsed_seconds: float
     timeout_seconds: float
 

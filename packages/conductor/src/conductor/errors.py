@@ -75,12 +75,12 @@ class Refuses(ConductorError):
 
 
 class StartRefused(ConductorError, ValueError):
-    """A run cannot start from what its caller handed it: a ``cache`` or a ``record`` that does not fit the graph.
+    """A run cannot start from what its caller handed it: a ``cache`` or a ``state`` that does not fit the graph.
 
     Raised by the ledger while it seeds a leg — an answer for a node the
     graph does not have, an output left out or not declared, a value that
-    is not its output's type, a row the run has not produced, or a record
-    cell whose value does not read back as its field's type. The caller's
+    is not its output's type, a row the run has not produced, or a value in
+    a state that does not read back as its field's type. The caller's
     fault rather than the engine's, so a provider answers it as a 422; a
     ``ValueError`` too, so a host that caught that before still does.
     """

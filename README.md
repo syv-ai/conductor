@@ -378,10 +378,10 @@ compiled = CompiledGraph.from_graph(Graph(nodes=[
 ]), registry)
 
 paused = run_sync(compiled)                                   # paused.type == "graph_pending"; paused.pending: the questions, by address
-results = run_sync(compiled, record=paused.record, cache={"approve": {"result": Text("Approved")}}).results
+results = run_sync(compiled, state=paused.state, cache={"approve": {"result": Text("Approved")}}).results
 ```
 
-`record` is the engine's `RunRecord` of everything the earlier leg produced, so nothing is done twice, and a node the graph has changed since runs again; `cache` carries the answers as the asking node's outputs; for a node on rows, a `Series` naming the rows it answers, while a row that ran keeps its value and a row left out asks again. Every ending of a run carries its `results` and `record`, so a host can also start a new run from a failed or stopped one.
+`state` is the engine's `RunState` of everything the earlier leg produced, so nothing is done twice, and a node the graph has changed since runs again; `cache` carries the answers as the asking node's outputs; for a node on rows, a `Series` naming the rows it answers, while a row that ran keeps its value and a row left out asks again. Every ending of a run carries its `state`, so a host can also start a new run from a failed or stopped one.
 
 ### Retry
 
@@ -488,7 +488,7 @@ The `execute()` async generator yields these events:
 | `graph_timeout` | The leg ran longer than the `timeout` its caller set (carried as `timeout_seconds`) |
 | `graph_cancelled` | The `cancel` event was set |
 
-Every `graph_*` ending carries `results` and `record`.
+Every `graph_*` ending carries `results` and `state`.
 
 ## Using in other projects
 
@@ -557,7 +557,7 @@ wire = react.graph_to_react(graph)                # Graph → ReactFlow JSON (th
 graph2 = react.react_to_graph(wire)               # ReactFlow JSON → Graph
 ```
 
-`conductor_providers.fastapi.conductor_router(registry)` returns an APIRouter with `GET /nodes` (the palette), `POST /compile`, `POST /execute`, `POST /execute-stream` (server-sent events), and `GET /entities/{kind}` for `EntityDropdown` choices when an `entity_resolver` is given. A graph that cannot run, or a `cache` the run refuses, is a 422 on the execute routes; `/compile` answers a broken graph with 200 and its problems. `/execute` answers with the frame the leg ended on, `graph_complete` or `graph_pending`; a run that asks goes on by posting the ending's `record` back with the answers in `cache` (for a node on rows, `{"rows": [...], "values": [...]}`). Its `from_run` hook turns a request into the values `execute(from_run=...)` supplies.
+`conductor_providers.fastapi.conductor_router(registry)` returns an APIRouter with `GET /nodes` (the palette), `POST /compile`, `POST /execute`, `POST /execute-stream` (server-sent events), and `GET /entities/{kind}` for `EntityDropdown` choices when an `entity_resolver` is given. A graph that cannot run, or a `cache` the run refuses, is a 422 on the execute routes; `/compile` answers a broken graph with 200 and its problems. `/execute` answers with the frame the leg ended on, `graph_complete` or `graph_pending`; a run that asks goes on by posting the ending's `state` back with the answers in `cache` (for a node on rows, `{"rows": [...], "values": [...]}`). Its `from_run` hook turns a request into the values `execute(from_run=...)` supplies.
 
 New providers (Svelte, Vue, Gradio, …) go in sibling subpackages under `conductor_providers.` — no abstract base class to satisfy; each provider picks the shape that matches its framework.
 

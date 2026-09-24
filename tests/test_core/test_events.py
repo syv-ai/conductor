@@ -2,7 +2,7 @@
 
 Every event ``execute`` yields is a frozen model, one of a union
 discriminated on ``type``: a caller reads ``ending.results`` the way it
-reads ``record.cells``, and can ``match`` on the class. The JSON a host
+reads ``state.values``, and can ``match`` on the class. The JSON a host
 sends is the dict it always was, and the schema a host generates its
 client from names the same fields, with ``type`` required on every event.
 """
@@ -67,16 +67,16 @@ def _compiled(text: str) -> CompiledGraph:
 
 #: Every event's fields and required fields, by its ``type``.
 SHAPES = {
-    "graph_cancelled": (["record", "results", "type"], ["record", "results", "type"]),
-    "graph_complete": (["record", "results", "type"], ["record", "results", "type"]),
+    "graph_cancelled": (["results", "state", "type"], ["results", "state", "type"]),
+    "graph_complete": (["results", "state", "type"], ["results", "state", "type"]),
     "graph_error": (
-        ["cause", "error", "node_id", "record", "results", "type"],
-        ["cause", "error", "node_id", "record", "results", "type"],
+        ["cause", "error", "node_id", "results", "state", "type"],
+        ["cause", "error", "node_id", "results", "state", "type"],
     ),
-    "graph_pending": (["pending", "record", "results", "type"], ["pending", "record", "results", "type"]),
+    "graph_pending": (["pending", "results", "state", "type"], ["pending", "results", "state", "type"]),
     "graph_timeout": (
-        ["elapsed_seconds", "record", "results", "timeout_seconds", "type"],
-        ["elapsed_seconds", "record", "results", "timeout_seconds", "type"],
+        ["elapsed_seconds", "results", "state", "timeout_seconds", "type"],
+        ["elapsed_seconds", "results", "state", "timeout_seconds", "type"],
     ),
     "node_complete": (["cached", "node_id", "result", "type"], ["node_id", "result", "type"]),
     "node_error": (["cause", "error", "node_id", "type"], ["cause", "error", "node_id", "type"]),
@@ -110,7 +110,7 @@ def test_an_ending_is_read_by_attribute_and_matched_by_class():
             assert list(results["s"]["result"]) == ["a", "b"]
         case _:
             pytest.fail(f"the leg ended {ending.type}")
-    assert ending.record.cells
+    assert ending.state.values
 
 
 def test_an_event_is_frozen_and_refuses_a_key_it_does_not_have():
@@ -144,7 +144,7 @@ def test_a_frame_is_the_json_the_dict_was():
     }
 
 
-def test_a_pending_unit_is_a_record_too():
+def test_a_pending_unit_is_a_state_too():
     registry = NodeRegistry()
     registry.register(Ask)
     compiled = CompiledGraph.from_graph(

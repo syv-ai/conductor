@@ -44,7 +44,7 @@ from conductor.execution.events import (
     NodeStartEvent,
 )
 from conductor.execution.ledger import Ledger, Skip, Unit
-from conductor.execution.record import RunRecord
+from conductor.execution.state import RunState
 from conductor.graph.compiled import CompiledGraph
 from conductor.returns import unpack
 
@@ -86,7 +86,7 @@ class Leg:
     """One leg in flight: the loop that starts ready units, and each unit's run.
 
     ``execute`` makes one per call and drops it when the leg ends; the
-    ledger outlives it as the record every ending carries. It is an async
+    ledger outlives it as the state every ending carries. It is an async
     context manager: entering it starts the watchers for the host's cancel
     event and the leg's deadline, and leaving it — however the leg ended,
     the consumer closing the stream included — stops every unit, both
@@ -120,13 +120,13 @@ class Leg:
         self,
         compiled: CompiledGraph,
         *,
-        record: RunRecord | None,
+        state: RunState | None,
         from_run: Mapping[type, Any],
         timeout: float | None,
         cancel: asyncio.Event,
     ) -> None:
         self.compiled = compiled
-        self.ledger = Ledger(compiled) if record is None else Ledger.restore(compiled, record)
+        self.ledger = Ledger(compiled) if state is None else Ledger.restore(compiled, state)
         for node_id in compiled.execution_order:
             for name, needed in compiled.node(node_id).version.interface.needs.items():
                 if needed not in from_run:
@@ -195,13 +195,13 @@ class Leg:
         while self.running:
             message = await self._next()
             if isinstance(message, _Cancelled):
-                yield GraphCancelledEvent(type="graph_cancelled", results=self.ledger.results(), record=self.ledger.cells())
+                yield GraphCancelledEvent(type="graph_cancelled", results=self.ledger.results(), state=self.ledger.state())
                 return
             if isinstance(message, _TimedOut):
                 yield GraphTimeoutEvent(
                     type="graph_timeout",
                     results=self.ledger.results(),
-                    record=self.ledger.cells(),
+                    state=self.ledger.state(),
                     elapsed_seconds=time.monotonic() - self.started_at,
                     timeout_seconds=message.seconds,
                 )
@@ -218,7 +218,7 @@ class Leg:
                     error=message.error.error,
                     cause=message.error.cause,
                     results=self.ledger.results(),
-                    record=self.ledger.cells(),
+                    state=self.ledger.state(),
                 )
                 return
             self._start(message.ready)
@@ -231,13 +231,13 @@ class Leg:
         pending = self.ledger.pending()
         if pending:
             yield GraphPendingEvent(
-                type="graph_pending", pending=pending, results=self.ledger.results(), record=self.ledger.cells()
+                type="graph_pending", pending=pending, results=self.ledger.results(), state=self.ledger.state()
             )
             return
         unfinished = [node_id for node_id in self.compiled.execution_order if not self.ledger.complete(node_id)]
         if unfinished:
             raise RuntimeError(f"nothing left to run, but {unfinished} did not complete — an engine bug")
-        yield GraphCompleteEvent(type="graph_complete", results=self.ledger.results(), record=self.ledger.cells())
+        yield GraphCompleteEvent(type="graph_complete", results=self.ledger.results(), state=self.ledger.state())
 
     async def _next(self) -> ExecutionEvent | _UnitDone | _Cancelled | _TimedOut:
         """The next thing the loop acts on: a message from a unit, or the reason to stop.
