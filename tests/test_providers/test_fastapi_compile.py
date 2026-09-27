@@ -89,11 +89,19 @@ def test_a_cache_for_a_node_the_graph_does_not_have_is_a_422(client):
 
 def test_a_state_naming_a_node_the_graph_does_not_have_leaves_it_out(client):
     graph = {"nodes": [{"id": "n1", "type": "shout", "version": 1, "bindings": {"text": {"value": "hi"}}}]}
-    state = {"values": [{"ref": ["ghost", "result"], "row": None, "value": "x"}], "done_units": [["ghost", None]]}
+    state = {"values": [{"ref": "ghost.result", "row": None, "value": "x"}], "done_units": [{"node_id": "ghost", "row": None}]}
     resp = client.post("/execute", json={"graph": graph, "state": state})
 
     assert resp.status_code == 200
     assert resp.json()["type"] == "graph_complete"
+
+
+def test_a_malformed_state_is_the_callers_fault(client):
+    graph = {"nodes": [{"id": "n1", "type": "shout", "version": 1, "bindings": {"text": {"value": "hi"}}}]}
+    state = {"values": [{"row": None, "value": "x"}]}
+    resp = TestClient(client.app, raise_server_exceptions=False).post("/execute", json={"graph": graph, "state": state})
+
+    assert resp.status_code == 422
 
 
 def test_an_error_that_is_not_a_refusal_stays_the_servers(client, monkeypatch):

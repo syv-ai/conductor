@@ -148,10 +148,24 @@ def _declared_type(name: str, value: Any, outputs: tuple[Output, ...]) -> Any:
 
 
 def _read_as(name: str, value: Any, dtype: Any) -> Any:
-    """``value`` as ``dtype``; ``SKIPPED`` and ``Any`` pass; anything the type refuses names the output."""
+    """``value`` as ``dtype``; ``SKIPPED`` and ``Any`` pass; anything the type refuses names the output.
+
+    What comes back is an instance of ``dtype``, so a value on a field is
+    always its field's type, in the leg that wrote it as in the next one,
+    which reads it back from JSON. A type whose validator hands back
+    something else — lets an instance of a wider type through as it is —
+    is a bug in the type, and a ``TypeError`` naming it, not the node's
+    ``invalid_output``.
+    """
     if is_skipped(value) or dtype is Any:
         return value
     try:
-        return from_wire(value, dtype)
+        read = from_wire(value, dtype)
     except ValueError as invalid:
         raise ValueError(f"'{name}' must be a {dtype.__name__}, not a {type(value).__name__}") from invalid
+    if isinstance(dtype, type) and not isinstance(read, dtype):
+        raise TypeError(
+            f"'{name}': {dtype.__name__} read a {type(value).__name__} as a {type(read).__name__}, "
+            f"not as a {dtype.__name__}; a type's validator must return the type"
+        )
+    return read

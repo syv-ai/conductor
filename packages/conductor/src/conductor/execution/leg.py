@@ -195,12 +195,11 @@ class Leg:
         while self.running:
             message = await self._next()
             if isinstance(message, _Cancelled):
-                yield GraphCancelledEvent(type="graph_cancelled", results=self.ledger.results(), state=self.ledger.state())
+                yield GraphCancelledEvent(type="graph_cancelled", state=self.ledger.state())
                 return
             if isinstance(message, _TimedOut):
                 yield GraphTimeoutEvent(
                     type="graph_timeout",
-                    results=self.ledger.results(),
                     state=self.ledger.state(),
                     elapsed_seconds=time.monotonic() - self.started_at,
                     timeout_seconds=message.seconds,
@@ -217,7 +216,6 @@ class Leg:
                     node_id=message.error.node_id,
                     error=message.error.error,
                     cause=message.error.cause,
-                    results=self.ledger.results(),
                     state=self.ledger.state(),
                 )
                 return
@@ -231,13 +229,13 @@ class Leg:
         pending = self.ledger.pending()
         if pending:
             yield GraphPendingEvent(
-                type="graph_pending", pending=pending, results=self.ledger.results(), state=self.ledger.state()
+                type="graph_pending", pending=pending, state=self.ledger.state()
             )
             return
         unfinished = [node_id for node_id in self.compiled.execution_order if not self.ledger.complete(node_id)]
         if unfinished:
             raise RuntimeError(f"nothing left to run, but {unfinished} did not complete — an engine bug")
-        yield GraphCompleteEvent(type="graph_complete", results=self.ledger.results(), state=self.ledger.state())
+        yield GraphCompleteEvent(type="graph_complete", state=self.ledger.state())
 
     async def _next(self) -> ExecutionEvent | _UnitDone | _Cancelled | _TimedOut:
         """The next thing the loop acts on: a message from a unit, or the reason to stop.

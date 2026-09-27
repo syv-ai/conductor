@@ -1,7 +1,7 @@
 """A leg ends with a typed ``RunState``, and a node the graph changed runs again.
 
 The state is what a host stores between legs and hands back: every value
-in wire form, the rows born, what is done, and a fingerprint per node of
+in wire form, what is done, and a fingerprint per node of
 how the graph placed it. It survives JSON, and the next leg's results are
 typed like the first's. On restore, a node whose fingerprint differs from
 the graph it is restored into — a static edited, a version bumped, a
@@ -14,6 +14,7 @@ import asyncio
 import json
 from typing import Annotated
 
+import pytest
 from conductor import Asks, CompiledGraph, GraphNode, NodeRegistry
 from conductor.dtype import DType
 from conductor.execution.engine import execute
@@ -25,6 +26,7 @@ from conductor.node import NodeDefinition, upgrade, version
 from conductor.ref import Ref
 from conductor.series import Series
 from conductor.widgets import Textarea
+from pydantic import ValidationError
 
 
 class Txt(DType, str):
@@ -151,9 +153,9 @@ def test_a_paused_legs_state_survives_json_and_the_next_leg_returns_typed_result
     second = _leg(compiled, state=restored, cache={"ask": {"result": Series(compiled.field(Ref("split", "result")).index, [Txt("x"), Txt("y")])}})
 
     assert second[-1].type == "graph_complete"
-    parts = second[-1].results["split"]["result"]
+    parts = second[-1].state.results(compiled)["split"]["result"]
     assert isinstance(parts, Series) and all(type(v) is Txt for v in parts)
-    assert list(second[-1].results["up"]["result"]) == ["X", "Y"]
+    assert list(second[-1].state.results(compiled)["up"]["result"]) == ["X", "Y"]
     assert calls.count("split") == 1
 
 
@@ -188,8 +190,8 @@ def test_a_static_edited_between_legs_reruns_that_node_and_its_readers_and_nothi
     ending = _leg(edited, state=_through_json(state))[-1]
 
     assert ending.type == "graph_complete"
-    assert ending.results["c"]["result"] == "[Y]"
-    assert ending.results["d"]["result"] == "alone"
+    assert ending.state.results(edited)["c"]["result"] == "[Y]"
+    assert ending.state.results(edited)["d"]["result"] == "alone"
     assert sorted(calls) == ["echo:y", "upper:y", "wrap:Y"]
 
 
@@ -212,8 +214,8 @@ def test_a_node_removed_between_legs_is_dropped_with_its_readers():
     ending = _leg(smaller, state=_through_json(state))[-1]
 
     assert ending.type == "graph_complete"
-    assert set(ending.results) == {"a", "b", "d"}
-    assert ending.results["d"]["result"] == "[x]"
+    assert set(ending.state.results(smaller)) == {"a", "b", "d"}
+    assert ending.state.results(smaller)["d"]["result"] == "[x]"
     assert calls == ["wrap:x"]
 
 
@@ -229,7 +231,7 @@ def test_a_nodes_shape_changed_between_legs_reruns_it():
     bumped = _compiled([nodes[0], GraphNode(id="w", type="wrap", version=2, bindings={"text": _edge("a")})])
     ending = _leg(bumped, state=_through_json(state))[-1]
 
-    assert ending.results["w"]["result"] == "<x>"
+    assert ending.state.results(bumped)["w"]["result"] == "<x>"
     assert calls == ["wrap2:x"]
 
 
@@ -249,7 +251,7 @@ def test_without_drops_a_node_on_purpose_with_everything_downstream():
     ending = _leg(compiled, state=_through_json(state.without("up")))[-1]
 
     assert ending.type == "graph_complete"
-    assert list(ending.results["w"]["result"]) == ["[A]", "[B]"]
+    assert list(ending.state.results(compiled)["w"]["result"]) == ["[A]", "[B]"]
     assert sorted(calls) == ["upper:a", "upper:b", "wrap:A", "wrap:B"]
     assert "up" not in state.without("up").node_fingerprints and "split" in state.without("up").node_fingerprints
 
@@ -325,6 +327,21 @@ def test_a_state_value_that_does_not_read_back_as_its_type_is_refused():
         _leg(compiled, state=RunState.model_validate(dumped))
 
 
+@pytest.mark.parametrize("entry", [
+    {"row": None, "value": "A"},
+    {"ref": "e", "row": None, "value": "A"},
+    {"ref": ["e", "result"], "row": None, "value": "A"},
+    {"ref": "e.result", "row": None},
+    {"ref": "e.result", "row": None, "value": "A", "skipped": 0},
+    {"ref": "e.result", "value": "A"},
+])
+def test_a_state_entry_that_is_not_a_value_or_a_skip_is_refused_where_it_arrives(entry):
+    """Each entry is an address, a row, and either ``value`` or ``skipped``;
+    anything else fails to read as a ``RunState``, before a leg starts."""
+    with pytest.raises(ValidationError):
+        RunState.model_validate({"values": [entry]})
+
+
 def test_an_answer_decodes_through_the_codec_by_the_outputs_type():
     """A host may hand an answer in wire form — as it came over HTTP — or as
     the typed value; both land as the type the output declares, and a
@@ -335,8 +352,8 @@ def test_an_answer_decodes_through_the_codec_by_the_outputs_type():
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge("ask")}),
     ])
     ending = _leg(once, cache={"ask": {"result": "typed in"}})[-1]
-    assert ending.type == "graph_complete" and ending.results["up"]["result"] == "TYPED IN"
-    assert type(ending.results["ask"]["result"]) is Txt
+    assert ending.type == "graph_complete" and ending.state.results(once)["up"]["result"] == "TYPED IN"
+    assert type(ending.state.results(once)["ask"]["result"]) is Txt
 
     per_row = _compiled([
         GraphNode(id="split", type="split", version=1, bindings={"text": Static("a,b")}),
@@ -345,7 +362,7 @@ def test_an_answer_decodes_through_the_codec_by_the_outputs_type():
     ])
     first = _leg(per_row)
     second = _leg(per_row, state=first[-1].state, cache={"ask": {"result": {"rows": [[0], [1]], "values": ["x", "y"]}}})
-    assert list(second[-1].results["up"]["result"]) == ["X", "Y"]
+    assert list(second[-1].state.results(per_row)["up"]["result"]) == ["X", "Y"]
 
 
 def test_a_per_row_answer_that_leaves_a_row_out_of_one_output_is_refused():
@@ -428,15 +445,18 @@ def test_a_typed_in_list_edited_between_legs_reruns_on_the_new_rows():
     state = _leg(_compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a", "b"])})]))[-1].state
     calls.clear()
 
-    grown = _leg(_compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a", "b", "c"])})]), state=_through_json(state))[-1]
-    assert grown.type == "graph_complete" and list(grown.results["e"]["result"]) == ["A", "B", "C"]
-    shrunk = _leg(_compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a"])})]), state=_through_json(state))[-1]
-    assert shrunk.type == "graph_complete" and list(shrunk.results["e"]["result"]) == ["A"]
-    added = _leg(_compiled([
+    longer = _compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a", "b", "c"])})])
+    grown = _leg(longer, state=_through_json(state))[-1]
+    assert grown.type == "graph_complete" and list(grown.state.results(longer)["e"]["result"]) == ["A", "B", "C"]
+    shorter = _compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a"])})])
+    shrunk = _leg(shorter, state=_through_json(state))[-1]
+    assert shrunk.type == "graph_complete" and list(shrunk.state.results(shorter)["e"]["result"]) == ["A"]
+    wider = _compiled([
         GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a", "b"])}),
         GraphNode(id="f", type="upper", version=1, bindings={"text": Static(["x", "y"])}),
-    ]), state=_through_json(state))[-1]
-    assert added.type == "graph_complete" and list(added.results["f"]["result"]) == ["X", "Y"]
+    ])
+    added = _leg(wider, state=_through_json(state))[-1]
+    assert added.type == "graph_complete" and list(added.state.results(wider)["f"]["result"]) == ["X", "Y"]
     assert "upper:a" not in calls[-2:]  # ``e`` was kept on the last leg
 
 
@@ -505,3 +525,54 @@ def test_an_answer_of_the_wrong_shape_or_naming_a_row_twice_names_the_node_and_o
     ledger.record(("split", None), {"result": [Txt("a"), Txt("b")]})
     with pytest.raises(ValueError, match=r"'ask': 'result' names a row twice"):
         ledger.inject("ask", {"result": {"rows": [[0], [0]], "values": ["x", "y"]}})
+
+
+def test_the_state_an_ending_carries_reads_as_a_stored_one_does():
+    """An ending's state is read off the ledger that wrote it; the same
+    state stored and read back is decoded. Both give the same values."""
+    compiled = _compiled([
+        GraphNode(id="s", type="split", version=1, bindings={"text": Static("a,b")}),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge("s")}),
+    ])
+    state = _leg(compiled)[-1].state
+    live, stored = state.results(compiled), _through_json(state).results(compiled)
+
+    assert list(live["up"]["result"]) == list(stored["up"]["result"]) == ["A", "B"]
+    assert live["up"]["result"].rows == stored["up"]["result"].rows
+
+
+def test_a_live_state_read_over_an_edited_graph_leaves_out_what_changed():
+    """The ledger's own values answer only for the graph it ran: over an
+    edited graph, the state is restored, and the edited node is left out."""
+    nodes = [GraphNode(id="a", type="echo", version=1, bindings={"text": Static("x")})]
+    state = _leg(_compiled(nodes))[-1].state
+    edited = _compiled([GraphNode(id="a", type="echo", version=1, bindings={"text": Static("y")})])
+
+    assert "a" not in state.results(edited)
+
+
+def test_a_state_is_not_read_off_a_ledger_that_moved_on():
+    """A ledger that has done more since it wrote a state no longer
+    answers for it: the state is decoded, and says only what it held."""
+    from conductor.execution.ledger import Ledger
+
+    compiled = _compiled([
+        GraphNode(id="a", type="echo", version=1, bindings={"text": Static("x")}),
+        GraphNode(id="b", type="echo", version=1, bindings={"text": _edge("a")}),
+    ])
+    ledger = Ledger(compiled)
+    ledger.record(("a", None), {"result": Txt("x")})
+    state = ledger.state()
+    ledger.record(("b", None), {"result": Txt("x")})
+
+    assert set(state.results(compiled)) == {"a"}
+
+
+def test_the_graph_package_imports_nothing_from_execution():
+    """Execution reads graphs; a graph never reads a run."""
+    import pathlib
+
+    import conductor.graph
+
+    for path in pathlib.Path(conductor.graph.__file__).parent.glob("*.py"):
+        assert "conductor.execution" not in path.read_text(), path.name
