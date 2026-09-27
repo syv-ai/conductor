@@ -1,8 +1,8 @@
 """A run in legs, through the FastAPI provider router.
 
 A node that returns ``Asks`` ends the leg pending. ``/execute`` answers
-with that ending — the questions, what ran, and the record — the same frame
-``/execute-stream`` ends on. The next request sends the record back with the
+with that ending — the questions, what ran, and the state — the same frame
+``/execute-stream`` ends on. The next request sends the state back with the
 answers in ``cache`` and the run goes on from where it stopped: nothing that
 ran runs again. For a node that runs per row, an answer is a series in the
 form one is dumped in, ``{"rows": [...], "values": [...]}``, and names only
@@ -86,7 +86,7 @@ def test_a_completed_leg_answers_with_its_ending(client):
 
     assert ending["type"] == "graph_complete"
     assert ending["results"]["w"]["result"]["values"] == ["red", "green"]
-    assert "record" in ending
+    assert "state" in ending
 
 
 def test_a_leg_that_asks_answers_pending_and_the_next_leg_goes_on(client, calls):
@@ -99,7 +99,7 @@ def test_a_leg_that_asks_answers_pending_and_the_next_leg_goes_on(client, calls)
     assert unit["node_id"] == "ok" and unit["row"] is None
     assert unit["questions"][0]["name"] == "ok.result"
 
-    done = client.post("/execute", json={"graph": ONCE, "record": body["record"], "cache": {"ok": {"result": True}}}).json()
+    done = client.post("/execute", json={"graph": ONCE, "state": body["state"], "cache": {"ok": {"result": True}}}).json()
 
     assert done["type"] == "graph_complete"
     assert done["results"]["ok"]["result"] == 1  # a Flag, written as its own type writes it
@@ -112,7 +112,7 @@ def test_an_answer_for_a_node_that_runs_per_row_names_the_rows_it_answers(client
 
     second = client.post(
         "/execute",
-        json={"graph": PER_ROW, "record": first["record"], "cache": {"ok": {"result": {"rows": [[1]], "values": [False]}}}},
+        json={"graph": PER_ROW, "state": first["state"], "cache": {"ok": {"result": {"rows": [[1]], "values": [False]}}}},
     ).json()
 
     assert second["type"] == "graph_pending"
@@ -120,7 +120,7 @@ def test_an_answer_for_a_node_that_runs_per_row_names_the_rows_it_answers(client
 
     third = client.post(
         "/execute",
-        json={"graph": PER_ROW, "record": second["record"], "cache": {"ok": {"result": {"rows": [[0]], "values": [True]}}}},
+        json={"graph": PER_ROW, "state": second["state"], "cache": {"ok": {"result": {"rows": [[0]], "values": [True]}}}},
     ).json()
 
     assert third["type"] == "graph_complete"
@@ -128,12 +128,12 @@ def test_an_answer_for_a_node_that_runs_per_row_names_the_rows_it_answers(client
     assert calls.count("words") == 1
 
 
-def test_the_stream_takes_the_record_too(client, calls):
+def test_the_stream_takes_the_state_too(client, calls):
     first = _stream(client, {"graph": PER_ROW})
     assert first[-1]["type"] == "graph_pending"
 
     answer = {"ok": {"result": {"rows": [[0], [1]], "values": [True, True]}}}
-    second = _stream(client, {"graph": PER_ROW, "record": first[-1]["record"], "cache": answer})
+    second = _stream(client, {"graph": PER_ROW, "state": first[-1]["state"], "cache": answer})
 
     assert second[-1]["type"] == "graph_complete"
     assert second[-1]["results"]["ok"]["result"]["values"] == [True, True]

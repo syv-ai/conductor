@@ -243,7 +243,7 @@ def test_a_default_is_not_a_static():
     assert _receives(compiled, "t", "tags") == Broadcast()
 
 
-def test_an_output_has_no_receive_record():
+def test_an_output_has_no_receive_state():
     compiled = _compiled([GraphNode(id="a", type="upper", version=1, bindings={"text": Static("hi")})])
 
     with pytest.raises(KeyError):
@@ -341,8 +341,8 @@ def test_a_closed_list_input_runs_once_with_its_list_and_with_its_default():
     typed = _compiled([GraphNode(id="t", type="tags", version=1, bindings={"tags": Static(["a", "b", "c"])})])
     defaulted = _compiled([GraphNode(id="t", type="tags", version=1)])
 
-    assert run_sync(typed)["results"]["t"]["result"] == "a|b|c"
-    assert run_sync(defaulted)["results"]["t"]["result"] == "x"
+    assert run_sync(typed).results["t"]["result"] == "a|b|c"
+    assert run_sync(defaulted).results["t"]["result"] == "x"
 
 
 def test_an_open_parameter_embedded_receives_the_series_whole_at_run_time():
@@ -361,5 +361,5 @@ def test_an_open_parameter_embedded_receives_the_series_whole_at_run_time():
         GraphNode(id="emb", type="script-graph", version=1, bindings={"s.v": _edge(("docs", "result"))}),
     ], inner)
 
-    assert run_sync(standalone)["results"]["s"]["result"] == "v=['fa', 'fb']"
-    assert run_sync(embedded)["results"]["emb/s"]["result"] == "v=['fa', 'fb']"
+    assert run_sync(standalone).results["s"]["result"] == "v=['fa', 'fb']"
+    assert run_sync(embedded).results["emb/s"]["result"] == "v=['fa', 'fb']"

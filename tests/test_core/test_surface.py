@@ -223,7 +223,7 @@ def test_a_parameter_named_like_a_pydantic_model_attribute_validates_without_a_w
         warnings.simplefilter("error")
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n", type="bad", version=1, bindings={name: Static("x")})]), registry)
         assert compiled.node("n").validate({name: Txt("x")}) == {name: "x"}
-    assert run_sync(compiled)["type"] == "graph_complete"
+    assert run_sync(compiled).type == "graph_complete"
 
 
 def test_an_aliased_input_and_an_input_named_like_its_field_both_arrive():

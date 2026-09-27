@@ -43,7 +43,7 @@ Conductor ships no default widget for any type, since the same `Text` may be a t
 
 - **Declaring** a node checks it when the class is defined. A missing `id`, `title`, `description` or `category`, a widget written bare instead of on a `Param`, a return without a `Result`, an `async def run`: each fails with the traceback at the class. `NodeRegistry.register(cls)` adds the catalogue's rules (versions from 1 with no holes, an `alternative` that exists).
 - **`CompiledGraph.from_graph(graph, registry)`** resolves every pin, validates the bindings, types every field from its edges, decides which nodes run once per row, asks the field hooks and expands embedded graphs. It never raises for a fault in the graph: everything wrong is a `Problem` with a stable `code`, anchored on a node, and `is_runnable` says whether a run may start. The result is asked at three scales: the graph, `compiled.node(node_id)` and `compiled.field(ref)`.
-- **`execute(compiled)`** runs one leg as an async generator of events: `node_start`, `node_progress`, `node_complete`, `node_retry`, `node_skipped`, `node_error`, and an ending, `graph_complete`, `graph_pending`, `graph_error`, `graph_cancelled` or `graph_timeout`. Every ending carries `results` and `record`. `await run(compiled)` drains it and returns the ending; `run_sync(compiled)` is the same call from a script. A stream left early is closed with `async with aclosing(execute(compiled)) as events:`, which stops every unit.
+- **`execute(compiled)`** runs one leg as an async generator of events: `node_start`, `node_progress`, `node_complete`, `node_retry`, `node_skipped`, `node_error`, and an ending, `graph_complete`, `graph_pending`, `graph_error`, `graph_cancelled` or `graph_timeout`. Every ending carries `results` and `state`. `await run(compiled)` drains it and returns the ending; `run_sync(compiled)` is the same call from a script. A stream left early is closed with `async with aclosing(execute(compiled)) as events:`, which stops every unit.
 
 ## The row engine
 
@@ -65,7 +65,7 @@ ConductorError
 
 **Branching** is a value. A node returns `SKIPPED` on the branch it did not take; a skip at a row leaves the series downstream sparse, and a skip above a node's rows skips everything under it. Outputs that are exclusive alternatives share a `choice`, so an editor knows exactly one arrives.
 
-**A person in the loop** is a value too. A node returns `Asks` with its questions; the rest of the graph runs on, and the leg ends `graph_pending` with every question. Answering is the next leg: `execute(compiled, record=..., cache=...)`, where `record` is the earlier leg's ending's run record and `cache` holds the answers as the asking node's outputs. Nothing runs twice and nothing is resumed.
+**A person in the loop** is a value too. A node returns `Asks` with its questions; the rest of the graph runs on, and the leg ends `graph_pending` with every question. Answering is the next leg: `execute(compiled, state=..., cache=...)`, where `state` is the earlier leg's ending's `RunState` and `cache` holds the answers as the asking node's outputs. Nothing runs twice and nothing is resumed.
 
 ## Bindings — one input, one source
 

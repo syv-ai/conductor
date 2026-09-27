@@ -2,8 +2,8 @@
 
 A value lives in memory as its type — a ``Text`` is a ``str`` subclass, a
 ``Series[X]`` an object with an index and rows, a host's file a name and
-bytes. Whenever such a value crosses into JSON and back — the ledger's
-record of a run, a cached answer a host hands in, a result a host stores
+bytes. Whenever such a value crosses into JSON and back — the state of
+a run, a cached answer a host hands in, a result a host stores
 — this module is the one crossing, and the declared type decides the
 form: ``to_wire(value, dtype)`` writes it, ``from_wire(data, dtype)``
 reads it back as the same type. Nothing else in the library turns a
@@ -19,8 +19,8 @@ through the element type — because a series is the engine's own idea:
 ``Series`` points its pydantic schema at ``series_to_wire`` and
 ``series_from_wire`` here, so both directions live in one place.
 
-What this is not: the skip marker. A skipped cell is not a value and has
-no type; the ledger writes ``{"skipped": <depth>}`` beside the cell
+What this is not: the skip marker. A skip has no type to cross by; the
+ledger writes ``{"skipped": <depth>}`` beside the value's address
 instead of a value, and reads it back as ``SKIPPED``.
 """
 

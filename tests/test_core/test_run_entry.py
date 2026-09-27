@@ -52,8 +52,8 @@ def _compiled() -> CompiledGraph:
 def test_run_sync_returns_the_ending():
     ending = run_sync(_compiled())
 
-    assert ending["type"] == "graph_complete"
-    assert ending["results"]["u"]["result"] == "HI"
+    assert ending.type == "graph_complete"
+    assert ending.results["u"]["result"] == "HI"
 
 
 def test_run_sync_inside_a_loop_refuses_naming_await_run():
@@ -68,7 +68,7 @@ def test_run_returns_the_same_ending_under_a_loop():
     async def inside() -> dict:
         return await run(_compiled())
 
-    assert asyncio.run(inside())["results"]["u"]["result"] == "HI"
+    assert asyncio.run(inside()).results["u"]["result"] == "HI"
 
 
 def test_the_three_are_root_exports_and_the_old_names_are_gone():

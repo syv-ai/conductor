@@ -2,7 +2,7 @@
 
 A node in a graph runs as units, one per row of the index it iterates on
 (or one unit when it runs once). For every input, the question this
-module answers is: *at a unit's row, which of the input's cells does the
+module answers is: *at a unit's row, which of the input's values does the
 unit receive?* Compile answers it once, while it walks the edges, and
 stores the answer on the field (``CompiledField.receives``). The engine's
 ledger reads that record to decide when a unit is ready and what to hand
@@ -10,7 +10,7 @@ it, and never works the answer out again from the types and indexes.
 
 Five records, one per input, named for what happens to the value on its
 way in. ``Iterate`` splits a series into rows: a scalar input fed a
-series, so the node runs once per row and each unit takes the cell at its
+series, so the node runs once per row and each unit takes the value at its
 own row. ``Broadcast`` copies one value to every unit: a scalar fed by a
 node that ran once, a typed-in value, a default. ``Whole`` leaves the
 value as it sits on the field: a ``Series[X]`` input fed one series on a
@@ -36,7 +36,7 @@ from conductor.series import Index
 
 @dataclass(frozen=True)
 class Iterate:
-    """The unit receives the cell at its own row, projected onto ``index``.
+    """The unit receives the value at its own row, projected onto ``index``.
 
     A scalar input fed a series on ``index``: the node runs once per row
     of it, and each unit reads the row it stands on. A typed-in list on a
@@ -49,7 +49,7 @@ class Iterate:
 
 @dataclass(frozen=True)
 class Broadcast:
-    """The unit receives the one cell there is, the same at every unit.
+    """The unit receives the one value there is, the same at every unit.
 
     A scalar input fed by an edge from a node that ran once, a value the
     author typed, or a default. The node does not run per row because of
