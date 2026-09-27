@@ -66,6 +66,7 @@ from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
 
 from conductor.codec import to_wire
+from conductor.errors import InputNotOffered
 from conductor.graph.binding import Binding, Static
 from conductor.graph.expand import expanded_ref
 from conductor.graph.problem import Problem
@@ -105,7 +106,7 @@ class CompiledGraph:
     ``field`` for everything it draws), and anything deciding whether a
     run may start (``is_runnable``).
 
-    Two attributes are public, ``interface`` and ``problems``; every other
+    Three attributes are public, ``graph``, ``interface`` and ``problems``; every other
     attribute is private and read through the methods here and through
     ``node`` and ``field``. A node compile could not resolve — unknown type
     or version — or could not order — on a cycle — has a fatal ``Problem``
@@ -113,10 +114,8 @@ class CompiledGraph:
     raises, and an editor paints it from ``problems`` alone.
     """
 
-    #: The graph as the author saved it, and the registry it was compiled
-    #: against: kept so a compiled graph can produce another from the same
-    #: two (``bound``), never read back for what compile already learned.
-    _graph: Graph
+    #: The registry the graph was compiled against, kept so a compiled
+    #: graph can produce another (``with_inputs``).
     _registry: NodeRegistry
     _nodes: Mapping[str, GraphNode]
     _versions: Mapping[str, NodeVersion | GraphVersion]
@@ -147,6 +146,10 @@ class CompiledGraph:
     #: reads from, both named by address (``"node.field"``); ``returns`` is
     #: ``Mapping``.
     interface: Interface
+    #: The graph as the author saved it — with the values ``with_inputs``
+    #: filled, on a copy it made — which a host stores as what ran. Not read
+    #: back for what compile learned: ask ``node`` and ``field`` for that.
+    graph: Graph
     #: Everything wrong with the graph, fatal or not, each on the node and
     #: field it is about. Anchored on the authored graph: a problem found
     #: inside an embedded graph sits on the node the author placed, with the
@@ -201,11 +204,61 @@ class CompiledGraph:
         engine knows only the expanded graph."""
         return expanded_ref(ref, self._placements)
 
+    # -- the interface, from each side --------------------------------------------
+
+    def with_inputs(self, **inputs: Any) -> CompiledGraph:
+        """This graph with some of its inputs filled, compiled again: what ``run`` takes to run it with those values.
+
+        Each keyword names an input of ``interface.inputs``: by its bare
+        field name (``text=...``) when no other input has that name, else
+        by its address (``**{"a.text": ...}``); an input inside an embedded
+        graph has a dotted field name and is named by address only. A name
+        the interface does not offer — unknown, locked, fed by an edge, or
+        shared by several inputs — is an ``InputNotOffered`` that lists the names
+        it does offer. Each value becomes a ``Static`` on its input in a
+        copy of the authored graph, which compiles against the same
+        registry, so compile is what reads it: a list on an input for one
+        value runs the graph once per item, a value the type cannot read is
+        ``invalid_static``. The copy still offers every input: a static is a
+        value a caller may answer over, so filling an input again replaces it.
+
+        Not a run, and it validates nothing itself. ``Ledger.inject`` is the
+        different act of recording a node's *outputs* from ``cache``.
+        """
+        offered = [inp.name for inp in self.interface.inputs]
+        filled: dict[str, dict[str, Static]] = {}
+        for name, value in inputs.items():
+            ref = self._offered(name, offered)
+            filled.setdefault(ref.node_id, {})[ref.field] = Static(value)
+        graph = self.graph.model_copy(update={"nodes": tuple(
+            node.model_copy(update={"bindings": {**node.bindings, **filled.get(node.id, {})}})
+            for node in self.graph.nodes
+        )})
+        return CompiledGraph.from_graph(graph, self._registry)
+
+    def _offered(self, name: str, offered: list[Ref]) -> Ref:
+        """The input a keyword to ``with_inputs`` names, or an ``InputNotOffered`` listing what is offered."""
+        listing = ", ".join(str(ref) for ref in offered) if offered else "none"
+        if "." in name:
+            ref = Ref(name)
+            if ref in offered:
+                return ref
+            raise InputNotOffered(f"{name!r} is not an input this graph offers; it offers {listing}"
+                            if offered else f"{name!r}: this graph takes no inputs")
+        matches = [ref for ref in offered if ref.field == name]
+        if len(matches) == 1:
+            return matches[0]
+        if matches:
+            both = ", ".join(str(ref) for ref in matches)
+            raise InputNotOffered(f"{name!r} is an input of several nodes ({both}); name one by its address")
+        raise InputNotOffered(f"{name!r} is not an input this graph offers; it offers {listing}"
+                        if offered else f"{name!r}: this graph takes no inputs")
+
     # -- the run ------------------------------------------------------------------
 
     def __repr__(self) -> str:
         """One line: the nodes the author placed, whether it runs, how many problems."""
-        placed = tuple(node.id for node in self._graph.nodes)
+        placed = tuple(node.id for node in self.graph.nodes)
         return f"CompiledGraph(nodes={placed!r}, is_runnable={self.is_runnable}, problems={len(self.problems)})"
 
     @property

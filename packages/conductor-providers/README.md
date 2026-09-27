@@ -1,6 +1,6 @@
 # syv-conductor-providers
 
-Framework adapters for Conductor: `conductor_providers.react` translates a graph to ReactFlow JSON and back, and `conductor_providers.fastapi` mounts the engine's routes on a FastAPI `APIRouter` (the `fastapi` extra).
+Framework adapters for Conductor: `conductor_providers.react` translates a graph to ReactFlow JSON and back, `conductor_providers.mermaid.flowchart(compiled)` draws a compiled graph as a Mermaid flowchart, and `conductor_providers.fastapi` mounts the engine's routes on a FastAPI `APIRouter` (the `fastapi` extra).
 
 ```python
 import conductor_providers

@@ -107,6 +107,29 @@ class RunState(ConductorModel):
 
         return Ledger.results_of(compiled, self)
 
+    def outputs(self, compiled: CompiledGraph) -> dict[str, Any]:
+        """What the graph returns: each output of ``compiled.interface.outputs``, keyed by address.
+
+        ``results(compiled)`` narrowed to the interface: an output inside an
+        embedded graph is looked up on the inner node that produced it
+        (``emb.up.result`` on ``emb/up``). An output whose node did not run,
+        or that the node skipped, is absent, so any ending's state reads —
+        a failed or paused leg returns what it did produce. A single value is
+        a value; one with many rows is a ``Series``.
+        """
+        from conductor._sentinel import is_skipped
+
+        results = self.results(compiled)
+        returned: dict[str, Any] = {}
+        for output in compiled.interface.outputs:
+            at = compiled.expanded(output.name)
+            if at.node_id not in results:
+                continue
+            value = results[at.node_id][at.field]
+            if not is_skipped(value):
+                returned[str(output.name)] = value
+        return returned
+
     def without(self, *node_ids: str) -> RunState:
         """This state as if these nodes had never run: a host's "run from here".
 

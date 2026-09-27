@@ -441,7 +441,7 @@ def test_the_record_keeps_the_authored_graph_and_the_registry_and_drops_what_not
     registry = _registry()
     compiled = CompiledGraph.from_graph(graph, registry)
 
-    assert compiled._graph is graph and compiled._registry is registry
+    assert compiled.graph is graph and compiled._registry is registry
     assert not hasattr(compiled.node("a"), "dependencies")
     assert not hasattr(compiled.node("a"), "problems")
     assert not hasattr(compiled.field(Ref("a", "x")), "problems")
