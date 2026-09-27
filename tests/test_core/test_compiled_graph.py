@@ -418,7 +418,7 @@ def test_the_artifact_and_its_diagnostics_are_importable_from_the_root():
 
 
 def test_a_compiled_node_validates_a_call_and_hands_back_its_keyword_arguments():
-    """C13: validating a call is compile's, through a model built once per
+    """Validating a call is compile's, through a model built once per
     node; the engine asks ``validate`` and gets the keyword arguments the
     call runs with, and never meets the model."""
     compiled = _compiled([GraphNode(id="a", type="echo", version=1, bindings={"x": Static("hi")})])
@@ -433,8 +433,8 @@ def test_a_compiled_node_validates_a_call_and_hands_back_its_keyword_arguments()
 
 
 def test_the_record_keeps_the_authored_graph_and_the_registry_and_drops_what_nothing_calls():
-    """C14: ``dependencies``, a node's or a field's own ``problems`` are gone —
-    ``compiled.problems`` is the one list, filtered by whoever needs a slice —
+    """A compiled graph carries no ``dependencies`` and no per-node or per-field
+    ``problems``: ``compiled.problems`` is the one list, filtered by whoever needs a slice —
     while the authored graph and the registry stay, so a compiled graph can
     produce another."""
     graph = Graph(nodes=[GraphNode(id="a", type="echo", version=1, bindings={"x": Static("hi"), "z": Static(1)})])

@@ -5,7 +5,7 @@ discriminated on ``type``: a caller reads ``ending.state`` and can
 ``match`` on the class. An ending says why the leg stopped and carries the
 run's state; the values in it are read through the compiled
 graph, ``state.results(compiled)``. The JSON a host
-sends is the dict it always was, and the schema a host generates its
+sends is a plain dict, and the schema a host generates its
 client from names the same fields, with ``type`` required on every event.
 """
 

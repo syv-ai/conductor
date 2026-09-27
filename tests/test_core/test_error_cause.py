@@ -52,7 +52,7 @@ def test_compilation_error_carries_the_problems_it_refused_on():
 
 def test_the_errors_a_caller_catches_sit_under_conductor_error():
     """A failed node is a ``NodeError``; a refused start is a ``ValueError``
-    as well, so a host that caught that before still does."""
+    as well, so a host's ``except ValueError`` catches it."""
     assert issubclass(NodeExecutionError, NodeError) and issubclass(NodeError, ConductorError)
     assert issubclass(StartRefused, ConductorError) and issubclass(StartRefused, ValueError)
 

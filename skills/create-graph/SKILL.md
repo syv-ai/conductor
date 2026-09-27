@@ -1,91 +1,57 @@
 ---
 name: create-graph
-description: Places conductor nodes in a Graph, compiles it with CompiledGraph.from_graph and runs it with execute. Use when building, saving, compiling or running a conductor graph, binding inputs with From or Static, filling a graph's inputs from outside and reading what it returns (with_inputs, outputs), reading compile problems, streaming events, running a node once per row, answering a node that returned Asks (graph_pending, state, cache), passing from_run values, serving graphs over HTTP, or drawing or debugging a run, or on "build a graph", "run a graph", "connect these nodes".
+description: Places conductor nodes in a Graph, compiles it with CompiledGraph.from_graph and runs it with execute. Use when building, saving, running, drawing, serving or debugging a conductor graph; binding inputs (From, Static, with_inputs); reading outputs, problems or events; answering Asks (state, cache); or on "build a graph", "run a graph", "connect these nodes".
 ---
 
 # Creating and running a conductor graph
 
-## Overview
-
-A graph is its nodes: each placed node pins a node `type` and `version` and binds its inputs. Compile turns the graph into an immutable record that says everything about it, including what is wrong; `execute` runs it as a stream of events. For declaring a node, use the **add-node** skill.
-
-## First, read the installed reference
-
-```bash
-python -m conductor.about sections     # the section slugs
-python -m conductor.about bindings     # one section, by prefix: bindings, compilation, rows, legs, events, errors
-```
-
-The installed library wins over this file.
-
-## Core pattern
+A graph is placed nodes, each pinning a `type` and `version` and binding its inputs. Compile says what is wrong; `execute` runs it as a stream of events. To declare a node, use the **add-node** skill. The installed library is the authority: `python -m conductor.about bindings` (or `compilation`, `rows`, `legs`, `events`, `errors`).
 
 ```python
-from conductor import CompiledGraph, From, Graph, GraphNode, Ref, run_sync, Static
+import conductor_nodes
+from conductor import CompiledGraph, From, Graph, GraphNode, run_sync, Static
 
+registry = conductor_nodes.registry(categories=["text"])
 graph = Graph(nodes=[
-    GraphNode(id="words", type="text-split", version=1, bindings={"text": Static("red,green")}),
+    GraphNode(id="words", type="text-split", version=1),
     GraphNode(id="loud", type="text-uppercase", version=1, bindings={"text": From("words.result")}),
     GraphNode(id="joined", type="text-join", version=1, bindings={"parts": From("loud.result"), "separator": Static(" + ")}),
 ])
 
 compiled = CompiledGraph.from_graph(graph, registry)
-if not compiled.is_runnable:
-    raise ValueError([(p.code, p.node_id, p.message) for p in compiled.problems])
+ready = compiled.with_inputs(text="red,green")        # words.text is the graph's open input
+if not ready.is_runnable:
+    raise ValueError([(p.code, p.node_id, p.message) for p in ready.problems])
 
-results = run_sync(compiled).state.results(compiled)          # {node_id: {output_name: value}}
-results["joined"]["result"]               # "RED + GREEN"; loud ran once per word
+ending = run_sync(ready)                               # in a notebook: await run(ready)
+assert ending.state.outputs(ready) == {"joined.result": "RED + GREEN"}
+results = ending.state.results(ready)                  # {node_id: {output: value}}
+assert list(results["loud"]["result"]) == ["RED", "GREEN"]   # ran once per word
+assert ready.node("joined").iterates_on is None       # parts is Series[Text]: one call
 ```
 
-## How an input gets its value
-
-Each input holds at most one binding:
-
-- **`From("node.output", ...)`**: over edges. A node with one output names it `result`; a record's outputs are its field names.
-- **`Static(...)`**: typed in by the author. A list typed into an input declared for one value runs the node once per value.
-- **No binding**: the declared default.
-
-There is no edge list. A `GraphNode` is keyword-only, and a node id may not contain `.`.
+An input holds one binding: `From("node.output")` over an edge, `Static(value)` typed in (a list on a single-value input runs the node once per item), or none for the default. A single output is named `result`. `GraphNode` is keyword-only; a node id may not contain `.`.
 
 ## Quick reference
 
-| You want… | Do | Details |
-|---|---|---|
-| A node's input and output names | `[i.name for i in registry["text-split"].describe().versions[1].inputs]` | add-node → Where to register |
-| To know what is wrong | `compiled.problems`, each with `code`, `node_id`, `field`, `fatal` | REFERENCE.md → Compile |
-| To fill the graph's open inputs from outside | `ready = compiled.with_inputs(text=...)`, then `run_sync(ready)` | REFERENCE.md → Inputs and outputs |
-| What the graph returns | `ending.state.outputs(ready)`, keyed by address | REFERENCE.md → Inputs and outputs |
-| To see the graph | `print(mermaid.flowchart(compiled))` from `conductor_providers`, a Mermaid flowchart | REFERENCE.md → Inputs and outputs |
-| One node or field after compile | `compiled.node(node_id)`, `compiled.field(Ref(node_id, name))` | REFERENCE.md → Compile |
-| Events as they happen | `async for event in execute(compiled)` | REFERENCE.md → Events |
-| One call over all rows | declare the input `Series[X]` | REFERENCE.md → Rows |
-| To answer a node that asked | `execute(compiled, state=ending.state, cache={node_id: answers})` | REFERENCE.md → Legs |
-| A service or the caller inside a node | `execute(compiled, from_run={Caller: caller})` | REFERENCE.md → Legs |
-| A bound on the leg | `execute(compiled, timeout=60, cancel=asyncio.Event())` | REFERENCE.md → Events |
-| To save the graph | `graph.to_path("g.yaml")`, `Graph.from_path("g.yaml")` | REFERENCE.md → Saving |
-| A definition the registry lacks | `CompiledGraph.from_graph(graph, registry.extended_with({id: cls}))` | REFERENCE.md → Compile |
-| HTTP endpoints or a ReactFlow canvas | `conductor_providers.fastapi` / `conductor_providers.react` | REFERENCE.md → Providers |
-
-In a notebook the kernel owns an event loop: `await run(compiled)`, not `run_sync` — the same ending event either way.
+| You want | Do (examples in REFERENCE.md) |
+|---|---|
+| Two open inputs with one name | `with_inputs(**{"words.text": value})` |
+| Events as they happen | `async for event in execute(compiled)` |
+| To answer a node that asked | `execute(compiled, state=ending.state, cache={node_id: {output: answer}})` |
+| A service or the caller inside a node | `execute(compiled, from_run={Caller: caller})` |
+| A bound on the leg | `execute(compiled, timeout=60, cancel=asyncio.Event())` |
+| To save | `graph.to_path("g.yaml")`, `Graph.from_path("g.yaml")` |
+| A drawing, HTTP routes, a ReactFlow canvas | `conductor_providers.mermaid`, `.fastapi`, `.react` |
 
 ## Common mistakes
 
 | Mistake | Fix |
 |---|---|
-| `GraphNode("a", "echo", 1, {...})` | keywords: `GraphNode(id=, type=, version=, bindings=)` |
-| `compile(nodes=..., edges=...)`, `GraphEdge` | `CompiledGraph.from_graph(Graph(nodes=[...]), registry)`; an edge is an `From` binding |
-| Wrapping `from_graph` in `try` to catch a bad graph | it does not raise for one: read `is_runnable` and `problems` |
-| Rebuilding the `Graph` to change a `Static` before each run | `compiled.with_inputs(name=value)`; store `ready.graph` as what ran |
-| A loop node, or a `for` around `execute` per item | bind a series; the engine runs the node once per row |
-| `run_sync(compiled, retry=...)` | retries belong to the node version's `Policy` |
-| `except GraphPendingError` around `run_sync` | nothing raises for a pause: read `ending.type`, and answer with `state=ending.state` |
-| Answering a pending leg with `execute` and no `state` | pass `state=ending.state`, or everything runs again |
-| An answer for some rows given as a list | a `Series` on `compiled.node(node_id).iterates_on`, with `rows=` |
-| Listening for `flow_complete` | endings are `graph_complete`, `graph_pending`, `graph_error`, `graph_cancelled`, `graph_timeout` |
+| `try` around `from_graph` | it never raises for a bad graph: read `is_runnable` and `problems` |
+| Rebuilding the `Graph` to change a value per run | `compiled.with_inputs(...)`; store `ready.graph` as what ran |
+| A loop node, or a `for` around `execute` | bind a series; the engine runs the node once per row |
+| `except` around `run_sync` for a pause, error or timeout | they are endings: read `ending.type` |
+| `run_sync` in a notebook or server | `await run(compiled)` |
 
-## Debugging a run
-
-1. `compiled.problems` first: a graph that cannot run says why before anything runs.
-2. Stream `execute` and print every event: which nodes start, which rows progress, which are skipped.
-3. A failure's `cause` has a `code` and, for a node on rows, the `row`: `node_error` / `graph_error` carry it.
-4. For a value that is not what you expected, ask `compiled.field(Ref(node_id, input))` for its `binding`, `type` and `index`.
+To debug, read `problems`, then print every event of `execute`. A failure's `cause` has a `code` and, on rows, the `row`.

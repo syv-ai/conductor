@@ -3,8 +3,8 @@
 Every shape the walk over the edges can leave an input in is compiled here
 and its record asserted without a run: one value per row, the whole
 series, a group under a parent row, unrelated sources gathered. The last
-section runs the two shapes the review found the ledger deciding
-differently from compile.
+section runs two of those shapes, where the ledger must decide as
+compile did.
 """
 
 from collections.abc import Mapping
@@ -222,7 +222,7 @@ def test_a_series_input_with_a_typed_in_list_or_a_default_receives_it_whole_on_i
 
 
 def test_a_closed_input_typed_as_a_list_holds_one_value_and_the_node_runs_once():
-    """C3: ``['a', 'b', 'c']`` on ``tags: list[str]`` is the one value the
+    """``['a', 'b', 'c']`` on ``tags: list[str]`` is the one value the
     type read, not three values to run per; whether the author typed many is
     decided by which validation succeeded, never by the shape of the result."""
     compiled = _compiled([GraphNode(id="t", type="tags", version=1, bindings={"tags": Static(["a", "b", "c"])})])
@@ -234,7 +234,7 @@ def test_a_closed_input_typed_as_a_list_holds_one_value_and_the_node_runs_once()
 
 
 def test_a_default_is_not_a_static():
-    """C3: the declared default applies when nothing is bound; it is the
+    """The declared default applies when nothing is bound; it is the
     node's, not a value the author typed, so ``statics`` does not hold it."""
     compiled = _compiled([GraphNode(id="t", type="tags", version=1)])
 
@@ -275,9 +275,9 @@ def test_an_inner_reduction_over_the_entering_series_reduces_to_its_own_row():
 
 
 def test_unrelated_rows_inside_an_embedded_graph_are_misaligned_not_paired():
-    """C1: one inner node fed rows of ``a``, another fed a reduction over
-    lines of ``b``. On one flat node this is ``misaligned``; inside a
-    placement it used to run, pairing A's row i with B's row i."""
+    """One inner node fed rows of ``a``, another fed a reduction over
+    lines of ``b``. On one flat node this is ``misaligned``, and inside a
+    placement too: A's row i is never paired with B's row i."""
     inner = _embedded(
         "pair-graph",
         (
@@ -302,8 +302,8 @@ def test_unrelated_rows_inside_an_embedded_graph_are_misaligned_not_paired():
 
 
 def test_an_edge_from_another_nodes_input_is_not_a_source():
-    """C2: only outputs are sources. An edge from ``h.value``, an input,
-    compiled and then the run died with nothing left to run."""
+    """Only outputs are sources. An edge from ``h.text``, an input, is an
+    ``unknown_ref_output`` at compile, not a run with nothing left to run."""
     compiled = _compiled([
         GraphNode(id="h", type="upper", version=1, bindings={"text": Static("hi")}),
         GraphNode(id="u", type="upper", version=1, bindings={"text": _edge(("h", "text"))}),
@@ -314,9 +314,8 @@ def test_an_edge_from_another_nodes_input_is_not_a_source():
 
 
 def test_an_open_parameter_inside_an_embedded_graph_receives_whole_as_it_does_standalone():
-    """C4: the inner graph behaves as it would standalone. Standalone,
-    ``**inputs: Single`` fed a series receives it whole; embedded it used to
-    make the placement run per row."""
+    """The inner graph behaves as it would standalone: ``**inputs: Single``
+    fed a series receives it whole, and the placement does not run per row."""
     inner = _embedded(
         "script-graph",
         (GraphNode(id="s", type="script", version=1),),

@@ -54,7 +54,7 @@ def test_the_catalog_is_exactly_what_is_expected(registry):
 
 
 def test_the_markers_and_the_signals_are_gone(registry):
-    """The old compound and signal node types are not in the catalog.
+    """Compound and signal node types are not in the catalog.
 
     Iteration is a ``Series`` reaching a scalar input, an embedded graph is
     a definition the host builds, and a pause is a node returning ``Asks``,
