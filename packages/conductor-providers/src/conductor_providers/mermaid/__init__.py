@@ -1,4 +1,4 @@
-"""A compiled graph as a Mermaid flowchart: ``CompiledGraph.render()``.
+"""A compiled graph as a Mermaid flowchart: ``flowchart(compiled)``.
 
 For a person reading a graph — in a notebook, a pull request, a bug
 report — rather than for an editor, which draws from ``node`` and
@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 _FAULT = "classDef fault stroke:#c62828,stroke-width:2px"
 
 
-def render(compiled: CompiledGraph) -> str:
+def flowchart(compiled: CompiledGraph) -> str:
     """The flowchart, as Mermaid source ending in a newline."""
     faulty = {p.node_id for p in compiled.problems if p.fatal}
     names: dict[str, str] = {}

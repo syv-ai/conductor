@@ -55,7 +55,7 @@ There is no edge list. A `GraphNode` is keyword-only, and a node id may not cont
 | To know what is wrong | `compiled.problems`, each with `code`, `node_id`, `field`, `fatal` | REFERENCE.md → Compile |
 | To fill the graph's open inputs from outside | `ready = compiled.with_inputs(text=...)`, then `run_sync(ready)` | REFERENCE.md → Inputs and outputs |
 | What the graph returns | `ending.state.outputs(ready)`, keyed by address | REFERENCE.md → Inputs and outputs |
-| To see the graph | `print(compiled.render())`, a Mermaid flowchart | REFERENCE.md → Inputs and outputs |
+| To see the graph | `print(mermaid.flowchart(compiled))` from `conductor_providers`, a Mermaid flowchart | REFERENCE.md → Inputs and outputs |
 | One node or field after compile | `compiled.node(node_id)`, `compiled.field(Ref(node_id, name))` | REFERENCE.md → Compile |
 | Events as they happen | `async for event in execute(compiled)` | REFERENCE.md → Events |
 | One call over all rows | declare the input `Series[X]` | REFERENCE.md → Rows |

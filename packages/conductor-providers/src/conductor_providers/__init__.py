@@ -8,6 +8,10 @@ Two flavors of subpackage:
   specific frontend framework expects. ``conductor_providers.react``
   speaks ReactFlow. Svelte, Vue, etc. go in sibling subpackages.
 
+* **Pictures** — ``conductor_providers.mermaid.flowchart(compiled)`` draws
+  a compiled graph as a Mermaid flowchart, for a person reading it in a
+  notebook, a pull request or a bug report.
+
 * **Transport adapters** — mount conductor over a specific protocol or
   framework. ``conductor_providers.fastapi`` ships an ``APIRouter``
   factory so hosts don't have to hand-roll pydantic payloads + SSE
@@ -24,6 +28,6 @@ consumers don't pay for it.
     app.include_router(conductor_router(registry, prefix="/conductor"))
 """
 
-from conductor_providers import react
+from conductor_providers import mermaid, react
 
-__all__ = ["react"]
+__all__ = ["mermaid", "react"]

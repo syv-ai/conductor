@@ -1,4 +1,4 @@
-"""A compiled graph draws itself as a Mermaid flowchart.
+"""``conductor_providers.mermaid.flowchart`` draws a compiled graph as a Mermaid flowchart.
 
 One box per node the author placed, titled by its id and its type; an
 embedded graph is a subgraph holding its inner nodes under their expanded
@@ -21,6 +21,7 @@ from conductor.metadata import Input, Output, Result
 from conductor.node import GraphVersion, NodeDefinition
 from conductor.series import Series
 from conductor.widgets import Textarea
+from conductor_providers.mermaid import flowchart
 
 
 class Txt(DType, str):
@@ -99,7 +100,7 @@ def test_every_arrow_says_how_its_input_receives_it():
         GraphNode(id="both", type="join", version=1, bindings={"texts": From("note.result", "all.result")}),
     )
 
-    assert compiled.render() == dedent("""\
+    assert flowchart(compiled) == dedent("""\
         flowchart LR
             n0["docs · docs"]
             n1["up · upper"]
@@ -120,7 +121,7 @@ def test_an_embedded_graph_is_a_subgraph_of_its_inner_nodes():
         GraphNode(id="emb", type="shout", version=1, bindings={"up.text": From("docs.result")}),
     )
 
-    assert compiled.render() == dedent("""\
+    assert flowchart(compiled) == dedent("""\
         flowchart LR
             n0["docs · docs"]
             subgraph n1 ["emb · shout"]
@@ -138,7 +139,7 @@ def test_a_node_with_a_fatal_problem_carries_the_fault_class_and_its_broken_edge
         GraphNode(id="odd", type="nonesuch", version=1),
     )
 
-    assert compiled.render() == dedent("""\
+    assert flowchart(compiled) == dedent("""\
         flowchart LR
             n0["up · upper"]:::fault
             n1["odd · nonesuch"]:::fault

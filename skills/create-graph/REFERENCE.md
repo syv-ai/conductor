@@ -33,7 +33,7 @@ Key on `code`, never on the message. `conductor.graph.problem.CATALOGUE` lists e
 
 The compiled graph is asked at three scales:
 
-- **The graph:** `problems`, `is_runnable`, `interface` (what the graph takes and returns, named by address), `graph` (the authored graph it was compiled from), `execution_order`, `decisions`, `render()`.
+- **The graph:** `problems`, `is_runnable`, `interface` (what the graph takes and returns, named by address), `graph` (the authored graph it was compiled from), `execution_order`, `decisions`.
 - **One node:** `compiled.node(node_id)` gives `interface` (with every type the edges gave it), `iterates_on` (the `Index` it runs once per row of, or `None`), `statics`, `dependencies`, `version`, `embedded_in`, `problems`.
 - **One field:** `compiled.field(Ref(node_id, name))` gives `type`, `index`, `binding`, `condition`, `problems`.
 
@@ -64,7 +64,7 @@ assert run_sync(ready).state.outputs(ready) == {"joined.result": "RED + GREEN"}
 - Compile reads the value, so a list on an input for one value runs once per item, and a value the type cannot read is the copy's `invalid_static` problem. Filling an input again replaces it.
 - `outputs(state)` reads any ending's state, keyed by address; an output that did not run or was skipped is absent, so a failed or paused leg returns what it produced. `results(state)` is every node's outputs, by node id.
 - `compiled.graph` is the authored graph with the filled values on it: what a host stores as what ran.
-- `print(compiled.render())` draws the graph as a Mermaid flowchart, each edge labelled with how its input receives it (`per row of words`, `whole`, …) and a node with a fatal problem in the `fault` class.
+- `print(conductor_providers.mermaid.flowchart(compiled))` draws the graph as a Mermaid flowchart, each edge labelled with how its input receives it (`per row of words`, `whole`, …) and a node with a fatal problem in the `fault` class.
 
 ## Rows
 
