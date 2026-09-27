@@ -10,7 +10,7 @@ from collections.abc import Mapping
 from typing import Annotated, ClassVar
 
 import pytest
-from conductor import GraphNode, NodeRegistry, Param, run_sync
+from conductor import GraphNode, InputNotOffered, NodeRegistry, Param, run_sync
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
 from conductor.execution.events import GraphCompleteEvent, GraphErrorEvent
@@ -142,7 +142,7 @@ def test_a_filled_input_stays_offered_and_filling_it_again_overrides_it():
 def test_a_bare_name_two_inputs_share_is_refused_naming_both_and_the_address_fills_one():
     compiled = _compiled(GraphNode(id="a", type="upper", version=1), GraphNode(id="b", type="upper", version=1))
 
-    with pytest.raises(TypeError, match=r"a\.text.*b\.text"):
+    with pytest.raises(InputNotOffered, match=r"a\.text.*b\.text"):
         compiled.with_inputs(text="hi")
     assert _outputs(compiled.with_inputs(**{"a.text": "x", "b.text": "y"})) == {"a.result": "X", "b.result": "Y"}
 
@@ -150,16 +150,17 @@ def test_a_bare_name_two_inputs_share_is_refused_naming_both_and_the_address_fil
 def test_an_unknown_name_is_refused_listing_the_names_offered():
     compiled = _compiled(GraphNode(id="a", type="upper", version=1))
 
-    with pytest.raises(TypeError, match=r"'txt'.*a\.text"):
+    assert issubclass(InputNotOffered, TypeError)
+    with pytest.raises(InputNotOffered, match=r"'txt'.*a\.text"):
         compiled.with_inputs(txt="hi")
-    with pytest.raises(TypeError, match=r"'b\.text'.*a\.text"):
+    with pytest.raises(InputNotOffered, match=r"'b\.text'.*a\.text"):
         compiled.with_inputs(**{"b.text": "hi"})
 
 
 def test_a_locked_input_is_refused_by_name():
     compiled = _compiled(GraphNode(id="a", type="upper", version=1, locked=("text",)))
 
-    with pytest.raises(TypeError, match="takes no inputs"):
+    with pytest.raises(InputNotOffered, match="takes no inputs"):
         compiled.with_inputs(text="hi")
 
 

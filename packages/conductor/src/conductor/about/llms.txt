@@ -288,7 +288,7 @@ All three are root exports: `from conductor import execute, run, run_sync`.
 
 ### A compiled graph's interface, from each side
 
-- `compiled.with_inputs(**inputs)` — a copy with those inputs filled as `Static`s, compiled again; `run` takes it. A keyword is an input's bare field name when no other input has it, else its address (`**{"a.text": ...}`); an input inside an embedded graph is named by address only. A name the interface does not offer is a `TypeError` listing the names it does.
+- `compiled.with_inputs(**inputs)` — a copy with those inputs filled as `Static`s, compiled again; `run` takes it. A keyword is an input's bare field name when no other input has it, else its address (`**{"a.text": ...}`); an input inside an embedded graph is named by address only. A name the interface does not offer is an `InputNotOffered` (a `TypeError`) listing the names it does.
 - `state.results(compiled)` — every complete node's outputs, typed, by node id, read from any state, live or stored.
 - `state.outputs(compiled)` — `state.results(compiled)` narrowed to `compiled.interface.outputs`, keyed by address; an output not produced, or skipped, is absent.
 - `compiled.graph` — the authored graph it was compiled from, with the values `with_inputs` filled: what a host stores as what ran.
@@ -296,7 +296,7 @@ All three are root exports: `from conductor import execute, run, run_sync`.
 
 ### conductor.errors
 
-`ErrorCause`, `CODES`, `MESSAGES`, `ConductorError`, `CompilationError`, `NodeError`, `ExternalFailure`, `NodeValidationError`, `NodeExecutionError`, `NodeTimeoutError`.
+`ErrorCause`, `CODES`, `MESSAGES`, `ConductorError`, `CompilationError`, `InputNotOffered`, `NodeError`, `ExternalFailure`, `NodeValidationError`, `NodeExecutionError`, `NodeTimeoutError`.
 
 ### conductor.model
 

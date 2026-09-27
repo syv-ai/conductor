@@ -66,6 +66,7 @@ from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
 
 from conductor.codec import to_wire
+from conductor.errors import InputNotOffered
 from conductor.graph.binding import Binding, Static
 from conductor.graph.expand import expanded_ref
 from conductor.graph.problem import Problem
@@ -213,7 +214,7 @@ class CompiledGraph:
         by its address (``**{"a.text": ...}``); an input inside an embedded
         graph has a dotted field name and is named by address only. A name
         the interface does not offer — unknown, locked, fed by an edge, or
-        shared by several inputs — is a ``TypeError`` that lists the names
+        shared by several inputs — is an ``InputNotOffered`` that lists the names
         it does offer. Each value becomes a ``Static`` on its input in a
         copy of the authored graph, which compiles against the same
         registry, so compile is what reads it: a list on an input for one
@@ -236,21 +237,21 @@ class CompiledGraph:
         return CompiledGraph.from_graph(graph, self._registry)
 
     def _offered(self, name: str, offered: list[Ref]) -> Ref:
-        """The input a keyword to ``with_inputs`` names, or a ``TypeError`` listing what is offered."""
+        """The input a keyword to ``with_inputs`` names, or an ``InputNotOffered`` listing what is offered."""
         listing = ", ".join(str(ref) for ref in offered) if offered else "none"
         if "." in name:
             ref = Ref(name)
             if ref in offered:
                 return ref
-            raise TypeError(f"{name!r} is not an input this graph offers; it offers {listing}"
+            raise InputNotOffered(f"{name!r} is not an input this graph offers; it offers {listing}"
                             if offered else f"{name!r}: this graph takes no inputs")
         matches = [ref for ref in offered if ref.field == name]
         if len(matches) == 1:
             return matches[0]
         if matches:
             both = ", ".join(str(ref) for ref in matches)
-            raise TypeError(f"{name!r} is an input of several nodes ({both}); name one by its address")
-        raise TypeError(f"{name!r} is not an input this graph offers; it offers {listing}"
+            raise InputNotOffered(f"{name!r} is an input of several nodes ({both}); name one by its address")
+        raise InputNotOffered(f"{name!r} is not an input this graph offers; it offers {listing}"
                         if offered else f"{name!r}: this graph takes no inputs")
 
     # -- a picture -----------------------------------------------------------------

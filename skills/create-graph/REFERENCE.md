@@ -60,7 +60,7 @@ assert run_sync(ready).state.outputs(ready) == {"joined.result": "RED + GREEN"}
 ```
 
 - `with_inputs(**inputs)` returns a compiled copy with each value as a `Static` on its input; it runs nothing. Run the copy with `run`, `run_sync` or `execute` like any other.
-- A keyword is an input's bare field name when only one input has it, else its address; an input inside an embedded graph goes by address only. A name the interface does not offer is a `TypeError` listing the names it does.
+- A keyword is an input's bare field name when only one input has it, else its address; an input inside an embedded graph goes by address only. A name the interface does not offer is an `InputNotOffered` (a `TypeError`) listing the names it does.
 - Compile reads the value, so a list on an input for one value runs once per item, and a value the type cannot read is the copy's `invalid_static` problem. Filling an input again replaces it.
 - `outputs(state)` reads any ending's state, keyed by address; an output that did not run or was skipped is absent, so a failed or paused leg returns what it produced. `results(state)` is every node's outputs, by node id.
 - `compiled.graph` is the authored graph with the filled values on it: what a host stores as what ran.

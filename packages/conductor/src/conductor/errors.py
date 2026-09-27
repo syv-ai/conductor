@@ -86,6 +86,16 @@ class StartRefused(ConductorError, ValueError):
     """
 
 
+class InputNotOffered(ConductorError, TypeError):
+    """``with_inputs`` was given a name the graph does not offer as an input.
+
+    Unknown, locked, fed by an edge, or a bare field name that several
+    inputs share; the message lists the names the graph does offer. The
+    caller's mistake in naming an argument, so a ``TypeError`` too, the way
+    Python refuses an unexpected keyword.
+    """
+
+
 class CompilationError(ConductorError):
     """A caller asked the engine to run a graph that compile rejected.
 
