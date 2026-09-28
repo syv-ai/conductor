@@ -169,7 +169,10 @@ class CompiledGraph:
             placed = expansion.nodes.get(node_id, _MISSING)
             inputs = {inp.name for inp in interface.inputs}
             fields: dict[str, CompiledField] = {}
-            for declared in (*interface.inputs, *interface.outputs):
+            # A placement holds no fields of its own: ``field`` reads every
+            # address on it through to the inner node that runs.
+            declared_fields = (*interface.inputs, *interface.outputs) if placed is not _MISSING else ()
+            for declared in declared_fields:
                 ref = Ref(node_id, declared.name)
                 fields[declared.name] = CompiledField(
                     ref=ref,
@@ -332,12 +335,13 @@ class CompiledGraph:
         return not any(p.fatal for p in self.problems)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class CompiledNode:
     """One node as the compiler left it: what it has, what it holds, how it runs.
 
     Built once by ``CompiledGraph.from_graph`` and handed back by
-    ``CompiledGraph.node(node_id)`` on every call. The engine reads
+    ``CompiledGraph.node(node_id)`` on every call, so it is equal only to
+    itself: the same node compiled twice is two values. The engine reads
     ``interface``, ``validate``, ``statics``, ``runner`` and
     ``iterates_on`` for each node it runs, and ``version`` and
     ``graph_node`` for the policy and the type it reports; an editor reads
@@ -454,8 +458,9 @@ class CompiledNode:
     @property
     def iterates_on(self) -> Index | None:
         """The index this node runs once per row of, or ``None`` when it runs
-        once. Read off its edges — a series arriving on a scalar input is
-        what makes a node run per row — and never stored on the node. For a
+        once. Read off its edges at compile — a series arriving on a scalar
+        input is what makes a node run per row — and never written on the
+        ``GraphNode``. For a
         node whose version is a graph, the index its inner nodes run per row
         of, where a series entered it."""
         if self._iterates_on is _MISSING:
@@ -463,12 +468,13 @@ class CompiledNode:
         return self._iterates_on
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class CompiledField:
     """One input or output as the compiler left it: its type, its rows, where its value comes from, how it is received.
 
     Built once by ``CompiledGraph.from_graph``, held by its node, and
-    handed back by ``CompiledGraph.field(ref)`` on every call. The engine
+    handed back by ``CompiledGraph.field(ref)`` on every call; like its
+    node, it is equal only to itself. The engine
     reads ``index``, ``binding`` and ``receives`` to lay values out per
     row, to find them and to hand each unit what it takes; an editor reads
     ``type`` and ``index`` to draw the edge and ``receives`` to label it,

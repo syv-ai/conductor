@@ -185,6 +185,17 @@ def test_compile_builds_each_node_and_field_once():
     assert compiled.field(Ref("a", name)) is compiled.field(Ref("a", name))
 
 
+def test_a_compiled_value_is_equal_only_to_itself():
+    """The same graph compiled twice gives two nodes and two fields, never equal across the two."""
+    graph = [GraphNode(id="a", type="echo", version=1)]
+    first, second = _compiled(graph), _compiled(graph)
+    name = first.node("a").interface.inputs[0].name
+
+    assert first.node("a") != second.node("a")
+    assert first.field(Ref("a", name)) != second.field(Ref("a", name))
+    assert len({first.node("a"), first.node("a"), second.node("a")}) == 2
+
+
 def test_the_compiler_does_not_know_the_compiled_graph():
     """``compiled`` imports ``compiler`` and never the other way: the passes know nothing of their result."""
     import ast
@@ -192,10 +203,16 @@ def test_the_compiler_does_not_know_the_compiled_graph():
 
     import conductor.graph.compiler as compiler_module
 
-    tree = ast.parse(Path(compiler_module.__file__).read_text())
-    imported = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
+    reached: set[str] = set()
+    for node in ast.walk(ast.parse(Path(compiler_module.__file__).read_text())):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            reached |= {node.module, *(f"{node.module}.{alias.name}" for alias in node.names)}
+        if isinstance(node, ast.Import):
+            reached |= {alias.name for alias in node.names}
+    compiled_names = {"CompiledGraph", "CompiledNode", "CompiledField"}
 
-    assert "conductor.graph.compiled" not in imported
+    assert not {name for name in reached if name.startswith("conductor.graph.compiled")}
+    assert not {name for name in reached if name.rsplit(".", 1)[-1] in compiled_names}
 
 
 def test_execution_order_follows_the_edges():
