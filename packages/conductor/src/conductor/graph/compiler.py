@@ -1,21 +1,20 @@
-"""How a ``CompiledGraph`` is built: one graph compiled, pass by pass.
+"""How a graph is compiled: the passes, one after another, over one graph.
 
-``CompiledGraph.from_graph(graph, registry)`` is the door; it builds a
-``_Compilation`` and asks it to ``build``. Pure: no session, no I/O, no
-loading. Every definition the graph names must already be in the
-registry; a host that had to load one built it and called
-``NodeRegistry.extended_with`` first.
+``CompiledGraph.from_graph(graph, registry)`` is the door; it runs a
+``Compilation`` and builds the ``CompiledGraph`` from what the passes
+left. Pure: no session, no I/O, no loading. Every definition the graph
+names must already be in the registry; a host that had to load one built
+it and called ``NodeRegistry.extended_with`` first.
 
-Everything wrong with the graph comes back as a ``Problem`` on the
-result rather than raising, so an editor can show a half-finished graph
-with its faults marked. What raises is a caller asking something no
-graph can produce — an input a node does not have, a node compile could
-not resolve.
+Everything wrong with the graph comes back as a ``Problem`` rather than
+raising, so an editor can show a half-finished graph with its faults
+marked.
 
-The passes each read the one before, through the state ``_Compilation``
+The passes each read the one before, through the state ``Compilation``
 holds. A node that fails a pass carries a fatal ``Problem`` and drops out
 of the passes after it, so nothing is guessed about a node downstream of
-a fault.
+a fault. This module knows nothing of ``CompiledGraph``: the result is
+built on the other side, in ``conductor.graph.compiled``.
 """
 
 from __future__ import annotations
@@ -30,7 +29,6 @@ from pydantic import TypeAdapter, ValidationError
 from conductor.dtype_ref import name_of
 from conductor.errors import Refuses
 from conductor.graph.binding import From, static_values
-from conductor.graph.compiled import CompiledGraph
 from conductor.graph.conditions import Condition, conditions_of
 from conductor.graph.expand import SEPARATOR, Expansion, authored_ref, expand, surfaced
 from conductor.graph.iteration import Iteration, derive
@@ -38,7 +36,7 @@ from conductor.graph.model import Graph, GraphNode
 from conductor.graph.problem import Problem, problem
 from conductor.graph.topology import dependencies_of, order_of
 from conductor.graph.views import derive_interface, field_problems, lock_problems
-from conductor.interface import Interface, model_of
+from conductor.interface import Interface
 from conductor.metadata import Input
 from conductor.node import GraphVersion, NodeDefinition, NodeVersion
 from conductor.ref import Ref
@@ -46,13 +44,14 @@ from conductor.registry import NodeRegistry
 from conductor.series import Series
 
 
-class _Compilation:
+class Compilation:
     """One graph being compiled: the state every pass reads and writes.
 
-    ``build`` runs the passes in order and returns the ``CompiledGraph``.
-    Each pass is a method that reads what the passes before it left on
-    ``self`` and appends what it finds wrong to ``problems``. Nothing here
-    outlives ``build``; the result is the immutable record.
+    ``run`` runs the passes in order. Each pass is a method that reads what
+    the passes before it left on ``self`` and appends what it finds wrong
+    to ``problems``. ``CompiledGraph.from_graph`` makes one, runs it and
+    reads what it left into the stored ``CompiledNode`` and
+    ``CompiledField`` values; nothing here outlives that.
     """
 
     def __init__(self, graph: Graph, registry: NodeRegistry) -> None:
@@ -87,7 +86,7 @@ class _Compilation:
         #: What the graph takes and returns (pass 10).
         self.graph_interface: Interface
 
-    def build(self) -> CompiledGraph:
+    def run(self) -> None:
         """The passes, in order. Each reads the one before:
 
         1. ``place`` — the nodes by id; two with one id is a problem.
@@ -108,8 +107,8 @@ class _Compilation:
         9. ``interface`` — what each embedded graph, and then the graph,
            takes and returns.
 
-        A problem found inside an embedded graph is reported on the node
-        the author placed.
+        Last, every problem found inside an embedded graph is moved onto
+        the node the author placed (``surfaced``).
         """
         self.place()
         self.pin()
@@ -120,29 +119,7 @@ class _Compilation:
         self.walk_edges()
         self.conditions()
         self.interface()
-        expansion, iteration = self.expansion, self.iteration
-        return CompiledGraph(
-            graph=self.graph,
-            _registry=self.registry,
-            _nodes=expansion.nodes,
-            _versions={**expansion.versions, **expansion.placement_versions},
-            _interfaces=self.interfaces,
-            _statics=self.statics,
-            _call_models={
-                node_id: model_of(self.interfaces[node_id].inputs)
-                for node_id in expansion.nodes if node_id in iteration.iterated
-            },
-            _order=expansion.order,
-            _iterated=iteration.iterated,
-            _indexes=iteration.indexes,
-            _types=iteration.types,
-            _receives=iteration.receives,
-            _conditions=self.output_conditions,
-            _placements=frozenset(expansion.placement_versions),
-            _placement_of=expansion.placement_of,
-            interface=self.graph_interface,
-            problems=tuple(surfaced(found, expansion.nodes, self.graph_ids) for found in self.problems),
-        )
+        self.problems = [surfaced(found, self.expansion.nodes, self.graph_ids) for found in self.problems]
 
     # -- the passes -------------------------------------------------------------
 

@@ -187,6 +187,7 @@ def test_a_question_about_a_placements_field_reads_through_to_the_inner_field():
     assert compiled.field(Ref("emb", "join.result")).type is compiled.field(Ref("emb/join", "result")).type
     assert compiled.field(Ref("emb", "join.result")).index == compiled.field(Ref("emb/join", "result")).index
     assert compiled.field(Ref("emb", "holder.value")).binding == compiled.field(Ref("emb/holder", "value")).binding
+    assert compiled.field(Ref("emb", "join.result")) is compiled.field(Ref("emb/join", "result"))
 
 
 def test_a_problem_found_inside_surfaces_on_the_placement():

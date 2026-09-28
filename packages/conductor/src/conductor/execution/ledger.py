@@ -180,8 +180,6 @@ class Ledger:
         #: under — its rows in order and how many from the first are written.
         #: Kept once every row of the group is born, so no row is read twice.
         self._written_rows: dict[tuple[Ref, Row | None], tuple[list[Row], int]] = {}
-        #: Each field's index as compile stored it, looked up once.
-        self._indexes: dict[Ref, Index | None] = {}
 
         # What the graph says, read off compile once: who reads which output
         # and how, which nodes birth rows on which index, and where the
@@ -230,7 +228,7 @@ class Ledger:
                 reader = _Reader(node_id, ref, compiled_field.receives)
                 connected.append(reader)
                 self._readers.setdefault(ref, []).append(reader)
-                index = self._index(ref)
+                index = self._compiled.field(ref).index
                 if not reader.per_row and index is not None:
                     self._readers_on.setdefault(index.id, []).append(reader)
         self._connected[node_id] = tuple(connected)
@@ -362,21 +360,15 @@ class Ledger:
     def _present(self, ref: Ref, key: Row | None) -> bool:
         return self._lookup(ref, key)[0] is not _MISSING
 
-    def _index(self, ref: Ref) -> Index | None:
-        """The index compile stored on ``ref``, asked of compile once."""
-        if ref not in self._indexes:
-            self._indexes[ref] = self._compiled.field(ref).index
-        return self._indexes[ref]
-
     def _key(self, ref: Ref, row: Row | None) -> Row | None:
         """Where a unit at ``row`` reads ``ref`` as a scalar: its row on the ref's index, or ``None``."""
-        index = self._index(ref)
+        index = self._compiled.field(ref).index
         return None if index is None else row[: index.depth]
 
     def _written(self, ref: Ref, group: Row | None) -> bool:
         """Is every value of ``ref`` a series reader at ``group`` receives written?
         The one value of a field that carries a single value, else the rows under ``group``."""
-        index = self._index(ref)
+        index = self._compiled.field(ref).index
         return self._present(ref, None) if index is None else self._all_written(ref, index, group)
 
     def _all_written(self, ref: Ref, index: Index, parent_row: Row | None) -> bool:
@@ -443,7 +435,7 @@ class Ledger:
             elif isinstance(received, Gather):
                 gathered: list[Any] = []
                 for ref in binding.refs:
-                    index = self._index(ref)
+                    index = self._compiled.field(ref).index
                     value, _ = self._lookup(ref, None)
                     if is_skipped(value):
                         continue
@@ -457,7 +449,7 @@ class Ledger:
                 found = [self._lookup(ref, group) for ref in binding.refs]
                 if all(is_skipped(value) for value, _ in found):
                     return Skip(at=max((at for _, at in found), key=_depth))
-                index = self._index(binding.refs[0])
+                index = self._compiled.field(binding.refs[0]).index
                 if index is None:
                     # Received whole from a source that ran once: the one value.
                     ((values[inp.name], _),) = found
@@ -501,7 +493,7 @@ class Ledger:
         unit takes the one at its row; broadcast, it is the one value.
         """
         if isinstance(received, Whole):
-            return Series(self._index(own), value.values if isinstance(value, Series) else list(value))
+            return Series(self._compiled.field(own).index, value.values if isinstance(value, Series) else list(value))
         if isinstance(received, Iterate):
             return list(value)[row[received.index.depth - 1]]
         return value

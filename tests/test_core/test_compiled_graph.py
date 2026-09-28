@@ -176,6 +176,28 @@ def test_callers_never_touch_a_binding_table():
         assert not hasattr(compiled, traversed), traversed
 
 
+def test_compile_builds_each_node_and_field_once():
+    """``node`` and ``field`` hand back what compile stored: the same value on every ask."""
+    compiled = _compiled([GraphNode(id="a", type="echo", version=1)])
+    name = compiled.node("a").interface.inputs[0].name
+
+    assert compiled.node("a") is compiled.node("a")
+    assert compiled.field(Ref("a", name)) is compiled.field(Ref("a", name))
+
+
+def test_the_compiler_does_not_know_the_compiled_graph():
+    """``compiled`` imports ``compiler`` and never the other way: the passes know nothing of their result."""
+    import ast
+    from pathlib import Path
+
+    import conductor.graph.compiler as compiler_module
+
+    tree = ast.parse(Path(compiler_module.__file__).read_text())
+    imported = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
+
+    assert "conductor.graph.compiled" not in imported
+
+
 def test_execution_order_follows_the_edges():
     compiled = _compiled([
         GraphNode(id="b", type="echo", version=1, bindings={"x": From("a.result")}),
