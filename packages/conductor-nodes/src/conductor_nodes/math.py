@@ -147,4 +147,4 @@ class Absolute(StdlibNode):
 
 
 #: Every node this module defines, in palette order.
-NODES = (Add, Subtract, Multiply, Divide, Modulo, Round, Min, Max, Absolute)
+NODES: tuple[type[StdlibNode], ...] = (Add, Subtract, Multiply, Divide, Modulo, Round, Min, Max, Absolute)

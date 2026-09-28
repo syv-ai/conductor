@@ -173,7 +173,7 @@ Retries live on the version's `Policy`, per unit.
 
 ### Errors
 
-All exported from `conductor`. A failure carries `ErrorCause(code, message, details, row)` on the exception and on `node_error` / `graph_error`; `CODES` lists the codes, `MESSAGES` their text.
+The classes are exported from `conductor`. A failure carries `ErrorCause(code, message, details, row)` on the exception and on `node_error` / `graph_error`; its `code` is one of a fixed set (see "Problem and error codes").
 
 ```
 ConductorError
@@ -226,12 +226,13 @@ Three public doors: `conductor`, `conductor.widgets` and `conductor.events`. Eac
 
 ### conductor
 
-- Nodes: `NodeDefinition`, `NodeVersion`, `GraphVersion`, `Policy`, `Deprecation`, `NodeDescription`, `version`, `upgrade`, `deprecated`, `Interface`, `FromRun`, `model_of(inputs)` (the pydantic model a call validates through), `Input`, `Output`, `Param`, `Result`, `AnyWidget`
+- Nodes: `NodeDefinition`, `NodeVersion`, `GraphVersion`, `Policy`, `Deprecation`, `NodeDescription`, `version`, `upgrade`, `deprecated`, `Interface`, `FromRun`, `model_of(inputs)` (the pydantic model a call validates through), `Input`, `Output`, `Param`, `Result`, `Upgrade` (an entry of `NodeDefinition.upgrades`), `VersionDescription` (an entry of `NodeDescription.versions`)
 - Returns: `SKIPPED`, `Asks`, `is_skipped`, `is_asking`
 - Types: `DType`, `Single`, `Series`, `Index`, `Ref`, `to_wire(value, dtype)`, `from_wire(data, dtype)`
 - Registry: `NodeRegistry` (`register`, `in`, `[]`, `len`, iteration, `nodes`, `types`, `accepted_as`, `describe`, `upgraded`, `extended_with`, `runner_for`), `RegistryDescription`, `TypeDescription`
 - Graph: `Graph`, `GraphNode`, `FieldContent`, `Binding`, `From`, `Static`, `dependencies_of`, `is_input_node`, `CompiledGraph`, `CompiledNode`, `CompiledField`, `Problem`, `Condition`, `Atom`, `ALWAYS`, `NEVER`, and what an input receives: `Receive` (`Iterate`, `Broadcast`, `Whole`, `Group`, `Gather`)
 - Errors: `ConductorError`, `CompilationError`, `Refuses`, `StartRefused`, `InputNotOffered`, `NodeError`, `ExternalFailure`, `NodeValidationError`, `NodeExecutionError`, `NodeTimeoutError`, `ErrorCause`
+- A run's state: `RunState` (`values` holds `StateValue` or `StateSkip` entries, `done_units` holds `DoneUnit`s)
 - Records (`Graph`, `GraphNode`, …) also have `to_yaml()`, `from_yaml(text)`, `to_path(path)`, `from_path(path)`, plus pydantic's.
 
 ### Running
@@ -243,7 +244,7 @@ Three public doors: `conductor`, `conductor.widgets` and `conductor.events`. Eac
 
 ### Problem and error codes
 
-`Problem.code` is one of `conductor.graph.problem.CODES` (with `CATALOGUE`: each code's message and fatality); `ErrorCause.code` one of `conductor.errors.CODES` (with `MESSAGES`). A host translates by code.
+`Problem.code` and `ErrorCause.code` are strings from two fixed sets, and a host translates by code. The sets themselves are not in a door: `conductor.graph.problem.CODES` (with `CATALOGUE`, each code's message and fatality) and `conductor.errors.CODES` (with `MESSAGES`) are library modules that may move, so read them in a test that pins your translations, not in code that ships.
 
 ### conductor.widgets
 

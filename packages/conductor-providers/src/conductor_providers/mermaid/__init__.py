@@ -20,12 +20,19 @@ it out.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-from conductor import Broadcast, From, Gather, GraphVersion, Group, Iterate, Receive, Ref, Whole
-
-if TYPE_CHECKING:
-    from conductor import CompiledGraph, GraphNode
+from conductor import (
+    Broadcast,
+    CompiledGraph,
+    From,
+    Gather,
+    GraphNode,
+    GraphVersion,
+    Group,
+    Iterate,
+    Receive,
+    Ref,
+    Whole,
+)
 
 _FAULT = "classDef fault stroke:#c62828,stroke-width:2px"
 

@@ -21,15 +21,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import Annotated, Any
 
-from conductor import SKIPPED, Output, Param, Result
+from conductor import SKIPPED, DType, Output, Param, Result
 from conductor.widgets import Switch
 
 from conductor_nodes.types import Flag, StdlibNode
-
-if TYPE_CHECKING:
-    from conductor import DType
 
 
 @dataclass(frozen=True)
@@ -71,4 +68,4 @@ class Decision(StdlibNode):
 
 
 #: Every node this module defines, in palette order.
-NODES = (Decision,)
+NODES: tuple[type[StdlibNode], ...] = (Decision,)

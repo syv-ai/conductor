@@ -7,7 +7,7 @@ All notable changes to the three workspace packages (`syv-conductor`, `syv-condu
 
 ## [Unreleased]
 
-- The public API is three doors: `conductor`, `conductor.widgets` and `conductor.events` (new), each with an `__all__` a type checker accepts. `NEVER`, the `Receive` records, `model_of`, `to_wire` and `from_wire` join the root; `dtype_of` and `DTypeRef` leave it. Each `conductor_nodes` module lists its nodes in `NODES` instead of a `register()` function.
+- The public API is three doors: `conductor`, `conductor.widgets` and `conductor.events` (new), each with an `__all__` a type checker accepts. `NEVER`, the `Receive` records, `model_of`, `to_wire`, `from_wire`, `Upgrade`, `VersionDescription` and the run state's entries (`StateValue`, `StateSkip`, `DoneUnit`) join the root; `dtype_of` and `DTypeRef` leave it, and `AnyWidget` is imported from `conductor.widgets` only. Each `conductor_nodes` module lists its nodes in `NODES` instead of a `register()` function.
 
 ## [2.0.0]
 
