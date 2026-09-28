@@ -12,7 +12,7 @@ from conductor.graph.binding import From, Static, static_values
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.topology import dependencies_of
-from conductor.graph.views import derive_interface, is_input_node, lock_problems
+from conductor.graph.views import derive_interface, lock_problems
 from conductor.interface import FromRun, Interface
 from conductor.metadata import Output, Param, Result
 from conductor.node import NodeDefinition
@@ -80,7 +80,7 @@ def test_a_node_stores_bindings_and_derives_data():
             "source": From("n0.result"),
         },
     )
-    assert node.data == {"text": "hi"}
+    assert static_values(node.bindings) == {"text": "hi"}
 
 
 def test_a_node_is_behaviour_content_and_chrome():
@@ -344,13 +344,6 @@ def test_nodes_order_decides_the_order():
     reordered = Graph(nodes=[graph.nodes[1], graph.nodes[0], graph.nodes[2]])
 
     assert [i.name for i in _interface(reordered).inputs] == ["language.value", "application.value"]
-
-
-def test_is_input_node_is_the_one_home_of_the_predicate():
-    """A Static does not disqualify a placement; any From does."""
-    graph = _graph()
-    assert is_input_node(graph.nodes[0]) and is_input_node(graph.nodes[1])
-    assert not is_input_node(graph.nodes[2])
 
 
 def test_an_edge_into_any_field_makes_the_whole_node_static():

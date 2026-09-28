@@ -31,7 +31,7 @@ DOORS: dict[str, list[str]] = {
         "NodeValidationError", "NodeVersion", "NotDerived", "NotResolved", "Output", "Param", "Policy", "Problem",
         "Receive", "Ref", "Refuses", "RegistryDescription", "Result", "RunState", "SKIPPED", "Series", "Single",
         "StartRefused", "StateSkip", "StateValue", "Static", "TypeDescription", "Upgrade", "VersionDescription",
-        "Whole", "dependencies_of", "deprecated", "execute", "from_wire", "is_asking", "is_input_node", "is_skipped", "model_of",
+        "Whole", "dependencies_of", "deprecated", "execute", "from_wire", "is_asking", "is_skipped", "model_of",
         "run", "run_sync", "to_wire", "upgrade", "version",
     ],
     "conductor.widgets": [

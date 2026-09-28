@@ -10,6 +10,8 @@ All notable changes to the three workspace packages (`syv-conductor`, `syv-condu
 - `compiled.node(id)` answers for every node compile met, each with a `state` (`ready`, `not_derived`, `unresolved`) and its `problems`; a field has `problems` too. Reading what a state lacks raises `NotResolved` or `NotDerived`, carrying the `Problem` that explains it; `KeyError` is only for an id the graph lacks. A node whose version is a graph is a `CompiledPlacement`, with no `graph_node`, `statics`, `runner`, `fingerprint` or `validate`.
 - `decisions` leaves out a node the walk did not derive, and a misaligned embedded graph is not derived.
 - `conductor_providers.mermaid.flowchart` draws any graph, however broken.
+- An input named with a leading underscore, from a `**inputs` edge or a `compute_inputs` hook, is `parameter_name_invalid` at compile. A call model is built on a node's first `validate`.
+- Removed: `is_input_node` (the graph's inputs are `compiled.interface.inputs`) and `GraphNode.data` (read `node.bindings`).
 - The public API is three doors: `conductor`, `conductor.widgets` and `conductor.events` (new), each with an `__all__` a type checker accepts. `NEVER`, the `Receive` records, `model_of`, `to_wire`, `from_wire`, `Upgrade`, `VersionDescription` and the run state's entries (`StateValue`, `StateSkip`, `DoneUnit`) join the root; `dtype_of` and `DTypeRef` leave it, and `AnyWidget` is imported from `conductor.widgets` only. Each `conductor_nodes` module lists its nodes in `NODES` instead of a `register()` function.
 
 ## [2.0.0]

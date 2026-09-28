@@ -129,7 +129,7 @@ A `DType` is a class on a builtin with its own `id` and `title` (`class Number(D
 - `From("a.result", ...)`: over edges. Refs on different indexes into a `Series[X]` input gather; refs on one index are a union, and a row covered twice fails with `row_covered_twice`.
 - `Static(...)`: typed in. A list on a scalar input runs the node once per value.
 - No binding: the default. `locked` names inputs no caller may fill.
-- `dependencies_of(nodes)`, `is_input_node(node)`.
+- `dependencies_of(nodes)`: who waits for whom; an empty set is an input node.
 
 ### Compilation
 
@@ -232,7 +232,7 @@ Three public doors: `conductor`, `conductor.widgets` and `conductor.events`. Eac
 - Returns: `SKIPPED`, `Asks`, `is_skipped`, `is_asking`
 - Types: `DType`, `Single`, `Series`, `Index`, `Ref`, `to_wire(value, dtype)`, `from_wire(data, dtype)`
 - Registry: `NodeRegistry` (`register`, `in`, `[]`, `len`, iteration, `nodes`, `types`, `accepted_as`, `describe`, `upgraded`, `extended_with`, `runner_for`), `RegistryDescription`, `TypeDescription`
-- Graph: `Graph`, `GraphNode`, `FieldContent`, `Binding`, `From`, `Static`, `dependencies_of`, `is_input_node`, `CompiledGraph`, `CompiledNode`, `CompiledPlacement`, `CompiledField`, `Problem`, `Condition`, `Atom`, `ALWAYS`, `NEVER`, and what an input receives: `Receive` (`Iterate`, `Broadcast`, `Whole`, `Group`, `Gather`)
+- Graph: `Graph`, `GraphNode`, `FieldContent`, `Binding`, `From`, `Static`, `dependencies_of`, `CompiledGraph`, `CompiledNode`, `CompiledPlacement`, `CompiledField`, `Problem`, `Condition`, `Atom`, `ALWAYS`, `NEVER`, and what an input receives: `Receive` (`Iterate`, `Broadcast`, `Whole`, `Group`, `Gather`)
 - Errors: `ConductorError`, `CompilationError`, `Refuses`, `StartRefused`, `InputNotOffered`, `NotResolved`, `NotDerived`, `NodeError`, `ExternalFailure`, `NodeValidationError`, `NodeExecutionError`, `NodeTimeoutError`, `ErrorCause`
 - A run's state: `RunState` (`values` holds `StateValue` or `StateSkip` entries, `done_units` holds `DoneUnit`s)
 - Records (`Graph`, `GraphNode`, …) also have `to_yaml()`, `from_yaml(text)`, `to_path(path)`, `from_path(path)`, plus pydantic's.

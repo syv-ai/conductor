@@ -63,6 +63,7 @@ import hashlib
 import json
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
+from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel
@@ -375,9 +376,6 @@ class CompiledNode:
     _statics: Mapping[str, Any] = field(repr=False)
     #: What the walk decided; ``None`` also on a node it did not derive.
     _iterates_on: Index | None = field(repr=False)
-    #: The pydantic model that validates a call against ``interface``,
-    #: built once at compile for a ready node, not once per unit.
-    _call_model: type[BaseModel] = field(repr=False)
     #: Every input and output by name: what ``CompiledGraph.field`` hands back.
     _fields: Mapping[str, CompiledField] = field(repr=False)
     #: Where ``runner`` looks the callable up, on each read.
@@ -450,11 +448,18 @@ class CompiledNode:
         filled in where the call gave none. Raises pydantic's
         ``ValidationError`` when a value is not its input's type or a
         required input is missing; the engine turns that into the node's
-        failure. The check runs through a model built once when the graph
-        was compiled, not once per unit."""
+        failure. The check runs through a model built on the first call and
+        kept, not built once per unit."""
         _gate(self, "validate", derived=True)
         validated = self._call_model(**inputs)
         return {info.alias or field: getattr(validated, field) for field, info in type(validated).model_fields.items()}
+
+    @cached_property
+    def _call_model(self) -> type[BaseModel]:
+        """The pydantic model a call validates through, built on first use.
+        Compile has already refused every input name it could not carry
+        (``parameter_name_invalid``), so building it cannot fail here."""
+        return model_of(self._interface.inputs)
 
     @property
     def iterates_on(self) -> Index | None:
@@ -676,7 +681,6 @@ class _Fold:
                 _interface=interface,
                 _statics=self.passes.statics.get(node_id),
                 _iterates_on=self.iteration.iterated.get(node_id),
-                _call_model=model_of(interface.inputs) if state == "ready" else None,
                 _fields={} if interface is None else self.fields(node_id, placed, interface, cause, problems),
                 _registry=self.passes.registry,
             )

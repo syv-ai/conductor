@@ -23,7 +23,7 @@ from typing import Any
 
 from pydantic import Field, field_validator
 
-from conductor.graph.binding import Binding, static_values
+from conductor.graph.binding import Binding
 from conductor.model import ConductorModel
 
 
@@ -95,11 +95,6 @@ class GraphNode(ConductorModel):
         if "." in node_id:
             raise ValueError(f"node id {node_id!r} contains '.': a Ref reads as 'node.field' and must read one way")
         return node_id
-
-    @property
-    def data(self) -> dict[str, Any]:
-        """The typed-in values as a plain dict, for the engine."""
-        return static_values(self.bindings)
 
 
 class Graph(ConductorModel):

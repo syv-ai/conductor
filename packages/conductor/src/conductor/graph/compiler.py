@@ -244,8 +244,10 @@ class Compilation:
         input nothing binds (``unbound_required``). A parameter typed ``Any``
         gets its type from its edge and nothing else, so with no edge it is
         ``unbound_required`` as well. Two inputs sharing a name, or a handle
-        without a type an edge can carry (``field_problems``), are checked
-        here on the inputs the hook answered, before the walk reads them.
+        without a type an edge can carry (``field_problems``), and an input
+        named with a leading underscore (``parameter_name_invalid``), are
+        checked here on the inputs the hook answered, before the walk reads
+        them.
 
         An edge from an id the author wrote but compile could not resolve —
         an unknown type, a cycle, a refused id — is left alone: that node
@@ -261,6 +263,10 @@ class Compilation:
             node = nodes[node_id]
             declared = {i.name: i for i in interface.inputs}
             faults = field_problems(node_id, interface.inputs, untyped_ok=True)
+            # A leading underscore is private by convention and never a field
+            # a call can carry: a declared parameter is refused at class
+            # definition, and a ``**inputs`` edge or a hook's input here.
+            faults += [problem("parameter_name_invalid", node_id, i.name) for i in interface.inputs if i.name.startswith("_")]
             if faults:
                 broken.add(node_id)
                 self.problems.extend(faults)

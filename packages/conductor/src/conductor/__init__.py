@@ -33,7 +33,6 @@ from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.problem import Problem
 from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Receive, Whole
 from conductor.graph.topology import dependencies_of
-from conductor.graph.views import is_input_node
 from conductor.interface import FromRun, Interface, model_of
 from conductor.metadata import Input, Output, Param, Result
 from conductor.node import (
@@ -121,7 +120,6 @@ __all__ = [
     "execute",
     "from_wire",
     "is_asking",
-    "is_input_node",
     "is_skipped",
     "model_of",
     "run",

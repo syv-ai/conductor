@@ -5,14 +5,14 @@ from typing import Annotated
 
 import pytest
 from conductor import NodeRegistry
-from conductor.dtype import DType
+from conductor.dtype import DType, Single
 from conductor.errors import ConductorError, NotDerived, NotResolved
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.problem import Problem
 from conductor.interface import FromRun, Interface, model_of
-from conductor.metadata import Output, Param, Result
+from conductor.metadata import Input, Output, Param, Result
 from conductor.node import NodeDefinition, Policy, upgrade, version
 from conductor.ref import Ref
 from conductor.widgets import Choice, Dropdown, Textarea
@@ -133,6 +133,33 @@ class Stamped(NodeDefinition):
         x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt(""),
     ) -> Out:
         return x
+
+
+class OpenInputs(NodeDefinition):
+    """Takes any edge as an input of its own."""
+
+    id = "open-inputs"
+    title = "Open inputs"
+    description = "d"
+    category = "test"
+
+    def run(self, **inputs: Single) -> Out:
+        return Txt("")
+
+
+class AddsHidden(NodeDefinition):
+    """Its hook adds a closed input the author cannot see."""
+
+    id = "hidden"
+    title = "Hidden"
+    description = "d"
+    category = "test"
+
+    def run(self, value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
+        return value
+
+    def compute_inputs(self, declared, values):
+        return (*declared, Input(name="_x", dtype=Txt, title="X", show_handle=False, default=Txt(""), optional=True))
 
 
 def _registry(*extra):
@@ -290,6 +317,24 @@ def test_node_problems_are_the_problems_anchored_on_it():
     assert compiled.node("a").problems == compiled.problems
     assert compiled.node("b").problems == ()
     assert compiled.field(Ref("a", "x")).problems == ()
+
+
+def test_an_input_named_with_a_leading_underscore_is_refused_at_compile():
+    """A call cannot carry such a name, so compile says so instead of the first call failing."""
+    compiled = _compiled([
+        GraphNode(id="a", type="echo", version=1),
+        GraphNode(id="s", type="open-inputs", version=1, bindings={"_x": From("a.result")}),
+    ], _registry(OpenInputs))
+
+    assert [(p.code, p.node_id, p.field) for p in compiled.problems] == [("parameter_name_invalid", "s", "_x")]
+    assert compiled.node("s").state == "not_derived"
+
+
+def test_a_hook_that_adds_an_input_named_with_a_leading_underscore_is_refused_at_compile():
+    compiled = _compiled([GraphNode(id="h", type="hidden", version=1)], _registry(AddsHidden))
+
+    assert [(p.code, p.field) for p in compiled.problems] == [("parameter_name_invalid", "_x")]
+    assert compiled.node("h").state == "not_derived"
 
 
 def test_the_compiler_does_not_know_the_compiled_graph():
