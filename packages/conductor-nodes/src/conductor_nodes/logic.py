@@ -7,16 +7,12 @@ The two ``if`` nodes route text to one of two outputs and return
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
-from conductor._sentinel import SKIPPED
-from conductor.metadata import Param, Result
+from conductor import SKIPPED, Param, Result
 from conductor.widgets import Switch, Textarea, TextWidget
 
 from conductor_nodes.types import Flag, StdlibNode, Text
-
-if TYPE_CHECKING:
-    from conductor import NodeRegistry
 
 
 @dataclass(frozen=True)
@@ -87,7 +83,5 @@ class Not(StdlibNode):
         return Flag(not value)
 
 
-def register(registry: "NodeRegistry") -> None:
-    """Register every logic node on the supplied registry."""
-    for node_cls in (IfEmpty, IfEquals, Not):
-        registry.register(node_cls)
+#: Every node this module defines, in palette order.
+NODES = (IfEmpty, IfEquals, Not)

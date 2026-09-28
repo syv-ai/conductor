@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
-from conductor.metadata import Param, Result
-from conductor.series import Series
+from conductor import Param, Result, Series
 from conductor.widgets import ListWidget, NumberWidget, Range
 
 from conductor_nodes.types import Number, StdlibNode
-
-if TYPE_CHECKING:
-    from conductor import NodeRegistry
 
 
 class Add(StdlibNode):
@@ -150,7 +146,5 @@ class Absolute(StdlibNode):
         return Number(abs(value))
 
 
-def register(registry: "NodeRegistry") -> None:
-    """Register every math node on the supplied registry."""
-    for node_cls in (Add, Subtract, Multiply, Divide, Modulo, Round, Min, Max, Absolute):
-        registry.register(node_cls)
+#: Every node this module defines, in palette order.
+NODES = (Add, Subtract, Multiply, Divide, Modulo, Round, Min, Max, Absolute)

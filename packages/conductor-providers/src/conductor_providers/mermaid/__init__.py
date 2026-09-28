@@ -22,14 +22,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from conductor.graph.binding import From
-from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Receive, Whole
-from conductor.node import GraphVersion
-from conductor.ref import Ref
+from conductor import Broadcast, From, Gather, GraphVersion, Group, Iterate, Receive, Ref, Whole
 
 if TYPE_CHECKING:
-    from conductor.graph.compiled import CompiledGraph
-    from conductor.graph.model import GraphNode
+    from conductor import CompiledGraph, GraphNode
 
 _FAULT = "classDef fault stroke:#c62828,stroke-width:2px"
 

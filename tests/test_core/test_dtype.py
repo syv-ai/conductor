@@ -202,5 +202,5 @@ def test_conductor_declares_no_domain_types_of_its_own():
 def test_the_vocabulary_is_importable_from_the_root():
     import conductor
 
-    for name in ("DType", "DTypeRef", "Single", "Series", "Index", "Ref", "Result"):
+    for name in ("DType", "Single", "Series", "Index", "Ref", "Result"):
         assert getattr(conductor, name) is not None

@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
-from conductor.metadata import Param, Result
-from conductor.series import Series
+from conductor import Param, Result, Series
 from conductor.widgets import ListWidget, Switch, Textarea, TextWidget
 
 from conductor_nodes.types import Flag, Number, StdlibNode, Text
-
-if TYPE_CHECKING:
-    from conductor import NodeRegistry
 
 
 class Uppercase(StdlibNode):
@@ -151,7 +147,5 @@ class Reverse(StdlibNode):
         return Text(text[::-1])
 
 
-def register(registry: "NodeRegistry") -> None:
-    """Register every text node on the supplied registry."""
-    for node_cls in (Uppercase, Lowercase, Trim, Length, Concat, Replace, Contains, Split, Join, Reverse):
-        registry.register(node_cls)
+#: Every node this module defines, in palette order.
+NODES = (Uppercase, Lowercase, Trim, Length, Concat, Replace, Contains, Split, Join, Reverse)

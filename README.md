@@ -118,7 +118,7 @@ To watch a run, iterate `execute(compiled)`. It yields `node_start`, `node_progr
 
 ## Versioning
 
-Conductor follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The public API is what a package's `__init__` exports plus `conductor.widgets`, `conductor.errors`, `conductor.metadata`, `conductor.model` and `conductor.execution.events`. Anything else, including `_`-prefixed names, may change in any release. A breaking change to the public API ships in a major release.
+Conductor follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The public API is three doors, `conductor`, `conductor.widgets` and `conductor.events`, each listing its names in `__all__`, plus the `conductor_nodes` and `conductor_providers` packages. Anything else may change in any release. A breaking change to the public API ships in a major release.
 
 ## License
 

@@ -11,8 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from conductor.graph.binding import From
-from conductor.graph.model import Graph, GraphNode
+from conductor import From, Graph, GraphNode
 
 from conductor_providers.react.layout import topological_positions
 

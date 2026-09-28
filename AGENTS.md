@@ -37,7 +37,7 @@ CI runs ruff and pytest on every PR. Tests marked `slow` time the wall clock and
 - **A `run` returns its declared types** (`Text(...)`, never a bare `str`).
 - **Registering two classes under one id raises**; so does one type id from two classes on one registry.
 - **Fail loud.** No defensive `None` checks or silent defaults where the state means a bug.
-- **Imports.** No `__all__` in a module; a reader imports a name from the module that defines it. A package `__init__` may declare one for its re-exports.
+- **Imports.** Code outside the core library (conductor-nodes, providers, examples, docs, hosts) imports only from the three doors, `conductor`, `conductor.widgets` and `conductor.events`; each door lists its names in `__all__`, pinned by `tests/test_core/test_doors.py`. Code inside the core library imports a name from the module that defines it, and no other module declares `__all__`.
 - **Identifiers are English.** A host's language lives in titles, descriptions and messages.
 - **Notebook outputs are stripped on commit.** Run the cells to see values.
 - **Keep the docs true.** A change to public API updates `README.md`, `docs/`, `llms.txt` and the skills in the same change, and adds a `CHANGELOG.md` line under `[Unreleased]`. The README's Python blocks run as a test (`tests/test_core/test_vocabulary.py`), so keep them runnable top to bottom. Docs describe what the code does; where a commit message and the code disagree, trust the code.

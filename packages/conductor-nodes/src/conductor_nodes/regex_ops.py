@@ -11,18 +11,13 @@ node with a sentence meant for people, code ``pattern_timeout``.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar
+from typing import Annotated, Any, ClassVar
 
 import regex
-from conductor.errors import ErrorCause, NodeError
-from conductor.metadata import Param, Result
-from conductor.series import Series
+from conductor import ErrorCause, NodeError, Param, Result, Series
 from conductor.widgets import Switch, Textarea, TextWidget
 
 from conductor_nodes.types import Flag, StdlibNode, Text
-
-if TYPE_CHECKING:
-    from conductor import NodeRegistry
 
 TOO_SLOW = "The pattern took too long."
 
@@ -96,7 +91,5 @@ class Extract(PatternNode):
         return [Text(m) for m in self._timed(compiled.findall, text)]
 
 
-def register(registry: "NodeRegistry") -> None:
-    """Register every regex node on the supplied registry."""
-    for node_cls in (Match, ReplaceAll, Extract):
-        registry.register(node_cls)
+#: Every node this module defines, in palette order.
+NODES = (Match, ReplaceAll, Extract)

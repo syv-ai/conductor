@@ -7,8 +7,7 @@ import asyncio
 from typing import Annotated
 
 import conductor_nodes
-from conductor import Asks, CompiledGraph, execute, From, Graph, GraphNode, Input, NodeDefinition, Param, Result, Series, Static
-from conductor.execution.state import RunState
+from conductor import Asks, CompiledGraph, execute, From, Graph, GraphNode, Input, NodeDefinition, Param, Result, RunState, Series, Static
 from conductor.widgets import Textarea
 from conductor_nodes.types import Text
 
