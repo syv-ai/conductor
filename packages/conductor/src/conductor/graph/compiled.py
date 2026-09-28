@@ -75,7 +75,6 @@ from conductor.graph.binding import Binding, From, Static
 from conductor.graph.compiler import Compilation
 from conductor.graph.expand import SEPARATOR, authored_address
 from conductor.graph.problem import Problem
-from conductor.graph.receive import Iterate
 from conductor.interface import model_of
 from conductor.node import runner_of
 from conductor.ref import Ref
@@ -308,6 +307,27 @@ class CompiledGraph:
                 found[node_id] = {choice: tuple(names) for choice, names in groups.items()}
         return found
 
+    def downstream(self, node_ids: Iterable[str]) -> frozenset[str]:
+        """Every node that reads an output of one of ``node_ids``, directly or through other nodes, by expanded id.
+
+        A graph question a run asks: a restore leaves out, with each node
+        that changed, everything its values reached, so those units run
+        again. A node of ``node_ids`` is in the answer only when another of
+        them reads it. A walk over ``CompiledField.read_by`` on each call,
+        not a stored closure: storing every node's readers costs memory
+        quadratic in a long chain.
+        """
+        found: set[str] = set()
+        frontier = list(node_ids)
+        while frontier:
+            node = self._nodes[frontier.pop()]
+            for out in node.interface.outputs:
+                for reader in self.field(Ref(node.id, out.name)).read_by:
+                    if reader.node_id not in found:
+                        found.add(reader.node_id)
+                        frontier.append(reader.node_id)
+        return frozenset(found)
+
     # -- what is wrong -------------------------------------------------------------
 
     @property
@@ -378,6 +398,11 @@ class CompiledNode:
     _statics: Mapping[str, Any] = field(repr=False)
     #: What the walk decided; ``None`` also on a node it did not derive.
     _iterates_on: Index | None = field(repr=False)
+    #: Its share of the read plan (see ``births``); empty on a node the walk did not derive.
+    _births: Index | None = field(repr=False)
+    _iterated_by: tuple[str, ...] = field(repr=False)
+    _carried_by: tuple[Ref, ...] = field(repr=False)
+    _typed_lists: tuple[Ref, ...] = field(repr=False)
     #: Every input and output by name: what ``CompiledGraph.field`` hands back.
     _fields: Mapping[str, CompiledField] = field(repr=False)
 
@@ -444,8 +469,7 @@ class CompiledNode:
                 # when the input is received one per row of its own index.
                 # A static for an input the node no longer has is hashed as
                 # spelled, since no type reads it.
-                listed = isinstance(self._fields[name].receives, Iterate)
-                bindings[name] = {"static": _written(self._statics[name], declared[name], listed)}
+                bindings[name] = {"static": _written(self._statics[name], declared[name], self._fields[name].listed)}
             else:
                 bindings[name] = binding.model_dump()
         placed = {"type": node.type, "version": node.version, "bindings": bindings}
@@ -478,6 +502,40 @@ class CompiledNode:
         ``GraphNode``."""
         _gate(self, "iterates_on", derived=True)
         return self._iterates_on
+
+    # The read plan: the walk's decisions inverted once at compile, so the
+    # engine's ledger looks each up instead of searching the graph on every
+    # run. An index's plan sits on what births its rows — this node, for the
+    # index its series outputs birth (``births``), or an input's
+    # ``CompiledField``, for a list the author typed into it.
+
+    @property
+    def births(self) -> Index | None:
+        """The index this node's series outputs birth rows on, named after
+        it; ``None`` for a node with no series output."""
+        _gate(self, "births", derived=True)
+        return self._births
+
+    @property
+    def iterated_by(self) -> tuple[str, ...]:
+        """The nodes that run once per row of ``births``, in execution order;
+        ``()`` for a node that births nothing."""
+        _gate(self, "iterated_by", derived=True)
+        return self._iterated_by
+
+    @property
+    def carried_by(self) -> tuple[Ref, ...]:
+        """The outputs whose values sit on ``births``: this node's series
+        outputs, and the outputs of every node running per row of it."""
+        _gate(self, "carried_by", derived=True)
+        return self._carried_by
+
+    @property
+    def typed_lists(self) -> tuple[Ref, ...]:
+        """The inputs holding a list the author typed whose rows are born
+        under each row of ``births``."""
+        _gate(self, "typed_lists", derived=True)
+        return self._typed_lists
 
 
 @dataclass(frozen=True, eq=False)
@@ -567,6 +625,12 @@ class CompiledField:
     _index: Index | None = field(repr=False)
     _receives: Receive = field(repr=False)
     _condition: Condition = field(repr=False)
+    #: Its share of the read plan (see ``read_by`` and ``listed``).
+    _read_by: tuple[Ref, ...] = field(repr=False)
+    _listed: bool = field(repr=False)
+    _iterated_by: tuple[str, ...] = field(repr=False)
+    _carried_by: tuple[Ref, ...] = field(repr=False)
+    _typed_lists: tuple[Ref, ...] = field(repr=False)
 
     def _gate(self, asked: str) -> None:
         if self._cause is not None:
@@ -616,6 +680,45 @@ class CompiledField:
         return self._receives
 
     @property
+    def read_by(self) -> tuple[Ref, ...]:
+        """Every input an edge from this output feeds, one per edge, in
+        execution order: what the engine's ledger wakes when a value is
+        written here. Only an output has readers."""
+        if not self._output:
+            raise KeyError(self.ref)
+        self._gate("read_by")
+        return self._read_by
+
+    @property
+    def listed(self) -> bool:
+        """The author typed many values into this scalar input — three files,
+        a list of texts — so its node runs once per value, on an index of
+        the input's own. Only an input is typed into."""
+        if not self._input:
+            raise KeyError(self.ref)
+        return self._listed
+
+    @property
+    def iterated_by(self) -> tuple[str, ...]:
+        """For a ``listed`` input, the nodes that run once per value it holds,
+        in execution order; ``()`` for any other field."""
+        self._gate("iterated_by")
+        return self._iterated_by
+
+    @property
+    def carried_by(self) -> tuple[Ref, ...]:
+        """For a ``listed`` input, the outputs whose values sit on its index."""
+        self._gate("carried_by")
+        return self._carried_by
+
+    @property
+    def typed_lists(self) -> tuple[Ref, ...]:
+        """For a ``listed`` input, the inputs holding a list whose rows are
+        born under each of its own."""
+        self._gate("typed_lists")
+        return self._typed_lists
+
+    @property
     def condition(self) -> Condition:
         """Under which condition this output appears: a boolean formula over
         the decisions upstream (see ``conductor.graph.conditions``),
@@ -661,6 +764,61 @@ class _Fold:
         for placement in self.expansion.placement_versions:
             self.met[placement] = (None, self.expansion.placement_of[placement])
         self.causes: dict[str, Problem] = {}
+        self._plan()
+
+    def _plan(self) -> None:
+        """The read plan: the walk's decisions inverted once, over the nodes it
+        derived in execution order. Who reads each output (``read_by``);
+        per index, who runs once per row of it (``iterated_by``), which
+        outputs sit on it (``carried_by``) and which typed-in lists are born
+        under it (``typed_lists``). Each index's entries go to what births
+        its rows: a node's series outputs, or an input's typed-in list. An
+        index with entries and no such owner is a bug in compile, and
+        raises."""
+        iteration, listed = self.iteration, self.passes.listed
+        self.read_by: dict[Ref, list[Ref]] = {}
+        self.iterated_by: dict[str, list[str]] = {}
+        self.carried_by: dict[str, list[Ref]] = {}
+        self.typed_lists: dict[str, list[Ref]] = {}
+        #: Each index's owner: the node whose series outputs birth it, or the listed input.
+        self.births: dict[str, Index] = {}
+        self.listed: dict[Ref, Index] = {}
+        for node_id in self.expansion.order:
+            if node_id not in iteration.iterated:
+                continue
+            node, interface = self.expansion.nodes[node_id], self.passes.interfaces[node_id]
+            for inp in interface.inputs:
+                ref = Ref(node_id, inp.name)
+                binding = node.bindings.get(inp.name)
+                if isinstance(binding, From):
+                    for source in binding.refs:
+                        self.read_by.setdefault(source, []).append(ref)
+                if inp.name in listed[node_id]:
+                    own = iteration.indexes[ref]
+                    self.listed[ref] = own
+                    if own.parent is not None:
+                        self.typed_lists.setdefault(own.parent.id, []).append(ref)
+            if (index := iteration.iterated[node_id]) is not None:
+                self.iterated_by.setdefault(index.id, []).append(node_id)
+            for out in interface.outputs:
+                ref = Ref(node_id, out.name)
+                if (index := iteration.indexes[ref]) is not None:
+                    self.carried_by.setdefault(index.id, []).append(ref)
+                    if out.dtype.element is not None:
+                        self.births.setdefault(node_id, index)
+        owned = {index.id for index in (*self.births.values(), *self.listed.values())}
+        for planned in (self.iterated_by, self.carried_by, self.typed_lists):
+            for index_id in planned.keys() - owned:
+                raise RuntimeError(f"compile planned index {index_id!r}, which no node or typed-in list owns")
+
+    def _share(self, index: Index | None) -> dict[str, Any]:
+        """What the read plan says about ``index``, for the value that owns it."""
+        key = None if index is None else index.id
+        return {
+            "_iterated_by": tuple(self.iterated_by.get(key, ())),
+            "_carried_by": tuple(self.carried_by.get(key, ())),
+            "_typed_lists": tuple(self.typed_lists.get(key, ())),
+        }
 
     def nodes(self) -> dict[str, CompiledNode | CompiledPlacement]:
         built: dict[str, CompiledNode | CompiledPlacement] = {}
@@ -694,6 +852,8 @@ class _Fold:
                 _interface=interface,
                 _statics=self.passes.statics.get(node_id),
                 _iterates_on=self.iteration.iterated.get(node_id),
+                _births=self.births.get(node_id),
+                **self._share(self.births.get(node_id)),
                 _fields={} if interface is None else self.fields(node_id, placed, interface, cause, problems),
             )
         return built
@@ -726,6 +886,9 @@ class _Fold:
                 _index=iteration.indexes[ref] if derived else None,
                 _receives=iteration.receives[ref] if derived and name in inputs else None,
                 _condition=conditions[ref] if derived and name in outputs else None,
+                _read_by=tuple(self.read_by.get(ref, ())),
+                _listed=name in self.passes.listed.get(node_id, ()),
+                **self._share(self.listed.get(ref)),
             )
         return fields
 
