@@ -870,9 +870,9 @@ def test_compile_stores_no_rows_and_no_mask():
 
 
 def test_a_hook_that_adds_a_connected_input_without_an_edge_type_is_a_problem_not_a_crash():
-    """C7: a computed input a handle bears must carry a type an edge can carry.
-    Connected, it used to crash the walk; now it is ``handle_needs_dtype`` on
-    the field, fatal, and the node is not derived."""
+    """A computed input a handle bears must carry a type an edge can carry.
+    Connected, it is ``handle_needs_dtype`` on the field, fatal, and the node
+    is not derived; the walk does not crash."""
 
     class Adds(NodeDefinition):
         id = "adds"
@@ -899,8 +899,8 @@ def test_a_hook_that_adds_a_connected_input_without_an_edge_type_is_a_problem_no
 
 
 def test_a_hook_that_leaves_a_connected_output_untyped_is_a_problem_not_a_crash():
-    """C7: an output typed ``Any`` after the hook has answered can carry
-    nothing on an edge. Reading it used to crash the walk."""
+    """An output typed ``Any`` after the hook has answered can carry nothing
+    on an edge. Reading it is a problem, not a crash of the walk."""
 
     class Vague(NodeDefinition):
         id = "vague"
@@ -926,8 +926,8 @@ def test_a_hook_that_leaves_a_connected_output_untyped_is_a_problem_not_a_crash(
 
 
 def test_a_static_is_typed_against_the_interface_the_hook_returned():
-    """C8: a hook that retypes an input from text to number makes the value
-    the author typed as text an ``invalid_static`` now, not a failure at run time."""
+    """A hook that retypes an input from text to number makes the value the
+    author typed as text an ``invalid_static``, not a failure at run time."""
 
     class Retypes(NodeDefinition):
         id = "retypes"

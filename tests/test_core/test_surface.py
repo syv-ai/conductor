@@ -68,7 +68,7 @@ def _compiled(*nodes: GraphNode) -> CompiledGraph:
     return CompiledGraph.from_graph(Graph(nodes=list(nodes)), _registry())
 
 
-# --- a dead binding (F4) -------------------------------------------------------------
+# --- a dead binding ------------------------------------------------------------------
 
 
 def test_a_misspelled_binding_on_a_node_whose_inputs_are_its_signature_is_fatal():
@@ -88,7 +88,7 @@ def test_the_dead_binding_names_the_inputs_the_node_has():
 
 def test_a_node_whose_inputs_come_and_go_keeps_the_binding_as_a_note():
     """A node with ``compute_inputs`` really can lose a field when its mode
-    changes, so the binding it held is history, not a typo."""
+    changes, so the binding it held is left over, not a typo."""
     compiled = _compiled(GraphNode(id="h", type="shaped", version=1, bindings={"gone": Static("x")}))
 
     (problem,) = compiled.problems
@@ -96,7 +96,7 @@ def test_a_node_whose_inputs_come_and_go_keeps_the_binding_as_a_note():
     assert compiled.is_runnable
 
 
-# --- a stored record refuses a key it does not have (F1) ----------------------------
+# --- a stored record refuses a key it does not have ---------------------------------
 
 
 def test_a_stored_graph_with_a_misspelled_key_is_refused_naming_it():
@@ -121,7 +121,7 @@ def test_display_is_the_canvas_own_and_takes_any_key():
     assert node.display["colour"] == "red"
 
 
-# --- a repr is the call that makes the object (F3) -----------------------------------
+# --- a repr is the call that makes the object ----------------------------------------
 
 
 def test_a_series_prints_as_its_constructor():
@@ -149,11 +149,11 @@ def test_a_registry_prints_a_call_its_constructor_accepts():
     assert repr(registry).startswith("NodeRegistry(nodes=(\n    Scale(id='scale'")
 
 
-# --- an error's text names what went wrong (F5) ---------------------------------------
+# --- an error's text names what went wrong --------------------------------------------
 
 
 def test_a_compilation_error_lists_its_fatal_problems():
-    """It used to say only 'the graph cannot run'; the problems were on an attribute."""
+    """The message lists the problems, not only 'the graph cannot run'."""
     from conductor import run_sync
     from conductor.errors import CompilationError
 
@@ -167,7 +167,7 @@ def test_a_compilation_error_lists_its_fatal_problems():
     )
 
 
-# --- a declaration mistake is refused where it is written (F6) ------------------------
+# --- a declaration mistake is refused where it is written -----------------------------
 
 
 def _declare(**body):
@@ -245,7 +245,7 @@ def test_args_stay_refused():
         _declare(run=_run({"args": Txt}, args="*args"))
 
 
-# --- a frozen graph's node list is frozen too (F9) -----------------------------------
+# --- a frozen graph's node list is frozen too ----------------------------------------
 
 
 def test_a_graphs_nodes_are_a_tuple():
@@ -256,7 +256,7 @@ def test_a_graphs_nodes_are_a_tuple():
         graph.nodes.append(GraphNode(id="t", type="scale", version=1))
 
 
-# --- one refusal, raised (F12) --------------------------------------------------------
+# --- one refusal, raised -------------------------------------------------------------
 
 
 def test_refuses_is_a_conductor_error_at_the_root():
@@ -283,7 +283,7 @@ def test_a_type_refuses_to_be_read_whole_by_raising_the_same_refusal():
     assert Txt.refuses_whole() is None
 
 
-# --- a declared type is a type (F13) -------------------------------------------------
+# --- a declared type is a type -------------------------------------------------------
 
 
 @pytest.mark.parametrize("bogus", [42, "text", {"id": "text"}])
@@ -308,7 +308,7 @@ def test_a_field_takes_a_dtype_any_or_a_static_type(declared):
     assert Input(name="x", dtype=declared, title="X", show_handle=False).dtype == declared
 
 
-# --- the registry is a container, and a compiled graph's facts are properties (F10) ---
+# --- the registry is a container, and a compiled graph's facts are properties ---------
 
 
 def test_a_registry_is_a_container_of_its_nodes_by_id():
@@ -343,7 +343,7 @@ def test_the_order_and_the_decisions_are_properties():
     assert compiled.decisions == {}
 
 
-# --- a binding reads as it is written (the From rename) --------------------------------
+# --- a binding reads as it is written -------------------------------------------------
 
 
 def test_from_and_static_construct_positionally_and_store_as_before():

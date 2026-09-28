@@ -1,108 +1,20 @@
 # add-node reference
 
-The examples below run top to bottom in one module.
-
-## Types
-
-Every value on an edge has a `DType`: a real class, usually on a builtin, registered by `id` when it is defined. Conductor declares none but `Series`. A host declares its vocabulary once, and every node imports it:
+One module, one example per shape; the rules are in `python -m conductor.about`.
 
 ```python
+from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Annotated, Any
 
-from conductor import Asks, deprecated, DType, FromRun, Input, NodeDefinition, Output, Param, Policy, Result, Series, Single, SKIPPED, upgrade, version
-
-
-class Text(DType, str):
-    id = "text"
-    title = "Text"
-
-
-class Number(DType, float):
-    id = "number"
-    title = "Number"
-
-
-class Flag(DType, int):
-    id = "flag"
-    title = "Yes or no"
-```
-
-- `target.accepts(source)` decides whether an edge may land. The default is `issubclass`; override it on a type that takes another (a `Document` that accepts `Text`, say).
-- A `DType` does not convert and does not pick a widget.
-- In a notebook or a test, `conductor_nodes.types` (`Text`, `Number`, `Flag`, `Json`) will do. A host declares its own.
-
-## Outputs
-
-One output is `Annotated[X, Result(title=...)]`, named `result`. Several outputs are a frozen dataclass whose fields are the outputs, named by the fields:
-
-```python
-from dataclasses import dataclass
-
-from conductor.widgets import TextWidget, Textarea
+from conductor import Asks, deprecated, FromRun, Input, NodeDefinition, Output, Param, Policy, Result, Series, SKIPPED, upgrade, version
+from conductor.errors import ExternalFailure, Refuses
+from conductor.widgets import Switch, Textarea, TextWidget
+from conductor_nodes.types import Flag, Text
 
 
 @dataclass(frozen=True)
-class Parts:
-    head: Annotated[Text, Result(title="Head")]
-    tail: Annotated[Text, Result(title="Tail")]
-
-
-class Split(NodeDefinition):
-    id = "split-once"
-    title = "Split once"
-    description = "Splits a text at the first separator."
-    category = "text"
-
-    def run(
-        self,
-        text: Annotated[Text, Param(title="Text", widget=Textarea())],
-        separator: Annotated[Text, Param(title="Separator", widget=TextWidget())] = Text(","),
-    ) -> Parts:
-        head, _, tail = text.partition(separator)
-        return Parts(head=Text(head), tail=Text(tail))
-```
-
-A pydantic model returned from `run` is one value, not one output per field.
-
-## Series
-
-`Series[X]` is the one collection. A parameter declared `Series[X]` receives the whole series in one call (a reduction); an output declared `Series[X]` is returned as a plain list, and each item becomes a row.
-
-```python
-
-
-class Words(NodeDefinition):
-    id = "words"
-    title = "Words"
-    description = "One row per word."
-    category = "text"
-
-    def run(self, text: Annotated[Text, Param(title="Text", widget=Textarea())]) -> Annotated[Series[Text], Result(title="Words")]:
-        return [Text(word) for word in text.split()]
-
-
-class Count(NodeDefinition):
-    id = "count"
-    title = "Count"
-    description = "How many values arrived."
-    category = "text"
-
-    def run(self, values: Annotated[Series[Text], Param(title="Values")]) -> Annotated[Number, Result(title="Count")]:
-        return Number(len(values))
-```
-
-A node written for one value never loops: feed it a series and the engine runs it once per row.
-
-## Branching
-
-A node that takes one of two branches returns `SKIPPED` on the other; what reads that output does not run. Outputs that are exclusive alternatives share a `choice`:
-
-```python
-from conductor.widgets import Switch
-
-
-@dataclass(frozen=True)
-class Branches:
+class Branches:                       # one output per field; a shared choice makes them a branch
     yes: Annotated[Text, Result(title="If yes", choice="answer")]
     no: Annotated[Text, Result(title="If no", choice="answer")]
 
@@ -115,15 +27,21 @@ class Route(NodeDefinition):
 
     def run(self, text: Annotated[Text, Param(title="Text", widget=Textarea())], go: Annotated[Flag, Param(title="Yes?", widget=Switch())]) -> Branches:
         return Branches(yes=text, no=SKIPPED) if go else Branches(yes=SKIPPED, no=text)
-```
 
-The standard library's `decision`, `logic-if-empty` and `logic-if-equals` often do this already.
 
-## Asking
+class Words(NodeDefinition):
+    id = "words"
+    title = "Words"
+    description = "One row per word."
+    category = "text"
 
-A node that needs a person returns `Asks` in place of a result, and says so in its return annotation. Each question is an `Input` named after the output it fills:
+    def run(self, text: Annotated[Text, Param(title="Text", widget=Textarea())]) -> Annotated[Series[Text], Result(title="Words")]:
+        return [Text(word) for word in text.split()]      # a list on a Series output: one row per item
 
-```python
+
+class Caller:
+    def __init__(self, name: str) -> None:
+        self.name = name
 
 
 class Approve(NodeDefinition):
@@ -132,45 +50,9 @@ class Approve(NodeDefinition):
     description = "Asks a person to approve or rewrite the proposal."
     category = "review"
 
-    def run(self, proposal: Annotated[Text, Param(title="Proposal", widget=Textarea())]) -> Annotated[Text, Result(title="Decision")] | Asks:
-        return Asks(
-            questions=(Input(name="result", dtype=Text, title="Decision", widget=Textarea(), default=proposal),),
-            prompt="Approve or rewrite the proposal.",
-        )
-```
-
-The answer arrives on the next leg as this node's output, and `run` is not called again for it. How a host answers is in the **create-graph** skill.
-
-## FromRun
-
-What only the caller of `execute` has — a clock, a client, who is running the graph — is not an input. Mark the parameter `FromRun()`; the host hands the value in by type:
-
-```python
-
-
-class Caller:
-    def __init__(self, name: str) -> None:
-        self.name = name
-
-
-class Signed(NodeDefinition):
-    id = "signed"
-    title = "Signed"
-    description = "Signs a text with the caller's name."
-    category = "text"
-
-    def run(self, text: Annotated[Text, Param(title="Text", widget=Textarea())], who: Annotated[Caller, FromRun()]) -> Annotated[Text, Result(title="Signed")]:
-        return Text(f"{text} — {who.name}")
-```
-
-`Signed.versions[1].interface.needs` is `{"who": Caller}`, and a leg not given a `Caller` refuses to start.
-
-## Versions
-
-An undecorated `run` is version 1. Once there is a second, every version is marked `@version(n)`, `run` included; the current one is the highest number. Retries, delay, timeout and concurrency belong to the version's `Policy`:
-
-```python
-from conductor.errors import ExternalFailure
+    def run(self, proposal: Annotated[Text, Param(title="Proposal", widget=Textarea())], who: Annotated[Caller, FromRun()]) -> Annotated[Text, Result(title="Decision")] | Asks:
+        # a question is an Input named after the output it fills
+        return Asks(questions=(Input(name="result", dtype=Text, title="Decision", widget=Textarea(), default=proposal),), prompt=f"{who.name}, approve?")
 
 
 class Fetch(NodeDefinition):
@@ -180,37 +62,18 @@ class Fetch(NodeDefinition):
     category = "http"
 
     @version(1)
-    @deprecated(header="Use version 2", migration="`url` is now `address`.")
-    def run_v1(self, url: Annotated[Text, Param(title="URL", widget=TextWidget())]) -> Annotated[Text, Result(title="Body")]:
-        return self.run(address=url)
+    @deprecated(header="Use version 2")
+    def run_v1(self, url: Annotated[Text, Param(title="URL", widget=TextWidget())]) -> Annotated[Text, Result(title="Body")]: ...
 
-    @version(2, policy=Policy(retries=3, delay=0.5, timeout=10.0, concurrency=4))
+    @version(2, policy=Policy(retries=3, delay=0.5, timeout=10.0, concurrency=4, retry_on=(TimeoutError,)))
     def run(self, address: Annotated[Text, Param(title="Address", widget=TextWidget())]) -> Annotated[Text, Result(title="Body")]:
-        try:
-            return Text(f"<html>{address}</html>")
-        except TimeoutError as e:
-            raise ExternalFailure(str(e)) from e
+        if not address:
+            raise ExternalFailure("no address")          # retried, like any retry_on class
+        return Text(f"<html>{address}</html>")
 
-    @upgrade(1, 2, inputs={"url": "address"})
+    @upgrade(1, 2, inputs={"url": "address"})               # the registry moves bindings, locks and edges
     def _rename(values: dict) -> dict:
         return values
-```
-
-- A step that renames a field says so in `inputs=` / `outputs=`: the registry moves the binding, the author's lock and content, and every downstream edge. The function rewrites values only, and returns only names the new version has.
-
-- Retried: an `ExternalFailure` the node raises, or a foreign exception whose class `Policy(retry_on=(...))` names. Never: any other exception from `run` (wrapped as `NodeExecutionError`), `NodeValidationError`, a timeout.
-- The delay before attempt `n` is `delay * 2 ** (n - 1)`. `timeout` is how long the leg waits on one attempt; it never interrupts the thread, and a timed-out attempt is final. Set the timeout worth retrying on the client inside `run`.
-- `concurrency` bounds how many rows of this node run at once.
-- `NodeRegistry.register` wants versions numbered from 1 with no holes.
-
-## Field hooks
-
-When what one placed node has depends on how the author configured it, override a hook and return the fields that placement has. `declared` is the pinned version's declaration, `values` the typed-in values, `arriving` the type on each connected input:
-
-```python
-from collections.abc import Mapping
-
-from conductor import Refuses
 
 
 class Columns(NodeDefinition):
@@ -223,37 +86,13 @@ class Columns(NodeDefinition):
         return {name: Text(name.upper()) for name in names.split(",")}
 
     def compute_outputs(self, declared, values: Mapping[str, Any], arriving) -> tuple[Output, ...]:
-        names = values.get("names")
-        if not names:
-            raise Refuses("no_columns", "Type at least one column name.")
-        return tuple(Output(name=name, dtype=Text, title=name) for name in names.split(","))
+        if not values.get("names"):
+            raise Refuses("no_columns", "Type at least one column name.")   # a compile Problem on the node
+        return tuple(Output(name=name, dtype=Text, title=name) for name in values["names"].split(","))
+
+
+assert Approve.versions[1].interface.needs == {"who": Caller}
 ```
 
-- `-> Mapping[str, Any]` says the placed node's computed interface names the outputs; `run` returns a dict naming exactly them.
-- `Refuses(code, message)` is compile's `Problem` on the node, not an exception at run time.
-- An `Any` output needs `compute_outputs` to type it from what arrives.
-
-## Open interfaces
-
-`**inputs: Single` makes every name connected into the node an input, each received as one value; `**inputs: Series` receives each as a whole series:
-
-```python
-
-
-class Template(NodeDefinition):
-    id = "template"
-    title = "Template"
-    description = "Fills {name} placeholders from whatever is connected."
-    category = "text"
-
-    def run(self, template: Annotated[Text, Param(title="Template", widget=Textarea())], **inputs: Single) -> Annotated[Text, Result(title="Text")]:
-        return Text(template.format(**inputs))
-```
-
-## Checklist before shipping a node
-
-- [ ] `id`, `title`, `description`, `category`; the id is unique in the registry.
-- [ ] Every handle parameter has a `DType` (or `Any`) and a widget; every return a `Result`, or a record of them.
-- [ ] `run` is a plain function and returns the declared types.
-- [ ] External calls raise `ExternalFailure` or their client's classes are in `retry_on`, and the version's `Policy` sets `retries`.
-- [ ] Tests: the happy path, a wrong input, an external failure that retries, each output of a record, each branch.
+- A pydantic model returned from `run` is one value, not one output per field.
+- Only `ExternalFailure` and `retry_on` classes retry; attempt `n` waits `delay * 2 ** (n - 1)`. A timed-out attempt is final.

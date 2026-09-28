@@ -1,10 +1,7 @@
 # Weekly (and manual) docs audit.
 #
 # Reads the last 14 days of commits, compares them against the user-facing
-# docs, and opens a PR if anything is out of sync. This is the async,
-# low-friction counterpart to the local `/docs-audit` slash command — use
-# the slash command during active development, rely on this workflow to
-# catch anything that slipped through.
+# docs, and opens a PR if anything is out of sync.
 #
 # Setup:
 #   1. Create a repository secret named ANTHROPIC_API_KEY with a key that

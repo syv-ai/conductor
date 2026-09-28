@@ -419,9 +419,9 @@ def test_a_nested_placement_expands_under_both_names():
 
 
 def test_an_authored_id_with_a_slash_is_refused_and_never_collides_with_an_inner_node():
-    """C5: ``/`` names the nodes of an embedded graph. An authored ``e/holder``
-    beside a placement ``e`` used to appear twice in the order and be read by
-    the inner nodes; now it is refused on its own."""
+    """``/`` names the nodes of an embedded graph, so an authored ``e/holder``
+    beside a placement ``e`` is refused on its own: it neither appears twice
+    in the order nor is read by the inner nodes."""
     compiled = _compiled([
         GraphNode(id="e/holder", type="holder", version=1, bindings={"value": Static("impostor")}),
         GraphNode(id="e", type="inner-graph", version=1),
@@ -433,7 +433,7 @@ def test_an_authored_id_with_a_slash_is_refused_and_never_collides_with_an_inner
 
 
 def test_a_graph_that_embeds_itself_is_a_cycle_not_a_recursion_error():
-    """C6: a definition whose graph holds a node of its own type, directly or
+    """A definition whose graph holds a node of its own type, directly or
     through another, is reported as a cycle on the node that closes it."""
     selfish = _embedded_definition(
         "selfish",
@@ -448,7 +448,7 @@ def test_a_graph_that_embeds_itself_is_a_cycle_not_a_recursion_error():
 
 
 def test_two_graphs_that_embed_each_other_are_a_cycle():
-    """C6, through another: A holds B, B holds A."""
+    """A cycle through another definition: A holds B, B holds A."""
     a = _embedded_definition("ring-a", (GraphNode(id="b", type="ring-b", version=1),), inputs=(), outputs=())
     b = _embedded_definition("ring-b", (GraphNode(id="a", type="ring-a", version=1),), inputs=(), outputs=())
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="top", type="ring-a", version=1)]), _registry(a, b))
@@ -457,7 +457,7 @@ def test_two_graphs_that_embed_each_other_are_a_cycle():
 
 
 def test_a_placements_interface_is_derived_from_its_graph_and_a_declaration_it_lacks_is_reported():
-    """C9: the host declares what its embedded graph takes and returns; compile
+    """The host declares what its embedded graph takes and returns; compile
     reads it off the inner graph and says where the declaration disagrees. A
     field the graph does not have is not advertised and cannot be asked for."""
     inner = _embedded_definition(
@@ -484,7 +484,7 @@ def test_a_placements_interface_is_derived_from_its_graph_and_a_declaration_it_l
 
 
 def test_a_declared_type_that_differs_from_the_inner_graphs_is_reported_and_the_graphs_wins():
-    """C9: declared and inner types can differ; the inner graph's is the one that runs."""
+    """Declared and inner types can differ; the inner graph's is the one that runs."""
 
     class Num(DType, float):
         id = "expansion-test-num"
@@ -505,9 +505,7 @@ def test_a_declared_type_that_differs_from_the_inner_graphs_is_reported_and_the_
 
 
 def test_misaligned_inside_an_embedded_graph_is_reported_once_with_the_authors_addresses():
-    """C12: one inner node fed two unrelated outer series was reported twice —
-    once on the placement with expanded addresses leaking, once surfaced from
-    the inner node with a different details shape. Now once, on the
+    """One inner node fed two unrelated outer series is reported once, on the
     placement, with the addresses the author sees, in the shape every
     ``misaligned`` has."""
     inner = _embedded_definition(
@@ -549,7 +547,7 @@ def test_misaligned_inside_an_embedded_graph_is_reported_once_with_the_authors_a
 
 
 def test_a_problem_surfaced_from_inside_keeps_its_details_and_rewrites_the_addresses():
-    """C12: surfacing adds ``placement`` and ``inner_message`` beside the
+    """Surfacing adds ``placement`` and ``inner_message`` beside the
     inner problem's own details, with every address in them rewritten to the
     author's — never a nested ``inner_details``."""
     compiled = _compiled([
@@ -564,7 +562,7 @@ def test_a_problem_surfaced_from_inside_keeps_its_details_and_rewrites_the_addre
 
 
 def test_surfacing_rewrites_addresses_and_leaves_every_other_detail_alone():
-    """C12: only the details that hold an address or a node id are rewritten;
+    """Only the details that hold an address or a node id are rewritten;
     a type's own sentence with a ``/`` in it is not an address."""
     from conductor.graph.expand import surfaced
     from conductor.graph.problem import Problem

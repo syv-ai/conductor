@@ -439,18 +439,18 @@ def test_a_problem_is_formatted_from_its_details_and_keeps_them():
     assert problem("unknown_locked_field", "b", "old").fatal is False
 
 
-# --- what compile refuses that it used to let through ----------------------------------
+# --- what compile refuses ----------------------------------------------------------------
 
 
 def test_a_slash_in_an_authored_id_is_fatal():
-    """C5: ``/`` is how compile names the nodes of an embedded graph."""
+    """``/`` is how compile names the nodes of an embedded graph."""
     (problem,) = _problems([GraphNode(id="a/b", type="echo", version=1)])
 
     assert (problem.code, problem.fatal, problem.node_id) == ("invalid_node_id", True, "a/b")
 
 
 def test_an_edge_with_no_refs_is_refused_where_it_is_written():
-    """C7: ``From()`` is not a binding; it used to crash compile."""
+    """``From()`` is not a binding: the model refuses it before compile sees it."""
     from pydantic import ValidationError
 
     with pytest.raises(ValidationError):
@@ -458,7 +458,7 @@ def test_an_edge_with_no_refs_is_refused_where_it_is_written():
 
 
 def test_a_cycle_is_reported_on_its_members_only():
-    """C10: a node downstream of a cycle is not part of it. It keeps its
+    """A node downstream of a cycle is not part of it. It keeps its
     interface, so an editor draws it, and the cycle alone stops the run."""
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
@@ -477,7 +477,7 @@ def test_a_cycle_is_reported_on_its_members_only():
 
 
 def test_an_edge_from_a_node_that_failed_to_resolve_is_not_reported_again():
-    """C11: the source carries ``unknown_node_type``; the reader is silent
+    """The source carries ``unknown_node_type``; the reader is silent
     rather than told the node 'is not in the graph', which it is."""
     problems = _problems([
         GraphNode(id="x", type="no-such", version=1),
@@ -488,7 +488,7 @@ def test_an_edge_from_a_node_that_failed_to_resolve_is_not_reported_again():
 
 
 def test_an_edge_into_a_field_an_embedded_graph_lacks_names_the_authors_address():
-    """C11: ``e.nope`` is not an output of ``e``; the message says so with
+    """``e.nope`` is not an output of ``e``; the message says so with
     the address the author wrote, and no expanded id leaks."""
     from collections.abc import Mapping
     from typing import ClassVar
@@ -532,7 +532,7 @@ def test_an_edge_into_a_field_an_embedded_graph_lacks_names_the_authors_address(
 
 
 def test_an_edge_from_a_slashed_name_under_a_plain_node_is_not_in_the_graph():
-    """C11, the other way: ``a/b`` collapses to ``a`` as an author's address,
+    """The other way: ``a/b`` collapses to ``a`` as an author's address,
     but ``a`` is an ordinary node, not an embedded graph, so the source is
     simply not in the graph — and the graph is not runnable with a node the
     walk never derived."""
@@ -549,7 +549,7 @@ def test_an_edge_from_a_slashed_name_under_a_plain_node_is_not_in_the_graph():
 
 
 def test_an_edge_from_a_refused_id_is_not_reported_again():
-    """C11 with C5: the id carries ``invalid_node_id``; its reader is silent."""
+    """An id with a ``/`` carries ``invalid_node_id``; its reader is silent."""
     problems = _problems([
         GraphNode(id="x/y", type="echo", version=1),
         GraphNode(id="u", type="echo", version=1, bindings={"x": From("x/y.result")}),

@@ -435,7 +435,7 @@ def test_a_unit_whose_second_output_is_invalid_writes_nothing():
     assert ledger.state().values == [] and not ledger.is_done(("s", None))
 
 
-# -- the review's own cases -------------------------------------------------------------
+# -- edits between legs, and a state read after the ledger moved on ----------------------
 
 
 def test_a_typed_in_list_edited_between_legs_reruns_on_the_new_rows():

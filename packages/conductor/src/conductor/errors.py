@@ -82,7 +82,7 @@ class StartRefused(ConductorError, ValueError):
     is not its output's type, a row the run has not produced, or a value in
     a state that does not read back as its field's type. The caller's
     fault rather than the engine's, so a provider answers it as a 422; a
-    ``ValueError`` too, so a host that caught that before still does.
+    ``ValueError`` too, so a host's ``except ValueError`` catches it.
     """
 
 
