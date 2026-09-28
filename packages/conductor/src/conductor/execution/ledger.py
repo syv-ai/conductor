@@ -798,10 +798,14 @@ class Ledger:
         return unit in self._pending
 
     def pending(self) -> list[PendingUnit]:
-        """Every unit waiting on a person, as ``PendingUnit`` records."""
+        """Every unit waiting on a person, as ``PendingUnit`` records, in
+        execution order and row order within a node: not the order their
+        concurrent calls happened to ask in."""
         return [
             PendingUnit(node_id=node_id, row=row, prompt=prompt, questions=questions)
-            for (node_id, row), (prompt, questions) in self._pending.items()
+            for (node_id, row), (prompt, questions) in sorted(
+                self._pending.items(), key=lambda item: (self._position[item[0][0]], _order(item[0]))
+            )
         ]
 
     # -- what the run produced -------------------------------------------------------
