@@ -19,13 +19,15 @@ from conductor.errors import (
     NodeExecutionError,
     NodeTimeoutError,
     NodeValidationError,
+    NotDerived,
+    NotResolved,
     Refuses,
     StartRefused,
 )
 from conductor.execution.engine import execute, run, run_sync
 from conductor.execution.state import DoneUnit, RunState, StateSkip, StateValue
 from conductor.graph.binding import Binding, From, Static
-from conductor.graph.compiled import CompiledField, CompiledGraph, CompiledNode
+from conductor.graph.compiled import CompiledField, CompiledGraph, CompiledNode, CompiledPlacement
 from conductor.graph.conditions import ALWAYS, NEVER, Atom, Condition
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.problem import Problem
@@ -63,6 +65,7 @@ __all__ = [
     "CompiledField",
     "CompiledGraph",
     "CompiledNode",
+    "CompiledPlacement",
     "Condition",
     "ConductorError",
     "DType",
@@ -91,6 +94,8 @@ __all__ = [
     "NodeTimeoutError",
     "NodeValidationError",
     "NodeVersion",
+    "NotDerived",
+    "NotResolved",
     "Output",
     "Param",
     "Policy",

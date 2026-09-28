@@ -13,7 +13,7 @@ from typing import Annotated, ClassVar
 
 from conductor import GraphNode, NodeRegistry, Param
 from conductor.dtype import DType
-from conductor.graph.binding import From
+from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph
 from conductor.interface import Interface
@@ -143,5 +143,53 @@ def test_a_node_with_a_fatal_problem_carries_the_fault_class_and_its_broken_edge
         flowchart LR
             n0["up · upper"]:::fault
             n1["odd · nonesuch"]:::fault
+            classDef fault stroke:#c62828,stroke-width:2px
+        """)
+
+
+def test_a_graph_with_a_broken_edge_and_something_downstream_draws():
+    """An arrow into a node compile could not derive has no label: how it receives is not known."""
+    compiled = _compiled(
+        GraphNode(id="a", type="upper", version=1, bindings={"text": Static(Txt("hi"))}),
+        GraphNode(id="b", type="upper", version=1, bindings={"text": From("ghost.result")}),
+        GraphNode(id="c", type="upper", version=1, bindings={"text": From("b.result")}),
+    )
+
+    assert flowchart(compiled) == dedent("""\
+        flowchart LR
+            n0["a · upper"]
+            n1["b · upper"]:::fault
+            n2["c · upper"]
+            n1 --> n2
+            classDef fault stroke:#c62828,stroke-width:2px
+        """)
+
+
+class Lost(NodeDefinition):
+    """A stored graph that names a type the catalog has lost."""
+
+    id = "lost"
+    title = "Lost"
+    description = "d"
+    category = "test"
+    versions: ClassVar[dict[int, GraphVersion]] = {
+        1: GraphVersion(
+            graph=(GraphNode(id="gone", type="nonesuch", version=1),),
+            interface=Interface(inputs=(), outputs=(), returns=Mapping),
+        )
+    }
+
+
+def test_a_placement_whose_inner_node_is_lost_still_draws_its_subgraph():
+    registry = NodeRegistry()
+    registry.register(Lost)
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="emb", type="lost", version=1)]), registry)
+
+    assert flowchart(compiled) == dedent("""\
+        flowchart LR
+            subgraph n0 ["emb · lost"]
+                n1["emb/gone · nonesuch"]
+            end
+            class n0 fault
             classDef fault stroke:#c62828,stroke-width:2px
         """)

@@ -6,6 +6,7 @@ from typing import Annotated, Any
 import pytest
 from conductor import NodeRegistry
 from conductor.dtype import DType, Single
+from conductor.errors import NotDerived
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
@@ -325,7 +326,7 @@ def test_an_unconnected_any_input_is_unbound_required_and_the_node_has_no_shape(
 
     (problem,) = compiled.problems
     assert (problem.code, problem.fatal, problem.node_id, problem.field) == ("unbound_required", True, "r", "value")
-    with pytest.raises(KeyError):
+    with pytest.raises(NotDerived):
         compiled.node("r").iterates_on
 
 
@@ -498,9 +499,9 @@ def test_a_node_with_a_broken_edge_has_no_shape_and_says_so_once():
     ])
 
     assert [p.code for p in compiled.problems] == ["unknown_ref_node"]
-    with pytest.raises(KeyError):
+    with pytest.raises(NotDerived):
         compiled.node("b").iterates_on
-    with pytest.raises(KeyError):
+    with pytest.raises(NotDerived):
         compiled.field(Ref("c", "result")).type
 
 
@@ -683,7 +684,7 @@ def test_two_series_on_unrelated_indexes_are_a_fatal_problem_naming_both():
     assert (problem.code, problem.fatal, problem.node_id, problem.field) == ("misaligned", True, "p", None)
     assert "p.a" in problem.message and "p.b" in problem.message
     assert problem.details == {"a": "p.a", "b": "p.b"}
-    with pytest.raises(KeyError):
+    with pytest.raises(NotDerived):
         compiled.node("p").iterates_on
 
 
@@ -894,7 +895,7 @@ def test_a_hook_that_adds_a_connected_input_without_an_edge_type_is_a_problem_no
     ]), registry)
 
     assert [(p.code, p.fatal, p.node_id, p.field) for p in compiled.problems] == [("handle_needs_dtype", True, "a", "raw")]
-    with pytest.raises(KeyError):
+    with pytest.raises(NotDerived):
         compiled.node("a").iterates_on
 
 

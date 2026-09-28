@@ -96,8 +96,9 @@ class Iteration:
     """What ``derive`` returns.
 
     ``iterated``: for each node, the index it runs once per row of, or
-    ``None`` when it runs once; for each embedded graph, the index its
-    inner nodes run per row of. ``types``: the type that travels on every
+    ``None`` when it runs once; for each embedded graph whose entering
+    series agree, the index its inner nodes run per row of. A node has an
+    entry exactly when the walk derived it. ``types``: the type that travels on every
     field; ``indexes``: for a field carrying a series, where its rows come
     from (``None`` otherwise). ``receives``: for every input, how a unit
     receives its value. ``interfaces``: each node's inputs and outputs
@@ -281,8 +282,10 @@ class _Walk:
                 self.problems.append(entering)
                 self.misaligned_placements.add(placement)
                 entering = None
+            else:
+                # Only an aligned placement is derived; a misaligned one gets no entry.
+                self.iterated[placement] = None if entering is None else entering[0]
             self.scopes[placement] = entering
-            self.iterated[placement] = None if entering is None else entering[0]
         return self.scopes[placement]
 
     def _read_inputs(self, node: GraphNode, scope: tuple[Index, Ref] | None) -> _Arrivals:

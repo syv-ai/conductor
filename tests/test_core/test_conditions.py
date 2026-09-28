@@ -3,9 +3,11 @@
 from dataclasses import dataclass
 from typing import Annotated, Any
 
+import pytest
 from conductor import NodeRegistry, Param
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
+from conductor.errors import NotDerived
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.conditions import ALWAYS, Atom
@@ -180,3 +182,18 @@ def test_an_iterating_decision_masks_rows_and_is_not_a_condition():
     assert compiled.node("g").iterates_on is not None
     assert compiled.field(Ref("yes", "result")).condition == ALWAYS
     assert compiled.decisions == {}
+
+
+def test_a_decision_the_walk_did_not_derive_is_not_one_a_run_makes():
+    """A gate whose edge names an output its source lacks is not derived: it
+    is not counted as a decision, and asking whether it runs per row says why."""
+    compiled = _compiled([
+        GraphNode(id="h", type="holder", version=1, bindings={"value": Static("x")}),
+        GraphNode(id="g", type="gate", version=1, bindings={"value": From("h.nope")}),
+    ])
+
+    assert compiled.decisions == {}
+    assert compiled.node("g").state == "not_derived"
+    with pytest.raises(NotDerived) as raised:
+        compiled.node("g").iterates_on
+    assert raised.value.problem.code == "unknown_ref_output"

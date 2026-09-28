@@ -10,6 +10,8 @@ belonged to which failure.
 
     ConductorError
     ├── CompilationError        a caller asked to run a graph compile rejected
+    ├── NotResolved             a caller read a compiled node that compile could not resolve
+    ├── NotDerived              a caller read what the edges decide off a node compile did not derive
     ├── NodeError               one node failed; carries node_id and a cause. Internal: never retried
     │   ├── ExternalFailure         the outside world failed; the one family the engine retries
     │   ├── NodeValidationError     its inputs were wrong
@@ -94,6 +96,50 @@ class InputNotOffered(ConductorError, TypeError):
     caller's mistake in naming an argument, so a ``TypeError`` too, the way
     Python refuses an unexpected keyword.
     """
+
+
+class NotResolved(ConductorError):
+    """A caller read something off a compiled node that compile could not resolve.
+
+    Raised by ``CompiledNode`` and ``CompiledGraph.field`` when the node's
+    ``state`` is ``"unresolved"``: an unknown type or version, a cycle, a
+    refused id, or a ``compute_inputs`` that refused. ``problem`` is the
+    fatal ``Problem`` that says why, as it stands in ``compiled.problems``.
+    A painter asks ``node.state`` first and never meets it; the engine
+    never does, since it runs only runnable graphs. Not a ``KeyError``:
+    that is for an id the graph does not have. Its sibling is
+    ``NotDerived``.
+    """
+
+    def __init__(self, node_id: str, asked: str, problem: Problem) -> None:
+        self.node_id = node_id
+        self.problem = problem
+        super().__init__(
+            f"{node_id!r} has no {asked}: compile could not resolve it ({problem.code}: {problem.message})"
+        )
+
+
+class NotDerived(ConductorError):
+    """A caller read what the walk over the edges decides off a node it did not derive.
+
+    Raised by ``CompiledNode``, ``CompiledPlacement`` and ``CompiledField``
+    when the node's ``state`` is ``"not_derived"``: its own edges are
+    broken, a fault sits upstream of it, or its embedded graph is
+    misaligned. What it has — its interface, its version, what the author
+    typed into it — still answers; how it receives, what type travels on
+    each field and whether it runs per row do not. ``problem`` is the
+    fatal ``Problem`` that explains it — the node's own, or the one
+    upstream or around it — as it stands in ``compiled.problems``. Who
+    meets it, and why it is not a ``KeyError``, as for ``NotResolved``.
+    """
+
+    def __init__(self, node_id: str, asked: str, problem: Problem) -> None:
+        self.node_id = node_id
+        self.problem = problem
+        where = problem.node_id if problem.field is None else f"{problem.node_id}.{problem.field}"
+        super().__init__(
+            f"{node_id!r} has no {asked}: compile could not derive it ({problem.code} on {where}: {problem.message})"
+        )
 
 
 class CompilationError(ConductorError):

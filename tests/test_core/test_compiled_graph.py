@@ -6,6 +6,7 @@ from typing import Annotated
 import pytest
 from conductor import NodeRegistry
 from conductor.dtype import DType
+from conductor.errors import ConductorError, NotDerived, NotResolved
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import FieldContent, Graph, GraphNode
@@ -196,6 +197,101 @@ def test_a_compiled_value_is_equal_only_to_itself():
     assert len({first.node("a"), first.node("a"), second.node("a")}) == 2
 
 
+def _half_finished():
+    """``a`` is fine, ``b`` reads a node that is not there, ``c`` reads ``b``, ``x`` names a lost type."""
+    return _compiled([
+        GraphNode(id="a", type="echo", version=1, bindings={"x": Static("hi")}),
+        GraphNode(id="b", type="echo", version=1, bindings={"x": From("zzz.result")}),
+        GraphNode(id="c", type="echo", version=1, bindings={"x": From("b.result")}),
+        GraphNode(id="x", type="nope", version=1),
+    ])
+
+
+def test_every_node_the_author_wrote_has_a_state():
+    """``node`` answers for every node compile met, however far it got; ``KeyError`` is only for an id the graph lacks."""
+    compiled = _half_finished()
+
+    assert {node_id: compiled.node(node_id).state for node_id in "abcx"} == {
+        "a": "ready", "b": "not_derived", "c": "not_derived", "x": "unresolved",
+    }
+    with pytest.raises(KeyError):
+        compiled.node("zzz")
+
+
+def test_reading_what_a_state_lacks_names_the_problem():
+    """A gated read raises a named error carrying the problem that explains it: the node's own, or the one upstream."""
+    compiled = _half_finished()
+
+    with pytest.raises(NotDerived) as own:
+        compiled.node("b").iterates_on
+    assert own.value.problem.code == "unknown_ref_node" and own.value.problem.node_id == "b"
+    with pytest.raises(NotDerived) as upstream:
+        compiled.node("c").iterates_on
+    assert upstream.value.problem is own.value.problem
+    with pytest.raises(NotDerived):
+        compiled.field(Ref("c", "x")).type
+    with pytest.raises(NotResolved) as lost:
+        compiled.node("x").interface
+    assert lost.value.problem.code == "unknown_node_type"
+    with pytest.raises(NotResolved):
+        compiled.field(Ref("x", "x"))
+    # What each state has still answers.
+    assert compiled.node("c").interface.inputs[0].name == "x"
+    assert compiled.field(Ref("c", "x")).binding == From("b.result")
+    assert compiled.node("x").graph_node.type == "nope"
+
+
+def test_the_named_errors_are_not_key_errors():
+    """``except KeyError`` catches a caller's wrong id and nothing else; the message names the node, the read and the cause."""
+    compiled = _half_finished()
+    with pytest.raises(NotDerived) as raised:
+        compiled.node("c").iterates_on
+
+    assert issubclass(NotDerived, ConductorError) and not issubclass(NotDerived, KeyError)
+    assert issubclass(NotResolved, ConductorError) and not issubclass(NotResolved, KeyError)
+    assert "'c'" in str(raised.value) and "iterates_on" in str(raised.value)
+    assert "unknown_ref_node on b.x" in str(raised.value)
+
+
+def test_a_node_downstream_of_a_cycle_carries_the_cycle():
+    compiled = _compiled([
+        GraphNode(id="a", type="echo", version=1, bindings={"x": From("b.result")}),
+        GraphNode(id="b", type="echo", version=1, bindings={"x": From("a.result")}),
+        GraphNode(id="c", type="echo", version=1, bindings={"x": From("b.result")}),
+    ])
+
+    assert (compiled.node("a").state, compiled.node("b").state) == ("unresolved", "unresolved")
+    assert compiled.node("c").state == "not_derived"
+    with pytest.raises(NotDerived) as raised:
+        compiled.node("c").iterates_on
+    assert raised.value.problem.code == "cycle"
+
+
+def test_a_painter_reads_every_node_of_a_broken_graph():
+    """What an editor's compile view does: ask each node its state and read what that state has. Nothing raises."""
+    compiled = _half_finished()
+
+    for placed in compiled.graph.nodes:
+        node = compiled.node(placed.id)
+        if node.state == "unresolved":
+            continue
+        assert node.interface.inputs
+        if node.state == "ready":
+            assert node.iterates_on is None
+            assert all(compiled.field(Ref(placed.id, i.name)).type is Txt for i in node.interface.inputs)
+
+
+def test_node_problems_are_the_problems_anchored_on_it():
+    compiled = _compiled([
+        GraphNode(id="a", type="echo", version=1, locked=("ghost",), bindings={"x": Static("hi"), "z": Static(1)}),
+        GraphNode(id="b", type="echo", version=1),
+    ])
+
+    assert compiled.node("a").problems == compiled.problems
+    assert compiled.node("b").problems == ()
+    assert compiled.field(Ref("a", "x")).problems == ()
+
+
 def test_the_compiler_does_not_know_the_compiled_graph():
     """``compiled`` imports ``compiler`` and never the other way: the passes know nothing of their result."""
     import ast
@@ -275,8 +371,10 @@ def test_a_node_type_the_registry_lacks_is_a_fatal_problem():
     (problem,) = compiled.problems
     assert (problem.code, problem.fatal, problem.node_id) == ("unknown_node_type", True, "a")
     assert not compiled.is_runnable
-    with pytest.raises(KeyError):
+    assert compiled.node("a").state == "unresolved"
+    with pytest.raises(NotResolved) as raised:
         compiled.node("a").interface
+    assert raised.value.problem == problem
 
 
 def test_a_version_the_class_no_longer_declares_is_a_fatal_problem():
@@ -467,21 +565,20 @@ def test_a_compiled_node_validates_a_call_and_hands_back_its_keyword_arguments()
     assert set(kwargs) == {"x", "y"} and isinstance(kwargs["x"], Txt) and kwargs["y"] == Txt("")
     with pytest.raises(ValidationError):
         node.validate({"x": ["not", "text"]})
-    with pytest.raises(KeyError):
+    with pytest.raises(NotDerived):
         _compiled([GraphNode(id="b", type="echo", version=1, bindings={"x": From("ghost.result")})]).node("b").validate({})
 
 
 def test_the_record_keeps_the_authored_graph_and_the_registry_and_drops_what_nothing_calls():
-    """A compiled graph carries no ``dependencies`` and no per-node or per-field
-    ``problems``: ``compiled.problems`` is the one list, filtered by whoever needs a slice —
-    while the authored graph and the registry stay, so a compiled graph can
-    produce another."""
+    """A compiled graph carries no ``dependencies``; each node and field holds
+    the problems about it, a slice of ``compiled.problems`` — while the
+    authored graph and the registry stay, so a compiled graph can produce
+    another."""
     graph = Graph(nodes=[GraphNode(id="a", type="echo", version=1, bindings={"x": Static("hi"), "z": Static(1)})])
     registry = _registry()
     compiled = CompiledGraph.from_graph(graph, registry)
 
     assert compiled.graph is graph and compiled._registry is registry
     assert not hasattr(compiled.node("a"), "dependencies")
-    assert not hasattr(compiled.node("a"), "problems")
-    assert not hasattr(compiled.field(Ref("a", "x")), "problems")
-    assert [p.code for p in compiled.problems if p.node_id == "a"] == ["stale_binding"]
+    assert [p.code for p in compiled.node("a").problems] == ["stale_binding"]
+    assert compiled.field(Ref("a", "x")).problems == ()

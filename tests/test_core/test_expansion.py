@@ -6,8 +6,9 @@ from typing import Annotated, ClassVar
 import pytest
 from conductor import NodeRegistry
 from conductor.dtype import DType
+from conductor.errors import NotDerived, NotResolved
 from conductor.graph.binding import From, Static
-from conductor.graph.compiled import CompiledGraph
+from conductor.graph.compiled import CompiledGraph, CompiledPlacement
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.interface import Interface
 from conductor.metadata import Input, Output, Param, Result
@@ -137,8 +138,9 @@ def test_the_inner_nodes_are_nodes_of_the_one_run_under_the_placements_name():
     assert compiled.execution_order == ("src", "emb/holder", "emb/up", "emb/join", "after")
     assert compiled.node("emb/up").embedded_in == "emb"
     assert compiled.node("src").embedded_in is None
-    with pytest.raises(KeyError):
-        compiled.node("emb").graph_node  # the placement is not a node of the run; its inner nodes are
+    # The placement is not a node of the run; its inner nodes are.
+    assert isinstance(compiled.node("emb"), CompiledPlacement)
+    assert not hasattr(compiled.node("emb"), "graph_node")
 
 
 def test_the_placements_bindings_move_onto_the_inner_fields_they_name():
@@ -388,6 +390,15 @@ def test_two_unrelated_series_entering_one_placement_are_its_misaligned():
     )
 
     assert [(p.code, p.node_id) for p in compiled.problems] == [("misaligned", "emb")]
+    (misaligned,) = compiled.problems
+    placement, inner_a = compiled.node("emb"), compiled.node("emb/a")
+    assert (placement.state, inner_a.state) == ("not_derived", "not_derived")
+    assert placement.problems == compiled.problems
+    for node in (placement, inner_a):
+        with pytest.raises(NotDerived) as raised:
+            node.iterates_on
+        assert raised.value.problem == misaligned
+    assert "emb" not in compiled.decisions
 
 
 def test_a_nested_placement_expands_under_both_names():
@@ -446,6 +457,12 @@ def test_a_graph_that_embeds_itself_is_a_cycle_not_a_recursion_error():
 
     assert [(p.code, p.node_id, p.field) for p in compiled.problems] == [("cycle", "s", "again")]
     assert not compiled.is_runnable
+    (cycle,) = compiled.problems
+    assert isinstance(compiled.node("s"), CompiledPlacement) and compiled.node("s").state == "not_derived"
+    assert compiled.node("s/again").state == "unresolved"
+    with pytest.raises(NotResolved) as raised:
+        compiled.node("s/again").interface
+    assert raised.value.problem == cycle
 
 
 def test_two_graphs_that_embed_each_other_are_a_cycle():
@@ -455,6 +472,16 @@ def test_two_graphs_that_embed_each_other_are_a_cycle():
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="top", type="ring-a", version=1)]), _registry(a, b))
 
     assert [(p.code, p.node_id, p.field) for p in compiled.problems] == [("cycle", "top", "b.a")]
+    (cycle,) = compiled.problems
+    assert [compiled.node(node_id).state for node_id in ("top", "top/b", "top/b/a")] == [
+        "not_derived", "not_derived", "unresolved",
+    ]
+    assert isinstance(compiled.node("top/b"), CompiledPlacement)
+    with pytest.raises(NotDerived) as around:
+        compiled.node("top").iterates_on
+    with pytest.raises(NotResolved) as inside:
+        compiled.node("top/b/a").interface
+    assert around.value.problem == inside.value.problem == cycle
 
 
 def test_a_placements_interface_is_derived_from_its_graph_and_a_declaration_it_lacks_is_reported():
