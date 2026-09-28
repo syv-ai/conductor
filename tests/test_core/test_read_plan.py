@@ -9,6 +9,7 @@ from conductor.dtype import DType
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
+from conductor.graph.receive import Iterate, Whole
 from conductor.interface import Interface
 from conductor.metadata import Input, Output, Param, Result
 from conductor.node import GraphVersion, NodeDefinition
@@ -100,8 +101,9 @@ def test_a_node_with_series_outputs_owns_the_index_they_birth():
     assert docs.births == Index("docs")
     assert docs.iterated_by == ("up",)
     assert set(docs.carried_by) == {Ref("docs", "texts"), Ref("docs", "names"), Ref("up", "result")}
-    assert compiled.field(Ref("docs", "texts")).read_by == (Ref("up", "text"),)
-    assert compiled.field(Ref("up", "result")).read_by == (Ref("join", "texts"),)
+    assert compiled.field(Ref("docs", "texts")).read_by == ((Ref("up", "text"), Iterate(Index("docs"))),)
+    assert compiled.field(Ref("up", "result")).read_by == ((Ref("join", "texts"), Whole()),)
+    assert compiled.node("join").reads == ((Ref("up", "result"), Whole()),)
     assert (up.births, up.iterated_by, up.carried_by) == (None, (), ())
 
 

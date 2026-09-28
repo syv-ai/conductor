@@ -196,18 +196,18 @@ class CompiledGraph:
         not have or a field the node does not have — a programming error,
         not a state of the graph — and ``NotResolved`` for a node compile
         could not resolve, whose fields nobody knows."""
-        at = self.expanded(ref)
-        if at.node_id not in self._nodes:
-            if at.node_id != ref.node_id:
+        node_id, name, node = self._reached(ref)
+        if node is None:
+            if node_id != ref.node_id:
                 raise KeyError(f"{ref.node_id!r} has no field {ref.field!r} on this node")
-            raise KeyError(f"{at.node_id!r} is not a node of this graph")
-        node = self._nodes[at.node_id]
+            raise KeyError(f"{node_id!r} is not a node of this graph")
         if isinstance(node, CompiledPlacement):
-            raise KeyError(f"{at.node_id!r} has no field {at.field!r} on this node")
-        _gate(node, f"field {at.field!r}", derived=False)
-        if at.field not in node._fields:
-            raise KeyError(f"{at.node_id!r} has no field {at.field!r} on this node")
-        return node._fields[at.field]
+            raise KeyError(f"{node_id!r} has no field {name!r} on this node")
+        _gate(node, f"field {name!r}", derived=False)
+        found = node._fields.get(name)
+        if found is None:
+            raise KeyError(f"{node_id!r} has no field {name!r} on this node")
+        return found
 
     # -- the two graphs ------------------------------------------------------
 
@@ -216,11 +216,21 @@ class CompiledGraph:
         runs: ``Ref("emb", "all.result")`` becomes ``Ref("emb/all", "result")``.
         A host reads engine results by the expanded address, since the
         engine knows only the expanded graph."""
-        node_id, name = ref.node_id, ref.field
-        while "." in name and isinstance(self._nodes.get(node_id), CompiledPlacement):
+        node_id, name, _ = self._reached(ref)
+        return Ref(node_id, name)
+
+    def _reached(self, ref: Ref) -> tuple[str, str, CompiledNode | CompiledPlacement | None]:
+        """Where ``ref`` lands once read through every placement it names:
+        the expanded node id, the field name there, and the node (``None``
+        for an id the graph does not have). Splits the address once, since
+        the engine asks ``field`` for every value it reads or writes."""
+        node_id, _, name = ref.partition(".")
+        node = self._nodes.get(node_id)
+        while "." in name and isinstance(node, CompiledPlacement):
             inner, name = name.split(".", 1)
             node_id = f"{node_id}{SEPARATOR}{inner}"
-        return Ref(node_id, name)
+            node = self._nodes.get(node_id)
+        return node_id, name, node
 
     # -- the interface, from each side --------------------------------------------
 
@@ -322,7 +332,7 @@ class CompiledGraph:
         while frontier:
             node = self._nodes[frontier.pop()]
             for out in node.interface.outputs:
-                for reader in self.field(Ref(node.id, out.name)).read_by:
+                for reader, _ in self.field(Ref(node.id, out.name)).read_by:
                     if reader.node_id not in found:
                         found.add(reader.node_id)
                         frontier.append(reader.node_id)
@@ -400,6 +410,7 @@ class CompiledNode:
     _iterates_on: Index | None = field(repr=False)
     #: Its share of the read plan (see ``births``); empty on a node the walk did not derive.
     _births: Index | None = field(repr=False)
+    _reads: tuple[tuple[Ref, Receive], ...] = field(repr=False)
     _iterated_by: tuple[str, ...] = field(repr=False)
     _carried_by: tuple[Ref, ...] = field(repr=False)
     _typed_lists: tuple[Ref, ...] = field(repr=False)
@@ -508,6 +519,14 @@ class CompiledNode:
     # run. An index's plan sits on what births its rows — this node, for the
     # index its series outputs birth (``births``), or an input's
     # ``CompiledField``, for a list the author typed into it.
+
+    @property
+    def reads(self) -> tuple[tuple[Ref, Receive], ...]:
+        """Every output an edge into this node reads, one per edge ref, with
+        how the input it feeds receives it: what the engine's ledger checks
+        is written before a unit may start."""
+        _gate(self, "reads", derived=True)
+        return self._reads
 
     @property
     def births(self) -> Index | None:
@@ -626,7 +645,7 @@ class CompiledField:
     _receives: Receive = field(repr=False)
     _condition: Condition = field(repr=False)
     #: Its share of the read plan (see ``read_by`` and ``listed``).
-    _read_by: tuple[Ref, ...] = field(repr=False)
+    _read_by: tuple[tuple[Ref, Receive], ...] = field(repr=False)
     _listed: bool = field(repr=False)
     _iterated_by: tuple[str, ...] = field(repr=False)
     _carried_by: tuple[Ref, ...] = field(repr=False)
@@ -680,10 +699,11 @@ class CompiledField:
         return self._receives
 
     @property
-    def read_by(self) -> tuple[Ref, ...]:
+    def read_by(self) -> tuple[tuple[Ref, Receive], ...]:
         """Every input an edge from this output feeds, one per edge, in
-        execution order: what the engine's ledger wakes when a value is
-        written here. Only an output has readers."""
+        execution order, with how it receives the value: what the engine's
+        ledger wakes when a value is written here. The other side of
+        ``CompiledNode.reads``. Only an output has readers."""
         if not self._output:
             raise KeyError(self.ref)
         self._gate("read_by")
@@ -776,7 +796,8 @@ class _Fold:
         index with entries and no such owner is a bug in compile, and
         raises."""
         iteration, listed = self.iteration, self.passes.listed
-        self.read_by: dict[Ref, list[Ref]] = {}
+        self.read_by: dict[Ref, list[tuple[Ref, Receive]]] = {}
+        self.reads: dict[str, list[tuple[Ref, Receive]]] = {}
         self.iterated_by: dict[str, list[str]] = {}
         self.carried_by: dict[str, list[Ref]] = {}
         self.typed_lists: dict[str, list[Ref]] = {}
@@ -792,7 +813,8 @@ class _Fold:
                 binding = node.bindings.get(inp.name)
                 if isinstance(binding, From):
                     for source in binding.refs:
-                        self.read_by.setdefault(source, []).append(ref)
+                        self.read_by.setdefault(source, []).append((ref, iteration.receives[ref]))
+                        self.reads.setdefault(node_id, []).append((source, iteration.receives[ref]))
                 if inp.name in listed[node_id]:
                     own = iteration.indexes[ref]
                     self.listed[ref] = own
@@ -853,6 +875,7 @@ class _Fold:
                 _statics=self.passes.statics.get(node_id),
                 _iterates_on=self.iteration.iterated.get(node_id),
                 _births=self.births.get(node_id),
+                _reads=tuple(self.reads.get(node_id, ())),
                 **self._share(self.births.get(node_id)),
                 _fields={} if interface is None else self.fields(node_id, placed, interface, cause, problems),
             )
