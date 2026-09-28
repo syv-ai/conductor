@@ -1,7 +1,8 @@
 """A compiled graph is asked, not traversed."""
 
+from collections import Counter
 from collections.abc import Mapping
-from typing import Annotated
+from typing import Annotated, ClassVar
 
 import pytest
 from conductor import NodeRegistry
@@ -13,7 +14,7 @@ from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.problem import Problem
 from conductor.interface import FromRun, Interface, model_of
 from conductor.metadata import Input, Output, Param, Result
-from conductor.node import NodeDefinition, Policy, upgrade, version
+from conductor.node import GraphVersion, NodeDefinition, Policy, upgrade, version
 from conductor.ref import Ref
 from conductor.widgets import Choice, Dropdown, Textarea
 from pydantic import ValidationError
@@ -335,6 +336,57 @@ def test_a_hook_that_adds_an_input_named_with_a_leading_underscore_is_refused_at
 
     assert [(p.code, p.field) for p in compiled.problems] == [("parameter_name_invalid", "_x")]
     assert compiled.node("h").state == "not_derived"
+
+
+class Wrapped(NodeDefinition):
+    """A stored graph placed as a node: one echo inside."""
+
+    id = "wrapped"
+    title = "Wrapped"
+    description = "d"
+    category = "test"
+    versions: ClassVar[dict[int, GraphVersion]] = {
+        1: GraphVersion(
+            graph=(GraphNode(id="inner", type="echo", version=1),),
+            interface=Interface(
+                inputs=(Input(name="inner.x", dtype=Txt, title="X", widget=Textarea(), default=Txt(""), optional=True),),
+                outputs=(Output(name="inner.result", dtype=Txt, title="Result"),),
+                returns=Mapping,
+            ),
+        )
+    }
+
+
+class CountingRegistry(NodeRegistry):
+    """Counts every lookup of a class by id."""
+
+    def __getitem__(self, node_id: str):
+        self.counts[node_id] += 1
+        return super().__getitem__(node_id)
+
+
+def test_compile_looks_each_placement_up_once():
+    """One lookup per node the author placed and per inner node of an embedded graph; everything after reads the class compile resolved."""
+    registry = CountingRegistry(nodes=(Echo, Wrapped))
+    registry.counts = Counter()
+    CompiledGraph.from_graph(Graph(nodes=[
+        GraphNode(id="a", type="echo", version=1),
+        GraphNode(id="b", type="echo", version=1, bindings={"x": From("a.result")}),
+        GraphNode(id="emb", type="wrapped", version=1, bindings={"inner.x": From("b.result")}),
+    ]), registry)
+
+    assert registry.counts == {"echo": 3, "wrapped": 1}
+
+
+def test_a_compiled_node_holds_the_class_it_resolved_to():
+    compiled = _compiled([
+        GraphNode(id="a", type="echo", version=1),
+        GraphNode(id="emb", type="wrapped", version=1),
+    ], _registry(Wrapped))
+
+    assert compiled.node("a").definition is Echo
+    assert compiled.node("emb").definition is Wrapped
+    assert compiled.node("emb/inner").definition is Echo
 
 
 def test_the_compiler_does_not_know_the_compiled_graph():

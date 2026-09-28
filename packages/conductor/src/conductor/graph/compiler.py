@@ -30,7 +30,7 @@ from conductor.dtype_ref import name_of
 from conductor.errors import Refuses
 from conductor.graph.binding import From, static_values
 from conductor.graph.conditions import Condition, conditions_of
-from conductor.graph.expand import SEPARATOR, Expansion, authored_ref, expand, surfaced
+from conductor.graph.expand import SEPARATOR, Expansion, authored_ref, expand, resolved, surfaced
 from conductor.graph.iteration import Iteration, derive
 from conductor.graph.model import Graph, GraphNode
 from conductor.graph.problem import Problem, problem
@@ -63,8 +63,8 @@ class Compilation:
         self.graph_ids: frozenset[str] = frozenset(node.id for node in graph.nodes)
         #: The nodes the author placed, by id (pass 1).
         self.authored: dict[str, GraphNode] = {}
-        #: The version each authored node uses (pass 2).
-        self.pinned: dict[str, NodeVersion | GraphVersion] = {}
+        #: The class each authored node resolved to and the version it uses (pass 2).
+        self.pinned: dict[str, tuple[type[NodeDefinition], NodeVersion | GraphVersion]] = {}
         #: Who waits for whom, and an execution order, over the authored graph (pass 3).
         self.authored_dependencies: dict[str, frozenset[str]] = {}
         self.authored_order: tuple[str, ...] = ()
@@ -139,26 +139,21 @@ class Compilation:
             self.authored[node.id] = node
 
     def pin(self) -> None:
-        """The version each node uses, looked up once, here.
+        """The class and version each authored node uses, resolved once, here (``resolved``).
 
-        A node stores a ``type`` and a ``version`` number; ``registry[type]``
-        gives the definition and ``definition.versions[version]`` the version
-        record. A stored graph can name a type the catalog has since lost or a
-        version the class has since dropped, so either miss is a problem on
-        the node rather than an error. A version may be a ``GraphVersion`` —
-        an embedded graph — which ``expand`` inlines.
+        A node stores a ``type`` and a ``version`` number; the registry gives
+        the class and the class its version record. A stored graph can name
+        a type the registry has since lost or a version the class has since
+        dropped, so either miss is a problem on the node rather than an
+        error. A version may be a ``GraphVersion`` — an embedded graph —
+        which ``expand`` inlines, resolving its inner nodes the same way.
         """
         for node in self.authored.values():
-            if node.type not in self.registry:
-                self.problems.append(problem("unknown_node_type", node.id, node_type=node.type))
-                continue
-            version = self.registry[node.type].versions.get(node.version)
-            if version is None:
-                self.problems.append(
-                    problem("unknown_node_version", node.id, node_type=node.type, version=node.version)
-                )
-                continue
-            self.pinned[node.id] = version
+            found = resolved(node, self.registry)
+            if isinstance(found, Problem):
+                self.problems.append(found)
+            else:
+                self.pinned[node.id] = found
 
     def order(self) -> None:
         """Who waits for whom, read off the authored edges, and an execution
@@ -207,7 +202,7 @@ class Compilation:
         """
         for node_id, version in self.expansion.versions.items():
             node = self.expansion.nodes[node_id]
-            instance = self.registry[node.type]()
+            instance = self.expansion.definitions[node_id]()
             defaults = {i.name: i.default for i in version.interface.inputs if i.optional}
             for_hook, _, _ = self._typed_statics(version.interface.inputs, node)
             try:
@@ -274,7 +269,7 @@ class Compilation:
             for name, binding in node.bindings.items():
                 if name not in declared:
                     dead = problem("stale_binding", node_id, name, inputs=", ".join(sorted(declared)) or "none")
-                    if self.registry[node.type].compute_inputs is not NodeDefinition.compute_inputs:
+                    if self.expansion.definitions[node_id].compute_inputs is not NodeDefinition.compute_inputs:
                         dead = dead.model_copy(update={"fatal": False})
                     self.problems.append(dead)
                     continue
@@ -318,7 +313,7 @@ class Compilation:
                 for node_id in expansion.order
                 if node_id in self.interfaces and node_id not in self.broken
             ],
-            self.interfaces, expansion.versions, self.registry, self.statics, self.listed,
+            self.interfaces, expansion.versions, expansion.definitions, self.statics, self.listed,
             placement_of=expansion.placement_of, members=expansion.members,
         )
         self.problems.extend(self.iteration.problems)

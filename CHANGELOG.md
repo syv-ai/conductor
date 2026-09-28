@@ -7,6 +7,7 @@ All notable changes to the three workspace packages (`syv-conductor`, `syv-condu
 
 ## [Unreleased]
 
+- Compile looks each placement up in the registry once, and a compiled node or placement holds the class it resolved to as `definition`. `compiled.node(id).runner` runs that class, so a module reloaded after compile runs once the graph is compiled again. `NodeRegistry.runner_for` is removed.
 - `compiled.node(id)` answers for every node compile met, each with a `state` (`ready`, `not_derived`, `unresolved`) and its `problems`; a field has `problems` too. Reading what a state lacks raises `NotResolved` or `NotDerived`, carrying the `Problem` that explains it; `KeyError` is only for an id the graph lacks. A node whose version is a graph is a `CompiledPlacement`, with no `graph_node`, `statics`, `runner`, `fingerprint` or `validate`.
 - `decisions` leaves out a node the walk did not derive, and a misaligned embedded graph is not derived.
 - `conductor_providers.mermaid.flowchart` draws any graph, however broken.

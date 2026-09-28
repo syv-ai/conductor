@@ -77,6 +77,7 @@ from conductor.graph.expand import SEPARATOR, authored_address
 from conductor.graph.problem import Problem
 from conductor.graph.receive import Iterate
 from conductor.interface import model_of
+from conductor.node import runner_of
 from conductor.ref import Ref
 from conductor.series import Series
 
@@ -85,7 +86,7 @@ if TYPE_CHECKING:
     from conductor.graph.model import Graph, GraphNode
     from conductor.graph.receive import Receive
     from conductor.interface import Interface
-    from conductor.node import GraphVersion, NodeVersion
+    from conductor.node import GraphVersion, NodeDefinition, NodeVersion
     from conductor.registry import NodeRegistry
     from conductor.series import Index
 
@@ -345,7 +346,7 @@ class CompiledNode:
 
     What it answers depends on its ``state``. ``id``, ``state``,
     ``graph_node``, ``embedded_in`` and ``problems`` answer always.
-    ``version``, ``interface``, ``statics`` and ``runner`` need a resolved
+    ``definition``, ``version``, ``interface``, ``statics`` and ``runner`` need a resolved
     node, and raise ``NotResolved`` otherwise. ``iterates_on``,
     ``validate`` and ``fingerprint`` need a ready one, and raise
     ``NotDerived`` for a node the walk over the edges did not derive. Both
@@ -371,6 +372,7 @@ class CompiledNode:
     #: around it. ``None`` exactly when ready.
     _cause: Problem | None = field(repr=False)
     #: The answers a resolved node has; ``None`` on an unresolved one.
+    _definition: type[NodeDefinition] = field(repr=False)
     _version: NodeVersion = field(repr=False)
     _interface: Interface = field(repr=False)
     _statics: Mapping[str, Any] = field(repr=False)
@@ -378,8 +380,14 @@ class CompiledNode:
     _iterates_on: Index | None = field(repr=False)
     #: Every input and output by name: what ``CompiledGraph.field`` hands back.
     _fields: Mapping[str, CompiledField] = field(repr=False)
-    #: Where ``runner`` looks the callable up, on each read.
-    _registry: NodeRegistry = field(repr=False)
+
+    @property
+    def definition(self) -> type[NodeDefinition]:
+        """The class this node's type resolved to in the registry compile was
+        given; ``version`` is one of its ``versions``. Its hooks and its
+        runner are made from it, each on a fresh instance."""
+        _gate(self, "definition", derived=False)
+        return self._definition
 
     @property
     def version(self) -> NodeVersion:
@@ -411,9 +419,10 @@ class CompiledNode:
 
     @property
     def runner(self) -> Callable[..., Any]:
-        """The callable that runs this node, on a fresh instance per call."""
+        """The callable that runs this node, on a fresh instance of
+        ``definition`` per call. Made on each read, not stored."""
         _gate(self, "runner", derived=False)
-        return self._registry.runner_for(self.graph_node.type, self.graph_node.version)
+        return runner_of(self._definition, self._version)
 
     @property
     def fingerprint(self) -> str:
@@ -486,7 +495,7 @@ class CompiledPlacement:
     ``version.graph`` (the inner nodes), and marks ``problems`` on it. Its sibling is
     ``CompiledNode``.
 
-    Always resolved: ``id``, ``state``, ``version``, ``interface``,
+    Always resolved: ``id``, ``state``, ``definition``, ``version``, ``interface``,
     ``embedded_in`` and ``problems`` answer in either state. Only
     ``iterates_on`` needs a ready one, and raises ``NotDerived``
     otherwise — a misaligned embedded graph, or one no inner node of which
@@ -498,6 +507,8 @@ class CompiledPlacement:
     id: str
     #: ``ready`` or ``not_derived``; never ``unresolved``.
     state: NodeState
+    #: The class its type resolved to; ``version`` is one of its ``versions``.
+    definition: type[NodeDefinition] = field(repr=False)
     #: The version it uses: its interface and its graph.
     version: GraphVersion = field(repr=False)
     #: What the embedded graph takes and returns, read off its inner nodes
@@ -661,6 +672,7 @@ class _Fold:
                 built[node_id] = CompiledPlacement(
                     id=node_id,
                     state=state,
+                    definition=self.expansion.definitions[node_id],
                     version=self.expansion.placement_versions[node_id],
                     interface=self.passes.interfaces[node_id],
                     embedded_in=placement,
@@ -677,12 +689,12 @@ class _Fold:
                 embedded_in=placement,
                 problems=problems,
                 _cause=cause,
+                _definition=self.expansion.definitions.get(node_id),
                 _version=self.expansion.versions.get(node_id),
                 _interface=interface,
                 _statics=self.passes.statics.get(node_id),
                 _iterates_on=self.iteration.iterated.get(node_id),
                 _fields={} if interface is None else self.fields(node_id, placed, interface, cause, problems),
-                _registry=self.passes.registry,
             )
         return built
 

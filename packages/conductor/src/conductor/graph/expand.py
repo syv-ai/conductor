@@ -39,7 +39,7 @@ from conductor.graph.binding import Binding, From
 from conductor.graph.model import GraphNode
 from conductor.graph.problem import Problem, problem
 from conductor.graph.topology import dependencies_of, order_of
-from conductor.node import GraphVersion, NodeVersion
+from conductor.node import GraphVersion, NodeDefinition, NodeVersion
 from conductor.ref import Ref
 from conductor.registry import NodeRegistry
 
@@ -67,30 +67,55 @@ class Expansion:
     placement_of: dict[str, str | None]
     members: dict[str, tuple[str, ...]]
     versions: dict[str, NodeVersion]
+    #: The class each node and each placement resolved to (``resolved``):
+    #: what its hooks and its runner are made from.
+    definitions: dict[str, type[NodeDefinition]]
     #: The ``GraphVersion`` of each placement, authored and nested alike; its
     #: interface is what the placement shows as inputs and outputs.
     placement_versions: dict[str, GraphVersion]
     problems: tuple[Problem, ...]
 
 
+def resolved(node: GraphNode, registry: NodeRegistry) -> tuple[type[NodeDefinition], NodeVersion | GraphVersion] | Problem:
+    """The class a placed node names and the version it pins, or the problem saying which is missing.
+
+    Compile's one lookup of a placement, for a node the author placed
+    (``Compilation.pin``) and for an inner node of an embedded graph
+    (``inline``) alike. A stored graph can name a type the registry has
+    since lost or a version the class has since dropped; either is a fatal
+    problem on ``node.id``, which is the expanded id for an inner node.
+    Everything after compile reads the class and version off the compiled
+    node.
+    """
+    if node.type not in registry:
+        return problem("unknown_node_type", node.id, node_type=node.type)
+    definition = registry[node.type]
+    version = definition.versions.get(node.version)
+    if version is None:
+        return problem("unknown_node_version", node.id, node_type=node.type, version=node.version)
+    return definition, version
+
+
 def expand(
     authored: Mapping[str, GraphNode],
     order: Sequence[str],
-    versions: Mapping[str, NodeVersion | GraphVersion],
+    pinned: Mapping[str, tuple[type[NodeDefinition], NodeVersion | GraphVersion]],
     registry: NodeRegistry,
 ) -> Expansion:
     """Inline every node in ``authored`` whose version is a ``GraphVersion``.
 
     ``order`` is the authored execution order; a node in a cycle is not in
     it and already carries a problem, as does a node absent from
-    ``versions``. An inner node whose type or version the registry lacks
-    is a problem too, reported on the expanded id and moved onto the
-    placement by ``surfaced``.
+    ``pinned`` (the class and version each authored node resolved to). An
+    inner node whose type or version the registry lacks is a problem too,
+    reported on the expanded id and moved onto the placement by
+    ``surfaced``.
     """
     expander = _Expander(registry)
     for node_id in order:
-        if node_id in versions:
-            expander.inline(authored[node_id], versions[node_id], enclosing=None, chain=())
+        if node_id in pinned:
+            definition, version = pinned[node_id]
+            expander.inline(authored[node_id], definition, version, enclosing=None, chain=())
     expander.reconnect()
     return expander.result()
 
@@ -113,10 +138,18 @@ class _Expander:
         self.placement_of: dict[str, str | None] = {}
         self.members: dict[str, list[str]] = {}
         self.versions: dict[str, NodeVersion] = {}
+        self.definitions: dict[str, type[NodeDefinition]] = {}
         self.placement_versions: dict[str, GraphVersion] = {}
         self.placements: set[str] = set()
 
-    def inline(self, node: GraphNode, version: NodeVersion | GraphVersion, enclosing: str | None, chain: tuple[str, ...]) -> None:
+    def inline(
+        self,
+        node: GraphNode,
+        definition: type[NodeDefinition],
+        version: NodeVersion | GraphVersion,
+        enclosing: str | None,
+        chain: tuple[str, ...],
+    ) -> None:
         """Add ``node`` to the expanded graph — itself, or its inner nodes
         under its name when ``version`` is a graph. ``enclosing`` is the
         innermost placement the node sits in, ``None`` at the top; ``chain``
@@ -128,6 +161,7 @@ class _Expander:
             self.order.append(node.id)
             self.placement_of[node.id] = enclosing
             self.versions[node.id] = version
+            self.definitions[node.id] = definition
             for placement in _enclosing(node.id):
                 self.members.setdefault(placement, []).append(node.id)
             return
@@ -137,6 +171,7 @@ class _Expander:
         self.placement_of[node.id] = enclosing
         self.placements.add(node.id)
         self.placement_versions[node.id] = version
+        self.definitions[node.id] = definition
         self.members.setdefault(node.id, [])
         inner_nodes: dict[str, GraphNode] = {}
         for inner in version.graph:
@@ -146,23 +181,22 @@ class _Expander:
             namespaced = self._namespaced(node.id, inner)
             inner_nodes[namespaced.id] = namespaced
         moved = self._moved(node, inner_nodes)
-        inner_versions: dict[str, NodeVersion | GraphVersion] = {}
+        inner_pinned: dict[str, tuple[type[NodeDefinition], NodeVersion | GraphVersion]] = {}
         for inner_id, inner in inner_nodes.items():
-            if inner.type not in self.registry:
-                self.problems.append(problem("unknown_node_type", inner_id, node_type=inner.type))
-                continue
-            inner_version = self.registry[inner.type].versions.get(inner.version)
-            if inner_version is None:
-                self.problems.append(
-                    problem("unknown_node_version", inner_id, node_type=inner.type, version=inner.version)
-                )
-                continue
-            inner_versions[inner_id] = inner_version
+            found = resolved(inner, self.registry)
+            if isinstance(found, Problem):
+                self.problems.append(found)
+            else:
+                inner_pinned[inner_id] = found
         inner_order, cyclic = order_of(dependencies_of(inner_nodes.values()))
         self.problems.extend(problem("cycle", inner_id) for inner_id in sorted(cyclic))
         for inner_id in inner_order:
-            if inner_id in inner_versions:
-                self.inline(moved.get(inner_id, inner_nodes[inner_id]), inner_versions[inner_id], enclosing=node.id, chain=(*chain, node.type))
+            if inner_id in inner_pinned:
+                inner_definition, inner_version = inner_pinned[inner_id]
+                self.inline(
+                    moved.get(inner_id, inner_nodes[inner_id]), inner_definition, inner_version,
+                    enclosing=node.id, chain=(*chain, node.type),
+                )
 
     def _moved(self, placement: GraphNode, inner_nodes: Mapping[str, GraphNode]) -> dict[str, GraphNode]:
         """The placement's bindings, moved onto the inner fields they name.
@@ -205,6 +239,7 @@ class _Expander:
             placement_of=self.placement_of,
             members={placement: tuple(ids) for placement, ids in self.members.items()},
             versions=self.versions,
+            definitions=self.definitions,
             placement_versions=self.placement_versions,
             problems=tuple(self.problems),
         )

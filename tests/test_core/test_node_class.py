@@ -1054,11 +1054,13 @@ def test_a_version_a_class_does_not_declare_is_refused():
 
     registry = NodeRegistry()
     registry.register(Once)
+    compiled = CompiledGraph.from_graph(Graph(nodes=[
+        GraphNode(id="a", type="once-exec", version=2),
+        GraphNode(id="b", type="never-registered", version=1),
+    ]), registry)
 
-    with pytest.raises(KeyError):
-        registry.runner_for("once-exec", 2)
-    with pytest.raises(KeyError):
-        registry.runner_for("never-registered", 1)
+    assert [p.code for p in compiled.problems] == ["unknown_node_version", "unknown_node_type"]
+    assert not hasattr(NodeRegistry, "runner_for")
 
 
 def test_each_call_gets_a_fresh_instance():
@@ -1077,7 +1079,7 @@ def test_each_call_gets_a_fresh_instance():
 
     registry = NodeRegistry()
     registry.register(Counting)
-    runner = registry.runner_for("counting", 1)
+    runner = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="c", type="counting", version=1)]), registry).node("c").runner
     runner(x=Txt("a"))
     runner(x=Txt("b"))
 
@@ -1088,8 +1090,8 @@ def test_a_definition_may_carry_its_versions_by_value():
     """A definition built from data (an embedded graph) sets ``versions`` in
     the class body, each a ``GraphVersion`` holding an interface and the
     placements the compiler expands it to. ``register()`` checks the
-    numbering and ``describe()`` reads it, but ``registry.runner_for`` refuses it:
-    there is nothing to run, the compiler expanded it."""
+    numbering and ``describe()`` reads it; nothing runs it as one unit,
+    since compile inlines its graph."""
     from collections.abc import Mapping
 
     from conductor.interface import Interface, model_of
@@ -1125,7 +1127,4 @@ def test_a_definition_may_carry_its_versions_by_value():
         id = "loaded"
         versions: ClassVar[dict[int, GraphVersion]] = {1: Wrapped.versions[3]}
 
-    registry = NodeRegistry()
-    registry.register(Loaded)
-    with pytest.raises(TypeError, match="graph"):
-        registry.runner_for("loaded", 1)
+    NodeRegistry().register(Loaded)

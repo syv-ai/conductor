@@ -85,9 +85,8 @@ from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Receive, 
 from conductor.graph.views import field_problems
 from conductor.interface import Interface
 from conductor.metadata import Input, Output
-from conductor.node import NodeVersion
+from conductor.node import NodeDefinition, NodeVersion
 from conductor.ref import Ref
-from conductor.registry import NodeRegistry
 from conductor.series import Index, Series
 
 
@@ -118,7 +117,7 @@ def derive(
     nodes: Sequence[GraphNode],
     interfaces: Mapping[str, Interface],
     versions: Mapping[str, NodeVersion],
-    registry: NodeRegistry,
+    definitions: Mapping[str, type[NodeDefinition]],
     statics: Mapping[str, Mapping[str, Any]],
     listed: Mapping[str, frozenset[str]],
     *,
@@ -152,7 +151,7 @@ def derive(
     The index an embedded graph runs per row of is found when its first
     node is reached.
     """
-    walk = _Walk(nodes, interfaces, versions, registry, statics, listed, placement_of, members)
+    walk = _Walk(nodes, interfaces, versions, definitions, statics, listed, placement_of, members)
     for node in nodes:
         walk.visit(node)
     return walk.result()
@@ -204,7 +203,7 @@ class _Walk:
         nodes: Sequence[GraphNode],
         interfaces: Mapping[str, Interface],
         versions: Mapping[str, NodeVersion],
-        registry: NodeRegistry,
+        definitions: Mapping[str, type[NodeDefinition]],
         statics: Mapping[str, Mapping[str, Any]],
         listed: Mapping[str, frozenset[str]],
         placement_of: Mapping[str, str | None],
@@ -215,7 +214,8 @@ class _Walk:
         #: before the walk types them.
         self.asked = interfaces
         self.versions = versions
-        self.registry = registry
+        #: The class each node resolved to, which ``compute_outputs`` is asked of.
+        self.definitions = definitions
         self.statics = statics
         self.listed = listed
         self.placement_of = placement_of
@@ -468,7 +468,7 @@ class _Walk:
         declared = (*version.interface.inputs, *self.asked[node.id].inputs)
         values = {**{i.name: i.default for i in declared if i.optional}, **self.statics[node.id]}
         try:
-            return self.registry[node.type]().compute_outputs(version.interface.outputs, values, arriving)
+            return self.definitions[node.id]().compute_outputs(version.interface.outputs, values, arriving)
         except Refuses as refusal:
             return Problem(code=refusal.code, message=refusal.message, fatal=True, node_id=node.id)
 

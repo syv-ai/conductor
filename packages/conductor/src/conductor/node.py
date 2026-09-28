@@ -177,8 +177,8 @@ class GraphVersion:
     say. ``interface`` is that graph's interface (inputs named by address,
     ``returns`` a ``Mapping``) and ``graph`` the nodes the compiler
     expands under the placing node's name, so the inner nodes run as
-    nodes of the outer graph. Nothing runs it as one unit:
-    ``NodeRegistry.runner_for`` refuses it and it carries no policy. A
+    nodes of the outer graph. Nothing runs it as one unit, and it
+    carries no policy. A
     sibling of ``NodeVersion`` rather than an optional field on it, so
     neither record can be half-filled.
     """
@@ -626,3 +626,25 @@ class NodeDefinition(ABC, metaclass=_NodeMeta):
             },
             current=cls.current,
         )
+
+
+def runner_of(definition: type[NodeDefinition], version: NodeVersion) -> Callable[..., Any]:
+    """A plain callable running one version of a node: its ``run`` on a fresh instance of ``definition`` per call.
+
+    Read by ``CompiledNode.runner``, the engine's one way to call a node,
+    with the class and version compile resolved. ``__signature__`` is the
+    method's minus ``self``, so the engine's keyword filtering sees the
+    node's parameters. A fresh instance per call keeps a node stateless
+    between units, as it is between its hooks.
+    """
+    method = version.run
+
+    def runner(**kwargs: Any) -> Any:
+        return method(definition(), **kwargs)
+
+    signature = inspect.signature(method)
+    runner.__signature__ = signature.replace(
+        parameters=[p for name, p in signature.parameters.items() if name != "self"]
+    )
+    runner.__name__ = f"{definition.__name__}.{method.__name__}"
+    return runner
