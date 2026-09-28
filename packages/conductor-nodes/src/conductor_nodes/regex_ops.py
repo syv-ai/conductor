@@ -92,4 +92,4 @@ class Extract(PatternNode):
 
 
 #: Every node this module defines, in palette order.
-NODES = (Match, ReplaceAll, Extract)
+NODES: tuple[type[StdlibNode], ...] = (Match, ReplaceAll, Extract)

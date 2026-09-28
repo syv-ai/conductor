@@ -23,7 +23,7 @@ from conductor.errors import (
     StartRefused,
 )
 from conductor.execution.engine import execute, run, run_sync
-from conductor.execution.state import RunState
+from conductor.execution.state import DoneUnit, RunState, StateSkip, StateValue
 from conductor.graph.binding import Binding, From, Static
 from conductor.graph.compiled import CompiledField, CompiledGraph, CompiledNode
 from conductor.graph.conditions import ALWAYS, NEVER, Atom, Condition
@@ -41,6 +41,8 @@ from conductor.node import (
     NodeDescription,
     NodeVersion,
     Policy,
+    Upgrade,
+    VersionDescription,
     deprecated,
     upgrade,
     version,
@@ -48,13 +50,11 @@ from conductor.node import (
 from conductor.ref import Ref
 from conductor.registry import NodeRegistry, RegistryDescription, TypeDescription
 from conductor.series import Index, Series
-from conductor.widgets import AnyWidget
 
 __all__ = [
     "ALWAYS",
     "NEVER",
     "SKIPPED",
-    "AnyWidget",
     "Asks",
     "Atom",
     "Binding",
@@ -67,6 +67,7 @@ __all__ = [
     "ConductorError",
     "DType",
     "Deprecation",
+    "DoneUnit",
     "ErrorCause",
     "ExternalFailure",
     "FieldContent",
@@ -103,8 +104,12 @@ __all__ = [
     "Series",
     "Single",
     "StartRefused",
+    "StateSkip",
+    "StateValue",
     "Static",
     "TypeDescription",
+    "Upgrade",
+    "VersionDescription",
     "Whole",
     "dependencies_of",
     "deprecated",

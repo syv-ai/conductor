@@ -84,4 +84,4 @@ class Not(StdlibNode):
 
 
 #: Every node this module defines, in palette order.
-NODES = (IfEmpty, IfEquals, Not)
+NODES: tuple[type[StdlibNode], ...] = (IfEmpty, IfEquals, Not)

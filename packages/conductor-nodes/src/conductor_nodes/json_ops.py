@@ -74,4 +74,4 @@ class GetPath(StdlibNode):
 
 
 #: Every node this module defines, in palette order.
-NODES = (Parse, Stringify, GetPath)
+NODES: tuple[type[StdlibNode], ...] = (Parse, Stringify, GetPath)

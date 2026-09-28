@@ -148,4 +148,4 @@ class Reverse(StdlibNode):
 
 
 #: Every node this module defines, in palette order.
-NODES = (Uppercase, Lowercase, Trim, Length, Concat, Replace, Contains, Split, Join, Reverse)
+NODES: tuple[type[StdlibNode], ...] = (Uppercase, Lowercase, Trim, Length, Concat, Replace, Contains, Split, Join, Reverse)
