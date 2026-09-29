@@ -12,7 +12,7 @@ belonged to which failure.
     ├── CompilationError        a caller asked to run a graph compile rejected
     ├── NotResolved             a caller read a compiled node that compile could not resolve
     ├── NotDerived              a caller read what the edges decide off a node compile did not derive
-    ├── Inlined                 a caller read what only a node that runs as one unit has off an embedded graph
+    ├── NodeKindError           a caller read off a compiled node what a node of its kind does not have
     ├── NodeError               one node failed; carries node_id and a cause. Internal: never retried
     │   ├── ExternalFailure         the outside world failed; the one family the engine retries
     │   ├── NodeValidationError     its inputs were wrong
@@ -143,22 +143,22 @@ class NotDerived(ConductorError):
         )
 
 
-class Inlined(ConductorError):
-    """A caller read what only a node that runs as one unit has off a node whose version is a graph.
+class NodeKindError(ConductorError):
+    """A caller read off a compiled node what a node of its kind does not have.
 
     Raised by ``CompiledNode.runner``, ``validate`` and ``fingerprint`` on a
     node whose ``kind`` is ``graph``: compile inlined its embedded graph, so
     its inner nodes run in its place, each with a runner, a call and a
-    fingerprint of its own. Not a state of the graph, so it carries no
-    ``Problem``; the engine never meets it, since it runs only the inner
-    nodes. Its siblings are ``NotResolved`` and ``NotDerived``.
+    fingerprint of its own. ``kind`` is the node's. Not a state of the
+    graph, so it carries no ``Problem``; the engine never meets it, since
+    it runs only nodes of kind ``node``. Its siblings are ``NotResolved``
+    and ``NotDerived``.
     """
 
-    def __init__(self, node_id: str, asked: str) -> None:
+    def __init__(self, node_id: str, asked: str, kind: str) -> None:
         self.node_id = node_id
-        super().__init__(
-            f"{node_id!r} has no {asked}: its version is a graph, and its inner nodes run in its place"
-        )
+        self.kind = kind
+        super().__init__(f"{node_id!r} has no {asked}: a node of kind {kind!r} does not run as one unit")
 
 
 class CompilationError(ConductorError):
