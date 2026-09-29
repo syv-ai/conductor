@@ -327,6 +327,24 @@ def test_a_state_value_that_does_not_read_back_as_its_type_is_refused():
         _leg(compiled, state=RunState.model_validate(dumped))
 
 
+@pytest.mark.parametrize(("where", "edit", "refusal"), [
+    ("values", {"row": []}, r"e\.result is at row \[\]"),
+    ("values", {"row": [0]}, r"e\.result is at row \[0\]"),
+    ("done_units", {"row": []}, r"'e' done at row \[\]"),
+    ("done_units", {"row": [0]}, r"'e' done at row \[0\]"),
+    ("values", {"ref": "e.reslt"}, r"e\.reslt, which the graph does not have"),
+])
+def test_a_state_entry_a_node_that_runs_once_has_no_place_for_is_refused(where, edit, refusal):
+    from conductor import StartRefused
+
+    compiled = _compiled([GraphNode(id="e", type="echo", version=1, bindings={"text": Static("x")})])
+    dumped = _leg(compiled)[-1].state.model_dump(mode="json")
+    dumped[where] = [{**entry, **edit} for entry in dumped[where]]
+
+    with pytest.raises(StartRefused, match=refusal):
+        _leg(compiled, state=RunState.model_validate(dumped))
+
+
 @pytest.mark.parametrize("entry", [
     {"row": None, "value": "A"},
     {"ref": "e", "row": None, "value": "A"},

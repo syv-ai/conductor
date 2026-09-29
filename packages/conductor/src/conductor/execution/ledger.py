@@ -100,6 +100,13 @@ def _depth(row: Row | None) -> int:
     return 0 if row is None else len(row)
 
 
+def _fits(row: Row | None, index: Index | None) -> bool:
+    """Whether a stored row is one a field or node on ``index`` can hold:
+    ``None`` (the top, where a skip from above stands in), or a row as deep
+    as ``index`` or shallower, never the empty row."""
+    return row is None or (index is not None and 1 <= len(row) <= index.depth)
+
+
 def _prefixes(key: Row | None) -> Iterator[Row | None]:
     """``None``, then every prefix of ``key`` from shortest to ``key`` itself."""
     yield None
@@ -920,8 +927,10 @@ class Ledger:
         list come from the graph as it is now, which says how many values
         the author typed, and a fresh ledger births them. A
         value or a done unit for a node the graph does not have is left out
-        too; a value that does not read back as its field's type is a
-        ``StartRefused``.
+        too. A value that does not read back as its field's type, a value
+        or a done unit at a row its field or node cannot have (``[]``, or
+        ``[0]`` on a node that runs once) and a value for a field the graph
+        does not have are each a ``StartRefused``.
         """
         ledger = cls(compiled)
         current = {node_id: compiled.node(node_id).fingerprint for node_id in compiled.execution_order}
@@ -937,6 +946,12 @@ class Ledger:
             ref = entry.ref
             if ref.node_id in dropped:
                 continue
+            try:
+                index = compiled.field(ref).index
+            except KeyError as unknown:
+                raise StartRefused(f"the state has a value for {ref}, which the graph does not have") from unknown
+            if not _fits(entry.row, index):
+                raise StartRefused(f"the state's value for {ref} is at row {list(entry.row or ())}, which {ref} has no place for")
             if isinstance(entry, StateSkip):
                 value = SKIPPED
             else:
@@ -946,6 +961,9 @@ class Ledger:
                     raise StartRefused(f"the state's value for {ref} does not read back: {unreadable}") from unreadable
             ledger._values.setdefault(ref, {})[entry.row] = value
         done = [(unit.node_id, unit.row) for unit in state.done_units if unit.node_id not in dropped]
+        for node_id, row in done:
+            if not _fits(row, compiled.node(node_id).iterates_on):
+                raise StartRefused(f"the state marks {node_id!r} done at row {list(row or ())}, which {node_id!r} has no place for")
         ledger._rebirth(done)
         for unit in done:
             ledger._finish(unit)

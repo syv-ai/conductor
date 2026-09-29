@@ -17,6 +17,7 @@ All notable changes to the three workspace packages (`syv-conductor`, `syv-condu
 - Removed: `is_input_node` (the graph's inputs are `compiled.interface.inputs`) and `GraphNode.data` (read `node.bindings`).
 - The public API is three doors: `conductor`, `conductor.widgets` and `conductor.events` (new), each with an `__all__` a type checker accepts. `NEVER`, the `Receive` records, `model_of`, `to_wire`, `from_wire`, `Upgrade`, `VersionDescription` and the run state's entries (`StateValue`, `StateSkip`, `DoneUnit`) join the root; `dtype_of` and `DTypeRef` leave it, and `AnyWidget` is imported from `conductor.widgets` only. Each `conductor_nodes` module lists its nodes in `NODES` instead of a `register()` function.
 - A node's result holds only what it produced: an output the node skipped (the branch not taken) is absent from `result_of`, `node_complete` and `RunState.results`, never `SKIPPED`. The FastAPI provider no longer fails streaming a branch node.
+- Restoring a state refuses (`StartRefused`) a value or done unit at a row its field or node cannot have, such as `[]` or `[0]` on a node that runs once, and a value for a field the graph does not have. Such an entry used to be accepted and ignored, so the node ran again.
 
 ## [2.0.0]
 
