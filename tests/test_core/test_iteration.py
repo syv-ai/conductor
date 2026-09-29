@@ -949,3 +949,36 @@ def test_a_static_is_typed_against_the_interface_the_hook_returned():
 
     assert [(p.code, p.field) for p in compiled.problems] == [("invalid_static", "value")]
     assert numeric.is_runnable and numeric.node("r").statics == {"value": Num(2)}
+
+
+def test_a_refusal_from_a_node_whose_source_is_broken_is_dropped_for_the_sources_fault():
+    """The broken edge carries the fault; the hook's refusal about the arrival
+    it never got would report the same fact twice. The node still gets an
+    interface an editor can draw, with no outputs."""
+    from conductor.errors import Refuses
+
+    class Fussy(NodeDefinition):
+        id = "fussy"
+        title = "Fussy"
+        description = "d"
+        category = "test"
+
+        def run(self, value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
+            return value
+
+        def compute_outputs(self, declared, values, arriving):
+            raise Refuses("wrong_shape", "What arrives does not fit.")
+
+    registry = _registry().extended_with({"fussy": Fussy})
+
+    def codes(source_field):
+        compiled = CompiledGraph.from_graph(Graph(nodes=[
+            GraphNode(id="docs", type="docs", version=1),
+            GraphNode(id="f", type="fussy", version=1, bindings={"value": _edge(("docs", source_field))}),
+        ]), registry)
+        return [p.code for p in compiled.problems if p.node_id == "f"], compiled.node("f")
+
+    broken, node = codes("nope")
+    assert broken == ["unknown_ref_output"]
+    assert (node.state, node.interface.outputs) == ("not_derived", ())
+    assert codes("texts")[0] == ["wrong_shape"]
