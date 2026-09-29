@@ -233,7 +233,7 @@ Three public doors: `conductor`, `conductor.widgets` and `conductor.events`. Eac
 - Types: `DType`, `Single`, `Series`, `Index`, `Ref`, `to_wire(value, dtype)`, `from_wire(data, dtype)`
 - Registry: `NodeRegistry` (`register`, `in`, `[]`, `len`, iteration, `nodes`, `types`, `accepted_as`, `describe`, `upgraded`, `extended_with`, `runner_for`), `RegistryDescription`, `TypeDescription`
 - Graph: `Graph`, `GraphNode`, `FieldContent`, `Binding`, `From`, `Static`, `dependencies_of`, `is_input_node`, `CompiledGraph`, `CompiledNode`, `CompiledField`, `Problem`, `Condition`, `Atom`, `ALWAYS`, `NEVER`, and what an input receives: `Receive` (`Iterate`, `Broadcast`, `Whole`, `Group`, `Gather`)
-- Errors: `ConductorError`, `CompilationError`, `Refuses`, `StartRefused`, `InputNotOffered`, `NotResolved`, `NotDerived`, `NodeError`, `ExternalFailure`, `NodeValidationError`, `NodeExecutionError`, `NodeTimeoutError`, `ErrorCause`
+- Errors: `ConductorError`, `CompilationError`, `Refuses`, `StartRefused`, `InputNotOffered`, `NotResolved`, `NotDerived`, `Inlined`, `NodeError`, `ExternalFailure`, `NodeValidationError`, `NodeExecutionError`, `NodeTimeoutError`, `ErrorCause`
 - A run's state: `RunState` (`values` holds `StateValue` or `StateSkip` entries, `done_units` holds `DoneUnit`s)
 - Records (`Graph`, `GraphNode`, …) also have `to_yaml()`, `from_yaml(text)`, `to_path(path)`, `from_path(path)`, plus pydantic's.
 
