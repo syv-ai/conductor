@@ -24,7 +24,6 @@ from __future__ import annotations
 from conductor import (
     Broadcast,
     CompiledGraph,
-    CompiledPlacement,
     From,
     Gather,
     GraphNode,
@@ -72,7 +71,7 @@ def _placed(
     title = _quoted(f"{expanded_id} · {node.type}")
     fault = ":::fault" if expanded_id in faulty else ""
     placed = compiled.node(expanded_id)
-    if not isinstance(placed, CompiledPlacement):
+    if placed.state == "unresolved" or placed.kind != "graph":
         return [f"{indent}{name}[{title}]{fault}"]
     lines = [f"{indent}subgraph {name} [{title}]"]
     for inner in placed.version.graph:

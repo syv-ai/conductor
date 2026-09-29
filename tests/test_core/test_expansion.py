@@ -6,9 +6,9 @@ from typing import Annotated, ClassVar
 import pytest
 from conductor import NodeRegistry
 from conductor.dtype import DType
-from conductor.errors import NotDerived, NotResolved
+from conductor.errors import Inlined, NotDerived, NotResolved
 from conductor.graph.binding import From, Static
-from conductor.graph.compiled import CompiledGraph, CompiledPlacement
+from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.interface import Interface
 from conductor.metadata import Input, Output, Param, Result
@@ -138,9 +138,24 @@ def test_the_inner_nodes_are_nodes_of_the_one_run_under_the_placements_name():
     assert compiled.execution_order == ("src", "emb/holder", "emb/up", "emb/join", "after")
     assert compiled.node("emb/up").embedded_in == "emb"
     assert compiled.node("src").embedded_in is None
-    # The placement is not a node of the run; its inner nodes are.
-    assert isinstance(compiled.node("emb"), CompiledPlacement)
-    assert not hasattr(compiled.node("emb"), "graph_node")
+    # The node that embeds the graph is not a unit of the run; its inner nodes are.
+    emb = compiled.node("emb")
+    assert (emb.kind, emb.graph_node.type, compiled.node("src").kind) == ("graph", "inner-graph", "node")
+    for asked in ("runner", "fingerprint"):
+        with pytest.raises(Inlined, match="inner nodes run in its place"):
+            getattr(emb, asked)
+    with pytest.raises(Inlined):
+        emb.validate({})
+
+
+def test_a_graph_holds_the_values_typed_on_it_by_inner_address():
+    """Typed on the embedding node, read where it landed: the inner field's type reads it."""
+    compiled = _compiled([
+        GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.value": Static("outer"), "gone.x": Static("y")}),
+    ])
+
+    assert compiled.node("emb").statics == {"holder.value": "outer"}
+    assert compiled.node("emb").statics["holder.value"] is compiled.node("emb/holder").statics["value"]
 
 
 def test_the_placements_bindings_move_onto_the_inner_fields_they_name():
@@ -458,7 +473,7 @@ def test_a_graph_that_embeds_itself_is_a_cycle_not_a_recursion_error():
     assert [(p.code, p.node_id, p.field) for p in compiled.problems] == [("cycle", "s", "again")]
     assert not compiled.is_runnable
     (cycle,) = compiled.problems
-    assert isinstance(compiled.node("s"), CompiledPlacement) and compiled.node("s").state == "not_derived"
+    assert (compiled.node("s").kind, compiled.node("s").state) == ("graph", "not_derived")
     assert compiled.node("s/again").state == "unresolved"
     with pytest.raises(NotResolved) as raised:
         compiled.node("s/again").interface
@@ -494,7 +509,7 @@ def test_two_graphs_that_embed_each_other_are_a_cycle():
     assert [compiled.node(node_id).state for node_id in ("top", "top/b", "top/b/a")] == [
         "not_derived", "not_derived", "unresolved",
     ]
-    assert isinstance(compiled.node("top/b"), CompiledPlacement)
+    assert compiled.node("top/b").kind == "graph"
     with pytest.raises(NotDerived) as around:
         compiled.node("top").iterates_on
     with pytest.raises(NotResolved) as inside:

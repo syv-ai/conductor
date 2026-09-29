@@ -50,8 +50,8 @@ class Compilation:
     ``run`` runs the passes in order. Each pass is a method that reads what
     the passes before it left on ``self`` and appends what it finds wrong
     to ``problems``. ``CompiledGraph.from_graph`` makes one, runs it and
-    reads what it left into the stored ``CompiledNode``,
-    ``CompiledPlacement`` and ``CompiledField`` values; nothing here outlives that.
+    reads what it left into the stored ``CompiledNode`` and
+    ``CompiledField`` values; nothing here outlives that.
     """
 
     def __init__(self, graph: Graph, registry: NodeRegistry) -> None:
