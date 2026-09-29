@@ -67,7 +67,7 @@ from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
 
 from conductor.codec import to_wire
-from conductor.errors import Inlined, InputNotOffered, NotDerived, NotResolved
+from conductor.errors import InputNotOffered, NodeKindError, NotDerived, NotResolved
 from conductor.graph.binding import Binding, From, Static
 from conductor.graph.compiler import Compilation
 from conductor.graph.expand import SEPARATOR, authored_address, expanded_ref
@@ -327,7 +327,7 @@ def _gate(node: CompiledNode, asked: str, *, derived: bool, unit: bool = False) 
     if cause is not None and node.state == "unresolved":
         raise NotResolved(node.id, asked, cause)
     if unit and node._kind != "node":
-        raise Inlined(node.id, asked)
+        raise NodeKindError(node.id, asked, node._kind)
     if cause is not None and derived:
         raise NotDerived(node.id, asked, cause)
 
@@ -355,7 +355,7 @@ class CompiledNode:
     did not derive. Both errors carry the ``Problem`` that explains the
     state. ``runner``, ``validate`` and ``fingerprint`` are the run's, and
     only a node that runs as one unit answers them: on a ``graph`` they
-    raise ``Inlined``, since its inner nodes run in its place. A ``graph``
+    raise ``NodeKindError``, since its inner nodes run in its place. A ``graph``
     is never unresolved, and has no fields of its own — an address on it
     (``Ref("approve", "check.amount")``) reads through to the inner field.
     """

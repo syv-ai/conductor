@@ -6,7 +6,7 @@ from typing import Annotated, ClassVar
 import pytest
 from conductor import NodeRegistry
 from conductor.dtype import DType
-from conductor.errors import Inlined, NotDerived, NotResolved
+from conductor.errors import NodeKindError, NotDerived, NotResolved
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import FieldContent, Graph, GraphNode
@@ -142,9 +142,9 @@ def test_the_inner_nodes_are_nodes_of_the_one_run_under_the_placements_name():
     emb = compiled.node("emb")
     assert (emb.kind, emb.graph_node.type, compiled.node("src").kind) == ("graph", "inner-graph", "node")
     for asked in ("runner", "fingerprint"):
-        with pytest.raises(Inlined, match="inner nodes run in its place"):
+        with pytest.raises(NodeKindError, match="a node of kind 'graph' does not run as one unit"):
             getattr(emb, asked)
-    with pytest.raises(Inlined):
+    with pytest.raises(NodeKindError):
         emb.validate({})
 
 
