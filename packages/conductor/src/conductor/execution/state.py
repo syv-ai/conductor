@@ -98,7 +98,8 @@ class RunState(ConductorModel):
         Read over ``compiled``, the graph the run is of, the way the next leg
         would read this state: a node the graph has changed since, and
         everything reading it, is left out. A node that did not run is
-        absent; one that ran per row is a ``Series``, sparse where rows were
+        absent, and so is an output a node skipped (the branch not taken);
+        one that ran per row is a ``Series``, sparse where rows were
         skipped. The state an ending just carried is read off the ledger
         that wrote it, with nothing decoded; a stored one is decoded
         through the codec by each field's type.
@@ -117,17 +118,12 @@ class RunState(ConductorModel):
         a failed or paused leg returns what it did produce. A single value is
         a value; one with many rows is a ``Series``.
         """
-        from conductor._sentinel import is_skipped
-
         results = self.results(compiled)
         returned: dict[str, Any] = {}
         for output in compiled.interface.outputs:
             at = compiled.expanded(output.name)
-            if at.node_id not in results:
-                continue
-            value = results[at.node_id][at.field]
-            if not is_skipped(value):
-                returned[str(output.name)] = value
+            if at.field in results.get(at.node_id, {}):
+                returned[str(output.name)] = results[at.node_id][at.field]
         return returned
 
     def without(self, *node_ids: str) -> RunState:

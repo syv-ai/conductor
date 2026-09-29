@@ -390,7 +390,7 @@ def test_a_decision_over_a_whole_column_gates_what_hangs_off_the_branch_not_take
     ledger.record(("after", None), Skip(at=None))
     results = ledger.results()
     assert "empty" not in results and "up" not in results and "after" not in results
-    assert ledger.result_of("decide")["empty"] is SKIPPED
+    assert "empty" not in ledger.result_of("decide")  # the branch not taken is absent, never SKIPPED
 
 
 def test_a_gate_at_a_parent_row_reaches_only_the_rows_under_it():

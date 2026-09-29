@@ -814,9 +814,11 @@ class Ledger:
         """This node's outputs by name, or ``None`` when the node did not run
         (every output is ``SKIPPED`` at the top).
 
-        A scalar output of a node that ran once is its value; anything on an
-        index is a ``Series``, sparse where rows were skipped — a node whose
-        every row was skipped away gives an empty series.
+        A result holds only what the node produced: an output the node
+        skipped (the branch not taken) is absent, never ``SKIPPED``. A scalar
+        output of a node that ran once is its value; anything on an index is
+        a ``Series``, sparse where rows were skipped — a node whose every row
+        was skipped away gives an empty series.
         """
         outputs = self._compiled.node(node_id).interface.outputs
         if all(is_skipped(self._values.get(Ref(node_id, out.name), {}).get(None)) for out in outputs):
@@ -826,7 +828,9 @@ class Ledger:
             ref = Ref(node_id, out.name)
             index = self._compiled.field(ref).index
             value, _ = self._lookup(ref, None)
-            if index is None or is_skipped(value):
+            if is_skipped(value):
+                continue
+            if index is None:
                 result[out.name] = value
             else:
                 result[out.name] = self._series(node_id, (ref,), index, self._rows_under(index.id, None))
