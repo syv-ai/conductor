@@ -68,13 +68,13 @@ from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
 
 from conductor.codec import to_wire
-from conductor.errors import Inlined, InputNotOffered, NotDerived, NotResolved
+from conductor.errors import InputNotOffered, NodeKindError, NotDerived, NotResolved
 from conductor.graph.binding import Binding, From, Static
 from conductor.graph.compiler import Compilation
-from conductor.graph.expand import SEPARATOR, authored_address, expanded_ref
+from conductor.graph.expand import SEPARATOR, authored_address, embedded_in, expanded_ref
 from conductor.graph.problem import Problem
 from conductor.interface import model_of
-from conductor.node import runner_of
+from conductor.node import GraphVersion, runner_of
 from conductor.ref import Ref
 from conductor.series import Series
 
@@ -83,7 +83,7 @@ if TYPE_CHECKING:
     from conductor.graph.model import Graph, GraphNode
     from conductor.graph.receive import Receive
     from conductor.interface import Interface
-    from conductor.node import GraphVersion, NodeDefinition, NodeVersion
+    from conductor.node import NodeDefinition, NodeVersion
     from conductor.registry import NodeRegistry
     from conductor.series import Index
 
@@ -359,7 +359,7 @@ def _gate(node: CompiledNode, asked: str, *, derived: bool, unit: bool = False) 
     if cause is not None and node.state == "unresolved":
         raise NotResolved(node.id, asked, cause)
     if unit and node._kind != "node":
-        raise Inlined(node.id, asked)
+        raise NodeKindError(node.id, asked, node._kind)
     if cause is not None and derived:
         raise NotDerived(node.id, asked, cause)
 
@@ -387,7 +387,7 @@ class CompiledNode:
     node the walk over the edges did not derive. Both errors carry the
     ``Problem`` that explains the state. ``runner``, ``validate`` and
     ``fingerprint`` are the run's, and only a node that runs as one unit
-    answers them: on a ``graph`` they raise ``Inlined``, since its inner
+    answers them: on a ``graph`` they raise ``NodeKindError``, since its inner
     nodes run in its place. A ``graph`` is never unresolved, and has no
     fields of its own — an address on it (``Ref("approve", "check.amount")``)
     reads through to the inner field.
@@ -683,23 +683,30 @@ class _Fold:
         self.passes = passes
         self.expansion = passes.expansion
         self.iteration = passes.iteration
-        #: Every id compile met: the node as stored and the node whose
-        #: embedded graph it sits in.
-        self.met: dict[str, tuple[GraphNode | None, str | None]] = {}
+        #: The graph nodes compile entered, with the version each uses: the one
+        #: place the fold tells a node whose version is a graph from one that
+        #: runs (``NodeKind``).
+        self.graphs: dict[str, GraphVersion] = {
+            node_id: version for node_id, version in self.expansion.versions.items() if isinstance(version, GraphVersion)
+        }
+        #: Every id compile met: the node as stored and the graph node it
+        #: sits in — ``None`` for every id the author wrote, a refused one
+        #: holding a ``/`` included; read off the id for every other.
+        self.met: dict[str, tuple[GraphNode, str | None]] = {}
         for node in passes.graph.nodes:
             self.met.setdefault(node.id, (node, None))
         # An inner node answers for its expanded id even where the author
         # wrote that id too: the authored one is refused (``invalid_node_id``).
-        inner_nodes: dict[str, tuple[GraphNode | None, str | None]] = {}
-        for placement, version in self.expansion.placement_versions.items():
+        inner_nodes: dict[str, tuple[GraphNode, str | None]] = {}
+        for outer, version in self.graphs.items():
             for inner in version.graph:
-                inner_id = f"{placement}{SEPARATOR}{inner.id}"
-                inner_nodes.setdefault(inner_id, (inner.model_copy(update={"id": inner_id}), placement))
+                inner_id = f"{outer}{SEPARATOR}{inner.id}"
+                inner_nodes.setdefault(inner_id, (inner.model_copy(update={"id": inner_id}), outer))
         self.met.update(inner_nodes)
         for node_id, node in self.expansion.nodes.items():
-            self.met[node_id] = (node, self.expansion.placement_of[node_id])
-        for placement in self.expansion.placement_versions:
-            self.met[placement] = (self.met[placement][0], self.expansion.placement_of[placement])
+            self.met[node_id] = (node, embedded_in(node_id))
+        for outer in self.graphs:
+            self.met[outer] = (self.met[outer][0], embedded_in(outer))
         self.causes: dict[str, Problem] = {}
         self._plan()
 
@@ -761,18 +768,18 @@ class _Fold:
 
     def nodes(self) -> dict[str, CompiledNode]:
         built: dict[str, CompiledNode] = {}
-        for node_id, (placed, placement) in self.met.items():
+        for node_id, (placed, outer) in self.met.items():
             state = self.state(node_id)
             cause = None if state == "ready" else self.cause(node_id, frozenset())
             problems = self.problems_on(self.address(node_id))
             interface = self.passes.interfaces.get(node_id)
-            graph = self.expansion.placement_versions.get(node_id)
+            graph = self.graphs.get(node_id)
             if graph is not None:
                 built[node_id] = CompiledNode(
                     id=node_id,
                     state=state,
                     graph_node=placed,
-                    embedded_in=placement,
+                    embedded_in=outer,
                     problems=problems,
                     _cause=cause,
                     _kind="graph",
@@ -791,7 +798,7 @@ class _Fold:
                 id=node_id,
                 state=state,
                 graph_node=placed,
-                embedded_in=placement,
+                embedded_in=outer,
                 problems=problems,
                 _cause=cause,
                 _kind=None if interface is None else "node",
@@ -813,7 +820,7 @@ class _Fold:
         address names, through that field's type. A value on a field no
         inner node has, or on an inner node compile could not resolve, has
         no reading and is left out; its problem says why."""
-        graphs = self.expansion.placement_versions.keys()
+        graphs = self.graphs.keys()
         typed: dict[str, Any] = {}
         for name, binding in placed.bindings.items():
             if not isinstance(binding, Static):
@@ -884,8 +891,8 @@ class _Fold:
             return self.causes[node_id]
         visiting = visiting | {node_id}
         found = next((p for p in self.problems_on(self.address(node_id)) if p.fatal), None)
-        placed, placement = self.met[node_id]
-        graph = node_id in self.expansion.placement_versions
+        placed, outer = self.met[node_id]
+        graph = node_id in self.graphs
         if found is None and graph:
             inner = self.expansion.members.get(node_id, ())
             found = self._first_cause(inner, visiting)
@@ -895,9 +902,9 @@ class _Fold:
                 for ref in binding.refs
             ]
             found = self._first_cause(sources, visiting)
-        while found is None and placement is not None:
-            found = next((p for p in self.passes.problems if p.fatal and _address(p) == self.address(placement)), None)
-            placement = self.met[placement][1]
+        while found is None and outer is not None:
+            found = next((p for p in self.passes.problems if p.fatal and _address(p) == self.address(outer)), None)
+            outer = self.met[outer][1]
         if found is None:
             raise AssertionError(f"compile left {node_id!r} {self.state(node_id)} with nothing fatal to say why")
         self.causes[node_id] = found
