@@ -6,9 +6,9 @@ from typing import Annotated, ClassVar
 import pytest
 from conductor import NodeRegistry
 from conductor.dtype import DType
-from conductor.errors import NotDerived, NotResolved
+from conductor.errors import Inlined, NotDerived, NotResolved
 from conductor.graph.binding import From, Static
-from conductor.graph.compiled import CompiledGraph, CompiledPlacement
+from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.interface import Interface
 from conductor.metadata import Input, Output, Param, Result
@@ -138,9 +138,24 @@ def test_the_inner_nodes_are_nodes_of_the_one_run_under_the_placements_name():
     assert compiled.execution_order == ("src", "emb/holder", "emb/up", "emb/join", "after")
     assert compiled.node("emb/up").embedded_in == "emb"
     assert compiled.node("src").embedded_in is None
-    # The placement is not a node of the run; its inner nodes are.
-    assert isinstance(compiled.node("emb"), CompiledPlacement)
-    assert not hasattr(compiled.node("emb"), "graph_node")
+    # The node that embeds the graph is not a unit of the run; its inner nodes are.
+    emb = compiled.node("emb")
+    assert (emb.kind, emb.graph_node.type, compiled.node("src").kind) == ("graph", "inner-graph", "node")
+    for asked in ("runner", "fingerprint"):
+        with pytest.raises(Inlined, match="inner nodes run in its place"):
+            getattr(emb, asked)
+    with pytest.raises(Inlined):
+        emb.validate({})
+
+
+def test_a_graph_holds_the_values_typed_on_it_by_inner_address():
+    """Typed on the embedding node, read where it landed: the inner field's type reads it."""
+    compiled = _compiled([
+        GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.value": Static("outer"), "gone.x": Static("y")}),
+    ])
+
+    assert compiled.node("emb").statics == {"holder.value": "outer"}
+    assert compiled.node("emb").statics["holder.value"] is compiled.node("emb/holder").statics["value"]
 
 
 def test_the_placements_bindings_move_onto_the_inner_fields_they_name():
@@ -458,11 +473,29 @@ def test_a_graph_that_embeds_itself_is_a_cycle_not_a_recursion_error():
     assert [(p.code, p.node_id, p.field) for p in compiled.problems] == [("cycle", "s", "again")]
     assert not compiled.is_runnable
     (cycle,) = compiled.problems
-    assert isinstance(compiled.node("s"), CompiledPlacement) and compiled.node("s").state == "not_derived"
+    assert (compiled.node("s").kind, compiled.node("s").state) == ("graph", "not_derived")
     assert compiled.node("s/again").state == "unresolved"
     with pytest.raises(NotResolved) as raised:
         compiled.node("s/again").interface
     assert raised.value.problem == cycle
+
+
+def test_an_authored_id_holding_a_slash_does_not_take_an_inner_nodes_problem():
+    """The author wrote `e/holder` beside an embedded graph `e` whose own
+    `holder` has a type the registry lacks. The authored id is refused; the
+    inner node's problem still sits on `e`, where the author sees it, and
+    `node("e/holder")` is the inner node — whether or not it resolved."""
+    lost = _embedded_definition("lost", (GraphNode(id="holder", type="nope", version=1),), inputs=(), outputs=())
+    compiled = CompiledGraph.from_graph(Graph(nodes=[
+        GraphNode(id="e", type="lost", version=1),
+        GraphNode(id="e/holder", type="upper", version=1),
+    ]), _registry(lost))
+
+    assert [(p.code, p.node_id, p.field) for p in compiled.problems] == [
+        ("invalid_node_id", "e/holder", None), ("unknown_node_type", "e", "holder"),
+    ]
+    assert compiled.node("e").state == "not_derived"
+    assert (compiled.node("e/holder").state, compiled.node("e/holder").embedded_in) == ("unresolved", "e")
 
 
 def test_two_graphs_that_embed_each_other_are_a_cycle():
@@ -476,7 +509,7 @@ def test_two_graphs_that_embed_each_other_are_a_cycle():
     assert [compiled.node(node_id).state for node_id in ("top", "top/b", "top/b/a")] == [
         "not_derived", "not_derived", "unresolved",
     ]
-    assert isinstance(compiled.node("top/b"), CompiledPlacement)
+    assert compiled.node("top/b").kind == "graph"
     with pytest.raises(NotDerived) as around:
         compiled.node("top").iterates_on
     with pytest.raises(NotResolved) as inside:
@@ -599,7 +632,7 @@ def test_surfacing_rewrites_addresses_and_leaves_every_other_detail_alone():
                     fatal=True, node_id="e/p", field="v", details={"reason": "3/4 is not a whole number"})
     misaligned = Problem(code="misaligned", message="m", fatal=True, node_id="e/p", details={"a": "e/p.a", "b": "e/q/r.b"})
 
-    assert surfaced(inner, {}, ()).details == {
+    assert surfaced(inner, {}).details == {
         "reason": "3/4 is not a whole number", "placement": "p", "inner_message": inner.message,
     }
-    assert surfaced(misaligned, {}, ()).details == {"a": "e.p.a", "b": "e.q.r.b", "placement": "p", "inner_message": "m"}
+    assert surfaced(misaligned, {}).details == {"a": "e.p.a", "b": "e.q.r.b", "placement": "p", "inner_message": "m"}

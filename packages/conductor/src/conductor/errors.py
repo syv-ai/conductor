@@ -12,6 +12,7 @@ belonged to which failure.
     ├── CompilationError        a caller asked to run a graph compile rejected
     ├── NotResolved             a caller read a compiled node that compile could not resolve
     ├── NotDerived              a caller read what the edges decide off a node compile did not derive
+    ├── Inlined                 a caller read what only a node that runs as one unit has off an embedded graph
     ├── NodeError               one node failed; carries node_id and a cause. Internal: never retried
     │   ├── ExternalFailure         the outside world failed; the one family the engine retries
     │   ├── NodeValidationError     its inputs were wrong
@@ -122,7 +123,7 @@ class NotResolved(ConductorError):
 class NotDerived(ConductorError):
     """A caller read what the walk over the edges decides off a node it did not derive.
 
-    Raised by ``CompiledNode``, ``CompiledPlacement`` and ``CompiledField``
+    Raised by ``CompiledNode`` and ``CompiledField``
     when the node's ``state`` is ``"not_derived"``: its own edges are
     broken, a fault sits upstream of it, or its embedded graph is
     misaligned. What it has — its interface, its version, what the author
@@ -139,6 +140,24 @@ class NotDerived(ConductorError):
         where = problem.node_id if problem.field is None else f"{problem.node_id}.{problem.field}"
         super().__init__(
             f"{node_id!r} has no {asked}: compile could not derive it ({problem.code} on {where}: {problem.message})"
+        )
+
+
+class Inlined(ConductorError):
+    """A caller read what only a node that runs as one unit has off a node whose version is a graph.
+
+    Raised by ``CompiledNode.runner``, ``validate`` and ``fingerprint`` on a
+    node whose ``kind`` is ``graph``: compile inlined its embedded graph, so
+    its inner nodes run in its place, each with a runner, a call and a
+    fingerprint of its own. Not a state of the graph, so it carries no
+    ``Problem``; the engine never meets it, since it runs only the inner
+    nodes. Its siblings are ``NotResolved`` and ``NotDerived``.
+    """
+
+    def __init__(self, node_id: str, asked: str) -> None:
+        self.node_id = node_id
+        super().__init__(
+            f"{node_id!r} has no {asked}: its version is a graph, and its inner nodes run in its place"
         )
 
 

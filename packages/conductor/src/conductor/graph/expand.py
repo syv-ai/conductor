@@ -32,7 +32,7 @@ inner node is.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from conductor.graph.binding import Binding, From
@@ -246,12 +246,13 @@ def authored_ref(ref: Ref) -> Ref:
     return Ref(placement, f"{inner.replace(SEPARATOR, '.')}.{ref.field}")
 
 
-def surfaced(problem: Problem, nodes: Mapping[str, GraphNode], authored: Iterable[str]) -> Problem:
+def surfaced(problem: Problem, nodes: Mapping[str, GraphNode]) -> Problem:
     """Move a problem found inside a placement onto the placement, where the author can see it.
 
-    A problem on a node the author placed (``authored``) is theirs already
-    and is left alone — including the one about an authored id that holds
-    a ``/``. The author sees ``approve``, not ``approve/check``: the node becomes
+    A problem on an id with no ``/`` is on a node the author placed and is
+    left alone. The caller keeps apart the one problem about an id the author
+    wrote with a ``/`` in it (``invalid_node_id``), since that id may be an
+    inner node's too. The author sees ``approve``, not ``approve/check``: the node becomes
     the placement, the field becomes the inner address the authored graph
     already uses (``check.amount``), and the message is prefixed with the
     inner node's title. The code stays the inner problem's, and so do its
@@ -261,7 +262,7 @@ def surfaced(problem: Problem, nodes: Mapping[str, GraphNode], authored: Iterabl
     added beside them, so a host translating by code finds the same keys
     inside a placement as outside one.
     """
-    if SEPARATOR not in problem.node_id or problem.node_id in authored:
+    if SEPARATOR not in problem.node_id:
         return problem
     placement, inner = problem.node_id.split(SEPARATOR, 1)
     inner_address = inner.replace(SEPARATOR, ".")
