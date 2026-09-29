@@ -276,6 +276,14 @@ class Ledger:
         never starts, so there is nothing to announce."""
         return {node_id for node_id, _ in self._done if self.complete(node_id)}
 
+    def on_a_row(self, unit: Unit) -> bool:
+        """Whether this unit is at a row of its node's index: one ``progress``
+        counts. A unit of a node that runs once, or one standing in at a
+        shorter row for rows never born, is not."""
+        node_id, row = unit
+        iterate = self._compiled.node(node_id).iterates_on
+        return iterate is not None and _depth(row) == iterate.depth
+
     def progress(self, node_id: str) -> tuple[int, int | None]:
         """``(done, total)`` rows for a node; ``total`` is ``None`` until the
         node's index is sealed. Cover units stand in for rows that were never
@@ -628,10 +636,9 @@ class Ledger:
         if unit in self._done:
             return
         self._done.add(unit)
-        node_id, row = unit
-        iterate = self._compiled.node(node_id).iterates_on
-        if iterate is not None:
-            counts = self._done_rows if _depth(row) == iterate.depth else self._done_standing_in
+        node_id, _ = unit
+        if self._compiled.node(node_id).iterates_on is not None:
+            counts = self._done_rows if self.on_a_row(unit) else self._done_standing_in
             counts[node_id] = counts.get(node_id, 0) + 1
 
     def _seal(self, births: list[str]) -> list[str]:

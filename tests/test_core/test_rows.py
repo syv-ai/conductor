@@ -454,6 +454,20 @@ def test_progress_is_per_row_and_the_total_is_known_once_the_index_is_sealed():
     assert [e.type for e in events if getattr(e, "node_id", None) == "up"][-1] == "node_complete"
 
 
+def test_a_unit_standing_in_for_rows_never_born_reports_no_progress():
+    """``a/b`` is long and splits into two lines; ``x`` is short, so its lines are
+    never born and ``up`` stands in at ``(1,)``, which counts as no row."""
+    events = _events([
+        _docs("a/b,x"),
+        GraphNode(id="long", type="long-only", version=1, bindings={"text": _edge(("docs", "texts"))}),
+        GraphNode(id="lines", type="lines", version=1, bindings={"text": _edge(("long", "long"))}),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("lines", "result"))}),
+    ])
+
+    progress = [(e.done, e.total) for e in events if e.type == "node_progress" and e.node_id == "up"]
+    assert progress == [(1, 2), (2, 2)]
+
+
 def test_computed_inputs_reach_the_node_as_keywords():
     """End to end: the template's placeholders are inputs the author
     edges, and the node receives them by name."""
