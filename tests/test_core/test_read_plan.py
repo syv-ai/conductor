@@ -98,13 +98,13 @@ def test_a_node_with_series_outputs_owns_the_index_they_birth():
     )
     docs, up = compiled.node("docs"), compiled.node("up")
 
-    assert docs.births == Index("docs")
-    assert docs.iterated_by == ("up",)
-    assert set(docs.carried_by) == {Ref("docs", "texts"), Ref("docs", "names"), Ref("up", "result")}
-    assert compiled.field(Ref("docs", "texts")).read_by == ((Ref("up", "text"), Iterate(Index("docs"))),)
-    assert compiled.field(Ref("up", "result")).read_by == ((Ref("join", "texts"), Whole()),)
-    assert compiled.node("join").reads == ((Ref("up", "result"), Whole()),)
-    assert (up.births, up.iterated_by, up.carried_by) == (None, (), ())
+    assert docs._births == Index("docs")
+    assert docs._iterated_by == ("up",)
+    assert set(docs._carried_by) == {Ref("docs", "texts"), Ref("docs", "names"), Ref("up", "result")}
+    assert compiled.field(Ref("docs", "texts"))._read_by == ((Ref("up", "text"), Iterate(Index("docs"))),)
+    assert compiled.field(Ref("up", "result"))._read_by == ((Ref("join", "texts"), Whole()),)
+    assert compiled.node("join")._reads == ((Ref("up", "result"), Whole()),)
+    assert (up._births, up._iterated_by, up._carried_by) == (None, (), ())
 
 
 def test_an_input_holding_a_typed_in_list_owns_its_index():
@@ -115,8 +115,8 @@ def test_an_input_holding_a_typed_in_list_owns_its_index():
     typed = compiled.field(Ref("u", "text"))
 
     assert typed.listed and not compiled.field(Ref("v", "text")).listed
-    assert typed.iterated_by == ("u", "v")
-    assert typed.carried_by == (Ref("u", "result"), Ref("v", "result"))
+    assert typed._iterated_by == ("u", "v")
+    assert typed._carried_by == (Ref("u", "result"), Ref("v", "result"))
 
 
 def test_a_typed_in_list_inside_an_iterating_embedded_graph_is_born_under_each_row():
@@ -125,7 +125,7 @@ def test_a_typed_in_list_inside_an_iterating_embedded_graph_is_born_under_each_r
         GraphNode(id="emb", type="pair", version=1, bindings={"a.text": From("docs.texts")}),
     )
 
-    assert compiled.node("docs").typed_lists == (Ref("emb/b", "text"),)
+    assert compiled.node("docs")._typed_lists == (Ref("emb/b", "text"),)
 
 
 def test_downstream_is_every_node_a_value_reaches():
@@ -136,6 +136,6 @@ def test_downstream_is_every_node_a_value_reaches():
         GraphNode(id="d", type="upper", version=1),
     )
 
-    assert compiled.downstream(["a"]) == {"b", "c"}
-    assert compiled.downstream(["d"]) == frozenset()
-    assert compiled.downstream(["b", "d"]) == {"c"}
+    assert compiled._downstream(["a"]) == {"b", "c"}
+    assert compiled._downstream(["d"]) == frozenset()
+    assert compiled._downstream(["b", "d"]) == {"c"}

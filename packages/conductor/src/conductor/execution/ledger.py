@@ -22,8 +22,8 @@ definition, and ``runnable`` asks it of every unit when a leg starts and
 when it goes quiet, where a ready unit nobody started is a bug.
 
 How a unit receives each input, and who reads what, are compile's
-decisions, read here: a node's ``reads``, an output's ``read_by``, and
-per index who runs on it and what sits on it (``CompiledNode.births`` and
+decisions, read here: a node's ``_reads``, an output's ``_read_by``, and
+per index who runs on it and what sits on it (``CompiledNode._births`` and
 its kin). Every
 input carries a receive record (``CompiledField.receives``, from
 ``conductor.graph.receive``). ``Iterate`` takes the value at the unit's own
@@ -169,7 +169,7 @@ class Ledger:
         self._written_rows: dict[tuple[Ref, Row | None], tuple[list[Row], int]] = {}
 
         # Who reads what, and what runs on each index, is compile's read plan
-        # (``CompiledNode.births``, ``CompiledField.read_by`` and their
+        # (``CompiledNode._births``, ``CompiledField._read_by`` and their
         # kin), looked up where a write needs it. Built here: each node's place
         # in the execution order, and the rows of every list the author typed
         # on a root, born from the graph as it is now so a restore never takes
@@ -211,15 +211,15 @@ class Ledger:
     def _births_on(self, index_id: str) -> list[str]:
         """The nodes running once per row of this index that birth rows of their own."""
         compiled = self._compiled
-        return [node_id for node_id in self._owner(index_id).iterated_by if compiled.node(node_id).births is not None]
+        return [node_id for node_id in self._owner(index_id)._iterated_by if compiled.node(node_id)._births is not None]
 
     def _grouped_on(self, index_id: str) -> Iterator[tuple[str, Ref, int | None]]:
         """``(reader node, output read, group depth)`` for every reader of a
         series on this index that receives it grouped or whole, not one row
         at a time."""
         compiled = self._compiled
-        for ref in self._owner(index_id).carried_by:
-            for inp, received in compiled.field(ref).read_by:
+        for ref in self._owner(index_id)._carried_by:
+            for inp, received in compiled.field(ref)._read_by:
                 if not _per_row(received):
                     yield inp.node_id, ref, _depth_of(received)
 
@@ -231,7 +231,7 @@ class Ledger:
     def _typed_under(self, index_id: str) -> Iterator[tuple[str, int]]:
         """``(index, how many values)`` for each typed-in list born under every row of this index."""
         compiled = self._compiled
-        for ref in self._owner(index_id).typed_lists:
+        for ref in self._owner(index_id)._typed_lists:
             yield compiled.field(ref).index.id, len(compiled.node(ref.node_id).statics[ref.field])
 
     # -- units ---------------------------------------------------------------
@@ -298,7 +298,7 @@ class Ledger:
         iterate = self._compiled.node(node_id).iterates_on
         if iterate is not None and _depth(row) < iterate.depth:
             return True  # standing in at a shorter row: the skip above it is already known
-        return all(self._read_ready(ref, received, row) for ref, received in self._compiled.node(node_id).reads)
+        return all(self._read_ready(ref, received, row) for ref, received in self._compiled.node(node_id)._reads)
 
     def runnable(self) -> list[Unit]:
         """Every unit that may start now: ready, and neither done nor waiting
@@ -512,7 +512,7 @@ class Ledger:
         """
         node_id, row = unit
         interface = self._compiled.node(node_id).interface
-        births = self._compiled.node(node_id).births is not None
+        births = self._compiled.node(node_id)._births is not None
         written: list[tuple[Ref, Row | None]] = []
         born: list[Row] = []
         barren: list[Row | None] = []
@@ -667,19 +667,19 @@ class Ledger:
         compiled = self._compiled
         woken: set[Unit] = set()
         for ref, key in written:
-            for inp, received in compiled.field(ref).read_by:
+            for inp, received in compiled.field(ref)._read_by:
                 depth = _depth_of(received)
                 if _per_row(received) or (depth is not None and _depth(key) < depth):
                     woken.update(self._units_under(inp.node_id, key))
                 else:
                     self._wake_group(ref, inp.node_id, _group(key, depth), woken)
-        iterating = compiled.node(node_id).iterated_by
+        iterating = compiled.node(node_id)._iterated_by
         for key in born:
             woken.update((reader, key) for reader in iterating)
         for at in barren:
             woken.update((reader, at) for reader in iterating)
         for index_id, key in typed:
-            woken.update((reader, key) for reader in self._owner(index_id).iterated_by)
+            woken.update((reader, key) for reader in self._owner(index_id)._iterated_by)
         for reader, ref, depth in self._grouped_on(node_id):
             for key in born:
                 if depth == len(key):
@@ -909,7 +909,7 @@ class Ledger:
         A node the state fingerprints differently from ``compiled`` — or
         does not fingerprint at all, or that ``compiled`` no longer has — is
         left out together with everything that reads it
-        (``CompiledGraph.downstream``), so those units run again; the rest is restored, each value read back through the codec
+        (``CompiledGraph._downstream``), so those units run again; the rest is restored, each value read back through the codec
         by its field's type. The rows are not stored: each done unit's values
         birth them again, as its write did (``_rebirth``), and the indexes
         whose producers are complete are sealed again. The rows of a typed-in
@@ -928,7 +928,7 @@ class Ledger:
             | {entry.ref.node_id for entry in state.values}
             | {unit.node_id for unit in state.done_units}
         ) - current.keys()
-        dropped = changed | compiled.downstream(changed) | gone
+        dropped = changed | compiled._downstream(changed) | gone
         for entry in state.values:
             ref = entry.ref
             if ref.node_id in dropped:
@@ -947,7 +947,7 @@ class Ledger:
             ledger._finish(unit)
         ledger._seal([
             node_id for node_id in reversed(compiled.execution_order)
-            if compiled.node(node_id).births is not None and node_id not in dropped
+            if compiled.node(node_id)._births is not None and node_id not in dropped
         ])
         return ledger
 
@@ -966,7 +966,7 @@ class Ledger:
         """
         born: dict[str, set[Row]] = {}
         for node_id, row in done:
-            if self._compiled.node(node_id).births is None:
+            if self._compiled.node(node_id)._births is None:
                 continue
             self._rows.setdefault(node_id, set())
             series = [

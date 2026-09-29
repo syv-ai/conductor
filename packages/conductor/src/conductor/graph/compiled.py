@@ -322,13 +322,13 @@ class CompiledGraph:
                 found[node_id] = {choice: tuple(names) for choice, names in groups.items()}
         return found
 
-    def downstream(self, node_ids: Iterable[str]) -> frozenset[str]:
+    def _downstream(self, node_ids: Iterable[str]) -> frozenset[str]:
         """Every node that reads an output of one of ``node_ids``, directly or through other nodes, by expanded id.
 
         A graph question a run asks: a restore leaves out, with each node
         that changed, everything its values reached, so those units run
         again. A node of ``node_ids`` is in the answer only when another of
-        them reads it. A walk over ``CompiledField.read_by`` on each call,
+        them reads it. A walk over ``CompiledField._read_by`` on each call,
         not a stored closure: storing every node's readers costs memory
         quadratic in a long chain.
         """
@@ -337,7 +337,7 @@ class CompiledGraph:
         while frontier:
             node = self._nodes[frontier.pop()]
             for out in node.interface.outputs:
-                for reader, _ in self.field(Ref(node.id, out.name)).read_by:
+                for reader, _ in self.field(Ref(node.id, out.name))._read_by:
                     if reader.node_id not in found:
                         found.add(reader.node_id)
                         frontier.append(reader.node_id)
@@ -420,7 +420,16 @@ class CompiledNode:
     _statics: Mapping[str, Any] = field(repr=False)
     #: What the walk decided; ``None`` also on a node it did not derive.
     _iterates_on: Index | None = field(repr=False)
-    #: Its share of the read plan (see ``births``); empty on a node the walk did not derive.
+    #: The read plan, the engine's alone: the walk's decisions inverted once
+    #: at compile, so the ledger looks each up instead of searching the graph
+    #: on every run. ``_reads``: every output an edge into this node reads,
+    #: one per edge ref, with how the input it feeds receives it. An index's
+    #: share sits on what births its rows — here, the index this node's
+    #: series outputs birth (``_births``, ``None`` for a node with none): the
+    #: nodes that run once per row of it (``_iterated_by``), the outputs that
+    #: sit on it (``_carried_by``) and the inputs holding a typed-in list
+    #: born under each of its rows (``_typed_lists``), each in execution
+    #: order. Empty on a node the walk did not derive, and on a ``graph``.
     _births: Index | None = field(repr=False)
     _reads: tuple[tuple[Ref, Receive], ...] = field(repr=False)
     _iterated_by: tuple[str, ...] = field(repr=False)
@@ -538,48 +547,6 @@ class CompiledNode:
         _gate(self, "iterates_on", derived=True)
         return self._iterates_on
 
-    # The read plan: the walk's decisions inverted once at compile, so the
-    # engine's ledger looks each up instead of searching the graph on every
-    # run. An index's plan sits on what births its rows — this node, for the
-    # index its series outputs birth (``births``), or an input's
-    # ``CompiledField``, for a list the author typed into it.
-
-    @property
-    def reads(self) -> tuple[tuple[Ref, Receive], ...]:
-        """Every output an edge into this node reads, one per edge ref, with
-        how the input it feeds receives it: what the engine's ledger checks
-        is written before a unit may start."""
-        _gate(self, "reads", derived=True)
-        return self._reads
-
-    @property
-    def births(self) -> Index | None:
-        """The index this node's series outputs birth rows on, named after
-        it; ``None`` for a node with no series output."""
-        _gate(self, "births", derived=True)
-        return self._births
-
-    @property
-    def iterated_by(self) -> tuple[str, ...]:
-        """The nodes that run once per row of ``births``, in execution order;
-        ``()`` for a node that births nothing."""
-        _gate(self, "iterated_by", derived=True)
-        return self._iterated_by
-
-    @property
-    def carried_by(self) -> tuple[Ref, ...]:
-        """The outputs whose values sit on ``births``: this node's series
-        outputs, and the outputs of every node running per row of it."""
-        _gate(self, "carried_by", derived=True)
-        return self._carried_by
-
-    @property
-    def typed_lists(self) -> tuple[Ref, ...]:
-        """The inputs holding a list the author typed whose rows are born
-        under each row of ``births``."""
-        _gate(self, "typed_lists", derived=True)
-        return self._typed_lists
-
 
 @dataclass(frozen=True, eq=False)
 class CompiledField:
@@ -597,8 +564,8 @@ class CompiledField:
     answer always; ``type``, ``index``, ``receives`` and ``condition``
     are the walk's and raise ``NotDerived`` on a node it did not derive.
     Asking a field for what its kind does not have is a ``KeyError``: an
-    input has no ``condition``, an output has no ``binding`` or
-    ``receives``.
+    input has no ``condition``, an output has no ``binding``, ``receives``
+    or ``listed``.
     """
 
     #: The expanded address of the field — ``Ref("approve/check", "amount")``
@@ -617,7 +584,10 @@ class CompiledField:
     _index: Index | None = field(repr=False)
     _receives: Receive = field(repr=False)
     _condition: Condition = field(repr=False)
-    #: Its share of the read plan (see ``read_by`` and ``listed``).
+    #: Its share of the read plan (see ``CompiledNode._reads``): every input
+    #: an edge from this output feeds, in execution order, with how it
+    #: receives the value (``_read_by``); and, for a ``listed`` input, the
+    #: plan of the index its typed-in list births.
     _read_by: tuple[tuple[Ref, Receive], ...] = field(repr=False)
     _listed: bool = field(repr=False)
     _iterated_by: tuple[str, ...] = field(repr=False)
@@ -675,44 +645,12 @@ class CompiledField:
         return self._receives
 
     @property
-    def read_by(self) -> tuple[tuple[Ref, Receive], ...]:
-        """Every input an edge from this output feeds, one per edge, in
-        execution order, with how it receives the value: what the engine's
-        ledger wakes when a value is written here. The other side of
-        ``CompiledNode.reads``. Only an output has readers."""
-        if not self._output:
-            raise KeyError(self.ref)
-        self._gate("read_by")
-        return self._read_by
-
-    @property
     def listed(self) -> bool:
         """The author typed many values into this scalar input — three files,
         a list of texts — so its node runs once per value, on an index of
         the input's own. Only an input is typed into."""
-        if not self._input:
-            raise KeyError(self.ref)
+        self._only("input")
         return self._listed
-
-    @property
-    def iterated_by(self) -> tuple[str, ...]:
-        """For a ``listed`` input, the nodes that run once per value it holds,
-        in execution order; ``()`` for any other field."""
-        self._gate("iterated_by")
-        return self._iterated_by
-
-    @property
-    def carried_by(self) -> tuple[Ref, ...]:
-        """For a ``listed`` input, the outputs whose values sit on its index."""
-        self._gate("carried_by")
-        return self._carried_by
-
-    @property
-    def typed_lists(self) -> tuple[Ref, ...]:
-        """For a ``listed`` input, the inputs holding a list whose rows are
-        born under each of its own."""
-        self._gate("typed_lists")
-        return self._typed_lists
 
     @property
     def condition(self) -> Condition:
