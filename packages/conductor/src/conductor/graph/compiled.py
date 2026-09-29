@@ -98,9 +98,12 @@ NodeState = Literal["ready", "not_derived", "unresolved"]
 #: What a node is. ``node``: it runs as one unit, one call of its version's
 #: ``run`` per row. ``graph``: its version is a graph, which compile
 #: inlines, so its inner nodes run in its place and an address on it reads
-#: through to theirs. Compile sets it from the version; two places read it:
-#: ``_gate``, for the reads only a unit answers, and ``CompiledGraph.expanded``,
-#: for the addresses that read through. A new kind is those two places.
+#: through to theirs. The fold sets it from the version. It is read where
+#: the two kinds answer differently: ``_gate``, for the reads only a unit
+#: answers, and the address walk (``CompiledGraph.expanded`` and ``field``),
+#: where an address on a graph reads through. Expand and the compiler tell
+#: a graph node by its version, since inlining it and deriving its
+#: interface are theirs.
 NodeKind = Literal["node", "graph"]
 
 
