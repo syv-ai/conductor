@@ -102,9 +102,8 @@ NodeState = Literal["ready", "not_derived", "unresolved"]
 #: through to theirs. The fold sets it from the version. It is read where
 #: the two kinds answer differently: ``_gate``, for the reads only a unit
 #: answers, and the address walk (``CompiledGraph.expanded`` and ``field``),
-#: where an address on a graph reads through. Expand and the compiler tell
-#: a graph node by its version, since inlining it and deriving its
-#: interface are theirs.
+#: where an address on a graph reads through. Which nodes are graphs is
+#: expand's to say (``Expansion.graphs``), since inlining is what differs.
 NodeKind = Literal["node", "graph"]
 
 
@@ -686,12 +685,9 @@ class _Fold:
         self.passes = passes
         self.expansion = passes.expansion
         self.iteration = passes.iteration
-        #: The graph nodes compile entered, with the version each uses: the one
-        #: place the fold tells a node whose version is a graph from one that
-        #: runs (``NodeKind``).
-        self.graphs: dict[str, GraphVersion] = {
-            node_id: version for node_id, version in self.expansion.versions.items() if isinstance(version, GraphVersion)
-        }
+        #: The graph nodes compile entered, with the version each uses: which
+        #: nodes get ``kind`` ``graph``.
+        self.graphs = self.expansion.graphs
         #: Every id compile met: the node as stored and the graph node it
         #: sits in — ``None`` for every id the author wrote, a refused one
         #: holding a ``/`` included; read off the id for every other.
