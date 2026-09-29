@@ -442,6 +442,33 @@ def test_a_nested_placement_expands_under_both_names():
     assert compiled.field(Ref("top", "inner.join.result")).type is Txt
 
 
+
+def test_a_graph_is_ready_only_when_every_node_inside_it_is_at_any_depth():
+    """An unknown inner node beside a good one leaves its graph, and the graph
+    around that, ``not_derived``: still a ``graph`` an editor can draw, with
+    the inner node's problem as the reason."""
+    broken = _embedded_definition(
+        "broken-graph",
+        (GraphNode(id="x", type="nothing", version=1), GraphNode(id="up", type="upper", version=1)),
+        inputs=(), outputs=(),
+    )
+    wrapper = _embedded_definition(
+        "wrapper-graph", (GraphNode(id="mid", type="broken-graph", version=1),), inputs=(), outputs=(),
+    )
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[GraphNode(id="top", type="wrapper-graph", version=1)]), _registry(broken, wrapper),
+    )
+
+    assert compiled.node("top/mid/up").state == "ready"
+    for node_id in ("top/mid", "top"):
+        node = compiled.node(node_id)
+        assert (node.state, node.kind) == ("not_derived", "graph")
+        assert node.interface is not None  # the box and its handles still draw
+        with pytest.raises(NotDerived) as raised:
+            node.iterates_on
+        assert raised.value.problem.code == "unknown_node_type"
+
+
 # --- what compile refuses about an embedded graph ---------------------------------------
 
 

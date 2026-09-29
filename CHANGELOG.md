@@ -19,6 +19,7 @@ All notable changes to the three workspace packages (`syv-conductor`, `syv-condu
 - A node's result holds only what it produced: an output the node skipped (the branch not taken) is absent from `result_of`, `node_complete` and `RunState.results`, never `SKIPPED`. The FastAPI provider no longer fails streaming a branch node.
 - Restoring a state refuses (`StartRefused`) a value or done unit at a row its field or node cannot have, such as `[]` or `[0]` on a node that runs once, and a value for a field the graph does not have. Such an entry used to be accepted and ignored, so the node ran again.
 - A unit standing in for rows that were never born sends no `node_progress`; one at a shorter row used to repeat the last progress event. `Ledger.on_a_row` answers whether a unit counts as a row.
+- A graph node is `ready` only when every node inside it is, at any depth; otherwise it is `not_derived`, with the inner node's fatal problem as its cause. One unknown inner node beside a good one used to leave its graph `ready`.
 
 ## [2.0.0]
 

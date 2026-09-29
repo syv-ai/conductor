@@ -390,9 +390,10 @@ class CompiledNode:
     ``Problem`` that explains the state. ``runner``, ``validate`` and
     ``fingerprint`` are the run's, and only a node that runs as one unit
     answers them: on a ``graph`` they raise ``NodeKindError``, since its inner
-    nodes run in its place. A ``graph`` is never unresolved, and has no
-    fields of its own — an address on it (``Ref("approve", "check.amount")``)
-    reads through to the inner field.
+    nodes run in its place. A ``graph`` is never unresolved, is ready only
+    when every node inside it is, and has no fields of its own — an address
+    on it (``Ref("approve", "check.amount")``) reads through to the inner
+    field.
     """
 
     #: The expanded id: ``"approve/check"`` for an inner node.
@@ -706,6 +707,15 @@ class _Fold:
             self.met[node_id] = (node, embedded_in(node_id))
         for outer in self.graphs:
             self.met[outer] = (self.met[outer][0], embedded_in(outer))
+        #: The graph nodes with a node inside them, at any depth, that the
+        #: walk did not derive: each reads ``not_derived``, never ``ready``.
+        self.broken_inside: set[str] = set()
+        for node_id, (_, outer) in self.met.items():
+            if node_id in self.iteration.iterated:
+                continue
+            while outer is not None:
+                self.broken_inside.add(outer)
+                outer = self.met[outer][1]
         self.causes: dict[str, Problem] = {}
         self._plan()
 
@@ -865,8 +875,10 @@ class _Fold:
         return fields
 
     def state(self, node_id: str) -> NodeState:
-        """Membership, read once here: derived by the walk, or given an interface, or neither."""
-        if node_id in self.iteration.iterated:
+        """Membership, read once here: derived by the walk, or given an
+        interface, or neither. A ``graph`` is ready only when every node
+        inside it is."""
+        if node_id in self.iteration.iterated and node_id not in self.broken_inside:
             return "ready"
         if node_id in self.passes.interfaces:
             return "not_derived"
