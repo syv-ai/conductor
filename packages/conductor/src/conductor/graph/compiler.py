@@ -131,8 +131,8 @@ class Compilation:
         """Every node the author placed, by id. Two nodes with one id is a
         fatal problem: the second would silently shadow the first everywhere
         else. An id holding ``/`` is one too: compile names an embedded
-        graph's nodes with it, and an authored ``e/holder`` beside a
-        placement ``e`` would be read in the inner node's place."""
+        graph's nodes with it, and an authored ``e/holder`` beside a graph
+        node ``e`` would be read in the inner node's place."""
         for node in self.graph.nodes:
             if SEPARATOR in node.id:
                 self.problems.append(problem("invalid_node_id", node.id))
@@ -204,8 +204,8 @@ class Compilation:
         handle without a type an edge can carry, is ``check_bindings``'s to
         report.
         """
-        for node_id, version in self.expansion.versions.items():
-            node = self.expansion.nodes[node_id]
+        for node_id, node in self.expansion.nodes.items():
+            version = self.expansion.versions[node_id]
             instance = self.expansion.definitions[node_id]()
             defaults = {i.name: i.default for i in version.interface.inputs if i.optional}
             for_hook, _, _ = self._typed_statics(version.interface.inputs, node)
@@ -288,7 +288,7 @@ class Compilation:
                         continue  # a node of the run; the walk checks that it has the output
                     broken.add(node_id)
                     source = authored_ref(ref)
-                    if source.node_id in self.expansion.placement_versions:
+                    if isinstance(self.expansion.versions.get(source.node_id), GraphVersion):
                         # An embedded graph the author placed, but no inner node of that name.
                         self.problems.append(problem("unknown_ref_output", node_id, name, source=str(source)))
                     elif ref.node_id not in self.graph_ids:
@@ -318,7 +318,7 @@ class Compilation:
                 if node_id in self.interfaces and node_id not in self.broken
             ],
             self.interfaces, expansion.versions, expansion.definitions, self.statics, self.listed,
-            placement_of=expansion.placement_of, members=expansion.members,
+            members=expansion.members,
         )
         self.problems.extend(self.iteration.problems)
         self.interfaces = {**self.interfaces, **self.iteration.interfaces}
@@ -343,18 +343,20 @@ class Compilation:
         not the one the host declared on its ``GraphVersion``. The
         declaration is a host's copy of the same fact, so a field it names
         that the graph lacks, or names with another type, is reported on the
-        placement as ``graph_interface_mismatch`` — not fatal, since what
-        runs is the graph's.
+        graph node as ``graph_interface_mismatch`` — not fatal, since what
+        runs is the graph's. A graph node comes before its inner ones in
+        ``versions``, so the reverse is innermost first.
         """
-        for placement, version in reversed(self.expansion.placement_versions.items()):
-            inner_ids = {inner.id: f"{placement}{SEPARATOR}{inner.id}" for inner in version.graph}
+        graphs = [(node_id, version) for node_id, version in self.expansion.versions.items() if isinstance(version, GraphVersion)]
+        for outer, version in reversed(graphs):
+            inner_ids = {inner.id: f"{outer}{SEPARATOR}{inner.id}" for inner in version.graph}
             derived = derive_interface(
                 Graph(nodes=version.graph),
                 {inner: self.interfaces[expanded] for inner, expanded in inner_ids.items() if expanded in self.interfaces},
                 dependencies_of(version.graph),
             )
-            self.problems.extend(self._interface_mismatches(placement, version.interface, derived))
-            self.interfaces[placement] = derived
+            self.problems.extend(self._interface_mismatches(outer, version.interface, derived))
+            self.interfaces[outer] = derived
         self.graph_interface = derive_interface(
             self.graph,
             {n: self.interfaces[n] for n in self.authored if n in self.interfaces},
@@ -362,7 +364,7 @@ class Compilation:
         )
 
     @staticmethod
-    def _interface_mismatches(placement: str, declared: Interface, derived: Interface) -> list[Problem]:
+    def _interface_mismatches(outer: str, declared: Interface, derived: Interface) -> list[Problem]:
         """Where the host's declaration of an embedded graph's interface
         disagrees with the graph: a field the graph lacks, or one it types
         differently. Fields the graph has and the declaration omits are not
@@ -372,10 +374,10 @@ class Compilation:
         for field in (*declared.inputs, *declared.outputs):
             name = str(field.name)
             if name not in actual:
-                found.append(problem("graph_interface_mismatch", placement, name, declared=name_of(field.dtype), actual="nothing"))
+                found.append(problem("graph_interface_mismatch", outer, name, declared=name_of(field.dtype), actual="nothing"))
             elif actual[name] is not field.dtype:
                 found.append(problem(
-                    "graph_interface_mismatch", placement, name, declared=name_of(field.dtype), actual=name_of(actual[name]),
+                    "graph_interface_mismatch", outer, name, declared=name_of(field.dtype), actual=name_of(actual[name]),
                 ))
         return found
 
