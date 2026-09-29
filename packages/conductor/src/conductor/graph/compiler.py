@@ -288,7 +288,7 @@ class Compilation:
                         continue  # a node of the run; the walk checks that it has the output
                     broken.add(node_id)
                     source = authored_ref(ref)
-                    if isinstance(self.expansion.versions.get(source.node_id), GraphVersion):
+                    if source.node_id in self.expansion.graphs:
                         # An embedded graph the author placed, but no inner node of that name.
                         self.problems.append(problem("unknown_ref_output", node_id, name, source=str(source)))
                     elif ref.node_id not in self.graph_ids:
@@ -345,10 +345,9 @@ class Compilation:
         that the graph lacks, or names with another type, is reported on the
         graph node as ``graph_interface_mismatch`` — not fatal, since what
         runs is the graph's. A graph node comes before its inner ones in
-        ``versions``, so the reverse is innermost first.
+        ``graphs``, so the reverse is innermost first.
         """
-        graphs = [(node_id, version) for node_id, version in self.expansion.versions.items() if isinstance(version, GraphVersion)]
-        for outer, version in reversed(graphs):
+        for outer, version in reversed(self.expansion.graphs.items()):
             inner_ids = {inner.id: f"{outer}{SEPARATOR}{inner.id}" for inner in version.graph}
             derived = derive_interface(
                 Graph(nodes=version.graph),

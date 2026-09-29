@@ -35,6 +35,7 @@ from __future__ import annotations
 
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
+from functools import cached_property
 
 from conductor.graph.binding import Binding, From
 from conductor.graph.model import GraphNode
@@ -74,6 +75,14 @@ class Expansion:
     #: and its runner are made from.
     definitions: dict[str, type[NodeDefinition]]
     problems: tuple[Problem, ...]
+
+    @cached_property
+    def graphs(self) -> dict[str, GraphVersion]:
+        """Every graph node, with the ``GraphVersion`` it uses, a graph node
+        before its inner ones: the one answer to "is this a graph node?"
+        after expansion, read by the compiler and by ``CompiledGraph``'s
+        fold. Only ``inline`` decides it, since inlining is what differs."""
+        return {node_id: version for node_id, version in self.versions.items() if isinstance(version, GraphVersion)}
 
 
 def resolved(node: GraphNode, registry: NodeRegistry) -> tuple[type[NodeDefinition], NodeVersion | GraphVersion] | Problem:
