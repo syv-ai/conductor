@@ -14,6 +14,7 @@ from conductor.errors import (
     ConductorError,
     ErrorCause,
     ExternalFailure,
+    Inlined,
     InputNotOffered,
     NodeError,
     NodeExecutionError,
@@ -27,7 +28,7 @@ from conductor.errors import (
 from conductor.execution.engine import execute, run, run_sync
 from conductor.execution.state import DoneUnit, RunState, StateSkip, StateValue
 from conductor.graph.binding import Binding, From, Static
-from conductor.graph.compiled import CompiledField, CompiledGraph, CompiledNode, CompiledPlacement
+from conductor.graph.compiled import CompiledField, CompiledGraph, CompiledNode
 from conductor.graph.conditions import ALWAYS, NEVER, Atom, Condition
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.problem import Problem
@@ -64,7 +65,6 @@ __all__ = [
     "CompiledField",
     "CompiledGraph",
     "CompiledNode",
-    "CompiledPlacement",
     "Condition",
     "ConductorError",
     "DType",
@@ -81,6 +81,7 @@ __all__ = [
     "GraphVersion",
     "Group",
     "Index",
+    "Inlined",
     "Input",
     "InputNotOffered",
     "Interface",
