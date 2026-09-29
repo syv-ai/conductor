@@ -636,10 +636,14 @@ class _Fold:
         self.met: dict[str, tuple[GraphNode | None, str | None]] = {}
         for node in passes.graph.nodes:
             self.met.setdefault(node.id, (node, None))
+        # An inner node answers for its expanded id even where the author
+        # wrote that id too: the authored one is refused (``invalid_node_id``).
+        inner_nodes: dict[str, tuple[GraphNode | None, str | None]] = {}
         for placement, version in self.expansion.placement_versions.items():
             for inner in version.graph:
                 inner_id = f"{placement}{SEPARATOR}{inner.id}"
-                self.met.setdefault(inner_id, (inner.model_copy(update={"id": inner_id}), placement))
+                inner_nodes.setdefault(inner_id, (inner.model_copy(update={"id": inner_id}), placement))
+        self.met.update(inner_nodes)
         for node_id, node in self.expansion.nodes.items():
             self.met[node_id] = (node, self.expansion.placement_of[node_id])
         for placement in self.expansion.placement_versions:

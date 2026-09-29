@@ -465,6 +465,24 @@ def test_a_graph_that_embeds_itself_is_a_cycle_not_a_recursion_error():
     assert raised.value.problem == cycle
 
 
+def test_an_authored_id_holding_a_slash_does_not_take_an_inner_nodes_problem():
+    """The author wrote `e/holder` beside an embedded graph `e` whose own
+    `holder` has a type the registry lacks. The authored id is refused; the
+    inner node's problem still sits on `e`, where the author sees it, and
+    `node("e/holder")` is the inner node — whether or not it resolved."""
+    lost = _embedded_definition("lost", (GraphNode(id="holder", type="nope", version=1),), inputs=(), outputs=())
+    compiled = CompiledGraph.from_graph(Graph(nodes=[
+        GraphNode(id="e", type="lost", version=1),
+        GraphNode(id="e/holder", type="upper", version=1),
+    ]), _registry(lost))
+
+    assert [(p.code, p.node_id, p.field) for p in compiled.problems] == [
+        ("invalid_node_id", "e/holder", None), ("unknown_node_type", "e", "holder"),
+    ]
+    assert compiled.node("e").state == "not_derived"
+    assert (compiled.node("e/holder").state, compiled.node("e/holder").embedded_in) == ("unresolved", "e")
+
+
 def test_two_graphs_that_embed_each_other_are_a_cycle():
     """A cycle through another definition: A holds B, B holds A."""
     a = _embedded_definition("ring-a", (GraphNode(id="b", type="ring-b", version=1),), inputs=(), outputs=())
@@ -599,7 +617,7 @@ def test_surfacing_rewrites_addresses_and_leaves_every_other_detail_alone():
                     fatal=True, node_id="e/p", field="v", details={"reason": "3/4 is not a whole number"})
     misaligned = Problem(code="misaligned", message="m", fatal=True, node_id="e/p", details={"a": "e/p.a", "b": "e/q/r.b"})
 
-    assert surfaced(inner, {}, ()).details == {
+    assert surfaced(inner, {}).details == {
         "reason": "3/4 is not a whole number", "placement": "p", "inner_message": inner.message,
     }
-    assert surfaced(misaligned, {}, ()).details == {"a": "e.p.a", "b": "e.q.r.b", "placement": "p", "inner_message": "m"}
+    assert surfaced(misaligned, {}).details == {"a": "e.p.a", "b": "e.q.r.b", "placement": "p", "inner_message": "m"}
