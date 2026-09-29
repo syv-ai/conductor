@@ -50,16 +50,16 @@ class Compilation:
     ``run`` runs the passes in order. Each pass is a method that reads what
     the passes before it left on ``self`` and appends what it finds wrong
     to ``problems``. ``CompiledGraph.from_graph`` makes one, runs it and
-    reads what it left into the stored ``CompiledNode``,
-    ``CompiledPlacement`` and ``CompiledField`` values; nothing here outlives that.
+    reads what it left into the stored ``CompiledNode`` and
+    ``CompiledField`` values; nothing here outlives that.
     """
 
     def __init__(self, graph: Graph, registry: NodeRegistry) -> None:
         self.graph = graph
         self.registry = registry
         self.problems: list[Problem] = []
-        #: Every id the author wrote, refused ones included: a problem on one
-        #: of these is the author's as it stands.
+        #: Every id the author wrote, refused ones included: an edge from one
+        #: of these reads a node the author wrote, not a missing one.
         self.graph_ids: frozenset[str] = frozenset(node.id for node in graph.nodes)
         #: The nodes the author placed, by id (pass 1).
         self.authored: dict[str, GraphNode] = {}
@@ -108,9 +108,13 @@ class Compilation:
            takes and returns.
 
         Last, every problem found inside an embedded graph is moved onto
-        the node the author placed (``surfaced``).
+        the node the author placed (``surfaced``). ``place``'s own problems
+        are the author's ids as written and stay where they are: a refused
+        ``e/holder`` names the author's node, never the inner node of ``e``
+        that has the same expanded id.
         """
         self.place()
+        placed = len(self.problems)
         self.pin()
         self.order()
         self.expand()
@@ -119,7 +123,7 @@ class Compilation:
         self.walk_edges()
         self.conditions()
         self.interface()
-        self.problems = [surfaced(found, self.expansion.nodes, self.graph_ids) for found in self.problems]
+        self.problems[placed:] = [surfaced(found, self.expansion.nodes) for found in self.problems[placed:]]
 
     # -- the passes -------------------------------------------------------------
 
