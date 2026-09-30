@@ -10,9 +10,9 @@ compile never raises for a problem in the graph::
 
 ``code`` is stable and is what a frontend keys on. ``message`` is English
 and for a person; ``details`` holds what the message was formatted from
-(the source ref, the node type) under stable keys, so a host can say the
-same thing in its own language from ``code`` and ``details`` without
-parsing the message.
+(the source ref, the node type) under stable keys, so a host can word the
+same thing its own way from ``code`` and ``details`` without parsing
+the message.
 
 Every code compile emits is declared once, in ``CATALOGUE`` below, with
 its message and whether it is fatal; ``problem`` builds one from a row.
@@ -57,7 +57,8 @@ class Problem(ConductorModel):
     #: Stable identifier the frontend keys on.
     code: str
 
-    #: For a person, in English. Never parsed; a host translates by ``code``.
+    #: For a person, in English. Never parsed: a host that wants its own
+    #: wording keys on ``code``.
     message: str
 
     #: Whether this stops the graph from running. A plain boolean rather than

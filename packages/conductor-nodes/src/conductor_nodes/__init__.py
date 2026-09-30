@@ -1,7 +1,7 @@
 """``conductor_nodes`` — the standard node library.
 
-One module per kind of node, each listing its nodes in ``NODES``.
-``registry`` builds a fresh registry holding them; ``register_all`` adds
+The nodes live in a handful of modules, each listing its nodes in
+``NODES``. ``registry`` builds a fresh registry holding them; ``register_all`` adds
 them to a registry you already have. ``categories`` filters on each
 node's own ``category`` (``control``, ``json``, ``logic``, ``math``,
 ``regex``, ``text``)::
@@ -40,7 +40,10 @@ MODULES = (text, math, logic, json_ops, regex_ops, decision)
 
 
 def _nodes(categories: Sequence[Category] | None) -> tuple[type[NodeDefinition], ...]:
-    """Every node of the library whose own ``category`` is one of ``categories`` (all when ``None``)."""
+    """Every node class in the library, filtered to ``categories``, or all of them when it is ``None``.
+
+    A bare string or an unknown category name raises.
+    """
     if isinstance(categories, str):
         raise TypeError(f"categories is a list of category names, not {categories!r}; say [{categories!r}]")
     known = get_args(Category)
