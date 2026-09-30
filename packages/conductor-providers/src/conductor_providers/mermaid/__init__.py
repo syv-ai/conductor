@@ -71,8 +71,8 @@ def _placed(
     title = _quoted(f"{expanded_id} · {node.type}")
     fault = ":::fault" if expanded_id in faulty else ""
     placed = compiled.node(expanded_id)
-    if placed.state == "resolution_failed" or placed.kind != "graph":
-        return [f"{indent}{name}[{title}]{fault}"]
+    if placed.state != "ready" or placed.kind != "graph":
+        return [f"{indent}{name}[{title}]{fault}"]  # a graph that couldn't be placed has nothing inside
     lines = [f"{indent}subgraph {name} [{title}]"]
     for inner in placed.version.graph.nodes:
         lines += _placed(compiled, inner, f"{expanded_id}/{inner.id}", faulty, names, depth=depth + 1)

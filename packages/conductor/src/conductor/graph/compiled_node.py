@@ -129,9 +129,10 @@ class CompiledNode:
     explains the state. ``runner``, ``validate`` and ``fingerprint`` are the
     run's, and only a node that runs as one unit answers them: on a
     ``graph`` they raise ``NodeKindError``, since its inner nodes run in its
-    place. A ``graph`` is ready only when every node inside it is, and has
-    no fields of its own — an address on it
+    place. A ``graph`` has no fields of its own — an address on it
     (``Ref("approve", "check.amount")``) reads through to the inner field.
+    One that couldn't be placed is ``wiring_failed`` and has nothing
+    inside; read what is inside through its ``version``.
     """
 
     #: The expanded id: ``"approve/check"`` for an inner node.

@@ -29,8 +29,10 @@ The lift, rule by rule:
    Only an index the walk named after one of the placed node's inputs (a
    gathering) is renamed after the inner field (``place_graphs``, ``renamed``).
 
-A compiled graph never contains itself, so nothing here can loop. Refusing a
-graph that places itself is the host's job, as it builds the versions.
+Refusing a graph that places itself is the host's job, as it builds the
+versions: a compiled graph can't contain itself, but a host that swaps a
+version in place can close a loop through a value typed on a placed graph,
+which compile then follows until Python's recursion limit.
 
 ``/`` separates the levels inside a node id, and ``.`` stays the address
 separator, so a lifted address reads ``approve/check.amount``. Only the lift
@@ -95,11 +97,8 @@ class Placed:
 
     nodes: dict[str, GraphNode]
     order: tuple[str, ...]
-    #: The walk's decisions below are empty when the outer walk did not
-    #: derive the placed node: then only what the nodes are is known.
-    #: The graph nodes inside, nested ones included, by lifted id, each with
-    #: the run nodes under it; and the placed node itself, with every run node.
-    members: dict[str, tuple[str, ...]]
+    #: The graph nodes inside, nested ones included, by lifted id.
+    graphs: frozenset[str]
     versions: dict[str, Any]
     definitions: dict[str, type[NodeDefinition]]
     interfaces: dict[str, Interface]
@@ -125,16 +124,13 @@ def graph_as_placed(
     edges: Mapping[str, From],
     values: Mapping[str, Any],
     runs_per_row_of: Index | None,
-    crossings: Mapping[str, Crossing] | None,
+    crossings: Mapping[str, Crossing],
 ) -> Placed:
     """``graph``'s records as they stand placed at ``node_id``, running once per row of ``runs_per_row_of``.
 
     ``edges`` holds, by the placed node's input name (``holder.value``), the
     edge the outer graph connected there, and ``crossings`` what the outer
-    walk decided for each; ``crossings`` is ``None`` when the walk did not
-    derive the placed node (an edge into it is broken, or it cannot be
-    placed), and then only the nodes, their versions and interfaces are
-    lifted. ``values`` holds, by input name, what the outer graph typed on
+    walk decided for each. ``values`` holds, by input name, what the outer graph typed on
     the placed node; each lands on the inner field as if typed there. A
     value that decides something inside (a list, or a node whose hook reads
     it) is already in ``graph``: the compiler compiled it again with the
@@ -175,14 +171,10 @@ def graph_as_placed(
                 bindings[ref.field] = Static(value)
         nodes[prefix + inner_id] = inner_node.model_copy(update={"id": prefix + inner_id, "bindings": bindings, "locked": ()})
 
-    run_ids = tuple(prefix + inner_id for inner_id in expansion.order)
     structure = {
         "nodes": nodes,
-        "order": run_ids,
-        "members": {
-            node_id: run_ids,
-            **{prefix + outer: tuple(prefix + member for member in members) for outer, members in expansion.members.items()},
-        },
+        "order": tuple(prefix + inner_id for inner_id in expansion.order),
+        "graphs": frozenset(prefix + inner_id for inner_id in expansion.graphs),
         "versions": {prefix + inner_id: version for inner_id, version in expansion.versions.items()},
         "definitions": {prefix + inner_id: definition for inner_id, definition in expansion.definitions.items()},
         "interfaces": {prefix + inner_id: interface for inner_id, interface in inner.interfaces.items()},
@@ -195,8 +187,6 @@ def graph_as_placed(
         },
         "listed": {prefix + inner_id: held - crossed.get(inner_id, set()) for inner_id, held in inner.listed.items()},
     }
-    if crossings is None:
-        return Placed(**structure, iterated={}, types={}, indexes={}, receives={})
     crossing_at = {reached(address): crossing for address, crossing in crossings.items()}
 
     iterated = {
@@ -227,7 +217,7 @@ def graph_as_placed(
             per_row_of is not None and isinstance(receipt, Gather) and ref in edge_fed
             and all(iteration.indexes[source] is None for source in expansion.nodes[ref.node_id].bindings[ref.field].refs)
         ):
-            indexes[new_ref], receives[new_ref] = per_row_of, Group(per_row_of, _depth(per_row_of))
+            indexes[new_ref], receives[new_ref] = per_row_of, Group(per_row_of, per_row_of.depth)
         else:
             receives[new_ref] = _received_under(receipt, index, prefix, per_row_of)
 
@@ -264,10 +254,6 @@ def _chain(index: Index | None) -> list[Index]:
     return chain[::-1]
 
 
-def _depth(index: Index | None) -> int:
-    return len(_chain(index))
-
-
 def under(index: Index | None, prefix: str, row: Index | None) -> Index | None:
     """An inner index as it stands placed: each id prefixed, its root hung under ``row`` (rule 1).
 
@@ -288,9 +274,9 @@ def _received_under(receipt: Receive, index: Index | None, prefix: str, row: Ind
     if isinstance(receipt, Iterate):
         return Iterate(under(receipt.index, prefix, row))
     if isinstance(receipt, Group):
-        return Group(under(receipt.index, prefix, row), receipt.depth + _depth(row))
+        return Group(under(receipt.index, prefix, row), receipt.depth + (0 if row is None else row.depth))
     if isinstance(receipt, Gather):
         return Gather(under(receipt.index, prefix, row))
     if isinstance(receipt, Whole):
-        return receipt if row is None else Group(under(index, prefix, row), _depth(row))
+        return receipt if row is None else Group(under(index, prefix, row), row.depth)
     return receipt

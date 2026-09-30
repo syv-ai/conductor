@@ -188,8 +188,8 @@ def test_a_question_about_a_placements_field_reads_through_to_the_inner_field():
 
 def test_a_broken_edge_into_a_placement_is_the_placements_own_problem():
     """The edge sits on the node the author placed, on the field it names,
-    in the plain words any node gets; the inner node it would feed is not
-    worked out, and says why."""
+    in the plain words any node gets; the placed node is not worked out, and
+    says why."""
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
         GraphNode(id="n", type="upper", version=1, bindings={"text": From("docs.result")}),
@@ -199,8 +199,8 @@ def test_a_broken_edge_into_a_placement_is_the_placements_own_problem():
     (problem,) = compiled.problems
     assert (problem.code, problem.node_id, problem.field) == ("unknown_ref_node", "emb", "holder.value")
     assert problem.details == {"source_node": "ghost"}
-    assert compiled.node("emb/holder").state == "wiring_failed"
-    assert compiled.node("emb/holder")._cause is problem
+    assert compiled.node("emb").state == "wiring_failed"
+    assert compiled.node("emb")._cause is problem
 
 
 def test_a_stale_key_on_the_placement_is_reported_on_the_placement():
@@ -351,13 +351,12 @@ def test_two_unrelated_series_entering_one_placement_are_its_misaligned():
 
     assert [(p.code, p.node_id) for p in compiled.problems] == [("misaligned", "emb")]
     (misaligned,) = compiled.problems
-    placement, inner_a = compiled.node("emb"), compiled.node("emb/a")
-    assert (placement.state, inner_a.state) == ("wiring_failed", "wiring_failed")
+    placement = compiled.node("emb")
+    assert placement.state == "wiring_failed"
     assert placement.problems == compiled.problems
-    for node in (placement, inner_a):
-        with pytest.raises(NodeWiringError) as raised:
-            node.iterates_on
-        assert raised.value.problems[0] == misaligned
+    with pytest.raises(NodeWiringError) as raised:
+        placement.iterates_on
+    assert raised.value.problems[0] == misaligned
     assert "emb" not in compiled.decisions
 
 
@@ -387,7 +386,7 @@ def test_a_broken_graph_inside_a_graph_breaks_the_graph_around_it():
     """An unknown inner node leaves its graph unplaceable, and so the graph
     that places it too. Each level shows one ``embedded_graph_broken`` where
     it is placed; the unknown node is the innermost graph's own problem.
-    Every node inside is still there to draw, and nothing inside is worked out."""
+    Each is one node where it is placed, read inside through its version."""
     broken = embedded_graph_node("broken-graph", (GraphNode(id="x", type="nothing", version=1), GraphNode(id="up", type="upper", version=1)), _registry())
     wrapper = embedded_graph_node("wrapper-graph", (GraphNode(id="mid", type="broken-graph", version=1),), _registry(broken))
     compiled = CompiledGraph.from_graph(
@@ -398,9 +397,7 @@ def test_a_broken_graph_inside_a_graph_breaks_the_graph_around_it():
     top = compiled.node("top")
     assert [(p.code, p.node_id) for p in top.version.problems] == [("embedded_graph_broken", "mid")]
     assert [(p.code, p.node_id) for p in top.version.node("mid").version.problems] == [("unknown_node_type", "x")]
-    assert compiled.node("top/mid/up").state == "wiring_failed"
-    for node_id in ("top/mid", "top"):
-        node = compiled.node(node_id)
+    for node in (top, top.version.node("mid")):
         assert (node.state, node.kind) == ("wiring_failed", "graph")
         assert node.interface is not None  # the box and its handles still draw
         with pytest.raises(NodeWiringError) as raised:
@@ -425,11 +422,11 @@ def test_an_authored_id_with_a_slash_is_refused_and_never_collides_with_an_inner
     assert compiled.field(Ref("e/holder", "value")).binding == Static("inner")
 
 
-def test_an_authored_id_holding_a_slash_does_not_take_an_inner_nodes_place():
+def test_an_authored_id_holding_a_slash_is_refused_and_stays_the_authors():
     """The author wrote `e/holder` beside an embedded graph `e` whose own
     `holder` has a type the registry lacks. The authored id is refused; the
     graph cannot be placed, which is one problem on `e`, and
-    `node("e/holder")` is the inner node, unresolved."""
+    `node("e/holder")` is the author's node, refused."""
     lost = embedded_graph_node("lost", (GraphNode(id="holder", type="nope", version=1),), _registry())
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         GraphNode(id="e", type="lost", version=1),
@@ -441,7 +438,8 @@ def test_an_authored_id_holding_a_slash_does_not_take_an_inner_nodes_place():
     ]
     assert [(p.code, p.node_id) for p in compiled.node("e").version.problems] == [("unknown_node_type", "holder")]
     assert compiled.node("e").state == "wiring_failed"
-    assert (compiled.node("e/holder").state, compiled.node("e/holder").embedded_in) == ("resolution_failed", "e")
+    refused = compiled.node("e/holder")
+    assert (refused.state, refused.embedded_in, refused._cause.code) == ("resolution_failed", None, "invalid_node_id")
 
 
 def test_misaligned_inside_an_embedded_graph_is_reported_once_with_the_authors_addresses():

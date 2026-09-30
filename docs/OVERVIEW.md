@@ -9,7 +9,7 @@ A node's `run` signature is read once into `Input` and `Output` records. Executi
 ## Declare, compile, execute
 
 - **Declare.** A class is checked when it is defined: a missing `id`, `title`, `description` or `category`, a widget written bare instead of on a `Param`, or an `async def run` fails at import. `NodeRegistry.register` adds the catalogue's rules, such as versions numbered from 1 with no holes.
-- **Compile.** `CompiledGraph.from_graph(graph, registry)` resolves each node's version, validates the bindings, types each field from its edges, decides which nodes run once per row, asks the field hooks and expands embedded graphs. Everything wrong is a `Problem`; `is_runnable` says whether a run may start.
+- **Compile.** `CompiledGraph.from_graph(graph, registry)` resolves each node's version, validates the bindings, types each field from its edges, decides which nodes run once per row, asks the field hooks and puts each embedded graph's nodes in its place. Everything wrong is a `Problem`; `is_runnable` says whether a run may start.
 - **Execute.** `execute(compiled)` is an async generator of events. `await run(compiled)` returns the ending, and `run_sync(compiled)` does the same from a script. Every ending carries `state`, a `RunState`; `state.results(compiled)` reads every node's values.
 
 ## The row engine

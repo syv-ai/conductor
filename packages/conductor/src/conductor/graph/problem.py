@@ -81,8 +81,7 @@ class Problem(ConductorModel):
 #: ``{field}`` and the ``details`` keys as slots, and whether it is fatal.
 #: The non-fatal ones are states an author can leave a graph in and still
 #: run it: a lock on a field the node no longer has (nothing reads it), a node whose outputs wait on a value the author has not
-#: typed yet, an embedded graph whose host-declared interface disagrees
-#: with the graph it holds (the graph's wins). ``stale_binding`` is fatal
+#: typed yet. ``stale_binding`` is fatal
 #: here and made non-fatal where it is emitted for a node with
 #: ``compute_inputs``, whose fields really can come and go. A host that translates problems by code covers exactly
 #: these keys; a code a host's own hook raised is the host's and is not

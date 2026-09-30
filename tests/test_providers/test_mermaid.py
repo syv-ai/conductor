@@ -147,17 +147,14 @@ def test_a_graph_with_a_broken_edge_and_something_downstream_draws():
         """)
 
 
-def test_a_placement_whose_inner_node_is_lost_still_draws_its_subgraph():
-    """A stored graph that names a type the catalog has lost cannot be placed; it still draws."""
+def test_a_graph_that_cannot_be_placed_draws_as_one_faulted_box():
+    """A stored graph that names a type the catalog has lost cannot be placed: one box, marked."""
     registry = NodeRegistry()
     registry = registry.extended_with({"lost": embedded_graph_node("lost", (GraphNode(id="gone", type="nonesuch", version=1),), registry, "Lost")})
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="emb", type="lost", version=1)]), registry)
 
     assert flowchart(compiled) == dedent("""\
         flowchart LR
-            subgraph n0 ["emb · lost"]
-                n1["emb/gone · nonesuch"]
-            end
-            class n0 fault
+            n0["emb · lost"]:::fault
             classDef fault stroke:#c62828,stroke-width:2px
         """)

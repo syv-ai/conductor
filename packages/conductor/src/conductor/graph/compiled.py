@@ -162,8 +162,8 @@ class CompiledGraph:
         """Look up one compiled node by its expanded id.
 
         Every node compile saw has an entry, broken or not: each node in the
-        graph and each node inside an embedded graph. An id the graph does
-        not have raises ``KeyError``."""
+        graph and each node inside an embedded graph placed in it. An id the
+        graph does not have raises ``KeyError``."""
         if node_id not in self._nodes:
             raise KeyError(f"{node_id!r} is not a node of this graph")
         return self._nodes[node_id]
@@ -345,44 +345,29 @@ class CompiledGraph:
 class _Fold:
     """What the steps of compile recorded, read into one stored value per node compile met.
 
-    Used once, by ``CompiledGraph.from_graph``, and then dropped. The ids
-    it answers for are every id the author wrote (the first of two that
-    share one), every expanded id, and every inner id of every embedded
-    graph compile entered, resolved or not. Each gets a ``NodeState`` read
-    off what the steps recorded — derived by the walk, or with an
-    interface, or neither — and every one that is not ready gets the fatal
-    ``Problem`` that explains it, found in this order: a fatal problem on
-    the node or anything inside it; for a ``graph``, the cause of its
-    first inner node that is not ready; the cause of its first source that
-    is not ready; a fatal problem on an embedded graph around it, the
-    innermost first. Finding none is a bug in compile, and raises.
+    Used once, by ``CompiledGraph._nodes``. The ids it answers for are
+    every id the author wrote (the first of two that share one) and every
+    node the graph that runs has, each graph placed and every node inside
+    it included. A graph that couldn't be placed is one node, with nothing
+    inside. Each id gets a ``NodeState`` read off what the steps recorded —
+    derived by the walk, or with an interface, or neither — and every one
+    that is not ready gets the fatal ``Problem`` that explains it: a fatal
+    problem on the node or one of its fields, else the cause of its first
+    source that is not ready. Finding none is a bug in compile, and raises.
     """
 
     def __init__(self, compilation: Compilation) -> None:
         self.compilation = compilation
         self.expansion = compilation.expansion
         self.iteration = compilation.iteration
-        #: The graph nodes compile entered, with the version each uses: which
-        #: nodes get ``kind`` ``graph``.
-        self.graphs = self.expansion.graphs
         #: Every id compile met: the node as stored and the graph node it
         #: sits in — ``None`` for every id the author wrote, a refused one
         #: holding a ``/`` included; read off the id for every other.
         self.met: dict[str, tuple[GraphNode, str | None]] = {}
         for node in compilation.graph.nodes:
             self.met.setdefault(node.id, (node, None))
-        # An inner node answers for its expanded id even where the author
-        # wrote that id too: the authored one is refused (``invalid_node_id``).
-        inner_nodes: dict[str, tuple[GraphNode, str | None]] = {}
-        for outer, version in self.graphs.items():
-            for inner in version.graph.nodes:
-                inner_id = f"{outer}{SEPARATOR}{inner.id}"
-                inner_nodes.setdefault(inner_id, (inner.model_copy(update={"id": inner_id}), outer))
-        self.met.update(inner_nodes)
         for node_id, node in self.expansion.nodes.items():
             self.met[node_id] = (node, embedded_in(node_id))
-        for outer in self.graphs:
-            self.met[outer] = (self.met[outer][0], embedded_in(outer))
         self.causes: dict[str, Problem] = {}
         self._plan()
 
@@ -449,8 +434,7 @@ class _Fold:
             cause = None if state == "ready" else self.cause(node_id, frozenset())
             problems = self.problems_on(node_id)
             interface = self.compilation.interfaces.get(node_id)
-            graph = self.graphs.get(node_id)
-            if graph is not None:
+            if node_id in self.expansion.graphs:
                 built[node_id] = CompiledNode(
                     id=node_id,
                     state=state,
@@ -459,7 +443,7 @@ class _Fold:
                     problems=problems,
                     _cause=cause,
                     _kind="graph",
-                    _version=graph,
+                    _version=self.expansion.versions[node_id],
                     _interface=interface,
                     _statics=self.compilation.statics.get(node_id, {}),
                     _definition=self.expansion.definitions[node_id],
@@ -526,8 +510,7 @@ class _Fold:
 
     def state(self, node_id: str) -> NodeState:
         """Membership, read once here: derived by the walk, or given an
-        interface, or neither. A ``graph`` is ready only when every node
-        inside it is."""
+        interface, or neither."""
         if node_id in self.iteration.iterated:
             return "ready"
         if node_id in self.compilation.interfaces:
@@ -547,20 +530,13 @@ class _Fold:
             return self.causes[node_id]
         visiting = visiting | {node_id}
         found = next((p for p in self.problems_on(node_id) if p.fatal), None)
-        placed, outer = self.met[node_id]
-        graph = node_id in self.graphs
-        if found is None and graph:
-            inner = self.expansion.members.get(node_id, ())
-            found = self._first_cause(inner, visiting)
-        if found is None and not graph:
+        if found is None:
+            placed, _ = self.met[node_id]
             sources = [
                 ref.node_id for binding in placed.bindings.values() if isinstance(binding, From)
                 for ref in binding.refs
             ]
             found = self._first_cause(sources, visiting)
-        while found is None and outer is not None:
-            found = next((p for p in self.problems_on(outer) if p.fatal), None)
-            outer = self.met[outer][1]
         if found is None:
             raise AssertionError(f"compile left {node_id!r} {self.state(node_id)} with nothing fatal to say why")
         self.causes[node_id] = found

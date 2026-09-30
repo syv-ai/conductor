@@ -61,7 +61,7 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from conductor.dtype import DType
 from conductor.dtype_ref import description_of, name_of
@@ -74,9 +74,12 @@ from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Receive, 
 from conductor.graph.views import field_problems
 from conductor.interface import Interface
 from conductor.metadata import Input, Output
-from conductor.node import NodeDefinition, NodeVersion
+from conductor.node import NodeDefinition
 from conductor.ref import Ref
 from conductor.series import Index, Series
+
+if TYPE_CHECKING:
+    from conductor.graph.compiled import CompiledGraph
 
 
 @dataclass(frozen=True)
@@ -109,6 +112,7 @@ def derive(
     definitions: Mapping[str, type[NodeDefinition]],
     statics: Mapping[str, Mapping[str, Any]],
     listed: Mapping[str, frozenset[str]],
+    graphs: frozenset[str],
 ) -> Iteration:
     """Walk ``nodes`` in execution order and record, for each, whether it
     runs once per row, what type every field carries, how every input
@@ -132,11 +136,11 @@ def derive(
     author typed laid over the declaration's defaults. A hook that raises
     ``Refuses`` makes its code and message the node's one fatal problem.
 
-    A node whose version is a compiled graph is walked as one node with
-    that graph's interface; ``Compilation.place_graphs`` lifts the graph
-    under the row the walk decides for it.
+    A node in ``graphs``, whose version is a compiled graph, is walked as
+    one node with that graph's interface; ``Compilation.place_graphs`` lifts
+    the graph under the row the walk decides for it.
     """
-    walk = _Walk(nodes, interfaces, versions, definitions, statics, listed)
+    walk = _Walk(nodes, interfaces, versions, definitions, statics, listed, graphs)
     for node in nodes:
         walk.visit(node)
     return walk.result()
@@ -191,6 +195,7 @@ class _Walk:
         definitions: Mapping[str, type[NodeDefinition]],
         statics: Mapping[str, Mapping[str, Any]],
         listed: Mapping[str, frozenset[str]],
+        graphs: frozenset[str],
     ) -> None:
         self.nodes = {node.id: node for node in nodes}
         #: Each node's inputs and outputs as the input hook answered them,
@@ -201,6 +206,8 @@ class _Walk:
         self.definitions = definitions
         self.statics = statics
         self.listed = listed
+        #: The nodes whose version is a compiled graph (``Expansion.graphs``).
+        self.graphs = graphs
         #: The index each visited node runs once per row of (``None``: once).
         self.iterated: dict[str, Index | None] = {}
         #: What every output of every visited node carries: the sources a
@@ -366,7 +373,7 @@ class _Walk:
         version = self.versions[node.id]
         for out in outputs:
             ref = Ref(node.id, out.name)
-            if not isinstance(version, NodeVersion):
+            if node.id in self.graphs:
                 self.carried[ref] = self._carried_out_of_graph(node.id, version, out, iteration_index)
             elif getattr(out.dtype, "element", None) is not None:
                 node_index = node_index or Index(node.id, parent=iteration_index)
@@ -377,7 +384,7 @@ class _Walk:
                 self.carried[ref] = _Carried(out.dtype, None)
 
     @staticmethod
-    def _carried_out_of_graph(node_id: str, graph: Any, out: Output, row: Index | None) -> _Carried:
+    def _carried_out_of_graph(node_id: str, graph: CompiledGraph, out: Output, row: Index | None) -> _Carried:
         """What an output of a compiled graph placed as one node carries, as it
         will once the graph's nodes are in its place: the type and rows the
         output has inside the graph (``embedding.inside``), its rows named
@@ -417,7 +424,7 @@ class _Walk:
         compile only records which node it belongs to.
         """
         version = self.versions[node.id]
-        if not isinstance(version, NodeVersion):
+        if node.id in self.graphs:
             return version.interface.outputs  # a compiled graph placed as a node: it has no hooks
         declared = (*version.interface.inputs, *self.asked[node.id].inputs)
         values = {**{i.name: i.default for i in declared if i.optional}, **self.statics[node.id]}

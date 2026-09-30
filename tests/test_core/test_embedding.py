@@ -5,10 +5,10 @@ to conductor as the version. The outer compile treats the placed graph as
 a plain node with the compiled graph's interface, which decides the row it
 runs on; the lift (``graph_as_placed``) then puts the graph's own records
 under that row. What the engine reads must come out exactly as inlining
-the raw graph gave it before conductor compiled embedded graphs on their
-own: the oracle below checks every scenario, field by field, against the
-values that path gave, pinned in ``fixtures/embedded_expected.json``, and
-a run of some of them against ``fixtures/embedded_expected_results.json``.
+the raw graph gave it: the oracle below checks every scenario, field by
+field, against the values that path gave, pinned in
+``fixtures/embedded_expected.json``, and a run of some of them against
+``fixtures/embedded_expected_results.json``.
 
 Which scenario pins which lift rule:
 
@@ -706,33 +706,23 @@ def test_a_broken_graph_with_a_value_typed_on_it_is_one_problem():
     assert [p.code for p in compiled.problems] == ["embedded_graph_broken"]
 
 
-def test_a_placed_graph_upstream_of_nothing_it_can_use_keeps_its_shape():
-    """Its edge in is broken, so the walk leaves it out; it is still a graph,
-    and its inner nodes are there, each saying why it is not ready."""
-    nodes = [
-        N(id="h", type="holder", version=1, bindings={"value": From("nope.result")}),
-        N(id="emb", type="inner-graph", version=1, bindings={"holder.value": From("h.result")}),
-    ]
-    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), _registry(SCENARIOS["runs_once"]))
-
-    assert [
-        (node_id, compiled.node(node_id).state, compiled.node(node_id).kind, compiled.node(node_id)._cause.code)
-        for node_id in ("emb", "emb/holder", "emb/up", "emb/join")
-    ] == [
-        ("emb", "wiring_failed", "graph", "unknown_ref_node"),
-        ("emb/holder", "wiring_failed", "node", "unknown_ref_node"),
-        ("emb/up", "wiring_failed", "node", "unknown_ref_node"),
-        ("emb/join", "wiring_failed", "node", "unknown_ref_node"),
-    ]
-
-
-def test_a_broken_graph_placed_is_still_a_graph():
+def test_a_graph_the_walk_leaves_out_is_one_node_with_nothing_inside():
+    """Its edge in is broken, or it can't be placed: either way it stays one
+    ``graph`` node, saying why it is not ready, and nothing inside it is a
+    node of this graph. What is inside is read through its version."""
+    upstream_broken = CompiledGraph.from_graph(Graph(nodes=[
+        N(id="bad", type="nope", version=1),
+        N(id="emb", type="inner-graph", version=1, bindings={"holder.value": From("bad.result")}),
+    ]), _registry(SCENARIOS["runs_once"]))
     broken, registry = _broken_graph_registry()
-    compiled = CompiledGraph.from_graph(Graph(nodes=[N(id="emb", type="broken", version=1)]), registry)
+    unplaceable = CompiledGraph.from_graph(Graph(nodes=[N(id="emb", type="broken", version=1)]), registry)
 
-    assert compiled.node("emb").kind == "graph"
-    assert compiled.node("emb/a").state == "wiring_failed"
-    assert compiled.node("emb/a")._cause.code == "embedded_graph_broken"
+    for compiled, cause in ((upstream_broken, "unknown_node_type"), (unplaceable, "embedded_graph_broken")):
+        node = compiled.node("emb")
+        assert (node.state, node.kind, node._cause.code) == ("wiring_failed", "graph", cause)
+        with pytest.raises(KeyError):
+            compiled.node("emb/holder" if compiled is upstream_broken else "emb/a")
+    assert unplaceable.node("emb").version.node("a").state == "ready"
 
 
 def test_a_value_on_a_field_the_graph_does_not_offer_is_a_stale_binding():
