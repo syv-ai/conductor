@@ -184,8 +184,8 @@ def test_an_iterating_decision_masks_rows_and_is_not_a_condition():
     assert compiled.decisions == {}
 
 
-def test_a_decision_the_walk_did_not_derive_is_not_one_a_run_makes():
-    """A gate whose edge names an output its source lacks is not derived: it
+def test_a_decision_on_a_node_whose_wiring_failed_is_not_one_a_run_makes():
+    """A gate whose edge names an output its source lacks has failed wiring: it
     is not counted as a decision, and asking whether it runs per row says why."""
     compiled = _compiled([
         GraphNode(id="h", type="holder", version=1, bindings={"value": Static("x")}),
