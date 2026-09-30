@@ -78,6 +78,7 @@ from conductor.dtype import DType
 from conductor.dtype_ref import description_of, name_of
 from conductor.errors import Refuses
 from conductor.graph.binding import From
+from conductor.graph.embedding import inside, under
 from conductor.graph.expand import SEPARATOR, authored_ref, embedded_in
 from conductor.graph.model import GraphNode
 from conductor.graph.problem import Problem, problem
@@ -443,21 +444,16 @@ class _Walk:
     def _carried_out_of_graph(node_id: str, graph: Any, out: Output, row: Index | None) -> _Carried:
         """What an output of a compiled graph placed as one node carries, as it
         will once the graph's nodes are in its place: the type and rows the
-        output has inside the graph, every level of those rows named under
-        the placed node and hung under the ``row`` it runs on. Two outputs
-        share rows only when a node inside births both; an output that runs
-        once inside is one value per ``row``, or one value."""
-        inside = graph.field(Ref(out.name))
-        if inside.index is None:
-            return _Carried(Series[inside.type], row) if row is not None else _Carried(inside.type, None)
-        chain, born = [], inside.index
-        while born is not None:
-            chain.append(born.id)
-            born = born.parent
-        index = row
-        for inner_id in reversed(chain):
-            index = Index(f"{node_id}{SEPARATOR}{inner_id}", parent=index)
-        return _Carried(inside.type, index)
+        output has inside the graph (``embedding.inside``), its rows named
+        under the placed node and hung under the ``row`` it runs on
+        (``embedding.under``). Two outputs share rows only when a node inside
+        births both; an output that runs once inside is one value per
+        ``row``, or one value."""
+        ref, iteration = inside(graph, out.name), graph._compilation.iteration
+        dtype, index = iteration.types[ref], iteration.indexes[ref]
+        if index is None:
+            return _Carried(Series[dtype], row) if row is not None else _Carried(dtype, None)
+        return _Carried(dtype, under(index, f"{node_id}{SEPARATOR}", row))
 
     def _complete_without_deriving(self, node: GraphNode, arrived: _Arrivals) -> None:
         """A source was broken: complete the inputs and outputs from what
