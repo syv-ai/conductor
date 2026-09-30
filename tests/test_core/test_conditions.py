@@ -7,7 +7,7 @@ import pytest
 from conductor import NodeRegistry, Param
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
-from conductor.errors import NotDerived
+from conductor.errors import NodeWiringError
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.conditions import ALWAYS, Atom
@@ -193,7 +193,7 @@ def test_a_decision_the_walk_did_not_derive_is_not_one_a_run_makes():
     ])
 
     assert compiled.decisions == {}
-    assert compiled.node("g").state == "not_derived"
-    with pytest.raises(NotDerived) as raised:
+    assert compiled.node("g").state == "wiring_failed"
+    with pytest.raises(NodeWiringError) as raised:
         compiled.node("g").iterates_on
-    assert raised.value.problem.code == "unknown_ref_output"
+    assert raised.value.problems[0].code == "unknown_ref_output"
