@@ -6,7 +6,12 @@ from typing import Annotated
 import pytest
 from conductor import NodeRegistry
 from conductor.dtype import DType
-from conductor.errors import ConductorError, NotDerived, NotResolved
+from conductor.errors import (
+    CompilationError,
+    NodeKindError,
+    NodeResolutionError,
+    NodeWiringError,
+)
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import FieldContent, Graph, GraphNode
@@ -212,7 +217,7 @@ def test_every_node_the_author_wrote_has_a_state():
     compiled = _half_finished()
 
     assert {node_id: compiled.node(node_id).state for node_id in "abcx"} == {
-        "a": "ready", "b": "not_derived", "c": "not_derived", "x": "unresolved",
+        "a": "ready", "b": "wiring_failed", "c": "wiring_failed", "x": "resolution_failed",
     }
     with pytest.raises(KeyError):
         compiled.node("zzz")
@@ -222,18 +227,18 @@ def test_reading_what_a_state_lacks_names_the_problem():
     """A gated read raises a named error carrying the problem that explains it: the node's own, or the one upstream."""
     compiled = _half_finished()
 
-    with pytest.raises(NotDerived) as own:
+    with pytest.raises(NodeWiringError) as own:
         compiled.node("b").iterates_on
-    assert own.value.problem.code == "unknown_ref_node" and own.value.problem.node_id == "b"
-    with pytest.raises(NotDerived) as upstream:
+    assert own.value.problems[0].code == "unknown_ref_node" and own.value.problems[0].node_id == "b"
+    with pytest.raises(NodeWiringError) as upstream:
         compiled.node("c").iterates_on
-    assert upstream.value.problem is own.value.problem
-    with pytest.raises(NotDerived):
+    assert upstream.value.problems[0] is own.value.problems[0]
+    with pytest.raises(NodeWiringError):
         compiled.field(Ref("c", "x")).type
-    with pytest.raises(NotResolved) as lost:
+    with pytest.raises(NodeResolutionError) as lost:
         compiled.node("x").interface
-    assert lost.value.problem.code == "unknown_node_type"
-    with pytest.raises(NotResolved):
+    assert lost.value.problems[0].code == "unknown_node_type"
+    with pytest.raises(NodeResolutionError):
         compiled.field(Ref("x", "x"))
     # What each state has still answers.
     assert compiled.node("c").interface.inputs[0].name == "x"
@@ -244,13 +249,15 @@ def test_reading_what_a_state_lacks_names_the_problem():
 def test_the_named_errors_are_not_key_errors():
     """``except KeyError`` catches a caller's wrong id and nothing else; the message names the node, the read and the cause."""
     compiled = _half_finished()
-    with pytest.raises(NotDerived) as raised:
+    with pytest.raises(NodeWiringError) as raised:
         compiled.node("c").iterates_on
 
-    assert issubclass(NotDerived, ConductorError) and not issubclass(NotDerived, KeyError)
-    assert issubclass(NotResolved, ConductorError) and not issubclass(NotResolved, KeyError)
+    assert issubclass(NodeWiringError, CompilationError) and not issubclass(NodeWiringError, KeyError)
+    assert issubclass(NodeResolutionError, CompilationError) and not issubclass(NodeResolutionError, KeyError)
+    assert not issubclass(NodeKindError, CompilationError)
+    assert len(raised.value.problems) == 1
     assert "'c'" in str(raised.value) and "iterates_on" in str(raised.value)
-    assert "unknown_ref_node on b.x" in str(raised.value)
+    assert "b.x — unknown_ref_node" in str(raised.value)
 
 
 def test_a_node_downstream_of_a_cycle_carries_the_cycle():
@@ -260,11 +267,11 @@ def test_a_node_downstream_of_a_cycle_carries_the_cycle():
         GraphNode(id="c", type="echo", version=1, bindings={"x": From("b.result")}),
     ])
 
-    assert (compiled.node("a").state, compiled.node("b").state) == ("unresolved", "unresolved")
-    assert compiled.node("c").state == "not_derived"
-    with pytest.raises(NotDerived) as raised:
+    assert (compiled.node("a").state, compiled.node("b").state) == ("resolution_failed", "resolution_failed")
+    assert compiled.node("c").state == "wiring_failed"
+    with pytest.raises(NodeWiringError) as raised:
         compiled.node("c").iterates_on
-    assert raised.value.problem.code == "cycle"
+    assert raised.value.problems[0].code == "cycle"
 
 
 def test_a_painter_reads_every_node_of_a_broken_graph():
@@ -273,7 +280,7 @@ def test_a_painter_reads_every_node_of_a_broken_graph():
 
     for placed in compiled.graph.nodes:
         node = compiled.node(placed.id)
-        if node.state == "unresolved":
+        if node.state == "resolution_failed":
             continue
         assert node.interface.inputs
         if node.state == "ready":
@@ -371,10 +378,10 @@ def test_a_node_type_the_registry_lacks_is_a_fatal_problem():
     (problem,) = compiled.problems
     assert (problem.code, problem.fatal, problem.node_id) == ("unknown_node_type", True, "a")
     assert not compiled.is_runnable
-    assert compiled.node("a").state == "unresolved"
-    with pytest.raises(NotResolved) as raised:
+    assert compiled.node("a").state == "resolution_failed"
+    with pytest.raises(NodeResolutionError) as raised:
         compiled.node("a").interface
-    assert raised.value.problem == problem
+    assert raised.value.problems[0] == problem
 
 
 def test_a_version_the_class_no_longer_declares_is_a_fatal_problem():
@@ -565,7 +572,7 @@ def test_a_compiled_node_validates_a_call_and_hands_back_its_keyword_arguments()
     assert set(kwargs) == {"x", "y"} and isinstance(kwargs["x"], Txt) and kwargs["y"] == Txt("")
     with pytest.raises(ValidationError):
         node.validate({"x": ["not", "text"]})
-    with pytest.raises(NotDerived):
+    with pytest.raises(NodeWiringError):
         _compiled([GraphNode(id="b", type="echo", version=1, bindings={"x": From("ghost.result")})]).node("b").validate({})
 
 

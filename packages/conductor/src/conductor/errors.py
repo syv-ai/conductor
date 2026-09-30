@@ -9,9 +9,9 @@ knows — so a host can act on it without guessing which diagnostic
 belonged to which failure.
 
     ConductorError
-    ├── CompilationError        a caller asked to run a graph compile rejected
-    ├── NotResolved             a caller read a compiled node that compile could not resolve
-    ├── NotDerived              a caller read what the edges decide off a node compile did not derive
+    ├── CompilationError        a caller asked for something compile's problems rule out
+    │   ├── NodeResolutionError     read off a node compile could not resolve
+    │   └── NodeWiringError         read what the connections decide off a node whose wiring failed
     ├── NodeKindError           a caller read off a compiled node what a node of its kind does not have
     ├── NodeError               one node failed; carries node_id and a cause. Internal: never retried
     │   ├── ExternalFailure         the outside world failed; the one family the engine retries
@@ -99,74 +99,17 @@ class InputNotOffered(ConductorError, TypeError):
     """
 
 
-class NotResolved(ConductorError):
-    """A caller read something off a compiled node that compile could not resolve.
-
-    Raised by ``CompiledNode`` and ``CompiledGraph.field`` when the node's
-    ``state`` is ``"unresolved"``: an unknown type or version, a cycle, a
-    refused id, or a ``compute_inputs`` that refused. ``problem`` is the
-    fatal ``Problem`` that says why, as it stands in ``compiled.problems``.
-    A painter asks ``node.state`` first and never meets it; the engine
-    never does, since it runs only runnable graphs. Not a ``KeyError``:
-    that is for an id the graph does not have. Its sibling is
-    ``NotDerived``.
-    """
-
-    def __init__(self, node_id: str, asked: str, problem: Problem) -> None:
-        self.node_id = node_id
-        self.problem = problem
-        super().__init__(
-            f"{node_id!r} has no {asked}: compile could not resolve it ({problem.code}: {problem.message})"
-        )
-
-
-class NotDerived(ConductorError):
-    """A caller read what the walk over the edges decides off a node it did not derive.
-
-    Raised by ``CompiledNode`` and ``CompiledField``
-    when the node's ``state`` is ``"not_derived"``: its own edges are
-    broken, a fault sits upstream of it, or its embedded graph is
-    misaligned. What it has — its interface, its version, what the author
-    typed into it — still answers; how it receives, what type travels on
-    each field and whether it runs per row do not. ``problem`` is the
-    fatal ``Problem`` that explains it — the node's own, or the one
-    upstream or around it — as it stands in ``compiled.problems``. Who
-    meets it, and why it is not a ``KeyError``, as for ``NotResolved``.
-    """
-
-    def __init__(self, node_id: str, asked: str, problem: Problem) -> None:
-        self.node_id = node_id
-        self.problem = problem
-        where = problem.node_id if problem.field is None else f"{problem.node_id}.{problem.field}"
-        super().__init__(
-            f"{node_id!r} has no {asked}: compile could not derive it ({problem.code} on {where}: {problem.message})"
-        )
-
-
-class NodeKindError(ConductorError):
-    """A caller read off a compiled node what a node of its kind does not have.
-
-    Raised by ``CompiledNode.runner``, ``validate`` and ``fingerprint`` on a
-    node whose ``kind`` is ``graph``: compile inlined its embedded graph, so
-    its inner nodes run in its place, each with a runner, a call and a
-    fingerprint of its own. ``kind`` is the node's. Not a state of the
-    graph, so it carries no ``Problem``; the engine never meets it, since
-    it runs only nodes of kind ``node``. Its siblings are ``NotResolved``
-    and ``NotDerived``.
-    """
-
-    def __init__(self, node_id: str, asked: str, kind: str) -> None:
-        self.node_id = node_id
-        self.kind = kind
-        super().__init__(f"{node_id!r} has no {asked}: a node of kind {kind!r} does not run as one unit")
-
-
 class CompilationError(ConductorError):
-    """A caller asked the engine to run a graph that compile rejected.
+    """Something was asked of a graph, or of one of its nodes, that compile could not make work.
 
-    Compile itself never raises this; what is wrong with a graph is data on
-    the ``CompiledGraph``. ``execute`` raises it when a caller ignored
-    ``is_runnable``, with the problems attached.
+    Compile itself never raises; what is wrong with a graph is data on the
+    ``CompiledGraph``, as ``Problem`` values. This is raised later, when a
+    caller asks for something those problems rule out, and ``problems``
+    carries the ones that say why. ``execute`` raises it directly when a
+    caller ignored ``is_runnable``, with every problem of the graph
+    attached. Its two subclasses are raised when a caller reads one broken
+    node: ``NodeResolutionError`` and ``NodeWiringError``, each carrying
+    the one problem behind that node's state.
     """
 
     def __init__(self, message: str, *, problems: tuple[Problem, ...] = ()) -> None:
@@ -181,6 +124,65 @@ class CompilationError(ConductorError):
         ]
         head = super().__str__()
         return head if not lines else "\n".join([f"{head}:", *lines])
+
+
+class NodeResolutionError(CompilationError):
+    """A caller read something off a node that compile could not make sense of at all.
+
+    Raised by ``CompiledNode`` and ``CompiledGraph.field`` when the node's
+    ``state`` is ``"resolution_failed"``: its type or version is unknown, it
+    sits on a cycle, its id was refused, or its ``compute_inputs`` refused
+    the values typed into it. Compile never learned what inputs and outputs
+    the node has, so there is nothing to read. ``problems`` holds the one
+    fatal ``Problem`` that says why, as it stands in ``compiled.problems``.
+
+    An editor asks ``node.state`` first and never meets it; the engine never
+    does either, since it runs only runnable graphs. Not a ``KeyError``:
+    that is for an id the graph does not have.
+    """
+
+    def __init__(self, node_id: str, asked: str, problem: Problem) -> None:
+        self.node_id = node_id
+        super().__init__(f"{node_id!r} has no {asked}: compile could not resolve it", problems=(problem,))
+
+
+class NodeWiringError(CompilationError):
+    """A caller read what a node's connections decide, on a node whose connections could not be worked out.
+
+    Raised by ``CompiledNode`` and ``CompiledField`` when the node's
+    ``state`` is ``"wiring_failed"``: one of its own edges is broken, a node
+    upstream of it is broken, or the embedded graph around it does not line
+    up. What the node has on its own still answers — its inputs and
+    outputs, its version, the values typed into it. What only its
+    connections can decide does not: the type that arrives on each field,
+    how each input receives it, and whether the node runs once per row.
+    ``problems`` holds the one fatal ``Problem`` that explains it — the
+    node's own, the one upstream of it, or the one on the graph around it —
+    as it stands in ``compiled.problems``. Who meets it, and why it is not a
+    ``KeyError``, as for ``NodeResolutionError``.
+    """
+
+    def __init__(self, node_id: str, asked: str, problem: Problem) -> None:
+        self.node_id = node_id
+        super().__init__(f"{node_id!r} has no {asked}: compile could not work out its connections", problems=(problem,))
+
+
+class NodeKindError(ConductorError):
+    """A caller read off a compiled node what a node of its kind does not have.
+
+    Raised by ``CompiledNode.runner``, ``validate`` and ``fingerprint`` on a
+    node whose ``kind`` is ``graph``: compile inlined its embedded graph, so
+    its inner nodes run in its place, each with a runner, a call and a
+    fingerprint of its own. ``kind`` is the node's. Not a ``CompilationError``:
+    nothing is wrong with the graph — the node is healthy and simply is not
+    the kind that runs as one unit — so it carries no ``Problem``. The engine
+    never meets it, since it runs only nodes of kind ``node``.
+    """
+
+    def __init__(self, node_id: str, asked: str, kind: str) -> None:
+        self.node_id = node_id
+        self.kind = kind
+        super().__init__(f"{node_id!r} has no {asked}: a node of kind {kind!r} does not run as one unit")
 
 
 #: Every ``ErrorCause.code`` the engine itself emits, declared once. A host
