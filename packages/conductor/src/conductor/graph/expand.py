@@ -36,6 +36,7 @@ from __future__ import annotations
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cached_property
+from typing import Any
 
 from conductor.graph.binding import Binding, From
 from conductor.graph.model import GraphNode
@@ -77,12 +78,18 @@ class Expansion:
     problems: tuple[Problem, ...]
 
     @cached_property
-    def graphs(self) -> dict[str, GraphVersion]:
-        """Every graph node, with the ``GraphVersion`` it uses, a graph node
-        before its inner ones: the one answer to "is this a graph node?"
-        after expansion, read by the compiler and by ``CompiledGraph``'s
-        fold. Only ``inline`` decides it, since inlining is what differs."""
-        return {node_id: version for node_id, version in self.versions.items() if isinstance(version, GraphVersion)}
+    def graphs(self) -> dict[str, Any]:
+        """Every graph node, with the version it uses, a graph node before its
+        inner ones: the one answer to "is this a graph node?", read by the
+        compiler and by ``CompiledGraph``'s fold. A graph node is one whose
+        version does not run and that is not itself a node of the run: a
+        ``GraphVersion`` from the start, and a compiled graph once
+        ``Compilation.place_graphs`` has put its nodes in its place (before
+        that, the walk sees it as one node)."""
+        return {
+            node_id: version for node_id, version in self.versions.items()
+            if not isinstance(version, NodeVersion) and node_id not in self.nodes
+        }
 
 
 def resolved(node: GraphNode, registry: NodeRegistry) -> tuple[type[NodeDefinition], NodeVersion | GraphVersion] | Problem:
@@ -160,7 +167,9 @@ class _Expander:
         definitions (by type id) whose graphs are being entered, so a graph
         that holds a node of a type already in it is a ``cycle`` on that
         node rather than an expansion without end."""
-        if isinstance(version, NodeVersion):
+        if not isinstance(version, GraphVersion):
+            # A node that runs, or a graph compiled on its own: the walk sees
+            # both as one node, and ``Compilation.place_graphs`` lifts the second.
             self.nodes[node.id] = node
             self.order.append(node.id)
             self.versions[node.id] = version

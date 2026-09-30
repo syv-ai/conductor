@@ -59,7 +59,7 @@ cached, and "compile this and assert what it says" is a complete test.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from conductor.errors import InputNotOffered
@@ -120,6 +120,10 @@ class CompiledGraph:
     #: inside an embedded graph sits on the node the author placed, with the
     #: inner address as the field.
     problems: tuple[Problem, ...]
+    #: The finished compile this was folded from. A graph that places this
+    #: one reads its records from here and lifts them (``embedding``);
+    #: nothing else does.
+    _compilation: Compilation = field(repr=False)
 
     @classmethod
     def from_graph(cls, graph: Graph, registry: NodeRegistry) -> CompiledGraph:
@@ -141,6 +145,7 @@ class CompiledGraph:
             interface=compilation.graph_interface,
             graph=graph,
             problems=tuple(compilation.problems),
+            _compilation=compilation,
         )
 
     # -- one node, one field ---------------------------------------------------
@@ -347,7 +352,7 @@ class _Fold:
         # wrote that id too: the authored one is refused (``invalid_node_id``).
         inner_nodes: dict[str, tuple[GraphNode, str | None]] = {}
         for outer, version in self.graphs.items():
-            for inner in version.graph:
+            for inner in (version.graph.nodes if isinstance(version, CompiledGraph) else version.graph):
                 inner_id = f"{outer}{SEPARATOR}{inner.id}"
                 inner_nodes.setdefault(inner_id, (inner.model_copy(update={"id": inner_id}), outer))
         self.met.update(inner_nodes)
@@ -442,7 +447,10 @@ class _Fold:
                     _kind="graph",
                     _version=graph,
                     _interface=interface,
-                    _statics=self.typed_on(node_id, placed),
+                    _statics=(
+                        self.compilation.statics.get(node_id, {}) if isinstance(graph, CompiledGraph)
+                        else self.typed_on(node_id, placed)
+                    ),
                     _definition=self.expansion.definitions[node_id],
                     _iterates_on=self.iteration.iterated.get(node_id),
                     _births=None,

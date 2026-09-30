@@ -78,7 +78,7 @@ from conductor.dtype import DType
 from conductor.dtype_ref import description_of, name_of
 from conductor.errors import Refuses
 from conductor.graph.binding import From
-from conductor.graph.expand import authored_ref, embedded_in
+from conductor.graph.expand import SEPARATOR, authored_ref, embedded_in
 from conductor.graph.model import GraphNode
 from conductor.graph.problem import Problem, problem
 from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Receive, Whole
@@ -426,15 +426,38 @@ class _Walk:
         self.receives.update({Ref(node.id, name): r for name, r in arrived.receives.items()})
         scope_index = None if scope is None else scope[0]
         node_index: Index | None = None
+        version = self.versions[node.id]
         for out in outputs:
             ref = Ref(node.id, out.name)
-            if getattr(out.dtype, "element", None) is not None:
+            if not isinstance(version, NodeVersion):
+                self.carried[ref] = self._carried_out_of_graph(node.id, version, out, iteration_index or scope_index)
+            elif getattr(out.dtype, "element", None) is not None:
                 node_index = node_index or Index(node.id, parent=iteration_index or scope_index)
                 self.carried[ref] = _Carried(out.dtype, node_index)
             elif iteration_index is not None:
                 self.carried[ref] = _Carried(Series[out.dtype], iteration_index)
             else:
                 self.carried[ref] = _Carried(out.dtype, None)
+
+    @staticmethod
+    def _carried_out_of_graph(node_id: str, graph: Any, out: Output, row: Index | None) -> _Carried:
+        """What an output of a compiled graph placed as one node carries, as it
+        will once the graph's nodes are in its place: the type and rows the
+        output has inside the graph, every level of those rows named under
+        the placed node and hung under the ``row`` it runs on. Two outputs
+        share rows only when a node inside births both; an output that runs
+        once inside is one value per ``row``, or one value."""
+        inside = graph.field(Ref(out.name))
+        if inside.index is None:
+            return _Carried(Series[inside.type], row) if row is not None else _Carried(inside.type, None)
+        chain, born = [], inside.index
+        while born is not None:
+            chain.append(born.id)
+            born = born.parent
+        index = row
+        for inner_id in reversed(chain):
+            index = Index(f"{node_id}{SEPARATOR}{inner_id}", parent=index)
+        return _Carried(inside.type, index)
 
     def _complete_without_deriving(self, node: GraphNode, arrived: _Arrivals) -> None:
         """A source was broken: complete the inputs and outputs from what
@@ -462,6 +485,8 @@ class _Walk:
         compile only records which node it belongs to.
         """
         version = self.versions[node.id]
+        if not isinstance(version, NodeVersion):
+            return version.interface.outputs  # a compiled graph placed as a node: it has no hooks
         declared = (*version.interface.inputs, *self.asked[node.id].inputs)
         values = {**{i.name: i.default for i in declared if i.optional}, **self.statics[node.id]}
         try:

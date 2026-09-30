@@ -91,6 +91,7 @@ CATALOGUE: Mapping[str, tuple[str, bool]] = {
     "cycle": ("The node is part of a cycle, so the graph cannot run.", True),
     "duplicate_field_name": ("The node has two fields named '{field}'.", True),
     "duplicate_node_id": ("Two nodes have the id '{node_id}'.", True),
+    "embedded_graph_broken": ("The graph '{graph}' has {problems} problem(s) to fix before it can be used here.", True),
     "edge_into_closed_handle": ("Field '{field}' has no handle, so nothing can be connected to it.", True),
     "graph_interface_mismatch": (
         "The embedded graph declares '{field}' as {declared}, but its graph has {actual}.", False,

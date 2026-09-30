@@ -1,0 +1,4177 @@
+{
+ "born_inside": {
+  "nodes": {
+   "docs": {
+    "fields": {
+     "folder": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "value": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "emb/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "texts": {
+      "index": "Index('emb/lines', parent=Index('docs'))",
+      "receives": "Group(index=Index('emb/lines', parent=Index('docs')), depth=1)",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "emb/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('emb/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   }
+  },
+  "order": [
+   "docs",
+   "emb/holder",
+   "emb/lines",
+   "emb/join"
+  ]
+ },
+ "born_inside_exposed": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "texts": {
+      "index": "Index('emb/lines', parent=Index('docs'))",
+      "receives": "Group(index=Index('emb/lines', parent=Index('docs')), depth=1)",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "docs": {
+    "fields": {
+     "folder": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "value": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "emb/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('emb/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   }
+  },
+  "order": [
+   "docs",
+   "emb/holder",
+   "emb/lines",
+   "after"
+  ]
+ },
+ "born_inside_unfed": {
+  "nodes": {
+   "docs": {
+    "fields": {
+     "folder": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/entered": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "value": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "emb/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "value": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "emb/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "texts": {
+      "index": "Index('emb/lines', parent=Index('docs'))",
+      "receives": "Group(index=Index('emb/lines', parent=Index('docs')), depth=1)",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "emb/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('emb/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   }
+  },
+  "order": [
+   "docs",
+   "emb/holder",
+   "emb/entered",
+   "emb/lines",
+   "emb/join"
+  ]
+ },
+ "born_under_a_row_inside": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('emb/docs')",
+      "type": "Series[Txt]"
+     },
+     "texts": {
+      "index": "Index('emb/lines', parent=Index('emb/docs'))",
+      "receives": "Group(index=Index('emb/lines', parent=Index('emb/docs')), depth=1)",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('emb/docs')"
+   },
+   "emb/docs": {
+    "fields": {
+     "folder": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('emb/docs')",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('emb/lines', parent=Index('emb/docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('emb/docs')",
+      "receives": "Iterate(index=Index('emb/docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('emb/docs')"
+   }
+  },
+  "order": [
+   "emb/docs",
+   "emb/lines",
+   "after"
+  ]
+ },
+ "cond_inner_choice_once": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       [
+        "Atom(node_id='emb/gate', choice='branches', output='if_true')"
+       ]
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "text": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/gate": {
+    "fields": {
+     "if_false": {
+      "condition": [
+       [
+        "Atom(node_id='emb/gate', choice='branches', output='if_false')"
+       ]
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "if_true": {
+      "condition": [
+       [
+        "Atom(node_id='emb/gate', choice='branches', output='if_true')"
+       ]
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "value": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     },
+     "when": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Flag"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "value": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/single": {
+    "fields": {
+     "result": {
+      "condition": [
+       [
+        "Atom(node_id='emb/gate', choice='branches', output='if_false')"
+       ],
+       [
+        "Atom(node_id='emb/gate', choice='branches', output='if_true')"
+       ]
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "values": {
+      "index": "Index('emb/single.values')",
+      "receives": "Gather(index=Index('emb/single.values'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       [
+        "Atom(node_id='emb/gate', choice='branches', output='if_true')"
+       ]
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "text": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None"
+   }
+  },
+  "order": [
+   "emb/holder",
+   "emb/gate",
+   "emb/up",
+   "emb/single",
+   "after"
+  ]
+ },
+ "cond_inner_choice_per_row": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "values": {
+      "index": "Index('docs')",
+      "receives": "Whole()",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "docs": {
+    "fields": {
+     "folder": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/gate": {
+    "fields": {
+     "if_false": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "if_true": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "value": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "when": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Flag"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "emb/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "value": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "emb/single": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "values": {
+      "index": "Index('docs')",
+      "receives": "Group(index=Index('docs'), depth=1)",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "emb/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   }
+  },
+  "order": [
+   "docs",
+   "emb/holder",
+   "emb/gate",
+   "emb/up",
+   "emb/single",
+   "after"
+  ]
+ },
+ "cond_merge_inside": {
+  "nodes": {
+   "emb/a": {
+    "fields": {
+     "result": {
+      "condition": [
+       [
+        "Atom(node_id='og', choice='branches', output='if_true')"
+       ]
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "value": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/b": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "value": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/g": {
+    "fields": {
+     "if_false": {
+      "condition": [
+       [
+        "Atom(node_id='emb/g', choice='branches', output='if_false')"
+       ]
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "if_true": {
+      "condition": [
+       [
+        "Atom(node_id='emb/g', choice='branches', output='if_true')"
+       ]
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "value": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     },
+     "when": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Flag"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/single": {
+    "fields": {
+     "result": {
+      "condition": [
+       [
+        "Atom(node_id='emb/g', choice='branches', output='if_true')"
+       ],
+       [
+        "Atom(node_id='og', choice='branches', output='if_true')"
+       ]
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "values": {
+      "index": "Index('emb/single.values')",
+      "receives": "Gather(index=Index('emb/single.values'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "h": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "value": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "og": {
+    "fields": {
+     "if_false": {
+      "condition": [
+       [
+        "Atom(node_id='og', choice='branches', output='if_false')"
+       ]
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "if_true": {
+      "condition": [
+       [
+        "Atom(node_id='og', choice='branches', output='if_true')"
+       ]
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "value": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     },
+     "when": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Flag"
+     }
+    },
+    "iterates_on": "None"
+   }
+  },
+  "order": [
+   "h",
+   "og",
+   "emb/a",
+   "emb/b",
+   "emb/g",
+   "emb/single"
+  ]
+ },
+ "cond_nested_once": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       [
+        "Atom(node_id='top/b/gate', choice='branches', output='if_true')",
+        "Atom(node_id='top/g', choice='branches', output='if_true')"
+       ],
+       [
+        "Atom(node_id='top/g', choice='branches', output='if_false')"
+       ]
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "text": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "top/b/gate": {
+    "fields": {
+     "if_false": {
+      "condition": [
+       [
+        "Atom(node_id='top/b/gate', choice='branches', output='if_false')",
+        "Atom(node_id='top/g', choice='branches', output='if_true')"
+       ]
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "if_true": {
+      "condition": [
+       [
+        "Atom(node_id='top/b/gate', choice='branches', output='if_true')",
+        "Atom(node_id='top/g', choice='branches', output='if_true')"
+       ]
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "value": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     },
+     "when": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Flag"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "top/b/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       [
+        "Atom(node_id='top/g', choice='branches', output='if_true')"
+       ]
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "value": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "top/b/single": {
+    "fields": {
+     "result": {
+      "condition": [
+       [
+        "Atom(node_id='top/b/gate', choice='branches', output='if_false')",
+        "Atom(node_id='top/g', choice='branches', output='if_true')"
+       ],
+       [
+        "Atom(node_id='top/b/gate', choice='branches', output='if_true')",
+        "Atom(node_id='top/g', choice='branches', output='if_true')"
+       ]
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "values": {
+      "index": "Index('top/b/single.values')",
+      "receives": "Gather(index=Index('top/b/single.values'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "top/b/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       [
+        "Atom(node_id='top/b/gate', choice='branches', output='if_true')",
+        "Atom(node_id='top/g', choice='branches', output='if_true')"
+       ]
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "text": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "top/g": {
+    "fields": {
+     "if_false": {
+      "condition": [
+       [
+        "Atom(node_id='top/g', choice='branches', output='if_false')"
+       ]
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "if_true": {
+      "condition": [
+       [
+        "Atom(node_id='top/g', choice='branches', output='if_true')"
+       ]
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "value": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     },
+     "when": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Flag"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "top/h": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "value": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "top/s": {
+    "fields": {
+     "result": {
+      "condition": [
+       [
+        "Atom(node_id='top/b/gate', choice='branches', output='if_true')",
+        "Atom(node_id='top/g', choice='branches', output='if_true')"
+       ],
+       [
+        "Atom(node_id='top/g', choice='branches', output='if_false')"
+       ]
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "values": {
+      "index": "Index('top/s.values')",
+      "receives": "Gather(index=Index('top/s.values'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   }
+  },
+  "order": [
+   "top/h",
+   "top/g",
+   "top/b/holder",
+   "top/b/gate",
+   "top/b/up",
+   "top/b/single",
+   "top/s",
+   "after"
+  ]
+ },
+ "cond_nested_per_row": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "values": {
+      "index": "Index('docs')",
+      "receives": "Whole()",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "docs": {
+    "fields": {
+     "folder": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "top/b/gate": {
+    "fields": {
+     "if_false": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "if_true": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "value": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "when": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Flag"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/b/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "value": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/b/single": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "values": {
+      "index": "Index('docs')",
+      "receives": "Group(index=Index('docs'), depth=1)",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/b/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/g": {
+    "fields": {
+     "if_false": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "if_true": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "value": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "when": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Flag"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/h": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "value": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/s": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "values": {
+      "index": "Index('docs')",
+      "receives": "Group(index=Index('docs'), depth=1)",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   }
+  },
+  "order": [
+   "docs",
+   "top/h",
+   "top/g",
+   "top/b/holder",
+   "top/b/gate",
+   "top/b/up",
+   "top/b/single",
+   "top/s",
+   "after"
+  ]
+ },
+ "cond_outer_gate_into_graph": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       [
+        "Atom(node_id='emb/gate', choice='branches', output='if_false')",
+        "Atom(node_id='og', choice='branches', output='if_false')"
+       ],
+       [
+        "Atom(node_id='emb/gate', choice='branches', output='if_true')",
+        "Atom(node_id='og', choice='branches', output='if_false')"
+       ]
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "text": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/gate": {
+    "fields": {
+     "if_false": {
+      "condition": [
+       [
+        "Atom(node_id='emb/gate', choice='branches', output='if_false')",
+        "Atom(node_id='og', choice='branches', output='if_false')"
+       ]
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "if_true": {
+      "condition": [
+       [
+        "Atom(node_id='emb/gate', choice='branches', output='if_true')",
+        "Atom(node_id='og', choice='branches', output='if_false')"
+       ]
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "value": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     },
+     "when": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Flag"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       [
+        "Atom(node_id='og', choice='branches', output='if_false')"
+       ]
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "value": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/single": {
+    "fields": {
+     "result": {
+      "condition": [
+       [
+        "Atom(node_id='emb/gate', choice='branches', output='if_false')",
+        "Atom(node_id='og', choice='branches', output='if_false')"
+       ],
+       [
+        "Atom(node_id='emb/gate', choice='branches', output='if_true')",
+        "Atom(node_id='og', choice='branches', output='if_false')"
+       ]
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "values": {
+      "index": "Index('emb/single.values')",
+      "receives": "Gather(index=Index('emb/single.values'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       [
+        "Atom(node_id='emb/gate', choice='branches', output='if_true')",
+        "Atom(node_id='og', choice='branches', output='if_false')"
+       ]
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "text": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "h": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "value": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "og": {
+    "fields": {
+     "if_false": {
+      "condition": [
+       [
+        "Atom(node_id='og', choice='branches', output='if_false')"
+       ]
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "if_true": {
+      "condition": [
+       [
+        "Atom(node_id='og', choice='branches', output='if_true')"
+       ]
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "value": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     },
+     "when": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Flag"
+     }
+    },
+    "iterates_on": "None"
+   }
+  },
+  "order": [
+   "h",
+   "og",
+   "emb/holder",
+   "emb/gate",
+   "emb/up",
+   "emb/single",
+   "after"
+  ]
+ },
+ "entering_scalar": {
+  "nodes": {
+   "docs": {
+    "fields": {
+     "folder": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "value": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "emb/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "texts": {
+      "index": "Index('docs')",
+      "receives": "Group(index=Index('docs'), depth=1)",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "emb/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   }
+  },
+  "order": [
+   "docs",
+   "emb/holder",
+   "emb/up",
+   "emb/join"
+  ]
+ },
+ "gather_two_inside": {
+  "nodes": {
+   "docs": {
+    "fields": {
+     "folder": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "value": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "emb/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "texts": {
+      "index": "Index('docs')",
+      "receives": "Group(index=Index('docs'), depth=1)",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "emb/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   }
+  },
+  "order": [
+   "docs",
+   "emb/holder",
+   "emb/up",
+   "emb/join"
+  ]
+ },
+ "gathered_into_the_placed_node": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "text": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "texts": {
+      "index": "Index('emb/join.texts')",
+      "receives": "Gather(index=Index('emb/join.texts'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "h1": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "value": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "h2": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "value": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None"
+   }
+  },
+  "order": [
+   "h1",
+   "h2",
+   "emb/join",
+   "after"
+  ]
+ },
+ "many_values_on_the_placed_node": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "texts": {
+      "index": "Index('after.texts')",
+      "receives": "Gather(index=Index('after.texts'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('emb/holder.value')",
+      "type": "Series[Txt]"
+     },
+     "value": {
+      "index": "Index('emb/holder.value')",
+      "receives": "Iterate(index=Index('emb/holder.value'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('emb/holder.value')"
+   },
+   "emb/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "texts": {
+      "index": "Index('emb/holder.value')",
+      "receives": "Whole()",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('emb/holder.value')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('emb/holder.value')",
+      "receives": "Iterate(index=Index('emb/holder.value'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('emb/holder.value')"
+   }
+  },
+  "order": [
+   "emb/holder",
+   "emb/up",
+   "emb/join",
+   "after"
+  ]
+ },
+ "nested_2": {
+  "nodes": {
+   "docs": {
+    "fields": {
+     "folder": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "top/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "value": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/inner/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "value": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/inner/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "texts": {
+      "index": "Index('top/inner/lines', parent=Index('docs'))",
+      "receives": "Group(index=Index('top/inner/lines', parent=Index('docs')), depth=1)",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/inner/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('top/inner/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/inner/s0": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/inner/s1": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/inner/s2": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/inner/s3": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/inner/s4": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/inner/s5": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/inner/s6": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/inner/s7": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/inner/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('top/inner/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('top/inner/lines', parent=Index('docs'))",
+      "receives": "Iterate(index=Index('top/inner/lines', parent=Index('docs')))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('top/inner/lines', parent=Index('docs'))"
+   },
+   "top/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "texts": {
+      "index": "Index('top/lines', parent=Index('docs'))",
+      "receives": "Group(index=Index('top/lines', parent=Index('docs')), depth=1)",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('top/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('top/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('top/lines', parent=Index('docs'))",
+      "receives": "Iterate(index=Index('top/lines', parent=Index('docs')))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('top/lines', parent=Index('docs'))"
+   }
+  },
+  "order": [
+   "docs",
+   "top/holder",
+   "top/inner/holder",
+   "top/inner/s0",
+   "top/inner/s1",
+   "top/inner/s2",
+   "top/inner/s3",
+   "top/inner/s4",
+   "top/inner/s5",
+   "top/inner/s6",
+   "top/inner/s7",
+   "top/inner/lines",
+   "top/inner/up",
+   "top/inner/join",
+   "top/lines",
+   "top/up",
+   "top/join"
+  ]
+ },
+ "nested_4": {
+  "nodes": {
+   "docs": {
+    "fields": {
+     "folder": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "top/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "value": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/inner/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "value": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/inner/inner/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "value": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/inner/inner/inner/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "value": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/inner/inner/inner/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "texts": {
+      "index": "Index('top/inner/inner/inner/lines', parent=Index('docs'))",
+      "receives": "Group(index=Index('top/inner/inner/inner/lines', parent=Index('docs')), depth=1)",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/inner/inner/inner/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('top/inner/inner/inner/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/inner/inner/inner/s0": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/inner/inner/inner/s1": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/inner/inner/inner/s2": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/inner/inner/inner/s3": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/inner/inner/inner/s4": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/inner/inner/inner/s5": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/inner/inner/inner/s6": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/inner/inner/inner/s7": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/inner/inner/inner/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('top/inner/inner/inner/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('top/inner/inner/inner/lines', parent=Index('docs'))",
+      "receives": "Iterate(index=Index('top/inner/inner/inner/lines', parent=Index('docs')))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('top/inner/inner/inner/lines', parent=Index('docs'))"
+   },
+   "top/inner/inner/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "texts": {
+      "index": "Index('top/inner/inner/lines', parent=Index('docs'))",
+      "receives": "Group(index=Index('top/inner/inner/lines', parent=Index('docs')), depth=1)",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/inner/inner/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('top/inner/inner/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/inner/inner/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('top/inner/inner/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('top/inner/inner/lines', parent=Index('docs'))",
+      "receives": "Iterate(index=Index('top/inner/inner/lines', parent=Index('docs')))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('top/inner/inner/lines', parent=Index('docs'))"
+   },
+   "top/inner/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "texts": {
+      "index": "Index('top/inner/lines', parent=Index('docs'))",
+      "receives": "Group(index=Index('top/inner/lines', parent=Index('docs')), depth=1)",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/inner/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('top/inner/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/inner/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('top/inner/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('top/inner/lines', parent=Index('docs'))",
+      "receives": "Iterate(index=Index('top/inner/lines', parent=Index('docs')))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('top/inner/lines', parent=Index('docs'))"
+   },
+   "top/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "texts": {
+      "index": "Index('top/lines', parent=Index('docs'))",
+      "receives": "Group(index=Index('top/lines', parent=Index('docs')), depth=1)",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('top/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('top/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('top/lines', parent=Index('docs'))",
+      "receives": "Iterate(index=Index('top/lines', parent=Index('docs')))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('top/lines', parent=Index('docs'))"
+   }
+  },
+  "order": [
+   "docs",
+   "top/holder",
+   "top/inner/holder",
+   "top/inner/inner/holder",
+   "top/inner/inner/inner/holder",
+   "top/inner/inner/inner/s0",
+   "top/inner/inner/inner/s1",
+   "top/inner/inner/inner/s2",
+   "top/inner/inner/inner/s3",
+   "top/inner/inner/inner/s4",
+   "top/inner/inner/inner/s5",
+   "top/inner/inner/inner/s6",
+   "top/inner/inner/inner/s7",
+   "top/inner/inner/inner/lines",
+   "top/inner/inner/inner/up",
+   "top/inner/inner/inner/join",
+   "top/inner/inner/lines",
+   "top/inner/inner/up",
+   "top/inner/inner/join",
+   "top/inner/lines",
+   "top/inner/up",
+   "top/inner/join",
+   "top/lines",
+   "top/up",
+   "top/join"
+  ]
+ },
+ "nested_iterating": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "texts": {
+      "index": "Index('docs')",
+      "receives": "Whole()",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "docs": {
+    "fields": {
+     "folder": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "top/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "value": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "texts": {
+      "index": "Index('top/lines', parent=Index('docs'))",
+      "receives": "Group(index=Index('top/lines', parent=Index('docs')), depth=1)",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "top/leafy/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('top/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "value": {
+      "index": "Index('top/lines', parent=Index('docs'))",
+      "receives": "Iterate(index=Index('top/lines', parent=Index('docs')))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('top/lines', parent=Index('docs'))"
+   },
+   "top/leafy/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('top/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "texts": {
+      "index": "Index('top/leafy/lines', parent=Index('top/lines', parent=Index('docs')))",
+      "receives": "Group(index=Index('top/leafy/lines', parent=Index('top/lines', parent=Index('docs'))), depth=2)",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('top/lines', parent=Index('docs'))"
+   },
+   "top/leafy/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('top/leafy/lines', parent=Index('top/lines', parent=Index('docs')))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('top/lines', parent=Index('docs'))",
+      "receives": "Iterate(index=Index('top/lines', parent=Index('docs')))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('top/lines', parent=Index('docs'))"
+   },
+   "top/leafy/s0": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('top/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('top/lines', parent=Index('docs'))",
+      "receives": "Iterate(index=Index('top/lines', parent=Index('docs')))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('top/lines', parent=Index('docs'))"
+   },
+   "top/leafy/s1": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('top/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('top/lines', parent=Index('docs'))",
+      "receives": "Iterate(index=Index('top/lines', parent=Index('docs')))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('top/lines', parent=Index('docs'))"
+   },
+   "top/leafy/s2": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('top/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('top/lines', parent=Index('docs'))",
+      "receives": "Iterate(index=Index('top/lines', parent=Index('docs')))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('top/lines', parent=Index('docs'))"
+   },
+   "top/leafy/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('top/leafy/lines', parent=Index('top/lines', parent=Index('docs')))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('top/leafy/lines', parent=Index('top/lines', parent=Index('docs')))",
+      "receives": "Iterate(index=Index('top/leafy/lines', parent=Index('top/lines', parent=Index('docs'))))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('top/leafy/lines', parent=Index('top/lines', parent=Index('docs')))"
+   },
+   "top/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('top/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   }
+  },
+  "order": [
+   "docs",
+   "top/holder",
+   "top/lines",
+   "top/leafy/holder",
+   "top/leafy/s0",
+   "top/leafy/s1",
+   "top/leafy/s2",
+   "top/leafy/lines",
+   "top/leafy/up",
+   "top/leafy/join",
+   "top/join",
+   "after"
+  ]
+ },
+ "per_row_output_read_outside": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "texts": {
+      "index": "Index('emb/lines', parent=Index('docs'))",
+      "receives": "Group(index=Index('emb/lines', parent=Index('docs')), depth=1)",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "docs": {
+    "fields": {
+     "folder": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "value": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "emb/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('emb/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "emb/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('emb/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('emb/lines', parent=Index('docs'))",
+      "receives": "Iterate(index=Index('emb/lines', parent=Index('docs')))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('emb/lines', parent=Index('docs'))"
+   }
+  },
+  "order": [
+   "docs",
+   "emb/holder",
+   "emb/lines",
+   "emb/up",
+   "after"
+  ]
+ },
+ "placed_3": {
+  "nodes": {
+   "docs": {
+    "fields": {
+     "folder": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "e0/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "value": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e0/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "texts": {
+      "index": "Index('e0/lines', parent=Index('docs'))",
+      "receives": "Group(index=Index('e0/lines', parent=Index('docs')), depth=1)",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e0/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('e0/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e0/s0": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e0/s1": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e0/s2": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e0/s3": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e0/s4": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e0/s5": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e0/s6": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e0/s7": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e0/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('e0/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('e0/lines', parent=Index('docs'))",
+      "receives": "Iterate(index=Index('e0/lines', parent=Index('docs')))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('e0/lines', parent=Index('docs'))"
+   },
+   "e1/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "value": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e1/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "texts": {
+      "index": "Index('e1/lines', parent=Index('docs'))",
+      "receives": "Group(index=Index('e1/lines', parent=Index('docs')), depth=1)",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e1/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('e1/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e1/s0": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e1/s1": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e1/s2": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e1/s3": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e1/s4": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e1/s5": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e1/s6": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e1/s7": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e1/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('e1/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('e1/lines', parent=Index('docs'))",
+      "receives": "Iterate(index=Index('e1/lines', parent=Index('docs')))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('e1/lines', parent=Index('docs'))"
+   },
+   "e2/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "value": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e2/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "texts": {
+      "index": "Index('e2/lines', parent=Index('docs'))",
+      "receives": "Group(index=Index('e2/lines', parent=Index('docs')), depth=1)",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e2/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('e2/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e2/s0": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e2/s1": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e2/s2": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e2/s3": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e2/s4": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e2/s5": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e2/s6": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e2/s7": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "e2/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('e2/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('e2/lines', parent=Index('docs'))",
+      "receives": "Iterate(index=Index('e2/lines', parent=Index('docs')))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('e2/lines', parent=Index('docs'))"
+   }
+  },
+  "order": [
+   "docs",
+   "e0/holder",
+   "e0/s0",
+   "e0/s1",
+   "e0/s2",
+   "e0/s3",
+   "e0/s4",
+   "e0/s5",
+   "e0/s6",
+   "e0/s7",
+   "e0/lines",
+   "e0/up",
+   "e0/join",
+   "e1/holder",
+   "e1/s0",
+   "e1/s1",
+   "e1/s2",
+   "e1/s3",
+   "e1/s4",
+   "e1/s5",
+   "e1/s6",
+   "e1/s7",
+   "e1/lines",
+   "e1/up",
+   "e1/join",
+   "e2/holder",
+   "e2/s0",
+   "e2/s1",
+   "e2/s2",
+   "e2/s3",
+   "e2/s4",
+   "e2/s5",
+   "e2/s6",
+   "e2/s7",
+   "e2/lines",
+   "e2/up",
+   "e2/join"
+  ]
+ },
+ "read_from_outside": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "texts": {
+      "index": "Index('docs')",
+      "receives": "Whole()",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "docs": {
+    "fields": {
+     "folder": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "value": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "emb/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "texts": {
+      "index": "Index('docs')",
+      "receives": "Group(index=Index('docs'), depth=1)",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "emb/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   }
+  },
+  "order": [
+   "docs",
+   "emb/holder",
+   "emb/up",
+   "emb/join",
+   "after"
+  ]
+ },
+ "required_input_filled_inside": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "text": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/n": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "text": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/u": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "text": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None"
+   }
+  },
+  "order": [
+   "emb/n",
+   "emb/u",
+   "after"
+  ]
+ },
+ "required_input_left_empty": {
+  "nodes": {
+   "docs": {
+    "fields": {
+     "folder": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "texts": {
+      "index": "Index('docs')",
+      "receives": "Group(index=Index('docs'), depth=1)",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "emb/n": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "emb/u": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   }
+  },
+  "order": [
+   "docs",
+   "emb/n",
+   "emb/u",
+   "emb/join"
+  ]
+ },
+ "runs_once": {
+  "nodes": {
+   "emb/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "value": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "texts": {
+      "index": "Index('emb/join.texts')",
+      "receives": "Gather(index=Index('emb/join.texts'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "text": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None"
+   }
+  },
+  "order": [
+   "emb/holder",
+   "emb/up",
+   "emb/join"
+  ]
+ },
+ "runs_once_fed": {
+  "nodes": {
+   "emb/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "value": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "texts": {
+      "index": "Index('emb/join.texts')",
+      "receives": "Gather(index=Index('emb/join.texts'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "text": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "h": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "value": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None"
+   }
+  },
+  "order": [
+   "h",
+   "emb/holder",
+   "emb/up",
+   "emb/join"
+  ]
+ },
+ "series_field": {
+  "nodes": {
+   "docs": {
+    "fields": {
+     "folder": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "texts": {
+      "index": "Index('docs')",
+      "receives": "Whole()",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   }
+  },
+  "order": [
+   "docs",
+   "emb/join"
+  ]
+ },
+ "two_crossings": {
+  "nodes": {
+   "docs": {
+    "fields": {
+     "folder": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/a": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "value": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('lines', parent=Index('docs'))"
+   },
+   "emb/b": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "value": {
+      "index": "Index('lines', parent=Index('docs'))",
+      "receives": "Iterate(index=Index('lines', parent=Index('docs')))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('lines', parent=Index('docs'))"
+   },
+   "emb/ua": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('lines', parent=Index('docs'))",
+      "receives": "Iterate(index=Index('lines', parent=Index('docs')))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('lines', parent=Index('docs'))"
+   },
+   "lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   }
+  },
+  "order": [
+   "docs",
+   "lines",
+   "emb/a",
+   "emb/b",
+   "emb/ua"
+  ]
+ },
+ "typed_list_inside": {
+  "nodes": {
+   "docs": {
+    "fields": {
+     "folder": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/h": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "emb/j": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "texts": {
+      "index": "Index('emb/t.b', parent=Index('docs'))",
+      "receives": "Group(index=Index('emb/t.b', parent=Index('docs')), depth=1)",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "emb/t": {
+    "fields": {
+     "a": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "b": {
+      "index": "Index('emb/t.b', parent=Index('docs'))",
+      "receives": "Iterate(index=Index('emb/t.b', parent=Index('docs')))",
+      "type": "Series[Txt]"
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('emb/t.b', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('emb/t.b', parent=Index('docs'))"
+   }
+  },
+  "order": [
+   "docs",
+   "emb/h",
+   "emb/t",
+   "emb/j"
+  ]
+ },
+ "value_and_edge_per_row": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "texts": {
+      "index": "Index('emb/lines', parent=Index('docs'))",
+      "receives": "Group(index=Index('emb/lines', parent=Index('docs')), depth=1)",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "docs": {
+    "fields": {
+     "folder": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/a": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "value": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "emb/b": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "value": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "emb/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('emb/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   },
+   "emb/p": {
+    "fields": {
+     "a": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     },
+     "b": {
+      "index": "Index('emb/lines', parent=Index('docs'))",
+      "receives": "Iterate(index=Index('emb/lines', parent=Index('docs')))",
+      "type": "Series[Txt]"
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('emb/lines', parent=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('emb/lines', parent=Index('docs'))"
+   },
+   "emb/ua": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "Index('docs')",
+      "type": "Series[Txt]"
+     },
+     "text": {
+      "index": "Index('docs')",
+      "receives": "Iterate(index=Index('docs'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "Index('docs')"
+   }
+  },
+  "order": [
+   "docs",
+   "emb/a",
+   "emb/b",
+   "emb/ua",
+   "emb/lines",
+   "emb/p",
+   "after"
+  ]
+ },
+ "value_on_the_placed_node": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "text": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "value": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "texts": {
+      "index": "Index('emb/join.texts')",
+      "receives": "Gather(index=Index('emb/join.texts'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None"
+   },
+   "emb/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "text": {
+      "index": "None",
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None"
+   }
+  },
+  "order": [
+   "emb/holder",
+   "emb/up",
+   "emb/join",
+   "after"
+  ]
+ }
+}

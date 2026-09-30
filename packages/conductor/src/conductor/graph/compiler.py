@@ -28,8 +28,15 @@ from pydantic import TypeAdapter, ValidationError
 
 from conductor.dtype_ref import name_of
 from conductor.errors import Refuses
-from conductor.graph.binding import From, static_values
+from conductor.graph.binding import From, Static, static_values
 from conductor.graph.conditions import Condition, conditions_of
+from conductor.graph.embedding import (
+    Crossing,
+    Placed,
+    graph_as_placed,
+    received_renamed,
+    renamed,
+)
 from conductor.graph.expand import (
     ADDRESS_KEYS,
     SEPARATOR,
@@ -37,6 +44,7 @@ from conductor.graph.expand import (
     authored_address,
     authored_ref,
     expand,
+    expanded_ref,
     resolved,
 )
 from conductor.graph.iteration import Iteration, derive
@@ -49,7 +57,7 @@ from conductor.metadata import Input
 from conductor.node import GraphVersion, NodeDefinition, NodeVersion
 from conductor.ref import Ref
 from conductor.registry import NodeRegistry
-from conductor.series import Series
+from conductor.series import Index, Series
 
 
 class Compilation:
@@ -86,6 +94,9 @@ class Compilation:
         #: Per node, the scalar inputs where the author typed many values —
         #: three files, a list of texts — which the node runs once per value of.
         self.listed: dict[str, frozenset[str]] = {}
+        #: Nodes whose version is a compiled graph that compile could not fully
+        #: work out, so it cannot be placed (set by ``pin``).
+        self.unplaceable: set[str] = set()
         #: Nodes whose stored edges are wrong; the edge walk leaves them out (set by ``check_bindings``).
         self.broken: frozenset[str] = frozenset()
         #: What the walk over the edges decided (set by ``walk_edges``).
@@ -112,9 +123,12 @@ class Compilation:
         7. ``walk_edges`` — one walk over the edges that types every field,
            decides which nodes run once per row and completes the outputs,
            checking each node's outputs against the field rules as it does.
-        8. ``conditions`` — the condition under which each output appears.
-        9. ``interface`` — what each embedded graph, and then the graph,
+        8. ``interface`` — what each embedded graph, and then the graph,
            takes and returns.
+        9. ``place_graphs`` — every node whose version is a compiled graph
+           swapped for that graph's records, lifted under the row it runs on.
+        10. ``conditions`` — the condition under which each output appears,
+            over the graph with every placed graph's nodes in their place.
 
         Every step records its problems as the author sees them, so a
         problem found inside an embedded graph is already on the node the
@@ -127,8 +141,9 @@ class Compilation:
         self.ask_inputs()
         self.check_bindings()
         self.walk_edges()
-        self.conditions()
         self.interface()
+        self.place_graphs()
+        self.conditions()
 
     def record_as_the_author_sees_it(self, *found: Problem) -> None:
         """Record problems on the graph as the author built it, not as compile expanded it.
@@ -210,8 +225,30 @@ class Compilation:
             found = resolved(node, self.registry)
             if isinstance(found, Problem):
                 self.record_as_the_author_sees_it(found)
-            else:
-                self.pinned[node.id] = found
+                continue
+            self.pinned[node.id] = found
+            definition, version = found
+            if not isinstance(version, NodeVersion | GraphVersion):
+                # Neither: a graph the host compiled on its own (this module may
+                # not import ``CompiledGraph``).
+                self._refuse_if_broken(node.id, definition, version)
+
+    def _refuse_if_broken(self, node_id: str, definition: type[NodeDefinition], graph: Any) -> None:
+        """A compiled graph can be placed only when compile worked out every
+        node in it and found nothing fatal but required inputs left empty on
+        nodes it worked out: those are values that arrive from outside, where
+        the graph is placed. Otherwise the author sees one problem on the
+        placed node, ``embedded_graph_broken``, counting the graph's faults,
+        and the graph's own problems stay on the graph, in its own words
+        (``compiled.node(id).version.problems``)."""
+        faults = [
+            found for found in graph.problems
+            if found.fatal and not (found.code == "unbound_required" and graph.node(found.node_id).state == "ready")
+        ]
+        if not faults and all(graph.node(inner.id).state == "ready" for inner in graph.graph.nodes):
+            return
+        self.unplaceable.add(node_id)
+        self.record_as_the_author_sees_it(problem("embedded_graph_broken", node_id, graph=definition.title, problems=len(faults)))
 
     def order(self) -> None:
         """Who waits for whom, read off the authored edges, and an execution
@@ -260,16 +297,29 @@ class Compilation:
         """
         for node_id, node in self.expansion.nodes.items():
             version = self.expansion.versions[node_id]
-            instance = self.expansion.definitions[node_id]()
-            defaults = {i.name: i.default for i in version.interface.inputs if i.optional}
-            for_hook, _, _ = self._typed_statics(version.interface.inputs, node)
-            try:
-                inputs = instance.compute_inputs(version.interface.inputs, {**defaults, **for_hook})
-            except Refuses as refusal:
-                self.record_as_the_author_sees_it(Problem(code=refusal.code, message=refusal.message, fatal=True, node_id=node_id))
-                continue
+            if isinstance(version, NodeVersion):
+                instance = self.expansion.definitions[node_id]()
+                defaults = {i.name: i.default for i in version.interface.inputs if i.optional}
+                for_hook, _, _ = self._typed_statics(version.interface.inputs, node)
+                try:
+                    inputs = instance.compute_inputs(version.interface.inputs, {**defaults, **for_hook})
+                except Refuses as refusal:
+                    self.record_as_the_author_sees_it(Problem(code=refusal.code, message=refusal.message, fatal=True, node_id=node_id))
+                    continue
+            else:
+                inputs = version.interface.inputs  # a compiled graph placed as a node: it has no hooks
             typed, listed, invalid = self._typed_statics(inputs, node)
             self.record_as_the_author_sees_it(*invalid)
+            if not isinstance(version, NodeVersion) and typed and node_id not in self.unplaceable:
+                # Values typed on a compiled graph's inputs belong to the nodes
+                # inside, exactly as if they had been typed there: a list makes
+                # only the node that holds it run once per value, and a hook
+                # inside reads the value. So the graph is compiled again with
+                # them, and the walk sees the placed node hold no list.
+                version = version.with_inputs(**typed)
+                self.expansion.versions[node_id] = version
+                self._refuse_if_broken(node_id, self.expansion.definitions[node_id], version)
+                listed = frozenset()
             if version.interface.open is not None:
                 # One Input per edge: `Series[Any]` when the node reduces each
                 # ("series"), `Any` when it receives each whole ("single"). The
@@ -314,7 +364,7 @@ class Compilation:
         everything after it are still worked out.
         """
         nodes = self.expansion.nodes
-        broken: set[str] = set()
+        broken: set[str] = set(self.unplaceable)
         self.record_as_the_author_sees_it(*lock_problems(nodes, self.interfaces))
         for node_id, interface in self.interfaces.items():
             node = nodes[node_id]
@@ -358,10 +408,17 @@ class Compilation:
                     if not isinstance(node.bindings.get(inp.name), From):
                         broken.add(node_id)
                         self.record_as_the_author_sees_it(problem("unbound_required", node_id, inp.name))
-                elif not inp.optional and inp.name not in node.bindings:
+                elif not inp.optional and inp.name not in node.bindings and not self._filled_inside(node_id, inp.name):
                     # Not broken: its type is declared, so the walk still works the node out, as a value that arrives at run time.
                     self.record_as_the_author_sees_it(problem("unbound_required", node_id, inp.name))
         self.broken = frozenset(broken)
+
+    def _filled_inside(self, node_id: str, name: str) -> bool:
+        """Is ``name`` an input of a placed compiled graph that the graph's own
+        author already filled in? Then nothing needs connecting where it is
+        placed: the value inside holds unless the outer graph gives another."""
+        version = self.expansion.versions[node_id]
+        return not isinstance(version, NodeVersion | GraphVersion) and isinstance(version.field(Ref(name)).binding, Static)
 
     def walk_edges(self) -> None:
         """One walk over the edges in expanded order (``iteration.derive``):
@@ -381,6 +438,87 @@ class Compilation:
         self.record_as_the_author_sees_it(*self.iteration.problems)
         self.interfaces = {**self.interfaces, **self.iteration.interfaces}
 
+    def place_graphs(self) -> None:
+        """Every node whose version is a compiled graph, swapped for that graph's records (``embedding.graph_as_placed``).
+
+        The walk saw each as one node with the compiled graph's interface and
+        decided the row it runs on; here its nodes take its place in the
+        order, its fields' types, rows and receipts are lifted under that
+        row, and every outer edge from one of its outputs is re-pointed at
+        the inner field (``approve.check.amount`` at ``approve/check.amount``),
+        as inlining would. An index the walk named after one of its inputs
+        is renamed after the inner field. The placed node itself stays, a ``graph``
+        whose version is the compiled graph.
+        """
+        placed_ids = [
+            node_id for node_id in self.expansion.order
+            if node_id in self.expansion.nodes and not isinstance(self.expansion.versions[node_id], NodeVersion)
+        ]
+        if not placed_ids:
+            return
+        expansion, iteration = self.expansion, self.iteration
+        nodes, order = dict(expansion.nodes), list(expansion.order)
+        members = {outer: list(ids) for outer, ids in expansion.members.items()}
+        versions, definitions = dict(expansion.versions), dict(expansion.definitions)
+        iterated, types = dict(iteration.iterated), dict(iteration.types)
+        indexes, receives = dict(iteration.indexes), dict(iteration.receives)
+        renames: dict[str, Index] = {}
+        for node_id in placed_ids:
+            node, interface = nodes.pop(node_id), self.interfaces.get(node_id)
+            # Only an input the graph offers crosses into it; an edge into any
+            # other name is already a ``stale_binding`` and reaches nothing.
+            offered = {str(inp.name) for inp in versions[node_id].interface.inputs}
+            edges = {name: binding for name, binding in node.bindings.items() if isinstance(binding, From) and name in offered}
+            if node_id not in iterated:
+                # The walk left it out: its nodes take its place, each saying why it is not ready.
+                lifted = graph_as_placed(versions[node_id], node_id, edges, None, None)
+                self._merge_structure(lifted, node_id, order, members, nodes, versions, definitions)
+                continue
+            own = {Ref(node_id, str(field.name)) for field in (*interface.inputs, *interface.outputs)}
+            # An index the walk named after one of this node's inputs (a
+            # gathering fed several edges) is named after the inner field it reaches.
+            for ref in own:
+                index = indexes.get(ref)
+                if index is not None and index.id == str(ref):
+                    renames[index.id] = Index(str(self._lifted_ref(node_id, ref.field)), parent=index.parent)
+            crossings = {
+                name: Crossing(
+                    type=types[Ref(node_id, name)],
+                    index=renamed(indexes[Ref(node_id, name)], renames),
+                    receives=received_renamed(receives[Ref(node_id, name)], renames),
+                )
+                for name in edges
+            }
+            lifted = graph_as_placed(versions[node_id], node_id, edges, renamed(iterated[node_id], renames), crossings)
+            for ref in own:
+                types.pop(ref, None)
+                indexes.pop(ref, None)
+                receives.pop(ref, None)
+            self._merge_structure(lifted, node_id, order, members, nodes, versions, definitions)
+            iterated.update(lifted.iterated)
+            types.update(lifted.types)
+            indexes.update(lifted.indexes)
+            receives.update(lifted.receives)
+        graph_ids = {*placed_ids, *(outer for outer in versions if not isinstance(versions[outer], NodeVersion))}
+        for node_id, node in nodes.items():
+            if any(isinstance(b, From) and any(r.node_id in graph_ids for r in b.refs) for b in node.bindings.values()):
+                nodes[node_id] = node.model_copy(update={"bindings": {
+                    name: From(*(expanded_ref(ref, graph_ids) for ref in binding.refs)) if isinstance(binding, From) else binding
+                    for name, binding in node.bindings.items()
+                }})
+        self.expansion = replace(
+            expansion, nodes=nodes, order=tuple(order),
+            members={outer: tuple(ids) for outer, ids in members.items()},
+            versions=versions, definitions=definitions,
+        )
+        self.iteration = replace(
+            iteration,
+            iterated={node_id: renamed(index, renames) for node_id, index in iterated.items()},
+            types=types,
+            indexes={ref: renamed(index, renames) for ref, index in indexes.items()},
+            receives={ref: received_renamed(receipt, renames) for ref, receipt in receives.items()},
+        )
+
     def conditions(self) -> None:
         """The condition under which each output appears, from the ``choice``
         groups of the nodes that run once (``conditions_of``)."""
@@ -389,6 +527,32 @@ class Compilation:
             [expansion.nodes[node_id] for node_id in expansion.order if node_id in iteration.iterated],
             self.interfaces, iteration.iterated,
         )
+
+    def _merge_structure(
+        self, lifted: Placed, node_id: str, order: list[str], members: dict[str, list[str]],
+        nodes: dict[str, GraphNode], versions: dict[str, Any], definitions: dict[str, type[NodeDefinition]],
+    ) -> None:
+        """Put a placed graph's nodes where it stood: in the order, in every
+        graph around it, and in the records of what each node is."""
+        at = order.index(node_id)
+        order[at:at + 1] = lifted.order
+        for ids in members.values():
+            if node_id in ids:
+                at = ids.index(node_id)
+                ids[at:at + 1] = lifted.order
+        nodes.update(lifted.nodes)
+        members.update({outer: list(ids) for outer, ids in lifted.members.items()})
+        versions.update(lifted.versions)
+        definitions.update(lifted.definitions)
+        self.interfaces.update(lifted.interfaces)
+        self.statics.update(lifted.statics)
+        self.listed.update(lifted.listed)
+
+    def _lifted_ref(self, node_id: str, address: str) -> Ref:
+        """The inner field an address on a placed node reaches, by lifted ref: ``emb`` + ``mid.join.result`` → ``emb/mid/join.result``."""
+        graph = self.expansion.versions[node_id]
+        inner = expanded_ref(Ref(address), graph._compilation.expansion.graphs)
+        return Ref(f"{node_id}{SEPARATOR}{inner.node_id}", inner.field)
 
     def interface(self) -> None:
         """What each embedded graph takes and returns, and then what the graph does.
