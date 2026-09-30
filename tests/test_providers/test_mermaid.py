@@ -148,7 +148,7 @@ def test_a_node_with_a_fatal_problem_carries_the_fault_class_and_its_broken_edge
 
 
 def test_a_graph_with_a_broken_edge_and_something_downstream_draws():
-    """An arrow into a node compile could not derive has no label: how it receives is not known."""
+    """An arrow into a node whose wiring failed has no label: how it receives is not known."""
     compiled = _compiled(
         GraphNode(id="a", type="upper", version=1, bindings={"text": Static(Txt("hi"))}),
         GraphNode(id="b", type="upper", version=1, bindings={"text": From("ghost.result")}),
