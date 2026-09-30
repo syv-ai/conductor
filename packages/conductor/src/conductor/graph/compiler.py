@@ -294,9 +294,10 @@ class Compilation:
         node's ``compute_inputs`` makes its fields come and go), an edge into an input that cannot be connected
         (``show_handle=False``), an edge from a node that does not exist, an
         edge into a field an embedded graph does not have, and a required
-        input nothing binds (``unbound_required``). A parameter typed ``Any``
-        gets its type from its edge and nothing else, so with no edge it is
-        ``unbound_required`` as well. Two inputs sharing a name, or a handle
+        input nothing binds (``unbound_required``). A parameter typed ``Any``,
+        or ``Series[Any]``, gets its type from its edge and nothing else, so
+        with no edge it is ``unbound_required`` as well, and its node can't be
+        worked out. Two inputs sharing a name, or a handle
         without a type an edge can carry (``field_problems``), and an input
         named with a leading underscore (``parameter_name_invalid``), are
         checked here on the inputs the hook answered, before the walk reads
@@ -353,7 +354,7 @@ class Compilation:
                     # else: an id the author wrote that compile could not resolve; it carries its own fatal problem
 
             for inp in interface.inputs:
-                if inp.dtype is Any:
+                if inp.dtype is Any or inp.dtype is Series[Any]:
                     if not isinstance(node.bindings.get(inp.name), From):
                         broken.add(node_id)
                         self.record_as_the_author_sees_it(problem("unbound_required", node_id, inp.name))

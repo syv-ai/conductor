@@ -2,7 +2,7 @@
 
 from collections import Counter
 from collections.abc import Mapping
-from typing import Annotated, ClassVar
+from typing import Annotated, Any, ClassVar
 
 import pytest
 from conductor import NodeRegistry
@@ -12,6 +12,7 @@ from conductor.errors import (
     NodeKindError,
     NodeResolutionError,
     NodeWiringError,
+    Refuses,
 )
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
@@ -22,6 +23,7 @@ from conductor.interface import FromRun, Interface, model_of
 from conductor.metadata import Input, Output, Param, Result
 from conductor.node import GraphVersion, NodeDefinition, Policy, upgrade, version
 from conductor.ref import Ref
+from conductor.series import Series
 from conductor.widgets import Choice, Dropdown, Textarea
 from pydantic import ValidationError
 
@@ -373,6 +375,50 @@ def test_an_empty_typed_input_is_a_value_that_arrives_later():
     assert compiled.field(Ref("n", "text")).receives == Broadcast()
     assert compiled.field(Ref("e", "result")).type is Txt
 
+
+
+class Headed(NodeDefinition):
+    """Outputs named by a required header the author types; no header yet, no outputs to name."""
+
+    id = "headed"
+    title = "Headed"
+    description = "d"
+    category = "test"
+
+    def run(self, header: Annotated[Txt, Param(title="Header", widget=Textarea())]) -> Out:
+        return header
+
+    def compute_outputs(self, declared, values, arriving):
+        if "header" not in values:
+            raise Refuses("header_missing", "Type a header first.")
+        return declared
+
+
+def test_a_hook_is_not_handed_a_required_input_left_empty():
+    """``values`` has no entry for a required input nobody filled, just as
+    for a connected one; a hook that needs it refuses, and compile reports."""
+    compiled = _compiled([GraphNode(id="n", type="headed", version=1)], _registry(Headed))
+
+    assert [(p.code, p.fatal) for p in compiled.problems] == [("unbound_required", True), ("header_missing", True)]
+
+
+class Gathers(NodeDefinition):
+    """A required list of anything: only an edge can say what it holds."""
+
+    id = "gathers"
+    title = "Gathers"
+    description = "d"
+    category = "test"
+
+    def run(self, items: Annotated[Series[Any], Param(title="Items", widget=Textarea())]) -> Out:
+        return Txt("")
+
+
+def test_an_empty_list_of_anything_breaks_its_node_like_anything():
+    compiled = _compiled([GraphNode(id="n", type="gathers", version=1)], _registry(Gathers))
+
+    assert [p.code for p in compiled.problems] == ["unbound_required"]
+    assert compiled.node("n").state == "wiring_failed"
 
 class Wrapped(NodeDefinition):
     """A stored graph placed as a node: one echo inside."""

@@ -111,7 +111,7 @@ def compute_inputs(self, declared: tuple[Input, ...], values: Mapping[str, Any])
 def compute_outputs(self, declared: tuple[Output, ...], values: Mapping[str, Any], arriving: Mapping[str, type[DType]]) -> tuple[Output, ...]: ...
 ```
 
-One placement's fields when they depend on typed-in `values` or the `arriving` types. Compile keeps the answer on `compiled.node(node_id).interface`. `Refuses(code, message)` becomes a `Problem` on the node.
+One placement's fields when they depend on typed-in `values` or the `arriving` types. `values` holds what the author typed over the declared defaults; a connected input, or a required one left empty, has no entry. Compile keeps the answer on `compiled.node(node_id).interface`. `Refuses(code, message)` becomes a `Problem` on the node.
 
 ### Types
 

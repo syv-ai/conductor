@@ -453,8 +453,8 @@ class _Walk:
     def _outputs(self, node: GraphNode, arriving: Mapping[str, Any]) -> tuple[Output, ...] | Problem:
         """Ask the node's ``compute_outputs`` now that it can be told what
         arrives, with the values the author typed laid over the
-        declaration's defaults (so a hook indexes ``values[...]`` without a
-        guard).
+        declaration's defaults. An optional input is always there; a
+        required one the author left empty, or connected, is not.
 
         A hook that cannot answer for these values and arrivals raises
         ``Refuses(code, message)``, and the refusal comes back as the node's

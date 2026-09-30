@@ -577,8 +577,11 @@ class NodeDefinition(ABC, metaclass=_NodeMeta):
         dropdown that changes which fields exist. The default returns
         ``declared``. ``declared`` is passed in rather than read off the
         class because the placement pins a version, which may not be the
-        newest; ``values`` are the values the author typed (a connected input
-        has no value until the graph runs).
+        newest; ``values`` are the values the author typed, over the
+        declared defaults. A connected input has no value until the graph
+        runs, and a required input the author left empty has none either, so
+        neither has an entry. A hook that can't answer without one raises
+        ``Refuses``.
         """
         return declared
 
@@ -595,7 +598,10 @@ class NodeDefinition(ABC, metaclass=_NodeMeta):
         connected input. ``arriving`` maps each connected input name to the type
         one call receives there — for a series into a scalar input, its
         element type — and has no entry for an unconnected input. It is a
-        type, never a value. The default returns ``declared``.
+        type, never a value. ``values`` are as for ``compute_inputs``: what
+        the author typed, over the declared defaults, with no entry for a
+        connected input or a required one left empty. The default returns
+        ``declared``.
         """
         return declared
 
