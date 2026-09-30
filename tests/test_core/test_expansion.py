@@ -6,7 +6,7 @@ from typing import Annotated, ClassVar
 import pytest
 from conductor import NodeRegistry
 from conductor.dtype import DType
-from conductor.errors import NodeKindError, NotDerived, NotResolved
+from conductor.errors import NodeKindError, NodeResolutionError, NodeWiringError
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import FieldContent, Graph, GraphNode
@@ -407,12 +407,12 @@ def test_two_unrelated_series_entering_one_placement_are_its_misaligned():
     assert [(p.code, p.node_id) for p in compiled.problems] == [("misaligned", "emb")]
     (misaligned,) = compiled.problems
     placement, inner_a = compiled.node("emb"), compiled.node("emb/a")
-    assert (placement.state, inner_a.state) == ("not_derived", "not_derived")
+    assert (placement.state, inner_a.state) == ("wiring_failed", "wiring_failed")
     assert placement.problems == compiled.problems
     for node in (placement, inner_a):
-        with pytest.raises(NotDerived) as raised:
+        with pytest.raises(NodeWiringError) as raised:
             node.iterates_on
-        assert raised.value.problem == misaligned
+        assert raised.value.problems[0] == misaligned
     assert "emb" not in compiled.decisions
 
 
@@ -445,7 +445,7 @@ def test_a_nested_placement_expands_under_both_names():
 
 def test_a_graph_is_ready_only_when_every_node_inside_it_is_at_any_depth():
     """An unknown inner node beside a good one leaves its graph, and the graph
-    around that, ``not_derived``: still a ``graph`` an editor can draw, with
+    around that, ``wiring_failed``: still a ``graph`` an editor can draw, with
     the inner node's problem as the reason."""
     broken = _embedded_definition(
         "broken-graph",
@@ -462,11 +462,11 @@ def test_a_graph_is_ready_only_when_every_node_inside_it_is_at_any_depth():
     assert compiled.node("top/mid/up").state == "ready"
     for node_id in ("top/mid", "top"):
         node = compiled.node(node_id)
-        assert (node.state, node.kind) == ("not_derived", "graph")
+        assert (node.state, node.kind) == ("wiring_failed", "graph")
         assert node.interface is not None  # the box and its handles still draw
-        with pytest.raises(NotDerived) as raised:
+        with pytest.raises(NodeWiringError) as raised:
             node.iterates_on
-        assert raised.value.problem.code == "unknown_node_type"
+        assert raised.value.problems[0].code == "unknown_node_type"
 
 
 # --- what compile refuses about an embedded graph ---------------------------------------
@@ -500,11 +500,11 @@ def test_a_graph_that_embeds_itself_is_a_cycle_not_a_recursion_error():
     assert [(p.code, p.node_id, p.field) for p in compiled.problems] == [("cycle", "s", "again")]
     assert not compiled.is_runnable
     (cycle,) = compiled.problems
-    assert (compiled.node("s").kind, compiled.node("s").state) == ("graph", "not_derived")
-    assert compiled.node("s/again").state == "unresolved"
-    with pytest.raises(NotResolved) as raised:
+    assert (compiled.node("s").kind, compiled.node("s").state) == ("graph", "wiring_failed")
+    assert compiled.node("s/again").state == "resolution_failed"
+    with pytest.raises(NodeResolutionError) as raised:
         compiled.node("s/again").interface
-    assert raised.value.problem == cycle
+    assert raised.value.problems[0] == cycle
 
 
 def test_an_authored_id_holding_a_slash_does_not_take_an_inner_nodes_problem():
@@ -521,8 +521,8 @@ def test_an_authored_id_holding_a_slash_does_not_take_an_inner_nodes_problem():
     assert [(p.code, p.node_id, p.field) for p in compiled.problems] == [
         ("invalid_node_id", "e/holder", None), ("unknown_node_type", "e", "holder"),
     ]
-    assert compiled.node("e").state == "not_derived"
-    assert (compiled.node("e/holder").state, compiled.node("e/holder").embedded_in) == ("unresolved", "e")
+    assert compiled.node("e").state == "wiring_failed"
+    assert (compiled.node("e/holder").state, compiled.node("e/holder").embedded_in) == ("resolution_failed", "e")
 
 
 def test_two_graphs_that_embed_each_other_are_a_cycle():
@@ -534,14 +534,14 @@ def test_two_graphs_that_embed_each_other_are_a_cycle():
     assert [(p.code, p.node_id, p.field) for p in compiled.problems] == [("cycle", "top", "b.a")]
     (cycle,) = compiled.problems
     assert [compiled.node(node_id).state for node_id in ("top", "top/b", "top/b/a")] == [
-        "not_derived", "not_derived", "unresolved",
+        "wiring_failed", "wiring_failed", "resolution_failed",
     ]
     assert compiled.node("top/b").kind == "graph"
-    with pytest.raises(NotDerived) as around:
+    with pytest.raises(NodeWiringError) as around:
         compiled.node("top").iterates_on
-    with pytest.raises(NotResolved) as inside:
+    with pytest.raises(NodeResolutionError) as inside:
         compiled.node("top/b/a").interface
-    assert around.value.problem == inside.value.problem == cycle
+    assert around.value.problems[0] == inside.value.problems[0] == cycle
 
 
 def test_a_placements_interface_is_derived_from_its_graph_and_a_declaration_it_lacks_is_reported():
@@ -634,8 +634,8 @@ def test_misaligned_inside_an_embedded_graph_is_reported_once_with_the_authors_a
     assert "emb/" not in problem.message and "emb/" not in str(problem.details)
 
 
-def test_a_problem_surfaced_from_inside_keeps_its_details_and_rewrites_the_addresses():
-    """Surfacing adds ``placement`` and ``inner_message`` beside the
+def test_a_problem_from_inside_keeps_its_details_and_rewrites_the_addresses():
+    """Recording a problem found inside an embedded graph adds ``placement`` and ``inner_message`` beside the
     inner problem's own details, with every address in them rewritten to the
     author's — never a nested ``inner_details``."""
     compiled = _compiled([
@@ -649,17 +649,22 @@ def test_a_problem_surfaced_from_inside_keeps_its_details_and_rewrites_the_addre
     assert problem.details == {"placement": "Upper", "inner_message": "Field 'text' has several edges; that only works when they are all rows of one table."}
 
 
-def test_surfacing_rewrites_addresses_and_leaves_every_other_detail_alone():
+def test_recording_a_problem_from_inside_rewrites_addresses_and_leaves_every_other_detail_alone():
     """Only the details that hold an address or a node id are rewritten;
     a type's own sentence with a ``/`` in it is not an address."""
-    from conductor.graph.expand import surfaced
+    from conductor.graph.compiler import Compilation
     from conductor.graph.problem import Problem
 
     inner = Problem(code="invalid_static", message="The value in 'v' cannot be read. 3/4 is not a whole number.",
                     fatal=True, node_id="e/p", field="v", details={"reason": "3/4 is not a whole number"})
     misaligned = Problem(code="misaligned", message="m", fatal=True, node_id="e/p", details={"a": "e/p.a", "b": "e/q/r.b"})
+    compilation = Compilation(Graph(nodes=[]), _registry())
+    compilation.run()
 
-    assert surfaced(inner, {}).details == {
-        "reason": "3/4 is not a whole number", "placement": "p", "inner_message": inner.message,
-    }
-    assert surfaced(misaligned, {}).details == {"a": "e.p.a", "b": "e.q.r.b", "placement": "p", "inner_message": "m"}
+    compilation.record_as_the_author_sees_it(inner, misaligned)
+
+    assert [(p.node_id, p.field) for p in compilation.problems] == [("e", "p.v"), ("e", "p")]
+    assert [p.details for p in compilation.problems] == [
+        {"reason": "3/4 is not a whole number", "placement": "p", "inner_message": inner.message},
+        {"a": "e.p.a", "b": "e.q.r.b", "placement": "p", "inner_message": "m"},
+    ]
