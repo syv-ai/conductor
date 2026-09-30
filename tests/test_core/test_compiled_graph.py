@@ -425,19 +425,27 @@ def test_a_compiled_node_holds_the_class_it_resolved_to():
     assert compiled.node("emb/inner").definition is Echo
 
 
-def test_the_compiler_does_not_know_the_compiled_graph():
-    """``compiled`` imports ``compiler`` and never the other way: the passes know nothing of their result."""
+def _imports_of(module) -> set[str]:
+    """Every module a source file names in an import, and every name it
+    imports from one as ``module.name``, so ``from conductor.graph import
+    compiler`` counts as reaching ``conductor.graph.compiler``."""
     import ast
     from pathlib import Path
 
-    import conductor.graph.compiler as compiler_module
-
     reached: set[str] = set()
-    for node in ast.walk(ast.parse(Path(compiler_module.__file__).read_text())):
+    for node in ast.walk(ast.parse(Path(module.__file__).read_text())):
         if isinstance(node, ast.ImportFrom) and node.module:
             reached |= {node.module, *(f"{node.module}.{alias.name}" for alias in node.names)}
         if isinstance(node, ast.Import):
             reached |= {alias.name for alias in node.names}
+    return reached
+
+
+def test_the_compiler_does_not_know_the_compiled_graph():
+    """``compiled`` imports ``compiler`` and never the other way: the passes know nothing of their result."""
+    import conductor.graph.compiler as compiler_module
+
+    reached = _imports_of(compiler_module)
     compiled_names = {"CompiledGraph", "CompiledNode", "CompiledField"}
 
     assert not {name for name in reached if name.startswith("conductor.graph.compiled")}
@@ -448,19 +456,9 @@ def test_the_compiled_values_know_neither_the_compiler_nor_the_graph():
     """``compiled_node`` holds the answers for one node and one field; the
     compiler fills them in through ``compiled``. It imports neither, so the
     values stand on their own."""
-    import ast
-    from pathlib import Path
-
     import conductor.graph.compiled_node as compiled_node_module
 
-    reached: set[str] = set()
-    for node in ast.walk(ast.parse(Path(compiled_node_module.__file__).read_text())):
-        if isinstance(node, ast.ImportFrom) and node.module:
-            reached.add(node.module)
-        if isinstance(node, ast.Import):
-            reached |= {alias.name for alias in node.names}
-
-    assert not reached & {"conductor.graph.compiler", "conductor.graph.compiled"}
+    assert not _imports_of(compiled_node_module) & {"conductor.graph.compiler", "conductor.graph.compiled"}
 
 
 def test_execution_order_follows_the_edges():
