@@ -117,8 +117,8 @@ def expand(
     it and already carries a problem, as does a node absent from
     ``pinned`` (the class and version each authored node resolved to). An
     inner node whose type or version the registry lacks is a problem too,
-    reported on the expanded id and moved onto the graph node by
-    ``surfaced``.
+    reported on the expanded id; the compiler records it on the graph node
+    the author placed (``Compilation.record_as_the_author_sees_it``).
     """
     expander = _Expander(registry)
     for node_id in order:
@@ -279,40 +279,6 @@ def authored_ref(ref: Ref) -> Ref:
         return ref
     outer, inner = ref.node_id.split(SEPARATOR, 1)
     return Ref(outer, f"{inner.replace(SEPARATOR, '.')}.{ref.field}")
-
-
-def surfaced(problem: Problem, nodes: Mapping[str, GraphNode]) -> Problem:
-    """Move a problem found inside a graph node onto the graph node the author placed, where the author can see it.
-
-    A problem on an id with no ``/`` is on a node the author placed and is
-    left alone. The caller keeps apart the one problem about an id the author
-    wrote with a ``/`` in it (``invalid_node_id``), since that id may be an
-    inner node's too. The author sees ``approve``, not ``approve/check``: the node becomes
-    the graph node the author placed, the field becomes the inner address the authored graph
-    already uses (``check.amount``), and the message is prefixed with the
-    inner node's title. The code stays the inner problem's, and so do its
-    ``details`` under their own keys — every expanded address in them
-    rewritten to the author's (``approve/check.amount`` → ``approve.check.amount``)
-    — with ``placement`` (the inner node's title; the key is kept for the
-    hosts that read it) and ``inner_message`` added beside them, so a host
-    translating by code finds the same keys inside a graph node as outside
-    one.
-    """
-    if SEPARATOR not in problem.node_id:
-        return problem
-    outer, inner = problem.node_id.split(SEPARATOR, 1)
-    inner_address = inner.replace(SEPARATOR, ".")
-    title = (nodes[problem.node_id].title if problem.node_id in nodes else None) or inner_address
-    return problem.model_copy(update={
-        "node_id": outer,
-        "field": authored_ref(Ref(problem.node_id, problem.field)).field if problem.field else inner_address,
-        "message": f"In '{title}': {problem.message}",
-        "details": {
-            **{key: authored_address(value) if key in ADDRESS_KEYS else value for key, value in problem.details.items()},
-            "placement": title,
-            "inner_message": problem.message,
-        },
-    })
 
 
 #: The ``details`` keys that hold an address or a node id (``CATALOGUE``'s
