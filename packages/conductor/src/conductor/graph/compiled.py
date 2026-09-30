@@ -188,34 +188,36 @@ class CompiledGraph:
     # -- one node, one field ---------------------------------------------------
 
     def node(self, node_id: str) -> CompiledNode:
-        """Everything the compiler knows about one node, by expanded id.
-        Answers for every node compile met, whatever its ``state`` or
-        ``kind``: each id the author wrote, and every inner node of every
-        embedded graph compile entered. Raises ``KeyError`` only for an id
-        the graph does not have."""
+        """Look up one compiled node by its expanded id.
+
+        Every node compile saw has an entry, broken or not: each node in the
+        graph and each node inside an embedded graph. An id the graph does
+        not have raises ``KeyError``."""
         if node_id not in self._nodes:
             raise KeyError(f"{node_id!r} is not a node of this graph")
         return self._nodes[node_id]
 
     def field(self, ref: Ref) -> CompiledField:
-        """Everything the compiler knows about one input or output, by
-        either address: an address on the authored graph reads through to
-        the field that runs. Raises ``KeyError`` for a node the graph does
-        not have or a field the node does not have — a programming error,
-        not a state of the graph — and ``NotResolved`` for a node compile
-        could not resolve, whose fields nobody knows."""
-        at = self.expanded(ref)
-        if at.node_id not in self._nodes:
-            if at.node_id != ref.node_id:
+        """Look up one compiled input or output by its address.
+
+        The address can be written against the graph as the author built it
+        (``Ref("emb", "all.result")``) or as it runs (``Ref("emb/all",
+        "result")``). A node or field the graph does not have raises
+        ``KeyError``, since asking for one is a programming error. A node
+        compile could not resolve raises ``NotResolved``: nobody knows its
+        fields."""
+        running_ref = self.expanded(ref)
+        if running_ref.node_id not in self._nodes:
+            if running_ref.node_id != ref.node_id:
                 raise KeyError(f"{ref.node_id!r} has no field {ref.field!r} on this node")
-            raise KeyError(f"{at.node_id!r} is not a node of this graph")
-        node = self._nodes[at.node_id]
+            raise KeyError(f"{running_ref.node_id!r} is not a node of this graph")
+        node = self._nodes[running_ref.node_id]
         if node._kind == "graph":
-            raise KeyError(f"{at.node_id!r} has no field {at.field!r} on this node")
-        _gate(node, f"field {at.field!r}", derived=False)
-        if at.field not in node._fields:
-            raise KeyError(f"{at.node_id!r} has no field {at.field!r} on this node")
-        return node._fields[at.field]
+            raise KeyError(f"{running_ref.node_id!r} has no field {running_ref.field!r} on this node")
+        _gate(node, f"field {running_ref.field!r}", derived=False)
+        if running_ref.field not in node._fields:
+            raise KeyError(f"{running_ref.node_id!r} has no field {running_ref.field!r} on this node")
+        return node._fields[running_ref.field]
 
     # -- the two graphs ------------------------------------------------------
 
@@ -687,10 +689,10 @@ class _Fold:
         for name, binding in placed.bindings.items():
             if not isinstance(binding, Static):
                 continue
-            at = expanded_ref(Ref(node_id, name), graphs)
-            held = self.passes.statics.get(at.node_id, {})
-            if at.field in held:
-                typed[name] = held[at.field]
+            inner_ref = expanded_ref(Ref(node_id, name), graphs)
+            held = self.passes.statics.get(inner_ref.node_id, {})
+            if inner_ref.field in held:
+                typed[name] = held[inner_ref.field]
         return typed
 
     def fields(
