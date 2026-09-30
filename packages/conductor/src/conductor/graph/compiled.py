@@ -187,22 +187,24 @@ class CompiledGraph:
     # -- one node, one field ---------------------------------------------------
 
     def node(self, node_id: str) -> CompiledNode:
-        """Everything the compiler knows about one node, by expanded id.
-        Answers for every node compile met, whatever its ``state`` or
-        ``kind``: each id the author wrote, and every inner node of every
-        embedded graph compile entered. Raises ``KeyError`` only for an id
-        the graph does not have."""
+        """Look up one compiled node by its expanded id.
+
+        Every node compile saw has an entry, broken or not: each node in the
+        graph and each node inside an embedded graph. An id the graph does
+        not have raises ``KeyError``."""
         if node_id not in self._nodes:
             raise KeyError(f"{node_id!r} is not a node of this graph")
         return self._nodes[node_id]
 
     def field(self, ref: Ref) -> CompiledField:
-        """Everything the compiler knows about one input or output, by
-        either address: an address on the authored graph reads through to
-        the field that runs. Raises ``KeyError`` for a node the graph does
-        not have or a field the node does not have — a programming error,
-        not a state of the graph — and ``NotResolved`` for a node compile
-        could not resolve, whose fields nobody knows."""
+        """Look up one compiled input or output by its address.
+
+        The address can be written against the graph as the author built it
+        (``Ref("emb", "all.result")``) or as it runs (``Ref("emb/all",
+        "result")``). A node or field the graph does not have raises
+        ``KeyError``, since asking for one is a programming error. A node
+        compile could not resolve raises ``NotResolved``: nobody knows its
+        fields."""
         node_id, name, node = self._reached(ref)
         if node is None:
             if node_id != ref.node_id:
@@ -211,10 +213,10 @@ class CompiledGraph:
         if node._kind == "graph":
             raise KeyError(f"{node_id!r} has no field {name!r} on this node")
         _gate(node, f"field {name!r}", derived=False)
-        found = node._fields.get(name)
-        if found is None:
+        compiled_field = node._fields.get(name)
+        if compiled_field is None:
             raise KeyError(f"{node_id!r} has no field {name!r} on this node")
-        return found
+        return compiled_field
 
     # -- the two graphs ------------------------------------------------------
 
@@ -474,15 +476,14 @@ class CompiledNode:
 
     @property
     def statics(self) -> Mapping[str, Any]:
-        """The values the author typed into this node, by field.
+        """The values set directly on this node, by field.
 
-        Each read through the field's declared type — the value, never its
-        JSON form. Only what the author typed: an input left to its
-        declared default is absent. Where the author typed many values for
-        a scalar input the value is a list of them, and the field's
-        ``receives`` is ``Iterate`` on the input's own index. A ``graph``'s
-        are the values the author typed on it, by inner address
-        (``check.amount``), each as the inner node that holds it read it.
+        Each is read through the field's declared type, so it is the value
+        itself, not its JSON form. An input left to its declared default is
+        absent. When a single-value input is given several values, its entry
+        is the list of them, and the node runs once per value. For a
+        ``graph``, the values set on it, by inner address (``check.amount``),
+        each read by the inner node that holds it.
         """
         _gate(self, "statics", derived=False)
         return self._statics
@@ -625,10 +626,10 @@ class CompiledField:
 
     @property
     def binding(self) -> Binding | None:
-        """Where this input's value comes from: ``From`` from other nodes'
-        outputs, ``Static`` for a value the author typed, or ``None`` when
-        nothing binds it and its declared default applies. Only an input
-        has one; asking on an output raises."""
+        """Where this input's value comes from: ``From`` when it is wired to
+        other nodes' outputs, ``Static`` when a value is set directly on the
+        node, or ``None`` when neither is and its declared default applies.
+        Only an input has one; asking on an output raises."""
         self._only("input")
         return self._binding
 
@@ -824,10 +825,10 @@ class _Fold:
         for name, binding in placed.bindings.items():
             if not isinstance(binding, Static):
                 continue
-            at = expanded_ref(Ref(node_id, name), graphs)
-            held = self.passes.statics.get(at.node_id, {})
-            if at.field in held:
-                typed[name] = held[at.field]
+            inner_ref = expanded_ref(Ref(node_id, name), graphs)
+            held = self.passes.statics.get(inner_ref.node_id, {})
+            if inner_ref.field in held:
+                typed[name] = held[inner_ref.field]
         return typed
 
     def fields(
