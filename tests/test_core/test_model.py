@@ -16,7 +16,6 @@ from conductor.metadata import Field, Input, Output, Param, Result
 from conductor.model import ConductorModel
 from conductor.node import (
     Deprecation,
-    GraphVersion,
     NodeDescription,
     NodeVersion,
     Policy,
@@ -154,7 +153,7 @@ SAVED = (
     Deprecation, Policy, VersionDescription, NodeDescription,
     Field, Param, Result, Input, Output, Widget, Textarea, Dropdown, Choice, OperatorChoice, Index,
 )
-BUILT_PER_CALL = (CompiledGraph, CompiledNode, CompiledField, NodeVersion, GraphVersion, Interface, Skip)
+BUILT_PER_CALL = (CompiledGraph, CompiledNode, CompiledField, NodeVersion, Interface, Skip)
 
 
 @pytest.mark.parametrize("record", SAVED, ids=lambda r: r.__name__)

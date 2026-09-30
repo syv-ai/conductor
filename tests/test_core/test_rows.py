@@ -5,7 +5,7 @@ import threading
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Annotated, Any, ClassVar
+from typing import Annotated, Any
 
 import pytest
 from conductor import NodeRegistry, run_sync
@@ -20,12 +20,13 @@ from conductor.execution.engine import execute
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
-from conductor.interface import Interface
 from conductor.metadata import Input, Output, Param, Result
-from conductor.node import GraphVersion, NodeDefinition, Policy, version
+from conductor.node import NodeDefinition, Policy, version
 from conductor.ref import Ref
 from conductor.series import Index, Series
 from conductor.widgets import Textarea
+
+from test_core.embedded import embedded_graph_node
 
 
 class Txt(DType, str):
@@ -752,27 +753,12 @@ def test_run_sync_returns_the_pending_ending():
 # --- an embedded graph runs as nodes of the one run --------------------------------
 
 
-class TypedInside(NodeDefinition):
-    """An embedded graph whose inner node pairs what enters with a list the author typed."""
-
-    id = "typed-inside"
-    title = "Indlejret"
-    description = "d"
-    category = "test"
-    versions: ClassVar[dict[int, GraphVersion]] = {
-        1: GraphVersion(
-            graph=(
-                GraphNode(id="h", type="upper", version=1),
-                GraphNode(id="t", type="pair", version=1, bindings={"a": _edge(("h", "result")), "b": Static(["p", "q"])}),
-                GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("t", "result"))}),
-            ),
-            interface=Interface(
-                inputs=(Input(name="h.text", dtype=Txt, title="Text", widget=Textarea(), default=Txt(""), optional=True),),
-                outputs=(Output(name="j.result", dtype=Txt, title="Result"),),
-                returns=Mapping,
-            ),
-        )
-    }
+#: An embedded graph whose inner node pairs what enters with a list the author typed.
+TypedInside = embedded_graph_node("typed-inside", (
+    GraphNode(id="h", type="upper", version=1),
+    GraphNode(id="t", type="pair", version=1, bindings={"a": _edge(("h", "result")), "b": Static(["p", "q"])}),
+    GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("t", "result"))}),
+), _registry(), "Indlejret")
 
 
 @pytest.mark.parametrize(("texts", "joined"), [("a,b", ["A:p+A:q", "B:p+B:q"]), ("", [])])
@@ -821,24 +807,10 @@ def test_an_inner_reduction_over_the_entering_series_runs_once_per_outer_row():
     the ledger groups by the iteration index's depth, so the fold of one is one
     rule, not a second kind of index."""
 
-    class Embedded(NodeDefinition):
-        id = "inner-graph"
-        title = "Indlejret"
-        description = "d"
-        category = "test"
-        versions: ClassVar[dict[int, GraphVersion]] = {
-            1: GraphVersion(
-                graph=(
-                    GraphNode(id="holder", type="upper", version=1, bindings={"text": Static("inner")}),
-                    GraphNode(id="gather", type="join", version=1, bindings={"texts": _edge(("holder", "result"))}),
-                ),
-                interface=Interface(
-                    inputs=(Input(name="holder.text", dtype=Txt, title="Text", widget=Textarea(), default=Txt("inner"), optional=True),),
-                    outputs=(Output(name="gather.result", dtype=Txt, title="Result"),),
-                    returns=Mapping,
-                ),
-            )
-        }
+    embedded = embedded_graph_node("inner-graph", (
+        GraphNode(id="holder", type="upper", version=1, bindings={"text": Static("inner")}),
+        GraphNode(id="gather", type="join", version=1, bindings={"texts": _edge(("holder", "result"))}),
+    ), _registry(), "Indlejret")
 
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
@@ -846,7 +818,7 @@ def test_an_inner_reduction_over_the_entering_series_runs_once_per_outer_row():
             GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.text": _edge(("docs", "texts"))}),
             GraphNode(id="after", type="join", version=1, bindings={"texts": _edge(("emb", "gather.result"))}),
         ]),
-        _registry_with_asks(Embedded),
+        _registry_with_asks(embedded),
     )
     assert compiled.is_runnable, compiled.problems
     results = run_sync(compiled).state.results(compiled)

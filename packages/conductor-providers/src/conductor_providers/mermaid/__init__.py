@@ -74,7 +74,7 @@ def _placed(
     if placed.state == "resolution_failed" or placed.kind != "graph":
         return [f"{indent}{name}[{title}]{fault}"]
     lines = [f"{indent}subgraph {name} [{title}]"]
-    for inner in placed.version.graph:
+    for inner in placed.version.graph.nodes:
         lines += _placed(compiled, inner, f"{expanded_id}/{inner.id}", faulty, names, depth=depth + 1)
     lines.append(f"{indent}end")
     if fault:

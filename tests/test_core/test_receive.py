@@ -7,8 +7,7 @@ section runs two of those shapes, where the ledger must decide as
 compile did.
 """
 
-from collections.abc import Mapping
-from typing import Annotated, ClassVar
+from typing import Annotated
 
 import pytest
 from conductor import NodeRegistry, run_sync
@@ -17,12 +16,13 @@ from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Whole
-from conductor.interface import Interface
-from conductor.metadata import Input, Output, Param, Result
-from conductor.node import GraphVersion, NodeDefinition
+from conductor.metadata import Param, Result
+from conductor.node import NodeDefinition
 from conductor.ref import Ref
 from conductor.series import Index, Series
 from conductor.widgets import Textarea
+
+from test_core.embedded import embedded_graph_node
 
 
 class Txt(DType, str):
@@ -95,19 +95,6 @@ class Tags(NodeDefinition):
 
     def run(self, tags: Annotated[list[str], Param(title="Tags", show_handle=False)] = ["x"]) -> Out:
         return Txt("|".join(tags))
-
-
-def _embedded(node_id, graph, inputs, outputs):
-    class Embedded(NodeDefinition):
-        id = node_id
-        title = "Embedded"
-        description = "d"
-        category = "test"
-        versions: ClassVar[dict[int, GraphVersion]] = {
-            1: GraphVersion(graph=graph, interface=Interface(inputs=inputs, outputs=outputs, returns=Mapping))
-        }
-
-    return Embedded
 
 
 def _registry(*extra):
@@ -254,15 +241,10 @@ def test_an_output_has_no_receive_record():
 
 
 def test_an_inner_reduction_over_the_entering_series_reduces_to_its_own_row():
-    inner = _embedded(
-        "inner-graph",
-        (
+    inner = embedded_graph_node("inner-graph", (
             GraphNode(id="holder", type="upper", version=1),
             GraphNode(id="join", type="join", version=1, bindings={"texts": _edge(("holder", "result"))}),
-        ),
-        inputs=(Input(name="holder.text", dtype=Txt, title="Text", widget=Textarea(), default=Txt(""), optional=True),),
-        outputs=(Output(name="join.result", dtype=Txt, title="Result"),),
-    )
+        ), _registry())
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
         GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.text": _edge(("docs", "result"))}),
@@ -278,18 +260,10 @@ def test_unrelated_rows_inside_an_embedded_graph_are_misaligned_not_paired():
     """One inner node fed rows of ``a``, another fed a reduction over
     lines of ``b``. On one flat node this is ``misaligned``, and inside a
     placement too: A's row i is never paired with B's row i."""
-    inner = _embedded(
-        "pair-graph",
-        (
+    inner = embedded_graph_node("pair-graph", (
             GraphNode(id="up", type="upper", version=1),
             GraphNode(id="j", type="join", version=1),
-        ),
-        inputs=(
-            Input(name="up.text", dtype=Txt, title="Text", widget=Textarea(), default=Txt(""), optional=True),
-            Input(name="j.texts", dtype=Series[Txt], title="Texts", default=(), optional=True),
-        ),
-        outputs=(Output(name="up.result", dtype=Txt, title="Upper"), Output(name="j.result", dtype=Txt, title="Joined")),
-    )
+        ), _registry())
     compiled = _compiled([
         GraphNode(id="a", type="docs", version=1),
         GraphNode(id="b", type="docs", version=1),
@@ -313,24 +287,17 @@ def test_an_edge_from_another_nodes_input_is_not_a_source():
     assert not compiled.is_runnable
 
 
-def test_an_open_parameter_inside_an_embedded_graph_receives_whole_as_it_does_standalone():
-    """The inner graph behaves as it would standalone: ``**inputs: Single``
-    fed a series receives it whole, and the placement does not run per row."""
-    inner = _embedded(
-        "script-graph",
-        (GraphNode(id="s", type="script", version=1),),
-        inputs=(Input(name="s.v", dtype=Series[Txt], title="V", default=(), optional=True),),
-        outputs=(Output(name="s.result", dtype=Txt, title="Result"),),
-    )
+def test_an_open_parameter_inside_an_embedded_graph_is_not_an_input_it_offers():
+    """``**inputs`` takes a field per edge connected to it. Inside a graph
+    compiled on its own nothing is connected to it, so the graph offers no
+    field there, and an edge from outside into ``s.v`` reaches nothing."""
+    inner = embedded_graph_node("script-graph", (GraphNode(id="s", type="script", version=1),), _registry())
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
         GraphNode(id="emb", type="script-graph", version=1, bindings={"s.v": _edge(("docs", "result"))}),
     ], inner)
 
-    assert compiled.is_runnable, compiled.problems
-    assert _receives(compiled, "emb/s", "v") == Whole()
-    assert compiled.node("emb/s").iterates_on is None
-    assert compiled.node("emb").iterates_on is None
+    assert [(p.code, p.node_id, p.field) for p in compiled.problems] == [("stale_binding", "emb", "s.v")]
 
 
 # --- the ledger reads the record -----------------------------------------------------
@@ -342,23 +309,3 @@ def test_a_closed_list_input_runs_once_with_its_list_and_with_its_default():
 
     assert run_sync(typed).state.results(typed)["t"]["result"] == "a|b|c"
     assert run_sync(defaulted).state.results(defaulted)["t"]["result"] == "x"
-
-
-def test_an_open_parameter_embedded_receives_the_series_whole_at_run_time():
-    inner = _embedded(
-        "script-graph",
-        (GraphNode(id="s", type="script", version=1),),
-        inputs=(Input(name="s.v", dtype=Series[Txt], title="V", default=(), optional=True),),
-        outputs=(Output(name="s.result", dtype=Txt, title="Result"),),
-    )
-    standalone = _compiled([
-        GraphNode(id="docs", type="docs", version=1, bindings={"folder": Static("fa,fb")}),
-        GraphNode(id="s", type="script", version=1, bindings={"v": _edge(("docs", "result"))}),
-    ])
-    embedded = _compiled([
-        GraphNode(id="docs", type="docs", version=1, bindings={"folder": Static("fa,fb")}),
-        GraphNode(id="emb", type="script-graph", version=1, bindings={"s.v": _edge(("docs", "result"))}),
-    ], inner)
-
-    assert run_sync(standalone).state.results(standalone)["s"]["result"] == "v=['fa', 'fb']"
-    assert run_sync(embedded).state.results(embedded)["emb/s"]["result"] == "v=['fa', 'fb']"

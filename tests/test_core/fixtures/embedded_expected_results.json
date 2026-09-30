@@ -1,0 +1,186 @@
+{
+ "born_inside_exposed": {
+  "after": {
+   "result": "Series(Index('docs'), ['a', 'b'])"
+  },
+  "docs": {
+   "result": "Series(Index('docs'), ['a', 'b'])"
+  },
+  "emb/holder": {
+   "result": "Series(Index('docs'), ['a', 'b'])"
+  },
+  "emb/lines": {
+   "result": "Series(Index('emb/lines', parent=Index('docs')), ['a', 'b'], rows=[(0, 0), (1, 0)])"
+  }
+ },
+ "cond_nested_per_row": {
+  "after": {
+   "result": "'A'"
+  },
+  "docs": {
+   "result": "Series(Index('docs'), ['a', 'b'])"
+  },
+  "top/b/gate": {
+   "if_false": "Series(Index('docs'), [])",
+   "if_true": "Series(Index('docs'), ['a', 'b'])"
+  },
+  "top/b/holder": {
+   "result": "Series(Index('docs'), ['a', 'b'])"
+  },
+  "top/b/single": {
+   "result": "Series(Index('docs'), ['a', 'b'])"
+  },
+  "top/b/up": {
+   "result": "Series(Index('docs'), ['A', 'B'])"
+  },
+  "top/g": {
+   "if_false": "Series(Index('docs'), [])",
+   "if_true": "Series(Index('docs'), ['a', 'b'])"
+  },
+  "top/h": {
+   "result": "Series(Index('docs'), ['a', 'b'])"
+  },
+  "top/s": {
+   "result": "Series(Index('docs'), ['A', 'B'])"
+  }
+ },
+ "cond_outer_gate_into_graph": {
+  "h": {
+   "result": "'y'"
+  },
+  "og": {
+   "if_true": "'y'"
+  }
+ },
+ "entering_scalar": {
+  "docs": {
+   "result": "Series(Index('docs'), ['a', 'b'])"
+  },
+  "emb/holder": {
+   "result": "Series(Index('docs'), ['a', 'b'])"
+  },
+  "emb/join": {
+   "result": "Series(Index('docs'), ['A', 'B'])"
+  },
+  "emb/up": {
+   "result": "Series(Index('docs'), ['A', 'B'])"
+  }
+ },
+ "gathered_into_the_placed_node": {
+  "after": {
+   "result": "'A+B'"
+  },
+  "emb/join": {
+   "result": "'a+b'"
+  },
+  "h1": {
+   "result": "'a'"
+  },
+  "h2": {
+   "result": "'b'"
+  }
+ },
+ "many_values_on_the_placed_node": {
+  "after": {
+   "result": "'A+B'"
+  },
+  "emb/holder": {
+   "result": "Series(Index('emb/holder.value'), ['a', 'b'])"
+  },
+  "emb/join": {
+   "result": "'A+B'"
+  },
+  "emb/up": {
+   "result": "Series(Index('emb/holder.value'), ['A', 'B'])"
+  }
+ },
+ "nested_iterating": {
+  "after": {
+   "result": "'A+B'"
+  },
+  "docs": {
+   "result": "Series(Index('docs'), ['a', 'b'])"
+  },
+  "top/holder": {
+   "result": "Series(Index('docs'), ['a', 'b'])"
+  },
+  "top/join": {
+   "result": "Series(Index('docs'), ['A', 'B'])"
+  },
+  "top/leafy/holder": {
+   "result": "Series(Index('top/lines', parent=Index('docs')), ['a', 'b'], rows=[(0, 0), (1, 0)])"
+  },
+  "top/leafy/join": {
+   "result": "Series(Index('top/lines', parent=Index('docs')), ['A', 'B'], rows=[(0, 0), (1, 0)])"
+  },
+  "top/leafy/lines": {
+   "result": "Series(Index('top/leafy/lines', parent=Index('top/lines', parent=Index('docs'))), ['A', 'B'], rows=[(0, 0, 0), (1, 0, 0)])"
+  },
+  "top/leafy/s0": {
+   "result": "Series(Index('top/lines', parent=Index('docs')), ['A', 'B'], rows=[(0, 0), (1, 0)])"
+  },
+  "top/leafy/s1": {
+   "result": "Series(Index('top/lines', parent=Index('docs')), ['A', 'B'], rows=[(0, 0), (1, 0)])"
+  },
+  "top/leafy/s2": {
+   "result": "Series(Index('top/lines', parent=Index('docs')), ['A', 'B'], rows=[(0, 0), (1, 0)])"
+  },
+  "top/leafy/up": {
+   "result": "Series(Index('top/leafy/lines', parent=Index('top/lines', parent=Index('docs'))), ['A', 'B'], rows=[(0, 0, 0), (1, 0, 0)])"
+  },
+  "top/lines": {
+   "result": "Series(Index('top/lines', parent=Index('docs')), ['a', 'b'], rows=[(0, 0), (1, 0)])"
+  }
+ },
+ "per_row_output_read_outside": {
+  "after": {
+   "result": "Series(Index('docs'), ['A', 'B'])"
+  },
+  "docs": {
+   "result": "Series(Index('docs'), ['a', 'b'])"
+  },
+  "emb/holder": {
+   "result": "Series(Index('docs'), ['a', 'b'])"
+  },
+  "emb/lines": {
+   "result": "Series(Index('emb/lines', parent=Index('docs')), ['a', 'b'], rows=[(0, 0), (1, 0)])"
+  },
+  "emb/up": {
+   "result": "Series(Index('emb/lines', parent=Index('docs')), ['A', 'B'], rows=[(0, 0), (1, 0)])"
+  }
+ },
+ "required_input_filled_inside": {
+  "after": {
+   "result": "'INSIDE'"
+  },
+  "emb/n": {
+   "result": "'inside'"
+  },
+  "emb/u": {
+   "result": "'INSIDE'"
+  }
+ },
+ "value_and_edge_per_row": {
+  "after": {
+   "result": "Series(Index('docs'), ['A:x+A:y', 'B:x+B:y'])"
+  },
+  "docs": {
+   "result": "Series(Index('docs'), ['a', 'b'])"
+  },
+  "emb/a": {
+   "result": "Series(Index('docs'), ['a', 'b'])"
+  },
+  "emb/b": {
+   "result": "Series(Index('docs'), ['x\\ny', 'x\\ny'])"
+  },
+  "emb/lines": {
+   "result": "Series(Index('emb/lines', parent=Index('docs')), ['x', 'y', 'x', 'y'], rows=[(0, 0), (0, 1), (1, 0), (1, 1)])"
+  },
+  "emb/p": {
+   "result": "Series(Index('emb/lines', parent=Index('docs')), ['A:x', 'A:y', 'B:x', 'B:y'], rows=[(0, 0), (0, 1), (1, 0), (1, 1)])"
+  },
+  "emb/ua": {
+   "result": "Series(Index('docs'), ['A', 'B'])"
+  }
+ }
+}

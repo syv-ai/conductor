@@ -36,13 +36,15 @@ of the node that uploaded them. A scalar input is an input that takes one
 value. A node that receives a series on a scalar input runs once per row
 of the series; we say the node iterates on that index.
 
-Some nodes have a version that is itself a graph; that graph is an
-embedded graph, and the node is a ``graph`` (its ``kind``). The compiler
-inlines the embedded graph's nodes in place of that node, so the graph the author drew (the authored graph) differs
-from the graph that runs (the expanded graph). In the authored graph the
-embedded graph is one node, ``approve``, and its fields are addressed
-through it, ``Ref("approve", "check.amount")``. In the expanded graph
-its inner nodes are nodes of the run, named ``approve/check``.
+Some nodes have a version that is itself a graph, which the host compiled
+on its own; that graph is an embedded graph, and the node is a ``graph``
+(its ``kind``). Compile places the embedded graph's nodes in place of that
+node (``conductor.graph.embedding``), so the graph the author drew (the
+authored graph) differs from the graph that runs (the expanded graph). In
+the authored graph the embedded graph is one node, ``approve``, and its
+fields are addressed through it, ``Ref("approve", "check.amount")``. In the
+expanded graph its inner nodes are nodes of the run, named ``approve/check``.
+Only the fields the embedded graph offers can be addressed from outside.
 
 ``execution_order`` and ``decisions`` speak of the expanded graph;
 ``problems`` and ``interface`` speak of the authored one. ``node`` answers
@@ -66,7 +68,7 @@ from conductor.errors import InputNotOffered
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled_node import CompiledField, CompiledNode, NodeState, _gate
 from conductor.graph.compiler import Compilation
-from conductor.graph.expand import SEPARATOR, authored_address, embedded_in, expanded_ref
+from conductor.graph.embedding import SEPARATOR, embedded_in
 from conductor.graph.problem import Problem
 from conductor.ref import Ref
 
@@ -116,9 +118,9 @@ class CompiledGraph:
     #: back for what compile learned: ask ``node`` and ``field`` for that.
     graph: Graph
     #: Everything wrong with the graph, fatal or not, each on the node and
-    #: field it is about. Anchored on the authored graph: a problem found
-    #: inside an embedded graph sits on the node the author placed, with the
-    #: inner address as the field.
+    #: field it is about, all on nodes of the authored graph. An embedded
+    #: graph that cannot be placed is one ``embedded_graph_broken`` on the
+    #: node that places it; its own problems are on it (``node(id).version.problems``).
     problems: tuple[Problem, ...]
     #: The finished compile this was folded from. A graph that places this
     #: one reads its records from here and lifts them (``embedding``);
@@ -352,7 +354,7 @@ class _Fold:
         # wrote that id too: the authored one is refused (``invalid_node_id``).
         inner_nodes: dict[str, tuple[GraphNode, str | None]] = {}
         for outer, version in self.graphs.items():
-            for inner in (version.graph.nodes if isinstance(version, CompiledGraph) else version.graph):
+            for inner in version.graph.nodes:
                 inner_id = f"{outer}{SEPARATOR}{inner.id}"
                 inner_nodes.setdefault(inner_id, (inner.model_copy(update={"id": inner_id}), outer))
         self.met.update(inner_nodes)
@@ -360,15 +362,6 @@ class _Fold:
             self.met[node_id] = (node, embedded_in(node_id))
         for outer in self.graphs:
             self.met[outer] = (self.met[outer][0], embedded_in(outer))
-        #: The graph nodes with a node inside them, at any depth, that the
-        #: walk did not derive: each reads ``wiring_failed``, never ``ready``.
-        self.broken_inside: set[str] = set()
-        for node_id, (_, outer) in self.met.items():
-            if node_id in self.iteration.iterated:
-                continue
-            while outer is not None:
-                self.broken_inside.add(outer)
-                outer = self.met[outer][1]
         self.causes: dict[str, Problem] = {}
         self._plan()
 
@@ -433,7 +426,7 @@ class _Fold:
         for node_id, (placed, outer) in self.met.items():
             state = self.state(node_id)
             cause = None if state == "ready" else self.cause(node_id, frozenset())
-            problems = self.problems_on(self.address(node_id))
+            problems = self.problems_on(node_id)
             interface = self.compilation.interfaces.get(node_id)
             graph = self.graphs.get(node_id)
             if graph is not None:
@@ -447,10 +440,7 @@ class _Fold:
                     _kind="graph",
                     _version=graph,
                     _interface=interface,
-                    _statics=(
-                        self.compilation.statics.get(node_id, {}) if isinstance(graph, CompiledGraph)
-                        else self.typed_on(node_id, placed)
-                    ),
+                    _statics=self.compilation.statics.get(node_id, {}),
                     _definition=self.expansion.definitions[node_id],
                     _iterates_on=self.iteration.iterated.get(node_id),
                     _births=None,
@@ -479,23 +469,6 @@ class _Fold:
             )
         return built
 
-    def typed_on(self, node_id: str, placed: GraphNode) -> dict[str, Any]:
-        """The values the author typed on a node whose version is a graph, by
-        inner address: each read where it landed, on the inner field its
-        address names, through that field's type. A value on a field no
-        inner node has, or on an inner node compile could not resolve, has
-        no reading and is left out; its problem says why."""
-        graphs = self.graphs.keys()
-        typed: dict[str, Any] = {}
-        for name, binding in placed.bindings.items():
-            if not isinstance(binding, Static):
-                continue
-            inner_ref = expanded_ref(Ref(node_id, name), graphs)
-            held = self.compilation.statics.get(inner_ref.node_id, {})
-            if inner_ref.field in held:
-                typed[name] = held[inner_ref.field]
-        return typed
-
     def fields(
         self, node_id: str, placed: GraphNode, interface: Interface, cause: Problem | None,
         problems: tuple[Problem, ...],
@@ -512,7 +485,7 @@ class _Fold:
             if name in fields:
                 continue
             ref = Ref(node_id, name)
-            address = f"{self.address(node_id)}.{name}"
+            address = f"{node_id}.{name}"
             fields[name] = CompiledField(
                 ref=ref,
                 problems=tuple(p for p in problems if _address(p) == address),
@@ -534,16 +507,11 @@ class _Fold:
         """Membership, read once here: derived by the walk, or given an
         interface, or neither. A ``graph`` is ready only when every node
         inside it is."""
-        if node_id in self.iteration.iterated and node_id not in self.broken_inside:
+        if node_id in self.iteration.iterated:
             return "ready"
         if node_id in self.compilation.interfaces:
             return "wiring_failed"
         return "resolution_failed"
-
-    def address(self, node_id: str) -> str:
-        """Where the author sees a node, and so where its problems sit:
-        its own id at the top level, ``approve.check`` for ``approve/check``."""
-        return node_id if self.met[node_id][1] is None else authored_address(node_id)
 
     def problems_on(self, address: str) -> tuple[Problem, ...]:
         """Every problem at ``address`` or inside it."""
@@ -557,7 +525,7 @@ class _Fold:
         if node_id in self.causes:
             return self.causes[node_id]
         visiting = visiting | {node_id}
-        found = next((p for p in self.problems_on(self.address(node_id)) if p.fatal), None)
+        found = next((p for p in self.problems_on(node_id) if p.fatal), None)
         placed, outer = self.met[node_id]
         graph = node_id in self.graphs
         if found is None and graph:
@@ -570,7 +538,7 @@ class _Fold:
             ]
             found = self._first_cause(sources, visiting)
         while found is None and outer is not None:
-            found = next((p for p in self.compilation.problems if p.fatal and _address(p) == self.address(outer)), None)
+            found = next((p for p in self.problems_on(outer) if p.fatal), None)
             outer = self.met[outer][1]
         if found is None:
             raise AssertionError(f"compile left {node_id!r} {self.state(node_id)} with nothing fatal to say why")

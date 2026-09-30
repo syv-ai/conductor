@@ -45,17 +45,6 @@ Every one of those answers is written down as the input's receive record
 whole, grouped at which depth, or gathered. The engine reads the record and decides
 nothing of this again.
 
-An embedded graph (a node whose version is a graph, inlined by ``expand``)
-has a boundary. Where a series enters it through a scalar field, the
-whole inner graph runs once per row of that index: every inner node runs
-at least once per row of it, every index opened inside it is a child of
-it, and an inner reduction over the entering index receives one row at a
-time — so the inner graph behaves exactly as it would standalone, once
-per outer row. That index is found once, when the walk reaches the first
-inner node, from the edges crossing in (``_Walk._entering_index``), and
-is one more demand on every inner node: an inner node fed rows from an
-index unrelated to it is ``misaligned``, as it would be on a flat node.
-
 A scalar input holding a typed-in sequence (a multi-file upload, a list
 typed by hand) is a series on an index of its own, and the node runs once
 per row of it, exactly as it would for a series arriving on an edge.
@@ -78,14 +67,14 @@ from conductor.dtype import DType
 from conductor.dtype_ref import description_of, name_of
 from conductor.errors import Refuses
 from conductor.graph.binding import From
-from conductor.graph.expand import SEPARATOR, authored_ref, embedded_in
+from conductor.graph.embedding import SEPARATOR
 from conductor.graph.model import GraphNode
 from conductor.graph.problem import Problem, problem
 from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Receive, Whole
 from conductor.graph.views import field_problems
 from conductor.interface import Interface
 from conductor.metadata import Input, Output
-from conductor.node import GraphVersion, NodeDefinition, NodeVersion
+from conductor.node import NodeDefinition, NodeVersion
 from conductor.ref import Ref
 from conductor.series import Index, Series
 
@@ -116,12 +105,10 @@ class Iteration:
 def derive(
     nodes: Sequence[GraphNode],
     interfaces: Mapping[str, Interface],
-    versions: Mapping[str, NodeVersion | GraphVersion],
+    versions: Mapping[str, Any],
     definitions: Mapping[str, type[NodeDefinition]],
     statics: Mapping[str, Mapping[str, Any]],
     listed: Mapping[str, frozenset[str]],
-    *,
-    members: Mapping[str, Sequence[str]] = {},
 ) -> Iteration:
     """Walk ``nodes`` in execution order and record, for each, whether it
     runs once per row, what type every field carries, how every input
@@ -145,12 +132,11 @@ def derive(
     author typed laid over the declaration's defaults. A hook that raises
     ``Refuses`` makes its code and message the node's one fatal problem.
 
-    ``members`` comes from ``expand``: which nodes each embedded graph
-    holds; which embedded graph a node belongs to its id says
-    (``embedded_in``). The index an embedded graph runs per row of is found
-    when its first node is reached.
+    A node whose version is a compiled graph is walked as one node with
+    that graph's interface; ``Compilation.place_graphs`` lifts the graph
+    under the row the walk decides for it.
     """
-    walk = _Walk(nodes, interfaces, versions, definitions, statics, listed, members)
+    walk = _Walk(nodes, interfaces, versions, definitions, statics, listed)
     for node in nodes:
         walk.visit(node)
     return walk.result()
@@ -201,11 +187,10 @@ class _Walk:
         self,
         nodes: Sequence[GraphNode],
         interfaces: Mapping[str, Interface],
-        versions: Mapping[str, NodeVersion | GraphVersion],
+        versions: Mapping[str, Any],
         definitions: Mapping[str, type[NodeDefinition]],
         statics: Mapping[str, Mapping[str, Any]],
         listed: Mapping[str, frozenset[str]],
-        members: Mapping[str, Sequence[str]],
     ) -> None:
         self.nodes = {node.id: node for node in nodes}
         #: Each node's inputs and outputs as the input hook answered them,
@@ -216,9 +201,7 @@ class _Walk:
         self.definitions = definitions
         self.statics = statics
         self.listed = listed
-        self.members = members
-        #: The index each visited node runs once per row of (``None``: once);
-        #: each embedded graph's, under its graph node's id.
+        #: The index each visited node runs once per row of (``None``: once).
         self.iterated: dict[str, Index | None] = {}
         #: What every output of every visited node carries: the sources a
         #: later node's edges may name. Only outputs are sources.
@@ -232,13 +215,6 @@ class _Walk:
         #: What ``Iteration.interfaces`` serves.
         self.completed: dict[str, Interface] = {}
         self.problems: list[Problem] = []
-        #: The index each embedded graph's inner nodes run per row of, found
-        #: when the walk reaches its first inner node, with the inner field
-        #: the series entered through; ``None`` when no series enters.
-        self.scopes: dict[str, tuple[Index, Ref] | None] = {}
-        #: Embedded graphs whose entering series disagree; their inner nodes
-        #: are not derived.
-        self.misaligned_graphs: set[str] = set()
 
     def result(self) -> Iteration:
         fields = {**self.arrived, **self.carried}
@@ -255,37 +231,13 @@ class _Walk:
         """Read ``node``'s inputs, then either derive everything about it or,
         when a source could not be read, complete its fields from what did
         arrive and derive nothing."""
-        scope = self._scope_of(node)
-        arrived = self._read_inputs(node, scope)
-        if arrived.broken or embedded_in(node.id) in self.misaligned_graphs:
+        arrived = self._read_inputs(node)
+        if arrived.broken:
             self._complete_without_deriving(node, arrived)
         else:
-            self._derive(node, arrived, scope)
+            self._derive(node, arrived)
 
-    def _scope_of(self, node: GraphNode) -> tuple[Index, Ref] | None:
-        """The index that the embedded graph containing ``node`` runs once per
-        row of, and the inner field it entered through; ``None`` when ``node``
-        is at the top level or that graph runs once. Found on the first inner
-        node visited and recorded under the id of the node that embeds the
-        graph. An embedded graph whose entering series disagree is recorded
-        in ``misaligned_graphs``: its inner nodes are completed but not
-        derived, so the one ``misaligned`` on the graph node is the only report."""
-        outer = embedded_in(node.id)
-        if outer is None:
-            return None
-        if outer not in self.scopes:
-            entering = self._entering_index(outer)
-            if isinstance(entering, Problem):
-                self.problems.append(entering)
-                self.misaligned_graphs.add(outer)
-                entering = None
-            else:
-                # Only an aligned graph node is derived; a misaligned one gets no entry.
-                self.iterated[outer] = None if entering is None else entering[0]
-            self.scopes[outer] = entering
-        return self.scopes[outer]
-
-    def _read_inputs(self, node: GraphNode, scope: tuple[Index, Ref] | None) -> _Arrivals:
+    def _read_inputs(self, node: GraphNode) -> _Arrivals:
         """What arrives on each input of ``node``, how each is received, and whether each edge is allowed.
 
         An input nothing feeds carries what the author typed (a scalar, or a
@@ -299,14 +251,13 @@ class _Walk:
         that cannot be read and says so in ``broken``.
         """
         interface = self.asked[node.id]
-        scope_index = None if scope is None else scope[0]
         found = _Arrivals()
 
         for inp in interface.inputs:
             ref = Ref(node.id, inp.name)
             binding = node.bindings.get(inp.name)
             if not isinstance(binding, From):
-                carried, receive = self._originates(inp, ref, inp.name in self.listed[node.id], scope_index)
+                carried, receive = self._originates(inp, ref, inp.name in self.listed[node.id])
                 found.arrivals[inp.name], found.receives[inp.name] = carried, receive
                 if isinstance(receive, Iterate):
                     found.demands.append((receive.index, ref))
@@ -368,25 +319,19 @@ class _Walk:
             elif self._one_index(sources):
                 arriving = sources[0]  # one series, or a union of several on one index
                 found.arriving[inp.name] = arriving.dtype
-                if scope_index is not None and arriving.index == scope_index:
-                    # The series entered this embedded graph from outside, so the
-                    # reduction runs once per outer row and receives the one row
-                    # under it.
-                    found.receives[inp.name] = Group(arriving.index, arriving.index.depth)
-                    found.demands.append((arriving.index, ref))
-                elif arriving.index.parent is not None:
+                if arriving.index.parent is not None:
                     found.receives[inp.name] = Group(arriving.index, arriving.index.parent.depth)
                     found.demands.append((arriving.index.parent, ref))
                 else:
                     found.receives[inp.name] = Whole()
             else:
-                arriving = _Carried(target, Index(ref, parent=scope_index))
+                arriving = _Carried(target, Index(ref))
                 found.arriving[inp.name] = target
                 found.receives[inp.name] = Gather(arriving.index)
             found.arrivals[inp.name] = arriving
         return found
 
-    def _derive(self, node: GraphNode, arrived: _Arrivals, scope: tuple[Index, Ref] | None) -> None:
+    def _derive(self, node: GraphNode, arrived: _Arrivals) -> None:
         """Every input read: complete the node's fields, ask its outputs,
         decide the index it runs per row of, and record what each field
         carries and how each input receives."""
@@ -410,29 +355,21 @@ class _Walk:
             return
         if not outputs:
             self.problems.append(problem("no_outputs", node.id))
-        # Inside an embedded graph that runs per row, every node runs at least
-        # once per outer row: that index is one more demand, named by the inner
-        # field the series entered through, on the same line of descent as the
-        # node's own. A node nothing from outside reaches runs per row of it; a
-        # node fed from a shallower index repeats its value down to it; a node
-        # fed rows unrelated to it is misaligned.
-        demands = arrived.demands if scope is None else [*arrived.demands, scope]
-        iteration_index, disagreeing = self._iteration_index(demands)
+        iteration_index, disagreeing = self._iteration_index(arrived.demands)
         if disagreeing is not None:
             self.problems.append(self._misaligned(node.id, *disagreeing))
             return
         self.iterated[node.id] = iteration_index
         self.arrived.update({Ref(node.id, name): c for name, c in arrived.arrivals.items()})
         self.receives.update({Ref(node.id, name): r for name, r in arrived.receives.items()})
-        scope_index = None if scope is None else scope[0]
         node_index: Index | None = None
         version = self.versions[node.id]
         for out in outputs:
             ref = Ref(node.id, out.name)
             if not isinstance(version, NodeVersion):
-                self.carried[ref] = self._carried_out_of_graph(node.id, version, out, iteration_index or scope_index)
+                self.carried[ref] = self._carried_out_of_graph(node.id, version, out, iteration_index)
             elif getattr(out.dtype, "element", None) is not None:
-                node_index = node_index or Index(node.id, parent=iteration_index or scope_index)
+                node_index = node_index or Index(node.id, parent=iteration_index)
                 self.carried[ref] = _Carried(out.dtype, node_index)
             elif iteration_index is not None:
                 self.carried[ref] = _Carried(Series[out.dtype], iteration_index)
@@ -494,47 +431,6 @@ class _Walk:
         except Refuses as refusal:
             return Problem(code=refusal.code, message=refusal.message, fatal=True, node_id=node.id)
 
-    def _entering_index(self, outer: str) -> tuple[Index, Ref] | None | Problem:
-        """The index an embedded graph's inner nodes run once per row of, and
-        the inner field it entered through: the deepest index among the
-        series that enter it from outside through a scalar field, or ``None``
-        when no series enters that way (the inner nodes then run once each,
-        as if the graph were flat). A ``**inputs`` parameter receives its
-        edge whole and is not a way in. Two entering series on unrelated
-        indexes are the ``misaligned`` problem returned, on the embedded
-        graph's node with the two fields in the author's addresses, exactly
-        as they would be on a single node.
-        """
-        block = self.members[outer]
-        inside = set(block)
-        demands: list[tuple[Index, Ref]] = []
-        for node_id in block:
-            if node_id not in self.nodes:
-                continue  # a broken edge; the node carries its own problem and was left out of the walk
-            node = self.nodes[node_id]
-            for inp in self.asked[node_id].inputs:
-                binding = node.bindings.get(inp.name)
-                if not isinstance(binding, From) or getattr(inp.dtype, "element", None) is not None or self._whole(node_id, inp):
-                    continue
-                entering = {
-                    self.carried[source].index
-                    for source in binding.refs
-                    if source.node_id not in inside and source in self.carried and self.carried[source].index is not None
-                }
-                # One input, one index: several edges on different indexes into
-                # one scalar input is the node's own fault (``union_needs_one_index``),
-                # reported when the node is read, not a disagreement between fields.
-                if len(entering) == 1:
-                    demands.append((entering.pop(), Ref(node_id, inp.name)))
-        index, disagreeing = self._iteration_index(demands)
-        if disagreeing is not None:
-            a, b = disagreeing
-            return self._misaligned(outer, authored_ref(a), authored_ref(b))
-        if index is None:
-            return None
-        entered_through = next(ref for demanded, ref in demands if demanded == index)
-        return index, entered_through
-
     def _whole(self, node_id: str, inp: Input) -> bool:
         """Is ``inp`` a ``**inputs: Single`` parameter — a connected name the
         version did not declare, received whole?"""
@@ -577,19 +473,17 @@ class _Walk:
         return None
 
     @staticmethod
-    def _originates(inp: Input, ref: Ref, listed: bool, scope: Index | None) -> tuple[_Carried, Receive]:
+    def _originates(inp: Input, ref: Ref, listed: bool) -> tuple[_Carried, Receive]:
         """What a field carries when no edge feeds it, and how it is received:
         a scalar, broadcast; or a series on an index of the field's own —
         always for a ``Series[X]`` input, received whole; and for a scalar
         input when the author typed many values (``listed``), received one
-        per row, so the node runs once per value. Inside an embedded graph
-        that runs per row, that index is a child of the entering one
-        (``scope``).
+        per row, so the node runs once per value.
         """
         if getattr(inp.dtype, "element", None) is not None:  # only a Series type has an element
-            return _Carried(inp.dtype, Index(ref, parent=scope)), Whole()
+            return _Carried(inp.dtype, Index(ref)), Whole()
         if listed:
-            own = Index(ref, parent=scope)
+            own = Index(ref)
             return _Carried(Series[inp.dtype], own), Iterate(own)
         return _Carried(inp.dtype, None), Broadcast()
 

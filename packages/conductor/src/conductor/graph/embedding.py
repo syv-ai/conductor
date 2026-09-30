@@ -6,10 +6,11 @@ as a plain node with the compiled graph's interface, which decides one
 thing: the row the node runs on (``runs_per_row_of``), or none. This module
 then lifts what the graph's own compile decided — its nodes, their fields'
 types, rows and receipts, and the rows its nodes run on — under that row,
-so the graph that places it reads exactly as if the raw graph had been
-inlined and walked in place. Conditions aren't lifted: compile works them
-out once its nodes are in place, as for any node. Only the compiler
-imports it (``Compilation.place_graphs``).
+so the graph that places it reads exactly as if the graph's nodes had been
+drawn in its place and walked there. Conditions aren't lifted: compile
+works them out once the nodes are in place, as for any node. The compiler
+lifts through it (``Compilation.place_graphs``); ``CompiledGraph`` reads
+its address helpers.
 
 The lift, rule by rule:
 
@@ -30,16 +31,21 @@ The lift, rule by rule:
 
 A compiled graph never contains itself, so nothing here can loop. Refusing a
 graph that places itself is the host's job, as it builds the versions.
+
+``/`` separates the levels inside a node id, and ``.`` stays the address
+separator, so a lifted address reads ``approve/check.amount``. Only the lift
+writes a ``/``: an id holding one is refused (``invalid_node_id``), or it
+could be read in a lifted node's place. So a lifted id is the path to its
+node, and the graph it sits in is read off it (``embedded_in``).
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from conductor.graph.binding import Binding, From
-from conductor.graph.expand import SEPARATOR, expanded_ref
 from conductor.graph.model import GraphNode
 from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Receive, Whole
 from conductor.ref import Ref
@@ -49,6 +55,26 @@ if TYPE_CHECKING:
     from conductor.graph.compiled import CompiledGraph
     from conductor.interface import Interface
     from conductor.node import NodeDefinition
+
+
+SEPARATOR = "/"
+
+
+def expanded_ref(ref: Ref, graphs: Collection[str]) -> Ref:
+    """``Ref("approve", "check.amount")`` → ``Ref("approve/check", "amount")``, as deep as the graphs placed (``graphs``) go."""
+    node_id, field = ref.node_id, ref.field
+    while node_id in graphs and "." in field:
+        inner, field = field.split(".", 1)
+        node_id = f"{node_id}{SEPARATOR}{inner}"
+    return Ref(node_id, field)
+
+
+def embedded_in(node_id: str) -> str | None:
+    """The graph a lifted node sits in, read off its id — ``approve`` for
+    ``approve/check``, ``approve/check`` for ``approve/check/amount`` — or
+    ``None`` for an id with no ``/``."""
+    outer, _, _ = node_id.rpartition(SEPARATOR)
+    return outer or None
 
 
 @dataclass(frozen=True)

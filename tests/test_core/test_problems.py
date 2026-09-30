@@ -490,31 +490,12 @@ def test_an_edge_from_a_node_that_failed_to_resolve_is_not_reported_again():
 def test_an_edge_into_a_field_an_embedded_graph_lacks_names_the_authors_address():
     """``e.nope`` is not an output of ``e``; the message says so with
     the address the author wrote, and no expanded id leaks."""
-    from collections.abc import Mapping
-    from typing import ClassVar
-
-    from conductor.interface import Interface
-    from conductor.metadata import Input, Output
-    from conductor.node import GraphVersion
-
-    class Emb(NodeDefinition):
-        id = "emb-graph"
-        title = "Embedded"
-        description = "d"
-        category = "test"
-        versions: ClassVar[dict[int, GraphVersion]] = {
-            1: GraphVersion(
-                graph=(GraphNode(id="inner", type="echo", version=1),),
-                interface=Interface(
-                    inputs=(Input(name="inner.x", dtype=Txt, title="X", widget=Textarea(), default=Txt(""), optional=True),),
-                    outputs=(Output(name="inner.result", dtype=Txt, title="R"),),
-                    returns=Mapping,
-                ),
-            )
-        }
+    from test_core.embedded import embedded_graph_node
 
     registry = _registry()
-    registry.register(Emb)
+    registry = registry.extended_with({"emb-graph": embedded_graph_node(
+        "emb-graph", (GraphNode(id="inner", type="echo", version=1),), registry,
+    )})
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="e", type="emb-graph", version=1),

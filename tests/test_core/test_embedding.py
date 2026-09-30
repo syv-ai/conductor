@@ -5,9 +5,10 @@ to conductor as the version. The outer compile treats the placed graph as
 a plain node with the compiled graph's interface, which decides the row it
 runs on; the lift (``graph_as_placed``) then puts the graph's own records
 under that row. What the engine reads must come out exactly as inlining
-the raw graph (``GraphVersion``) gives it: the oracle below checks that
-field by field, on every scenario, and against the values pinned in
-``fixtures/embedded_expected.json``.
+the raw graph gave it before conductor compiled embedded graphs on their
+own: the oracle below checks every scenario, field by field, against the
+values that path gave, pinned in ``fixtures/embedded_expected.json``, and
+a run of some of them against ``fixtures/embedded_expected_results.json``.
 
 Which scenario pins which lift rule:
 
@@ -24,7 +25,6 @@ compiled again with it, as if typed inside (``value_on_the_placed_node``,
 """
 
 import json
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any, ClassVar
@@ -37,12 +37,13 @@ from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.metadata import Param, Result
-from conductor.node import GraphVersion, NodeDefinition
+from conductor.node import NodeDefinition
 from conductor.ref import Ref
 from conductor.series import Series
 from conductor.widgets import Switch, Textarea
 
 FIXTURE = Path(__file__).parent / "fixtures" / "embedded_expected.json"
+RESULTS = Path(__file__).parent / "fixtures" / "embedded_expected_results.json"
 
 
 class Txt(DType, str):
@@ -183,10 +184,9 @@ N = GraphNode
 
 # -- the scenarios ----------------------------------------------------------------------
 #
-# Each is its inner graphs, innermost first, and the outer graph. The two
-# builders turn the inner graphs into definitions: one whose version is the
-# raw graph (``GraphVersion``, inlined), one whose version is the graph
-# compiled on its own. Everything else is the same.
+# Each is its inner graphs, innermost first, and the outer graph. Each inner
+# graph becomes a definition whose version is the graph compiled on its own,
+# against the registry of the ones before it.
 
 
 @dataclass(frozen=True)
@@ -421,7 +421,7 @@ SCENARIOS: dict[str, Scenario] = {
 }
 
 
-# -- the two builders ------------------------------------------------------------------
+# -- the builder -----------------------------------------------------------------------
 
 
 def _plain_registry() -> NodeRegistry:
@@ -442,27 +442,17 @@ def _definition(type_id: str, version: Any) -> type[NodeDefinition]:
     return Embedded
 
 
-def _registry(scenario: Scenario, build: Callable[[tuple[GraphNode, ...], NodeRegistry], Any]) -> NodeRegistry:
-    """The plain nodes, then each inner graph as a definition, innermost first."""
+def _registry(scenario: Scenario) -> NodeRegistry:
+    """The plain nodes, then each inner graph compiled once and offered as a definition, innermost first."""
     registry = _plain_registry()
     for type_id, nodes in scenario.graphs:
-        registry = registry.extended_with({type_id: _definition(type_id, build(nodes, registry))})
+        registry = registry.extended_with({type_id: _definition(type_id, CompiledGraph.from_graph(Graph(nodes=list(nodes)), registry))})
     return registry
 
 
-def _as_raw_graph(nodes: tuple[GraphNode, ...], registry: NodeRegistry) -> GraphVersion:
-    """The old way: the raw nodes, with the interface they derive declared beside them."""
-    return GraphVersion(graph=nodes, interface=CompiledGraph.from_graph(Graph(nodes=list(nodes)), registry).interface)
-
-
-def _as_compiled_graph(nodes: tuple[GraphNode, ...], registry: NodeRegistry) -> CompiledGraph:
-    """The new way: the graph compiled on its own, once, by the host."""
-    return CompiledGraph.from_graph(Graph(nodes=list(nodes)), registry)
-
-
-def _compiled(name: str, build) -> CompiledGraph:
+def _compiled(name: str) -> CompiledGraph:
     scenario = SCENARIOS[name]
-    return CompiledGraph.from_graph(Graph(nodes=list(scenario.nodes)), _registry(scenario, build))
+    return CompiledGraph.from_graph(Graph(nodes=list(scenario.nodes)), _registry(scenario))
 
 
 # -- the oracle --------------------------------------------------------------------------
@@ -494,36 +484,34 @@ def _what_the_engine_reads(compiled: CompiledGraph) -> dict[str, Any]:
 
 @pytest.mark.parametrize("name", sorted(SCENARIOS))
 def test_a_compiled_graph_placed_reads_exactly_as_the_raw_graph_inlined(name):
-    raw = _what_the_engine_reads(_compiled(name, _as_raw_graph))
-    placed = _what_the_engine_reads(_compiled(name, _as_compiled_graph))
-
-    assert placed == raw
-    assert placed == json.loads(FIXTURE.read_text())[name]
+    assert _what_the_engine_reads(_compiled(name)) == json.loads(FIXTURE.read_text())[name]
 
 
 
-@pytest.mark.parametrize("name", [
+RUN = (
     "entering_scalar", "born_inside_exposed", "gathered_into_the_placed_node", "many_values_on_the_placed_node",
     "nested_iterating", "cond_outer_gate_into_graph", "cond_nested_per_row",
     "per_row_output_read_outside", "value_and_edge_per_row", "required_input_filled_inside",
-])
+)
+
+
+def _results(compiled: CompiledGraph) -> dict[str, dict[str, str]]:
+    """What a run produced, each value as its repr."""
+    return {
+        node_id: {name: repr(value) for name, value in outputs.items()}
+        for node_id, outputs in run_sync(compiled).state.results(compiled).items()
+    }
+
+
+@pytest.mark.parametrize("name", RUN)
 def test_a_compiled_graph_placed_runs_to_the_same_results(name):
-    raw, placed = _compiled(name, _as_raw_graph), _compiled(name, _as_compiled_graph)
-
-    assert run_sync(placed).state.results(placed) == run_sync(raw).state.results(raw)
-
-def _write_fixture() -> None:
-    """Pin the raw path's values, so the placed path stays checked once the raw one is gone."""
-    FIXTURE.parent.mkdir(exist_ok=True)
-    expected = {name: _what_the_engine_reads(_compiled(name, _as_raw_graph)) for name in sorted(SCENARIOS)}
-    FIXTURE.write_text(json.dumps(expected, indent=1, sort_keys=True) + "\n")
-
+    assert _results(_compiled(name)) == json.loads(RESULTS.read_text())[name]
 
 # -- the placed node ---------------------------------------------------------------------
 
 
 def test_the_placed_node_is_a_graph_whose_version_is_the_compiled_graph():
-    compiled = _compiled("read_from_outside", _as_compiled_graph)
+    compiled = _compiled("read_from_outside")
     node = compiled.node("emb")
 
     assert (node.state, node.kind) == ("ready", "graph")
@@ -533,7 +521,7 @@ def test_the_placed_node_is_a_graph_whose_version_is_the_compiled_graph():
 
 
 def test_a_value_set_on_the_placed_node_is_read_by_the_inner_node():
-    compiled = _compiled("value_on_the_placed_node", _as_compiled_graph)
+    compiled = _compiled("value_on_the_placed_node")
 
     assert compiled.node("emb/holder").statics == {"value": Txt("set outside")}
     assert compiled.node("emb").statics == {"holder.value": Txt("set outside")}
@@ -571,7 +559,7 @@ def test_an_outer_edge_may_only_read_what_the_graph_offers():
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         N(id="emb", type="inner-graph", version=1),
         N(id="after", type="upper", version=1, bindings={"text": From("emb.up.result")}),
-    ]), _registry(SCENARIOS["runs_once"], _as_compiled_graph))
+    ]), _registry(SCENARIOS["runs_once"]))
 
     assert [(p.code, p.node_id) for p in compiled.problems] == [("unknown_ref_output", "after")]
 
@@ -580,7 +568,7 @@ def test_an_outer_edge_may_only_read_what_the_graph_offers():
 def test_two_series_born_by_different_nodes_inside_do_not_line_up_outside():
     """Each series output of a placed graph sits on the index of the node
     inside that births it, so two unrelated ones are ``misaligned`` where they
-    meet, exactly as when the raw graph is inlined."""
+    meet, exactly as when the raw graph was inlined."""
     scenario = Scenario((("two-series", (
         N(id="a", type="lines", version=1, bindings={"text": Static("x\ny")}),
         N(id="b", type="lines", version=1, bindings={"text": Static("p\nq")}),
@@ -588,11 +576,9 @@ def test_two_series_born_by_different_nodes_inside_do_not_line_up_outside():
         N(id="emb", type="two-series", version=1),
         N(id="after", type="pair", version=1, bindings={"a": From("emb.a.result"), "b": From("emb.b.result")}),
     ))
-    graph = Graph(nodes=list(scenario.nodes))
+    problems = CompiledGraph.from_graph(Graph(nodes=list(scenario.nodes)), _registry(scenario)).problems
 
-    for build in (_as_raw_graph, _as_compiled_graph):
-        problems = CompiledGraph.from_graph(graph, _registry(scenario, build)).problems
-        assert [(p.code, p.node_id) for p in problems] == [("misaligned", "after")]
+    assert [(p.code, p.node_id) for p in problems] == [("misaligned", "after")]
 
 
 
@@ -612,7 +598,7 @@ def test_a_graph_that_cannot_run_is_refused_even_when_every_node_is_ready():
 
 def test_a_graph_whose_required_input_is_left_empty_can_be_placed():
     """The value arrives from outside, so the one fatal problem inside is not the graph's fault."""
-    compiled = _compiled("required_input_left_empty", _as_compiled_graph)
+    compiled = _compiled("required_input_left_empty")
 
     assert compiled.is_runnable, compiled.problems
 
@@ -633,16 +619,17 @@ def test_a_placed_graph_upstream_of_nothing_it_can_use_keeps_its_shape():
         N(id="h", type="holder", version=1, bindings={"value": From("nope.result")}),
         N(id="emb", type="inner-graph", version=1, bindings={"holder.value": From("h.result")}),
     ]
-    shapes = []
-    for build in (_as_raw_graph, _as_compiled_graph):
-        compiled = CompiledGraph.from_graph(Graph(nodes=nodes), _registry(SCENARIOS["runs_once"], build))
-        shapes.append([
-            (node_id, compiled.node(node_id).state, compiled.node(node_id).kind, compiled.node(node_id)._cause.code)
-            for node_id in ("emb", "emb/holder", "emb/up", "emb/join")
-        ])
+    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), _registry(SCENARIOS["runs_once"]))
 
-    assert shapes[1] == shapes[0]
-    assert shapes[1][0] == ("emb", "wiring_failed", "graph", "unknown_ref_node")
+    assert [
+        (node_id, compiled.node(node_id).state, compiled.node(node_id).kind, compiled.node(node_id)._cause.code)
+        for node_id in ("emb", "emb/holder", "emb/up", "emb/join")
+    ] == [
+        ("emb", "wiring_failed", "graph", "unknown_ref_node"),
+        ("emb/holder", "wiring_failed", "node", "unknown_ref_node"),
+        ("emb/up", "wiring_failed", "node", "unknown_ref_node"),
+        ("emb/join", "wiring_failed", "node", "unknown_ref_node"),
+    ]
 
 
 def test_a_broken_graph_placed_is_still_a_graph():
@@ -659,7 +646,7 @@ def test_a_value_on_a_field_the_graph_does_not_offer_is_a_stale_binding():
     inside is not what the placed node reports holding."""
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         N(id="emb", type="inner-graph", version=1, bindings={"up.text": Static("x")}),
-    ]), _registry(SCENARIOS["runs_once"], _as_compiled_graph))
+    ]), _registry(SCENARIOS["runs_once"]))
 
     assert [(p.code, p.node_id, p.field) for p in compiled.problems] == [("stale_binding", "emb", "up.text")]
     assert compiled.node("emb").statics == {}
@@ -669,10 +656,7 @@ def test_an_edge_into_a_field_the_graph_does_not_offer_is_a_stale_binding():
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         N(id="h", type="holder", version=1),
         N(id="emb", type="inner-graph", version=1, bindings={"up.text": From("h.result")}),
-    ]), _registry(SCENARIOS["runs_once"], _as_compiled_graph))
+    ]), _registry(SCENARIOS["runs_once"]))
 
     assert [(p.code, p.node_id, p.field) for p in compiled.problems] == [("stale_binding", "emb", "up.text")]
 
-
-if __name__ == "__main__":
-    _write_fixture()

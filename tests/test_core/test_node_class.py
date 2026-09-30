@@ -6,7 +6,7 @@ from conductor.dtype import DType
 from conductor.graph.binding import Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
-from conductor.metadata import Input, Output, Param, Result
+from conductor.metadata import Output, Param, Result
 from conductor.node import (
     Deprecation,
     NodeDefinition,
@@ -394,10 +394,9 @@ def test_two_methods_claiming_one_version_are_refused():
 def test_a_version_record_does_not_restate_its_number():
     import dataclasses
 
-    from conductor.node import GraphVersion, NodeVersion
+    from conductor.node import NodeVersion
 
     assert [f.name for f in dataclasses.fields(NodeVersion)] == ["run", "interface", "policy", "deprecation"]
-    assert [f.name for f in dataclasses.fields(GraphVersion)] == ["graph", "interface"]
 
 
 def test_a_version_may_be_deprecated_on_its_own():
@@ -978,7 +977,7 @@ def test_the_contract_is_importable_from_the_package_root():
     import conductor
 
     for name in (
-        "NodeDefinition", "NodeVersion", "GraphVersion", "Policy", "Deprecation",
+        "NodeDefinition", "NodeVersion", "Policy", "Deprecation",
         "NodeDescription", "Input", "Interface", "FromRun",
     ):
         assert getattr(conductor, name) is not None
@@ -1088,14 +1087,21 @@ def test_each_call_gets_a_fresh_instance():
 
 def test_a_definition_may_carry_its_versions_by_value():
     """A definition built from data (an embedded graph) sets ``versions`` in
-    the class body, each a ``GraphVersion`` holding an interface and the
-    placements the compiler expands it to. ``register()`` checks the
-    numbering and ``describe()`` reads it; nothing runs it as one unit,
-    since compile inlines its graph."""
-    from collections.abc import Mapping
+    the class body, each the stored graph compiled once by its host.
+    ``register()`` checks the numbering and ``describe()`` reads its
+    interface; nothing runs it as one unit, since compile places its nodes."""
+    from conductor.interface import model_of
 
-    from conductor.interface import Interface, model_of
-    from conductor.node import GraphVersion
+    class Shout(NodeDefinition):
+        id = "shout"
+        title = "Shout"
+        description = "d"
+        category = "test"
+
+        def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())]) -> Out:
+            return text
+
+    inner = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="inner", type="shout", version=1)]), NodeRegistry(nodes=(Shout,)))
 
     class Wrapped(NodeDefinition):
         id = "wrapped"
@@ -1103,16 +1109,7 @@ def test_a_definition_may_carry_its_versions_by_value():
         description = "d"
         category = "test"
 
-        versions: ClassVar[dict[int, GraphVersion]] = {
-            3: GraphVersion(
-                graph=(),
-                interface=Interface(
-                    inputs=(Input(name="inner.text", dtype=Txt, title="Text", widget=Textarea()),),
-                    outputs=(Output(name="inner.result", dtype=Txt, title="Result"),),
-                    returns=Mapping,
-                ),
-            )
-        }
+        versions: ClassVar[dict[int, CompiledGraph]] = {3: inner}
 
     assert set(Wrapped.versions) == {3} and Wrapped.current == 3
     assert [i.name for i in Wrapped.versions[3].interface.inputs] == ["inner.text"]
@@ -1125,6 +1122,6 @@ def test_a_definition_may_carry_its_versions_by_value():
 
     class Loaded(Wrapped):
         id = "loaded"
-        versions: ClassVar[dict[int, GraphVersion]] = {1: Wrapped.versions[3]}
+        versions: ClassVar[dict[int, CompiledGraph]] = {1: Wrapped.versions[3]}
 
     NodeRegistry().register(Loaded)

@@ -6,8 +6,7 @@ filled, compiled again; ``run`` takes the copy like any other, and
 by address. The two are the graph's interface, used from each side.
 """
 
-from collections.abc import Mapping
-from typing import Annotated, ClassVar
+from typing import Annotated
 
 import pytest
 from conductor import GraphNode, InputNotOffered, NodeRegistry, Param, run_sync
@@ -17,11 +16,12 @@ from conductor.execution.events import GraphCompleteEvent, GraphErrorEvent
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph
-from conductor.interface import Interface
-from conductor.metadata import Input, Output, Result
-from conductor.node import GraphVersion, NodeDefinition
+from conductor.metadata import Result
+from conductor.node import NodeDefinition
 from conductor.series import Series
 from conductor.widgets import Textarea
+
+from test_core.embedded import embedded_graph_node
 
 
 class Txt(DType, str):
@@ -75,32 +75,11 @@ class Skips(NodeDefinition):
         return SKIPPED
 
 
-def _embedded():
-    inner = (GraphNode(id="up", type="upper", version=1),)
-
-    class Embedded(NodeDefinition):
-        id = "shout"
-        title = "Shout"
-        description = "d"
-        category = "test"
-        versions: ClassVar[dict[int, GraphVersion]] = {
-            1: GraphVersion(
-                graph=inner,
-                interface=Interface(
-                    inputs=(Input(name="up.text", dtype=Txt, title="Text", widget=Textarea(), default=Txt(""), optional=True),),
-                    outputs=(Output(name="up.result", dtype=Txt, title="Result"),),
-                    returns=Mapping,
-                ),
-            )
-        }
-
-    return Embedded
-
-
 def _compiled(*nodes: GraphNode) -> CompiledGraph:
     registry = NodeRegistry()
-    for node_cls in (Upper, Needs, Fails, Skips, _embedded()):
+    for node_cls in (Upper, Needs, Fails, Skips):
         registry.register(node_cls)
+    registry = registry.extended_with({"shout": embedded_graph_node("shout", (GraphNode(id="up", type="upper", version=1),), registry, "Shout")})
     return CompiledGraph.from_graph(Graph(nodes=nodes), registry)
 
 

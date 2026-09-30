@@ -93,9 +93,6 @@ CATALOGUE: Mapping[str, tuple[str, bool]] = {
     "duplicate_node_id": ("Two nodes have the id '{node_id}'.", True),
     "embedded_graph_broken": ("The graph '{graph}' has {problems} problem(s) to fix before it can be used here.", True),
     "edge_into_closed_handle": ("Field '{field}' has no handle, so nothing can be connected to it.", True),
-    "graph_interface_mismatch": (
-        "The embedded graph declares '{field}' as {declared}, but its graph has {actual}.", False,
-    ),
     "handle_needs_dtype": ("Field '{field}' has a handle but no type that can travel on an edge.", True),
     "invalid_node_id": ("'{node_id}' cannot be a node id: '/' names the nodes of an embedded graph.", True),
     "invalid_static": ("The value in '{field}' cannot be read as the field's type. {reason}", True),

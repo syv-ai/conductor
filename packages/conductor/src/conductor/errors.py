@@ -171,7 +171,7 @@ class NodeKindError(ConductorError):
     """A caller read off a compiled node what a node of its kind does not have.
 
     Raised by ``CompiledNode.runner``, ``validate`` and ``fingerprint`` on a
-    node whose ``kind`` is ``graph``: compile inlined its embedded graph, so
+    node whose ``kind`` is ``graph``: compile placed its embedded graph's nodes, so
     its inner nodes run in its place, each with a runner, a call and a
     fingerprint of its own. ``kind`` is the node's. Not a ``CompilationError``:
     nothing is wrong with the graph — the node is healthy and simply is not

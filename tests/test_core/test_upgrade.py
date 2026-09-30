@@ -17,9 +17,8 @@ from conductor.dtype import DType
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import FieldContent, Graph, GraphNode
-from conductor.interface import Interface
-from conductor.metadata import Input, Output, Param, Result
-from conductor.node import GraphVersion, NodeDefinition, upgrade, version
+from conductor.metadata import Param, Result
+from conductor.node import NodeDefinition, upgrade, version
 from conductor.widgets import Textarea
 
 
@@ -318,19 +317,15 @@ def test_a_definition_with_no_steps_only_has_its_version_set():
     no ``@upgrade`` to run: the node moves to the new version with its
     bindings as saved, and compile says what the new version makes of them."""
 
-    def embedded(name: str) -> GraphVersion:
-        return GraphVersion(graph=(), interface=Interface(
-            inputs=(Input(name=name, dtype=Txt, title="T", widget=Textarea()),),
-            outputs=(Output(name="inner.result", dtype=Txt, title="R"),),
-            returns=Mapping,
-        ))
+    def embedded(inner_id: str) -> CompiledGraph:
+        return CompiledGraph.from_graph(Graph(nodes=[GraphNode(id=inner_id, type="echo", version=1)]), _registry())
 
     class Embedded(NodeDefinition):
         id = "embedded"
         title = "Embedded"
         description = "d"
         category = "test"
-        versions: ClassVar[dict[int, GraphVersion]] = {1: embedded("inner.text"), 2: embedded("inner.words")}
+        versions: ClassVar[dict[int, CompiledGraph]] = {1: embedded("inner"), 2: embedded("renamed")}
 
     registry = NodeRegistry().extended_with({"embedded": Embedded})
     graph = Graph(nodes=[GraphNode(id="f", type="embedded", version=1, bindings={"inner.text": Static("x")})])

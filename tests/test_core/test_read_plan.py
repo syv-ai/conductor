@@ -1,8 +1,7 @@
 """The read plan compile stores for a run: who reads each output, and per index who runs on it, what sits on it and which typed-in lists are born under it."""
 
-from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Annotated, ClassVar
+from typing import Annotated
 
 from conductor import NodeRegistry
 from conductor.dtype import DType
@@ -10,12 +9,13 @@ from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.graph.receive import Iterate, Whole
-from conductor.interface import Interface
-from conductor.metadata import Input, Output, Param, Result
-from conductor.node import GraphVersion, NodeDefinition
+from conductor.metadata import Param, Result
+from conductor.node import NodeDefinition
 from conductor.ref import Ref
 from conductor.series import Index, Series
 from conductor.widgets import Textarea
+
+from test_core.embedded import embedded_graph_node
 
 
 class Txt(DType, str):
@@ -62,30 +62,16 @@ class Join(NodeDefinition):
         return Txt("+".join(texts))
 
 
-class Pair(NodeDefinition):
+def _pair(registry: NodeRegistry) -> NodeRegistry:
     """A stored graph: ``a`` takes the placement's text, ``b`` holds a typed-in list."""
-
-    id = "pair"
-    title = "Pair"
-    description = "d"
-    category = "test"
-    versions: ClassVar[dict[int, GraphVersion]] = {
-        1: GraphVersion(
-            graph=(
-                GraphNode(id="a", type="upper", version=1),
-                GraphNode(id="b", type="upper", version=1, bindings={"text": Static([Txt("x"), Txt("y")])}),
-            ),
-            interface=Interface(
-                inputs=(Input(name="a.text", dtype=Txt, title="Text", widget=Textarea(), default=Txt(""), optional=True),),
-                outputs=(Output(name="a.result", dtype=Txt, title="A"), Output(name="b.result", dtype=Txt, title="B")),
-                returns=Mapping,
-            ),
-        )
-    }
+    return registry.extended_with({"pair": embedded_graph_node("pair", (
+        GraphNode(id="a", type="upper", version=1),
+        GraphNode(id="b", type="upper", version=1, bindings={"text": Static([Txt("x"), Txt("y")])}),
+    ), registry, "Pair")})
 
 
 def _compiled(*nodes: GraphNode) -> CompiledGraph:
-    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), NodeRegistry(nodes=(Docs, Upper, Join, Pair)))
+    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), _pair(NodeRegistry(nodes=(Docs, Upper, Join))))
     assert compiled.is_runnable, compiled.problems
     return compiled
 

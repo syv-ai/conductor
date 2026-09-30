@@ -24,8 +24,8 @@ going away.
 The parts, by when they exist:
 
 * declared when the class is defined — ``NodeVersion`` (a signature, a
-  ``Policy`` and the callable), ``GraphVersion`` (a version a host hands
-  over by value, whose body is a graph), ``Deprecation``;
+  ``Policy`` and the callable), or a ``CompiledGraph`` a host hands over by
+  value as a version whose body is a graph, and ``Deprecation``;
 * answered per node when a graph is compiled — the two field hooks,
   ``compute_inputs`` and ``compute_outputs``;
 * derived on demand for a palette — ``NodeDescription`` and
@@ -52,8 +52,7 @@ from conductor.model import ConductorModel
 
 if TYPE_CHECKING:
     from conductor.dtype import DType
-    from conductor.graph.model import GraphNode
-
+    from conductor.graph.compiled import CompiledGraph
 
 
 class Deprecation(ConductorModel):
@@ -152,8 +151,8 @@ class NodeVersion:
     ``interface`` is derived from ``run``'s signature by ``Interface.of``.
     Read by the registry's numbering check, by the compiler when a
     node pins a version, and by the engine, which calls ``run`` under
-    ``policy``. A version whose body is a graph rather than a ``run`` is a
-    ``GraphVersion``.
+    ``policy``. A version whose body is a graph rather than a ``run`` is
+    that graph, compiled by the host (a ``CompiledGraph``).
     """
 
     run: Callable[..., Any]
@@ -167,26 +166,6 @@ class NodeVersion:
         """The run by its qualified name rather than a function address."""
         notice = "" if self.deprecation is None else f", deprecation={self.deprecation!r}"
         return f"NodeVersion(run={self.run.__qualname__}, interface={self.interface!r}, policy={self.policy!r}{notice})"
-
-
-@dataclass(frozen=True)
-class GraphVersion:
-    """One version of a definition whose body is a graph rather than a ``run``.
-
-    A host builds one from data — a stored graph it embeds as a node,
-    say. ``interface`` is that graph's interface (inputs named by address,
-    ``returns`` a ``Mapping``) and ``graph`` the nodes the compiler
-    expands under the placing node's name, so the inner nodes run as
-    nodes of the outer graph. Nothing runs it as one unit, and it
-    carries no policy. A
-    sibling of ``NodeVersion`` rather than an optional field on it, so
-    neither record can be half-filled.
-    """
-
-    #: The nodes this version expands to. From live in their
-    #: bindings, so the nodes are the whole graph.
-    graph: tuple[GraphNode, ...]
-    interface: Interface
 
 
 def version(
@@ -280,9 +259,9 @@ class VersionDescription(ConductorModel):
     inputs are open (and in which shape) and its deprecation notice.
 
     One per entry in ``NodeDescription.versions``, built by ``describe()``
-    from the ``NodeVersion`` (or ``GraphVersion``) with the callable left
-    out. ``policy`` is ``None`` for a graph-bodied version, which nothing
-    runs as one unit; ``open`` is the shape of an open interface or ``None``.
+    from the ``NodeVersion``, or the compiled graph, with the callable left
+    out. ``policy`` is ``None`` for a version whose body is a graph, which
+    nothing runs as one unit; ``open`` is the shape of an open interface or ``None``.
     """
 
     inputs: tuple[Input, ...]
@@ -378,9 +357,9 @@ class NodeDefinition(ABC, metaclass=_NodeMeta):
     #: One record per declared version, keyed by number, and the highest
     #: number. Derived when the class is defined from each marked ``run``
     #: method — unless the class sets ``versions`` itself, as a host does
-    #: when it builds a definition from data and hands over
-    #: ``GraphVersion`` records by value.
-    versions: ClassVar[dict[int, "NodeVersion | GraphVersion"]]
+    #: when it builds a definition from data and hands over each version
+    #: as a ``CompiledGraph``, the graph it stores compiled once.
+    versions: ClassVar[dict[int, "NodeVersion | CompiledGraph"]]
     current: ClassVar[int]
     #: Every step the class declares with ``@upgrade``, keyed by the pair it
     #: spans, ``(from_version, to_version)``. Collected when the class is
