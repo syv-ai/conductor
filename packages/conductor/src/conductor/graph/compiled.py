@@ -68,7 +68,7 @@ from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
 
 from conductor.codec import to_wire
-from conductor.errors import InputNotOffered, NodeKindError, NotDerived, NotResolved
+from conductor.errors import InputNotOffered, NodeKindError, NodeResolutionError, NodeWiringError
 from conductor.graph.binding import Binding, From, Static
 from conductor.graph.compiler import Compilation
 from conductor.graph.expand import SEPARATOR, authored_address, embedded_in, expanded_ref
@@ -87,14 +87,27 @@ if TYPE_CHECKING:
     from conductor.registry import NodeRegistry
     from conductor.series import Index
 
-#: How far compile got with a node. ``ready``: the walk over the edges
-#: derived it — every answer is there, and a runnable graph has only ready
-#: nodes. ``not_derived``: it has an interface, a version and what the
-#: author typed, but the walk decided nothing about it — its own edges are
-#: broken, a fault sits upstream, or its embedded graph is misaligned.
-#: ``unresolved``: compile has no interface for it — an unknown type or
-#: version, a cycle, a refused id, or a ``compute_inputs`` that refused.
-NodeState = Literal["ready", "not_derived", "unresolved"]
+#: How far compile got with a node, and so what an editor can show for it.
+#:
+#: ``ready``: compile worked out everything about the node — its inputs and
+#: outputs, and what its connections decide: the type that arrives on each
+#: field and whether it runs once per row. A graph can run only when every
+#: node in it is ready.
+#:
+#: ``wiring_failed``: compile knows the node itself — its inputs and outputs,
+#: its version, the values typed into it — but could not work out its
+#: connections. One of its own edges is broken, a node upstream of it is
+#: broken, or the embedded graph around it does not line up. An editor draws
+#: the node with its fields and marks the broken connection; the author fixes
+#: the edge, or the node upstream, that its problem names.
+#:
+#: ``resolution_failed``: compile could not make sense of the node at all,
+#: so it does not know what inputs or outputs it has. Its type or version is
+#: unknown, it sits on a cycle, its id was refused, or its ``compute_inputs``
+#: refused the values typed into it. An editor draws it as a bare box with
+#: its problem; the author replaces the node, breaks the cycle, or changes
+#: the values its problem names.
+NodeState = Literal["ready", "wiring_failed", "resolution_failed"]
 
 #: What a node is. ``node``: it runs as one unit, one call of its version's
 #: ``run`` per row. ``graph``: its version is a graph, which compile
@@ -169,19 +182,19 @@ class CompiledGraph:
         Pure — the same graph and registry always give the same result.
         Every definition the graph names must already be in the registry.
         Nothing raises for a fault in the graph; read ``problems`` and
-        ``is_runnable``. The passes are ``compiler.Compilation.run``'s;
+        ``is_runnable``. The steps of compile are ``compiler.Compilation.run``'s;
         this builds every ``CompiledNode`` and ``CompiledField`` once from
-        what they left (``_Fold``).
+        what they recorded (``_Fold``).
         """
-        passes = Compilation(graph, registry)
-        passes.run()
+        compilation = Compilation(graph, registry)
+        compilation.run()
         return cls(
             _registry=registry,
-            _nodes=_Fold(passes).nodes(),
-            _order=passes.expansion.order,
-            interface=passes.graph_interface,
+            _nodes=_Fold(compilation).nodes(),
+            _order=compilation.expansion.order,
+            interface=compilation.graph_interface,
             graph=graph,
-            problems=tuple(passes.problems),
+            problems=tuple(compilation.problems),
         )
 
     # -- one node, one field ---------------------------------------------------
@@ -203,8 +216,8 @@ class CompiledGraph:
         (``Ref("emb", "all.result")``) or as it runs (``Ref("emb/all",
         "result")``). A node or field the graph does not have raises
         ``KeyError``, since asking for one is a programming error. A node
-        compile could not resolve raises ``NotResolved``: nobody knows its
-        fields."""
+        compile could not resolve raises ``NodeResolutionError``: nobody
+        knows its fields."""
         node_id, name, node = self._reached(ref)
         if node is None:
             if node_id != ref.node_id:
@@ -212,7 +225,7 @@ class CompiledGraph:
             raise KeyError(f"{node_id!r} is not a node of this graph")
         if node._kind == "graph":
             raise KeyError(f"{node_id!r} has no field {name!r} on this node")
-        _gate(node, f"field {name!r}", derived=False)
+        _gate(node, f"field {name!r}", needs_wiring=False)
         compiled_field = node._fields.get(name)
         if compiled_field is None:
             raise KeyError(f"{node_id!r} has no field {name!r} on this node")
@@ -311,7 +324,7 @@ class CompiledGraph:
         once and declares a ``choice`` group, the group's alternatives in
         field order, keyed by expanded node id. A node that runs per row is
         left out: its decision picks rows and gates nothing downstream. So
-        is a node compile did not derive: whether it runs per row is not
+        is a node that is not ready: whether it runs per row is not
         known."""
         found: dict[str, dict[str, tuple[str, ...]]] = {}
         for node_id in self._order:
@@ -355,17 +368,20 @@ class CompiledGraph:
         return not any(p.fatal for p in self.problems)
 
 
-def _gate(node: CompiledNode, asked: str, *, derived: bool, unit: bool = False) -> None:
-    """Raise when ``node`` lacks what ``asked`` needs: a resolved node for
-    everything gated, a node that runs as one unit where ``unit``, a ready
-    one where ``derived``. Only a ready node has no ``_cause``."""
+def _gate(node: CompiledNode, asked: str, *, needs_wiring: bool, needs_one_unit: bool = False) -> None:
+    """Raise when ``node`` cannot answer ``asked``.
+
+    Everything gated needs a node compile could resolve. ``needs_wiring``
+    also asks for a ready node, whose connections compile worked out;
+    ``needs_one_unit`` asks for a node that runs as one unit rather than as
+    an embedded graph. Only a ready node has no ``_cause``."""
     cause = node._cause
-    if cause is not None and node.state == "unresolved":
-        raise NotResolved(node.id, asked, cause)
-    if unit and node._kind != "node":
+    if cause is not None and node.state == "resolution_failed":
+        raise NodeResolutionError(node.id, asked, cause)
+    if needs_one_unit and node._kind != "node":
         raise NodeKindError(node.id, asked, node._kind)
-    if cause is not None and derived:
-        raise NotDerived(node.id, asked, cause)
+    if cause is not None and needs_wiring:
+        raise NodeWiringError(node.id, asked, cause)
 
 
 @dataclass(frozen=True, eq=False)
@@ -386,20 +402,21 @@ class CompiledNode:
     What it answers depends on its ``state``. ``id``, ``state``,
     ``graph_node``, ``embedded_in`` and ``problems`` answer always.
     ``kind``, ``definition``, ``version``, ``interface`` and ``statics``
-    need a resolved node, and raise ``NotResolved`` otherwise.
-    ``iterates_on`` needs a ready one, and raises ``NotDerived`` for a
-    node the walk over the edges did not derive. Both errors carry the
-    ``Problem`` that explains the state. ``runner``, ``validate`` and
-    ``fingerprint`` are the run's, and only a node that runs as one unit
-    answers them: on a ``graph`` they raise ``NodeKindError``, since its inner
-    nodes run in its place. A ``graph`` is never unresolved, and has no
-    fields of its own — an address on it (``Ref("approve", "check.amount")``)
+    need a node compile could resolve, and raise ``NodeResolutionError``
+    otherwise. ``iterates_on`` needs a ready one, and raises
+    ``NodeWiringError`` for a node whose connections compile could not work
+    out. Both errors hold, in ``problems``, the one ``Problem`` that
+    explains the state. ``runner``, ``validate`` and ``fingerprint`` are the
+    run's, and only a node that runs as one unit answers them: on a
+    ``graph`` they raise ``NodeKindError``, since its inner nodes run in its
+    place. A ``graph`` never fails to resolve, and has no fields of its own — an address on it (``Ref("approve", "check.amount")``)
     reads through to the inner field.
     """
 
     #: The expanded id: ``"approve/check"`` for an inner node.
     id: str
-    #: How far compile got with it: ``ready``, ``not_derived`` or ``unresolved``.
+    #: How far compile got with it: ``ready``, ``wiring_failed`` or
+    #: ``resolution_failed`` (see ``NodeState``).
     state: NodeState
     #: The node as the author stored it: its type, version number, title
     #: and bindings. An inner node's has its expanded id; a ``graph``'s
@@ -416,13 +433,13 @@ class CompiledNode:
     #: node's own, the one upstream of it, or the one on the embedded graph
     #: around it. ``None`` exactly when ready.
     _cause: Problem | None = field(repr=False)
-    #: The answers a resolved node has; ``None`` on an unresolved one.
+    #: The answers a resolved node has; ``None`` on one whose resolution failed.
     _kind: NodeKind = field(repr=False)
     _definition: type[NodeDefinition] = field(repr=False)
     _version: NodeVersion | GraphVersion = field(repr=False)
     _interface: Interface = field(repr=False)
     _statics: Mapping[str, Any] = field(repr=False)
-    #: What the walk decided; ``None`` also on a node it did not derive.
+    #: What the walk decided; ``None`` also on a node that is not ready.
     _iterates_on: Index | None = field(repr=False)
     #: The read plan, the engine's alone: the walk's decisions inverted once
     #: at compile, so the ledger looks each up instead of searching the graph
@@ -447,14 +464,14 @@ class CompiledNode:
         """The class this node's type resolved to in the registry compile was
         given; ``version`` is one of its ``versions``. Its hooks and its
         runner are made from it, each on a fresh instance."""
-        _gate(self, "definition", derived=False)
+        _gate(self, "definition", needs_wiring=False)
         return self._definition
 
     @property
     def kind(self) -> NodeKind:
         """What this node is: ``node``, run as one unit, or ``graph``, a node
         whose version is a graph, run as its inner nodes (``NodeKind``)."""
-        _gate(self, "kind", derived=False)
+        _gate(self, "kind", needs_wiring=False)
         return self._kind
 
     @property
@@ -462,7 +479,7 @@ class CompiledNode:
         """The version this node uses: a ``NodeVersion`` — its ``run``,
         interface and policy — for a ``node``; a ``GraphVersion`` — its
         graph and declared interface — for a ``graph``."""
-        _gate(self, "version", derived=False)
+        _gate(self, "version", needs_wiring=False)
         return self._version
 
     @property
@@ -471,7 +488,7 @@ class CompiledNode:
         edges gave it — not merely what its version declared. The one place
         anything asks what a node has: the engine validates a call against
         it and an editor draws the fields from it."""
-        _gate(self, "interface", derived=False)
+        _gate(self, "interface", needs_wiring=False)
         return self._interface
 
     @property
@@ -485,14 +502,14 @@ class CompiledNode:
         ``graph``, the values set on it, by inner address (``check.amount``),
         each read by the inner node that holds it.
         """
-        _gate(self, "statics", derived=False)
+        _gate(self, "statics", needs_wiring=False)
         return self._statics
 
     @property
     def runner(self) -> Callable[..., Any]:
         """The callable that runs this node, on a fresh instance of
         ``definition`` per call. Made on each read, not stored."""
-        _gate(self, "runner", derived=False, unit=True)
+        _gate(self, "runner", needs_wiring=False, needs_one_unit=True)
         return runner_of(self._definition, self._version)
 
     @property
@@ -502,7 +519,7 @@ class CompiledNode:
         a graph whose fingerprint differs runs the node again — a static
         edited, a version bumped, an edge moved all change it; a title or a
         position does not."""
-        _gate(self, "fingerprint", derived=True, unit=True)
+        _gate(self, "fingerprint", needs_wiring=True, needs_one_unit=True)
         node = self.graph_node
         declared = {inp.name: inp.dtype for inp in self._interface.inputs}
         bindings: dict[str, Any] = {}
@@ -529,7 +546,7 @@ class CompiledNode:
         required input is missing; the engine turns that into the node's
         failure. The check runs through a model built on the first call and
         kept, not built once per unit."""
-        _gate(self, "validate", derived=True, unit=True)
+        _gate(self, "validate", needs_wiring=True, needs_one_unit=True)
         validated = self._call_model(**inputs)
         return {info.alias or field: getattr(validated, field) for field, info in type(validated).model_fields.items()}
 
@@ -547,7 +564,7 @@ class CompiledNode:
         input is what makes a node run per row — and never written on the
         ``GraphNode``. For a ``graph``, the index its inner nodes run once
         per row of, where a series entered it."""
-        _gate(self, "iterates_on", derived=True)
+        _gate(self, "iterates_on", needs_wiring=True)
         return self._iterates_on
 
 
@@ -565,7 +582,8 @@ class CompiledField:
 
     Only a resolved node has fields. ``ref``, ``problems`` and ``binding``
     answer always; ``type``, ``index``, ``receives`` and ``condition``
-    are the walk's and raise ``NotDerived`` on a node it did not derive.
+    are decided by the node's connections, and raise ``NodeWiringError``
+    on a node whose connections compile could not work out.
     Asking a field for what its kind does not have is a ``KeyError``: an
     input has no ``condition``, an output has no ``binding``, ``receives``
     or ``listed``.
@@ -576,13 +594,13 @@ class CompiledField:
     ref: Ref
     #: Every problem about this field, in ``CompiledGraph.problems`` order.
     problems: tuple[Problem, ...] = field(repr=False)
-    #: Its node's ``_cause``: set exactly when the node is not derived.
+    #: Its node's ``_cause``: set exactly when the node is not ready.
     _cause: Problem | None = field(repr=False)
     #: Which kinds this name is: an input, an output, or both.
     _input: bool = field(repr=False)
     _output: bool = field(repr=False)
     _binding: Binding | None = field(repr=False)
-    #: What the walk decided; ``None`` on a node it did not derive, or for a kind the field is not.
+    #: What the walk decided; ``None`` on a node that is not ready, or for a kind the field is not.
     _type: Any = field(repr=False)
     _index: Index | None = field(repr=False)
     _receives: Receive = field(repr=False)
@@ -599,7 +617,7 @@ class CompiledField:
 
     def _gate(self, asked: str) -> None:
         if self._cause is not None:
-            raise NotDerived(self.ref.node_id, asked, self._cause)
+            raise NodeWiringError(self.ref.node_id, asked, self._cause)
 
     def _only(self, kind: Literal["input", "output"]) -> None:
         """Raise the ``KeyError`` for a read only an input, or only an output, has."""
@@ -667,13 +685,13 @@ class CompiledField:
 
 
 class _Fold:
-    """What the passes left, read into one stored value per node compile met.
+    """What the steps of compile recorded, read into one stored value per node compile met.
 
     Used once, by ``CompiledGraph.from_graph``, and then dropped. The ids
     it answers for are every id the author wrote (the first of two that
     share one), every expanded id, and every inner id of every embedded
     graph compile entered, resolved or not. Each gets a ``NodeState`` read
-    off what the passes recorded — derived by the walk, or with an
+    off what the steps recorded — derived by the walk, or with an
     interface, or neither — and every one that is not ready gets the fatal
     ``Problem`` that explains it, found in this order: a fatal problem on
     the node or anything inside it; for a ``graph``, the cause of its
@@ -682,10 +700,10 @@ class _Fold:
     innermost first. Finding none is a bug in compile, and raises.
     """
 
-    def __init__(self, passes: Compilation) -> None:
-        self.passes = passes
-        self.expansion = passes.expansion
-        self.iteration = passes.iteration
+    def __init__(self, compilation: Compilation) -> None:
+        self.compilation = compilation
+        self.expansion = compilation.expansion
+        self.iteration = compilation.iteration
         #: The graph nodes compile entered, with the version each uses: which
         #: nodes get ``kind`` ``graph``.
         self.graphs = self.expansion.graphs
@@ -693,7 +711,7 @@ class _Fold:
         #: sits in — ``None`` for every id the author wrote, a refused one
         #: holding a ``/`` included; read off the id for every other.
         self.met: dict[str, tuple[GraphNode, str | None]] = {}
-        for node in passes.graph.nodes:
+        for node in compilation.graph.nodes:
             self.met.setdefault(node.id, (node, None))
         # An inner node answers for its expanded id even where the author
         # wrote that id too: the authored one is refused (``invalid_node_id``).
@@ -719,7 +737,7 @@ class _Fold:
         its rows: a node's series outputs, or an input's typed-in list. An
         index with entries and no such owner is a bug in compile, and
         raises."""
-        iteration, listed = self.iteration, self.passes.listed
+        iteration, listed = self.iteration, self.compilation.listed
         self.read_by: dict[Ref, list[tuple[Ref, Receive]]] = {}
         self.reads: dict[str, list[tuple[Ref, Receive]]] = {}
         self.iterated_by: dict[str, list[str]] = {}
@@ -731,7 +749,7 @@ class _Fold:
         for node_id in self.expansion.order:
             if node_id not in iteration.iterated:
                 continue
-            node, interface = self.expansion.nodes[node_id], self.passes.interfaces[node_id]
+            node, interface = self.expansion.nodes[node_id], self.compilation.interfaces[node_id]
             for inp in interface.inputs:
                 ref = Ref(node_id, inp.name)
                 binding = node.bindings.get(inp.name)
@@ -772,7 +790,7 @@ class _Fold:
             state = self.state(node_id)
             cause = None if state == "ready" else self.cause(node_id, frozenset())
             problems = self.problems_on(self.address(node_id))
-            interface = self.passes.interfaces.get(node_id)
+            interface = self.compilation.interfaces.get(node_id)
             graph = self.graphs.get(node_id)
             if graph is not None:
                 built[node_id] = CompiledNode(
@@ -805,7 +823,7 @@ class _Fold:
                 _definition=self.expansion.definitions.get(node_id),
                 _version=self.expansion.versions.get(node_id),
                 _interface=interface,
-                _statics=self.passes.statics.get(node_id),
+                _statics=self.compilation.statics.get(node_id),
                 _iterates_on=self.iteration.iterated.get(node_id),
                 _births=self.births.get(node_id),
                 _reads=tuple(self.reads.get(node_id, ())),
@@ -826,7 +844,7 @@ class _Fold:
             if not isinstance(binding, Static):
                 continue
             inner_ref = expanded_ref(Ref(node_id, name), graphs)
-            held = self.passes.statics.get(inner_ref.node_id, {})
+            held = self.compilation.statics.get(inner_ref.node_id, {})
             if inner_ref.field in held:
                 typed[name] = held[inner_ref.field]
         return typed
@@ -840,8 +858,8 @@ class _Fold:
         its ``binding`` and ``receives`` the input's."""
         inputs = {inp.name for inp in interface.inputs}
         outputs = {out.name for out in interface.outputs}
-        derived = cause is None
-        iteration, conditions = self.iteration, self.passes.output_conditions
+        ready = cause is None
+        iteration, conditions = self.iteration, self.compilation.output_conditions
         fields: dict[str, CompiledField] = {}
         for name in (declared.name for declared in (*interface.inputs, *interface.outputs)):
             if name in fields:
@@ -855,12 +873,12 @@ class _Fold:
                 _input=name in inputs,
                 _output=name in outputs,
                 _binding=placed.bindings.get(name) if name in inputs else None,
-                _type=iteration.types[ref] if derived else None,
-                _index=iteration.indexes[ref] if derived else None,
-                _receives=iteration.receives[ref] if derived and name in inputs else None,
-                _condition=conditions[ref] if derived and name in outputs else None,
+                _type=iteration.types[ref] if ready else None,
+                _index=iteration.indexes[ref] if ready else None,
+                _receives=iteration.receives[ref] if ready and name in inputs else None,
+                _condition=conditions[ref] if ready and name in outputs else None,
                 _read_by=tuple(self.read_by.get(ref, ())),
-                _listed=name in self.passes.listed.get(node_id, ()),
+                _listed=name in self.compilation.listed.get(node_id, ()),
                 **self._share(self.listed.get(ref)),
             )
         return fields
@@ -869,9 +887,9 @@ class _Fold:
         """Membership, read once here: derived by the walk, or given an interface, or neither."""
         if node_id in self.iteration.iterated:
             return "ready"
-        if node_id in self.passes.interfaces:
-            return "not_derived"
-        return "unresolved"
+        if node_id in self.compilation.interfaces:
+            return "wiring_failed"
+        return "resolution_failed"
 
     def address(self, node_id: str) -> str:
         """Where the author sees a node, and so where its problems sit:
@@ -881,7 +899,7 @@ class _Fold:
     def problems_on(self, address: str) -> tuple[Problem, ...]:
         """Every problem at ``address`` or inside it."""
         return tuple(
-            p for p in self.passes.problems
+            p for p in self.compilation.problems
             if _address(p) == address or _address(p).startswith(address + ".")
         )
 
@@ -903,7 +921,7 @@ class _Fold:
             ]
             found = self._first_cause(sources, visiting)
         while found is None and outer is not None:
-            found = next((p for p in self.passes.problems if p.fatal and _address(p) == self.address(outer)), None)
+            found = next((p for p in self.compilation.problems if p.fatal and _address(p) == self.address(outer)), None)
             outer = self.met[outer][1]
         if found is None:
             raise AssertionError(f"compile left {node_id!r} {self.state(node_id)} with nothing fatal to say why")
@@ -911,7 +929,7 @@ class _Fold:
         return found
 
     def _first_cause(self, ids: Iterable[str], visiting: frozenset[str]) -> Problem | None:
-        """The cause of the first of ``ids`` that compile met and did not derive."""
+        """The cause of the first of ``ids`` that compile met and that is not ready."""
         for other in ids:
             if other in self.met and other not in visiting and self.state(other) != "ready":
                 return self.cause(other, visiting)
