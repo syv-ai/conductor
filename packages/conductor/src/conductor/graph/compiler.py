@@ -308,6 +308,9 @@ class Compilation:
         untrue. Leaves in ``broken``
         the ids of the nodes whose edges or inputs are wrong; the edge walk
         leaves them out, since nothing can be derived from a broken edge.
+        A typed required input left empty is fatal but does not break its
+        node: the walk types it from its declaration, so the node and
+        everything after it are still worked out.
         """
         nodes = self.expansion.nodes
         broken: set[str] = set()
@@ -355,7 +358,7 @@ class Compilation:
                         broken.add(node_id)
                         self.record_as_the_author_sees_it(problem("unbound_required", node_id, inp.name))
                 elif not inp.optional and inp.name not in node.bindings:
-                    broken.add(node_id)
+                    # Not broken: its type is declared, so the walk still works the node out, as a value that arrives at run time.
                     self.record_as_the_author_sees_it(problem("unbound_required", node_id, inp.name))
         self.broken = frozenset(broken)
 

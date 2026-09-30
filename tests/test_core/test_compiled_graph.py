@@ -17,6 +17,7 @@ from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.problem import Problem
+from conductor.graph.receive import Broadcast
 from conductor.interface import FromRun, Interface, model_of
 from conductor.metadata import Input, Output, Param, Result
 from conductor.node import GraphVersion, NodeDefinition, Policy, upgrade, version
@@ -343,6 +344,34 @@ def test_a_hook_that_adds_an_input_named_with_a_leading_underscore_is_refused_at
 
     assert [(p.code, p.field) for p in compiled.problems] == [("parameter_name_invalid", "_x")]
     assert compiled.node("h").state == "wiring_failed"
+
+
+class Needs(NodeDefinition):
+    """One required input with a type and no default."""
+
+    id = "needs"
+    title = "Needs"
+    description = "d"
+    category = "test"
+
+    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())]) -> Out:
+        return text
+
+
+def test_an_empty_typed_input_is_a_value_that_arrives_later():
+    """A required input left empty: the graph cannot run, but compile still
+    works out the node and everything after it, so an editor draws their
+    types and a host can offer the field as an input of the graph."""
+    compiled = _compiled([
+        GraphNode(id="n", type="needs", version=1),
+        GraphNode(id="e", type="echo", version=1, bindings={"x": From("n.result")}),
+    ], _registry(Needs))
+
+    assert not compiled.is_runnable
+    assert [p.code for p in compiled.problems] == ["unbound_required"]
+    assert (compiled.node("n").state, compiled.node("e").state) == ("ready", "ready")
+    assert compiled.field(Ref("n", "text")).receives == Broadcast()
+    assert compiled.field(Ref("e", "result")).type is Txt
 
 
 class Wrapped(NodeDefinition):

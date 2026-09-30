@@ -20,6 +20,7 @@ All notable changes to the three workspace packages (`syv-conductor`, `syv-condu
 - Restoring a state refuses (`StartRefused`) a value or done unit at a row its field or node cannot have, such as `[]` or `[0]` on a node that runs once, and a value for a field the graph does not have. Such an entry used to be accepted and ignored, so the node ran again.
 - A unit standing in for rows that were never born sends no `node_progress`; one at a shorter row used to repeat the last progress event. `Ledger.on_a_row` answers whether a unit counts as a row.
 - A graph node is `ready` only when every node inside it is, at any depth; otherwise it is `wiring_failed`, with the inner node's fatal problem as its cause. One unknown inner node beside a good one used to leave its graph `ready`.
+- A required input with a type and nothing bound is still `unbound_required`, fatal, but no longer breaks its node: the node and everything after it are `ready`, with their types worked out, and the input receives `Broadcast`. An input typed `Any` with no edge is unchanged.
 
 ## [2.0.0]
 
