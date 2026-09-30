@@ -21,17 +21,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import Annotated, Any
 
-from conductor._sentinel import SKIPPED
-from conductor.metadata import Output, Param, Result
+from conductor import SKIPPED, DType, Output, Param, Result
 from conductor.widgets import Switch
 
 from conductor_nodes.types import Flag, StdlibNode
-
-if TYPE_CHECKING:
-    from conductor import NodeRegistry
-    from conductor.dtype import DType
 
 
 @dataclass(frozen=True)
@@ -72,7 +67,5 @@ class Decision(StdlibNode):
         return tuple(out.model_copy(update={"dtype": dtype}) for out in declared)
 
 
-def register(registry: "NodeRegistry") -> None:
-    """Register the ``decision`` node on ``registry``."""
-    for node_cls in (Decision,):
-        registry.register(node_cls)
+#: Every node this module defines, in palette order.
+NODES: tuple[type[StdlibNode], ...] = (Decision,)

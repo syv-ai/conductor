@@ -235,3 +235,25 @@ AnyWidget = Annotated[
     Union[tuple(Widget.__subclasses__())],  # noqa: UP007
     Discriminator("kind"),
 ]
+
+__all__ = [
+    "AnyWidget",
+    "Choice",
+    "CodeEditor",
+    "DatePicker",
+    "Dropdown",
+    "EntityDropdown",
+    "FileUpload",
+    "IfElseBuilder",
+    "ListWidget",
+    "NumberWidget",
+    "OperatorChoice",
+    "Range",
+    "SchemaBuilder",
+    "Switch",
+    "TableInput",
+    "Tags",
+    "TemplateTextarea",
+    "TextWidget",
+    "Textarea",
+]

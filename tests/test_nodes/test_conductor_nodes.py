@@ -61,12 +61,11 @@ class TestPackageSurface:
         with pytest.raises(KeyError, match="Unknown category"):
             conductor_nodes.register_all(reg, categories=["doesnt-exist"])
 
-    def test_individual_modules_expose_register(self):
-        reg = NodeRegistry()
-        conductor_nodes.text.register(reg)
-        ids = {c.id for c in reg.nodes}
+    def test_each_module_lists_its_own_nodes(self):
+        ids = {c.id for c in conductor_nodes.text.NODES}
         assert "text-uppercase" in ids
-        assert "math-add" not in ids   # only text registered
+        assert "math-add" not in ids   # only text's own nodes
+        assert {c.id for c in NodeRegistry(nodes=conductor_nodes.text.NODES).nodes} == ids
 
 
 class TestText:

@@ -11,8 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from conductor.execution.state import RunState
-from conductor.graph.model import Graph
+from conductor import Graph, RunState
 from pydantic import BaseModel, ConfigDict
 
 

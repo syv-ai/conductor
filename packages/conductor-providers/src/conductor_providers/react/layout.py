@@ -13,8 +13,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from conductor.graph.model import Graph
-from conductor.graph.topology import dependencies_of
+from conductor import Graph, dependencies_of
 
 
 def topological_positions(

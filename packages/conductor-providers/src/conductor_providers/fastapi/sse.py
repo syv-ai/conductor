@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from conductor.codec import to_wire
+from conductor import to_wire
 from pydantic_core import to_jsonable_python
 
 

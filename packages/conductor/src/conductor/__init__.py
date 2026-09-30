@@ -1,6 +1,14 @@
+"""Conductor: declare nodes, place them in a graph, compile it, run it.
+
+This package is the main public door. With ``conductor.widgets`` (the
+input controls) and ``conductor.events`` (what a run emits) it is
+everything a caller outside the library imports; ``__all__`` lists it.
+Every other module is the library's own and may move.
+"""
+
 from conductor._sentinel import SKIPPED, Asks, is_asking, is_skipped
-from conductor.dtype import DType, Single, dtype_of
-from conductor.dtype_ref import DTypeRef
+from conductor.codec import from_wire, to_wire
+from conductor.dtype import DType, Single
 from conductor.errors import (
     CompilationError,
     ConductorError,
@@ -15,15 +23,16 @@ from conductor.errors import (
     StartRefused,
 )
 from conductor.execution.engine import execute, run, run_sync
-from conductor.execution.state import RunState
+from conductor.execution.state import DoneUnit, RunState, StateSkip, StateValue
 from conductor.graph.binding import Binding, From, Static
 from conductor.graph.compiled import CompiledField, CompiledGraph, CompiledNode
-from conductor.graph.conditions import ALWAYS, Atom, Condition
+from conductor.graph.conditions import ALWAYS, NEVER, Atom, Condition
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.problem import Problem
+from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Receive, Whole
 from conductor.graph.topology import dependencies_of
 from conductor.graph.views import is_input_node
-from conductor.interface import FromRun, Interface
+from conductor.interface import FromRun, Interface, model_of
 from conductor.metadata import Input, Output, Param, Result
 from conductor.node import (
     Deprecation,
@@ -32,6 +41,8 @@ from conductor.node import (
     NodeDescription,
     NodeVersion,
     Policy,
+    Upgrade,
+    VersionDescription,
     deprecated,
     upgrade,
     version,
@@ -39,4 +50,78 @@ from conductor.node import (
 from conductor.ref import Ref
 from conductor.registry import NodeRegistry, RegistryDescription, TypeDescription
 from conductor.series import Index, Series
-from conductor.widgets import AnyWidget
+
+__all__ = [
+    "ALWAYS",
+    "NEVER",
+    "SKIPPED",
+    "Asks",
+    "Atom",
+    "Binding",
+    "Broadcast",
+    "CompilationError",
+    "CompiledField",
+    "CompiledGraph",
+    "CompiledNode",
+    "Condition",
+    "ConductorError",
+    "DType",
+    "Deprecation",
+    "DoneUnit",
+    "ErrorCause",
+    "ExternalFailure",
+    "FieldContent",
+    "From",
+    "FromRun",
+    "Gather",
+    "Graph",
+    "GraphNode",
+    "GraphVersion",
+    "Group",
+    "Index",
+    "Input",
+    "InputNotOffered",
+    "Interface",
+    "Iterate",
+    "NodeDefinition",
+    "NodeDescription",
+    "NodeError",
+    "NodeExecutionError",
+    "NodeRegistry",
+    "NodeTimeoutError",
+    "NodeValidationError",
+    "NodeVersion",
+    "Output",
+    "Param",
+    "Policy",
+    "Problem",
+    "Receive",
+    "Ref",
+    "Refuses",
+    "RegistryDescription",
+    "Result",
+    "RunState",
+    "Series",
+    "Single",
+    "StartRefused",
+    "StateSkip",
+    "StateValue",
+    "Static",
+    "TypeDescription",
+    "Upgrade",
+    "VersionDescription",
+    "Whole",
+    "dependencies_of",
+    "deprecated",
+    "execute",
+    "from_wire",
+    "is_asking",
+    "is_input_node",
+    "is_skipped",
+    "model_of",
+    "run",
+    "run_sync",
+    "to_wire",
+    "upgrade",
+    "version",
+]

@@ -16,8 +16,7 @@ from __future__ import annotations
 
 from typing import Any, ClassVar, Literal
 
-from conductor.dtype import DType
-from conductor.node import NodeDefinition
+from conductor import DType, NodeDefinition
 from pydantic_core import core_schema
 
 Category = Literal["control", "json", "logic", "math", "regex", "text"]

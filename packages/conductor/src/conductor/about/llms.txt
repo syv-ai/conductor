@@ -137,7 +137,7 @@ A `DType` is a class on a builtin with its own `id` and `title` (`class Number(D
 
 - Graph: `problems`, `is_runnable`, `interface` (open inputs, unread outputs), `graph`, `execution_order`, `decisions`, `expanded(ref)`.
 - `compiled.node(node_id)` is a `CompiledNode`: `interface`, `validate(inputs)`, `iterates_on` (an `Index` or `None`), `statics`, `runner`, `version`, `graph_node`, `embedded_in`.
-- `compiled.field(ref)` is a `CompiledField`: `type`, `index`, `binding`, `receives` (`Iterate`, `Broadcast`, `Whole`, `Group`, `Gather` from `conductor.graph.receive`), `condition` (`Condition`, `Atom`, `ALWAYS`).
+- `compiled.field(ref)` is a `CompiledField`: `type`, `index`, `binding`, `receives` (`Iterate`, `Broadcast`, `Whole`, `Group`, `Gather`), `condition` (`Condition`, `Atom`, `ALWAYS`).
 
 ### Rows
 
@@ -173,7 +173,7 @@ Retries live on the version's `Policy`, per unit.
 
 ### Errors
 
-All in `conductor.errors`. A failure carries `ErrorCause(code, message, details, row)` on the exception and on `node_error` / `graph_error`; `CODES` lists the codes, `MESSAGES` their text.
+The classes are exported from `conductor`. A failure carries `ErrorCause(code, message, details, row)` on the exception and on `node_error` / `graph_error`; its `code` is one of a fixed set (see "Problem and error codes").
 
 ```
 ConductorError
@@ -192,7 +192,7 @@ A failed unit ends the leg. Every ending carries `state`.
 
 ### Events
 
-`execute` yields frozen models from `conductor.execution.events`, the union `ExecutionEvent` on `type`. The `graph_*` events are each an `Ending` (union `EndingEvent`). Events carry records, not JSON.
+`execute` yields frozen models from `conductor.events`, the union `ExecutionEvent` on `type`. The `graph_*` events are each an `Ending` (union `EndingEvent`). Events carry records, not JSON.
 
 | Event | Carries |
 |---|---|
@@ -222,32 +222,29 @@ graph = Graph.from_yaml(graph.to_yaml())
 
 ## API Reference
 
-### conductor (top-level)
+Three public doors: `conductor`, `conductor.widgets` and `conductor.events`. Each lists its names in `__all__`; import from nothing else.
 
-- Nodes: `NodeDefinition`, `NodeVersion`, `GraphVersion`, `Policy`, `Deprecation`, `NodeDescription`, `version`, `upgrade`, `deprecated`, `Interface`, `FromRun`, `Input`, `Output`, `Param`, `Result`, `AnyWidget`
+### conductor
+
+- Nodes: `NodeDefinition`, `NodeVersion`, `GraphVersion`, `Policy`, `Deprecation`, `NodeDescription`, `version`, `upgrade`, `deprecated`, `Interface`, `FromRun`, `model_of(inputs)` (the pydantic model a call validates through), `Input`, `Output`, `Param`, `Result`, `Upgrade` (an entry of `NodeDefinition.upgrades`), `VersionDescription` (an entry of `NodeDescription.versions`)
 - Returns: `SKIPPED`, `Asks`, `is_skipped`, `is_asking`
-- Types: `DType`, `DTypeRef`, `Single`, `dtype_of`, `Series`, `Index`, `Ref`
+- Types: `DType`, `Single`, `Series`, `Index`, `Ref`, `to_wire(value, dtype)`, `from_wire(data, dtype)`
 - Registry: `NodeRegistry` (`register`, `in`, `[]`, `len`, iteration, `nodes`, `types`, `accepted_as`, `describe`, `upgraded`, `extended_with`, `runner_for`), `RegistryDescription`, `TypeDescription`
-- Graph: `Graph`, `GraphNode`, `FieldContent`, `Binding`, `From`, `Static`, `dependencies_of`, `is_input_node`, `CompiledGraph`, `CompiledNode`, `CompiledField`, `Problem`, `Condition`, `Atom`, `ALWAYS`
-- Running: `execute`, `run`, `run_sync`
+- Graph: `Graph`, `GraphNode`, `FieldContent`, `Binding`, `From`, `Static`, `dependencies_of`, `is_input_node`, `CompiledGraph`, `CompiledNode`, `CompiledField`, `Problem`, `Condition`, `Atom`, `ALWAYS`, `NEVER`, and what an input receives: `Receive` (`Iterate`, `Broadcast`, `Whole`, `Group`, `Gather`)
+- Errors: `ConductorError`, `CompilationError`, `Refuses`, `StartRefused`, `InputNotOffered`, `NodeError`, `ExternalFailure`, `NodeValidationError`, `NodeExecutionError`, `NodeTimeoutError`, `ErrorCause`
+- A run's state: `RunState` (`values` holds `StateValue` or `StateSkip` entries, `done_units` holds `DoneUnit`s)
+- Records (`Graph`, `GraphNode`, …) also have `to_yaml()`, `from_yaml(text)`, `to_path(path)`, `from_path(path)`, plus pydantic's.
 
-### conductor.execution.engine
+### Running
 
 - `execute(compiled, *, state=None, cache=None, from_run=None, timeout=None, cancel=None)`: one leg, an async generator of events.
 - `run(compiled, **kwargs)`: the `EndingEvent`; a pause is an ending. `run_sync` is `run` under `asyncio.run`.
-
-### A compiled graph's interface, from each side
-
 - `compiled.with_inputs(**inputs)`: a copy with inputs filled as `Static`s, by bare name or address; `compiled.graph` is then what ran.
 - `state.results(compiled)` by node id; `state.outputs(compiled)` narrowed to `compiled.interface.outputs`, by address.
 
-### conductor.model
+### Problem and error codes
 
-`ConductorModel`: `to_yaml()`, `from_yaml(text)`, `to_path(path)`, `from_path(path)`, plus pydantic's.
-
-### conductor.graph.problem
-
-`Problem`, `problem(code, node_id, field=None, **details)`, `CATALOGUE` (every compile code, its message and fatality), `CODES`.
+`Problem.code` and `ErrorCause.code` are strings from two fixed sets, and a host translates by code. The sets themselves are not in a door: `conductor.graph.problem.CODES` (with `CATALOGUE`, each code's message and fatality) and `conductor.errors.CODES` (with `MESSAGES`) are library modules that may move, so read them in a test that pins your translations, not in code that ships.
 
 ### conductor.widgets
 
@@ -272,9 +269,9 @@ Frozen models with a `kind`; `AnyWidget` is their union. `title`, `description` 
 | `SchemaBuilder` | `schema`, `allow_additional`, `field_types` |
 | `IfElseBuilder` | `operators` (`OperatorChoice(id, title, category, arity)`) |
 
-### conductor.interface
+### conductor.events
 
-`Interface` (`inputs`, `outputs`, `returns`, `needs`, `open`; `Interface.of(run)`), `FromRun`, `model_of(inputs)` (the pydantic model a call validates through).
+Every event record, `ExecutionEvent` (the union on `type`), `Ending` and `EndingEvent` (the five endings), `PendingUnit`.
 
 ## Workspace Packages
 

@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import Annotated, Any
 
-from conductor.metadata import Param, Result
+from conductor import Param, Result
 from conductor.widgets import Range, Switch, Textarea, TextWidget
 
 from conductor_nodes.types import Flag, Json, Number, StdlibNode, Text
-
-if TYPE_CHECKING:
-    from conductor import NodeRegistry
 
 
 class Parse(StdlibNode):
@@ -76,7 +73,5 @@ class GetPath(StdlibNode):
         return current
 
 
-def register(registry: "NodeRegistry") -> None:
-    """Register every JSON node on the supplied registry."""
-    for node_cls in (Parse, Stringify, GetPath):
-        registry.register(node_cls)
+#: Every node this module defines, in palette order.
+NODES: tuple[type[StdlibNode], ...] = (Parse, Stringify, GetPath)
