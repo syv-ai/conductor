@@ -19,7 +19,7 @@ built on the other side, in ``conductor.graph.compiled``.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from functools import cache
 from typing import Any
@@ -59,6 +59,15 @@ from conductor.node import GraphVersion, NodeDefinition, NodeVersion
 from conductor.ref import Ref
 from conductor.registry import NodeRegistry
 from conductor.series import Index, Series
+
+
+def _faults(graph: Any) -> list[Problem]:
+    """What stops ``graph`` being placed: every fatal problem but an input it offers left empty."""
+    offered = {str(inp.name) for inp in graph.interface.inputs}
+    return [
+        found for found in graph.problems
+        if found.fatal and not (found.code == "unbound_required" and f"{found.node_id}.{found.field}" in offered)
+    ]
 
 
 class Compilation:
@@ -229,25 +238,39 @@ class Compilation:
                 continue
             self.pinned[node.id] = found
 
-    def _refuse_if_broken(self, node_id: str, definition: type[NodeDefinition], graph: Any) -> None:
+    def _refuse_if_broken(
+        self, node_id: str, definition: type[NodeDefinition], graph: Any, stored: Any, typed: Mapping[str, Any],
+    ) -> None:
         """A compiled graph can be placed only when nothing in it is fatal but
         an input it offers left empty: that value arrives from outside, where
         the graph is placed. An empty input the graph doesn't offer (locked,
         or on a node with an edge in) can never be filled, so it is a fault
-        like any other. Otherwise the author sees one problem on the placed
-        node, ``embedded_graph_broken``, counting the graph's faults, and the
-        graph's own problems stay on the graph, in its own words
-        (``compiled.node(id).version.problems``). A node compile couldn't
-        work out always carries a fatal problem of its own or upstream, so
-        the faults are the whole answer."""
-        offered = {str(inp.name) for inp in graph.interface.inputs}
-        faults = [
-            found for found in graph.problems
-            if found.fatal and not (found.code == "unbound_required" and f"{found.node_id}.{found.field}" in offered)
-        ]
-        if faults:
-            self.unplaceable.add(node_id)
-            self.record_as_the_author_sees_it(problem("embedded_graph_broken", node_id, graph=definition.title, problems=len(faults)))
+        like any other. A node compile couldn't work out always carries a
+        fatal problem of its own or upstream, so the faults are the whole
+        answer.
+
+        ``graph`` is the graph as this placement fills it, ``stored`` the one
+        the host handed over. A fault the placement's own values brought in
+        (a hook inside refusing a value typed on the placed node) is the
+        outer author's to fix, so it is reported where they typed it, in the
+        hook's words, on the input's address. Every fault the graph had
+        already is its own author's: the outer author sees one problem on the
+        placed node, ``embedded_graph_broken``, counting them, and the graph's
+        problems stay on the graph, in its own words
+        (``compiled.node(id).version.problems``)."""
+        faults = _faults(graph)
+        if not faults:
+            return
+        self.unplaceable.add(node_id)
+        had = {(found.code, found.node_id, found.field) for found in _faults(stored)} if graph is not stored else None
+        brought = [found for found in faults if had is not None and (found.code, found.node_id, found.field) not in had]
+        for found in brought:
+            where = next((name for name in typed if inside(stored, name).node_id == found.node_id), None)
+            self.record_as_the_author_sees_it(found.model_copy(update={"node_id": node_id, "field": where}))
+        if len(brought) < len(faults):
+            self.record_as_the_author_sees_it(problem(
+                "embedded_graph_broken", node_id, graph=definition.title, problems=len(faults) - len(brought),
+            ))
 
     def order(self) -> None:
         """Who waits for whom, read off the authored edges, and an execution
@@ -348,11 +371,10 @@ class Compilation:
             if isinstance(binding, From) and self._filled_inside(graph, name)
             and (self._listed_inside(graph, name) or self._read_by_a_hook(graph, name))
         ]
-        if refill or cleared:
-            graph = graph._refilled(refill, cleared)
-            self.expansion.versions[node_id] = graph
-        self._refuse_if_broken(node_id, self.expansion.definitions[node_id], graph)
-        return graph
+        placed = graph._refilled(refill, cleared) if refill or cleared else graph
+        self.expansion.versions[node_id] = placed
+        self._refuse_if_broken(node_id, self.expansion.definitions[node_id], placed, graph, refill)
+        return placed
 
     @staticmethod
     def _read_by_a_hook(graph: Any, name: str) -> bool:

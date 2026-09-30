@@ -700,11 +700,28 @@ def test_a_graph_with_an_empty_input_it_does_not_offer_cannot_be_placed():
         assert [(p.code, p.details) for p in compiled.problems] == [("embedded_graph_broken", {"graph": "Graph g", "problems": 1})]
 
 
-def test_a_value_typed_on_a_placed_graph_is_checked_like_the_graph():
-    """Compiled again with the value, the graph can refuse to be placed."""
+def test_a_value_typed_on_a_placed_graph_that_a_hook_inside_refuses_is_the_outer_authors_problem():
+    """Compiled again with the value, the graph refuses it. The outer author
+    typed it, so they see the hook's own words on the field they typed in."""
     compiled = _placed_alone((N(id="p", type="picky", version=1),), **{"p.mode": Static("bad")})
 
-    assert [p.code for p in compiled.problems] == ["embedded_graph_broken"]
+    assert [(p.code, p.message, p.node_id, p.field) for p in compiled.problems] == [
+        ("picky_refuses", "Not that mode.", "emb", "p.mode"),
+    ]
+    assert compiled.node("emb").state == "wiring_failed"
+
+
+def test_a_graph_run_per_row_sees_an_input_fed_whole_as_a_whole():
+    """``u`` is fed one doc per call, so the placed graph runs once per doc.
+    ``j`` is fed the docs too, into a series input: like any node that runs
+    per row, each run sees the series whole."""
+    scenario = Scenario((("mixed", (N(id="u", type="upper", version=1), N(id="j", type="join", version=1))),), (
+        _docs(),
+        N(id="emb", type="mixed", version=1, bindings={"u.text": From("docs.result"), "j.texts": From("docs.result")}),
+    ))
+    compiled = CompiledGraph.from_graph(Graph(nodes=list(scenario.nodes)), _registry(scenario, _as_compiled_graph))
+
+    assert [str(value) for value in run_sync(compiled).state.results(compiled)["emb/j"]["result"]] == ["a+b", "a+b"]
 
 
 def test_a_broken_graph_with_a_value_typed_on_it_is_one_problem():
