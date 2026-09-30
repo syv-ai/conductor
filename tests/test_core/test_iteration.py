@@ -872,8 +872,8 @@ def test_compile_stores_no_rows_and_no_mask():
 
 def test_a_hook_that_adds_a_connected_input_without_an_edge_type_is_a_problem_not_a_crash():
     """A computed input a handle bears must carry a type an edge can carry.
-    Connected, it is ``handle_needs_dtype`` on the field, fatal, and the node
-    is not derived; the walk does not crash."""
+    Connected, it is ``handle_needs_dtype`` on the field, fatal, and the
+    node's wiring fails; the walk does not crash."""
 
     class Adds(NodeDefinition):
         id = "adds"

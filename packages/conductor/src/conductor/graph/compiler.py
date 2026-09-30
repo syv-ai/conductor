@@ -69,29 +69,29 @@ class Compilation:
         #: Every id the author wrote, refused ones included: an edge from one
         #: of these reads a node the author wrote, not a missing one.
         self.graph_ids: frozenset[str] = frozenset(node.id for node in graph.nodes)
-        #: The nodes the author placed, by id (pass 1).
+        #: The nodes the author placed, by id (set by ``place``).
         self.authored: dict[str, GraphNode] = {}
-        #: The version each authored node uses (pass 2).
+        #: The version each authored node uses (set by ``pin``).
         self.pinned: dict[str, NodeVersion | GraphVersion] = {}
-        #: Who waits for whom, and an execution order, over the authored graph (pass 3).
+        #: Who waits for whom, and an execution order, over the authored graph (set by ``order``).
         self.authored_dependencies: dict[str, frozenset[str]] = {}
         self.authored_order: tuple[str, ...] = ()
-        #: The expanded graph: every embedded graph inlined (pass 4).
+        #: The expanded graph: every embedded graph inlined (set by ``expand``).
         self.expansion: Expansion
         #: Each node's inputs and outputs, and the values the author typed, by
-        #: expanded id (pass 5; the walk over the edges completes them).
+        #: expanded id (set by ``ask_inputs``; ``walk_edges`` completes them).
         self.interfaces: dict[str, Interface] = {}
         self.statics: dict[str, dict[str, Any]] = {}
         #: Per node, the scalar inputs where the author typed many values —
         #: three files, a list of texts — which the node runs once per value of.
         self.listed: dict[str, frozenset[str]] = {}
-        #: Nodes whose stored edges are wrong; the edge walk leaves them out (pass 6).
+        #: Nodes whose stored edges are wrong; the edge walk leaves them out (set by ``check_bindings``).
         self.broken: frozenset[str] = frozenset()
-        #: What the walk over the edges decided (pass 7).
+        #: What the walk over the edges decided (set by ``walk_edges``).
         self.iteration: Iteration
-        #: The condition under which each output appears (pass 9).
+        #: The condition under which each output appears (set by ``conditions``).
         self.output_conditions: dict[Ref, Condition] = {}
-        #: What the graph takes and returns (pass 10).
+        #: What the graph takes and returns (set by ``interface``).
         self.graph_interface: Interface
 
     def run(self) -> None:
@@ -142,7 +142,8 @@ class Compilation:
         problem's, and so do its ``details``, under the same keys: every
         address in them is rewritten the same way (``approve/check.amount``
         becomes ``approve.check.amount``), and two keys are added beside
-        them, ``placement`` (the inner node's title) and ``inner_message``.
+        them, ``placement`` (the inner node's title; hosts read the key by
+        that name) and ``inner_message``.
         A host that translates problems by code finds the same keys inside
         an embedded graph as outside one. A problem on a node the author
         placed is recorded as it is.
