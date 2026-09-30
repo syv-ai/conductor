@@ -1,8 +1,8 @@
-"""How a graph is compiled: the passes, one after another, over one graph.
+"""How a graph is compiled: a fixed list of steps, one after another, over one graph.
 
 ``CompiledGraph.from_graph(graph, registry)`` is the door; it runs a
-``Compilation`` and builds the ``CompiledGraph`` from what the passes
-left. Pure: no session, no I/O, no loading. Every definition the graph
+``Compilation`` and builds the ``CompiledGraph`` from what the steps
+recorded. Pure: no session, no I/O, no loading. Every definition the graph
 names must already be in the registry; a host that had to load one built
 it and called ``NodeRegistry.extended_with`` first.
 
@@ -10,9 +10,9 @@ Everything wrong with the graph comes back as a ``Problem`` rather than
 raising, so an editor can show a half-finished graph with its faults
 marked.
 
-The passes each read the one before, through the state ``Compilation``
-holds. A node that fails a pass carries a fatal ``Problem`` and drops out
-of the passes after it, so nothing is guessed about a node downstream of
+The steps each read the one before, through the state ``Compilation``
+holds. A node that fails a step carries a fatal ``Problem`` and drops out
+of the steps after it, so nothing is guessed about a node downstream of
 a fault. This module knows nothing of ``CompiledGraph``: the result is
 built on the other side, in ``conductor.graph.compiled``.
 """
@@ -30,7 +30,14 @@ from conductor.dtype_ref import name_of
 from conductor.errors import Refuses
 from conductor.graph.binding import From, static_values
 from conductor.graph.conditions import Condition, conditions_of
-from conductor.graph.expand import SEPARATOR, Expansion, authored_ref, expand, surfaced
+from conductor.graph.expand import (
+    ADDRESS_KEYS,
+    SEPARATOR,
+    Expansion,
+    authored_address,
+    authored_ref,
+    expand,
+)
 from conductor.graph.iteration import Iteration, derive
 from conductor.graph.model import Graph, GraphNode
 from conductor.graph.problem import Problem, problem
@@ -45,13 +52,14 @@ from conductor.series import Series
 
 
 class Compilation:
-    """One graph being compiled: the state every pass reads and writes.
+    """One graph being compiled: the state every step reads and writes.
 
-    ``run`` runs the passes in order. Each pass is a method that reads what
-    the passes before it left on ``self`` and appends what it finds wrong
-    to ``problems``. ``CompiledGraph.from_graph`` makes one, runs it and
-    reads what it left into the stored ``CompiledNode`` and
-    ``CompiledField`` values; nothing here outlives that.
+    ``run`` runs the steps in order. Each step is a method that reads what
+    the steps before it left on ``self`` and records what it finds wrong in
+    ``problems``, as the author sees it (``record_as_the_author_sees_it``).
+    ``CompiledGraph.from_graph`` makes one, runs it and reads what it left
+    into the stored ``CompiledNode`` and ``CompiledField`` values; nothing
+    here outlives that.
     """
 
     def __init__(self, graph: Graph, registry: NodeRegistry) -> None:
@@ -87,7 +95,7 @@ class Compilation:
         self.graph_interface: Interface
 
     def run(self) -> None:
-        """The passes, in order. Each reads the one before:
+        """The steps, in order. Each reads the one before:
 
         1. ``place`` — the nodes by id; two with one id is a problem.
         2. ``pin`` — the version each node uses; an unknown type or version
@@ -107,14 +115,11 @@ class Compilation:
         9. ``interface`` — what each embedded graph, and then the graph,
            takes and returns.
 
-        Last, every problem found inside an embedded graph is moved onto
-        the node the author placed (``surfaced``). ``place``'s own problems
-        are the author's ids as written and stay where they are: a refused
-        ``e/holder`` names the author's node, never the inner node of ``e``
-        that has the same expanded id.
+        Every step records its problems as the author sees them, so a
+        problem found inside an embedded graph is already on the node the
+        author placed when it is recorded, and nothing is rewritten later.
         """
         self.place()
-        placed = len(self.problems)
         self.pin()
         self.order()
         self.expand()
@@ -123,9 +128,56 @@ class Compilation:
         self.walk_edges()
         self.conditions()
         self.interface()
-        self.problems[placed:] = [surfaced(found, self.expansion.nodes) for found in self.problems[placed:]]
 
-    # -- the passes -------------------------------------------------------------
+    def record_as_the_author_sees_it(self, *found: Problem) -> None:
+        """Record problems on the graph as the author built it, not as compile expanded it.
+
+        Compile works on the expanded graph, where an embedded graph's inner
+        nodes stand in its place under ids like ``approve/check``. The author
+        never sees those ids: they see the node they placed, ``approve``. So
+        a problem found on an inner node is recorded on that placed node,
+        with the inner node's address as its field (``check.amount``, or
+        ``check`` for a problem on the whole inner node), and its message
+        starts with the inner node's title. Its code stays the inner
+        problem's, and so do its ``details``, under the same keys: every
+        address in them is rewritten the same way (``approve/check.amount``
+        becomes ``approve.check.amount``), and two keys are added beside
+        them, ``placement`` (the inner node's title) and ``inner_message``.
+        A host that translates problems by code finds the same keys inside
+        an embedded graph as outside one. A problem on a node the author
+        placed is recorded as it is.
+
+        Every step records through here except ``place``. Its problems are
+        about ids exactly as the author wrote them, and an id the author
+        wrote with a ``/`` in it — refused there — may look like an inner
+        node's; it must stay the author's own node.
+        """
+        for found_problem in found:
+            if SEPARATOR not in found_problem.node_id:
+                self.problems.append(found_problem)
+                continue
+            outer_node_id, inner_id = found_problem.node_id.split(SEPARATOR, 1)
+            inner_address = inner_id.replace(SEPARATOR, ".")
+            inner_node = self.expansion.nodes.get(found_problem.node_id)
+            title = (inner_node.title if inner_node is not None else None) or inner_address
+            self.problems.append(found_problem.model_copy(update={
+                "node_id": outer_node_id,
+                "field": (
+                    authored_ref(Ref(found_problem.node_id, found_problem.field)).field
+                    if found_problem.field else inner_address
+                ),
+                "message": f"In '{title}': {found_problem.message}",
+                "details": {
+                    **{
+                        key: authored_address(value) if key in ADDRESS_KEYS else value
+                        for key, value in found_problem.details.items()
+                    },
+                    "placement": title,
+                    "inner_message": found_problem.message,
+                },
+            }))
+
+    # -- the steps --------------------------------------------------------------
 
     def place(self) -> None:
         """Every node the author placed, by id. Two nodes with one id is a
@@ -154,11 +206,11 @@ class Compilation:
         """
         for node in self.authored.values():
             if node.type not in self.registry:
-                self.problems.append(problem("unknown_node_type", node.id, node_type=node.type))
+                self.record_as_the_author_sees_it(problem("unknown_node_type", node.id, node_type=node.type))
                 continue
             version = self.registry[node.type].versions.get(node.version)
             if version is None:
-                self.problems.append(
+                self.record_as_the_author_sees_it(
                     problem("unknown_node_version", node.id, node_type=node.type, version=node.version)
                 )
                 continue
@@ -170,14 +222,14 @@ class Compilation:
         fatal problem."""
         self.authored_dependencies = dependencies_of(self.authored.values())
         self.authored_order, cyclic = order_of(self.authored_dependencies)
-        self.problems.extend(problem("cycle", node_id) for node_id in sorted(cyclic))
+        self.record_as_the_author_sees_it(*(problem("cycle", node_id) for node_id in sorted(cyclic)))
 
     def expand(self) -> None:
         """Every node whose version is a graph, inlined as its inner nodes
-        under its name (``expand``). From here on the passes see the
+        under its name (``expand``). From here on the steps see the
         expanded graph."""
         self.expansion = expand(self.authored, self.authored_order, self.pinned, self.registry)
-        self.problems.extend(self.expansion.problems)
+        self.record_as_the_author_sees_it(*self.expansion.problems)
 
     def ask_inputs(self) -> None:
         """Ask each node which inputs it has, once, on a fresh instance.
@@ -217,10 +269,10 @@ class Compilation:
             try:
                 inputs = instance.compute_inputs(version.interface.inputs, {**defaults, **for_hook})
             except Refuses as refusal:
-                self.problems.append(Problem(code=refusal.code, message=refusal.message, fatal=True, node_id=node_id))
+                self.record_as_the_author_sees_it(Problem(code=refusal.code, message=refusal.message, fatal=True, node_id=node_id))
                 continue
             typed, listed, invalid = self._typed_statics(inputs, node)
-            self.problems.extend(invalid)
+            self.record_as_the_author_sees_it(*invalid)
             if version.interface.open is not None:
                 # One Input per edge: `Series[Any]` when the node reduces each
                 # ("series"), `Any` when it receives each whole ("single"). The
@@ -262,7 +314,7 @@ class Compilation:
         """
         nodes = self.expansion.nodes
         broken: set[str] = set()
-        self.problems.extend(lock_problems(nodes, self.interfaces))
+        self.record_as_the_author_sees_it(*lock_problems(nodes, self.interfaces))
         for node_id, interface in self.interfaces.items():
             node = nodes[node_id]
             declared = {i.name: i for i in interface.inputs}
@@ -273,21 +325,21 @@ class Compilation:
             faults += [problem("parameter_name_invalid", node_id, i.name) for i in interface.inputs if i.name.startswith("_")]
             if faults:
                 broken.add(node_id)
-                self.problems.extend(faults)
+                self.record_as_the_author_sees_it(*faults)
 
             for name, binding in node.bindings.items():
                 if name not in declared:
                     dead = problem("stale_binding", node_id, name, inputs=", ".join(sorted(declared)) or "none")
                     if self.registry[node.type].compute_inputs is not NodeDefinition.compute_inputs:
                         dead = dead.model_copy(update={"fatal": False})
-                    self.problems.append(dead)
+                    self.record_as_the_author_sees_it(dead)
                     continue
                 if not isinstance(binding, From):
                     continue
                 target = declared[name]
                 if not target.show_handle:
                     broken.add(node_id)
-                    self.problems.append(problem("edge_into_closed_handle", node_id, name))
+                    self.record_as_the_author_sees_it(problem("edge_into_closed_handle", node_id, name))
                 for ref in binding.refs:
                     if ref.node_id in nodes:
                         continue  # a node of the run; the walk checks that it has the output
@@ -295,19 +347,19 @@ class Compilation:
                     source = authored_ref(ref)
                     if source.node_id in self.expansion.placement_versions:
                         # An embedded graph the author placed, but no inner node of that name.
-                        self.problems.append(problem("unknown_ref_output", node_id, name, source=str(source)))
+                        self.record_as_the_author_sees_it(problem("unknown_ref_output", node_id, name, source=str(source)))
                     elif ref.node_id not in self.graph_ids:
-                        self.problems.append(problem("unknown_ref_node", node_id, name, source_node=ref.node_id))
+                        self.record_as_the_author_sees_it(problem("unknown_ref_node", node_id, name, source_node=ref.node_id))
                     # else: an id the author wrote that compile could not resolve; it carries its own fatal problem
 
             for inp in interface.inputs:
                 if inp.dtype is Any:
                     if not isinstance(node.bindings.get(inp.name), From):
                         broken.add(node_id)
-                        self.problems.append(problem("unbound_required", node_id, inp.name))
+                        self.record_as_the_author_sees_it(problem("unbound_required", node_id, inp.name))
                 elif not inp.optional and inp.name not in node.bindings:
                     broken.add(node_id)
-                    self.problems.append(problem("unbound_required", node_id, inp.name))
+                    self.record_as_the_author_sees_it(problem("unbound_required", node_id, inp.name))
         self.broken = frozenset(broken)
 
     def walk_edges(self) -> None:
@@ -325,7 +377,7 @@ class Compilation:
             self.interfaces, expansion.versions, self.registry, self.statics, self.listed,
             placement_of=expansion.placement_of, members=expansion.members,
         )
-        self.problems.extend(self.iteration.problems)
+        self.record_as_the_author_sees_it(*self.iteration.problems)
         self.interfaces = {**self.interfaces, **self.iteration.interfaces}
 
     def conditions(self) -> None:
@@ -358,7 +410,7 @@ class Compilation:
                 {inner: self.interfaces[expanded] for inner, expanded in inner_ids.items() if expanded in self.interfaces},
                 dependencies_of(version.graph),
             )
-            self.problems.extend(self._interface_mismatches(placement, version.interface, derived))
+            self.record_as_the_author_sees_it(*self._interface_mismatches(placement, version.interface, derived))
             self.interfaces[placement] = derived
         self.graph_interface = derive_interface(
             self.graph,
