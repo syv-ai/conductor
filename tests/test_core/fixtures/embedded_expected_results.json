@@ -52,6 +52,34 @@
    "if_true": "'y'"
   }
  },
+ "edge_into_a_list_filled_inside": {
+  "after": {
+   "result": "'OUTSIDE'"
+  },
+  "emb/j": {
+   "result": "'OUTSIDE'"
+  },
+  "emb/n": {
+   "result": "'OUTSIDE'"
+  },
+  "h": {
+   "result": "'outside'"
+  }
+ },
+ "edge_into_a_value_filled_inside": {
+  "after": {
+   "result": "'OUTSIDE'"
+  },
+  "emb/n": {
+   "result": "'outside'"
+  },
+  "emb/u": {
+   "result": "'OUTSIDE'"
+  },
+  "h": {
+   "result": "'outside'"
+  }
+ },
  "entering_scalar": {
   "docs": {
    "result": "Series(Index('docs'), ['a', 'b'])"

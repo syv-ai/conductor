@@ -33,6 +33,7 @@ import pytest
 from conductor import NodeRegistry, run_sync
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
+from conductor.errors import Refuses
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
@@ -137,6 +138,39 @@ class Need(NodeDefinition):
         return text
 
 
+class Both(NodeDefinition):
+    """Two required inputs with a type and no default."""
+
+    id = "both"
+    title = "Both"
+    description = "d"
+    category = "test"
+
+    def run(
+        self,
+        a: Annotated[Txt, Param(title="A", widget=Textarea())],
+        b: Annotated[Txt, Param(title="B", widget=Textarea())],
+    ) -> Out:
+        return Txt(f"{a}:{b}")
+
+
+class Picky(NodeDefinition):
+    """Refuses the mode ``bad`` in its hook."""
+
+    id = "picky"
+    title = "Picky"
+    description = "d"
+    category = "test"
+
+    def run(self, mode: Annotated[Txt, Param(title="Mode", widget=Textarea())] = Txt("ok")) -> Out:
+        return mode
+
+    def compute_inputs(self, declared, values):
+        if values.get("mode") == "bad":
+            raise Refuses("picky_refuses", "Not that mode.")
+        return declared
+
+
 @dataclass(frozen=True)
 class Branches:
     if_true: Annotated[Any, Result(title="If true", choice="branches")]
@@ -178,7 +212,7 @@ class Single(NodeDefinition):
         return tuple(out.model_copy(update={"dtype": dtype}) for out in declared)
 
 
-PLAIN = (Holder, Upper, Join, Docs, Lines, Pair, Need, Gate, Single)
+PLAIN = (Holder, Upper, Join, Docs, Lines, Pair, Need, Both, Picky, Gate, Single)
 N = GraphNode
 
 
@@ -345,6 +379,22 @@ SCENARIOS: dict[str, Scenario] = {
         N(id="emb", type="filled", version=1),
         N(id="after", type="upper", version=1, bindings={"text": From("emb.u.result")}),
     )),
+    "edge_into_a_value_filled_inside": Scenario((("filled", (
+        N(id="n", type="need", version=1, bindings={"text": Static("inside")}),
+        N(id="u", type="upper", version=1, bindings={"text": From("n.result")}),
+    )),), (
+        N(id="h", type="holder", version=1, bindings={"value": Static("outside")}),
+        N(id="emb", type="filled", version=1, bindings={"n.text": From("h.result")}),
+        N(id="after", type="upper", version=1, bindings={"text": From("emb.u.result")}),
+    )),
+    "edge_into_a_list_filled_inside": Scenario((("listy", (
+        N(id="n", type="upper", version=1, bindings={"text": Static(["p", "q"])}),
+        N(id="j", type="join", version=1, bindings={"texts": From("n.result")}),
+    )),), (
+        N(id="h", type="holder", version=1, bindings={"value": Static("outside")}),
+        N(id="emb", type="listy", version=1, bindings={"n.text": From("h.result")}),
+        N(id="after", type="upper", version=1, bindings={"text": From("emb.j.result")}),
+    )),
     "typed_list_inside": Scenario((("typed-inside", (
         N(id="h", type="upper", version=1),
         N(id="t", type="pair", version=1, bindings={"a": From("h.result"), "b": Static(["p", "q"])}),
@@ -464,7 +514,10 @@ def _condition(condition) -> list[list[str]]:
 
 
 def _what_the_engine_reads(compiled: CompiledGraph) -> dict[str, Any]:
-    """Every run node, in order: the row it runs on, and each field's type, rows, receipt and condition, as reprs."""
+    """Every run node, in order: the row it runs on, the values typed on it,
+    and each field's type, rows, receipt, binding and condition, as reprs.
+    What an editor draws is here too, so a value that no longer holds can't
+    hide behind a run that reads right."""
     assert compiled.is_runnable, compiled.problems
     nodes: dict[str, Any] = {}
     for node_id in compiled.execution_order:
@@ -476,9 +529,15 @@ def _what_the_engine_reads(compiled: CompiledGraph) -> dict[str, Any]:
             fields[declared.name] = {
                 "type": repr(found.type),
                 "index": repr(found.index),
-                **({"receives": repr(found.receives)} if declared.name in inputs else {"condition": _condition(found.condition)}),
+                **({
+                    "receives": repr(found.receives), "binding": repr(found.binding), "listed": found.listed,
+                } if declared.name in inputs else {"condition": _condition(found.condition)}),
             }
-        nodes[node_id] = {"iterates_on": repr(node.iterates_on), "fields": fields}
+        nodes[node_id] = {
+            "iterates_on": repr(node.iterates_on),
+            "statics": repr(dict(sorted(node.statics.items()))),
+            "fields": fields,
+        }
     return {"order": list(compiled.execution_order), "nodes": nodes}
 
 
@@ -487,11 +546,16 @@ def test_a_compiled_graph_placed_reads_exactly_as_the_raw_graph_inlined(name):
     assert _what_the_engine_reads(_compiled(name)) == json.loads(FIXTURE.read_text())[name]
 
 
+def test_the_pinned_values_are_the_scenarios():
+    assert set(json.loads(FIXTURE.read_text())) == set(SCENARIOS)
+
+
 
 RUN = (
     "entering_scalar", "born_inside_exposed", "gathered_into_the_placed_node", "many_values_on_the_placed_node",
     "nested_iterating", "cond_outer_gate_into_graph", "cond_nested_per_row",
     "per_row_output_read_outside", "value_and_edge_per_row", "required_input_filled_inside",
+    "edge_into_a_value_filled_inside", "edge_into_a_list_filled_inside",
 )
 
 
@@ -506,6 +570,10 @@ def _results(compiled: CompiledGraph) -> dict[str, dict[str, str]]:
 @pytest.mark.parametrize("name", RUN)
 def test_a_compiled_graph_placed_runs_to_the_same_results(name):
     assert _results(_compiled(name)) == json.loads(RESULTS.read_text())[name]
+
+
+def test_the_pinned_results_are_the_run_scenarios():
+    assert set(json.loads(RESULTS.read_text())) == set(RUN)
 
 # -- the placed node ---------------------------------------------------------------------
 
@@ -601,6 +669,32 @@ def test_a_graph_whose_required_input_is_left_empty_can_be_placed():
     compiled = _compiled("required_input_left_empty")
 
     assert compiled.is_runnable, compiled.problems
+
+
+def _placed_alone(inner: tuple[GraphNode, ...], **bindings: Any) -> CompiledGraph:
+    graph = CompiledGraph.from_graph(Graph(nodes=list(inner)), _plain_registry())
+    registry = _plain_registry().extended_with({"g": _definition("g", graph)})
+    return CompiledGraph.from_graph(Graph(nodes=[N(id="emb", type="g", version=1, bindings=bindings)]), registry)
+
+
+def test_a_graph_with_an_empty_input_it_does_not_offer_cannot_be_placed():
+    """Only an input the graph offers can be filled where it is placed. A
+    locked one, or one on a node that also has an edge in, stays empty."""
+    locked = _placed_alone((N(id="n", type="need", version=1, locked=("text",)),))
+    fed_beside = _placed_alone((
+        N(id="h", type="holder", version=1, bindings={"value": Static("x")}),
+        N(id="p", type="both", version=1, bindings={"a": From("h.result")}),
+    ))
+
+    for compiled in (locked, fed_beside):
+        assert [(p.code, p.details) for p in compiled.problems] == [("embedded_graph_broken", {"graph": "Graph g", "problems": 1})]
+
+
+def test_a_value_typed_on_a_placed_graph_is_checked_like_the_graph():
+    """Compiled again with the value, the graph can refuse to be placed."""
+    compiled = _placed_alone((N(id="p", type="picky", version=1),), **{"p.mode": Static("bad")})
+
+    assert [p.code for p in compiled.problems] == ["embedded_graph_broken"]
 
 
 def test_a_broken_graph_with_a_value_typed_on_it_is_one_problem():

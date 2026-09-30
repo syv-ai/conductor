@@ -62,6 +62,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
+from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
 from conductor.errors import InputNotOffered
@@ -101,9 +102,6 @@ class CompiledGraph:
     #: The registry the graph was compiled against, kept so a compiled
     #: graph can produce another (``with_inputs``).
     _registry: NodeRegistry
-    #: Every node compile met, by expanded id, and every node whose version
-    #: is a graph, by its own: what ``node`` hands back.
-    _nodes: Mapping[str, CompiledNode]
     #: What ``execution_order`` answers.
     _order: tuple[str, ...]
     #: What this graph takes and returns, in the same record a node version
@@ -135,14 +133,13 @@ class CompiledGraph:
         Every definition the graph names must already be in the registry.
         Nothing raises for a fault in the graph; read ``problems`` and
         ``is_runnable``. The steps of compile are ``compiler.Compilation.run``'s;
-        this builds every ``CompiledNode`` and ``CompiledField`` once from
-        what they recorded (``_Fold``).
+        every ``CompiledNode`` and ``CompiledField`` is built once from what
+        they recorded, on the first question about a node (``_nodes``).
         """
         compilation = Compilation(graph, registry)
         compilation.run()
         return cls(
             _registry=registry,
-            _nodes=_Fold(compilation).nodes(),
             _order=compilation.expansion.order,
             interface=compilation.graph_interface,
             graph=graph,
@@ -151,6 +148,15 @@ class CompiledGraph:
         )
 
     # -- one node, one field ---------------------------------------------------
+
+    @cached_property
+    def _nodes(self) -> Mapping[str, CompiledNode]:
+        """Every node compile met, by expanded id, and every node whose version
+        is a graph, by its own: what ``node`` hands back. Folded from the
+        compile on first read (``_Fold``), since a graph compiled only to be
+        placed in another is read through its compile and never asked
+        about a node."""
+        return _Fold(self._compilation).nodes()
 
     def node(self, node_id: str) -> CompiledNode:
         """Look up one compiled node by its expanded id.
@@ -228,13 +234,28 @@ class CompiledGraph:
         Not a run, and it validates nothing itself. ``Ledger.inject`` is the
         different act of recording a node's *outputs* from ``cache``.
         """
+        return self._refilled(inputs, ())
+
+    def _refilled(self, values: Mapping[str, Any], cleared: Iterable[str]) -> CompiledGraph:
+        """This graph compiled again with ``values`` typed on the inputs they
+        name and the values its author typed on the ``cleared`` inputs taken
+        off, so they arrive at run time. ``with_inputs`` for a caller; a
+        graph that places this one asks for the copy one placement fills
+        (``Compilation._as_placed``). Names are read as ``with_inputs`` reads them."""
         offered = [inp.name for inp in self.interface.inputs]
         filled: dict[str, dict[str, Static]] = {}
-        for name, value in inputs.items():
+        for name, value in values.items():
             ref = self._offered(name, offered)
             filled.setdefault(ref.node_id, {})[ref.field] = Static(value)
+        taken: dict[str, set[str]] = {}
+        for name in cleared:
+            ref = self._offered(name, offered)
+            taken.setdefault(ref.node_id, set()).add(ref.field)
         graph = self.graph.model_copy(update={"nodes": tuple(
-            node.model_copy(update={"bindings": {**node.bindings, **filled.get(node.id, {})}})
+            node.model_copy(update={"bindings": {
+                **{field: binding for field, binding in node.bindings.items() if field not in taken.get(node.id, ())},
+                **filled.get(node.id, {}),
+            }})
             for node in self.graph.nodes
         )})
         return CompiledGraph.from_graph(graph, self._registry)

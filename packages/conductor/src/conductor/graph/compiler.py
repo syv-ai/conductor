@@ -35,6 +35,7 @@ from conductor.graph.embedding import (
     Placed,
     expanded_ref,
     graph_as_placed,
+    inside,
     received_renamed,
     renamed,
 )
@@ -217,28 +218,26 @@ class Compilation:
                 self.problems.append(found)
                 continue
             self.pinned[node.id] = found
-            definition, version = found
-            if not isinstance(version, NodeVersion):
-                # A graph the host compiled on its own (this module may not
-                # import ``CompiledGraph``).
-                self._refuse_if_broken(node.id, definition, version)
 
     def _refuse_if_broken(self, node_id: str, definition: type[NodeDefinition], graph: Any) -> None:
-        """A compiled graph can be placed only when compile worked out every
-        node in it and found nothing fatal but required inputs left empty on
-        nodes it worked out: those are values that arrive from outside, where
-        the graph is placed. Otherwise the author sees one problem on the
-        placed node, ``embedded_graph_broken``, counting the graph's faults,
-        and the graph's own problems stay on the graph, in its own words
-        (``compiled.node(id).version.problems``)."""
+        """A compiled graph can be placed only when nothing in it is fatal but
+        an input it offers left empty: that value arrives from outside, where
+        the graph is placed. An empty input the graph doesn't offer (locked,
+        or on a node with an edge in) can never be filled, so it is a fault
+        like any other. Otherwise the author sees one problem on the placed
+        node, ``embedded_graph_broken``, counting the graph's faults, and the
+        graph's own problems stay on the graph, in its own words
+        (``compiled.node(id).version.problems``). A node compile couldn't
+        work out always carries a fatal problem of its own or upstream, so
+        the faults are the whole answer."""
+        offered = {str(inp.name) for inp in graph.interface.inputs}
         faults = [
             found for found in graph.problems
-            if found.fatal and not (found.code == "unbound_required" and graph.node(found.node_id).state == "ready")
+            if found.fatal and not (found.code == "unbound_required" and f"{found.node_id}.{found.field}" in offered)
         ]
-        if not faults and all(graph.node(inner.id).state == "ready" for inner in graph.graph.nodes):
-            return
-        self.unplaceable.add(node_id)
-        self.problems.append(problem("embedded_graph_broken", node_id, graph=definition.title, problems=len(faults)))
+        if faults:
+            self.unplaceable.add(node_id)
+            self.problems.append(problem("embedded_graph_broken", node_id, graph=definition.title, problems=len(faults)))
 
     def order(self) -> None:
         """Who waits for whom, read off the authored edges, and an execution
@@ -302,15 +301,8 @@ class Compilation:
                 inputs = version.interface.inputs  # a compiled graph placed as a node: it has no hooks
             typed, listed, invalid = self._typed_statics(inputs, node)
             self.problems.extend(invalid)
-            if not isinstance(version, NodeVersion) and typed and node_id not in self.unplaceable:
-                # Values typed on a compiled graph's inputs belong to the nodes
-                # inside, exactly as if they had been typed there: a list makes
-                # only the node that holds it run once per value, and a hook
-                # inside reads the value. So the graph is compiled again with
-                # them, and the walk sees the placed node hold no list.
-                version = version.with_inputs(**typed)
-                self.expansion.versions[node_id] = version
-                self._refuse_if_broken(node_id, self.expansion.definitions[node_id], version)
+            if not isinstance(version, NodeVersion):
+                version = self._as_placed(node_id, node, version, typed, listed)
                 listed = frozenset()
             if version.interface.open is not None:
                 # One Input per edge: `Series[Any]` when the node reduces each
@@ -326,6 +318,48 @@ class Compilation:
             self.interfaces[node_id] = replace(version.interface, inputs=inputs)
             self.statics[node_id] = typed
             self.listed[node_id] = listed
+
+    def _as_placed(self, node_id: str, node: GraphNode, graph: Any, typed: dict[str, Any], listed: frozenset[str]) -> Any:
+        """The compiled graph as this placement fills it, and whether it can be placed.
+
+        Values typed on a placed graph's inputs belong to the nodes inside,
+        exactly as if they had been typed there, and an outer edge into an
+        input the graph's own author filled replaces that value. Mostly the
+        lift just puts the placement's value or edge on the inner field. But
+        a value can decide something when compile runs: a list makes the node
+        that holds it run once per item, and a hook reads the values typed on
+        its node. When the placement's value, or the inner value an edge
+        replaces, is one of those, what compile decided inside no longer
+        holds, so the graph is compiled again with the placement's values
+        (``CompiledGraph._refilled``). The copy replaces the version for this
+        placement only.
+        """
+        refill = {name: value for name, value in typed.items() if name in listed or self._read_by_a_hook(graph, name)}
+        cleared = [
+            name for name, binding in node.bindings.items()
+            if isinstance(binding, From) and self._filled_inside(graph, name)
+            and (self._listed_inside(graph, name) or self._read_by_a_hook(graph, name))
+        ]
+        if refill or cleared:
+            graph = graph._refilled(refill, cleared)
+            self.expansion.versions[node_id] = graph
+        self._refuse_if_broken(node_id, self.expansion.definitions[node_id], graph)
+        return graph
+
+    @staticmethod
+    def _read_by_a_hook(graph: Any, name: str) -> bool:
+        """Does the node inside ``graph`` that input ``name`` lands on have a hook, which reads the values typed on it?"""
+        definition = graph._compilation.expansion.definitions[inside(graph, name).node_id]
+        return (
+            definition.compute_inputs is not NodeDefinition.compute_inputs
+            or definition.compute_outputs is not NodeDefinition.compute_outputs
+        )
+
+    @staticmethod
+    def _listed_inside(graph: Any, name: str) -> bool:
+        """Did ``graph``'s own author type a list on input ``name``, so the node holding it runs once per item?"""
+        ref = inside(graph, name)
+        return ref.field in graph._compilation.listed.get(ref.node_id, ())
 
     def check_bindings(self) -> None:
         """Check the stored bindings against the inputs each node actually has, and those inputs against the field rules.
@@ -395,17 +429,20 @@ class Compilation:
                     if not isinstance(node.bindings.get(inp.name), From):
                         broken.add(node_id)
                         self.problems.append(problem("unbound_required", node_id, inp.name))
-                elif not inp.optional and inp.name not in node.bindings and not self._filled_inside(node_id, inp.name):
+                elif not inp.optional and inp.name not in node.bindings and not self._filled_inside(self.expansion.versions[node_id], inp.name):
                     # Not broken: its type is declared, so the walk still works the node out, as a value that arrives at run time.
                     self.problems.append(problem("unbound_required", node_id, inp.name))
         self.broken = frozenset(broken)
 
-    def _filled_inside(self, node_id: str, name: str) -> bool:
+    @staticmethod
+    def _filled_inside(version: Any, name: str) -> bool:
         """Is ``name`` an input of a placed compiled graph that the graph's own
         author already filled in? Then nothing needs connecting where it is
         placed: the value inside holds unless the outer graph gives another."""
-        version = self.expansion.versions[node_id]
-        return not isinstance(version, NodeVersion) and isinstance(version.field(Ref(name)).binding, Static)
+        if isinstance(version, NodeVersion):
+            return False
+        ref = inside(version, name)
+        return isinstance(version._compilation.expansion.nodes[ref.node_id].bindings.get(ref.field), Static)
 
     def walk_edges(self) -> None:
         """One walk over the edges in expanded order (``iteration.derive``):
@@ -457,7 +494,7 @@ class Compilation:
             edges = {name: binding for name, binding in node.bindings.items() if isinstance(binding, From) and name in offered}
             if node_id not in iterated:
                 # The walk left it out: its nodes take its place, each saying why it is not ready.
-                lifted = graph_as_placed(versions[node_id], node_id, edges, None, None)
+                lifted = graph_as_placed(versions[node_id], node_id, edges, self.statics[node_id], None, None)
                 self._merge_structure(lifted, node_id, order, members, nodes, versions, definitions)
                 continue
             own = {Ref(node_id, str(field.name)) for field in (*interface.inputs, *interface.outputs)}
@@ -475,7 +512,7 @@ class Compilation:
                 )
                 for name in edges
             }
-            lifted = graph_as_placed(versions[node_id], node_id, edges, renamed(iterated[node_id], renames), crossings)
+            lifted = graph_as_placed(versions[node_id], node_id, edges, self.statics[node_id], renamed(iterated[node_id], renames), crossings)
             for ref in own:
                 types.pop(ref, None)
                 indexes.pop(ref, None)
@@ -536,8 +573,7 @@ class Compilation:
 
     def _lifted_ref(self, node_id: str, address: str) -> Ref:
         """The inner field an address on a placed node reaches, by lifted ref: ``emb`` + ``mid.join.result`` → ``emb/mid/join.result``."""
-        graph = self.expansion.versions[node_id]
-        inner = expanded_ref(Ref(address), graph._compilation.expansion.graphs)
+        inner = inside(self.expansion.versions[node_id], address)
         return Ref(f"{node_id}{SEPARATOR}{inner.node_id}", inner.field)
 
     def interface(self) -> None:

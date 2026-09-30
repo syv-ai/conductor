@@ -45,7 +45,7 @@ from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from conductor.graph.binding import Binding, From
+from conductor.graph.binding import Binding, From, Static
 from conductor.graph.model import GraphNode
 from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Receive, Whole
 from conductor.ref import Ref
@@ -111,10 +111,19 @@ class Placed:
     receives: dict[Ref, Receive]
 
 
+def inside(graph: CompiledGraph, address: str) -> Ref:
+    """The field an address the graph offers lands on, as the graph's own
+    compile ran it: ``mid.join.result`` is ``mid/join.result`` when ``mid``
+    is a graph placed inside. What the walk, the lift and placement read
+    about an offered field, they read from the graph's own compile there."""
+    return expanded_ref(Ref(address), graph._compilation.expansion.graphs)
+
+
 def graph_as_placed(
     graph: CompiledGraph,
     node_id: str,
     edges: Mapping[str, From],
+    values: Mapping[str, Any],
     runs_per_row_of: Index | None,
     crossings: Mapping[str, Crossing] | None,
 ) -> Placed:
@@ -125,9 +134,11 @@ def graph_as_placed(
     walk decided for each; ``crossings`` is ``None`` when the walk did not
     derive the placed node (an edge into it is broken, or it cannot be
     placed), and then only the nodes, their versions and interfaces are
-    lifted. A value the outer graph typed on an input is already inside
-    ``graph``: the compiler compiled it again with the value
-    (``Compilation.ask_inputs``).
+    lifted. ``values`` holds, by input name, what the outer graph typed on
+    the placed node; each lands on the inner field as if typed there. A
+    value that decides something inside (a list, or a node whose hook reads
+    it) is already in ``graph``: the compiler compiled it again with the
+    value (``Compilation._as_placed``).
     """
     inner = graph._compilation
     expansion, iteration = inner.expansion, inner.iteration
@@ -140,6 +151,7 @@ def graph_as_placed(
         return expanded_ref(Ref(address), expansion.graphs)
 
     edge_at = {reached(address): edge for address, edge in edges.items()}
+    value_at = {reached(address): value for address, value in values.items()}
     #: The inner fields the outer graph feeds: what the inner graph put there gives way.
     crossed: dict[str, set[str]] = {}
     for ref in edge_at:
@@ -158,6 +170,9 @@ def graph_as_placed(
         for ref, edge in edge_at.items():
             if ref.node_id == inner_id:
                 bindings[ref.field] = edge
+        for ref, value in value_at.items():
+            if ref.node_id == inner_id:
+                bindings[ref.field] = Static(value)
         nodes[prefix + inner_id] = inner_node.model_copy(update={"id": prefix + inner_id, "bindings": bindings, "locked": ()})
 
     run_ids = tuple(prefix + inner_id for inner_id in expansion.order)
@@ -172,7 +187,10 @@ def graph_as_placed(
         "definitions": {prefix + inner_id: definition for inner_id, definition in expansion.definitions.items()},
         "interfaces": {prefix + inner_id: interface for inner_id, interface in inner.interfaces.items()},
         "statics": {
-            prefix + inner_id: {name: value for name, value in held.items() if name not in crossed.get(inner_id, ())}
+            prefix + inner_id: {
+                **{name: value for name, value in held.items() if name not in crossed.get(inner_id, ())},
+                **{ref.field: value for ref, value in value_at.items() if ref.node_id == inner_id},
+            }
             for inner_id, held in inner.statics.items()
         },
         "listed": {prefix + inner_id: held - crossed.get(inner_id, set()) for inner_id, held in inner.listed.items()},
@@ -182,7 +200,7 @@ def graph_as_placed(
     crossing_at = {reached(address): crossing for address, crossing in crossings.items()}
 
     iterated = {
-        prefix + inner_id: runs_per_row_of if index is None else _under(index, prefix, runs_per_row_of)
+        prefix + inner_id: runs_per_row_of if index is None else under(index, prefix, runs_per_row_of)
         for inner_id, index in iteration.iterated.items()
     }
     types: dict[Ref, Any] = {}
@@ -200,7 +218,7 @@ def graph_as_placed(
         is_output = receipt is None
         once_per_row = per_row_of is not None and index is None and (is_output or ref in edge_fed)
         types[new_ref] = Series[dtype] if once_per_row else dtype
-        indexes[new_ref] = per_row_of if once_per_row else _under(index, prefix, per_row_of)
+        indexes[new_ref] = per_row_of if once_per_row else under(index, prefix, per_row_of)
         if is_output:
             continue
         if once_per_row and isinstance(receipt, Broadcast):
@@ -250,8 +268,13 @@ def _depth(index: Index | None) -> int:
     return len(_chain(index))
 
 
-def _under(index: Index | None, prefix: str, row: Index | None) -> Index | None:
-    """An inner index as it stands placed: each id prefixed, its root hung under ``row`` (rule 1)."""
+def under(index: Index | None, prefix: str, row: Index | None) -> Index | None:
+    """An inner index as it stands placed: each id prefixed, its root hung under ``row`` (rule 1).
+
+    The walk names a placed graph's outputs this way before the lift, so
+    the rows outer nodes read and the rows the lifted fields have are one
+    answer.
+    """
     if index is None:
         return None
     parent = row
@@ -263,11 +286,11 @@ def _under(index: Index | None, prefix: str, row: Index | None) -> Index | None:
 def _received_under(receipt: Receive, index: Index | None, prefix: str, row: Index | None) -> Receive:
     """An inner receipt as it stands placed (rules 1 and 3)."""
     if isinstance(receipt, Iterate):
-        return Iterate(_under(receipt.index, prefix, row))
+        return Iterate(under(receipt.index, prefix, row))
     if isinstance(receipt, Group):
-        return Group(_under(receipt.index, prefix, row), receipt.depth + _depth(row))
+        return Group(under(receipt.index, prefix, row), receipt.depth + _depth(row))
     if isinstance(receipt, Gather):
-        return Gather(_under(receipt.index, prefix, row))
+        return Gather(under(receipt.index, prefix, row))
     if isinstance(receipt, Whole):
-        return receipt if row is None else Group(_under(index, prefix, row), _depth(row))
+        return receipt if row is None else Group(under(index, prefix, row), _depth(row))
     return receipt

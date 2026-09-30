@@ -4,7 +4,9 @@
    "docs": {
     "fields": {
      "folder": {
+      "binding": "None",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      },
@@ -16,7 +18,8 @@
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/holder": {
     "fields": {
@@ -28,12 +31,15 @@
       "type": "Series[Txt]"
      },
      "value": {
+      "binding": "From(refs=('docs.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "emb/join": {
     "fields": {
@@ -45,12 +51,15 @@
       "type": "Series[Txt]"
      },
      "texts": {
+      "binding": "From(refs=('emb/lines.result',))",
       "index": "Index('emb/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Group(index=Index('emb/lines', parent=Index('docs')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "emb/lines": {
     "fields": {
@@ -62,12 +71,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('emb/holder.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    }
   },
   "order": [
@@ -89,17 +101,22 @@
       "type": "Series[Txt]"
      },
      "texts": {
+      "binding": "From(refs=('emb/lines.result',))",
       "index": "Index('emb/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Group(index=Index('emb/lines', parent=Index('docs')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "docs": {
     "fields": {
      "folder": {
+      "binding": "None",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      },
@@ -111,7 +128,8 @@
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/holder": {
     "fields": {
@@ -123,12 +141,15 @@
       "type": "Series[Txt]"
      },
      "value": {
+      "binding": "From(refs=('docs.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "emb/lines": {
     "fields": {
@@ -140,12 +161,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('emb/holder.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    }
   },
   "order": [
@@ -160,7 +184,9 @@
    "docs": {
     "fields": {
      "folder": {
+      "binding": "None",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      },
@@ -172,7 +198,8 @@
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/entered": {
     "fields": {
@@ -184,12 +211,15 @@
       "type": "Series[Txt]"
      },
      "value": {
+      "binding": "From(refs=('docs.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "emb/holder": {
     "fields": {
@@ -201,12 +231,15 @@
       "type": "Series[Txt]"
      },
      "value": {
+      "binding": "Static(value='a\\nb')",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{'value': 'a\\nb'}"
    },
    "emb/join": {
     "fields": {
@@ -218,12 +251,15 @@
       "type": "Series[Txt]"
      },
      "texts": {
+      "binding": "From(refs=('emb/lines.result',))",
       "index": "Index('emb/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Group(index=Index('emb/lines', parent=Index('docs')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "emb/lines": {
     "fields": {
@@ -235,12 +271,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('emb/holder.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    }
   },
   "order": [
@@ -263,17 +302,22 @@
       "type": "Series[Txt]"
      },
      "texts": {
+      "binding": "From(refs=('emb/lines.result',))",
       "index": "Index('emb/lines', parent=Index('emb/docs'))",
+      "listed": false,
       "receives": "Group(index=Index('emb/lines', parent=Index('emb/docs')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('emb/docs')"
+    "iterates_on": "Index('emb/docs')",
+    "statics": "{}"
    },
    "emb/docs": {
     "fields": {
      "folder": {
+      "binding": "None",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      },
@@ -285,7 +329,8 @@
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/lines": {
     "fields": {
@@ -297,12 +342,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('emb/docs.result',))",
       "index": "Index('emb/docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('emb/docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('emb/docs')"
+    "iterates_on": "Index('emb/docs')",
+    "statics": "{}"
    }
   },
   "order": [
@@ -325,12 +373,15 @@
       "type": "Txt"
      },
      "text": {
+      "binding": "From(refs=('emb/up.result',))",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/gate": {
     "fields": {
@@ -353,17 +404,22 @@
       "type": "Txt"
      },
      "value": {
+      "binding": "From(refs=('emb/holder.result',))",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      },
      "when": {
+      "binding": "None",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Flag"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/holder": {
     "fields": {
@@ -375,12 +431,15 @@
       "type": "Txt"
      },
      "value": {
+      "binding": "Static(value='x')",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{'value': 'x'}"
    },
    "emb/single": {
     "fields": {
@@ -397,12 +456,15 @@
       "type": "Txt"
      },
      "values": {
+      "binding": "From(refs=('emb/gate.if_true', 'emb/gate.if_false'))",
       "index": "Index('emb/single.values')",
+      "listed": false,
       "receives": "Gather(index=Index('emb/single.values'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/up": {
     "fields": {
@@ -416,12 +478,15 @@
       "type": "Txt"
      },
      "text": {
+      "binding": "From(refs=('emb/gate.if_true',))",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    }
   },
   "order": [
@@ -444,17 +509,22 @@
       "type": "Txt"
      },
      "values": {
+      "binding": "From(refs=('emb/up.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Whole()",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "docs": {
     "fields": {
      "folder": {
+      "binding": "None",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      },
@@ -466,7 +536,8 @@
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/gate": {
     "fields": {
@@ -485,17 +556,22 @@
       "type": "Series[Txt]"
      },
      "value": {
+      "binding": "From(refs=('emb/holder.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      },
      "when": {
+      "binding": "None",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Flag"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "emb/holder": {
     "fields": {
@@ -507,12 +583,15 @@
       "type": "Series[Txt]"
      },
      "value": {
+      "binding": "From(refs=('docs.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "emb/single": {
     "fields": {
@@ -524,12 +603,15 @@
       "type": "Series[Txt]"
      },
      "values": {
+      "binding": "From(refs=('emb/gate.if_true', 'emb/gate.if_false'))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Group(index=Index('docs'), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "emb/up": {
     "fields": {
@@ -541,12 +623,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('emb/gate.if_true',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    }
   },
   "order": [
@@ -572,12 +657,15 @@
       "type": "Txt"
      },
      "value": {
+      "binding": "From(refs=('og.if_true',))",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/b": {
     "fields": {
@@ -589,12 +677,15 @@
       "type": "Txt"
      },
      "value": {
+      "binding": "Static(value='z')",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{'value': 'z'}"
    },
    "emb/g": {
     "fields": {
@@ -617,17 +708,22 @@
       "type": "Txt"
      },
      "value": {
+      "binding": "From(refs=('emb/b.result',))",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      },
      "when": {
+      "binding": "None",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Flag"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/single": {
     "fields": {
@@ -644,12 +740,15 @@
       "type": "Txt"
      },
      "values": {
+      "binding": "From(refs=('emb/a.result', 'emb/g.if_true'))",
       "index": "Index('emb/single.values')",
+      "listed": false,
       "receives": "Gather(index=Index('emb/single.values'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "h": {
     "fields": {
@@ -661,12 +760,15 @@
       "type": "Txt"
      },
      "value": {
+      "binding": "Static(value='y')",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{'value': 'y'}"
    },
    "og": {
     "fields": {
@@ -689,17 +791,22 @@
       "type": "Txt"
      },
      "value": {
+      "binding": "From(refs=('h.result',))",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      },
      "when": {
+      "binding": "None",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Flag"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    }
   },
   "order": [
@@ -729,12 +836,15 @@
       "type": "Txt"
      },
      "text": {
+      "binding": "From(refs=('top/s.result',))",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "top/b/gate": {
     "fields": {
@@ -759,17 +869,22 @@
       "type": "Txt"
      },
      "value": {
+      "binding": "From(refs=('top/b/holder.result',))",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      },
      "when": {
+      "binding": "None",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Flag"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "top/b/holder": {
     "fields": {
@@ -783,12 +898,15 @@
       "type": "Txt"
      },
      "value": {
+      "binding": "From(refs=('top/g.if_true',))",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "top/b/single": {
     "fields": {
@@ -807,12 +925,15 @@
       "type": "Txt"
      },
      "values": {
+      "binding": "From(refs=('top/b/gate.if_true', 'top/b/gate.if_false'))",
       "index": "Index('top/b/single.values')",
+      "listed": false,
       "receives": "Gather(index=Index('top/b/single.values'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "top/b/up": {
     "fields": {
@@ -827,12 +948,15 @@
       "type": "Txt"
      },
      "text": {
+      "binding": "From(refs=('top/b/gate.if_true',))",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "top/g": {
     "fields": {
@@ -855,17 +979,22 @@
       "type": "Txt"
      },
      "value": {
+      "binding": "From(refs=('top/h.result',))",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      },
      "when": {
+      "binding": "None",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Flag"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "top/h": {
     "fields": {
@@ -877,12 +1006,15 @@
       "type": "Txt"
      },
      "value": {
+      "binding": "Static(value='m')",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{'value': 'm'}"
    },
    "top/s": {
     "fields": {
@@ -900,12 +1032,15 @@
       "type": "Txt"
      },
      "values": {
+      "binding": "From(refs=('top/b/up.result', 'top/g.if_false'))",
       "index": "Index('top/s.values')",
+      "listed": false,
       "receives": "Gather(index=Index('top/s.values'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    }
   },
   "order": [
@@ -931,17 +1066,22 @@
       "type": "Txt"
      },
      "values": {
+      "binding": "From(refs=('top/s.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Whole()",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "docs": {
     "fields": {
      "folder": {
+      "binding": "None",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      },
@@ -953,7 +1093,8 @@
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "top/b/gate": {
     "fields": {
@@ -972,17 +1113,22 @@
       "type": "Series[Txt]"
      },
      "value": {
+      "binding": "From(refs=('top/b/holder.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      },
      "when": {
+      "binding": "None",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Flag"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/b/holder": {
     "fields": {
@@ -994,12 +1140,15 @@
       "type": "Series[Txt]"
      },
      "value": {
+      "binding": "From(refs=('top/g.if_true',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/b/single": {
     "fields": {
@@ -1011,12 +1160,15 @@
       "type": "Series[Txt]"
      },
      "values": {
+      "binding": "From(refs=('top/b/gate.if_true', 'top/b/gate.if_false'))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Group(index=Index('docs'), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/b/up": {
     "fields": {
@@ -1028,12 +1180,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/b/gate.if_true',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/g": {
     "fields": {
@@ -1052,17 +1207,22 @@
       "type": "Series[Txt]"
      },
      "value": {
+      "binding": "From(refs=('top/h.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      },
      "when": {
+      "binding": "None",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Flag"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/h": {
     "fields": {
@@ -1074,12 +1234,15 @@
       "type": "Series[Txt]"
      },
      "value": {
+      "binding": "From(refs=('docs.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/s": {
     "fields": {
@@ -1091,12 +1254,15 @@
       "type": "Series[Txt]"
      },
      "values": {
+      "binding": "From(refs=('top/b/up.result', 'top/g.if_false'))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Group(index=Index('docs'), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    }
   },
   "order": [
@@ -1130,12 +1296,15 @@
       "type": "Txt"
      },
      "text": {
+      "binding": "From(refs=('emb/single.result',))",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/gate": {
     "fields": {
@@ -1160,17 +1329,22 @@
       "type": "Txt"
      },
      "value": {
+      "binding": "From(refs=('emb/holder.result',))",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      },
      "when": {
+      "binding": "None",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Flag"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/holder": {
     "fields": {
@@ -1184,12 +1358,15 @@
       "type": "Txt"
      },
      "value": {
+      "binding": "From(refs=('og.if_false',))",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/single": {
     "fields": {
@@ -1208,12 +1385,15 @@
       "type": "Txt"
      },
      "values": {
+      "binding": "From(refs=('emb/gate.if_true', 'emb/gate.if_false'))",
       "index": "Index('emb/single.values')",
+      "listed": false,
       "receives": "Gather(index=Index('emb/single.values'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/up": {
     "fields": {
@@ -1228,12 +1408,15 @@
       "type": "Txt"
      },
      "text": {
+      "binding": "From(refs=('emb/gate.if_true',))",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "h": {
     "fields": {
@@ -1245,12 +1428,15 @@
       "type": "Txt"
      },
      "value": {
+      "binding": "Static(value='y')",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{'value': 'y'}"
    },
    "og": {
     "fields": {
@@ -1273,17 +1459,22 @@
       "type": "Txt"
      },
      "value": {
+      "binding": "From(refs=('h.result',))",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      },
      "when": {
+      "binding": "None",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Flag"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    }
   },
   "order": [
@@ -1296,12 +1487,194 @@
    "after"
   ]
  },
+ "edge_into_a_list_filled_inside": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "text": {
+      "binding": "From(refs=('emb/j.result',))",
+      "index": "None",
+      "listed": false,
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None",
+    "statics": "{}"
+   },
+   "emb/j": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "texts": {
+      "binding": "From(refs=('emb/n.result',))",
+      "index": "Index('emb/j.texts')",
+      "listed": false,
+      "receives": "Gather(index=Index('emb/j.texts'))",
+      "type": "Series[Txt]"
+     }
+    },
+    "iterates_on": "None",
+    "statics": "{}"
+   },
+   "emb/n": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "text": {
+      "binding": "From(refs=('h.result',))",
+      "index": "None",
+      "listed": false,
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None",
+    "statics": "{}"
+   },
+   "h": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "value": {
+      "binding": "Static(value='outside')",
+      "index": "None",
+      "listed": false,
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None",
+    "statics": "{'value': 'outside'}"
+   }
+  },
+  "order": [
+   "h",
+   "emb/n",
+   "emb/j",
+   "after"
+  ]
+ },
+ "edge_into_a_value_filled_inside": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "text": {
+      "binding": "From(refs=('emb/u.result',))",
+      "index": "None",
+      "listed": false,
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None",
+    "statics": "{}"
+   },
+   "emb/n": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "text": {
+      "binding": "From(refs=('h.result',))",
+      "index": "None",
+      "listed": false,
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None",
+    "statics": "{}"
+   },
+   "emb/u": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "text": {
+      "binding": "From(refs=('emb/n.result',))",
+      "index": "None",
+      "listed": false,
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None",
+    "statics": "{}"
+   },
+   "h": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "index": "None",
+      "type": "Txt"
+     },
+     "value": {
+      "binding": "Static(value='outside')",
+      "index": "None",
+      "listed": false,
+      "receives": "Broadcast()",
+      "type": "Txt"
+     }
+    },
+    "iterates_on": "None",
+    "statics": "{'value': 'outside'}"
+   }
+  },
+  "order": [
+   "h",
+   "emb/n",
+   "emb/u",
+   "after"
+  ]
+ },
  "entering_scalar": {
   "nodes": {
    "docs": {
     "fields": {
      "folder": {
+      "binding": "None",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      },
@@ -1313,7 +1686,8 @@
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/holder": {
     "fields": {
@@ -1325,12 +1699,15 @@
       "type": "Series[Txt]"
      },
      "value": {
+      "binding": "From(refs=('docs.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "emb/join": {
     "fields": {
@@ -1342,12 +1719,15 @@
       "type": "Series[Txt]"
      },
      "texts": {
+      "binding": "From(refs=('emb/up.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Group(index=Index('docs'), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "emb/up": {
     "fields": {
@@ -1359,12 +1739,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('emb/holder.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    }
   },
   "order": [
@@ -1379,7 +1762,9 @@
    "docs": {
     "fields": {
      "folder": {
+      "binding": "None",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      },
@@ -1391,7 +1776,8 @@
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/holder": {
     "fields": {
@@ -1403,12 +1789,15 @@
       "type": "Series[Txt]"
      },
      "value": {
+      "binding": "From(refs=('docs.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "emb/join": {
     "fields": {
@@ -1420,12 +1809,15 @@
       "type": "Series[Txt]"
      },
      "texts": {
+      "binding": "From(refs=('emb/holder.result', 'emb/up.result'))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Group(index=Index('docs'), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "emb/up": {
     "fields": {
@@ -1437,12 +1829,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('emb/holder.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    }
   },
   "order": [
@@ -1464,12 +1859,15 @@
       "type": "Txt"
      },
      "text": {
+      "binding": "From(refs=('emb/join.result',))",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/join": {
     "fields": {
@@ -1481,12 +1879,15 @@
       "type": "Txt"
      },
      "texts": {
+      "binding": "From(refs=('h1.result', 'h2.result'))",
       "index": "Index('emb/join.texts')",
+      "listed": false,
       "receives": "Gather(index=Index('emb/join.texts'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "h1": {
     "fields": {
@@ -1498,12 +1899,15 @@
       "type": "Txt"
      },
      "value": {
+      "binding": "Static(value='a')",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{'value': 'a'}"
    },
    "h2": {
     "fields": {
@@ -1515,12 +1919,15 @@
       "type": "Txt"
      },
      "value": {
+      "binding": "Static(value='b')",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{'value': 'b'}"
    }
   },
   "order": [
@@ -1542,12 +1949,15 @@
       "type": "Txt"
      },
      "texts": {
+      "binding": "From(refs=('emb/join.result',))",
       "index": "Index('after.texts')",
+      "listed": false,
       "receives": "Gather(index=Index('after.texts'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/holder": {
     "fields": {
@@ -1559,12 +1969,15 @@
       "type": "Series[Txt]"
      },
      "value": {
+      "binding": "Static(value=['a', 'b'])",
       "index": "Index('emb/holder.value')",
+      "listed": true,
       "receives": "Iterate(index=Index('emb/holder.value'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('emb/holder.value')"
+    "iterates_on": "Index('emb/holder.value')",
+    "statics": "{'value': ['a', 'b']}"
    },
    "emb/join": {
     "fields": {
@@ -1576,12 +1989,15 @@
       "type": "Txt"
      },
      "texts": {
+      "binding": "From(refs=('emb/up.result',))",
       "index": "Index('emb/holder.value')",
+      "listed": false,
       "receives": "Whole()",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/up": {
     "fields": {
@@ -1593,12 +2009,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('emb/holder.result',))",
       "index": "Index('emb/holder.value')",
+      "listed": false,
       "receives": "Iterate(index=Index('emb/holder.value'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('emb/holder.value')"
+    "iterates_on": "Index('emb/holder.value')",
+    "statics": "{}"
    }
   },
   "order": [
@@ -1613,7 +2032,9 @@
    "docs": {
     "fields": {
      "folder": {
+      "binding": "None",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      },
@@ -1625,7 +2046,8 @@
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "top/holder": {
     "fields": {
@@ -1637,12 +2059,15 @@
       "type": "Series[Txt]"
      },
      "value": {
+      "binding": "From(refs=('docs.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/inner/holder": {
     "fields": {
@@ -1654,12 +2079,15 @@
       "type": "Series[Txt]"
      },
      "value": {
+      "binding": "From(refs=('top/holder.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/inner/join": {
     "fields": {
@@ -1671,12 +2099,15 @@
       "type": "Series[Txt]"
      },
      "texts": {
+      "binding": "From(refs=('top/inner/up.result',))",
       "index": "Index('top/inner/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Group(index=Index('top/inner/lines', parent=Index('docs')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/inner/lines": {
     "fields": {
@@ -1688,12 +2119,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/inner/s7.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/inner/s0": {
     "fields": {
@@ -1705,12 +2139,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/inner/holder.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/inner/s1": {
     "fields": {
@@ -1722,12 +2159,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/inner/s0.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/inner/s2": {
     "fields": {
@@ -1739,12 +2179,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/inner/s1.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/inner/s3": {
     "fields": {
@@ -1756,12 +2199,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/inner/s2.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/inner/s4": {
     "fields": {
@@ -1773,12 +2219,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/inner/s3.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/inner/s5": {
     "fields": {
@@ -1790,12 +2239,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/inner/s4.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/inner/s6": {
     "fields": {
@@ -1807,12 +2259,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/inner/s5.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/inner/s7": {
     "fields": {
@@ -1824,12 +2279,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/inner/s6.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/inner/up": {
     "fields": {
@@ -1841,12 +2299,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/inner/lines.result',))",
       "index": "Index('top/inner/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Iterate(index=Index('top/inner/lines', parent=Index('docs')))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('top/inner/lines', parent=Index('docs'))"
+    "iterates_on": "Index('top/inner/lines', parent=Index('docs'))",
+    "statics": "{}"
    },
    "top/join": {
     "fields": {
@@ -1858,12 +2319,15 @@
       "type": "Series[Txt]"
      },
      "texts": {
+      "binding": "From(refs=('top/up.result',))",
       "index": "Index('top/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Group(index=Index('top/lines', parent=Index('docs')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/lines": {
     "fields": {
@@ -1875,12 +2339,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/inner/join.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/up": {
     "fields": {
@@ -1892,12 +2359,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/lines.result',))",
       "index": "Index('top/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Iterate(index=Index('top/lines', parent=Index('docs')))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('top/lines', parent=Index('docs'))"
+    "iterates_on": "Index('top/lines', parent=Index('docs'))",
+    "statics": "{}"
    }
   },
   "order": [
@@ -1925,7 +2395,9 @@
    "docs": {
     "fields": {
      "folder": {
+      "binding": "None",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      },
@@ -1937,7 +2409,8 @@
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "top/holder": {
     "fields": {
@@ -1949,12 +2422,15 @@
       "type": "Series[Txt]"
      },
      "value": {
+      "binding": "From(refs=('docs.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/inner/holder": {
     "fields": {
@@ -1966,12 +2442,15 @@
       "type": "Series[Txt]"
      },
      "value": {
+      "binding": "From(refs=('top/holder.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/inner/inner/holder": {
     "fields": {
@@ -1983,12 +2462,15 @@
       "type": "Series[Txt]"
      },
      "value": {
+      "binding": "From(refs=('top/inner/holder.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/inner/inner/inner/holder": {
     "fields": {
@@ -2000,12 +2482,15 @@
       "type": "Series[Txt]"
      },
      "value": {
+      "binding": "From(refs=('top/inner/inner/holder.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/inner/inner/inner/join": {
     "fields": {
@@ -2017,12 +2502,15 @@
       "type": "Series[Txt]"
      },
      "texts": {
+      "binding": "From(refs=('top/inner/inner/inner/up.result',))",
       "index": "Index('top/inner/inner/inner/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Group(index=Index('top/inner/inner/inner/lines', parent=Index('docs')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/inner/inner/inner/lines": {
     "fields": {
@@ -2034,12 +2522,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/inner/inner/inner/s7.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/inner/inner/inner/s0": {
     "fields": {
@@ -2051,12 +2542,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/inner/inner/inner/holder.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/inner/inner/inner/s1": {
     "fields": {
@@ -2068,12 +2562,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/inner/inner/inner/s0.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/inner/inner/inner/s2": {
     "fields": {
@@ -2085,12 +2582,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/inner/inner/inner/s1.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/inner/inner/inner/s3": {
     "fields": {
@@ -2102,12 +2602,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/inner/inner/inner/s2.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/inner/inner/inner/s4": {
     "fields": {
@@ -2119,12 +2622,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/inner/inner/inner/s3.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/inner/inner/inner/s5": {
     "fields": {
@@ -2136,12 +2642,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/inner/inner/inner/s4.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/inner/inner/inner/s6": {
     "fields": {
@@ -2153,12 +2662,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/inner/inner/inner/s5.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/inner/inner/inner/s7": {
     "fields": {
@@ -2170,12 +2682,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/inner/inner/inner/s6.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/inner/inner/inner/up": {
     "fields": {
@@ -2187,12 +2702,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/inner/inner/inner/lines.result',))",
       "index": "Index('top/inner/inner/inner/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Iterate(index=Index('top/inner/inner/inner/lines', parent=Index('docs')))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('top/inner/inner/inner/lines', parent=Index('docs'))"
+    "iterates_on": "Index('top/inner/inner/inner/lines', parent=Index('docs'))",
+    "statics": "{}"
    },
    "top/inner/inner/join": {
     "fields": {
@@ -2204,12 +2722,15 @@
       "type": "Series[Txt]"
      },
      "texts": {
+      "binding": "From(refs=('top/inner/inner/up.result',))",
       "index": "Index('top/inner/inner/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Group(index=Index('top/inner/inner/lines', parent=Index('docs')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/inner/inner/lines": {
     "fields": {
@@ -2221,12 +2742,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/inner/inner/inner/join.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/inner/inner/up": {
     "fields": {
@@ -2238,12 +2762,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/inner/inner/lines.result',))",
       "index": "Index('top/inner/inner/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Iterate(index=Index('top/inner/inner/lines', parent=Index('docs')))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('top/inner/inner/lines', parent=Index('docs'))"
+    "iterates_on": "Index('top/inner/inner/lines', parent=Index('docs'))",
+    "statics": "{}"
    },
    "top/inner/join": {
     "fields": {
@@ -2255,12 +2782,15 @@
       "type": "Series[Txt]"
      },
      "texts": {
+      "binding": "From(refs=('top/inner/up.result',))",
       "index": "Index('top/inner/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Group(index=Index('top/inner/lines', parent=Index('docs')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/inner/lines": {
     "fields": {
@@ -2272,12 +2802,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/inner/inner/join.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/inner/up": {
     "fields": {
@@ -2289,12 +2822,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/inner/lines.result',))",
       "index": "Index('top/inner/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Iterate(index=Index('top/inner/lines', parent=Index('docs')))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('top/inner/lines', parent=Index('docs'))"
+    "iterates_on": "Index('top/inner/lines', parent=Index('docs'))",
+    "statics": "{}"
    },
    "top/join": {
     "fields": {
@@ -2306,12 +2842,15 @@
       "type": "Series[Txt]"
      },
      "texts": {
+      "binding": "From(refs=('top/up.result',))",
       "index": "Index('top/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Group(index=Index('top/lines', parent=Index('docs')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/lines": {
     "fields": {
@@ -2323,12 +2862,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/inner/join.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/up": {
     "fields": {
@@ -2340,12 +2882,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/lines.result',))",
       "index": "Index('top/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Iterate(index=Index('top/lines', parent=Index('docs')))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('top/lines', parent=Index('docs'))"
+    "iterates_on": "Index('top/lines', parent=Index('docs'))",
+    "statics": "{}"
    }
   },
   "order": [
@@ -2388,17 +2933,22 @@
       "type": "Txt"
      },
      "texts": {
+      "binding": "From(refs=('top/join.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Whole()",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "docs": {
     "fields": {
      "folder": {
+      "binding": "None",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      },
@@ -2410,7 +2960,8 @@
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "top/holder": {
     "fields": {
@@ -2422,12 +2973,15 @@
       "type": "Series[Txt]"
      },
      "value": {
+      "binding": "From(refs=('docs.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/join": {
     "fields": {
@@ -2439,12 +2993,15 @@
       "type": "Series[Txt]"
      },
      "texts": {
+      "binding": "From(refs=('top/leafy/join.result',))",
       "index": "Index('top/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Group(index=Index('top/lines', parent=Index('docs')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "top/leafy/holder": {
     "fields": {
@@ -2456,12 +3013,15 @@
       "type": "Series[Txt]"
      },
      "value": {
+      "binding": "From(refs=('top/lines.result',))",
       "index": "Index('top/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Iterate(index=Index('top/lines', parent=Index('docs')))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('top/lines', parent=Index('docs'))"
+    "iterates_on": "Index('top/lines', parent=Index('docs'))",
+    "statics": "{}"
    },
    "top/leafy/join": {
     "fields": {
@@ -2473,12 +3033,15 @@
       "type": "Series[Txt]"
      },
      "texts": {
+      "binding": "From(refs=('top/leafy/up.result',))",
       "index": "Index('top/leafy/lines', parent=Index('top/lines', parent=Index('docs')))",
+      "listed": false,
       "receives": "Group(index=Index('top/leafy/lines', parent=Index('top/lines', parent=Index('docs'))), depth=2)",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('top/lines', parent=Index('docs'))"
+    "iterates_on": "Index('top/lines', parent=Index('docs'))",
+    "statics": "{}"
    },
    "top/leafy/lines": {
     "fields": {
@@ -2490,12 +3053,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/leafy/s2.result',))",
       "index": "Index('top/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Iterate(index=Index('top/lines', parent=Index('docs')))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('top/lines', parent=Index('docs'))"
+    "iterates_on": "Index('top/lines', parent=Index('docs'))",
+    "statics": "{}"
    },
    "top/leafy/s0": {
     "fields": {
@@ -2507,12 +3073,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/leafy/holder.result',))",
       "index": "Index('top/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Iterate(index=Index('top/lines', parent=Index('docs')))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('top/lines', parent=Index('docs'))"
+    "iterates_on": "Index('top/lines', parent=Index('docs'))",
+    "statics": "{}"
    },
    "top/leafy/s1": {
     "fields": {
@@ -2524,12 +3093,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/leafy/s0.result',))",
       "index": "Index('top/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Iterate(index=Index('top/lines', parent=Index('docs')))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('top/lines', parent=Index('docs'))"
+    "iterates_on": "Index('top/lines', parent=Index('docs'))",
+    "statics": "{}"
    },
    "top/leafy/s2": {
     "fields": {
@@ -2541,12 +3113,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/leafy/s1.result',))",
       "index": "Index('top/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Iterate(index=Index('top/lines', parent=Index('docs')))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('top/lines', parent=Index('docs'))"
+    "iterates_on": "Index('top/lines', parent=Index('docs'))",
+    "statics": "{}"
    },
    "top/leafy/up": {
     "fields": {
@@ -2558,12 +3133,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/leafy/lines.result',))",
       "index": "Index('top/leafy/lines', parent=Index('top/lines', parent=Index('docs')))",
+      "listed": false,
       "receives": "Iterate(index=Index('top/leafy/lines', parent=Index('top/lines', parent=Index('docs'))))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('top/leafy/lines', parent=Index('top/lines', parent=Index('docs')))"
+    "iterates_on": "Index('top/leafy/lines', parent=Index('top/lines', parent=Index('docs')))",
+    "statics": "{}"
    },
    "top/lines": {
     "fields": {
@@ -2575,12 +3153,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('top/holder.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    }
   },
   "order": [
@@ -2610,17 +3191,22 @@
       "type": "Series[Txt]"
      },
      "texts": {
+      "binding": "From(refs=('emb/up.result',))",
       "index": "Index('emb/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Group(index=Index('emb/lines', parent=Index('docs')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "docs": {
     "fields": {
      "folder": {
+      "binding": "None",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      },
@@ -2632,7 +3218,8 @@
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/holder": {
     "fields": {
@@ -2644,12 +3231,15 @@
       "type": "Series[Txt]"
      },
      "value": {
+      "binding": "From(refs=('docs.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "emb/lines": {
     "fields": {
@@ -2661,12 +3251,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('emb/holder.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "emb/up": {
     "fields": {
@@ -2678,12 +3271,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('emb/lines.result',))",
       "index": "Index('emb/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Iterate(index=Index('emb/lines', parent=Index('docs')))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('emb/lines', parent=Index('docs'))"
+    "iterates_on": "Index('emb/lines', parent=Index('docs'))",
+    "statics": "{}"
    }
   },
   "order": [
@@ -2699,7 +3295,9 @@
    "docs": {
     "fields": {
      "folder": {
+      "binding": "None",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      },
@@ -2711,7 +3309,8 @@
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "e0/holder": {
     "fields": {
@@ -2723,12 +3322,15 @@
       "type": "Series[Txt]"
      },
      "value": {
+      "binding": "From(refs=('docs.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e0/join": {
     "fields": {
@@ -2740,12 +3342,15 @@
       "type": "Series[Txt]"
      },
      "texts": {
+      "binding": "From(refs=('e0/up.result',))",
       "index": "Index('e0/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Group(index=Index('e0/lines', parent=Index('docs')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e0/lines": {
     "fields": {
@@ -2757,12 +3362,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('e0/s7.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e0/s0": {
     "fields": {
@@ -2774,12 +3382,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('e0/holder.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e0/s1": {
     "fields": {
@@ -2791,12 +3402,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('e0/s0.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e0/s2": {
     "fields": {
@@ -2808,12 +3422,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('e0/s1.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e0/s3": {
     "fields": {
@@ -2825,12 +3442,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('e0/s2.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e0/s4": {
     "fields": {
@@ -2842,12 +3462,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('e0/s3.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e0/s5": {
     "fields": {
@@ -2859,12 +3482,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('e0/s4.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e0/s6": {
     "fields": {
@@ -2876,12 +3502,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('e0/s5.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e0/s7": {
     "fields": {
@@ -2893,12 +3522,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('e0/s6.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e0/up": {
     "fields": {
@@ -2910,12 +3542,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('e0/lines.result',))",
       "index": "Index('e0/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Iterate(index=Index('e0/lines', parent=Index('docs')))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('e0/lines', parent=Index('docs'))"
+    "iterates_on": "Index('e0/lines', parent=Index('docs'))",
+    "statics": "{}"
    },
    "e1/holder": {
     "fields": {
@@ -2927,12 +3562,15 @@
       "type": "Series[Txt]"
      },
      "value": {
+      "binding": "From(refs=('docs.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e1/join": {
     "fields": {
@@ -2944,12 +3582,15 @@
       "type": "Series[Txt]"
      },
      "texts": {
+      "binding": "From(refs=('e1/up.result',))",
       "index": "Index('e1/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Group(index=Index('e1/lines', parent=Index('docs')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e1/lines": {
     "fields": {
@@ -2961,12 +3602,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('e1/s7.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e1/s0": {
     "fields": {
@@ -2978,12 +3622,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('e1/holder.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e1/s1": {
     "fields": {
@@ -2995,12 +3642,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('e1/s0.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e1/s2": {
     "fields": {
@@ -3012,12 +3662,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('e1/s1.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e1/s3": {
     "fields": {
@@ -3029,12 +3682,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('e1/s2.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e1/s4": {
     "fields": {
@@ -3046,12 +3702,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('e1/s3.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e1/s5": {
     "fields": {
@@ -3063,12 +3722,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('e1/s4.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e1/s6": {
     "fields": {
@@ -3080,12 +3742,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('e1/s5.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e1/s7": {
     "fields": {
@@ -3097,12 +3762,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('e1/s6.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e1/up": {
     "fields": {
@@ -3114,12 +3782,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('e1/lines.result',))",
       "index": "Index('e1/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Iterate(index=Index('e1/lines', parent=Index('docs')))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('e1/lines', parent=Index('docs'))"
+    "iterates_on": "Index('e1/lines', parent=Index('docs'))",
+    "statics": "{}"
    },
    "e2/holder": {
     "fields": {
@@ -3131,12 +3802,15 @@
       "type": "Series[Txt]"
      },
      "value": {
+      "binding": "From(refs=('docs.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e2/join": {
     "fields": {
@@ -3148,12 +3822,15 @@
       "type": "Series[Txt]"
      },
      "texts": {
+      "binding": "From(refs=('e2/up.result',))",
       "index": "Index('e2/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Group(index=Index('e2/lines', parent=Index('docs')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e2/lines": {
     "fields": {
@@ -3165,12 +3842,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('e2/s7.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e2/s0": {
     "fields": {
@@ -3182,12 +3862,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('e2/holder.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e2/s1": {
     "fields": {
@@ -3199,12 +3882,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('e2/s0.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e2/s2": {
     "fields": {
@@ -3216,12 +3902,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('e2/s1.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e2/s3": {
     "fields": {
@@ -3233,12 +3922,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('e2/s2.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e2/s4": {
     "fields": {
@@ -3250,12 +3942,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('e2/s3.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e2/s5": {
     "fields": {
@@ -3267,12 +3962,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('e2/s4.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e2/s6": {
     "fields": {
@@ -3284,12 +3982,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('e2/s5.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e2/s7": {
     "fields": {
@@ -3301,12 +4002,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('e2/s6.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "e2/up": {
     "fields": {
@@ -3318,12 +4022,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('e2/lines.result',))",
       "index": "Index('e2/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Iterate(index=Index('e2/lines', parent=Index('docs')))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('e2/lines', parent=Index('docs'))"
+    "iterates_on": "Index('e2/lines', parent=Index('docs'))",
+    "statics": "{}"
    }
   },
   "order": [
@@ -3378,17 +4085,22 @@
       "type": "Txt"
      },
      "texts": {
+      "binding": "From(refs=('emb/join.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Whole()",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "docs": {
     "fields": {
      "folder": {
+      "binding": "None",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      },
@@ -3400,7 +4112,8 @@
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/holder": {
     "fields": {
@@ -3412,12 +4125,15 @@
       "type": "Series[Txt]"
      },
      "value": {
+      "binding": "From(refs=('docs.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "emb/join": {
     "fields": {
@@ -3429,12 +4145,15 @@
       "type": "Series[Txt]"
      },
      "texts": {
+      "binding": "From(refs=('emb/up.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Group(index=Index('docs'), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "emb/up": {
     "fields": {
@@ -3446,12 +4165,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('emb/holder.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    }
   },
   "order": [
@@ -3474,12 +4196,15 @@
       "type": "Txt"
      },
      "text": {
+      "binding": "From(refs=('emb/u.result',))",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/n": {
     "fields": {
@@ -3491,12 +4216,15 @@
       "type": "Txt"
      },
      "text": {
+      "binding": "Static(value='inside')",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{'text': 'inside'}"
    },
    "emb/u": {
     "fields": {
@@ -3508,12 +4236,15 @@
       "type": "Txt"
      },
      "text": {
+      "binding": "From(refs=('emb/n.result',))",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    }
   },
   "order": [
@@ -3527,7 +4258,9 @@
    "docs": {
     "fields": {
      "folder": {
+      "binding": "None",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      },
@@ -3539,7 +4272,8 @@
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/join": {
     "fields": {
@@ -3551,12 +4285,15 @@
       "type": "Series[Txt]"
      },
      "texts": {
+      "binding": "From(refs=('emb/u.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Group(index=Index('docs'), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "emb/n": {
     "fields": {
@@ -3568,12 +4305,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('docs.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "emb/u": {
     "fields": {
@@ -3585,12 +4325,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('emb/n.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    }
   },
   "order": [
@@ -3612,12 +4355,15 @@
       "type": "Txt"
      },
      "value": {
+      "binding": "Static(value='inner')",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{'value': 'inner'}"
    },
    "emb/join": {
     "fields": {
@@ -3629,12 +4375,15 @@
       "type": "Txt"
      },
      "texts": {
+      "binding": "From(refs=('emb/up.result',))",
       "index": "Index('emb/join.texts')",
+      "listed": false,
       "receives": "Gather(index=Index('emb/join.texts'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/up": {
     "fields": {
@@ -3646,12 +4395,15 @@
       "type": "Txt"
      },
      "text": {
+      "binding": "From(refs=('emb/holder.result',))",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    }
   },
   "order": [
@@ -3672,12 +4424,15 @@
       "type": "Txt"
      },
      "value": {
+      "binding": "From(refs=('h.result',))",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/join": {
     "fields": {
@@ -3689,12 +4444,15 @@
       "type": "Txt"
      },
      "texts": {
+      "binding": "From(refs=('emb/up.result',))",
       "index": "Index('emb/join.texts')",
+      "listed": false,
       "receives": "Gather(index=Index('emb/join.texts'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/up": {
     "fields": {
@@ -3706,12 +4464,15 @@
       "type": "Txt"
      },
      "text": {
+      "binding": "From(refs=('emb/holder.result',))",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "h": {
     "fields": {
@@ -3723,12 +4484,15 @@
       "type": "Txt"
      },
      "value": {
+      "binding": "Static(value='z')",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{'value': 'z'}"
    }
   },
   "order": [
@@ -3743,7 +4507,9 @@
    "docs": {
     "fields": {
      "folder": {
+      "binding": "None",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      },
@@ -3755,7 +4521,8 @@
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/join": {
     "fields": {
@@ -3767,12 +4534,15 @@
       "type": "Txt"
      },
      "texts": {
+      "binding": "From(refs=('docs.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Whole()",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    }
   },
   "order": [
@@ -3785,7 +4555,9 @@
    "docs": {
     "fields": {
      "folder": {
+      "binding": "None",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      },
@@ -3797,7 +4569,8 @@
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/a": {
     "fields": {
@@ -3809,12 +4582,15 @@
       "type": "Series[Txt]"
      },
      "value": {
+      "binding": "From(refs=('docs.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('lines', parent=Index('docs'))"
+    "iterates_on": "Index('lines', parent=Index('docs'))",
+    "statics": "{}"
    },
    "emb/b": {
     "fields": {
@@ -3826,12 +4602,15 @@
       "type": "Series[Txt]"
      },
      "value": {
+      "binding": "From(refs=('lines.result',))",
       "index": "Index('lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Iterate(index=Index('lines', parent=Index('docs')))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('lines', parent=Index('docs'))"
+    "iterates_on": "Index('lines', parent=Index('docs'))",
+    "statics": "{}"
    },
    "emb/ua": {
     "fields": {
@@ -3843,12 +4622,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('emb/a.result',))",
       "index": "Index('lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Iterate(index=Index('lines', parent=Index('docs')))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('lines', parent=Index('docs'))"
+    "iterates_on": "Index('lines', parent=Index('docs'))",
+    "statics": "{}"
    },
    "lines": {
     "fields": {
@@ -3860,12 +4642,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('docs.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    }
   },
   "order": [
@@ -3881,7 +4666,9 @@
    "docs": {
     "fields": {
      "folder": {
+      "binding": "None",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      },
@@ -3893,7 +4680,8 @@
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/h": {
     "fields": {
@@ -3905,12 +4693,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('docs.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "emb/j": {
     "fields": {
@@ -3922,22 +4713,29 @@
       "type": "Series[Txt]"
      },
      "texts": {
+      "binding": "From(refs=('emb/t.result',))",
       "index": "Index('emb/t.b', parent=Index('docs'))",
+      "listed": false,
       "receives": "Group(index=Index('emb/t.b', parent=Index('docs')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "emb/t": {
     "fields": {
      "a": {
+      "binding": "From(refs=('emb/h.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      },
      "b": {
+      "binding": "Static(value=['p', 'q'])",
       "index": "Index('emb/t.b', parent=Index('docs'))",
+      "listed": true,
       "receives": "Iterate(index=Index('emb/t.b', parent=Index('docs')))",
       "type": "Series[Txt]"
      },
@@ -3949,7 +4747,8 @@
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('emb/t.b', parent=Index('docs'))"
+    "iterates_on": "Index('emb/t.b', parent=Index('docs'))",
+    "statics": "{'b': ['p', 'q']}"
    }
   },
   "order": [
@@ -3971,17 +4770,22 @@
       "type": "Series[Txt]"
      },
      "texts": {
+      "binding": "From(refs=('emb/p.result',))",
       "index": "Index('emb/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Group(index=Index('emb/lines', parent=Index('docs')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "docs": {
     "fields": {
      "folder": {
+      "binding": "None",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      },
@@ -3993,7 +4797,8 @@
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/a": {
     "fields": {
@@ -4005,12 +4810,15 @@
       "type": "Series[Txt]"
      },
      "value": {
+      "binding": "From(refs=('docs.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "emb/b": {
     "fields": {
@@ -4022,12 +4830,15 @@
       "type": "Series[Txt]"
      },
      "value": {
+      "binding": "Static(value='x\\ny')",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{'value': 'x\\ny'}"
    },
    "emb/lines": {
     "fields": {
@@ -4039,22 +4850,29 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('emb/b.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    },
    "emb/p": {
     "fields": {
      "a": {
+      "binding": "From(refs=('emb/ua.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      },
      "b": {
+      "binding": "From(refs=('emb/lines.result',))",
       "index": "Index('emb/lines', parent=Index('docs'))",
+      "listed": false,
       "receives": "Iterate(index=Index('emb/lines', parent=Index('docs')))",
       "type": "Series[Txt]"
      },
@@ -4066,7 +4884,8 @@
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('emb/lines', parent=Index('docs'))"
+    "iterates_on": "Index('emb/lines', parent=Index('docs'))",
+    "statics": "{}"
    },
    "emb/ua": {
     "fields": {
@@ -4078,12 +4897,15 @@
       "type": "Series[Txt]"
      },
      "text": {
+      "binding": "From(refs=('emb/a.result',))",
       "index": "Index('docs')",
+      "listed": false,
       "receives": "Iterate(index=Index('docs'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "Index('docs')"
+    "iterates_on": "Index('docs')",
+    "statics": "{}"
    }
   },
   "order": [
@@ -4108,12 +4930,15 @@
       "type": "Txt"
      },
      "text": {
+      "binding": "From(refs=('emb/join.result',))",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/holder": {
     "fields": {
@@ -4125,12 +4950,15 @@
       "type": "Txt"
      },
      "value": {
+      "binding": "Static(value='set outside')",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{'value': 'set outside'}"
    },
    "emb/join": {
     "fields": {
@@ -4142,12 +4970,15 @@
       "type": "Txt"
      },
      "texts": {
+      "binding": "From(refs=('emb/up.result',))",
       "index": "Index('emb/join.texts')",
+      "listed": false,
       "receives": "Gather(index=Index('emb/join.texts'))",
       "type": "Series[Txt]"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    },
    "emb/up": {
     "fields": {
@@ -4159,12 +4990,15 @@
       "type": "Txt"
      },
      "text": {
+      "binding": "From(refs=('emb/holder.result',))",
       "index": "None",
+      "listed": false,
       "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "iterates_on": "None"
+    "iterates_on": "None",
+    "statics": "{}"
    }
   },
   "order": [
