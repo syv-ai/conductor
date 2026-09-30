@@ -64,7 +64,8 @@ from conductor.errors import ErrorCause, NodeExecutionError, StartRefused
 from conductor.execution.events import PendingUnit
 from conductor.execution.state import DoneUnit, RunState, StateSkip, StateValue
 from conductor.graph.binding import Static
-from conductor.graph.compiled import CompiledField, CompiledGraph, CompiledNode
+from conductor.graph.compiled import CompiledGraph
+from conductor.graph.compiled_node import CompiledField, CompiledNode
 from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Receive, Whole
 from conductor.metadata import Input
 from conductor.ref import Ref

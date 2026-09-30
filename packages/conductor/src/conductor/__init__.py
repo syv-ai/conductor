@@ -28,7 +28,8 @@ from conductor.errors import (
 from conductor.execution.engine import execute, run, run_sync
 from conductor.execution.state import DoneUnit, RunState, StateSkip, StateValue
 from conductor.graph.binding import Binding, From, Static
-from conductor.graph.compiled import CompiledField, CompiledGraph, CompiledNode
+from conductor.graph.compiled import CompiledGraph
+from conductor.graph.compiled_node import CompiledField, CompiledNode
 from conductor.graph.conditions import ALWAYS, NEVER, Atom, Condition
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.problem import Problem

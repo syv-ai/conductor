@@ -415,6 +415,25 @@ def test_the_compiler_does_not_know_the_compiled_graph():
     assert not {name for name in reached if name.rsplit(".", 1)[-1] in compiled_names}
 
 
+def test_the_compiled_values_know_neither_the_compiler_nor_the_graph():
+    """``compiled_node`` holds the answers for one node and one field; the
+    compiler fills them in through ``compiled``. It imports neither, so the
+    values stand on their own."""
+    import ast
+    from pathlib import Path
+
+    import conductor.graph.compiled_node as compiled_node_module
+
+    reached: set[str] = set()
+    for node in ast.walk(ast.parse(Path(compiled_node_module.__file__).read_text())):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            reached.add(node.module)
+        if isinstance(node, ast.Import):
+            reached |= {alias.name for alias in node.names}
+
+    assert not reached & {"conductor.graph.compiler", "conductor.graph.compiled"}
+
+
 def test_execution_order_follows_the_edges():
     compiled = _compiled([
         GraphNode(id="b", type="echo", version=1, bindings={"x": From("a.result")}),
