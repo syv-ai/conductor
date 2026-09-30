@@ -980,5 +980,5 @@ def test_a_refusal_from_a_node_whose_source_is_broken_is_dropped_for_the_sources
 
     broken, node = codes("nope")
     assert broken == ["unknown_ref_output"]
-    assert (node.state, node.interface.outputs) == ("not_derived", ())
+    assert (node.state, node.interface.outputs) == ("wiring_failed", ())
     assert codes("texts")[0] == ["wrong_shape"]
