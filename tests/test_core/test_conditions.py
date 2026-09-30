@@ -10,7 +10,8 @@ from conductor.dtype import DType
 from conductor.errors import NodeWiringError
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
-from conductor.graph.conditions import ALWAYS, Atom
+from conductor.graph.compiler import Compilation
+from conductor.graph.conditions import ALWAYS, INPUT, Atom, substituted
 from conductor.graph.model import Graph, GraphNode
 from conductor.metadata import Result
 from conductor.node import NodeDefinition
@@ -197,3 +198,84 @@ def test_a_decision_on_a_node_whose_wiring_failed_is_not_one_a_run_makes():
     with pytest.raises(NodeWiringError) as raised:
         compiled.node("g").iterates_on
     assert raised.value.problems[0].code == "unknown_ref_output"
+
+
+def test_a_graph_records_its_conditions_over_its_inputs():
+    """Each input the graph offers stands for a decision of its own, so a
+    graph placed inside another can say how its outputs depend on what is
+    connected there. A caller reading ``condition`` sees every input holding."""
+    graph = Graph(nodes=[
+        GraphNode(id="h", type="holder", version=1),
+        GraphNode(id="g", type="gate", version=1, bindings={"value": _edge(("h", "result"))}),
+    ])
+    registry = NodeRegistry()
+    for node_cls in (Gate, Holder):
+        registry.register(node_cls)
+    compilation = Compilation(graph, registry)
+    compilation.run()
+
+    offered = Atom(INPUT, "h.value", "h.value")
+    assert compilation.output_conditions[Ref("h", "result")] == frozenset({frozenset({offered})})
+    assert compilation.output_conditions[Ref("g", "if_true")] == frozenset({
+        frozenset({offered, Atom("g", "branches", "if_true")}),
+    })
+    compiled = CompiledGraph.from_graph(graph, registry)
+    assert compiled.field(Ref("h", "result")).condition == ALWAYS
+    assert compiled.field(Ref("g", "if_true")).condition == frozenset({frozenset({Atom("g", "branches", "if_true")})})
+
+
+def test_substituted_puts_what_was_connected_in_place_of_each_input():
+    """An "or" merge where one side comes from an input: placed, that side
+    holds when whatever the outer graph connected there appeared."""
+    outer_gate = Atom("up", "branches", "if_true")
+    inner_gate = Atom("g", "branches", "if_false")
+    condition = frozenset({frozenset({Atom(INPUT, "h.value", "h.value")}), frozenset({inner_gate})})
+
+    assert substituted(condition, {"h.value": frozenset({frozenset({outer_gate})})}, "emb/", per_row=False) == frozenset({
+        frozenset({outer_gate}), frozenset({Atom("emb/g", "branches", "if_false")}),
+    })
+    # Nothing connected: the input is there when the graph runs.
+    assert substituted(condition, {}, "emb/", per_row=False) == frozenset({
+        frozenset(), frozenset({Atom("emb/g", "branches", "if_false")}),
+    })
+    # Placed on a node that runs per row, the graph's own decisions gate nothing.
+    assert substituted(condition, {"h.value": frozenset({frozenset({outer_gate})})}, "emb/", per_row=True) == frozenset({
+        frozenset({outer_gate}), frozenset(),
+    })
+
+
+class Both(NodeDefinition):
+    id = "both"
+    title = "Both"
+    description = "d"
+    category = "test"
+
+    def run(
+        self,
+        x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt(""),
+        y: Annotated[Txt, Param(title="Y", widget=Textarea())] = Txt(""),
+    ) -> Out:
+        return Txt(x + y)
+
+
+def test_inputs_joined_twice_do_not_multiply_alternatives():
+    """"``a``, or ``a`` and ``b``" holds exactly when ``a`` does. Two merges
+    of the same inputs, joined, stay one alternative per input rather than
+    one per pair; with every input holding, nothing changes."""
+    graph = Graph(nodes=[
+        GraphNode(id="h1", type="holder", version=1),
+        GraphNode(id="h2", type="holder", version=1),
+        GraphNode(id="m1", type="single", version=1, bindings={"values": _edge(("h1", "result"), ("h2", "result"))}),
+        GraphNode(id="m2", type="single", version=1, bindings={"values": _edge(("h1", "result"), ("h2", "result"))}),
+        GraphNode(id="j", type="both", version=1, bindings={"x": _edge(("m1", "result")), "y": _edge(("m2", "result"))}),
+    ])
+    registry = NodeRegistry()
+    for node_cls in (Holder, Single, Both):
+        registry.register(node_cls)
+    compilation = Compilation(graph, registry)
+    compilation.run()
+
+    assert compilation.output_conditions[Ref("j", "result")] == frozenset({
+        frozenset({Atom(INPUT, "h1.value", "h1.value")}), frozenset({Atom(INPUT, "h2.value", "h2.value")}),
+    })
+    assert CompiledGraph.from_graph(graph, registry).field(Ref("j", "result")).condition == ALWAYS

@@ -37,6 +37,7 @@ from conductor.graph.expand import (
     authored_address,
     authored_ref,
     expand,
+    expanded_ref,
     resolved,
 )
 from conductor.graph.iteration import Iteration, derive
@@ -112,9 +113,10 @@ class Compilation:
         7. ``walk_edges`` — one walk over the edges that types every field,
            decides which nodes run once per row and completes the outputs,
            checking each node's outputs against the field rules as it does.
-        8. ``conditions`` — the condition under which each output appears.
-        9. ``interface`` — what each embedded graph, and then the graph,
+        8. ``interface`` — what each embedded graph, and then the graph,
            takes and returns.
+        9. ``conditions`` — the condition under which each output appears,
+           over the inputs the graph offers.
 
         Every step records its problems as the author sees them, so a
         problem found inside an embedded graph is already on the node the
@@ -127,8 +129,8 @@ class Compilation:
         self.ask_inputs()
         self.check_bindings()
         self.walk_edges()
-        self.conditions()
         self.interface()
+        self.conditions()
 
     def record_as_the_author_sees_it(self, *found: Problem) -> None:
         """Record problems on the graph as the author built it, not as compile expanded it.
@@ -382,11 +384,17 @@ class Compilation:
 
     def conditions(self) -> None:
         """The condition under which each output appears, from the ``choice``
-        groups of the nodes that run once (``conditions_of``)."""
+        groups of the nodes that run once (``conditions_of``). Each input
+        the graph offers stands for a decision of its own, so a graph that
+        places this one can put what it connected there in its place
+        (``conditions.substituted``)."""
         expansion, iteration = self.expansion, self.iteration
+        placeholders = {
+            expanded_ref(Ref(str(inp.name)), expansion.graphs): str(inp.name) for inp in self.graph_interface.inputs
+        }
         self.output_conditions = conditions_of(
             [expansion.nodes[node_id] for node_id in expansion.order if node_id in iteration.iterated],
-            self.interfaces, iteration.iterated,
+            self.interfaces, iteration.iterated, placeholders,
         )
 
     def interface(self) -> None:

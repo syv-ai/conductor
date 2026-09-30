@@ -26,6 +26,7 @@ from pydantic_core import to_jsonable_python
 from conductor.codec import to_wire
 from conductor.errors import NodeKindError, NodeResolutionError, NodeWiringError
 from conductor.graph.binding import Static
+from conductor.graph.conditions import substituted
 from conductor.interface import model_of
 from conductor.node import runner_of
 from conductor.series import Series
@@ -320,6 +321,7 @@ class CompiledField:
     _output: bool = field(repr=False)
     _binding: Binding | None = field(repr=False)
     #: What the walk decided; ``None`` on a node that is not ready, or for a kind the field is not.
+    #: ``_condition`` is over the graph's inputs (``conductor.graph.conditions.INPUT``).
     _type: Any = field(repr=False)
     _index: Index | None = field(repr=False)
     _receives: Receive = field(repr=False)
@@ -397,7 +399,13 @@ class CompiledField:
         """Under which condition this output appears: a boolean formula over
         the decisions upstream (see ``conductor.graph.conditions``),
         ``ALWAYS`` when nothing gates it. Derived from ``choice`` groups
-        and edges; the engine never reads it. Only an output has one."""
+        and edges; the engine never reads it. Only an output has one.
+        Compile records it over the graph's inputs, for a graph that places
+        this one; here every input holds, worked out on the first read."""
         self._only("output")
         self._gate("condition")
-        return self._condition
+        return self._condition_with_inputs_holding
+
+    @cached_property
+    def _condition_with_inputs_holding(self) -> Condition:
+        return substituted(self._condition, {}, "", per_row=False)
