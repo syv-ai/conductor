@@ -91,7 +91,7 @@ class DType(ABC, metaclass=_DTypeMeta):
 
     #: Stable identifier, used by the persisted graph and the frontend.
     id: ClassVar[str]
-    #: Human-readable name, in the host's language.
+    #: The name a person reads.
     title: ClassVar[str]
     #: For a collection, the type of its elements; ``None`` for a scalar.
     #: Declared on the base so ``accepts`` can recognise a series without

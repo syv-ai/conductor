@@ -423,15 +423,14 @@ class CompiledNode:
 
     @property
     def statics(self) -> Mapping[str, Any]:
-        """The values the author typed into this node, by field.
+        """The values set directly on this node, by field.
 
-        Each read through the field's declared type — the value, never its
-        JSON form. Only what the author typed: an input left to its
-        declared default is absent. Where the author typed many values for
-        a scalar input the value is a list of them, and the field's
-        ``receives`` is ``Iterate`` on the input's own index. A ``graph``'s
-        are the values the author typed on it, by inner address
-        (``check.amount``), each as the inner node that holds it read it.
+        Each is read through the field's declared type, so it is the value
+        itself, not its JSON form. An input left to its declared default is
+        absent. When a single-value input is given several values, its entry
+        is the list of them, and the node runs once per value. For a
+        ``graph``, the values set on it, by inner address (``check.amount``),
+        each read by the inner node that holds it.
         """
         _gate(self, "statics", derived=False)
         return self._statics
@@ -565,10 +564,10 @@ class CompiledField:
 
     @property
     def binding(self) -> Binding | None:
-        """Where this input's value comes from: ``From`` from other nodes'
-        outputs, ``Static`` for a value the author typed, or ``None`` when
-        nothing binds it and its declared default applies. Only an input
-        has one; asking on an output raises."""
+        """Where this input's value comes from: ``From`` when it is wired to
+        other nodes' outputs, ``Static`` when a value is set directly on the
+        node, or ``None`` when neither is and its declared default applies.
+        Only an input has one; asking on an output raises."""
         self._only("input")
         return self._binding
 
