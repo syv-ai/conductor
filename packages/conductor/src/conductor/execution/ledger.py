@@ -58,6 +58,7 @@ from __future__ import annotations
 import weakref
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, Iterator
 
 from conductor._sentinel import SKIPPED, is_skipped
@@ -78,6 +79,8 @@ from conductor.series import Index, Row, Series
 Unit = tuple[str, Row]
 
 _MISSING = object()
+#: What a field nothing has been written to holds: no row.
+_NO_VALUES: Mapping[Row, Any] = MappingProxyType({})
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,6 +155,10 @@ class Ledger:
         #: ``compiled.field`` once per address, a dict read after that.
         self._fields = _FieldsOf(compiled)
         self._values: dict[Ref, dict[Row, Any]] = {}
+        #: The fields with a ``SKIPPED`` written at some row. Only these can
+        #: hide a value under a skip above it, so a read of any other field is
+        #: one lookup at its own row.
+        self._skipped_on: set[Ref] = set()
         self._rows: dict[str, set[Row]] = {}
         #: Per index, its rows under each shorter row, in the order they were
         #: born; ``()`` holds them all. Finds the rows under a row without
@@ -482,10 +489,11 @@ class Ledger:
         """``(value, row)`` for the value at ``(ref, key)``: ``SKIPPED`` at the
         shortest prefix of ``key`` that holds one, else what is at ``key``
         (``_MISSING`` when nothing is)."""
-        by_row = self._values.get(ref, {})
-        for prefix in _prefixes(key):
-            if is_skipped(by_row.get(prefix)):
-                return SKIPPED, prefix
+        by_row = self._values.get(ref, _NO_VALUES)
+        if ref in self._skipped_on:
+            for prefix in _prefixes(key):
+                if by_row.get(prefix) is SKIPPED:
+                    return SKIPPED, prefix
         return by_row.get(key, _MISSING), key
 
     def _rows_under(self, index_id: str, parent_row: Row) -> list[Row]:
@@ -585,6 +593,8 @@ class Ledger:
         if key not in by_row:
             written.append((ref, key))
         by_row[key] = value
+        if value is SKIPPED:
+            self._skipped_on.add(ref)
 
     def _born(self, index_id: str, row: Row) -> bool:
         """Birth ``row`` on the index; ``False`` when it already was."""
@@ -963,6 +973,7 @@ class Ledger:
                 raise StartRefused(f"the state's value for {ref} is at row {list(entry.row)}, which {ref} has no place for")
             if isinstance(entry, StateSkip):
                 value = SKIPPED
+                ledger._skipped_on.add(ref)
             else:
                 try:
                     value = from_wire(entry.value, ledger._value_type(ref))
