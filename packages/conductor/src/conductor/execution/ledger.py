@@ -24,7 +24,9 @@ when it goes quiet, where a ready unit nobody started is a bug.
 How a unit receives each input, and who reads what, are compile's
 decisions, read here: a node's ``_reads``, an output's ``_read_by``, and
 per index who runs on it and what sits on it (``CompiledNode._births`` and
-its kin). Every
+its kin). A node's ``_iterates_on`` and ``_interface`` are read the same
+way, past the check ``iterates_on`` and ``interface`` make for other
+callers: the engine runs only a graph whose every node is ready. Every
 input carries a receive record (``CompiledField.receives``, from
 ``conductor.graph.receive``). ``Iterate`` takes the value at the unit's own
 row, ``Broadcast`` the one value there is, ``Whole`` everything on the
@@ -244,7 +246,7 @@ class Ledger:
     def units(self, node_id: str) -> list[Unit]:
         """This node's units right now: one, or — running per row of ``L`` —
         one per row born on ``L``, plus one at each shorter row where ``L`` has no rows."""
-        iterate = self._compiled.node(node_id).iterates_on
+        iterate = self._compiled.node(node_id)._iterates_on
         if iterate is None:
             return [(node_id, ())]
         barren = sorted(self._no_rows_under.get(iterate.id, ()))
@@ -256,7 +258,7 @@ class Ledger:
 
     def complete(self, node_id: str) -> bool:
         """Every unit this node will ever have is done."""
-        iterate = self._compiled.node(node_id).iterates_on
+        iterate = self._compiled.node(node_id)._iterates_on
         if iterate is None:
             return (node_id, ()) in self._done
         return (
@@ -279,14 +281,14 @@ class Ledger:
         counts. A unit of a node that runs once, or one standing in at a
         shorter row for rows never born, is not."""
         node_id, row = unit
-        iterate = self._compiled.node(node_id).iterates_on
+        iterate = self._compiled.node(node_id)._iterates_on
         return iterate is not None and len(row) == iterate.depth
 
     def progress(self, node_id: str) -> tuple[int, int | None]:
         """``(done, total)`` rows for a node; ``total`` is ``None`` until the
         node's index is sealed. Cover units stand in for rows that were never
         born, so they count in neither number."""
-        iterate = self._compiled.node(node_id).iterates_on
+        iterate = self._compiled.node(node_id)._iterates_on
         if iterate is None:
             return int((node_id, ()) in self._done), 1
         total = len(self._rows.get(iterate.id, ())) if iterate.id in self._sealed else None
@@ -296,7 +298,7 @@ class Ledger:
         """This node's units at ``row`` or beneath it, in no particular order —
         not counting a unit standing in at a shorter row, which is ready
         the moment it exists."""
-        iterate = self._compiled.node(node_id).iterates_on
+        iterate = self._compiled.node(node_id)._iterates_on
         if iterate is None:
             return [(node_id, ())] if row == () else []
         if row in self._rows.get(iterate.id, ()):
@@ -308,7 +310,7 @@ class Ledger:
     def ready(self, unit: Unit) -> bool:
         """Every value this unit needs exists, or its producer is done."""
         node_id, row = unit
-        iterate = self._compiled.node(node_id).iterates_on
+        iterate = self._compiled.node(node_id)._iterates_on
         if iterate is not None and len(row) < iterate.depth:
             return True  # standing in at a shorter row: the skip above it is already known
         return all(self._read_ready(ref, received, row) for ref, received in self._compiled.node(node_id)._reads)
@@ -389,12 +391,12 @@ class Ledger:
         """
         node_id, row = unit
         node = self._compiled.node(node_id)
-        iterate = node.iterates_on
+        iterate = node._iterates_on
         if iterate is not None and len(row) < iterate.depth:
             return Skip(at=row)
         values: dict[str, Any] = {}
         statics = node._statics
-        for inp in node.interface.inputs:
+        for inp in node._interface.inputs:
             own = Ref(node_id, inp.name)
             binding = self._fields[own].binding
             received = self._fields[own].receives
@@ -526,7 +528,7 @@ class Ledger:
         those and asks nothing else.
         """
         node_id, row = unit
-        interface = self._compiled.node(node_id).interface
+        interface = self._compiled.node(node_id)._interface
         births = self._compiled.node(node_id)._births is not None
         written: list[tuple[Ref, Row]] = []
         born: list[Row] = []
@@ -637,7 +639,7 @@ class Ledger:
             return
         self._done.add(unit)
         node_id, _ = unit
-        if self._compiled.node(node_id).iterates_on is not None:
+        if self._compiled.node(node_id)._iterates_on is not None:
             counts = self._done_rows if self.on_a_row(unit) else self._done_standing_in
             counts[node_id] = counts.get(node_id, 0) + 1
 
@@ -736,14 +738,14 @@ class Ledger:
             node = self._compiled.node(node_id)
         except KeyError:
             raise StartRefused(f"'{node_id}' is not a node of this graph, so it cannot be given a result") from None
-        declared = [out.name for out in node.interface.outputs]
+        declared = [out.name for out in node._interface.outputs]
         for name in outputs:
             if name not in declared:
                 raise StartRefused(f"'{node_id}' has no output '{name}'")
         for name in declared:
             if name not in outputs:
                 raise StartRefused(f"'{node_id}' was given no value for its output '{name}'")
-        iterate = node.iterates_on
+        iterate = node._iterates_on
         if iterate is None:
             # The node's whole output at once: a series output is answered as the series.
             self._inject((node_id, ()), {
@@ -834,7 +836,7 @@ class Ledger:
         a ``Series``, sparse where rows were skipped — a node whose every row
         was skipped away gives an empty series.
         """
-        outputs = self._compiled.node(node_id).interface.outputs
+        outputs = self._compiled.node(node_id)._interface.outputs
         if all(is_skipped(self._values.get(Ref(node_id, out.name), {}).get(())) for out in outputs):
             return None
         result: dict[str, Any] = {}
@@ -1000,7 +1002,7 @@ class Ledger:
             self._rows.setdefault(node_id, set())
             series = [
                 self._values.get(Ref(node_id, out.name), {})
-                for out in self._compiled.node(node_id).interface.outputs
+                for out in self._compiled.node(node_id)._interface.outputs
                 if out.dtype.element is not None
             ]
             children = {key for by_row in series for key in by_row if len(key) == len(row) + 1 and key[:-1] == row}
