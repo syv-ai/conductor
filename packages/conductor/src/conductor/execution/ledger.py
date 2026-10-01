@@ -1,7 +1,7 @@
 """The ledger: what a run has produced so far, and what that lets run next.
 
 The engine runs a graph as units. A unit is one node on one row. A node
-that runs once is a single unit with row ``None``; a node fed a series on
+that runs once is a single unit on the empty row ``()``; a node fed a series on
 a scalar input runs once per row of that series' index, one unit per row.
 A row is a path, ``(i,)`` on a root index and ``(i, j)`` for the j-th row
 born under ``(i,)``, so a unit deep in the tree finds its row on an
@@ -70,10 +70,10 @@ from conductor.metadata import Input
 from conductor.ref import Ref
 from conductor.series import Index, Row, Series
 
-#: One run of one node: the node id and the row it runs on — ``None`` for
+#: One run of one node: the node id and the row it runs on — ``()`` for
 #: a node that runs once; a row shorter than the node's index for the one
 #: unit standing in for rows a skip above them never let be born.
-Unit = tuple[str, Row | None]
+Unit = tuple[str, Row]
 
 _MISSING = object()
 
@@ -89,46 +89,25 @@ class Skip:
     ``SKIPPED``, which is the value a node returns and carries no row.
     """
 
-    at: Row | None
+    at: Row
 
 
-#: A row no key can be: ``None`` is the row of a node that ran once.
-_NOWHERE = object()
+def _fits(row: Row, index: Index | None) -> bool:
+    """Whether a stored row is one a field or node on ``index`` can hold: a
+    row no deeper than ``index``, where ``()`` is the top (a node that runs
+    once, or a skip from above standing in)."""
+    return len(row) <= (0 if index is None else index.depth)
 
 
-def _depth(row: Row | None) -> int:
-    return 0 if row is None else len(row)
+def _prefixes(key: Row) -> Iterator[Row]:
+    """Every prefix of ``key`` from ``()`` to ``key`` itself."""
+    for n in range(len(key) + 1):
+        yield key[:n]
 
 
-def _fits(row: Row | None, index: Index | None) -> bool:
-    """Whether a stored row is one a field or node on ``index`` can hold:
-    ``None`` (the top, where a skip from above stands in), or a row as deep
-    as ``index`` or shallower, never the empty row."""
-    return row is None or (index is not None and 1 <= len(row) <= index.depth)
-
-
-def _prefixes(key: Row | None) -> Iterator[Row | None]:
-    """``None``, then every prefix of ``key`` from shortest to ``key`` itself."""
-    yield None
-    if key is not None:
-        for n in range(1, len(key) + 1):
-            yield key[:n]
-
-
-def _group(row: Row | None, depth: int | None) -> Row | None:
-    """The group a unit at ``row`` reads a series by: its row cut to ``depth``,
-    or ``None`` — the whole series — when there is no depth."""
-    return None if depth is None else row[:depth]
-
-
-def _order(unit: Unit) -> Row:
-    """A unit's row as a sort key, with ``None`` first."""
-    return () if unit[1] is None else unit[1]
-
-
-def _depth_of(received: Receive) -> int | None:
-    """The depth of the group a reader receives: a ``Group``'s, else ``None`` (everything on the field)."""
-    return received.depth if isinstance(received, Group) else None
+def _depth_of(received: Receive) -> int:
+    """The depth of the group a reader receives: a ``Group``'s, else ``0`` (everything on the field)."""
+    return received.depth if isinstance(received, Group) else 0
 
 
 def _per_row(received: Receive) -> bool:
@@ -150,16 +129,16 @@ class Ledger:
 
     def __init__(self, compiled: CompiledGraph) -> None:
         self._compiled = compiled
-        self._values: dict[Ref, dict[Row | None, Any]] = {}
+        self._values: dict[Ref, dict[Row, Any]] = {}
         self._rows: dict[str, set[Row]] = {}
         #: Per index, its rows under each shorter row, in the order they were
-        #: born; ``None`` holds them all. Finds the rows under a row without
+        #: born; ``()`` holds them all. Finds the rows under a row without
         #: reading the whole index.
-        self._rows_by_prefix: dict[str, dict[Row | None, list[Row]]] = {}
+        self._rows_by_prefix: dict[str, dict[Row, list[Row]]] = {}
         self._sealed: set[str] = set()
         #: Per index, the rows beneath which it has no rows at all, because
         #: something above them was skipped.
-        self._no_rows_under: dict[str, set[Row | None]] = {}
+        self._no_rows_under: dict[str, set[Row]] = {}
         self._done: set[Unit] = set()
         #: The type of one value of each field, worked out once: a state
         #: writes or reads every value through it.
@@ -173,7 +152,7 @@ class Ledger:
         #: Per group a series is read by — a field and the row it is read
         #: under — its rows in order and how many from the first are written.
         #: Kept once every row of the group is born, so no row is read twice.
-        self._written_rows: dict[tuple[Ref, Row | None], tuple[list[Row], int]] = {}
+        self._written_rows: dict[tuple[Ref, Row], tuple[list[Row], int]] = {}
 
         # Who reads what, and what runs on each index, is compile's read plan
         # (``CompiledNode._births``, ``CompiledField._read_by`` and their
@@ -220,7 +199,7 @@ class Ledger:
         compiled = self._compiled
         return [node_id for node_id in self._owner(index_id)._iterated_by if compiled.node(node_id)._births is not None]
 
-    def _grouped_on(self, index_id: str) -> Iterator[tuple[str, Ref, int | None]]:
+    def _grouped_on(self, index_id: str) -> Iterator[tuple[str, Ref, int]]:
         """``(reader node, output read, group depth)`` for every reader of a
         series on this index that receives it grouped or whole, not one row
         at a time."""
@@ -248,8 +227,8 @@ class Ledger:
         one per row born on ``L``, plus one at each shorter row where ``L`` has no rows."""
         iterate = self._compiled.node(node_id).iterates_on
         if iterate is None:
-            return [(node_id, None)]
-        barren = sorted(self._no_rows_under.get(iterate.id, ()), key=lambda r: () if r is None else r)
+            return [(node_id, ())]
+        barren = sorted(self._no_rows_under.get(iterate.id, ()))
         rows = sorted(self._rows.get(iterate.id, ()))
         return [(node_id, row) for row in (*barren, *rows)]
 
@@ -260,7 +239,7 @@ class Ledger:
         """Every unit this node will ever have is done."""
         iterate = self._compiled.node(node_id).iterates_on
         if iterate is None:
-            return (node_id, None) in self._done
+            return (node_id, ()) in self._done
         return (
             iterate.id in self._sealed
             and self._done_rows.get(node_id, 0) == len(self._rows.get(iterate.id, ()))
@@ -282,7 +261,7 @@ class Ledger:
         shorter row for rows never born, is not."""
         node_id, row = unit
         iterate = self._compiled.node(node_id).iterates_on
-        return iterate is not None and _depth(row) == iterate.depth
+        return iterate is not None and len(row) == iterate.depth
 
     def progress(self, node_id: str) -> tuple[int, int | None]:
         """``(done, total)`` rows for a node; ``total`` is ``None`` until the
@@ -290,17 +269,17 @@ class Ledger:
         born, so they count in neither number."""
         iterate = self._compiled.node(node_id).iterates_on
         if iterate is None:
-            return int((node_id, None) in self._done), 1
+            return int((node_id, ()) in self._done), 1
         total = len(self._rows.get(iterate.id, ())) if iterate.id in self._sealed else None
         return self._done_rows.get(node_id, 0), total
 
-    def _units_under(self, node_id: str, row: Row | None) -> list[Unit]:
+    def _units_under(self, node_id: str, row: Row) -> list[Unit]:
         """This node's units at ``row`` or beneath it, in no particular order —
         not counting a unit standing in at a shorter row, which is ready
         the moment it exists."""
         iterate = self._compiled.node(node_id).iterates_on
         if iterate is None:
-            return [(node_id, None)] if row is None else []
+            return [(node_id, ())] if row == () else []
         if row in self._rows.get(iterate.id, ()):
             return [(node_id, row)]
         return [(node_id, r) for r in self._rows_by_prefix.get(iterate.id, {}).get(row, ())]
@@ -311,7 +290,7 @@ class Ledger:
         """Every value this unit needs exists, or its producer is done."""
         node_id, row = unit
         iterate = self._compiled.node(node_id).iterates_on
-        if iterate is not None and _depth(row) < iterate.depth:
+        if iterate is not None and len(row) < iterate.depth:
             return True  # standing in at a shorter row: the skip above it is already known
         return all(self._read_ready(ref, received, row) for ref, received in self._compiled.node(node_id)._reads)
 
@@ -327,29 +306,29 @@ class Ledger:
             if unit not in self._done and unit not in self._pending and self.ready(unit)
         ]
 
-    def _read_ready(self, ref: Ref, received: Receive, row: Row | None) -> bool:
+    def _read_ready(self, ref: Ref, received: Receive, row: Row) -> bool:
         """Is what a unit at ``row`` reads of ``ref``, received as ``received``,
         written? Per row: the value at its row. Grouped: every row of the
         group under it. Whole or gathered: everything on the ref."""
         if _per_row(received):
             return self._present(ref, self._key(ref, row))
-        return self._written(ref, _group(row, _depth_of(received)))
+        return self._written(ref, row[: _depth_of(received)])
 
-    def _present(self, ref: Ref, key: Row | None) -> bool:
+    def _present(self, ref: Ref, key: Row) -> bool:
         return self._lookup(ref, key)[0] is not _MISSING
 
-    def _key(self, ref: Ref, row: Row | None) -> Row | None:
-        """Where a unit at ``row`` reads ``ref`` as a scalar: its row on the ref's index, or ``None``."""
+    def _key(self, ref: Ref, row: Row) -> Row:
+        """Where a unit at ``row`` reads ``ref`` as a scalar: its row on the ref's index, or ``()``."""
         index = self._compiled.field(ref).index
-        return None if index is None else row[: index.depth]
+        return () if index is None else row[: index.depth]
 
-    def _written(self, ref: Ref, group: Row | None) -> bool:
+    def _written(self, ref: Ref, group: Row) -> bool:
         """Is every value of ``ref`` a series reader at ``group`` receives written?
         The one value of a field that carries a single value, else the rows under ``group``."""
         index = self._compiled.field(ref).index
-        return self._present(ref, None) if index is None else self._all_written(ref, index, group)
+        return self._present(ref, ()) if index is None else self._all_written(ref, index, group)
 
-    def _all_written(self, ref: Ref, index: Index, parent_row: Row | None) -> bool:
+    def _all_written(self, ref: Ref, index: Index, parent_row: Row) -> bool:
         """Is every value of ``ref`` under ``parent_row`` written? True when the
         field is skipped there, or every row under it is born and produced."""
         if is_skipped(self._lookup(ref, parent_row)[0]):
@@ -357,7 +336,7 @@ class Ledger:
         barren = self._no_rows_under.get(index.id, ())
         if any(prefix in barren for prefix in _prefixes(parent_row)):
             return False  # the unit standing in at that shorter row has not run yet
-        if parent_row is None:
+        if parent_row == ():
             born = index.id in self._sealed
         elif len(parent_row) == index.depth:
             born = parent_row in self._rows.get(index.id, ())  # the group is the row itself, so it exists once that row is born
@@ -392,7 +371,7 @@ class Ledger:
         node_id, row = unit
         node = self._compiled.node(node_id)
         iterate = node.iterates_on
-        if iterate is not None and _depth(row) < iterate.depth:
+        if iterate is not None and len(row) < iterate.depth:
             return Skip(at=row)
         values: dict[str, Any] = {}
         statics = node._statics
@@ -410,25 +389,25 @@ class Ledger:
             if isinstance(received, (Iterate, Broadcast)):
                 covering, skips = self._covering(node_id, binding.refs, row)
                 if not covering:
-                    return Skip(at=max(skips, key=_depth))
+                    return Skip(at=max(skips, key=len))
                 (values[inp.name],) = covering
             elif isinstance(received, Gather):
                 gathered: list[Any] = []
                 for ref in binding.refs:
                     index = self._compiled.field(ref).index
-                    value, _ = self._lookup(ref, None)
+                    value, _ = self._lookup(ref, ())
                     if is_skipped(value):
                         continue
                     if index is None:
                         gathered.append(value)
                     else:
-                        gathered.extend(self._series(node_id, (ref,), index, self._rows_under(index.id, None)).values)
+                        gathered.extend(self._series(node_id, (ref,), index, self._rows_under(index.id, ())).values)
                 values[inp.name] = Series(received.index, gathered)
             else:
-                group = row[: received.depth] if isinstance(received, Group) else None
+                group = row[: _depth_of(received)]
                 found = [self._lookup(ref, group) for ref in binding.refs]
                 if all(is_skipped(value) for value, _ in found):
-                    return Skip(at=max((at for _, at in found), key=_depth))
+                    return Skip(at=max((at for _, at in found), key=len))
                 index = self._compiled.field(binding.refs[0]).index
                 if index is None:
                     # Received whole from a source that ran once: the one value.
@@ -437,13 +416,13 @@ class Ledger:
                     values[inp.name] = self._series(node_id, binding.refs, index, self._rows_under(index.id, group))
         return values
 
-    def _covering(self, node_id: str, refs: tuple[Ref, ...], row: Row | None) -> tuple[list[Any], list[Row | None]]:
+    def _covering(self, node_id: str, refs: tuple[Ref, ...], row: Row) -> tuple[list[Any], list[Row]]:
         """Of several refs read at one row: the values that cover it, and the
         rows at which the others were skipped. Two covering the same row
         means two edges both supplied that row, and the node fails with
         that row."""
         covering: list[Any] = []
-        skips: list[Row | None] = []
+        skips: list[Row] = []
         for ref in refs:
             value, at = self._lookup(ref, self._key(ref, row))
             if value is _MISSING:
@@ -465,7 +444,7 @@ class Ledger:
             )
         return covering, skips
 
-    def _typed(self, received: Receive, value: Any, own: Ref, row: Row | None = None) -> Any:
+    def _typed(self, received: Receive, value: Any, own: Ref, row: Row = ()) -> Any:
         """A value the author typed (or the declared default) as the unit receives it.
 
         Received whole, it is a series on the input's own index; iterated
@@ -478,7 +457,7 @@ class Ledger:
             return list(value)[row[received.index.depth - 1]]
         return value
 
-    def _lookup(self, ref: Ref, key: Row | None) -> tuple[Any, Row | None]:
+    def _lookup(self, ref: Ref, key: Row) -> tuple[Any, Row]:
         """``(value, row)`` for the value at ``(ref, key)``: ``SKIPPED`` at the
         shortest prefix of ``key`` that holds one, else what is at ``key``
         (``_MISSING`` when nothing is)."""
@@ -488,9 +467,9 @@ class Ledger:
                 return SKIPPED, prefix
         return by_row.get(key, _MISSING), key
 
-    def _rows_under(self, index_id: str, parent_row: Row | None) -> list[Row]:
+    def _rows_under(self, index_id: str, parent_row: Row) -> list[Row]:
         """The rows of an index whose path starts with ``parent_row``: every
-        row for ``None``, a child's rows under a parent row, or the row
+        row for ``()``, a child's rows under a parent row, or the row
         itself when ``parent_row`` is a row of this very index."""
         if parent_row in self._rows.get(index_id, ()):
             return [parent_row]
@@ -530,9 +509,9 @@ class Ledger:
         node_id, row = unit
         interface = self._compiled.node(node_id).interface
         births = self._compiled.node(node_id)._births is not None
-        written: list[tuple[Ref, Row | None]] = []
+        written: list[tuple[Ref, Row]] = []
         born: list[Row] = []
-        barren: list[Row | None] = []
+        barren: list[Row] = []
         if births:
             self._rows.setdefault(node_id, set())
         if isinstance(outputs, Skip):
@@ -565,7 +544,7 @@ class Ledger:
                 self._write(ref, row, value, written)
             for ref, values in series.items():
                 for j, item in enumerate(values):
-                    key = (j,) if row is None else (*row, j)
+                    key = (*row, j)
                     if self._born(node_id, key):
                         born.append(key)
                     self._write(ref, key, item, written)
@@ -579,7 +558,7 @@ class Ledger:
         sealed = self._seal([node_id] if births else [])
         return self._woken(unit, written, born, barren, sealed, typed)
 
-    def _write(self, ref: Ref, key: Row | None, value: Any, written: list[tuple[Ref, Row | None]]) -> None:
+    def _write(self, ref: Ref, key: Row, value: Any, written: list[tuple[Ref, Row]]) -> None:
         """Put ``value`` at ``(ref, key)``, noting the address in ``written`` when nothing was there."""
         by_row = self._values.setdefault(ref, {})
         if key not in by_row:
@@ -609,10 +588,10 @@ class Ledger:
                     born.extend(self._born_typed(child, (*row, n)))
         return born
 
-    def _barren_typed(self, index_id: str, at: Row | None) -> list[tuple[str, Row | None]]:
+    def _barren_typed(self, index_id: str, at: Row) -> list[tuple[str, Row]]:
         """Where ``index_id`` has no rows under ``at``, neither has a typed-in
         list beneath it; returns each ``(index, row)`` marked."""
-        marked: list[tuple[str, Row | None]] = []
+        marked: list[tuple[str, Row]] = []
         for child, _ in self._typed_under(index_id):
             self._no_rows_under.setdefault(child, set()).add(at)
             marked.append((child, at))
@@ -662,11 +641,11 @@ class Ledger:
     def _woken(
         self,
         unit: Unit,
-        written: list[tuple[Ref, Row | None]],
+        written: list[tuple[Ref, Row]],
         born: list[Row],
-        barren: list[Row | None],
+        barren: list[Row],
         sealed: list[str],
-        typed: list[tuple[str, Row | None]],
+        typed: list[tuple[str, Row]],
     ) -> list[Unit]:
         """The units ``unit``'s record could have made ready, that are ready.
 
@@ -685,10 +664,10 @@ class Ledger:
         for ref, key in written:
             for inp, received in compiled.field(ref)._read_by:
                 depth = _depth_of(received)
-                if _per_row(received) or (depth is not None and _depth(key) < depth):
+                if _per_row(received) or len(key) < depth:
                     woken.update(self._units_under(inp.node_id, key))
                 else:
-                    self._wake_group(ref, inp.node_id, _group(key, depth), woken)
+                    self._wake_group(ref, inp.node_id, key[:depth], woken)
         iterating = compiled.node(node_id)._iterated_by
         for key in born:
             woken.update((reader, key) for reader in iterating)
@@ -700,16 +679,16 @@ class Ledger:
             for key in born:
                 if depth == len(key):
                     self._wake_group(ref, reader, key, woken)
-            if row is not None and depth == len(row):
+            if 0 < depth == len(row):  # a whole read (depth 0) waits for the seal below
                 self._wake_group(ref, reader, row, woken)
         for index_id in sealed:
             for reader, ref, depth in self._grouped_on(index_id):
-                if depth is None:
-                    self._wake_group(ref, reader, None, woken)
+                if depth == 0:
+                    self._wake_group(ref, reader, (), woken)
         ready = [u for u in woken if u not in self._done and u not in self._pending and self.ready(u)]
-        return sorted(ready, key=lambda u: (self._position[u[0]], _order(u)))
+        return sorted(ready, key=lambda u: (self._position[u[0]], u[1]))
 
-    def _wake_group(self, ref: Ref, reader: str, group: Row | None, woken: set[Unit]) -> None:
+    def _wake_group(self, ref: Ref, reader: str, group: Row, woken: set[Unit]) -> None:
         """Add ``reader``'s units in ``group`` when every value of ``ref`` they read is written."""
         if self._written(ref, group):
             woken.update(self._units_under(reader, group))
@@ -748,7 +727,7 @@ class Ledger:
         iterate = node.iterates_on
         if iterate is None:
             # The node's whole output at once: a series output is answered as the series.
-            self._inject((node_id, None), {
+            self._inject((node_id, ()), {
                 name: self._answer(node_id, name, value, self._compiled.field(Ref(node_id, name)).type) for name, value in outputs.items()
             })
             return
@@ -798,7 +777,7 @@ class Ledger:
     def _inject(self, unit: Unit, outputs: dict[str, Any] | Skip) -> None:
         if unit in self._done:
             node_id, row = unit
-            where = "" if row is None else f" at row {list(row)}"
+            where = "" if row == () else f" at row {list(row)}"
             raise StartRefused(f"'{node_id}'{where} is already done, so it cannot be given a result")
         self.record(unit, outputs)
 
@@ -820,7 +799,7 @@ class Ledger:
         return [
             PendingUnit(node_id=node_id, row=row, prompt=prompt, questions=questions)
             for (node_id, row), (prompt, questions) in sorted(
-                self._pending.items(), key=lambda item: (self._position[item[0][0]], _order(item[0]))
+                self._pending.items(), key=lambda item: (self._position[item[0][0]], item[0][1])
             )
         ]
 
@@ -837,19 +816,19 @@ class Ledger:
         was skipped away gives an empty series.
         """
         outputs = self._compiled.node(node_id).interface.outputs
-        if all(is_skipped(self._values.get(Ref(node_id, out.name), {}).get(None)) for out in outputs):
+        if all(is_skipped(self._values.get(Ref(node_id, out.name), {}).get(())) for out in outputs):
             return None
         result: dict[str, Any] = {}
         for out in outputs:
             ref = Ref(node_id, out.name)
             index = self._compiled.field(ref).index
-            value, _ = self._lookup(ref, None)
+            value, _ = self._lookup(ref, ())
             if is_skipped(value):
                 continue
             if index is None:
                 result[out.name] = value
             else:
-                result[out.name] = self._series(node_id, (ref,), index, self._rows_under(index.id, None))
+                result[out.name] = self._series(node_id, (ref,), index, self._rows_under(index.id, ()))
         return result
 
     def results(self) -> dict[str, dict[str, Any]]:
@@ -903,10 +882,10 @@ class Ledger:
                 return ledger.results()
         return cls.restore(compiled, state).results()
 
-    def _value_wire(self, ref: Ref, row: Row | None, value: Any) -> StateValue | StateSkip:
+    def _value_wire(self, ref: Ref, row: Row, value: Any) -> StateValue | StateSkip:
         """One value as the state carries it: its address, and the value through the codec or its skip."""
         if is_skipped(value):
-            return StateSkip(ref=ref, row=row, skipped=_depth(row))
+            return StateSkip(ref=ref, row=row, skipped=len(row))
         try:
             wire = to_wire(value, self._value_type(ref))
         except Exception as unwritable:
@@ -960,7 +939,7 @@ class Ledger:
             except KeyError as unknown:
                 raise StartRefused(f"the state has a value for {ref}, which the graph does not have") from unknown
             if not _fits(entry.row, index):
-                raise StartRefused(f"the state's value for {ref} is at row {list(entry.row or ())}, which {ref} has no place for")
+                raise StartRefused(f"the state's value for {ref} is at row {list(entry.row)}, which {ref} has no place for")
             if isinstance(entry, StateSkip):
                 value = SKIPPED
             else:
@@ -972,7 +951,7 @@ class Ledger:
         done = [(unit.node_id, unit.row) for unit in state.done_units if unit.node_id not in dropped]
         for node_id, row in done:
             if not _fits(row, compiled.node(node_id).iterates_on):
-                raise StartRefused(f"the state marks {node_id!r} done at row {list(row or ())}, which {node_id!r} has no place for")
+                raise StartRefused(f"the state marks {node_id!r} done at row {list(row)}, which {node_id!r} has no place for")
         ledger._rebirth(done)
         for unit in done:
             ledger._finish(unit)
@@ -1005,18 +984,12 @@ class Ledger:
                 for out in self._compiled.node(node_id).interface.outputs
                 if out.dtype.element is not None
             ]
-            depth = _depth(row)
-            children = {
-                key
-                for by_row in series
-                for key in by_row
-                if key is not None and len(key) == depth + 1 and (row is None or key[:-1] == row)
-            }
+            children = {key for by_row in series for key in by_row if len(key) == len(row) + 1 and key[:-1] == row}
             if children:
                 born.setdefault(node_id, set()).update(children)
                 continue
-            at = next((key for key in _prefixes(row) for by_row in series if is_skipped(by_row.get(key, None))), _NOWHERE)
-            if at is not _NOWHERE:
+            at = next((key for key in _prefixes(row) for by_row in series if is_skipped(by_row.get(key))), None)
+            if at is not None:
                 self._no_rows_under.setdefault(node_id, set()).add(at)
                 self._barren_typed(node_id, at)
         for node_id in self._compiled.execution_order:
