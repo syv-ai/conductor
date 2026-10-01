@@ -126,6 +126,8 @@ class Compilation:
         self.graph_ids: frozenset[str] = frozenset(node.id for node in graph.nodes)
         #: The nodes the author placed, by id (set by ``place``).
         self.authored: dict[str, GraphNode] = {}
+        #: The ids the author wrote with a ``/``, refused (``place``): never nodes of this graph.
+        self.refused: set[str] = set()
         #: The class each authored node resolved to and the version it uses (set by ``pin``).
         self.pinned: dict[str, tuple[type[NodeDefinition], Any]] = {}
         #: Who waits for whom, and an execution order, over the authored graph (set by ``order``).
@@ -196,6 +198,7 @@ class Compilation:
         node ``e`` would be read in the inner node's place."""
         for node in self.graph.nodes:
             if SEPARATOR in node.id:
+                self.refused.add(node.id)
                 self.problems.append(problem("invalid_node_id", node.id))
                 continue
             if node.id in self.authored:

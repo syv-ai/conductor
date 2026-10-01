@@ -518,10 +518,15 @@ class _Fold:
         return "resolution_failed"
 
     def problems_on(self, address: str) -> tuple[Problem, ...]:
-        """Every problem at ``address`` or inside it."""
+        """Every problem at ``address`` or inside it. A node inside a placed
+        graph can share its id with one the author wrote and compile refused
+        (``e/holder`` beside a graph ``e`` holding ``holder``); that refusal is
+        about the author's node, so it is never the inner node's."""
+        inner = self.met[address.split(".", 1)[0]][1] is not None
         return tuple(
             p for p in self.compilation.problems
-            if _address(p) == address or _address(p).startswith(address + ".")
+            if (_address(p) == address or _address(p).startswith(address + "."))
+            and not (inner and p.node_id in self.compilation.refused)
         )
 
     def cause(self, node_id: str, visiting: frozenset[str]) -> Problem:

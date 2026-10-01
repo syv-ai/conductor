@@ -422,6 +422,20 @@ def test_an_authored_id_with_a_slash_is_refused_and_never_collides_with_an_inner
     assert compiled.field(Ref("e/holder", "value")).binding == Static("inner")
 
 
+def test_a_refused_authored_id_is_not_the_problem_of_the_inner_node_sharing_it():
+    """`e` can be placed, so its `holder` runs as `e/holder`; the author also
+    wrote `e/holder`, which is refused. The refusal is the author's: it stays
+    in the graph's problems and never shows on the inner node."""
+    compiled = _compiled([
+        GraphNode(id="e", type="inner-graph", version=1),
+        GraphNode(id="e/holder", type="upper", version=1),
+    ])
+
+    assert [(p.code, p.node_id) for p in compiled.problems] == [("invalid_node_id", "e/holder")]
+    inner = compiled.node("e/holder")
+    assert (inner.state, inner.embedded_in, inner.problems) == ("ready", "e", ())
+
+
 def test_an_authored_id_holding_a_slash_is_refused_and_stays_the_authors():
     """The author wrote `e/holder` beside an embedded graph `e` whose own
     `holder` has a type the registry lacks. The authored id is refused; the
