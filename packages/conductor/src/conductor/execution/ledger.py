@@ -918,7 +918,7 @@ class Ledger:
         field with rows, the field's own type otherwise."""
         if ref not in self._value_types:
             field = self._compiled.field(ref)
-            element = getattr(field.type, "element", None)
+            element = field.type.element
             self._value_types[ref] = field.type if field.index is None or element is None else element
         return self._value_types[ref]
 

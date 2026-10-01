@@ -135,7 +135,7 @@ def _declared_type(name: str, value: Any, outputs: tuple[Output, ...]) -> Any:
         raise ValueError(f"run() returned '{name}', which is not one of its outputs")
     if is_skipped(value) or output.dtype is Any:
         return value
-    element = getattr(output.dtype, "element", None)
+    element = output.dtype.element
     if element is None:
         return _read_as(name, value, output.dtype)
     # A series output: each element is read as the element type, and a

@@ -303,7 +303,7 @@ class _Walk:
                 found.receives[inp.name] = Whole()
                 continue
             target = inp.dtype
-            if target is Any or getattr(target, "element", None) is Any:
+            if target is Any or target.element is Any:
                 # An input with no type of its own takes the type of its first
                 # edge; the other edges are checked against it.
                 element = sources[0].dtype.element or sources[0].dtype
@@ -375,7 +375,7 @@ class _Walk:
             ref = Ref(node.id, out.name)
             if node.id in self.graphs:
                 self.carried[ref] = self._carried_out_of_graph(node.id, version, out, iteration_index)
-            elif getattr(out.dtype, "element", None) is not None:
+            elif out.dtype.element is not None:
                 node_index = node_index or Index(node.id, parent=iteration_index)
                 self.carried[ref] = _Carried(out.dtype, node_index)
             elif iteration_index is not None:
