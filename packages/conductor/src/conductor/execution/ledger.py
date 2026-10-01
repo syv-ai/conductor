@@ -120,6 +120,23 @@ def _per_row(received: Receive) -> bool:
 #: state an ending carries needs no decoding (``Ledger.results_of``).
 _WRITTEN_BY: dict[int, tuple[Ledger, int]] = {}
 
+class _FieldsOf(dict[Ref, CompiledField]):
+    """The compiled field at each address, looked up on first use and kept.
+
+    The ledger reads a field for every value it reads or writes, about a
+    dozen per unit, so it asks ``CompiledGraph.field`` once per address and
+    keeps the answer: a compiled graph never changes. Not a mirror of the
+    graph: an address nothing asks for is never filled in."""
+
+    def __init__(self, compiled: CompiledGraph) -> None:
+        super().__init__()
+        self._compiled = compiled
+
+    def __missing__(self, ref: Ref) -> CompiledField:
+        field = self[ref] = self._compiled.field(ref)
+        return field
+
+
 class Ledger:
     """The live state of one run over one compiled graph, and what it makes ready.
 
@@ -129,6 +146,9 @@ class Ledger:
 
     def __init__(self, compiled: CompiledGraph) -> None:
         self._compiled = compiled
+        #: Each field the ledger reads, by the address it was asked under:
+        #: ``compiled.field`` once per address, a dict read after that.
+        self._fields = _FieldsOf(compiled)
         self._values: dict[Ref, dict[Row, Any]] = {}
         self._rows: dict[str, set[Row]] = {}
         #: Per index, its rows under each shorter row, in the order they were
@@ -192,7 +212,7 @@ class Ledger:
         births its rows: a node's series outputs (``Index(node_id)``) or an
         input's typed-in list (``Index(ref)``, an address). A node id holds no ``.``."""
         compiled = self._compiled
-        return compiled.field(Ref(index_id)) if "." in index_id else compiled.node(index_id)
+        return self._fields[Ref(index_id)] if "." in index_id else compiled.node(index_id)
 
     def _births_on(self, index_id: str) -> list[str]:
         """The nodes running once per row of this index that birth rows of their own."""
@@ -203,9 +223,8 @@ class Ledger:
         """``(reader node, output read, group depth)`` for every reader of a
         series on this index that receives it grouped or whole, not one row
         at a time."""
-        compiled = self._compiled
         for ref in self._owner(index_id)._carried_by:
-            for inp, received in compiled.field(ref)._read_by:
+            for inp, received in self._fields[ref]._read_by:
                 if not _per_row(received):
                     yield inp.node_id, ref, _depth_of(received)
 
@@ -218,7 +237,7 @@ class Ledger:
         """``(index, how many values)`` for each typed-in list born under every row of this index."""
         compiled = self._compiled
         for ref in self._owner(index_id)._typed_lists:
-            yield compiled.field(ref).index.id, len(compiled.node(ref.node_id).statics[ref.field])
+            yield self._fields[ref].index.id, len(compiled.node(ref.node_id).statics[ref.field])
 
     # -- units ---------------------------------------------------------------
 
@@ -319,13 +338,13 @@ class Ledger:
 
     def _key(self, ref: Ref, row: Row) -> Row:
         """Where a unit at ``row`` reads ``ref`` as a scalar: its row on the ref's index, or ``()``."""
-        index = self._compiled.field(ref).index
+        index = self._fields[ref].index
         return () if index is None else row[: index.depth]
 
     def _written(self, ref: Ref, group: Row) -> bool:
         """Is every value of ``ref`` a series reader at ``group`` receives written?
         The one value of a field that carries a single value, else the rows under ``group``."""
-        index = self._compiled.field(ref).index
+        index = self._fields[ref].index
         return self._present(ref, ()) if index is None else self._all_written(ref, index, group)
 
     def _all_written(self, ref: Ref, index: Index, parent_row: Row) -> bool:
@@ -377,8 +396,8 @@ class Ledger:
         statics = node._statics
         for inp in node.interface.inputs:
             own = Ref(node_id, inp.name)
-            binding = self._compiled.field(own).binding
-            received = self._compiled.field(own).receives
+            binding = self._fields[own].binding
+            received = self._fields[own].receives
             if binding is None:
                 if isinstance(received, Whole):
                     values[inp.name] = self._typed(received, inp.default, own)
@@ -394,7 +413,7 @@ class Ledger:
             elif isinstance(received, Gather):
                 gathered: list[Any] = []
                 for ref in binding.refs:
-                    index = self._compiled.field(ref).index
+                    index = self._fields[ref].index
                     value, _ = self._lookup(ref, ())
                     if is_skipped(value):
                         continue
@@ -408,7 +427,7 @@ class Ledger:
                 found = [self._lookup(ref, group) for ref in binding.refs]
                 if all(is_skipped(value) for value, _ in found):
                     return Skip(at=max((at for _, at in found), key=len))
-                index = self._compiled.field(binding.refs[0]).index
+                index = self._fields[binding.refs[0]].index
                 if index is None:
                     # Received whole from a source that ran once: the one value.
                     ((values[inp.name], _),) = found
@@ -452,7 +471,7 @@ class Ledger:
         unit takes the one at its row; broadcast, it is the one value.
         """
         if isinstance(received, Whole):
-            return Series(self._compiled.field(own).index, value.values if isinstance(value, Series) else list(value))
+            return Series(self._fields[own].index, value.values if isinstance(value, Series) else list(value))
         if isinstance(received, Iterate):
             return list(value)[row[received.index.depth - 1]]
         return value
@@ -662,7 +681,7 @@ class Ledger:
         compiled = self._compiled
         woken: set[Unit] = set()
         for ref, key in written:
-            for inp, received in compiled.field(ref)._read_by:
+            for inp, received in self._fields[ref]._read_by:
                 depth = _depth_of(received)
                 if _per_row(received) or len(key) < depth:
                     woken.update(self._units_under(inp.node_id, key))
@@ -728,7 +747,7 @@ class Ledger:
         if iterate is None:
             # The node's whole output at once: a series output is answered as the series.
             self._inject((node_id, ()), {
-                name: self._answer(node_id, name, value, self._compiled.field(Ref(node_id, name)).type) for name, value in outputs.items()
+                name: self._answer(node_id, name, value, self._fields[Ref(node_id, name)].type) for name, value in outputs.items()
             })
             return
         born = self._rows.get(iterate.id, set())
@@ -821,7 +840,7 @@ class Ledger:
         result: dict[str, Any] = {}
         for out in outputs:
             ref = Ref(node_id, out.name)
-            index = self._compiled.field(ref).index
+            index = self._fields[ref].index
             value, _ = self._lookup(ref, ())
             if is_skipped(value):
                 continue
@@ -896,7 +915,7 @@ class Ledger:
         """The type of one value of ``ref``: the element of the series on a
         field with rows, the field's own type otherwise."""
         if ref not in self._value_types:
-            field = self._compiled.field(ref)
+            field = self._fields[ref]
             element = field.type.element
             self._value_types[ref] = field.type if field.index is None or element is None else element
         return self._value_types[ref]
