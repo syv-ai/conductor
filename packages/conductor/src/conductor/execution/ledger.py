@@ -63,7 +63,6 @@ from conductor.codec import from_wire, to_wire
 from conductor.errors import ErrorCause, NodeExecutionError, StartRefused
 from conductor.execution.events import PendingUnit
 from conductor.execution.state import DoneUnit, RunState, StateSkip, StateValue
-from conductor.graph.binding import Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.compiled_node import CompiledField, CompiledNode
 from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Receive, Whole
@@ -391,11 +390,13 @@ class Ledger:
         branch fired" is expressed.
         """
         node_id, row = unit
-        iterate = self._compiled.node(node_id).iterates_on
+        node = self._compiled.node(node_id)
+        iterate = node.iterates_on
         if iterate is not None and _depth(row) < iterate.depth:
             return Skip(at=row)
         values: dict[str, Any] = {}
-        for inp in self._compiled.node(node_id).interface.inputs:
+        statics = node._statics
+        for inp in node.interface.inputs:
             own = Ref(node_id, inp.name)
             binding = self._compiled.field(own).binding
             received = self._compiled.field(own).receives
@@ -403,8 +404,8 @@ class Ledger:
                 if isinstance(received, Whole):
                     values[inp.name] = self._typed(received, inp.default, own)
                 continue  # a scalar default is the node's own; the call applies it
-            if isinstance(binding, Static):
-                values[inp.name] = self._typed(received, self._compiled.node(node_id).statics[inp.name], own, row)
+            if inp.name in statics:
+                values[inp.name] = self._typed(received, statics[inp.name], own, row)
                 continue
             if isinstance(received, (Iterate, Broadcast)):
                 covering, skips = self._covering(node_id, binding.refs, row)

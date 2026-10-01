@@ -26,7 +26,7 @@ from types import MappingProxyType
 from typing import Any, Callable
 
 from conductor.dtype import DType
-from conductor.graph.binding import From, Static
+from conductor.graph.binding import From, Static, static_values
 from conductor.graph.model import Graph, GraphNode
 from conductor.model import ConductorModel
 from conductor.node import NodeDefinition, NodeDescription, NodeVersion
@@ -198,7 +198,7 @@ class NodeRegistry:
         bindings, locked, fields = dict(node.bindings), node.locked, dict(node.fields)
         for step in steps:
             bindings, locked, fields = _renamed(bindings, step.inputs), _renamed_all(locked, step.inputs), _renamed(fields, step.inputs)
-            values = step.rewrite({name: b.value if isinstance(b, Static) else b for name, b in bindings.items()})
+            values = step.rewrite({**bindings, **static_values(bindings)})
             bindings = {name: v if isinstance(v, From) else Static(v) for name, v in values.items()}
             fields = _renamed(fields, step.outputs)
         moved = node.model_copy(update={"version": target, "bindings": bindings, "locked": locked, "fields": fields})

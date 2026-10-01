@@ -25,7 +25,6 @@ from pydantic_core import to_jsonable_python
 
 from conductor.codec import to_wire
 from conductor.errors import NodeKindError, NodeResolutionError, NodeWiringError
-from conductor.graph.binding import Static
 from conductor.interface import model_of
 from conductor.node import runner_of
 from conductor.series import Series
@@ -247,7 +246,7 @@ class CompiledNode:
         declared = {inp.name: inp.dtype for inp in self._interface.inputs}
         bindings: dict[str, Any] = {}
         for name, binding in node.bindings.items():
-            if isinstance(binding, Static) and name in self._statics:
+            if name in self._statics:
                 # The value as its type writes it, never as the author spelled
                 # it: ``2`` and ``2.0`` on a number are one value, and a graph
                 # built in Python with the typed value hashes like the stored
