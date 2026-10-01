@@ -168,7 +168,7 @@ def test_a_pending_unit_is_a_record_too():
 
     assert isinstance(ending, GraphPendingEvent)
     (unit,) = ending.pending
-    assert (unit.node_id, unit.row) == ("q", None)
+    assert (unit.node_id, unit.row) == ("q", ())
     assert unit.questions[0].name == Ref("q", "result")
 
 

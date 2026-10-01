@@ -599,7 +599,7 @@ def test_a_node_that_asks_ends_the_leg_pending_with_its_question_named_by_addres
 
     assert events[-1].type == "graph_pending"
     (waiting,) = events[-1].pending
-    assert (waiting.node_id, waiting.row) == ("ask", None)
+    assert (waiting.node_id, waiting.row) == ("ask", ())
     (question,) = waiting.questions
     assert question.name == "ask.result" and question.default == "proposal"
     assert events[-1].state.results(compiled)["other"]["result"] == "X"
@@ -792,13 +792,13 @@ def test_a_restore_leaves_a_typed_in_list_under_a_skipped_outer_row_complete():
         _registry_with_asks(TypedInside),
     )
     live = Ledger(compiled)
-    live.record(("docs", None), Skip(at=None))
+    live.record(("docs", ()), Skip(at=()))
     for node_id in compiled.execution_order[1:]:
-        live.record((node_id, None), live.inputs_for((node_id, None)))
+        live.record((node_id, ()), live.inputs_for((node_id, ())))
 
     restored = Ledger.restore(compiled, live.state())
 
-    assert restored.units("emb/t") == live.units("emb/t") == [("emb/t", None)]
+    assert restored.units("emb/t") == live.units("emb/t") == [("emb/t", ())]
     assert restored.completed_nodes() == live.completed_nodes() == set(compiled.execution_order)
 
 

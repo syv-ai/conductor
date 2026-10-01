@@ -327,10 +327,20 @@ def test_a_state_value_that_does_not_read_back_as_its_type_is_refused():
         _leg(compiled, state=RunState.model_validate(dumped))
 
 
+def test_a_node_that_runs_once_is_at_the_empty_row_on_the_wire():
+    """The top is the empty row, ``[]`` in JSON, for a value and a done unit
+    alike; a state read back from that JSON runs nothing again."""
+    compiled = _compiled([GraphNode(id="e", type="echo", version=1, bindings={"text": Static("x")})])
+    wire = _leg(compiled)[-1].state.model_dump(mode="json")
+    assert [v["row"] for v in wire["values"]] == [[]] and wire["done_units"] == [{"node_id": "e", "row": []}]
+
+    calls.clear()
+    assert _leg(compiled, state=RunState.model_validate(wire))[-1].type == "graph_complete"
+    assert calls == []
+
+
 @pytest.mark.parametrize(("where", "edit", "refusal"), [
-    ("values", {"row": []}, r"e\.result is at row \[\]"),
     ("values", {"row": [0]}, r"e\.result is at row \[0\]"),
-    ("done_units", {"row": []}, r"'e' done at row \[\]"),
     ("done_units", {"row": [0]}, r"'e' done at row \[0\]"),
     ("values", {"ref": "e.reslt"}, r"e\.reslt, which the graph does not have"),
 ])
@@ -346,11 +356,12 @@ def test_a_state_entry_a_node_that_runs_once_has_no_place_for_is_refused(where, 
 
 
 @pytest.mark.parametrize("entry", [
-    {"row": None, "value": "A"},
-    {"ref": "e", "row": None, "value": "A"},
-    {"ref": ["e", "result"], "row": None, "value": "A"},
-    {"ref": "e.result", "row": None},
-    {"ref": "e.result", "row": None, "value": "A", "skipped": 0},
+    {"row": [], "value": "A"},
+    {"ref": "e", "row": [], "value": "A"},
+    {"ref": ["e", "result"], "row": [], "value": "A"},
+    {"ref": "e.result", "row": []},
+    {"ref": "e.result", "row": [], "value": "A", "skipped": 0},
+    {"ref": "e.result", "row": None, "value": "A"},
     {"ref": "e.result", "value": "A"},
 ])
 def test_a_state_entry_that_is_not_a_value_or_a_skip_is_refused_where_it_arrives(entry):
@@ -412,7 +423,7 @@ def test_a_per_row_answer_that_leaves_a_row_out_of_one_output_is_refused():
         GraphNode(id="p", type="pair", version=1, bindings={"text": _edge("split")}),
     ]), reg)
     ledger = Ledger(compiled)
-    ledger.record(("split", None), {"result": [Txt("a"), Txt("b")]})
+    ledger.record(("split", ()), {"result": [Txt("a"), Txt("b")]})
     index = compiled.field(Ref("split", "result")).index
 
     with pytest.raises(ValueError, match=r"'p'.*'b'.*\[1\]"):
@@ -448,9 +459,9 @@ def test_a_unit_whose_second_output_is_invalid_writes_nothing():
     import pytest
 
     with pytest.raises(ValueError):
-        ledger.record(("s", None), {"head": Txt("h"), "parts": 3})  # a series output that is not a sequence
+        ledger.record(("s", ()), {"head": Txt("h"), "parts": 3})  # a series output that is not a sequence
 
-    assert ledger.state().values == [] and not ledger.is_done(("s", None))
+    assert ledger.state().values == [] and not ledger.is_done(("s", ()))
 
 
 # -- edits between legs, and a state read after the ledger moved on ----------------------
@@ -540,7 +551,7 @@ def test_an_answer_of_the_wrong_shape_or_naming_a_row_twice_names_the_node_and_o
         GraphNode(id="ask", type="ask", version=1, bindings={"text": _edge("split")}),
     ])
     ledger = Ledger(per_row)
-    ledger.record(("split", None), {"result": [Txt("a"), Txt("b")]})
+    ledger.record(("split", ()), {"result": [Txt("a"), Txt("b")]})
     with pytest.raises(ValueError, match=r"'ask': 'result' names a row twice"):
         ledger.inject("ask", {"result": {"rows": [[0], [0]], "values": ["x", "y"]}})
 
@@ -579,9 +590,9 @@ def test_a_state_is_not_read_off_a_ledger_that_moved_on():
         GraphNode(id="b", type="echo", version=1, bindings={"text": _edge("a")}),
     ])
     ledger = Ledger(compiled)
-    ledger.record(("a", None), {"result": Txt("x")})
+    ledger.record(("a", ()), {"result": Txt("x")})
     state = ledger.state()
-    ledger.record(("b", None), {"result": Txt("x")})
+    ledger.record(("b", ()), {"result": Txt("x")})
 
     assert set(state.results(compiled)) == {"a"}
 
