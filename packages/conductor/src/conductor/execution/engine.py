@@ -4,8 +4,8 @@ The engine doesn't schedule whole nodes. It schedules *units* — one call
 of a node's ``run``. A node that runs once is one unit. A node that runs
 once for each item in a list — each row of a series — is one unit per
 item, so item 3 can move on down the graph while item 10 is still
-waiting its turn. In the code a unit is ``(node_id, row)``, with row
-``None`` for a node that runs once; a series is a value with many rows,
+waiting its turn. In the code a unit is ``(node_id, row)``, with the
+empty row ``()`` for a node that runs once; a series is a value with many rows,
 whose *index* names where the rows come from.
 
 A *leg* is one call of ``execute``: it starts every unit it can, and

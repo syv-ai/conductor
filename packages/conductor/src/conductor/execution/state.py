@@ -39,12 +39,12 @@ if TYPE_CHECKING:
 
 class StateEntry(ConductorModel):
     """Where one entry of a run's state sits: an output of a node, by its
-    address (``ref``, ``"node.field"``), at a row (``None`` on a node that
+    address (``ref``, ``"node.field"``), at a row (``()`` on a node that
     ran once). What sits there is the subclass's: ``StateValue`` or
     ``StateSkip``."""
 
     ref: Ref
-    row: Row | None
+    row: Row
 
 
 class StateValue(StateEntry):
@@ -65,10 +65,10 @@ class StateSkip(StateEntry):
 
 class DoneUnit(ConductorModel):
     """A unit that ran to completion: a node, and the row it ran for
-    (``None`` for a node that ran once)."""
+    (``()`` for a node that ran once)."""
 
     node_id: str
-    row: Row | None
+    row: Row
 
 
 class RunState(ConductorModel):

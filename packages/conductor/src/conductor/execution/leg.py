@@ -443,7 +443,7 @@ class Leg:
             cause = ErrorCause(code="external_failed", message=str(failure), row=row)
         else:
             cause = ErrorCause(code="failed", message=str(failure), row=row)
-        if cause.row is None and row is not None:
+        if cause.row == ():
             cause = cause.model_copy(update={"row": row})
         return NodeErrorEvent(type="node_error", node_id=node_id, error=str(failure), cause=cause)
 

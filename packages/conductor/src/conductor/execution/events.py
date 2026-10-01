@@ -77,7 +77,7 @@ class NodeErrorEvent(ConductorModel):
 class NodeRetryEvent(ConductorModel):
     type: Literal["node_retry"]
     node_id: str
-    row: Row | None
+    row: Row
     attempt: int
     retries: int
     error: str
@@ -105,11 +105,11 @@ class GraphCompleteEvent(Ending):
 
 class PendingUnit(ConductorModel):
     """One node waiting on a person — or one row of a node that runs per
-    row: the node, its row (when it runs per row), the prompt, and the
+    row: the node, its row (``()`` when it runs once), the prompt, and the
     questions as ``Input`` records named by address (``node.field``)."""
 
     node_id: str
-    row: Row | None
+    row: Row
     prompt: str | None
     questions: tuple[Any, ...]
 

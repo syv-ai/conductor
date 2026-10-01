@@ -233,13 +233,13 @@ class ErrorCause(ConductorModel):
     a rejected field, an upstream request id; ``row`` is the row a node
     running once per row was on when it failed, as a path of positions:
     ``(2,)`` for the third row, ``(2, 0)`` for the first row nested under
-    that one.
+    that one, and the empty row ``()`` for a node that runs once.
     """
 
     code: str
     message: str
     details: Mapping[str, Any] = Field(default_factory=dict)
-    row: Row | None = None
+    row: Row = ()
 
 
 class NodeError(ConductorError):
