@@ -167,6 +167,9 @@ class Compilation:
         #: The fatal problem that explains each node that is not ready, found
         #: once (set by ``compiled_nodes``).
         self.causes: dict[str, Problem] = {}
+        #: Every problem, by the node it is on (set by ``compiled_nodes``), so
+        #: finding a node's problems doesn't scan them all.
+        self.problems_by_node: dict[str, list[Problem]] = {}
 
     def run(self) -> None:
         """The steps, in order. Each reads the one before:
@@ -630,6 +633,8 @@ class Compilation:
             self.every_node_seen.setdefault(graph_node.id, (graph_node, None))
         for node_id, graph_node in self.expansion.nodes.items():
             self.every_node_seen[node_id] = (graph_node, embedded_in(node_id))
+        for found in self.problems:
+            self.problems_by_node.setdefault(found.node_id, []).append(found)
         plan = _ReadPlan.of(self)
         built: dict[str, CompiledNode] = {}
         for node_id, (graph_node, outer_graph_node_id) in self.every_node_seen.items():
@@ -688,15 +693,17 @@ class Compilation:
         outputs = {out.name for out in interface.outputs}
         ready = cause is None
         iteration, conditions = self.iteration, self.output_conditions
+        on_field: dict[str | None, list[Problem]] = {}
+        for found in problems:
+            on_field.setdefault(found.field, []).append(found)
         fields: dict[str, CompiledField] = {}
         for name in (declared.name for declared in (*interface.inputs, *interface.outputs)):
             if name in fields:
                 continue
             ref = Ref(node_id, name)
-            address = f"{node_id}.{name}"
             fields[name] = CompiledField(
                 ref=ref,
-                problems=tuple(p for p in problems if _address(p) == address),
+                problems=tuple(on_field.get(name, ())),
                 _cause=cause,
                 _input=name in inputs,
                 _output=name in outputs,
@@ -722,18 +729,14 @@ class Compilation:
             return "wiring_failed"
         return "resolution_failed"
 
-    def problems_on(self, address: str) -> tuple[Problem, ...]:
-        """Every problem at ``address`` or on one of its fields. A node inside
-        an embedded graph can share its id with one the author wrote and
-        compile refused (``e/holder`` beside a graph ``e`` holding ``holder``);
-        that refusal is about the author's node, so it is never the inner
-        node's."""
-        inner = self.every_node_seen[address.split(".", 1)[0]][1] is not None
-        return tuple(
-            p for p in self.problems
-            if (_address(p) == address or _address(p).startswith(address + "."))
-            and not (inner and p.node_id in self.refused)
-        )
+    def problems_on(self, node_id: str) -> tuple[Problem, ...]:
+        """Every problem on a node or one of its fields. A node inside an
+        embedded graph can share its id with one the author wrote and compile
+        refused (``e/holder`` beside a graph ``e`` holding ``holder``); that
+        refusal is about the author's node, so it is never the inner node's."""
+        if self.every_node_seen[node_id][1] is not None and node_id in self.refused:
+            return ()
+        return tuple(self.problems_by_node.get(node_id, ()))
 
     def cause(self, node_id: str, visiting: frozenset[str]) -> Problem:
         """Why a node is not ready: its own first fatal problem, or else the
@@ -895,10 +898,6 @@ class _ReadPlan:
             "_typed_lists": tuple(self.typed_lists.get(key, ())),
         }
 
-
-def _address(found: Problem) -> str:
-    """Where a problem sits: its node, and its field when it has one (``approve.check.amount``)."""
-    return found.node_id if found.field is None else f"{found.node_id}.{found.field}"
 
 
 def _sequence(value: Any) -> bool:
