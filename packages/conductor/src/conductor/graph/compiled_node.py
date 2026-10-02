@@ -32,12 +32,13 @@ from conductor.series import Series
 
 if TYPE_CHECKING:
     from conductor.graph.binding import Binding
+    from conductor.graph.compiled import CompiledGraph
     from conductor.graph.conditions import Condition
     from conductor.graph.model import GraphNode
     from conductor.graph.problem import Problem
     from conductor.graph.receive import Receive
     from conductor.interface import Interface
-    from conductor.node import GraphVersion, NodeDefinition, NodeVersion
+    from conductor.node import NodeDefinition, NodeVersion
     from conductor.ref import Ref
     from conductor.series import Index
 
@@ -64,13 +65,13 @@ if TYPE_CHECKING:
 NodeState = Literal["ready", "wiring_failed", "resolution_failed"]
 
 #: What a node is. ``node``: it runs as one unit, one call of its version's
-#: ``run`` per row. ``graph``: its version is a graph, which compile
-#: inlines, so its inner nodes run in its place and an address on it reads
-#: through to theirs. The fold sets it from the version. It is read where
-#: the two kinds answer differently: ``_gate``, for the reads only a unit
-#: answers, and the address walk (``CompiledGraph.expanded`` and ``field``),
-#: where an address on a graph reads through. Which nodes are graphs is
-#: expand's to say (``Expansion.graphs``), since inlining is what differs.
+#: ``run`` per row. ``graph``: its version is a graph the host compiled,
+#: which compile places, so its inner nodes run in its place and an address
+#: on it reads through to theirs. The fold sets it from the version. It is
+#: read where the two kinds answer differently: ``_gate``, for the reads only
+#: a unit answers, and the address walk (``CompiledGraph.expanded`` and
+#: ``field``), where an address on a graph reads through. Which nodes are
+#: graphs is ``Expansion.graphs``'s to say.
 NodeKind = Literal["node", "graph"]
 
 
@@ -114,7 +115,8 @@ class CompiledNode:
     ``graph_node`` for the policy and the type it reports; an editor reads
     ``state`` and ``kind``, then ``interface`` and ``iterates_on`` for each
     node it draws — a node whose ``kind`` is ``graph`` as a box around its
-    inner nodes, from ``version.graph`` — and ``problems`` for its marks.
+    inner nodes, whose own problems are ``version.problems`` — and
+    ``problems`` for its marks.
     Its sibling is ``CompiledField``, the same for one input or output.
 
     What it answers depends on its ``state``. ``id``, ``state``,
@@ -127,9 +129,10 @@ class CompiledNode:
     explains the state. ``runner``, ``validate`` and ``fingerprint`` are the
     run's, and only a node that runs as one unit answers them: on a
     ``graph`` they raise ``NodeKindError``, since its inner nodes run in its
-    place. A ``graph`` never fails to resolve, is ready only when every node
-    inside it is, and has no fields of its own — an address on it
+    place. A ``graph`` has no fields of its own — an address on it
     (``Ref("approve", "check.amount")``) reads through to the inner field.
+    One that couldn't be placed is ``wiring_failed`` and has nothing
+    inside; read what is inside through its ``version``.
     """
 
     #: The expanded id: ``"approve/check"`` for an inner node.
@@ -155,7 +158,7 @@ class CompiledNode:
     #: The answers a resolved node has; ``None`` on one whose resolution failed.
     _kind: NodeKind = field(repr=False)
     _definition: type[NodeDefinition] = field(repr=False)
-    _version: NodeVersion | GraphVersion = field(repr=False)
+    _version: NodeVersion | CompiledGraph = field(repr=False)
     _interface: Interface = field(repr=False)
     _statics: Mapping[str, Any] = field(repr=False)
     #: What the walk decided; ``None`` also on a node that is not ready.
@@ -194,10 +197,11 @@ class CompiledNode:
         return self._kind
 
     @property
-    def version(self) -> NodeVersion | GraphVersion:
+    def version(self) -> NodeVersion | CompiledGraph:
         """The version this node uses: a ``NodeVersion`` — its ``run``,
-        interface and policy — for a ``node``; a ``GraphVersion`` — its
-        graph and declared interface — for a ``graph``."""
+        interface and policy — for a ``node``; for a ``graph``, the graph
+        compiled on its own, with any values typed on the placed node in it
+        — its interface, and its own problems in its own words."""
         _gate(self, "version", needs_wiring=False)
         return self._version
 

@@ -2,7 +2,7 @@
 
 from collections import Counter
 from collections.abc import Mapping
-from typing import Annotated, Any, ClassVar
+from typing import Annotated, Any
 
 import pytest
 from conductor import NodeRegistry
@@ -21,11 +21,13 @@ from conductor.graph.problem import Problem
 from conductor.graph.receive import Broadcast
 from conductor.interface import FromRun, Interface, model_of
 from conductor.metadata import Input, Output, Param, Result
-from conductor.node import GraphVersion, NodeDefinition, Policy, upgrade, version
+from conductor.node import NodeDefinition, Policy, upgrade, version
 from conductor.ref import Ref
 from conductor.series import Series
 from conductor.widgets import Choice, Dropdown, Textarea
 from pydantic import ValidationError
+
+from test_core.embedded import embedded_graph_node
 
 
 class Txt(DType, str):
@@ -420,23 +422,9 @@ def test_an_empty_list_of_anything_breaks_its_node_like_anything():
     assert [p.code for p in compiled.problems] == ["unbound_required"]
     assert compiled.node("n").state == "wiring_failed"
 
-class Wrapped(NodeDefinition):
-    """A stored graph placed as a node: one echo inside."""
 
-    id = "wrapped"
-    title = "Wrapped"
-    description = "d"
-    category = "test"
-    versions: ClassVar[dict[int, GraphVersion]] = {
-        1: GraphVersion(
-            graph=(GraphNode(id="inner", type="echo", version=1),),
-            interface=Interface(
-                inputs=(Input(name="inner.x", dtype=Txt, title="X", widget=Textarea(), default=Txt(""), optional=True),),
-                outputs=(Output(name="inner.result", dtype=Txt, title="Result"),),
-                returns=Mapping,
-            ),
-        )
-    }
+#: A stored graph placed as a node: one echo inside.
+Wrapped = embedded_graph_node("wrapped", (GraphNode(id="inner", type="echo", version=1),), _registry(), "Wrapped")
 
 
 class CountingRegistry(NodeRegistry):
@@ -448,7 +436,8 @@ class CountingRegistry(NodeRegistry):
 
 
 def test_compile_looks_each_placement_up_once():
-    """One lookup per node the author placed and per inner node of an embedded graph; everything after reads the class compile resolved."""
+    """One lookup per node the author placed; everything after reads the class compile resolved. An
+    embedded graph's own nodes were looked up once, when the host compiled it."""
     registry = CountingRegistry(nodes=(Echo, Wrapped))
     registry.counts = Counter()
     CompiledGraph.from_graph(Graph(nodes=[
@@ -457,7 +446,7 @@ def test_compile_looks_each_placement_up_once():
         GraphNode(id="emb", type="wrapped", version=1, bindings={"inner.x": From("b.result")}),
     ]), registry)
 
-    assert registry.counts == {"echo": 3, "wrapped": 1}
+    assert registry.counts == {"echo": 2, "wrapped": 1}
 
 
 def test_a_compiled_node_holds_the_class_it_resolved_to():
@@ -472,14 +461,17 @@ def test_a_compiled_node_holds_the_class_it_resolved_to():
 
 
 def _imports_of(module) -> set[str]:
-    """Every module a source file names in an import, and every name it
+    """Every module a source file imports when it runs, and every name it
     imports from one as ``module.name``, so ``from conductor.graph import
-    compiler`` counts as reaching ``conductor.graph.compiler``."""
+    compiler`` counts as reaching ``conductor.graph.compiler``. A type named
+    only for the type checker (``if TYPE_CHECKING:``) is not an import."""
     import ast
     from pathlib import Path
 
+    tree = ast.parse(Path(module.__file__).read_text())
+    tree.body = [n for n in tree.body if not (isinstance(n, ast.If) and getattr(n.test, "id", None) == "TYPE_CHECKING")]
     reached: set[str] = set()
-    for node in ast.walk(ast.parse(Path(module.__file__).read_text())):
+    for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module:
             reached |= {node.module, *(f"{node.module}.{alias.name}" for alias in node.names)}
         if isinstance(node, ast.Import):

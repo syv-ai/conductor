@@ -36,13 +36,15 @@ of the node that uploaded them. A scalar input is an input that takes one
 value. A node that receives a series on a scalar input runs once per row
 of the series; we say the node iterates on that index.
 
-Some nodes have a version that is itself a graph; that graph is an
-embedded graph, and the node is a ``graph`` (its ``kind``). The compiler
-inlines the embedded graph's nodes in place of that node, so the graph the author drew (the authored graph) differs
-from the graph that runs (the expanded graph). In the authored graph the
-embedded graph is one node, ``approve``, and its fields are addressed
-through it, ``Ref("approve", "check.amount")``. In the expanded graph
-its inner nodes are nodes of the run, named ``approve/check``.
+Some nodes have a version that is itself a graph, which the host compiled
+on its own; that graph is an embedded graph, and the node is a ``graph``
+(its ``kind``). Compile places the embedded graph's nodes in place of that
+node (``conductor.graph.embedding``), so the graph the author drew (the
+authored graph) differs from the graph that runs (the expanded graph). In
+the authored graph the embedded graph is one node, ``approve``, and its
+fields are addressed through it, ``Ref("approve", "check.amount")``. In the
+expanded graph its inner nodes are nodes of the run, named ``approve/check``.
+Only the fields the embedded graph offers can be addressed from outside.
 
 ``execution_order`` and ``decisions`` speak of the expanded graph;
 ``problems`` and ``interface`` speak of the authored one. ``node`` answers
@@ -59,14 +61,15 @@ cached, and "compile this and assert what it says" is a complete test.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
 from conductor.errors import InputNotOffered
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled_node import CompiledField, CompiledNode, NodeState, _gate
 from conductor.graph.compiler import Compilation
-from conductor.graph.expand import SEPARATOR, authored_address, embedded_in, expanded_ref
+from conductor.graph.embedding import SEPARATOR, embedded_in
 from conductor.graph.problem import Problem
 from conductor.ref import Ref
 
@@ -99,9 +102,6 @@ class CompiledGraph:
     #: The registry the graph was compiled against, kept so a compiled
     #: graph can produce another (``with_inputs``).
     _registry: NodeRegistry
-    #: Every node compile met, by expanded id, and every node whose version
-    #: is a graph, by its own: what ``node`` hands back.
-    _nodes: Mapping[str, CompiledNode]
     #: What ``execution_order`` answers.
     _order: tuple[str, ...]
     #: What this graph takes and returns, in the same record a node version
@@ -116,10 +116,14 @@ class CompiledGraph:
     #: back for what compile learned: ask ``node`` and ``field`` for that.
     graph: Graph
     #: Everything wrong with the graph, fatal or not, each on the node and
-    #: field it is about. Anchored on the authored graph: a problem found
-    #: inside an embedded graph sits on the node the author placed, with the
-    #: inner address as the field.
+    #: field it is about, all on nodes of the authored graph. An embedded
+    #: graph that cannot be placed is one ``embedded_graph_broken`` on the
+    #: node that places it; its own problems are on it (``node(id).version.problems``).
     problems: tuple[Problem, ...]
+    #: The finished compile this was folded from. A graph that places this
+    #: one reads its records from here and lifts them (``embedding``);
+    #: nothing else does.
+    _compilation: Compilation = field(repr=False)
 
     @classmethod
     def from_graph(cls, graph: Graph, registry: NodeRegistry) -> CompiledGraph:
@@ -129,28 +133,37 @@ class CompiledGraph:
         Every definition the graph names must already be in the registry.
         Nothing raises for a fault in the graph; read ``problems`` and
         ``is_runnable``. The steps of compile are ``compiler.Compilation.run``'s;
-        this builds every ``CompiledNode`` and ``CompiledField`` once from
-        what they recorded (``_Fold``).
+        every ``CompiledNode`` and ``CompiledField`` is built once from what
+        they recorded, on the first question about a node (``_nodes``).
         """
         compilation = Compilation(graph, registry)
         compilation.run()
         return cls(
             _registry=registry,
-            _nodes=_Fold(compilation).nodes(),
             _order=compilation.expansion.order,
             interface=compilation.graph_interface,
             graph=graph,
             problems=tuple(compilation.problems),
+            _compilation=compilation,
         )
 
     # -- one node, one field ---------------------------------------------------
+
+    @cached_property
+    def _nodes(self) -> Mapping[str, CompiledNode]:
+        """Every node compile met, by expanded id, and every node whose version
+        is a graph, by its own: what ``node`` hands back. Folded from the
+        compile on first read (``_Fold``), since a graph compiled only to be
+        placed in another is read through its compile and never asked
+        about a node."""
+        return _Fold(self._compilation).nodes()
 
     def node(self, node_id: str) -> CompiledNode:
         """Look up one compiled node by its expanded id.
 
         Every node compile saw has an entry, broken or not: each node in the
-        graph and each node inside an embedded graph. An id the graph does
-        not have raises ``KeyError``."""
+        graph and each node inside an embedded graph placed in it. An id the
+        graph does not have raises ``KeyError``."""
         if node_id not in self._nodes:
             raise KeyError(f"{node_id!r} is not a node of this graph")
         return self._nodes[node_id]
@@ -221,13 +234,28 @@ class CompiledGraph:
         Not a run, and it validates nothing itself. ``Ledger.inject`` is the
         different act of recording a node's *outputs* from ``cache``.
         """
+        return self._refilled(inputs, ())
+
+    def _refilled(self, values: Mapping[str, Any], cleared: Iterable[str]) -> CompiledGraph:
+        """This graph compiled again with ``values`` typed on the inputs they
+        name and the values its author typed on the ``cleared`` inputs taken
+        off, so they arrive at run time. ``with_inputs`` for a caller; a
+        graph that places this one asks for the copy one placement fills
+        (``Compilation._as_placed``). Names are read as ``with_inputs`` reads them."""
         offered = [inp.name for inp in self.interface.inputs]
         filled: dict[str, dict[str, Static]] = {}
-        for name, value in inputs.items():
+        for name, value in values.items():
             ref = self._offered(name, offered)
             filled.setdefault(ref.node_id, {})[ref.field] = Static(value)
+        taken: dict[str, set[str]] = {}
+        for name in cleared:
+            ref = self._offered(name, offered)
+            taken.setdefault(ref.node_id, set()).add(ref.field)
         graph = self.graph.model_copy(update={"nodes": tuple(
-            node.model_copy(update={"bindings": {**node.bindings, **filled.get(node.id, {})}})
+            node.model_copy(update={"bindings": {
+                **{field: binding for field, binding in node.bindings.items() if field not in taken.get(node.id, ())},
+                **filled.get(node.id, {}),
+            }})
             for node in self.graph.nodes
         )})
         return CompiledGraph.from_graph(graph, self._registry)
@@ -317,53 +345,29 @@ class CompiledGraph:
 class _Fold:
     """What the steps of compile recorded, read into one stored value per node compile met.
 
-    Used once, by ``CompiledGraph.from_graph``, and then dropped. The ids
-    it answers for are every id the author wrote (the first of two that
-    share one), every expanded id, and every inner id of every embedded
-    graph compile entered, resolved or not. Each gets a ``NodeState`` read
-    off what the steps recorded — derived by the walk, or with an
-    interface, or neither — and every one that is not ready gets the fatal
-    ``Problem`` that explains it, found in this order: a fatal problem on
-    the node or anything inside it; for a ``graph``, the cause of its
-    first inner node that is not ready; the cause of its first source that
-    is not ready; a fatal problem on an embedded graph around it, the
-    innermost first. Finding none is a bug in compile, and raises.
+    Used once, by ``CompiledGraph._nodes``. The ids it answers for are
+    every id the author wrote (the first of two that share one) and every
+    node the graph that runs has, each graph placed and every node inside
+    it included. A graph that couldn't be placed is one node, with nothing
+    inside. Each id gets a ``NodeState`` read off what the steps recorded —
+    derived by the walk, or with an interface, or neither — and every one
+    that is not ready gets the fatal ``Problem`` that explains it: a fatal
+    problem on the node or one of its fields, else the cause of its first
+    source that is not ready. Finding none is a bug in compile, and raises.
     """
 
     def __init__(self, compilation: Compilation) -> None:
         self.compilation = compilation
         self.expansion = compilation.expansion
         self.iteration = compilation.iteration
-        #: The graph nodes compile entered, with the version each uses: which
-        #: nodes get ``kind`` ``graph``.
-        self.graphs = self.expansion.graphs
         #: Every id compile met: the node as stored and the graph node it
         #: sits in — ``None`` for every id the author wrote, a refused one
         #: holding a ``/`` included; read off the id for every other.
         self.met: dict[str, tuple[GraphNode, str | None]] = {}
         for node in compilation.graph.nodes:
             self.met.setdefault(node.id, (node, None))
-        # An inner node answers for its expanded id even where the author
-        # wrote that id too: the authored one is refused (``invalid_node_id``).
-        inner_nodes: dict[str, tuple[GraphNode, str | None]] = {}
-        for outer, version in self.graphs.items():
-            for inner in version.graph:
-                inner_id = f"{outer}{SEPARATOR}{inner.id}"
-                inner_nodes.setdefault(inner_id, (inner.model_copy(update={"id": inner_id}), outer))
-        self.met.update(inner_nodes)
         for node_id, node in self.expansion.nodes.items():
             self.met[node_id] = (node, embedded_in(node_id))
-        for outer in self.graphs:
-            self.met[outer] = (self.met[outer][0], embedded_in(outer))
-        #: The graph nodes with a node inside them, at any depth, that the
-        #: walk did not derive: each reads ``wiring_failed``, never ``ready``.
-        self.broken_inside: set[str] = set()
-        for node_id, (_, outer) in self.met.items():
-            if node_id in self.iteration.iterated:
-                continue
-            while outer is not None:
-                self.broken_inside.add(outer)
-                outer = self.met[outer][1]
         self.causes: dict[str, Problem] = {}
         self._plan()
 
@@ -428,10 +432,9 @@ class _Fold:
         for node_id, (placed, outer) in self.met.items():
             state = self.state(node_id)
             cause = None if state == "ready" else self.cause(node_id, frozenset())
-            problems = self.problems_on(self.address(node_id))
+            problems = self.problems_on(node_id)
             interface = self.compilation.interfaces.get(node_id)
-            graph = self.graphs.get(node_id)
-            if graph is not None:
+            if node_id in self.expansion.graphs:
                 built[node_id] = CompiledNode(
                     id=node_id,
                     state=state,
@@ -440,9 +443,9 @@ class _Fold:
                     problems=problems,
                     _cause=cause,
                     _kind="graph",
-                    _version=graph,
+                    _version=self.expansion.versions[node_id],
                     _interface=interface,
-                    _statics=self.typed_on(node_id, placed),
+                    _statics=self.compilation.statics.get(node_id, {}),
                     _definition=self.expansion.definitions[node_id],
                     _iterates_on=self.iteration.iterated.get(node_id),
                     _births=None,
@@ -471,23 +474,6 @@ class _Fold:
             )
         return built
 
-    def typed_on(self, node_id: str, placed: GraphNode) -> dict[str, Any]:
-        """The values the author typed on a node whose version is a graph, by
-        inner address: each read where it landed, on the inner field its
-        address names, through that field's type. A value on a field no
-        inner node has, or on an inner node compile could not resolve, has
-        no reading and is left out; its problem says why."""
-        graphs = self.graphs.keys()
-        typed: dict[str, Any] = {}
-        for name, binding in placed.bindings.items():
-            if not isinstance(binding, Static):
-                continue
-            inner_ref = expanded_ref(Ref(node_id, name), graphs)
-            held = self.compilation.statics.get(inner_ref.node_id, {})
-            if inner_ref.field in held:
-                typed[name] = held[inner_ref.field]
-        return typed
-
     def fields(
         self, node_id: str, placed: GraphNode, interface: Interface, cause: Problem | None,
         problems: tuple[Problem, ...],
@@ -504,7 +490,7 @@ class _Fold:
             if name in fields:
                 continue
             ref = Ref(node_id, name)
-            address = f"{self.address(node_id)}.{name}"
+            address = f"{node_id}.{name}"
             fields[name] = CompiledField(
                 ref=ref,
                 problems=tuple(p for p in problems if _address(p) == address),
@@ -524,24 +510,23 @@ class _Fold:
 
     def state(self, node_id: str) -> NodeState:
         """Membership, read once here: derived by the walk, or given an
-        interface, or neither. A ``graph`` is ready only when every node
-        inside it is."""
-        if node_id in self.iteration.iterated and node_id not in self.broken_inside:
+        interface, or neither."""
+        if node_id in self.iteration.iterated:
             return "ready"
         if node_id in self.compilation.interfaces:
             return "wiring_failed"
         return "resolution_failed"
 
-    def address(self, node_id: str) -> str:
-        """Where the author sees a node, and so where its problems sit:
-        its own id at the top level, ``approve.check`` for ``approve/check``."""
-        return node_id if self.met[node_id][1] is None else authored_address(node_id)
-
     def problems_on(self, address: str) -> tuple[Problem, ...]:
-        """Every problem at ``address`` or inside it."""
+        """Every problem at ``address`` or inside it. A node inside a placed
+        graph can share its id with one the author wrote and compile refused
+        (``e/holder`` beside a graph ``e`` holding ``holder``); that refusal is
+        about the author's node, so it is never the inner node's."""
+        inner = self.met[address.split(".", 1)[0]][1] is not None
         return tuple(
             p for p in self.compilation.problems
-            if _address(p) == address or _address(p).startswith(address + ".")
+            if (_address(p) == address or _address(p).startswith(address + "."))
+            and not (inner and p.node_id in self.compilation.refused)
         )
 
     def cause(self, node_id: str, visiting: frozenset[str]) -> Problem:
@@ -549,21 +534,14 @@ class _Fold:
         if node_id in self.causes:
             return self.causes[node_id]
         visiting = visiting | {node_id}
-        found = next((p for p in self.problems_on(self.address(node_id)) if p.fatal), None)
-        placed, outer = self.met[node_id]
-        graph = node_id in self.graphs
-        if found is None and graph:
-            inner = self.expansion.members.get(node_id, ())
-            found = self._first_cause(inner, visiting)
-        if found is None and not graph:
+        found = next((p for p in self.problems_on(node_id) if p.fatal), None)
+        if found is None:
+            placed, _ = self.met[node_id]
             sources = [
                 ref.node_id for binding in placed.bindings.values() if isinstance(binding, From)
                 for ref in binding.refs
             ]
             found = self._first_cause(sources, visiting)
-        while found is None and outer is not None:
-            found = next((p for p in self.compilation.problems if p.fatal and _address(p) == self.address(outer)), None)
-            outer = self.met[outer][1]
         if found is None:
             raise AssertionError(f"compile left {node_id!r} {self.state(node_id)} with nothing fatal to say why")
         self.causes[node_id] = found

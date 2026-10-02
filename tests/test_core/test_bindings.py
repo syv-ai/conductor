@@ -60,8 +60,8 @@ def test_a_placement_id_contains_no_dot():
 
 
 def test_a_slash_is_the_namespace_separator():
-    """The compiler inlines an embedded graph under its placement's name —
-    `approve/check` — so `/` is legal in an id and a Ref still reads one way:
+    """Compile puts an embedded graph's nodes under the name it is placed
+    as — `approve/check` — so `/` is legal in an id and a Ref still reads one way:
     the split is at the first dot, and there is none in the namespace."""
     inner = GraphNode(id="approve/check", type="upper", version=1)
 

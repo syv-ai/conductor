@@ -39,7 +39,6 @@ from conductor.interface import FromRun, Interface, model_of
 from conductor.metadata import Input, Output, Param, Result
 from conductor.node import (
     Deprecation,
-    GraphVersion,
     NodeDefinition,
     NodeDescription,
     NodeVersion,
@@ -79,7 +78,6 @@ __all__ = [
     "Gather",
     "Graph",
     "GraphNode",
-    "GraphVersion",
     "Group",
     "Index",
     "Input",

@@ -111,9 +111,8 @@ def derive_interface(
     nobody's set is an output node. Fields come in node order, field order
     within a node.
 
-    Asked twice per compile: of the authored graph, for what the graph
-    takes and returns, and of each embedded graph, for what its placement
-    takes and returns (``_Compilation.interface``).
+    Asked once per compile, of the authored graph, for what the graph
+    takes and returns (``Compilation.interface``).
     """
     consumed = frozenset().union(*dependencies.values())
     inputs: list[Input] = []

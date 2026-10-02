@@ -7,21 +7,20 @@ reading input receives it. A node with a fatal problem carries the
 ``fault`` class; the problems themselves are not drawn.
 """
 
-from collections.abc import Mapping
 from textwrap import dedent
-from typing import Annotated, ClassVar
+from typing import Annotated
 
 from conductor import GraphNode, NodeRegistry, Param
 from conductor.dtype import DType
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph
-from conductor.interface import Interface
-from conductor.metadata import Input, Output, Result
-from conductor.node import GraphVersion, NodeDefinition
+from conductor.metadata import Result
+from conductor.node import NodeDefinition
 from conductor.series import Series
 from conductor.widgets import Textarea
 from conductor_providers.mermaid import flowchart
+from test_core.embedded import embedded_graph_node
 
 
 class Txt(DType, str):
@@ -62,32 +61,15 @@ class Join(NodeDefinition):
         return Txt("+".join(texts))
 
 
-class Shout(NodeDefinition):
-    """A stored graph placed as a node: upper-case each text, then join them."""
-
-    id = "shout"
-    title = "Shout"
-    description = "d"
-    category = "test"
-    versions: ClassVar[dict[int, GraphVersion]] = {
-        1: GraphVersion(
-            graph=(
-                GraphNode(id="up", type="upper", version=1),
-                GraphNode(id="all", type="join", version=1, bindings={"texts": From("up.result")}),
-            ),
-            interface=Interface(
-                inputs=(Input(name="up.text", dtype=Txt, title="Text", widget=Textarea(), default=Txt(""), optional=True),),
-                outputs=(Output(name="all.result", dtype=Txt, title="Result"),),
-                returns=Mapping,
-            ),
-        )
-    }
-
-
 def _compiled(*nodes: GraphNode) -> CompiledGraph:
     registry = NodeRegistry()
-    for node_cls in (Docs, Upper, Join, Shout):
+    for node_cls in (Docs, Upper, Join):
         registry.register(node_cls)
+    # A stored graph placed as a node: upper-case each text, then join them.
+    registry = registry.extended_with({"shout": embedded_graph_node("shout", (
+        GraphNode(id="up", type="upper", version=1),
+        GraphNode(id="all", type="join", version=1, bindings={"texts": From("up.result")}),
+    ), registry, "Shout")})
     return CompiledGraph.from_graph(Graph(nodes=nodes), registry)
 
 
@@ -165,31 +147,14 @@ def test_a_graph_with_a_broken_edge_and_something_downstream_draws():
         """)
 
 
-class Lost(NodeDefinition):
-    """A stored graph that names a type the catalog has lost."""
-
-    id = "lost"
-    title = "Lost"
-    description = "d"
-    category = "test"
-    versions: ClassVar[dict[int, GraphVersion]] = {
-        1: GraphVersion(
-            graph=(GraphNode(id="gone", type="nonesuch", version=1),),
-            interface=Interface(inputs=(), outputs=(), returns=Mapping),
-        )
-    }
-
-
-def test_a_placement_whose_inner_node_is_lost_still_draws_its_subgraph():
+def test_a_graph_that_cannot_be_placed_draws_as_one_faulted_box():
+    """A stored graph that names a type the catalog has lost cannot be placed: one box, marked."""
     registry = NodeRegistry()
-    registry.register(Lost)
+    registry = registry.extended_with({"lost": embedded_graph_node("lost", (GraphNode(id="gone", type="nonesuch", version=1),), registry, "Lost")})
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="emb", type="lost", version=1)]), registry)
 
     assert flowchart(compiled) == dedent("""\
         flowchart LR
-            subgraph n0 ["emb · lost"]
-                n1["emb/gone · nonesuch"]
-            end
-            class n0 fault
+            n0["emb · lost"]:::fault
             classDef fault stroke:#c62828,stroke-width:2px
         """)
