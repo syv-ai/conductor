@@ -312,27 +312,6 @@ class CompiledGraph:
                 found[node_id] = {choice: tuple(names) for choice, names in groups.items()}
         return found
 
-    def _downstream(self, node_ids: Iterable[str]) -> frozenset[str]:
-        """Every node that reads an output of one of ``node_ids``, directly or through other nodes, by expanded id.
-
-        A graph question a run asks: a restore leaves out, with each node
-        that changed, everything its values reached, so those units run
-        again. A node of ``node_ids`` is in the answer only when another of
-        them reads it. A walk over ``CompiledField._read_by`` on each call,
-        not a stored closure: storing every node's readers costs memory
-        quadratic in a long chain.
-        """
-        found: set[str] = set()
-        frontier = list(node_ids)
-        while frontier:
-            node = self._nodes[frontier.pop()]
-            for out in node.interface.outputs:
-                for reader, _ in self.field(Ref(node.id, out.name))._read_by:
-                    if reader.node_id not in found:
-                        found.add(reader.node_id)
-                        frontier.append(reader.node_id)
-        return frozenset(found)
-
     # -- what is wrong -------------------------------------------------------------
 
     @property
