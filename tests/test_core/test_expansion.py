@@ -1,15 +1,16 @@
 """A graph compiled on its own and placed as a node: its nodes run under the placement's name, under the row the placement runs on."""
 
-from typing import Annotated
+from collections.abc import Mapping
+from typing import Annotated, Any
 
 import pytest
-from conductor import NodeRegistry
+from conductor import NodeRegistry, run_sync
 from conductor.dtype import DType
 from conductor.errors import NodeKindError, NodeWiringError
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import FieldContent, Graph, GraphNode
-from conductor.metadata import Param, Result
+from conductor.metadata import Output, Param, Result
 from conductor.node import NodeDefinition
 from conductor.ref import Ref
 from conductor.series import Index, Series
@@ -169,21 +170,53 @@ def test_a_placement_is_a_node_in_the_interface_named_by_inner_address():
         ),
     ])
 
-    assert [(i.name, i.title) for i in compiled.interface.inputs] == [("emb.holder.value", "Application")]
-    assert [(o.name, o.title) for o in compiled.interface.outputs] == [("emb.join.result", "Answer")]
+    assert [(i.name, i.title) for i in compiled.interface.inputs] == [("emb/holder.value", "Application")]
+    assert [(o.name, o.title) for o in compiled.interface.outputs] == [("emb/join.result", "Answer")]
     assert [i.name for i in compiled.node("emb").interface.inputs] == ["holder.value"]
 
 
-def test_a_question_about_a_placements_field_reads_through_to_the_inner_field():
+def test_a_field_inside_a_placement_has_one_address():
+    """``emb/join.result`` is the field; the author's spelling of it,
+    ``emb.join.result``, names a field of the graph node, which has none."""
     compiled = _compiled([
         GraphNode(id="src", type="holder", version=1, bindings={"value": Static("outer")}),
         GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.value": From("src.result")}),
     ])
 
-    assert compiled.field(Ref("emb", "join.result")).type is compiled.field(Ref("emb/join", "result")).type
-    assert compiled.field(Ref("emb", "join.result")).index == compiled.field(Ref("emb/join", "result")).index
-    assert compiled.field(Ref("emb", "holder.value")).binding == compiled.field(Ref("emb/holder", "value")).binding
-    assert compiled.field(Ref("emb", "join.result")) is compiled.field(Ref("emb/join", "result"))
+    assert compiled.field(Ref("emb/join", "result")).type is Txt
+    assert compiled.field(Ref("emb/holder", "value")).binding == From("src.result")
+    with pytest.raises(KeyError, match="'emb' is a graph"):
+        compiled.field(Ref("emb", "join.result"))
+
+
+class Sheet(NodeDefinition):
+    """One output named after a column, as a table's fold names them: free text, dots and all."""
+
+    id = "sheet"
+    title = "Sheet"
+    description = "d"
+    category = "t"
+
+    def run(self) -> Mapping[str, Any]:
+        return {"excl. VAT": Txt("net")}
+
+    def compute_outputs(self, declared, values, arriving):
+        return (Output(name="excl. VAT", dtype=Txt, title="excl. VAT"),)
+
+
+def test_a_field_name_with_a_dot_beside_an_embedded_graph_is_a_plain_field():
+    """The first dot splits an address, and the field is free text: ``sheet.excl. VAT``
+    is the field ``excl. VAT`` on ``sheet``, wherever an embedded graph sits."""
+    compiled = _compiled([
+        GraphNode(id="sheet", type="sheet", version=1),
+        GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.value": From(Ref("sheet", "excl. VAT"))}),
+        GraphNode(id="after", type="upper", version=1, bindings={"text": From("emb.join.result")}),
+    ], Sheet)
+
+    assert compiled.is_runnable, compiled.problems
+    assert compiled.field(Ref("sheet", "excl. VAT")).type is Txt
+    assert compiled.field(Ref("emb/holder", "value")).binding == From(Ref("sheet", "excl. VAT"))
+    assert run_sync(compiled).state.results(compiled)["after"]["result"] == "NET"
 
 
 def test_a_broken_edge_into_a_placement_is_the_placements_own_problem():
@@ -234,7 +267,7 @@ def test_an_inner_reduction_over_the_entering_series_is_a_fold_of_one():
     ])
 
     assert compiled.node("emb/join").iterates_on == Index("docs")
-    assert (compiled.field(Ref("emb", "join.result")).type, compiled.field(Ref("emb", "join.result")).index) == (Series[Txt], Index("docs"))
+    assert (compiled.field(Ref("emb/join", "result")).type, compiled.field(Ref("emb/join", "result")).index) == (Series[Txt], Index("docs"))
 
 
 def test_a_series_born_inside_reduces_to_the_outer_row_by_lineage_alone():
@@ -312,7 +345,7 @@ def test_two_crossings_on_one_lineage_make_the_whole_block_iterate_on_the_deeper
     assert compiled.node("emb/a").iterates_on == per_line
     assert compiled.node("emb/ua").iterates_on == per_line
     assert compiled.node("emb/b").iterates_on == per_line
-    assert compiled.field(Ref("emb", "ua.result")).index == per_line
+    assert compiled.field(Ref("emb/ua", "result")).index == per_line
 
 
 def test_a_series_entering_a_series_field_is_read_whole_and_the_block_expands_flat():
@@ -330,7 +363,7 @@ def test_a_series_entering_a_series_field_is_read_whole_and_the_block_expands_fl
     assert compiled.is_runnable, compiled.problems
     assert compiled.node("emb").iterates_on is None
     assert compiled.node("emb/join").iterates_on is None
-    assert compiled.field(Ref("emb", "join.result")).type is Txt
+    assert compiled.field(Ref("emb/join", "result")).type is Txt
 
 
 def test_two_unrelated_series_entering_one_placement_are_its_misaligned():
@@ -360,7 +393,7 @@ def test_two_unrelated_series_entering_one_placement_are_its_misaligned():
     assert "emb" not in compiled.decisions
 
 
-def test_a_nested_placement_expands_under_both_names():
+def test_a_nested_embedded_graph_is_addressed_by_its_path():
     outer = embedded_graph_node("outer-graph", (
             GraphNode(id="pre", type="holder", version=1, bindings={"value": Static("x")}),
             GraphNode(id="inner", type="inner-graph", version=1, bindings={"holder.value": From("pre.result")}),
@@ -368,7 +401,7 @@ def test_a_nested_placement_expands_under_both_names():
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="top", type="outer-graph", version=1),
-            GraphNode(id="after", type="upper", version=1, bindings={"text": From("top.inner.join.result")}),
+            GraphNode(id="after", type="upper", version=1, bindings={"text": From("top.inner/join.result")}),
         ]),
         _registry(_inner_definition(), outer),
     )
@@ -378,7 +411,7 @@ def test_a_nested_placement_expands_under_both_names():
     assert compiled.node("top/inner/up").embedded_in == "top/inner"
     assert compiled.node("top/pre").embedded_in == "top"
     assert compiled.field(Ref("after", "text")).binding == From("top/inner/join.result")
-    assert compiled.field(Ref("top", "inner.join.result")).type is Txt
+    assert compiled.field(Ref("top/inner/join", "result")).type is Txt
 
 
 
@@ -486,8 +519,8 @@ def test_misaligned_inside_an_embedded_graph_is_reported_once_with_the_authors_a
 
     (problem,) = compiled.problems
     assert (problem.code, problem.node_id) == ("misaligned", "emb")
-    assert problem.details == {"a": "emb.p.a", "b": "emb.p.b"}
-    assert "emb/" not in problem.message and "emb/" not in str(problem.details)
+    assert problem.details == {"a": "emb/p.a", "b": "emb/p.b"}
+    assert "emb.p" not in problem.message and "emb.p" not in str(problem.details)
 
 
 def test_an_edge_into_a_field_fed_inside_the_graph_is_a_stale_binding():

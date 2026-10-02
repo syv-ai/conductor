@@ -585,7 +585,7 @@ def test_the_placed_node_is_a_graph_whose_version_is_the_compiled_graph():
     assert (node.state, node.kind) == ("ready", "graph")
     assert isinstance(node.version, CompiledGraph)
     assert compiled.node("emb/join").embedded_in == "emb"
-    assert compiled.field(Ref("emb", "join.result")) is compiled.field(Ref("emb/join", "result"))
+    assert compiled.field(Ref("emb/join", "result")) is compiled.field(Ref("emb/join", "result"))
 
 
 def test_a_value_set_on_the_placed_node_is_read_by_the_inner_node():

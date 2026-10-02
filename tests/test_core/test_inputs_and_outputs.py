@@ -162,7 +162,13 @@ def test_a_required_input_left_unfilled_is_compiles_own_problem():
 def test_an_input_inside_an_embedded_graph_is_filled_by_its_address():
     compiled = _compiled(GraphNode(id="emb", type="shout", version=1))
 
-    assert _outputs(compiled.with_inputs(**{"emb.up.text": "hi"})) == {"emb.up.result": "HI"}
+    assert _outputs(compiled.with_inputs(**{"emb/up.text": "hi"})) == {"emb/up.result": "HI"}
+
+
+def test_an_input_inside_an_embedded_graph_is_filled_by_its_bare_name_when_no_other_has_it():
+    compiled = _compiled(GraphNode(id="emb", type="shout", version=1))
+
+    assert _outputs(compiled.with_inputs(text="hi")) == {"emb/up.result": "HI"}
 
 
 def test_outputs_leave_out_a_skipped_output_and_read_what_a_failed_leg_produced():
