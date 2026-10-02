@@ -25,9 +25,9 @@ The lift, rule by rule:
 4. An inner field the outer graph feeds (a crossing) takes what the outer
    walk decided for the placed node's field of that address.
 5. An output read outside already sits on the inner field's rows: the walk
-   gave it the rows it has inside, named and hung the same way (rule 1).
-   Only an index the walk named after one of the placed node's inputs (a
-   gathering) is renamed after the inner field (``place_graphs``, ``renamed``).
+   gave it the rows it has inside, named and hung the same way (rule 1),
+   and keyed every field of the placed node by its address inside, so an
+   index the walk named after one of them is already the inner field's.
 
 Refusing a graph that places itself is the host's job, as it builds the
 versions: a compiled graph can't contain itself, but a host that swaps a
@@ -35,10 +35,18 @@ version in place can close a loop through a value typed on a placed graph,
 which compile then follows until Python's recursion limit.
 
 ``/`` separates the levels inside a node id, and ``.`` stays the address
-separator, so a lifted address reads ``approve/check.amount``. Only the lift
+separator, so an address is a path and a field: ``approve/check.amount``.
+The first ``.`` always splits it, and the field is free text. Only the lift
 writes a ``/``: an id holding one is refused (``invalid_node_id``), or it
 could be read in a lifted node's place. So a lifted id is the path to its
 node, and the graph it sits in is read off it (``embedded_in``).
+
+An embedded graph's own field names are its addresses (``check.amount``), so
+the field ``check.amount`` on the graph node ``approve`` is at
+``approve/check.amount`` (``address``). Compile reads the author's spelling
+of it, ``approve.check.amount``, once, when it lays out the graph that runs;
+every step after it, and every reader of the compiled graph, sees only the
+address.
 """
 
 from __future__ import annotations
@@ -62,13 +70,28 @@ if TYPE_CHECKING:
 SEPARATOR = "/"
 
 
-def expanded_ref(ref: Ref, graphs: Collection[str]) -> Ref:
-    """``Ref("approve", "check.amount")`` → ``Ref("approve/check", "amount")``, as deep as the graphs placed (``graphs``) go."""
-    node_id, field = ref.node_id, ref.field
-    while node_id in graphs and "." in field:
-        inner, field = field.split(".", 1)
-        node_id = f"{node_id}{SEPARATOR}{inner}"
-    return Ref(node_id, field)
+def address(node_id: str, name: str, graphs: Collection[str]) -> Ref:
+    """Where field ``name`` of node ``node_id`` is, in the graph that runs.
+
+    On a node whose version is a compiled graph (one of ``graphs``) the name
+    is that graph's own address for the field, so the address is its path
+    under the node: ``approve`` + ``check.amount`` is ``approve/check.amount``.
+    On any other node it is ``node_id.name``. Compile asks it when it lays
+    out edges, walks a graph node's fields and names the graph's interface;
+    ``as_drawn`` is the other way round."""
+    return Ref(f"{node_id}{SEPARATOR}{name}") if node_id in graphs else Ref(node_id, name)
+
+
+def as_drawn(ref: Ref, graphs: Collection[str]) -> tuple[str, str]:
+    """The node an address sits on in the graph its author drew, and the field name there.
+
+    ``("approve", "check.amount")`` for ``approve/check.amount`` when
+    ``approve`` is one of ``graphs``; any other address is its own node and
+    field. ``address`` the other way round. Read only where the author's node
+    is what is meant: ``with_inputs`` writing a value on it, and compile
+    naming the node an edge reads from."""
+    outer, _, inner = ref.node_id.partition(SEPARATOR)
+    return (outer, str(Ref(inner, ref.field))) if inner and outer in graphs else (ref.node_id, ref.field)
 
 
 def embedded_in(node_id: str) -> str | None:
@@ -110,14 +133,6 @@ class Placed:
     receives: dict[Ref, Receive]
 
 
-def inside(graph: CompiledGraph, address: str) -> Ref:
-    """The field an address the graph offers lands on, as the graph's own
-    compile ran it: ``mid.join.result`` is ``mid/join.result`` when ``mid``
-    is a graph placed inside. What the walk, the lift and placement read
-    about an offered field, they read from the graph's own compile there."""
-    return expanded_ref(Ref(address), graph._compilation.expansion.graphs)
-
-
 def graph_as_placed(
     graph: CompiledGraph,
     node_id: str,
@@ -143,11 +158,8 @@ def graph_as_placed(
     def lifted(ref: Ref) -> Ref:
         return Ref(prefix + ref.node_id, ref.field)
 
-    def reached(address: str) -> Ref:
-        return expanded_ref(Ref(address), expansion.graphs)
-
-    edge_at = {reached(address): edge for address, edge in edges.items()}
-    value_at = {reached(address): value for address, value in values.items()}
+    edge_at = {Ref(name): edge for name, edge in edges.items()}
+    value_at = {Ref(name): value for name, value in values.items()}
     #: The inner fields the outer graph feeds: what the inner graph put there gives way.
     crossed: dict[str, set[str]] = {}
     for ref in edge_at:
@@ -187,7 +199,7 @@ def graph_as_placed(
         },
         "listed": {prefix + inner_id: held - crossed.get(inner_id, set()) for inner_id, held in inner.listed.items()},
     }
-    crossing_at = {reached(address): crossing for address, crossing in crossings.items()}
+    crossing_at = {Ref(name): crossing for name, crossing in crossings.items()}
 
     iterated = {
         prefix + inner_id: runs_per_row_of if index is None else under(index, prefix, runs_per_row_of)
@@ -222,27 +234,6 @@ def graph_as_placed(
             receives[new_ref] = _received_under(receipt, index, prefix, per_row_of)
 
     return Placed(**structure, iterated=iterated, types=types, indexes=indexes, receives=receives)
-
-
-def renamed(index: Index | None, renames: Mapping[str, Index]) -> Index | None:
-    """``index`` with any index on its chain that ``renames`` names swapped for its replacement."""
-    if index is None:
-        return None
-    if index.id in renames:
-        return renames[index.id]
-    parent = renamed(index.parent, renames)
-    return index if parent is index.parent else Index(index.id, parent=parent)
-
-
-def received_renamed(receipt: Receive, renames: Mapping[str, Index]) -> Receive:
-    """``receipt`` with its index ``renamed``."""
-    if isinstance(receipt, Iterate):
-        return Iterate(renamed(receipt.index, renames))
-    if isinstance(receipt, Gather):
-        return Gather(renamed(receipt.index, renames))
-    if isinstance(receipt, Group):
-        return Group(renamed(receipt.index, renames), receipt.depth)
-    return receipt
 
 
 def under(index: Index | None, prefix: str, row: Index | None) -> Index | None:

@@ -15,14 +15,14 @@ surface being rebuilt.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 from conductor.dtype import DType
+from conductor.graph.embedding import address
 from conductor.graph.model import GraphNode
 from conductor.graph.problem import Problem, problem
 from conductor.interface import Interface
-from conductor.ref import Ref
 
 if TYPE_CHECKING:
     from conductor.graph.model import Graph
@@ -89,6 +89,7 @@ def derive_interface(
     graph: Graph,
     interfaces: Mapping[str, Interface],
     dependencies: Mapping[str, frozenset[str]],
+    graphs: Collection[str],
 ) -> Interface:
     """What this graph takes and returns, read off its nodes.
 
@@ -125,18 +126,19 @@ def derive_interface(
         needs.update(interface.needs)
         if not dependencies[node.id]:
             inputs.extend(
-                _placed(node, declared)
+                _placed(node, declared, graphs)
                 for declared in interface.inputs
                 if declared.show_handle and declared.name not in node.locked
             )
         if node.id not in consumed:
-            outputs.extend(_placed(node, declared) for declared in interface.outputs)
+            outputs.extend(_placed(node, declared, graphs) for declared in interface.outputs)
     return Interface(inputs=tuple(inputs), outputs=tuple(outputs), returns=Mapping, needs=needs)
 
 
-def _placed(node: GraphNode, declared):
+def _placed(node: GraphNode, declared, graphs: Collection[str]):
     """``declared`` under its address, with the title the author gave it on this node where there is one."""
+    at = address(node.id, declared.name, graphs)
     content = node.fields.get(declared.name)
     if content is None:
-        return declared.model_copy(update={"name": Ref(node.id, declared.name)})
-    return declared.model_copy(update={"name": Ref(node.id, declared.name), "title": content.title, "description": content.description})
+        return declared.model_copy(update={"name": at})
+    return declared.model_copy(update={"name": at, "title": content.title, "description": content.description})
