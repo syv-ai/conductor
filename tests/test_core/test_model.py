@@ -7,7 +7,8 @@ from conductor.dtype import DType
 from conductor.errors import ErrorCause
 from conductor.execution.ledger import Skip
 from conductor.graph.binding import From, Static
-from conductor.graph.compiled import CompiledField, CompiledGraph, CompiledNode
+from conductor.graph.compiled import CompiledGraph
+from conductor.graph.compiled_node import CompiledField, CompiledNode
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.problem import Problem
 from conductor.interface import Interface

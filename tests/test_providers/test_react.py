@@ -137,7 +137,7 @@ class TestReactToGraph:
             "viewport": {"x": 0, "y": 0, "zoom": 1},
         }
         graph = react.react_to_graph(wire)
-        assert graph.nodes[0].data == {"text": "hi"}
+        assert graph.nodes[0].bindings == {"text": Static("hi")}
 
 
 class TestEndToEnd:

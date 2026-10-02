@@ -6,6 +6,7 @@ from typing import Annotated, Any
 import pytest
 from conductor import NodeRegistry
 from conductor.dtype import DType, Single
+from conductor.errors import NodeWiringError
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
@@ -325,7 +326,7 @@ def test_an_unconnected_any_input_is_unbound_required_and_the_node_has_no_shape(
 
     (problem,) = compiled.problems
     assert (problem.code, problem.fatal, problem.node_id, problem.field) == ("unbound_required", True, "r", "value")
-    with pytest.raises(KeyError):
+    with pytest.raises(NodeWiringError):
         compiled.node("r").iterates_on
 
 
@@ -498,9 +499,9 @@ def test_a_node_with_a_broken_edge_has_no_shape_and_says_so_once():
     ])
 
     assert [p.code for p in compiled.problems] == ["unknown_ref_node"]
-    with pytest.raises(KeyError):
+    with pytest.raises(NodeWiringError):
         compiled.node("b").iterates_on
-    with pytest.raises(KeyError):
+    with pytest.raises(NodeWiringError):
         compiled.field(Ref("c", "result")).type
 
 
@@ -683,7 +684,7 @@ def test_two_series_on_unrelated_indexes_are_a_fatal_problem_naming_both():
     assert (problem.code, problem.fatal, problem.node_id, problem.field) == ("misaligned", True, "p", None)
     assert "p.a" in problem.message and "p.b" in problem.message
     assert problem.details == {"a": "p.a", "b": "p.b"}
-    with pytest.raises(KeyError):
+    with pytest.raises(NodeWiringError):
         compiled.node("p").iterates_on
 
 
@@ -871,8 +872,8 @@ def test_compile_stores_no_rows_and_no_mask():
 
 def test_a_hook_that_adds_a_connected_input_without_an_edge_type_is_a_problem_not_a_crash():
     """A computed input a handle bears must carry a type an edge can carry.
-    Connected, it is ``handle_needs_dtype`` on the field, fatal, and the node
-    is not derived; the walk does not crash."""
+    Connected, it is ``handle_needs_dtype`` on the field, fatal, and the
+    node's wiring fails; the walk does not crash."""
 
     class Adds(NodeDefinition):
         id = "adds"
@@ -894,7 +895,7 @@ def test_a_hook_that_adds_a_connected_input_without_an_edge_type_is_a_problem_no
     ]), registry)
 
     assert [(p.code, p.fatal, p.node_id, p.field) for p in compiled.problems] == [("handle_needs_dtype", True, "a", "raw")]
-    with pytest.raises(KeyError):
+    with pytest.raises(NodeWiringError):
         compiled.node("a").iterates_on
 
 
@@ -948,3 +949,36 @@ def test_a_static_is_typed_against_the_interface_the_hook_returned():
 
     assert [(p.code, p.field) for p in compiled.problems] == [("invalid_static", "value")]
     assert numeric.is_runnable and numeric.node("r").statics == {"value": Num(2)}
+
+
+def test_a_refusal_from_a_node_whose_source_is_broken_is_dropped_for_the_sources_fault():
+    """The broken edge carries the fault; the hook's refusal about the arrival
+    it never got would report the same fact twice. The node still gets an
+    interface an editor can draw, with no outputs."""
+    from conductor.errors import Refuses
+
+    class Fussy(NodeDefinition):
+        id = "fussy"
+        title = "Fussy"
+        description = "d"
+        category = "test"
+
+        def run(self, value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
+            return value
+
+        def compute_outputs(self, declared, values, arriving):
+            raise Refuses("wrong_shape", "What arrives does not fit.")
+
+    registry = _registry().extended_with({"fussy": Fussy})
+
+    def codes(source_field):
+        compiled = CompiledGraph.from_graph(Graph(nodes=[
+            GraphNode(id="docs", type="docs", version=1),
+            GraphNode(id="f", type="fussy", version=1, bindings={"value": _edge(("docs", source_field))}),
+        ]), registry)
+        return [p.code for p in compiled.problems if p.node_id == "f"], compiled.node("f")
+
+    broken, node = codes("nope")
+    assert broken == ["unknown_ref_output"]
+    assert (node.state, node.interface.outputs) == ("wiring_failed", ())
+    assert codes("texts")[0] == ["wrong_shape"]

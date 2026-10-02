@@ -1,19 +1,29 @@
 """A compiled graph is asked, not traversed."""
 
+from collections import Counter
 from collections.abc import Mapping
-from typing import Annotated
+from typing import Annotated, Any, ClassVar
 
 import pytest
 from conductor import NodeRegistry
-from conductor.dtype import DType
+from conductor.dtype import DType, Single
+from conductor.errors import (
+    CompilationError,
+    NodeKindError,
+    NodeResolutionError,
+    NodeWiringError,
+    Refuses,
+)
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.problem import Problem
+from conductor.graph.receive import Broadcast
 from conductor.interface import FromRun, Interface, model_of
-from conductor.metadata import Output, Param, Result
-from conductor.node import NodeDefinition, Policy, upgrade, version
+from conductor.metadata import Input, Output, Param, Result
+from conductor.node import GraphVersion, NodeDefinition, Policy, upgrade, version
 from conductor.ref import Ref
+from conductor.series import Series
 from conductor.widgets import Choice, Dropdown, Textarea
 from pydantic import ValidationError
 
@@ -134,6 +144,33 @@ class Stamped(NodeDefinition):
         return x
 
 
+class OpenInputs(NodeDefinition):
+    """Takes any edge as an input of its own."""
+
+    id = "open-inputs"
+    title = "Open inputs"
+    description = "d"
+    category = "test"
+
+    def run(self, **inputs: Single) -> Out:
+        return Txt("")
+
+
+class AddsHidden(NodeDefinition):
+    """Its hook adds a closed input the author cannot see."""
+
+    id = "hidden"
+    title = "Hidden"
+    description = "d"
+    category = "test"
+
+    def run(self, value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
+        return value
+
+    def compute_inputs(self, declared, values):
+        return (*declared, Input(name="_x", dtype=Txt, title="X", show_handle=False, default=Txt(""), optional=True))
+
+
 def _registry(*extra):
     registry = NodeRegistry()
     for node_cls in (Echo, TextInput, Modes, OpenSheet, Renamed, *extra):
@@ -174,6 +211,300 @@ def test_callers_never_touch_a_binding_table():
 
     for traversed in ("bindings", "node_map", "edge_map", "incoming_map", "for_engine"):
         assert not hasattr(compiled, traversed), traversed
+
+
+def test_compile_builds_each_node_and_field_once():
+    """``node`` and ``field`` hand back what compile stored: the same value on every ask."""
+    compiled = _compiled([GraphNode(id="a", type="echo", version=1)])
+    name = compiled.node("a").interface.inputs[0].name
+
+    assert compiled.node("a") is compiled.node("a")
+    assert compiled.field(Ref("a", name)) is compiled.field(Ref("a", name))
+
+
+def test_a_compiled_value_is_equal_only_to_itself():
+    """The same graph compiled twice gives two nodes and two fields, never equal across the two."""
+    graph = [GraphNode(id="a", type="echo", version=1)]
+    first, second = _compiled(graph), _compiled(graph)
+    name = first.node("a").interface.inputs[0].name
+
+    assert first.node("a") != second.node("a")
+    assert first.field(Ref("a", name)) != second.field(Ref("a", name))
+    assert len({first.node("a"), first.node("a"), second.node("a")}) == 2
+
+
+def _half_finished():
+    """``a`` is fine, ``b`` reads a node that is not there, ``c`` reads ``b``, ``x`` names a lost type."""
+    return _compiled([
+        GraphNode(id="a", type="echo", version=1, bindings={"x": Static("hi")}),
+        GraphNode(id="b", type="echo", version=1, bindings={"x": From("zzz.result")}),
+        GraphNode(id="c", type="echo", version=1, bindings={"x": From("b.result")}),
+        GraphNode(id="x", type="nope", version=1),
+    ])
+
+
+def test_every_node_the_author_wrote_has_a_state():
+    """``node`` answers for every node compile met, however far it got; ``KeyError`` is only for an id the graph lacks."""
+    compiled = _half_finished()
+
+    assert {node_id: compiled.node(node_id).state for node_id in "abcx"} == {
+        "a": "ready", "b": "wiring_failed", "c": "wiring_failed", "x": "resolution_failed",
+    }
+    with pytest.raises(KeyError):
+        compiled.node("zzz")
+
+
+def test_reading_what_a_state_lacks_names_the_problem():
+    """A gated read raises a named error carrying the problem that explains it: the node's own, or the one upstream."""
+    compiled = _half_finished()
+
+    with pytest.raises(NodeWiringError) as own:
+        compiled.node("b").iterates_on
+    assert own.value.problems[0].code == "unknown_ref_node" and own.value.problems[0].node_id == "b"
+    with pytest.raises(NodeWiringError) as upstream:
+        compiled.node("c").iterates_on
+    assert upstream.value.problems[0] is own.value.problems[0]
+    with pytest.raises(NodeWiringError):
+        compiled.field(Ref("c", "x")).type
+    with pytest.raises(NodeResolutionError) as lost:
+        compiled.node("x").interface
+    assert lost.value.problems[0].code == "unknown_node_type"
+    with pytest.raises(NodeResolutionError):
+        compiled.field(Ref("x", "x"))
+    # What each state has still answers.
+    assert compiled.node("c").interface.inputs[0].name == "x"
+    assert compiled.field(Ref("c", "x")).binding == From("b.result")
+    assert compiled.node("x").graph_node.type == "nope"
+
+
+def test_the_named_errors_are_not_key_errors():
+    """``except KeyError`` catches a caller's wrong id and nothing else; the message names the node, the read and the cause."""
+    compiled = _half_finished()
+    with pytest.raises(NodeWiringError) as raised:
+        compiled.node("c").iterates_on
+
+    assert issubclass(NodeWiringError, CompilationError) and not issubclass(NodeWiringError, KeyError)
+    assert issubclass(NodeResolutionError, CompilationError) and not issubclass(NodeResolutionError, KeyError)
+    assert not issubclass(NodeKindError, CompilationError)
+    assert len(raised.value.problems) == 1
+    assert "'c'" in str(raised.value) and "iterates_on" in str(raised.value)
+    assert "b.x — unknown_ref_node" in str(raised.value)
+
+
+def test_a_node_downstream_of_a_cycle_carries_the_cycle():
+    compiled = _compiled([
+        GraphNode(id="a", type="echo", version=1, bindings={"x": From("b.result")}),
+        GraphNode(id="b", type="echo", version=1, bindings={"x": From("a.result")}),
+        GraphNode(id="c", type="echo", version=1, bindings={"x": From("b.result")}),
+    ])
+
+    assert (compiled.node("a").state, compiled.node("b").state) == ("resolution_failed", "resolution_failed")
+    assert compiled.node("c").state == "wiring_failed"
+    with pytest.raises(NodeWiringError) as raised:
+        compiled.node("c").iterates_on
+    assert raised.value.problems[0].code == "cycle"
+
+
+def test_a_painter_reads_every_node_of_a_broken_graph():
+    """What an editor's compile view does: ask each node its state and read what that state has. Nothing raises."""
+    compiled = _half_finished()
+
+    for placed in compiled.graph.nodes:
+        node = compiled.node(placed.id)
+        if node.state == "resolution_failed":
+            continue
+        assert node.interface.inputs
+        if node.state == "ready":
+            assert node.iterates_on is None
+            assert all(compiled.field(Ref(placed.id, i.name)).type is Txt for i in node.interface.inputs)
+
+
+def test_node_problems_are_the_problems_anchored_on_it():
+    compiled = _compiled([
+        GraphNode(id="a", type="echo", version=1, locked=("ghost",), bindings={"x": Static("hi"), "z": Static(1)}),
+        GraphNode(id="b", type="echo", version=1),
+    ])
+
+    assert compiled.node("a").problems == compiled.problems
+    assert compiled.node("b").problems == ()
+    assert compiled.field(Ref("a", "x")).problems == ()
+
+
+def test_an_input_named_with_a_leading_underscore_is_refused_at_compile():
+    """A call cannot carry such a name, so compile says so instead of the first call failing."""
+    compiled = _compiled([
+        GraphNode(id="a", type="echo", version=1),
+        GraphNode(id="s", type="open-inputs", version=1, bindings={"_x": From("a.result")}),
+    ], _registry(OpenInputs))
+
+    assert [(p.code, p.node_id, p.field) for p in compiled.problems] == [("parameter_name_invalid", "s", "_x")]
+    assert compiled.node("s").state == "wiring_failed"
+
+
+def test_a_hook_that_adds_an_input_named_with_a_leading_underscore_is_refused_at_compile():
+    compiled = _compiled([GraphNode(id="h", type="hidden", version=1)], _registry(AddsHidden))
+
+    assert [(p.code, p.field) for p in compiled.problems] == [("parameter_name_invalid", "_x")]
+    assert compiled.node("h").state == "wiring_failed"
+
+
+class Needs(NodeDefinition):
+    """One required input with a type and no default."""
+
+    id = "needs"
+    title = "Needs"
+    description = "d"
+    category = "test"
+
+    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())]) -> Out:
+        return text
+
+
+def test_an_empty_typed_input_is_a_value_that_arrives_later():
+    """A required input left empty: the graph cannot run, but compile still
+    works out the node and everything after it, so an editor draws their
+    types and a host can offer the field as an input of the graph."""
+    compiled = _compiled([
+        GraphNode(id="n", type="needs", version=1),
+        GraphNode(id="e", type="echo", version=1, bindings={"x": From("n.result")}),
+    ], _registry(Needs))
+
+    assert not compiled.is_runnable
+    assert [p.code for p in compiled.problems] == ["unbound_required"]
+    assert (compiled.node("n").state, compiled.node("e").state) == ("ready", "ready")
+    assert compiled.field(Ref("n", "text")).receives == Broadcast()
+    assert compiled.field(Ref("e", "result")).type is Txt
+
+
+
+class Headed(NodeDefinition):
+    """Outputs named by a required header the author types; no header yet, no outputs to name."""
+
+    id = "headed"
+    title = "Headed"
+    description = "d"
+    category = "test"
+
+    def run(self, header: Annotated[Txt, Param(title="Header", widget=Textarea())]) -> Out:
+        return header
+
+    def compute_outputs(self, declared, values, arriving):
+        if "header" not in values:
+            raise Refuses("header_missing", "Type a header first.")
+        return declared
+
+
+def test_a_hook_is_not_handed_a_required_input_left_empty():
+    """``values`` has no entry for a required input nobody filled, just as
+    for a connected one; a hook that needs it refuses, and compile reports."""
+    compiled = _compiled([GraphNode(id="n", type="headed", version=1)], _registry(Headed))
+
+    assert [(p.code, p.fatal) for p in compiled.problems] == [("unbound_required", True), ("header_missing", True)]
+
+
+class Gathers(NodeDefinition):
+    """A required list of anything: only an edge can say what it holds."""
+
+    id = "gathers"
+    title = "Gathers"
+    description = "d"
+    category = "test"
+
+    def run(self, items: Annotated[Series[Any], Param(title="Items", widget=Textarea())]) -> Out:
+        return Txt("")
+
+
+def test_an_empty_list_of_anything_breaks_its_node_like_anything():
+    compiled = _compiled([GraphNode(id="n", type="gathers", version=1)], _registry(Gathers))
+
+    assert [p.code for p in compiled.problems] == ["unbound_required"]
+    assert compiled.node("n").state == "wiring_failed"
+
+class Wrapped(NodeDefinition):
+    """A stored graph placed as a node: one echo inside."""
+
+    id = "wrapped"
+    title = "Wrapped"
+    description = "d"
+    category = "test"
+    versions: ClassVar[dict[int, GraphVersion]] = {
+        1: GraphVersion(
+            graph=(GraphNode(id="inner", type="echo", version=1),),
+            interface=Interface(
+                inputs=(Input(name="inner.x", dtype=Txt, title="X", widget=Textarea(), default=Txt(""), optional=True),),
+                outputs=(Output(name="inner.result", dtype=Txt, title="Result"),),
+                returns=Mapping,
+            ),
+        )
+    }
+
+
+class CountingRegistry(NodeRegistry):
+    """Counts every lookup of a class by id."""
+
+    def __getitem__(self, node_id: str):
+        self.counts[node_id] += 1
+        return super().__getitem__(node_id)
+
+
+def test_compile_looks_each_placement_up_once():
+    """One lookup per node the author placed and per inner node of an embedded graph; everything after reads the class compile resolved."""
+    registry = CountingRegistry(nodes=(Echo, Wrapped))
+    registry.counts = Counter()
+    CompiledGraph.from_graph(Graph(nodes=[
+        GraphNode(id="a", type="echo", version=1),
+        GraphNode(id="b", type="echo", version=1, bindings={"x": From("a.result")}),
+        GraphNode(id="emb", type="wrapped", version=1, bindings={"inner.x": From("b.result")}),
+    ]), registry)
+
+    assert registry.counts == {"echo": 3, "wrapped": 1}
+
+
+def test_a_compiled_node_holds_the_class_it_resolved_to():
+    compiled = _compiled([
+        GraphNode(id="a", type="echo", version=1),
+        GraphNode(id="emb", type="wrapped", version=1),
+    ], _registry(Wrapped))
+
+    assert compiled.node("a").definition is Echo
+    assert compiled.node("emb").definition is Wrapped
+    assert compiled.node("emb/inner").definition is Echo
+
+
+def _imports_of(module) -> set[str]:
+    """Every module a source file names in an import, and every name it
+    imports from one as ``module.name``, so ``from conductor.graph import
+    compiler`` counts as reaching ``conductor.graph.compiler``."""
+    import ast
+    from pathlib import Path
+
+    reached: set[str] = set()
+    for node in ast.walk(ast.parse(Path(module.__file__).read_text())):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            reached |= {node.module, *(f"{node.module}.{alias.name}" for alias in node.names)}
+        if isinstance(node, ast.Import):
+            reached |= {alias.name for alias in node.names}
+    return reached
+
+
+def test_the_compiler_does_not_know_the_compiled_graph():
+    """``compiled`` imports ``compiler`` and never the other way: the passes know nothing of their result."""
+    import conductor.graph.compiler as compiler_module
+
+    reached = _imports_of(compiler_module)
+    compiled_names = {"CompiledGraph", "CompiledNode", "CompiledField"}
+
+    assert not {name for name in reached if name.startswith("conductor.graph.compiled")}
+    assert not {name for name in reached if name.rsplit(".", 1)[-1] in compiled_names}
+
+
+def test_the_compiled_values_know_neither_the_compiler_nor_the_graph():
+    """``compiled_node`` holds the answers for one node and one field; the
+    compiler fills them in through ``compiled``. It imports neither, so the
+    values stand on their own."""
+    import conductor.graph.compiled_node as compiled_node_module
+
+    assert not _imports_of(compiled_node_module) & {"conductor.graph.compiler", "conductor.graph.compiled"}
 
 
 def test_execution_order_follows_the_edges():
@@ -236,8 +567,10 @@ def test_a_node_type_the_registry_lacks_is_a_fatal_problem():
     (problem,) = compiled.problems
     assert (problem.code, problem.fatal, problem.node_id) == ("unknown_node_type", True, "a")
     assert not compiled.is_runnable
-    with pytest.raises(KeyError):
+    assert compiled.node("a").state == "resolution_failed"
+    with pytest.raises(NodeResolutionError) as raised:
         compiled.node("a").interface
+    assert raised.value.problems[0] == problem
 
 
 def test_a_version_the_class_no_longer_declares_is_a_fatal_problem():
@@ -428,21 +761,20 @@ def test_a_compiled_node_validates_a_call_and_hands_back_its_keyword_arguments()
     assert set(kwargs) == {"x", "y"} and isinstance(kwargs["x"], Txt) and kwargs["y"] == Txt("")
     with pytest.raises(ValidationError):
         node.validate({"x": ["not", "text"]})
-    with pytest.raises(KeyError):
+    with pytest.raises(NodeWiringError):
         _compiled([GraphNode(id="b", type="echo", version=1, bindings={"x": From("ghost.result")})]).node("b").validate({})
 
 
 def test_the_record_keeps_the_authored_graph_and_the_registry_and_drops_what_nothing_calls():
-    """A compiled graph carries no ``dependencies`` and no per-node or per-field
-    ``problems``: ``compiled.problems`` is the one list, filtered by whoever needs a slice —
-    while the authored graph and the registry stay, so a compiled graph can
-    produce another."""
+    """A compiled graph carries no ``dependencies``; each node and field holds
+    the problems about it, a slice of ``compiled.problems`` — while the
+    authored graph and the registry stay, so a compiled graph can produce
+    another."""
     graph = Graph(nodes=[GraphNode(id="a", type="echo", version=1, bindings={"x": Static("hi"), "z": Static(1)})])
     registry = _registry()
     compiled = CompiledGraph.from_graph(graph, registry)
 
     assert compiled.graph is graph and compiled._registry is registry
     assert not hasattr(compiled.node("a"), "dependencies")
-    assert not hasattr(compiled.node("a"), "problems")
-    assert not hasattr(compiled.field(Ref("a", "x")), "problems")
-    assert [p.code for p in compiled.problems if p.node_id == "a"] == ["stale_binding"]
+    assert [p.code for p in compiled.node("a").problems] == ["stale_binding"]
+    assert compiled.field(Ref("a", "x")).problems == ()

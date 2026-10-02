@@ -412,9 +412,9 @@ class Leg:
 
     async def _after(self, unit: Unit) -> None:
         """Report progress, and completion when this was the node's last unit."""
-        node_id, row = unit
+        node_id, _ = unit
         ledger = self.ledger
-        if row is not None:
+        if ledger.on_a_row(unit):
             done, total = ledger.progress(node_id)
             await self.queue.put(NodeProgressEvent(type="node_progress", node_id=node_id, done=done, total=total))
         if not ledger.complete(node_id):

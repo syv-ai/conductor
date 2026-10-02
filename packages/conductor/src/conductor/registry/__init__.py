@@ -4,8 +4,8 @@ Defining a node (subclassing ``NodeDefinition``) and offering it are two
 acts. A registry is the second: ``register(cls)`` files the class under
 its ``id`` and checks the rules that only make sense for a catalogue —
 versions numbered from 1 with no holes, a deprecated current version
-pointing somewhere, an alternative that exists. ``runner_for`` gives the
-engine a plain callable for one registered version.
+pointing somewhere, an alternative that exists. Compile resolves each
+placement against it once; the engine then runs what compile resolved.
 
 The registry also owns the **vocabulary**: which value types exist. A
 registry's types are the ones its nodes declare on their inputs and
@@ -278,45 +278,6 @@ class NodeRegistry:
         return admitted
 
     # -- running -------------------------------------------------------------------
-
-    def runner_for(self, node_id: str, version: int) -> Callable[..., Any]:
-        """The callable for one registered version, for the engine to dispatch.
-
-        ``node_id`` and ``version`` are the two facts a node stores. An
-        unknown id or version is a ``KeyError``: the compiler has resolved
-        every pin before the engine asks, so a miss is a bug. A
-        ``GraphVersion`` is a ``TypeError``: the compiler expands it, so the
-        engine never runs it as one unit. Nothing is cached, so a reloaded
-        module runs its new definition.
-        """
-        node_cls = self[node_id]
-        declared = node_cls.versions[version]
-        if not isinstance(declared, NodeVersion):
-            raise TypeError(
-                f"{node_id!r} version {version} declares a graph, not a run; compile "
-                "expands it under the placement's name"
-            )
-        return self._class_runner(node_cls, declared.run)
-
-    @staticmethod
-    def _class_runner(
-        node_cls: type[NodeDefinition], method: Callable[..., Any]
-    ) -> Callable[..., Any]:
-        """A plain callable for one version's method: a fresh instance per call.
-
-        ``__signature__`` is the method's minus ``self``, so the engine's
-        keyword filtering sees the node's parameters.
-        """
-
-        def runner(**kwargs: Any) -> Any:
-            return method(node_cls(), **kwargs)
-
-        signature = inspect.signature(method)
-        runner.__signature__ = signature.replace(
-            parameters=[p for name, p in signature.parameters.items() if name != "self"]
-        )
-        runner.__name__ = f"{node_cls.__name__}.{method.__name__}"
-        return runner
 
 
 def _word_of(declared: Any, *, adding: bool = False) -> type[DType] | None:

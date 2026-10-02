@@ -78,16 +78,15 @@ from conductor.dtype import DType
 from conductor.dtype_ref import description_of, name_of
 from conductor.errors import Refuses
 from conductor.graph.binding import From
-from conductor.graph.expand import authored_ref
+from conductor.graph.expand import authored_ref, embedded_in
 from conductor.graph.model import GraphNode
 from conductor.graph.problem import Problem, problem
 from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Receive, Whole
 from conductor.graph.views import field_problems
 from conductor.interface import Interface
 from conductor.metadata import Input, Output
-from conductor.node import NodeVersion
+from conductor.node import GraphVersion, NodeDefinition, NodeVersion
 from conductor.ref import Ref
-from conductor.registry import NodeRegistry
 from conductor.series import Index, Series
 
 
@@ -96,8 +95,9 @@ class Iteration:
     """What ``derive`` returns.
 
     ``iterated``: for each node, the index it runs once per row of, or
-    ``None`` when it runs once; for each embedded graph, the index its
-    inner nodes run per row of. ``types``: the type that travels on every
+    ``None`` when it runs once; for each embedded graph whose entering
+    series agree, the index its inner nodes run per row of. A node has an
+    entry exactly when the walk derived it. ``types``: the type that travels on every
     field; ``indexes``: for a field carrying a series, where its rows come
     from (``None`` otherwise). ``receives``: for every input, how a unit
     receives its value. ``interfaces``: each node's inputs and outputs
@@ -116,12 +116,11 @@ class Iteration:
 def derive(
     nodes: Sequence[GraphNode],
     interfaces: Mapping[str, Interface],
-    versions: Mapping[str, NodeVersion],
-    registry: NodeRegistry,
+    versions: Mapping[str, NodeVersion | GraphVersion],
+    definitions: Mapping[str, type[NodeDefinition]],
     statics: Mapping[str, Mapping[str, Any]],
     listed: Mapping[str, frozenset[str]],
     *,
-    placement_of: Mapping[str, str | None] = {},
     members: Mapping[str, Sequence[str]] = {},
 ) -> Iteration:
     """Walk ``nodes`` in execution order and record, for each, whether it
@@ -146,12 +145,12 @@ def derive(
     author typed laid over the declaration's defaults. A hook that raises
     ``Refuses`` makes its code and message the node's one fatal problem.
 
-    ``placement_of`` and ``members`` come from ``expand``: which embedded
-    graph each node belongs to, and which nodes each embedded graph holds.
-    The index an embedded graph runs per row of is found when its first
-    node is reached.
+    ``members`` comes from ``expand``: which nodes each embedded graph
+    holds; which embedded graph a node belongs to its id says
+    (``embedded_in``). The index an embedded graph runs per row of is found
+    when its first node is reached.
     """
-    walk = _Walk(nodes, interfaces, versions, registry, statics, listed, placement_of, members)
+    walk = _Walk(nodes, interfaces, versions, definitions, statics, listed, members)
     for node in nodes:
         walk.visit(node)
     return walk.result()
@@ -202,11 +201,10 @@ class _Walk:
         self,
         nodes: Sequence[GraphNode],
         interfaces: Mapping[str, Interface],
-        versions: Mapping[str, NodeVersion],
-        registry: NodeRegistry,
+        versions: Mapping[str, NodeVersion | GraphVersion],
+        definitions: Mapping[str, type[NodeDefinition]],
         statics: Mapping[str, Mapping[str, Any]],
         listed: Mapping[str, frozenset[str]],
-        placement_of: Mapping[str, str | None],
         members: Mapping[str, Sequence[str]],
     ) -> None:
         self.nodes = {node.id: node for node in nodes}
@@ -214,13 +212,13 @@ class _Walk:
         #: before the walk types them.
         self.asked = interfaces
         self.versions = versions
-        self.registry = registry
+        #: The class each node resolved to, which ``compute_outputs`` is asked of.
+        self.definitions = definitions
         self.statics = statics
         self.listed = listed
-        self.placement_of = placement_of
         self.members = members
         #: The index each visited node runs once per row of (``None``: once);
-        #: each embedded graph's, under its placement id.
+        #: each embedded graph's, under its graph node's id.
         self.iterated: dict[str, Index | None] = {}
         #: What every output of every visited node carries: the sources a
         #: later node's edges may name. Only outputs are sources.
@@ -240,7 +238,7 @@ class _Walk:
         self.scopes: dict[str, tuple[Index, Ref] | None] = {}
         #: Embedded graphs whose entering series disagree; their inner nodes
         #: are not derived.
-        self.misaligned_placements: set[str] = set()
+        self.misaligned_graphs: set[str] = set()
 
     def result(self) -> Iteration:
         fields = {**self.arrived, **self.carried}
@@ -259,7 +257,7 @@ class _Walk:
         arrive and derive nothing."""
         scope = self._scope_of(node)
         arrived = self._read_inputs(node, scope)
-        if arrived.broken or self.placement_of.get(node.id) in self.misaligned_placements:
+        if arrived.broken or embedded_in(node.id) in self.misaligned_graphs:
             self._complete_without_deriving(node, arrived)
         else:
             self._derive(node, arrived, scope)
@@ -270,20 +268,22 @@ class _Walk:
         is at the top level or that graph runs once. Found on the first inner
         node visited and recorded under the id of the node that embeds the
         graph. An embedded graph whose entering series disagree is recorded
-        in ``misaligned_placements``: its inner nodes are completed but not
-        derived, so the one ``misaligned`` on the placement is the only report."""
-        placement = self.placement_of.get(node.id)
-        if placement is None:
+        in ``misaligned_graphs``: its inner nodes are completed but not
+        derived, so the one ``misaligned`` on the graph node is the only report."""
+        outer = embedded_in(node.id)
+        if outer is None:
             return None
-        if placement not in self.scopes:
-            entering = self._entering_index(placement)
+        if outer not in self.scopes:
+            entering = self._entering_index(outer)
             if isinstance(entering, Problem):
                 self.problems.append(entering)
-                self.misaligned_placements.add(placement)
+                self.misaligned_graphs.add(outer)
                 entering = None
-            self.scopes[placement] = entering
-            self.iterated[placement] = None if entering is None else entering[0]
-        return self.scopes[placement]
+            else:
+                # Only an aligned graph node is derived; a misaligned one gets no entry.
+                self.iterated[outer] = None if entering is None else entering[0]
+            self.scopes[outer] = entering
+        return self.scopes[outer]
 
     def _read_inputs(self, node: GraphNode, scope: tuple[Index, Ref] | None) -> _Arrivals:
         """What arrives on each input of ``node``, how each is received, and whether each edge is allowed.
@@ -453,8 +453,8 @@ class _Walk:
     def _outputs(self, node: GraphNode, arriving: Mapping[str, Any]) -> tuple[Output, ...] | Problem:
         """Ask the node's ``compute_outputs`` now that it can be told what
         arrives, with the values the author typed laid over the
-        declaration's defaults (so a hook indexes ``values[...]`` without a
-        guard).
+        declaration's defaults. An optional input is always there; a
+        required one the author left empty, or connected, is not.
 
         A hook that cannot answer for these values and arrivals raises
         ``Refuses(code, message)``, and the refusal comes back as the node's
@@ -465,11 +465,11 @@ class _Walk:
         declared = (*version.interface.inputs, *self.asked[node.id].inputs)
         values = {**{i.name: i.default for i in declared if i.optional}, **self.statics[node.id]}
         try:
-            return self.registry[node.type]().compute_outputs(version.interface.outputs, values, arriving)
+            return self.definitions[node.id]().compute_outputs(version.interface.outputs, values, arriving)
         except Refuses as refusal:
             return Problem(code=refusal.code, message=refusal.message, fatal=True, node_id=node.id)
 
-    def _entering_index(self, placement: str) -> tuple[Index, Ref] | None | Problem:
+    def _entering_index(self, outer: str) -> tuple[Index, Ref] | None | Problem:
         """The index an embedded graph's inner nodes run once per row of, and
         the inner field it entered through: the deepest index among the
         series that enter it from outside through a scalar field, or ``None``
@@ -480,7 +480,7 @@ class _Walk:
         graph's node with the two fields in the author's addresses, exactly
         as they would be on a single node.
         """
-        block = self.members[placement]
+        block = self.members[outer]
         inside = set(block)
         demands: list[tuple[Index, Ref]] = []
         for node_id in block:
@@ -504,7 +504,7 @@ class _Walk:
         index, disagreeing = self._iteration_index(demands)
         if disagreeing is not None:
             a, b = disagreeing
-            return self._misaligned(placement, authored_ref(a), authored_ref(b))
+            return self._misaligned(outer, authored_ref(a), authored_ref(b))
         if index is None:
             return None
         entered_through = next(ref for demanded, ref in demands if demanded == index)

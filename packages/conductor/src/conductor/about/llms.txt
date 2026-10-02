@@ -111,7 +111,7 @@ def compute_inputs(self, declared: tuple[Input, ...], values: Mapping[str, Any])
 def compute_outputs(self, declared: tuple[Output, ...], values: Mapping[str, Any], arriving: Mapping[str, type[DType]]) -> tuple[Output, ...]: ...
 ```
 
-One placement's fields when they depend on typed-in `values` or the `arriving` types. Compile keeps the answer on `compiled.node(node_id).interface`. `Refuses(code, message)` becomes a `Problem` on the node.
+One placement's fields when they depend on typed-in `values` or the `arriving` types. `values` holds what the author typed over the declared defaults; a connected input, or a required one left empty, has no entry. Compile keeps the answer on `compiled.node(node_id).interface`. `Refuses(code, message)` becomes a `Problem` on the node.
 
 ### Types
 
@@ -129,15 +129,15 @@ A `DType` is a class on a builtin with its own `id` and `title` (`class Number(D
 - `From("a.result", ...)`: over edges. Refs on different indexes into a `Series[X]` input gather; refs on one index are a union, and a row covered twice fails with `row_covered_twice`.
 - `Static(...)`: typed in. A list on a scalar input runs the node once per value.
 - No binding: the default. `locked` names inputs no caller may fill.
-- `dependencies_of(nodes)`, `is_input_node(node)`.
+- `dependencies_of(nodes)`: who waits for whom; an empty set is an input node.
 
 ### Compilation
 
 `CompiledGraph.from_graph(graph, registry)` is pure and never raises for a fault in the graph: each is a `Problem` (`code`, `message`, `fatal`, `node_id`, `field`, `details`). Definitions loaded at run time go in `registry.extended_with({id: cls})`.
 
 - Graph: `problems`, `is_runnable`, `interface` (open inputs, unread outputs), `graph`, `execution_order`, `decisions`, `expanded(ref)`.
-- `compiled.node(node_id)` is a `CompiledNode`: `interface`, `validate(inputs)`, `iterates_on` (an `Index` or `None`), `statics`, `runner`, `version`, `graph_node`, `embedded_in`.
-- `compiled.field(ref)` is a `CompiledField`: `type`, `index`, `binding`, `receives` (`Iterate`, `Broadcast`, `Whole`, `Group`, `Gather`), `condition` (`Condition`, `Atom`, `ALWAYS`).
+- `compiled.node(node_id)` answers for every node compile met, with a `state`: `ready`, `wiring_failed` (compile knows its inputs and outputs, but a broken edge, a broken node upstream or a misaligned embedded graph kept it from working out its connections) or `resolution_failed` (compile could not make sense of the node: unknown type or version, a cycle, a refused id or hook). It is a `CompiledNode` (`state`, `problems`, `graph_node`, `embedded_in`; `kind`, `definition` (the class it resolved to), `interface`, `statics`, `runner`, `version` once resolved; `iterates_on` (an `Index` or `None`), `validate(inputs)`, `fingerprint` once ready). Its `kind` is `node`, or `graph` for a node whose version is a graph: that one's inner nodes run in its place, so its `runner`, `validate` and `fingerprint` raise `NodeKindError`, and an address on it reads through to theirs. Reading what a state lacks raises `NodeResolutionError` or `NodeWiringError` (both `CompilationError`s), whose `problems` holds the one `Problem` that explains it; an id the graph lacks raises `KeyError`. A painter asks `state` first, then `kind`.
+- `compiled.field(ref)` is a `CompiledField`: `problems`, `binding`, `listed`, and once its node is ready `type`, `index`, `receives` (`Iterate`, `Broadcast`, `Whole`, `Group`, `Gather`), `condition` (`Condition`, `Atom`, `ALWAYS`).
 
 ### Rows
 
@@ -177,7 +177,10 @@ The classes are exported from `conductor`. A failure carries `ErrorCause(code, m
 
 ```
 ConductorError
-├── CompilationError        graph not runnable
+├── CompilationError        graph not runnable, or a read its problems rule out
+│   ├── NodeResolutionError     read off a node compile could not resolve
+│   └── NodeWiringError         read what the connections decide off a node whose wiring failed
+├── NodeKindError           read a runner, call or fingerprint off a graph node
 ├── Refuses                 hook or type cannot answer
 ├── StartRefused            cache or state misfit (a ValueError)
 ├── InputNotOffered         unknown with_inputs name (a TypeError)
@@ -229,9 +232,9 @@ Three public doors: `conductor`, `conductor.widgets` and `conductor.events`. Eac
 - Nodes: `NodeDefinition`, `NodeVersion`, `GraphVersion`, `Policy`, `Deprecation`, `NodeDescription`, `version`, `upgrade`, `deprecated`, `Interface`, `FromRun`, `model_of(inputs)` (the pydantic model a call validates through), `Input`, `Output`, `Param`, `Result`, `Upgrade` (an entry of `NodeDefinition.upgrades`), `VersionDescription` (an entry of `NodeDescription.versions`)
 - Returns: `SKIPPED`, `Asks`, `is_skipped`, `is_asking`
 - Types: `DType`, `Single`, `Series`, `Index`, `Ref`, `to_wire(value, dtype)`, `from_wire(data, dtype)`
-- Registry: `NodeRegistry` (`register`, `in`, `[]`, `len`, iteration, `nodes`, `types`, `accepted_as`, `describe`, `upgraded`, `extended_with`, `runner_for`), `RegistryDescription`, `TypeDescription`
-- Graph: `Graph`, `GraphNode`, `FieldContent`, `Binding`, `From`, `Static`, `dependencies_of`, `is_input_node`, `CompiledGraph`, `CompiledNode`, `CompiledField`, `Problem`, `Condition`, `Atom`, `ALWAYS`, `NEVER`, and what an input receives: `Receive` (`Iterate`, `Broadcast`, `Whole`, `Group`, `Gather`)
-- Errors: `ConductorError`, `CompilationError`, `Refuses`, `StartRefused`, `InputNotOffered`, `NodeError`, `ExternalFailure`, `NodeValidationError`, `NodeExecutionError`, `NodeTimeoutError`, `ErrorCause`
+- Registry: `NodeRegistry` (`register`, `in`, `[]`, `len`, iteration, `nodes`, `types`, `accepted_as`, `describe`, `upgraded`, `extended_with`), `RegistryDescription`, `TypeDescription`
+- Graph: `Graph`, `GraphNode`, `FieldContent`, `Binding`, `From`, `Static`, `dependencies_of`, `CompiledGraph`, `CompiledNode`, `CompiledField`, `Problem`, `Condition`, `Atom`, `ALWAYS`, `NEVER`, and what an input receives: `Receive` (`Iterate`, `Broadcast`, `Whole`, `Group`, `Gather`)
+- Errors: `ConductorError`, `CompilationError`, `Refuses`, `StartRefused`, `InputNotOffered`, `NodeResolutionError`, `NodeWiringError`, `NodeKindError`, `NodeError`, `ExternalFailure`, `NodeValidationError`, `NodeExecutionError`, `NodeTimeoutError`, `ErrorCause`
 - A run's state: `RunState` (`values` holds `StateValue` or `StateSkip` entries, `done_units` holds `DoneUnit`s)
 - Records (`Graph`, `GraphNode`, …) also have `to_yaml()`, `from_yaml(text)`, `to_path(path)`, `from_path(path)`, plus pydantic's.
 

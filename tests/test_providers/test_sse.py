@@ -69,3 +69,24 @@ def test_a_typed_value_dumps_through_its_own_type_and_one_with_no_form_raises():
     assert _payload(NodeCompleteEvent(type="node_complete", node_id="n", result={"n": float("nan")}))["result"] == {"n": None}
     with pytest.raises(Exception, match="object"):
         sse_frame(NodeCompleteEvent(type="node_complete", node_id="n", result={"x": object()}))
+
+
+def test_a_branch_nodes_completion_streams_with_only_the_branch_taken():
+    import asyncio
+
+    import conductor_nodes
+    from conductor import CompiledGraph, GraphNode, execute
+    from conductor.graph.binding import Static
+    from conductor.graph.model import Graph
+
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[GraphNode(id="d", type="logic-if-empty", version=1, bindings={"text": Static("x")})]),
+        conductor_nodes.registry(),
+    )
+
+    async def events() -> list[ExecutionEvent]:
+        return [event async for event in execute(compiled)]
+
+    (completed,) = [_payload(event) for event in asyncio.run(events()) if event.type == "node_complete"]
+
+    assert completed["result"] == {"not_empty": "x"}

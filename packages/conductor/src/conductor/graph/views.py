@@ -6,8 +6,8 @@ a node with no edge out of any output returns its outputs. This module
 derives that surface. Nothing here is stored and nothing here walks the
 graph: the one graph-wide fact it needs, which nodes consume which, comes
 in as the dependency map ``topology.dependencies_of`` builds once per
-compile. ``is_input_node`` is the same rule for one node, for a caller
-holding one; ``lock_problems`` is the one check a lock can fail, and
+compile; a node whose set there is empty is an input node.
+``lock_problems`` is the one check a lock can fail, and
 ``field_problems`` the two rules every node's fields obey, both kept
 apart from the derivation so an editor gets its problems without a
 surface being rebuilt.
@@ -19,7 +19,6 @@ from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 from conductor.dtype import DType
-from conductor.graph.binding import From
 from conductor.graph.model import GraphNode
 from conductor.graph.problem import Problem, problem
 from conductor.interface import Interface
@@ -28,17 +27,6 @@ from conductor.ref import Ref
 if TYPE_CHECKING:
     from conductor.graph.model import Graph
     from conductor.metadata import Input, Output
-
-
-def is_input_node(node: GraphNode) -> bool:
-    """Does no edge lead into any input of this node?
-
-    A typed-in ``Static`` does not count; any ``From`` does. Such a node
-    is an input node: its inputs are the graph's inputs. The one home of
-    the rule, so ``derive_interface``, an editor and a migration agree; in
-    a dependency map it reads as an empty set.
-    """
-    return not any(isinstance(binding, From) for binding in node.bindings.values())
 
 
 def lock_problems(nodes: Mapping[str, GraphNode], interfaces: Mapping[str, Interface]) -> tuple[Problem, ...]:
@@ -136,7 +124,7 @@ def derive_interface(
             continue
         interface = interfaces[node.id]
         needs.update(interface.needs)
-        if is_input_node(node):
+        if not dependencies[node.id]:
             inputs.extend(
                 _placed(node, declared)
                 for declared in interface.inputs

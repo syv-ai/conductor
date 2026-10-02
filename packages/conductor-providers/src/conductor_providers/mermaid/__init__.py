@@ -13,9 +13,10 @@ input receives it: ``per row of <index>`` (``Iterate``), nothing
 (``Broadcast``), ``whole`` (``Whole``), ``grouped by <index>``
 (``Group``), ``gathered`` (``Gather``). A node with a fatal problem
 carries the ``fault`` class — the one piece of styling — and an edge from
-a node that is not there is not drawn; the problems themselves are
-``compiled.problems``, not part of the picture. No layout: Mermaid lays
-it out.
+a node that is not there is not drawn; an arrow into a node compile could
+not derive has no label, since how it receives is not known. The
+problems themselves are ``compiled.problems``, not part of the picture.
+Any graph draws, however broken. No layout: Mermaid lays it out.
 """
 
 from __future__ import annotations
@@ -26,7 +27,6 @@ from conductor import (
     From,
     Gather,
     GraphNode,
-    GraphVersion,
     Group,
     Iterate,
     Receive,
@@ -45,7 +45,8 @@ def flowchart(compiled: CompiledGraph) -> str:
     for node in compiled.graph.nodes:
         lines += _placed(compiled, node, node.id, faulty, names, depth=1)
     for node_id in compiled.execution_order:
-        for field in compiled.node(node_id).interface.inputs:
+        node = compiled.node(node_id)
+        for field in node.interface.inputs:
             ref = Ref(node_id, field.name)
             binding = compiled.field(ref).binding
             if not isinstance(binding, From) or node_id not in names:
@@ -53,7 +54,7 @@ def flowchart(compiled: CompiledGraph) -> str:
             drawn = [source for source in binding.refs if source.node_id in names]
             if not drawn:
                 continue
-            label = _label(compiled.field(ref).receives)
+            label = _label(compiled.field(ref).receives) if node.state == "ready" else None
             arrow = "-->" if label is None else f"-->|{label}|"
             lines += [f"    {names[source.node_id]} {arrow} {names[node_id]}" for source in drawn]
     if faulty:
@@ -69,14 +70,11 @@ def _placed(
     name = names.setdefault(expanded_id, f"n{len(names)}")
     title = _quoted(f"{expanded_id} · {node.type}")
     fault = ":::fault" if expanded_id in faulty else ""
-    try:
-        version = compiled.node(expanded_id).version
-    except KeyError:
-        return [f"{indent}{name}[{title}]{fault}"]
-    if not isinstance(version, GraphVersion):
+    placed = compiled.node(expanded_id)
+    if placed.state == "resolution_failed" or placed.kind != "graph":
         return [f"{indent}{name}[{title}]{fault}"]
     lines = [f"{indent}subgraph {name} [{title}]"]
-    for inner in version.graph:
+    for inner in placed.version.graph:
         lines += _placed(compiled, inner, f"{expanded_id}/{inner.id}", faulty, names, depth=depth + 1)
     lines.append(f"{indent}end")
     if fault:

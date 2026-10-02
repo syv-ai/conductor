@@ -38,14 +38,8 @@ class TestGraphModel:
         assert node.id == "n1"
         assert node.type == "echo"
         assert node.version == 1
-        assert node.data == {"text": "hello"}
         with pytest.raises(ValidationError, match="frozen"):
             node.id = "n2"
-
-    def test_a_node_with_no_bindings_has_no_data(self):
-        node = GraphNode(id="n1", type="echo", version=1)
-        assert node.data == {}
-
 
 class TestOrderOf:
     def test_linear_chain(self):

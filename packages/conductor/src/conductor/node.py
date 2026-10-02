@@ -177,8 +177,8 @@ class GraphVersion:
     say. ``interface`` is that graph's interface (inputs named by address,
     ``returns`` a ``Mapping``) and ``graph`` the nodes the compiler
     expands under the placing node's name, so the inner nodes run as
-    nodes of the outer graph. Nothing runs it as one unit:
-    ``NodeRegistry.runner_for`` refuses it and it carries no policy. A
+    nodes of the outer graph. Nothing runs it as one unit, and it
+    carries no policy. A
     sibling of ``NodeVersion`` rather than an optional field on it, so
     neither record can be half-filled.
     """
@@ -577,8 +577,11 @@ class NodeDefinition(ABC, metaclass=_NodeMeta):
         dropdown that changes which fields exist. The default returns
         ``declared``. ``declared`` is passed in rather than read off the
         class because the placement pins a version, which may not be the
-        newest; ``values`` are the values the author typed (a connected input
-        has no value until the graph runs).
+        newest; ``values`` are the values the author typed, over the
+        declared defaults. A connected input has no value until the graph
+        runs, and a required input the author left empty has none either, so
+        neither has an entry. A hook that can't answer without one raises
+        ``Refuses``.
         """
         return declared
 
@@ -595,7 +598,10 @@ class NodeDefinition(ABC, metaclass=_NodeMeta):
         connected input. ``arriving`` maps each connected input name to the type
         one call receives there — for a series into a scalar input, its
         element type — and has no entry for an unconnected input. It is a
-        type, never a value. The default returns ``declared``.
+        type, never a value. ``values`` are as for ``compute_inputs``: what
+        the author typed, over the declared defaults, with no entry for a
+        connected input or a required one left empty. The default returns
+        ``declared``.
         """
         return declared
 
@@ -626,3 +632,25 @@ class NodeDefinition(ABC, metaclass=_NodeMeta):
             },
             current=cls.current,
         )
+
+
+def runner_of(definition: type[NodeDefinition], version: NodeVersion) -> Callable[..., Any]:
+    """A plain callable running one version of a node: its ``run`` on a fresh instance of ``definition`` per call.
+
+    Read by ``CompiledNode.runner``, the engine's one way to call a node,
+    with the class and version compile resolved. ``__signature__`` is the
+    method's minus ``self``, so the engine's keyword filtering sees the
+    node's parameters. A fresh instance per call keeps a node stateless
+    between units, as it is between its hooks.
+    """
+    method = version.run
+
+    def runner(**kwargs: Any) -> Any:
+        return method(definition(), **kwargs)
+
+    signature = inspect.signature(method)
+    runner.__signature__ = signature.replace(
+        parameters=[p for name, p in signature.parameters.items() if name != "self"]
+    )
+    runner.__name__ = f"{definition.__name__}.{method.__name__}"
+    return runner

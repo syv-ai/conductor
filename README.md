@@ -85,7 +85,7 @@ To watch a run, iterate `execute(compiled)`. It yields `node_start`, `node_progr
 
 **Graphs and bindings.** A graph is its nodes. Each input holds at most one binding: `From("node.output")` is an edge, `Static(value)` is a typed-in value, and no binding means the declared default. A `Graph` saves itself with `to_path` / `from_path` as YAML or JSON.
 
-**Compile.** `CompiledGraph.from_graph(graph, registry)` never raises for a fault in the graph. Everything wrong is a `Problem` with a stable `code`, anchored on a node, and `is_runnable` says whether a run may start. You ask the result about the graph, `compiled.node(id)` or `compiled.field(ref)`.
+**Compile.** `CompiledGraph.from_graph(graph, registry)` never raises for a fault in the graph. Everything wrong is a `Problem` with a stable `code`, anchored on a node, and `is_runnable` says whether a run may start. You ask the result about the graph, `compiled.node(id)` or `compiled.field(ref)`. Every node has a `state` (`ready`, `wiring_failed` or `resolution_failed`) and its own `problems`, so an editor can draw a half-finished graph node by node.
 
 **Rows.** A series arriving on an input declared for one value runs the node once per row, concurrently up to its policy's `concurrency`. A `Series[X]` input receives the whole series.
 

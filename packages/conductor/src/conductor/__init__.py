@@ -17,21 +17,24 @@ from conductor.errors import (
     InputNotOffered,
     NodeError,
     NodeExecutionError,
+    NodeKindError,
+    NodeResolutionError,
     NodeTimeoutError,
     NodeValidationError,
+    NodeWiringError,
     Refuses,
     StartRefused,
 )
 from conductor.execution.engine import execute, run, run_sync
 from conductor.execution.state import DoneUnit, RunState, StateSkip, StateValue
 from conductor.graph.binding import Binding, From, Static
-from conductor.graph.compiled import CompiledField, CompiledGraph, CompiledNode
+from conductor.graph.compiled import CompiledGraph
+from conductor.graph.compiled_node import CompiledField, CompiledNode
 from conductor.graph.conditions import ALWAYS, NEVER, Atom, Condition
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.problem import Problem
 from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Receive, Whole
 from conductor.graph.topology import dependencies_of
-from conductor.graph.views import is_input_node
 from conductor.interface import FromRun, Interface, model_of
 from conductor.metadata import Input, Output, Param, Result
 from conductor.node import (
@@ -87,10 +90,13 @@ __all__ = [
     "NodeDescription",
     "NodeError",
     "NodeExecutionError",
+    "NodeKindError",
     "NodeRegistry",
     "NodeTimeoutError",
     "NodeValidationError",
     "NodeVersion",
+    "NodeWiringError",
+    "NodeResolutionError",
     "Output",
     "Param",
     "Policy",
@@ -116,7 +122,6 @@ __all__ = [
     "execute",
     "from_wire",
     "is_asking",
-    "is_input_node",
     "is_skipped",
     "model_of",
     "run",

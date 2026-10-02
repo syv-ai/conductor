@@ -7,7 +7,20 @@ All notable changes to the three workspace packages (`syv-conductor`, `syv-condu
 
 ## [Unreleased]
 
+- Compile stores the read plan a run follows on its compiled values, privately, and the engine's ledger reads it instead of indexing the graph on every leg. A leg runs about 5–8% faster. `CompiledField.listed` says whether the author typed many values into an input, so its node runs once per value.
+- A leg's pending units are listed in execution order, then row order.
+- Compile looks each embedded graph's node and every other node up in the registry once, and a compiled node holds the class it resolved to as `definition`. `compiled.node(id).runner` runs that class, so a module reloaded after compile runs once the graph is compiled again. `NodeRegistry.runner_for` is removed.
+- `compiled.node(id)` answers for every node compile met, each with a `state` (`ready`, `wiring_failed`, `resolution_failed`) and its `problems`; a field has `problems` too. Reading what a state lacks raises `NodeResolutionError` or `NodeWiringError`, both `CompilationError`s whose `problems` holds the one `Problem` that explains it; `KeyError` is only for an id the graph lacks. A node whose version is a graph is a `CompiledNode` whose `kind` is `graph` (every other resolved node's is `node`): its `graph_node` is the node as placed, its `statics` the values typed on it by inner address, and its `runner`, `fingerprint` and `validate` raise `NodeKindError`, since its inner nodes run in its place.
+- `decisions` leaves out a node the walk did not derive, and a misaligned embedded graph is not derived.
+- `conductor_providers.mermaid.flowchart` draws any graph, however broken.
+- An input named with a leading underscore, from a `**inputs` edge or a `compute_inputs` hook, is `parameter_name_invalid` at compile. A call model is built on a node's first `validate`.
+- Removed: `is_input_node` (the graph's inputs are `compiled.interface.inputs`) and `GraphNode.data` (read `node.bindings`).
 - The public API is three doors: `conductor`, `conductor.widgets` and `conductor.events` (new), each with an `__all__` a type checker accepts. `NEVER`, the `Receive` records, `model_of`, `to_wire`, `from_wire`, `Upgrade`, `VersionDescription` and the run state's entries (`StateValue`, `StateSkip`, `DoneUnit`) join the root; `dtype_of` and `DTypeRef` leave it, and `AnyWidget` is imported from `conductor.widgets` only. Each `conductor_nodes` module lists its nodes in `NODES` instead of a `register()` function.
+- A node's result holds only what it produced: an output the node skipped (the branch not taken) is absent from `result_of`, `node_complete` and `RunState.results`, never `SKIPPED`. The FastAPI provider no longer fails streaming a branch node.
+- Restoring a state refuses (`StartRefused`) a value or done unit at a row its field or node cannot have, such as `[]` or `[0]` on a node that runs once, and a value for a field the graph does not have. Such an entry used to be accepted and ignored, so the node ran again.
+- A unit standing in for rows that were never born sends no `node_progress`; one at a shorter row used to repeat the last progress event. `Ledger.on_a_row` answers whether a unit counts as a row.
+- A graph node is `ready` only when every node inside it is, at any depth; otherwise it is `wiring_failed`, with the inner node's fatal problem as its cause. One unknown inner node beside a good one used to leave its graph `ready`.
+- A required input with a type and nothing bound is still `unbound_required`, fatal, but no longer breaks its node: the node and everything after it are `ready`, with their types worked out, as for a value that arrives at run time. An input typed `Any` or `Series[Any]` with no edge still breaks its node. A `compute_outputs` hook finds no entry in `values` for such an input, as for a connected one.
 
 ## [2.0.0]
 
