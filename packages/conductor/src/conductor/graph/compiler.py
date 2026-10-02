@@ -476,8 +476,9 @@ class Compilation:
                     broken.add(node_id)
                     self.problems.append(problem("edge_into_closed_handle", node_id, name))
                 for ref in binding.refs:
-                    # An edge out of an embedded graph reads from the graph node the author drew.
-                    if (source_id := ref.node_id) not in nodes:
+                    # An edge out of an embedded graph reads from the graph node the
+                    # author drew; an id the author wrote, even a refused one, is its own.
+                    if (source_id := ref.node_id) not in nodes and source_id not in self.graph_ids:
                         source_id, _ = as_drawn(ref, self.layout.graphs)
                     if source_id in nodes:
                         continue  # a node of the run; the walk checks that it has the output
@@ -758,8 +759,14 @@ class Compilation:
         return fatal_problem
 
     def _first_cause(self, ids: Iterable[str], visiting: frozenset[str]) -> Problem | None:
-        """The cause of the first of ``ids`` that compile met and that is not ready."""
+        """The cause of the first of ``ids`` that compile met and that is not ready.
+
+        A refused id (``e/inner``) is the author's node, whose cause is its
+        ``invalid_node_id``, even where an embedded graph ``e`` lays out a node
+        of the same id that compile met and readied."""
         for other in ids:
+            if other in self.refused:
+                return next(p for p in self.problems if p.code == "invalid_node_id" and p.node_id == other)
             if other in self.every_node_seen and other not in visiting and self.state(other) != "ready":
                 return self.cause(other, visiting)
         return None
