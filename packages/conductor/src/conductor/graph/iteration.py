@@ -67,7 +67,7 @@ from conductor.dtype import DType
 from conductor.dtype_ref import description_of, name_of
 from conductor.errors import Refuses
 from conductor.graph.binding import From
-from conductor.graph.embedding import SEPARATOR, inside, under
+from conductor.graph.embedding import SEPARATOR, address, as_drawn, under
 from conductor.graph.model import GraphNode
 from conductor.graph.problem import Problem, problem
 from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Receive, Whole
@@ -160,7 +160,7 @@ class _Carried:
 class _Arrivals:
     """What one node's inputs receive, gathered while its edges are read.
 
-    ``arrivals``: per input, what it carries — the type, and the index for
+    ``arrivals``: per input, by address, what it carries — the type, and the index for
     a series. ``receives``: per input, how a unit receives it. ``arriving``:
     per connected input, the type the node sees per call (an element,
     where a series is sliced per row) — what ``compute_outputs`` is told.
@@ -170,8 +170,8 @@ class _Arrivals:
     read and the walk stopped at that input.
     """
 
-    arrivals: dict[str, _Carried] = dataclasses.field(default_factory=dict)
-    receives: dict[str, Receive] = dataclasses.field(default_factory=dict)
+    arrivals: dict[Ref, _Carried] = dataclasses.field(default_factory=dict)
+    receives: dict[Ref, Receive] = dataclasses.field(default_factory=dict)
     arriving: dict[str, Any] = dataclasses.field(default_factory=dict)
     demands: list[tuple[Index, Ref]] = dataclasses.field(default_factory=list)
     bound: dict[str, Any] = dataclasses.field(default_factory=dict)
@@ -206,7 +206,7 @@ class _Walk:
         self.definitions = definitions
         self.statics = statics
         self.listed = listed
-        #: The nodes whose version is a compiled graph (``Expansion.graphs``).
+        #: The nodes whose version is a compiled graph (``Layout.graphs``).
         self.graphs = graphs
         #: The index each visited node runs once per row of (``None``: once).
         self.iterated: dict[str, Index | None] = {}
@@ -260,12 +260,13 @@ class _Walk:
         interface = self.asked[node.id]
         found = _Arrivals()
 
+        graphs = self.graphs if node.id in self.graphs else ()
         for inp in interface.inputs:
-            ref = Ref(node.id, inp.name)
+            ref = address(node.id, inp.name, graphs) if graphs else Ref(node.id, inp.name)
             binding = node.bindings.get(inp.name)
             if not isinstance(binding, From):
                 carried, receive = self._originates(inp, ref, inp.name in self.listed[node.id])
-                found.arrivals[inp.name], found.receives[inp.name] = carried, receive
+                found.arrivals[ref], found.receives[ref] = carried, receive
                 if isinstance(receive, Iterate):
                     found.demands.append((receive.index, ref))
                 continue
@@ -276,7 +277,8 @@ class _Walk:
                 # resolved carries its own problem and is not reported again here.
                 self.problems.extend(
                     problem("unknown_ref_output", node.id, inp.name, source=str(source))
-                    for source in missing if source.node_id in self.iterated
+                    for source in missing
+                    if source.node_id in self.iterated or (self.graphs and as_drawn(source, self.graphs)[0] in self.iterated)
                 )
                 found.broken = True
                 return found
@@ -299,8 +301,8 @@ class _Walk:
                     return found
                 found.bound[inp.name] = sources[0].dtype
                 found.arriving[inp.name] = sources[0].dtype
-                found.arrivals[inp.name] = sources[0]
-                found.receives[inp.name] = Whole()
+                found.arrivals[ref] = sources[0]
+                found.receives[ref] = Whole()
                 continue
             target = inp.dtype
             if target is Any or target.element is Any:
@@ -319,23 +321,23 @@ class _Walk:
                 arriving = sources[0]  # one ref, or a union of several on one index
                 found.arriving[inp.name] = arriving.dtype.element or arriving.dtype
                 if arriving.index is None:
-                    found.receives[inp.name] = Broadcast()
+                    found.receives[ref] = Broadcast()
                 else:
-                    found.receives[inp.name] = Iterate(arriving.index)
+                    found.receives[ref] = Iterate(arriving.index)
                     found.demands.append((arriving.index, ref))
             elif self._one_index(sources):
                 arriving = sources[0]  # one series, or a union of several on one index
                 found.arriving[inp.name] = arriving.dtype
                 if arriving.index.parent is not None:
-                    found.receives[inp.name] = Group(arriving.index, arriving.index.parent.depth)
+                    found.receives[ref] = Group(arriving.index, arriving.index.parent.depth)
                     found.demands.append((arriving.index.parent, ref))
                 else:
-                    found.receives[inp.name] = Whole()
+                    found.receives[ref] = Whole()
             else:
                 arriving = _Carried(target, Index(ref))
                 found.arriving[inp.name] = target
-                found.receives[inp.name] = Gather(arriving.index)
-            found.arrivals[inp.name] = arriving
+                found.receives[ref] = Gather(arriving.index)
+            found.arrivals[ref] = arriving
         return found
 
     def _derive(self, node: GraphNode, arrived: _Arrivals) -> None:
@@ -367,12 +369,12 @@ class _Walk:
             self.problems.append(self._misaligned(node.id, *disagreeing))
             return
         self.iterated[node.id] = iteration_index
-        self.arrived.update({Ref(node.id, name): c for name, c in arrived.arrivals.items()})
-        self.receives.update({Ref(node.id, name): r for name, r in arrived.receives.items()})
+        self.arrived.update(arrived.arrivals)
+        self.receives.update(arrived.receives)
         node_index: Index | None = None
         version = self.versions[node.id]
         for out in outputs:
-            ref = Ref(node.id, out.name)
+            ref = address(node.id, out.name, self.graphs)
             if node.id in self.graphs:
                 self.carried[ref] = self._carried_out_of_graph(node.id, version, out, iteration_index)
             elif out.dtype.element is not None:
@@ -387,12 +389,12 @@ class _Walk:
     def _carried_out_of_graph(node_id: str, graph: CompiledGraph, out: Output, row: Index | None) -> _Carried:
         """What an output of a compiled graph placed as one node carries, as it
         will once the graph's nodes are in its place: the type and rows the
-        output has inside the graph (``embedding.inside``), its rows named
+        output has inside the graph, its rows named
         under the placed node and hung under the ``row`` it runs on
         (``embedding.under``). Two outputs share rows only when a node inside
         births both; an output that runs once inside is one value per
         ``row``, or one value."""
-        ref, iteration = inside(graph, out.name), graph._compilation.iteration
+        ref, iteration = Ref(out.name), graph._compilation.iteration
         dtype, index = iteration.types[ref], iteration.indexes[ref]
         if index is None:
             return _Carried(Series[dtype], row) if row is not None else _Carried(dtype, None)
@@ -514,8 +516,8 @@ class _Walk:
         """
         if not demands:
             return None, None
-        deepest, deepest_ref = max(demands, key=lambda demand: len(_lineage(demand[0])))
-        lineage = set(_lineage(deepest))
+        deepest, deepest_ref = max(demands, key=lambda demand: demand[0].depth)
+        lineage = set(deepest.lineage)
         for index, ref in demands:
             if index not in lineage:
                 return None, (deepest_ref, ref)
@@ -524,13 +526,3 @@ class _Walk:
     @staticmethod
     def _misaligned(node_id: str, a: Ref, b: Ref) -> Problem:
         return problem("misaligned", node_id, a=str(a), b=str(b))
-
-
-def _lineage(index: Index) -> list[Index]:
-    """This index and every index it was opened from, nearest first."""
-    found: list[Index] = []
-    current: Index | None = index
-    while current is not None:
-        found.append(current)
-        current = current.parent
-    return found

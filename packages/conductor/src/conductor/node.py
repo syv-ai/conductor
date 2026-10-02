@@ -405,7 +405,7 @@ class NodeDefinition(ABC, metaclass=_NodeMeta):
                 )
         if given:
             # Given by value: nothing to walk, and no ``run`` needed, since
-            # a graph-bodied version is expanded by the compiler.
+            # a graph-bodied version is laid out in place by the compiler.
             if not cls.versions:
                 raise TypeError(
                     f"{cls.__name__}.versions is empty; a definition declares at least one version"

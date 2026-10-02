@@ -252,7 +252,7 @@ def test_an_inner_reduction_over_the_entering_series_reduces_to_its_own_row():
 
     assert compiled.is_runnable, compiled.problems
     assert _receives(compiled, "emb/holder", "text") == Iterate(Index("docs"))
-    assert _receives(compiled, "emb", "join.texts") == Group(Index("docs"), depth=1)
+    assert _receives(compiled, "emb/join", "texts") == Group(Index("docs"), depth=1)
     assert compiled.node("emb/join").iterates_on == Index("docs")
 
 

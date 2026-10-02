@@ -7,7 +7,7 @@ authored graph; nothing is worked out that compile did not already say.
 
 One box per node the author placed, titled by its id and its type. A
 node whose version is a graph is a subgraph holding its inner nodes under
-their expanded ids (``emb/up``), nested as deep as the placements are.
+their paths (``emb/up``), nested as deep as the placements are.
 One arrow per ref on every connected input, labelled with how the reading
 input receives it: ``per row of <index>`` (``Iterate``), nothing
 (``Broadcast``), ``whole`` (``Whole``), ``grouped by <index>``
@@ -63,19 +63,19 @@ def flowchart(compiled: CompiledGraph) -> str:
 
 
 def _placed(
-    compiled: CompiledGraph, node: GraphNode, expanded_id: str, faulty: set[str], names: dict[str, str], *, depth: int
+    compiled: CompiledGraph, node: GraphNode, node_id: str, faulty: set[str], names: dict[str, str], *, depth: int
 ) -> list[str]:
     """One placed node's lines: a box, or a subgraph of its inner nodes."""
     indent = "    " * depth
-    name = names.setdefault(expanded_id, f"n{len(names)}")
-    title = _quoted(f"{expanded_id} · {node.type}")
-    fault = ":::fault" if expanded_id in faulty else ""
-    placed = compiled.node(expanded_id)
+    name = names.setdefault(node_id, f"n{len(names)}")
+    title = _quoted(f"{node_id} · {node.type}")
+    fault = ":::fault" if node_id in faulty else ""
+    placed = compiled.node(node_id)
     if placed.state != "ready" or placed.kind != "graph":
         return [f"{indent}{name}[{title}]{fault}"]  # a graph that couldn't be placed has nothing inside
     lines = [f"{indent}subgraph {name} [{title}]"]
     for inner in placed.version.graph.nodes:
-        lines += _placed(compiled, inner, f"{expanded_id}/{inner.id}", faulty, names, depth=depth + 1)
+        lines += _placed(compiled, inner, f"{node_id}/{inner.id}", faulty, names, depth=depth + 1)
     lines.append(f"{indent}end")
     if fault:
         lines.append(f"{indent}class {name} fault")

@@ -480,20 +480,21 @@ def _imports_of(module) -> set[str]:
 
 
 def test_the_compiler_does_not_know_the_compiled_graph():
-    """``compiled`` imports ``compiler`` and never the other way: the passes know nothing of their result."""
+    """``compiled`` imports ``compiler`` and never the other way. Compile's
+    last step builds the stored values (``compiled_node``), but nothing in
+    compile knows the ``CompiledGraph`` that hands them out."""
     import conductor.graph.compiler as compiler_module
 
     reached = _imports_of(compiler_module)
-    compiled_names = {"CompiledGraph", "CompiledNode", "CompiledField"}
 
-    assert not {name for name in reached if name.startswith("conductor.graph.compiled")}
-    assert not {name for name in reached if name.rsplit(".", 1)[-1] in compiled_names}
+    assert not {name for name in reached if name == "conductor.graph.compiled" or name.startswith("conductor.graph.compiled.")}
+    assert not {name for name in reached if name.rsplit(".", 1)[-1] == "CompiledGraph"}
 
 
 def test_the_compiled_values_know_neither_the_compiler_nor_the_graph():
-    """``compiled_node`` holds the answers for one node and one field; the
-    compiler fills them in through ``compiled``. It imports neither, so the
-    values stand on their own."""
+    """``compiled_node`` holds the answers for one node and one field;
+    compile's last step fills them in. It imports neither the compiler nor
+    ``compiled``, so the values stand on their own."""
     import conductor.graph.compiled_node as compiled_node_module
 
     assert not _imports_of(compiled_node_module) & {"conductor.graph.compiler", "conductor.graph.compiled"}

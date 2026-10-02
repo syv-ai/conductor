@@ -93,7 +93,7 @@ class RunState(ConductorModel):
     node_fingerprints: dict[str, str] = Field(default_factory=dict)
 
     def results(self, compiled: CompiledGraph) -> dict[str, dict[str, Any]]:
-        """What the run produced: every complete node's outputs, typed, by expanded node id.
+        """What the run produced: every complete node's outputs, typed, by node id (``emb/up`` inside an embedded graph).
 
         Read over ``compiled``, the graph the run is of, the way the next leg
         would read this state: a node the graph has changed since, and
@@ -111,9 +111,9 @@ class RunState(ConductorModel):
     def outputs(self, compiled: CompiledGraph) -> dict[str, Any]:
         """What the graph returns: each output of ``compiled.interface.outputs``, keyed by address.
 
-        ``results(compiled)`` narrowed to the interface: an output inside an
-        embedded graph is looked up on the inner node that produced it
-        (``emb.up.result`` on ``emb/up``). An output whose node did not run,
+        ``results(compiled)`` narrowed to the interface, each keyed by its
+        address: an output inside an embedded graph by its path
+        (``emb/up.result``). An output whose node did not run,
         or that the node skipped, is absent, so any ending's state reads —
         a failed or paused leg returns what it did produce. A single value is
         a value; one with many rows is a ``Series``.
@@ -121,9 +121,9 @@ class RunState(ConductorModel):
         results = self.results(compiled)
         returned: dict[str, Any] = {}
         for output in compiled.interface.outputs:
-            at = compiled.expanded(output.name)
+            at = output.name
             if at.field in results.get(at.node_id, {}):
-                returned[str(output.name)] = results[at.node_id][at.field]
+                returned[str(at)] = results[at.node_id][at.field]
         return returned
 
     def without(self, *node_ids: str) -> RunState:

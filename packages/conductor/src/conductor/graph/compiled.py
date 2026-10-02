@@ -40,18 +40,19 @@ Some nodes have a version that is itself a graph, which the host compiled
 on its own; that graph is an embedded graph, and the node is a ``graph``
 (its ``kind``). Compile places the embedded graph's nodes in place of that
 node (``conductor.graph.embedding``), so the graph the author drew (the
-authored graph) differs from the graph that runs (the expanded graph). In
-the authored graph the embedded graph is one node, ``approve``, and its
-fields are addressed through it, ``Ref("approve", "check.amount")``. In the
-expanded graph its inner nodes are nodes of the run, named ``approve/check``.
-Only the fields the embedded graph offers can be addressed from outside.
+authored graph) differs from the graph that runs. In the authored graph the
+embedded graph is one node, ``approve``; in the graph that runs its inner
+nodes are nodes of the run, at their path, ``approve/check``. Only the
+fields the embedded graph offers can be reached from outside.
 
-``execution_order`` and ``decisions`` speak of the expanded graph;
-``problems`` and ``interface`` speak of the authored one. ``node`` answers
-for both graphs: an inner node by its expanded id (``approve/check``) and
-the node that embeds it by its own (``approve``). A question about a field may use either address:
-``field(Ref("approve", "check.amount"))`` and
-``field(Ref("approve/check", "amount"))`` are the same field.
+An address means one thing: a node's path and a field,
+``approve/check.amount``. The author draws an edge to the field
+``check.amount`` of ``approve``; compile reads that spelling once and every
+answer here, ``interface`` included, uses the address. ``execution_order``
+and ``decisions`` speak of the graph that runs; ``problems`` speak of the
+authored one, on the node and field the author drew. ``node`` answers for
+both graphs: an inner node by its path (``approve/check``) and the node that
+embeds it by its own id (``approve``).
 
 It is a plain value: immutable, no I/O, no session. The same graph and
 the same registry always give the same ``CompiledGraph``, so it can be
@@ -66,19 +67,17 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
 from conductor.errors import InputNotOffered
-from conductor.graph.binding import From, Static
-from conductor.graph.compiled_node import CompiledField, CompiledNode, NodeState, _gate
+from conductor.graph.binding import Static
+from conductor.graph.compiled_node import CompiledField, CompiledNode, _gate
 from conductor.graph.compiler import Compilation
-from conductor.graph.embedding import SEPARATOR, embedded_in
+from conductor.graph.embedding import as_drawn
 from conductor.graph.problem import Problem
 from conductor.ref import Ref
 
 if TYPE_CHECKING:
-    from conductor.graph.model import Graph, GraphNode
-    from conductor.graph.receive import Receive
+    from conductor.graph.model import Graph
     from conductor.interface import Interface
     from conductor.registry import NodeRegistry
-    from conductor.series import Index
 
 
 @dataclass(frozen=True, repr=False)
@@ -120,7 +119,8 @@ class CompiledGraph:
     #: graph that cannot be placed is one ``embedded_graph_broken`` on the
     #: node that places it; its own problems are on it (``node(id).version.problems``).
     problems: tuple[Problem, ...]
-    #: The finished compile this was folded from. A graph that places this
+    #: The finished compile, whose last step builds ``node`` and ``field``'s
+    #: values on the first question. A graph that places this
     #: one reads its records from here and lifts them (``embedding``);
     #: nothing else does.
     _compilation: Compilation = field(repr=False)
@@ -140,7 +140,7 @@ class CompiledGraph:
         compilation.run()
         return cls(
             _registry=registry,
-            _order=compilation.expansion.order,
+            _order=compilation.layout.order,
             interface=compilation.graph_interface,
             graph=graph,
             problems=tuple(compilation.problems),
@@ -151,15 +151,32 @@ class CompiledGraph:
 
     @cached_property
     def _nodes(self) -> Mapping[str, CompiledNode]:
-        """Every node compile met, by expanded id, and every node whose version
+        """Every node compile met, by its id in the graph that runs, and every node whose version
         is a graph, by its own: what ``node`` hands back. Folded from the
-        compile on first read (``_Fold``), since a graph compiled only to be
-        placed in another is read through its compile and never asked
-        about a node."""
-        return _Fold(self._compilation).nodes()
+        compile's last step on first read (``Compilation.compiled_nodes``),
+        since a graph compiled only to be embedded in another is read through
+        its compile and never asked about a node."""
+        return self._compilation.compiled_nodes()
+
+    @cached_property
+    def _index_owners(self) -> Mapping[str, CompiledNode | CompiledField]:
+        """Who owns each index's share of the read plan, by index id: a node,
+        for the index named after it, or the input whose typed-in list
+        creates one. The ledger's way back from an index to its owner, read
+        on its first question; compile names the index, so nobody parses
+        the id to find which of the two it is."""
+        owners: dict[str, CompiledNode | CompiledField] = {}
+        for node_id, node in self._nodes.items():
+            if node._kind == "graph":
+                continue
+            owners[node_id] = node
+            for compiled_field in node._fields.values():
+                if compiled_field._listed:
+                    owners[compiled_field.index.id] = compiled_field
+        return owners
 
     def node(self, node_id: str) -> CompiledNode:
-        """Look up one compiled node by its expanded id.
+        """Look up one compiled node by its id: its path inside an embedded graph (``approve/check``).
 
         Every node compile saw has an entry, broken or not: each node in the
         graph and each node inside an embedded graph placed in it. An id the
@@ -171,57 +188,32 @@ class CompiledGraph:
     def field(self, ref: Ref) -> CompiledField:
         """Look up one compiled input or output by its address.
 
-        The address can be written against the graph as the author built it
-        (``Ref("emb", "all.result")``) or as it runs (``Ref("emb/all",
-        "result")``). A node or field the graph does not have raises
-        ``KeyError``, since asking for one is a programming error. A node
-        compile could not resolve raises ``NodeResolutionError``: nobody
-        knows its fields."""
-        node_id, name, node = self._reached(ref)
+        A field inside an embedded graph is at its path: ``Ref("emb/all",
+        "result")``. The node ``emb`` itself is a graph and has no fields, so
+        the author's spelling, ``Ref("emb", "all.result")``, raises ``KeyError``
+        like any node or field the graph does not have, since asking for one
+        is a programming error. A node compile could not resolve raises
+        ``NodeResolutionError``: nobody knows its fields."""
+        node = self._nodes.get(ref.node_id)
         if node is None:
-            if node_id != ref.node_id:
-                raise KeyError(f"{ref.node_id!r} has no field {ref.field!r} on this node")
-            raise KeyError(f"{node_id!r} is not a node of this graph")
+            raise KeyError(f"{ref.node_id!r} is not a node of this graph")
         if node._kind == "graph":
-            raise KeyError(f"{node_id!r} has no field {name!r} on this node")
-        _gate(node, f"field {name!r}", needs_wiring=False)
-        compiled_field = node._fields.get(name)
+            raise KeyError(f"{ref.node_id!r} is a graph; its fields are on the nodes inside it")
+        _gate(node, f"field {ref.field!r}", needs_wiring=False)
+        compiled_field = node._fields.get(ref.field)
         if compiled_field is None:
-            raise KeyError(f"{node_id!r} has no field {name!r} on this node")
+            raise KeyError(f"{ref.node_id!r} has no field {ref.field!r} on this node")
         return compiled_field
-
-    # -- the two graphs ------------------------------------------------------
-
-    def expanded(self, ref: Ref) -> Ref:
-        """An address on the authored graph, read through to the node that
-        runs: ``Ref("emb", "all.result")`` becomes ``Ref("emb/all", "result")``.
-        A host reads engine results by the expanded address, since the
-        engine knows only the expanded graph."""
-        node_id, name, _ = self._reached(ref)
-        return Ref(node_id, name)
-
-    def _reached(self, ref: Ref) -> tuple[str, str, CompiledNode | None]:
-        """Where ``ref`` lands once read through every graph it names:
-        the expanded node id, the field name there, and the node (``None``
-        for an id the graph does not have). Splits the address once, since
-        the engine asks ``field`` for every value it reads or writes."""
-        node_id, _, name = ref.partition(".")
-        node = self._nodes.get(node_id)
-        while "." in name and node is not None and node._kind == "graph":
-            inner, name = name.split(".", 1)
-            node_id = f"{node_id}{SEPARATOR}{inner}"
-            node = self._nodes.get(node_id)
-        return node_id, name, node
 
     # -- the interface, from each side --------------------------------------------
 
     def with_inputs(self, **inputs: Any) -> CompiledGraph:
         """This graph with some of its inputs filled, compiled again: what ``run`` takes to run it with those values.
 
-        Each keyword names an input of ``interface.inputs``: by its bare
-        field name (``text=...``) when no other input has that name, else
-        by its address (``**{"a.text": ...}``); an input inside an embedded
-        graph has a dotted field name and is named by address only. A name
+        Each keyword names an input of ``interface.inputs``: by its address
+        (``**{"a.text": ...}``, ``**{"emb/up.text": ...}`` inside an embedded
+        graph), or by its bare field name (``text=...``) when no other input
+        has that name. A name
         the interface does not offer — unknown, locked, fed by an edge, or
         shared by several inputs — is an ``InputNotOffered`` that lists the names
         it does offer. Each value becomes a ``Static`` on its input in a
@@ -245,12 +237,12 @@ class CompiledGraph:
         offered = [inp.name for inp in self.interface.inputs]
         filled: dict[str, dict[str, Static]] = {}
         for name, value in values.items():
-            ref = self._offered(name, offered)
-            filled.setdefault(ref.node_id, {})[ref.field] = Static(value)
+            node_id, key = as_drawn(self._offered(name, offered), self._compilation.layout.graphs)
+            filled.setdefault(node_id, {})[key] = Static(value)
         taken: dict[str, set[str]] = {}
         for name in cleared:
-            ref = self._offered(name, offered)
-            taken.setdefault(ref.node_id, set()).add(ref.field)
+            node_id, key = as_drawn(self._offered(name, offered), self._compilation.layout.graphs)
+            taken.setdefault(node_id, set()).add(key)
         graph = self.graph.model_copy(update={"nodes": tuple(
             node.model_copy(update={"bindings": {
                 **{field: binding for field, binding in node.bindings.items() if field not in taken.get(node.id, ())},
@@ -263,13 +255,7 @@ class CompiledGraph:
     def _offered(self, name: str, offered: list[Ref]) -> Ref:
         """The input a keyword to ``with_inputs`` names, or an ``InputNotOffered`` listing what is offered."""
         listing = ", ".join(str(ref) for ref in offered) if offered else "none"
-        if "." in name:
-            ref = Ref(name)
-            if ref in offered:
-                return ref
-            raise InputNotOffered(f"{name!r} is not an input this graph offers; it offers {listing}"
-                            if offered else f"{name!r}: this graph takes no inputs")
-        matches = [ref for ref in offered if ref.field == name]
+        matches = [ref for ref in offered if ref == name] or [ref for ref in offered if ref.field == name]
         if len(matches) == 1:
             return matches[0]
         if matches:
@@ -287,7 +273,7 @@ class CompiledGraph:
 
     @property
     def execution_order(self) -> tuple[str, ...]:
-        """Expanded node ids in an order where every edge's source precedes
+        """The ids of the nodes that run, in an order where every edge's source precedes
         its target. A node in a cycle is not in it; it has a fatal
         ``Problem`` instead."""
         return self._order
@@ -296,7 +282,7 @@ class CompiledGraph:
     def decisions(self) -> dict[str, dict[str, tuple[str, ...]]]:
         """Every decision a caller could observe: for each node that runs
         once and declares a ``choice`` group, the group's alternatives in
-        field order, keyed by expanded node id. A node that runs per row is
+        field order, keyed by node id. A node that runs per row is
         left out: its decision picks rows and gates nothing downstream. So
         is a node that is not ready: whether it runs per row is not
         known."""
@@ -313,248 +299,9 @@ class CompiledGraph:
                 found[node_id] = {choice: tuple(names) for choice, names in groups.items()}
         return found
 
-    def _downstream(self, node_ids: Iterable[str]) -> frozenset[str]:
-        """Every node that reads an output of one of ``node_ids``, directly or through other nodes, by expanded id.
-
-        A graph question a run asks: a restore leaves out, with each node
-        that changed, everything its values reached, so those units run
-        again. A node of ``node_ids`` is in the answer only when another of
-        them reads it. A walk over ``CompiledField._read_by`` on each call,
-        not a stored closure: storing every node's readers costs memory
-        quadratic in a long chain.
-        """
-        found: set[str] = set()
-        frontier = list(node_ids)
-        while frontier:
-            node = self._nodes[frontier.pop()]
-            for out in node.interface.outputs:
-                for reader, _ in self.field(Ref(node.id, out.name))._read_by:
-                    if reader.node_id not in found:
-                        found.add(reader.node_id)
-                        frontier.append(reader.node_id)
-        return frozenset(found)
-
     # -- what is wrong -------------------------------------------------------------
 
     @property
     def is_runnable(self) -> bool:
         """True when nothing fatal was found. A run refuses otherwise."""
         return not any(p.fatal for p in self.problems)
-
-
-class _Fold:
-    """What the steps of compile recorded, read into one stored value per node compile met.
-
-    Used once, by ``CompiledGraph._nodes``. The ids it answers for are
-    every id the author wrote (the first of two that share one) and every
-    node the graph that runs has, each graph placed and every node inside
-    it included. A graph that couldn't be placed is one node, with nothing
-    inside. Each id gets a ``NodeState`` read off what the steps recorded —
-    derived by the walk, or with an interface, or neither — and every one
-    that is not ready gets the fatal ``Problem`` that explains it: a fatal
-    problem on the node or one of its fields, else the cause of its first
-    source that is not ready. Finding none is a bug in compile, and raises.
-    """
-
-    def __init__(self, compilation: Compilation) -> None:
-        self.compilation = compilation
-        self.expansion = compilation.expansion
-        self.iteration = compilation.iteration
-        #: Every id compile met: the node as stored and the graph node it
-        #: sits in — ``None`` for every id the author wrote, a refused one
-        #: holding a ``/`` included; read off the id for every other.
-        self.met: dict[str, tuple[GraphNode, str | None]] = {}
-        for node in compilation.graph.nodes:
-            self.met.setdefault(node.id, (node, None))
-        for node_id, node in self.expansion.nodes.items():
-            self.met[node_id] = (node, embedded_in(node_id))
-        self.causes: dict[str, Problem] = {}
-        self._plan()
-
-    def _plan(self) -> None:
-        """The read plan: the walk's decisions inverted once, over the nodes it
-        derived in execution order. Who reads each output (``read_by``);
-        per index, who runs once per row of it (``iterated_by``), which
-        outputs sit on it (``carried_by``) and which typed-in lists are born
-        under it (``typed_lists``). Each index's entries go to what births
-        its rows: a node's series outputs, or an input's typed-in list. An
-        index with entries and no such owner is a bug in compile, and
-        raises."""
-        iteration, listed = self.iteration, self.compilation.listed
-        self.read_by: dict[Ref, list[tuple[Ref, Receive]]] = {}
-        self.reads: dict[str, list[tuple[Ref, Receive]]] = {}
-        self.iterated_by: dict[str, list[str]] = {}
-        self.carried_by: dict[str, list[Ref]] = {}
-        self.typed_lists: dict[str, list[Ref]] = {}
-        #: Each index's owner: the node whose series outputs birth it, or the listed input.
-        self.births: dict[str, Index] = {}
-        self.listed: dict[Ref, Index] = {}
-        for node_id in self.expansion.order:
-            if node_id not in iteration.iterated:
-                continue
-            node, interface = self.expansion.nodes[node_id], self.compilation.interfaces[node_id]
-            for inp in interface.inputs:
-                ref = Ref(node_id, inp.name)
-                binding = node.bindings.get(inp.name)
-                if isinstance(binding, From):
-                    for source in binding.refs:
-                        self.read_by.setdefault(source, []).append((ref, iteration.receives[ref]))
-                        self.reads.setdefault(node_id, []).append((source, iteration.receives[ref]))
-                if inp.name in listed[node_id]:
-                    own = iteration.indexes[ref]
-                    self.listed[ref] = own
-                    if own.parent is not None:
-                        self.typed_lists.setdefault(own.parent.id, []).append(ref)
-            if (index := iteration.iterated[node_id]) is not None:
-                self.iterated_by.setdefault(index.id, []).append(node_id)
-            for out in interface.outputs:
-                ref = Ref(node_id, out.name)
-                if (index := iteration.indexes[ref]) is not None:
-                    self.carried_by.setdefault(index.id, []).append(ref)
-                    if out.dtype.element is not None:
-                        self.births.setdefault(node_id, index)
-        owned = {index.id for index in (*self.births.values(), *self.listed.values())}
-        for planned in (self.iterated_by, self.carried_by, self.typed_lists):
-            for index_id in planned.keys() - owned:
-                raise RuntimeError(f"compile planned index {index_id!r}, which no node or typed-in list owns")
-
-    def _share(self, index: Index | None) -> dict[str, Any]:
-        """What the read plan says about ``index``, for the value that owns it."""
-        key = None if index is None else index.id
-        return {
-            "_iterated_by": tuple(self.iterated_by.get(key, ())),
-            "_carried_by": tuple(self.carried_by.get(key, ())),
-            "_typed_lists": tuple(self.typed_lists.get(key, ())),
-        }
-
-    def nodes(self) -> dict[str, CompiledNode]:
-        built: dict[str, CompiledNode] = {}
-        for node_id, (placed, outer) in self.met.items():
-            state = self.state(node_id)
-            cause = None if state == "ready" else self.cause(node_id, frozenset())
-            problems = self.problems_on(node_id)
-            interface = self.compilation.interfaces.get(node_id)
-            if node_id in self.expansion.graphs:
-                built[node_id] = CompiledNode(
-                    id=node_id,
-                    state=state,
-                    graph_node=placed,
-                    embedded_in=outer,
-                    problems=problems,
-                    _cause=cause,
-                    _kind="graph",
-                    _version=self.expansion.versions[node_id],
-                    _interface=interface,
-                    _statics=self.compilation.statics.get(node_id, {}),
-                    _definition=self.expansion.definitions[node_id],
-                    _iterates_on=self.iteration.iterated.get(node_id),
-                    _births=None,
-                    _reads=(),
-                    **self._share(None),
-                    _fields={},
-                )
-                continue
-            built[node_id] = CompiledNode(
-                id=node_id,
-                state=state,
-                graph_node=placed,
-                embedded_in=outer,
-                problems=problems,
-                _cause=cause,
-                _kind=None if interface is None else "node",
-                _definition=self.expansion.definitions.get(node_id),
-                _version=self.expansion.versions.get(node_id),
-                _interface=interface,
-                _statics=self.compilation.statics.get(node_id),
-                _iterates_on=self.iteration.iterated.get(node_id),
-                _births=self.births.get(node_id),
-                _reads=tuple(self.reads.get(node_id, ())),
-                **self._share(self.births.get(node_id)),
-                _fields={} if interface is None else self.fields(node_id, placed, interface, cause, problems),
-            )
-        return built
-
-    def fields(
-        self, node_id: str, placed: GraphNode, interface: Interface, cause: Problem | None,
-        problems: tuple[Problem, ...],
-    ) -> dict[str, CompiledField]:
-        """One ``CompiledField`` per name the node has. A name that is both
-        an input and an output is one field: its ``type`` is the output's,
-        its ``binding`` and ``receives`` the input's."""
-        inputs = {inp.name for inp in interface.inputs}
-        outputs = {out.name for out in interface.outputs}
-        ready = cause is None
-        iteration, conditions = self.iteration, self.compilation.output_conditions
-        fields: dict[str, CompiledField] = {}
-        for name in (declared.name for declared in (*interface.inputs, *interface.outputs)):
-            if name in fields:
-                continue
-            ref = Ref(node_id, name)
-            address = f"{node_id}.{name}"
-            fields[name] = CompiledField(
-                ref=ref,
-                problems=tuple(p for p in problems if _address(p) == address),
-                _cause=cause,
-                _input=name in inputs,
-                _output=name in outputs,
-                _binding=placed.bindings.get(name) if name in inputs else None,
-                _type=iteration.types[ref] if ready else None,
-                _index=iteration.indexes[ref] if ready else None,
-                _receives=iteration.receives[ref] if ready and name in inputs else None,
-                _condition=conditions[ref] if ready and name in outputs else None,
-                _read_by=tuple(self.read_by.get(ref, ())),
-                _listed=name in self.compilation.listed.get(node_id, ()),
-                **self._share(self.listed.get(ref)),
-            )
-        return fields
-
-    def state(self, node_id: str) -> NodeState:
-        """Membership, read once here: derived by the walk, or given an
-        interface, or neither."""
-        if node_id in self.iteration.iterated:
-            return "ready"
-        if node_id in self.compilation.interfaces:
-            return "wiring_failed"
-        return "resolution_failed"
-
-    def problems_on(self, address: str) -> tuple[Problem, ...]:
-        """Every problem at ``address`` or inside it. A node inside a placed
-        graph can share its id with one the author wrote and compile refused
-        (``e/holder`` beside a graph ``e`` holding ``holder``); that refusal is
-        about the author's node, so it is never the inner node's."""
-        inner = self.met[address.split(".", 1)[0]][1] is not None
-        return tuple(
-            p for p in self.compilation.problems
-            if (_address(p) == address or _address(p).startswith(address + "."))
-            and not (inner and p.node_id in self.compilation.refused)
-        )
-
-    def cause(self, node_id: str, visiting: frozenset[str]) -> Problem:
-        """The fatal problem that explains why ``node_id`` is not ready (see the class docstring)."""
-        if node_id in self.causes:
-            return self.causes[node_id]
-        visiting = visiting | {node_id}
-        found = next((p for p in self.problems_on(node_id) if p.fatal), None)
-        if found is None:
-            placed, _ = self.met[node_id]
-            sources = [
-                ref.node_id for binding in placed.bindings.values() if isinstance(binding, From)
-                for ref in binding.refs
-            ]
-            found = self._first_cause(sources, visiting)
-        if found is None:
-            raise AssertionError(f"compile left {node_id!r} {self.state(node_id)} with nothing fatal to say why")
-        self.causes[node_id] = found
-        return found
-
-    def _first_cause(self, ids: Iterable[str], visiting: frozenset[str]) -> Problem | None:
-        """The cause of the first of ``ids`` that compile met and that is not ready."""
-        for other in ids:
-            if other in self.met and other not in visiting and self.state(other) != "ready":
-                return self.cause(other, visiting)
-        return None
-
-
-def _address(found: Problem) -> str:
-    """Where a problem sits: its node, and its field when it has one (``approve.check.amount``)."""
-    return found.node_id if found.field is None else f"{found.node_id}.{found.field}"

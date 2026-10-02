@@ -488,8 +488,8 @@ def test_an_edge_from_a_node_that_failed_to_resolve_is_not_reported_again():
 
 
 def test_an_edge_into_a_field_an_embedded_graph_lacks_names_the_authors_address():
-    """``e.nope`` is not an output of ``e``; the message says so with
-    the address the author wrote, and no expanded id leaks."""
+    """``e.nope`` is not an output of ``e``, and ``e.ghost.out`` is the address
+    ``e/ghost.out``, which nothing inside ``e`` has."""
     from test_core.embedded import embedded_graph_node
 
     registry = _registry()
@@ -509,7 +509,6 @@ def test_an_edge_into_a_field_an_embedded_graph_lacks_names_the_authors_address(
         ("unknown_ref_output", "u", "x", {"source": "e.nope"}),
         ("unknown_ref_output", "w", "x", {"source": "e.ghost.out"}),
     ]
-    assert not any("/" in p.message for p in compiled.problems)
 
 
 def test_an_edge_from_a_slashed_name_under_a_plain_node_is_not_in_the_graph():
@@ -537,3 +536,25 @@ def test_an_edge_from_a_refused_id_is_not_reported_again():
     ])
 
     assert [(p.code, p.node_id) for p in problems] == [("invalid_node_id", "x/y")]
+
+
+def test_an_edge_from_a_refused_id_beside_an_embedded_graph_does_not_read_inside_it():
+    """``e/inner`` is a refused id, not the node ``inner`` of the graph ``e``:
+    its reader stays broken and silent, and never reads the embedded graph."""
+    from test_core.embedded import embedded_graph_node
+
+    registry = _registry()
+    registry = registry.extended_with({"emb-graph": embedded_graph_node(
+        "emb-graph", (GraphNode(id="inner", type="echo", version=1),), registry,
+    )})
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[
+            GraphNode(id="e", type="emb-graph", version=1),
+            GraphNode(id="e/inner", type="echo", version=1),
+            GraphNode(id="u", type="echo", version=1, bindings={"x": From("e/inner.result")}),
+        ]),
+        registry,
+    )
+
+    assert [(p.code, p.node_id) for p in compiled.problems] == [("invalid_node_id", "e/inner")]
+    assert compiled.node("u").state == "wiring_failed"

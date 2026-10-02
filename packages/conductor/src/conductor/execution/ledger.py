@@ -56,7 +56,7 @@ the type compile gave its field, and a skip is marked ``{"skipped":
 from __future__ import annotations
 
 import weakref
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Iterator
@@ -217,11 +217,30 @@ class Ledger:
     # -- the read plan, as compile stored it -----------------------------------
 
     def _owner(self, index_id: str) -> CompiledNode | CompiledField:
-        """What carries an index's read plan. Compile names an index after what
-        births its rows: a node's series outputs (``Index(node_id)``) or an
-        input's typed-in list (``Index(ref)``, an address). A node id holds no ``.``."""
+        """What carries an index's read plan: the node whose series outputs
+        birth its rows (``Index(node_id)``), or the input whose typed-in list
+        does (``Index(ref)``), as compile recorded it (``CompiledGraph._index_owners``)."""
+        return self._compiled._index_owners[index_id]
+
+    def _downstream(self, node_ids: Iterable[str]) -> frozenset[str]:
+        """Every node that reads an output of one of ``node_ids``, directly or
+        through other nodes. A restore leaves out, with each node that
+        changed, everything its values reached, so those units run again. A
+        node of ``node_ids`` is in the answer only when another of them reads
+        it. Walked over the read plan on each call rather than stored, since
+        every node's readers stored would cost memory quadratic in a long
+        chain."""
         compiled = self._compiled
-        return self._fields[Ref(index_id)] if "." in index_id else compiled.node(index_id)
+        found: set[str] = set()
+        frontier = list(node_ids)
+        while frontier:
+            node_id = frontier.pop()
+            for out in compiled.node(node_id)._interface.outputs:
+                for reader, _ in self._fields[Ref(node_id, out.name)]._read_by:
+                    if reader.node_id not in found:
+                        found.add(reader.node_id)
+                        frontier.append(reader.node_id)
+        return frozenset(found)
 
     def _births_on(self, index_id: str) -> list[str]:
         """The nodes running once per row of this index that birth rows of their own."""
@@ -939,7 +958,7 @@ class Ledger:
         A node the state fingerprints differently from ``compiled`` — or
         does not fingerprint at all, or that ``compiled`` no longer has — is
         left out together with everything that reads it
-        (``CompiledGraph._downstream``), so those units run again; the rest is restored, each value read back through the codec
+        (``_downstream``), so those units run again; the rest is restored, each value read back through the codec
         by its field's type. The rows are not stored: each done unit's values
         birth them again, as its write did (``_rebirth``), and the indexes
         whose producers are complete are sealed again. The rows of a typed-in
@@ -960,7 +979,7 @@ class Ledger:
             | {entry.ref.node_id for entry in state.values}
             | {unit.node_id for unit in state.done_units}
         ) - current.keys()
-        dropped = changed | compiled._downstream(changed) | gone
+        dropped = changed | ledger._downstream(changed) | gone
         for entry in state.values:
             ref = entry.ref
             if ref.node_id in dropped:
