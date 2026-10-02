@@ -77,7 +77,7 @@ def conditions_of(
             continue
         at_node = ALWAYS
         for binding in node.bindings.values():
-            if isinstance(binding, From) and binding.refs:
+            if isinstance(binding, From):
                 at_node = _all_of(at_node, _any_of(conditions.get(ref, ALWAYS) for ref in binding.refs))
         for out in interfaces[node.id].outputs:
             gates = out.choice is not None and iterated[node.id] is None

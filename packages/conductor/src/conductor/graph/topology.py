@@ -1,8 +1,11 @@
-"""The edges facts of a graph: the dependency map, read once, and an order over it.
+"""Which nodes each node of a graph reads, and an order over them.
 
-``dependencies_of`` is the one graph-wide reading of the edges; everything
-that needs a whole-graph fact — the order, which nodes nothing consumes —
-reads the map rather than walking the bindings again.
+``dependencies_of`` turns the edges into a map from each node to the nodes
+it reads, and the order and which nodes nothing consumes are read off that
+map. The map keeps node ids only. A pass that needs the fields an edge
+joins — the edge walk, the conditions, placing a compiled graph, a drawn
+edge — or the sources of one node — the fatal cause a node inherits —
+walks the bindings itself.
 """
 
 from __future__ import annotations

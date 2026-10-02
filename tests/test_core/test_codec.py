@@ -126,7 +126,7 @@ def test_a_text_that_spells_the_old_skip_marker_is_a_text_after_a_round_trip():
         GraphNode(id="up", type="upper", version=1, bindings={"text": From("split.result")}),
     ])
     ledger = Ledger(compiled)
-    ledger.record(("split", None), {"result": [Txt("__skipped__"), Txt("x")]})
+    ledger.record(("split", ()), {"result": [Txt("__skipped__"), Txt("x")]})
     ledger.record(("up", (0,)), {"result": Txt("__SKIPPED__")})
     ledger.record(("up", (1,)), {"result": Txt("X")})
 
@@ -147,7 +147,7 @@ def test_a_skip_is_marked_beside_its_address_with_its_depth():
         GraphNode(id="up", type="upper", version=1, bindings={"text": From("split.result")}),
     ])
     ledger = Ledger(compiled)
-    ledger.record(("split", None), {"result": [Txt("a"), Txt("b")]})
+    ledger.record(("split", ()), {"result": [Txt("a"), Txt("b")]})
     ledger.record(("up", (0,)), {"result": SKIPPED})
     ledger.record(("up", (1,)), {"result": Txt("B")})
 
@@ -184,7 +184,7 @@ def test_a_value_with_no_json_form_raises_naming_the_field():
 
     compiled = _compiled(Opens, nodes=[GraphNode(id="o", type="opens", version=1, bindings={"text": Static("x")})])
     ledger = Ledger(compiled)
-    ledger.record(("o", None), {"result": Opaque(object())})
+    ledger.record(("o", ()), {"result": Opaque(object())})
 
     with pytest.raises(TypeError, match=r"o\.result"):
         ledger.state()

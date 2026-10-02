@@ -20,7 +20,7 @@ def test_a_cause_names_a_code_a_message_and_its_details():
 
     assert cause.code == "rate_limited"
     assert cause.details["retry_after"] == 30
-    assert cause.row is None
+    assert cause.row == ()
 
 
 def test_a_cause_on_an_iterating_node_names_the_row():

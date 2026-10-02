@@ -96,7 +96,7 @@ def test_a_leg_that_asks_answers_pending_and_the_next_leg_goes_on(client, calls)
     body = pending.json()
     assert body["type"] == "graph_pending"
     [unit] = body["pending"]
-    assert unit["node_id"] == "ok" and unit["row"] is None
+    assert unit["node_id"] == "ok" and unit["row"] == []
     assert unit["questions"][0]["name"] == "ok.result"
 
     done = client.post("/execute", json={"graph": ONCE, "state": body["state"], "cache": {"ok": {"result": True}}}).json()

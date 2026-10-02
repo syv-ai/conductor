@@ -127,8 +127,8 @@ DOCS = GraphNode(id="docs", type="docs", version=1)
 def test_a_node_that_runs_once_is_one_unit_and_is_ready_with_no_edges():
     ledger = _ledger([DOCS])
 
-    assert ledger.units("docs") == [("docs", None)]
-    assert ledger.ready(("docs", None))
+    assert ledger.units("docs") == [("docs", ())]
+    assert ledger.ready(("docs", ()))
     assert not ledger.complete("docs")
 
 
@@ -141,7 +141,7 @@ def test_an_iterating_node_has_no_units_until_its_index_has_rows():
 def test_a_root_index_is_born_sealed_by_the_unit_that_produces_it():
     ledger = _ledger([DOCS, GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))})])
 
-    ledger.record(("docs", None), {"texts": ["a", "b"], "names": ["x", "y"]})
+    ledger.record(("docs", ()), {"texts": ["a", "b"], "names": ["x", "y"]})
 
     assert ledger.complete("docs")
     assert ledger.units("up") == [("up", (0,)), ("up", (1,))]
@@ -152,16 +152,16 @@ def test_series_outputs_of_one_unit_must_agree_in_length():
     ledger = _ledger([DOCS])
 
     with pytest.raises(ValueError, match="length"):
-        ledger.record(("docs", None), {"texts": ["a", "b"], "names": ["x"]})
+        ledger.record(("docs", ()), {"texts": ["a", "b"], "names": ["x"]})
 
 
 def test_a_unit_that_skips_every_series_output_gates_its_index():
     ledger = _ledger([DOCS, GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))})])
 
-    ledger.record(("docs", None), {"texts": SKIPPED, "names": SKIPPED})
+    ledger.record(("docs", ()), {"texts": SKIPPED, "names": SKIPPED})
 
-    assert ledger.units("up") == [("up", None)]
-    assert ledger.inputs_for(("up", None)) == Skip(at=None)
+    assert ledger.units("up") == [("up", ())]
+    assert ledger.inputs_for(("up", ())) == Skip(at=())
 
 
 # --- what a unit receives ----------------------------------------------------------
@@ -169,7 +169,7 @@ def test_a_unit_that_skips_every_series_output_gates_its_index():
 
 def test_an_iterating_unit_receives_its_row():
     ledger = _ledger([DOCS, GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))})])
-    ledger.record(("docs", None), {"texts": ["a", "b"], "names": ["x", "y"]})
+    ledger.record(("docs", ()), {"texts": ["a", "b"], "names": ["x", "y"]})
 
     assert ledger.inputs_for(("up", (1,))) == {"text": "b"}
 
@@ -180,9 +180,9 @@ def test_a_scalar_beside_a_series_broadcasts():
         GraphNode(id="prefix", type="upper", version=1, bindings={"text": Static("p")}),
         GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("prefix", "result")), "b": _edge(("docs", "texts"))}),
     ])
-    ledger.record(("docs", None), {"texts": ["a", "b"], "names": ["x", "y"]})
+    ledger.record(("docs", ()), {"texts": ["a", "b"], "names": ["x", "y"]})
     assert not ledger.ready(("p", (0,)))
-    ledger.record(("prefix", None), {"result": "P"})
+    ledger.record(("prefix", ()), {"result": "P"})
 
     assert ledger.ready(("p", (0,)))
     assert ledger.inputs_for(("p", (1,))) == {"a": "P", "b": "b"}
@@ -195,7 +195,7 @@ def test_contagion_reads_the_upstream_row_and_nothing_waits_on_other_rows():
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
         GraphNode(id="n", type="upper", version=1, bindings={"text": _edge(("up", "result"))}),
     ])
-    ledger.record(("docs", None), {"texts": ["a", "b"], "names": ["x", "y"]})
+    ledger.record(("docs", ()), {"texts": ["a", "b"], "names": ["x", "y"]})
     ledger.record(("up", (0,)), {"result": "A"})
 
     assert ledger.ready(("n", (0,)))
@@ -205,7 +205,7 @@ def test_contagion_reads_the_upstream_row_and_nothing_waits_on_other_rows():
 
 def test_an_iterating_unit_returning_a_series_births_rows_under_its_row():
     ledger = _ledger([DOCS, GraphNode(id="lines", type="lines", version=1, bindings={"text": _edge(("docs", "texts"))})])
-    ledger.record(("docs", None), {"texts": ["a\nb", "c"], "names": ["x", "y"]})
+    ledger.record(("docs", ()), {"texts": ["a\nb", "c"], "names": ["x", "y"]})
     ledger.record(("lines", (1,)), {"result": ["c"]})
     ledger.record(("lines", (0,)), {"result": ["a", "b"]})
 
@@ -222,7 +222,7 @@ def test_a_reduction_on_a_child_receives_the_group_under_its_parent_row():
         GraphNode(id="lines", type="lines", version=1, bindings={"text": _edge(("docs", "texts"))}),
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("lines", "result"))}),
     ])
-    ledger.record(("docs", None), {"texts": ["a\nb", "c"], "names": ["x", "y"]})
+    ledger.record(("docs", ()), {"texts": ["a\nb", "c"], "names": ["x", "y"]})
     ledger.record(("lines", (0,)), {"result": ["a", "b"]})
 
     assert ledger.ready(("j", (0,)))
@@ -239,7 +239,7 @@ def test_a_parent_index_series_broadcasts_down_to_a_child_row():
         GraphNode(id="lines", type="lines", version=1, bindings={"text": _edge(("docs", "texts"))}),
         GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("lines", "result")), "b": _edge(("docs", "names"))}),
     ])
-    ledger.record(("docs", None), {"texts": ["a\nb", "c"], "names": ["x", "y"]})
+    ledger.record(("docs", ()), {"texts": ["a\nb", "c"], "names": ["x", "y"]})
     ledger.record(("lines", (0,)), {"result": ["a", "b"]})
 
     assert ledger.inputs_for(("p", (0, 1))) == {"a": "b", "b": "x"}
@@ -251,13 +251,13 @@ def test_a_reduction_on_a_root_waits_for_the_whole_series():
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("up", "result"))}),
     ])
-    ledger.record(("docs", None), {"texts": ["a", "b"], "names": ["x", "y"]})
+    ledger.record(("docs", ()), {"texts": ["a", "b"], "names": ["x", "y"]})
     ledger.record(("up", (0,)), {"result": "A"})
-    assert not ledger.ready(("j", None))
+    assert not ledger.ready(("j", ()))
     ledger.record(("up", (1,)), {"result": "B"})
 
-    assert ledger.ready(("j", None))
-    texts = ledger.inputs_for(("j", None))["texts"]
+    assert ledger.ready(("j", ()))
+    texts = ledger.inputs_for(("j", ()))["texts"]
     assert texts.index == Index("docs")
     assert list(texts) == ["A", "B"]
 
@@ -268,10 +268,10 @@ def test_a_gather_lands_on_the_inputs_own_index_and_drops_skipped_sources():
         GraphNode(id="b", type="upper", version=1, bindings={"text": Static("b")}),
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("a", "result"), ("b", "result"))}),
     ])
-    ledger.record(("a", None), {"result": "A"})
-    ledger.record(("b", None), Skip(at=None))
+    ledger.record(("a", ()), {"result": "A"})
+    ledger.record(("b", ()), Skip(at=()))
 
-    texts = ledger.inputs_for(("j", None))["texts"]
+    texts = ledger.inputs_for(("j", ()))["texts"]
     assert texts.index == Index("j.texts")
     assert list(texts) == ["A"]
 
@@ -279,7 +279,7 @@ def test_a_gather_lands_on_the_inputs_own_index_and_drops_skipped_sources():
 def test_an_unbound_series_input_receives_its_default_on_its_own_index():
     ledger = _ledger([GraphNode(id="j", type="join", version=1)])
 
-    texts = ledger.inputs_for(("j", None))["texts"]
+    texts = ledger.inputs_for(("j", ()))["texts"]
     assert isinstance(texts, Series)
     assert texts.index == Index("j.texts")
     assert list(texts) == []
@@ -288,7 +288,7 @@ def test_an_unbound_series_input_receives_its_default_on_its_own_index():
 def test_a_typed_list_on_a_series_input_lands_on_the_inputs_own_index():
     ledger = _ledger([GraphNode(id="j", type="join", version=1, bindings={"texts": Static(["a", "b"])})])
 
-    texts = ledger.inputs_for(("j", None))["texts"]
+    texts = ledger.inputs_for(("j", ()))["texts"]
     assert texts.index == Index("j.texts")
     assert texts.rows == ((0,), (1,))
 
@@ -314,9 +314,9 @@ def test_a_skipped_scalar_input_skips_the_unit():
         GraphNode(id="a", type="upper", version=1, bindings={"text": Static("a")}),
         GraphNode(id="b", type="upper", version=1, bindings={"text": _edge(("a", "result"))}),
     ])
-    ledger.record(("a", None), Skip(at=None))
+    ledger.record(("a", ()), Skip(at=()))
 
-    assert ledger.inputs_for(("b", None)) == Skip(at=None)
+    assert ledger.inputs_for(("b", ())) == Skip(at=())
 
 
 def test_a_skipped_row_leaves_the_series_sparse():
@@ -325,7 +325,7 @@ def test_a_skipped_row_leaves_the_series_sparse():
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
         GraphNode(id="n", type="upper", version=1, bindings={"text": _edge(("up", "result"))}),
     ])
-    ledger.record(("docs", None), {"texts": ["a", "b", "c"], "names": ["x", "y", "z"]})
+    ledger.record(("docs", ()), {"texts": ["a", "b", "c"], "names": ["x", "y", "z"]})
     ledger.record(("up", (0,)), {"result": "A"})
     ledger.record(("up", (1,)), Skip(at=(1,)))
     ledger.record(("up", (2,)), {"result": "C"})
@@ -343,19 +343,19 @@ def test_a_skipped_node_skips_what_it_births():
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("up", "result"))}),
     ])
-    ledger.record(("docs", None), Skip(at=None))
+    ledger.record(("docs", ()), Skip(at=()))
 
-    assert ledger.units("up") == [("up", None)]
-    assert ledger.ready(("up", None))
-    assert ledger.inputs_for(("up", None)) == Skip(at=None)
-    ledger.record(("up", None), Skip(at=None))
+    assert ledger.units("up") == [("up", ())]
+    assert ledger.ready(("up", ()))
+    assert ledger.inputs_for(("up", ())) == Skip(at=())
+    ledger.record(("up", ()), Skip(at=()))
     assert ledger.complete("up")
-    assert ledger.inputs_for(("j", None)) == Skip(at=None)
+    assert ledger.inputs_for(("j", ())) == Skip(at=())
 
 
 def test_an_iterating_node_with_every_row_skipped_is_an_empty_series_not_skipped():
     ledger = _ledger([DOCS, GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))})])
-    ledger.record(("docs", None), {"texts": ["a"], "names": ["x"]})
+    ledger.record(("docs", ()), {"texts": ["a"], "names": ["x"]})
     ledger.record(("up", (0,)), Skip(at=(0,)))
 
     assert "up" in ledger.results()
@@ -373,21 +373,21 @@ def test_a_decision_over_a_whole_column_gates_what_hangs_off_the_branch_not_take
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("decide", "empty"))}),
         GraphNode(id="after", type="join", version=1, bindings={"texts": _edge(("up", "result"))}),
     ])
-    ledger.record(("docs", None), {"texts": ["a", "b"], "names": ["x", "y"]})
-    ledger.record(("decide", None), {"full": ["a", "b"], "empty": SKIPPED})
+    ledger.record(("docs", ()), {"texts": ["a", "b"], "names": ["x", "y"]})
+    ledger.record(("decide", ()), {"full": ["a", "b"], "empty": SKIPPED})
 
-    assert ledger.ready(("full", None)) and ledger.ready(("empty", None))
-    assert list(ledger.inputs_for(("full", None))["texts"]) == ["a", "b"]
-    assert ledger.inputs_for(("empty", None)) == Skip(at=None)
+    assert ledger.ready(("full", ())) and ledger.ready(("empty", ()))
+    assert list(ledger.inputs_for(("full", ()))["texts"]) == ["a", "b"]
+    assert ledger.inputs_for(("empty", ())) == Skip(at=())
     # the skip reaches through a node running per row: its rows exist (born by the full branch), each is skipped at its own row
     assert ledger.units("up") == [("up", (0,)), ("up", (1,))]
-    assert ledger.inputs_for(("up", (0,))) == Skip(at=None)
-    assert not ledger.ready(("after", None))
-    ledger.record(("up", (0,)), Skip(at=None))
-    ledger.record(("up", (1,)), Skip(at=None))
-    assert ledger.inputs_for(("after", None)) == Skip(at=None)
-    ledger.record(("empty", None), Skip(at=None))
-    ledger.record(("after", None), Skip(at=None))
+    assert ledger.inputs_for(("up", (0,))) == Skip(at=())
+    assert not ledger.ready(("after", ()))
+    ledger.record(("up", (0,)), Skip(at=()))
+    ledger.record(("up", (1,)), Skip(at=()))
+    assert ledger.inputs_for(("after", ())) == Skip(at=())
+    ledger.record(("empty", ()), Skip(at=()))
+    ledger.record(("after", ()), Skip(at=()))
     results = ledger.results()
     assert "empty" not in results and "up" not in results and "after" not in results
     assert "empty" not in ledger.result_of("decide")  # the branch not taken is absent, never SKIPPED
@@ -402,7 +402,7 @@ def test_a_gate_at_a_parent_row_reaches_only_the_rows_under_it():
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("lines", "result"))}),
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("up", "result"))}),
     ])
-    ledger.record(("docs", None), {"texts": ["a\nb", "c"], "names": ["x", "y"]})
+    ledger.record(("docs", ()), {"texts": ["a\nb", "c"], "names": ["x", "y"]})
     ledger.record(("lines", (0,)), {"result": ["a", "b"]})
     ledger.record(("lines", (1,)), {"result": SKIPPED})
 
@@ -432,14 +432,14 @@ def test_a_mask_and_a_gate_differ_only_in_depth():
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("up", "result"))}),
     ]
     at_its_own_row = _ledger(nodes)
-    at_its_own_row.record(("docs", None), {"texts": ["a"], "names": ["x"]})
+    at_its_own_row.record(("docs", ()), {"texts": ["a"], "names": ["x"]})
     at_its_own_row.record(("up", (0,)), Skip(at=(0,)))
-    assert list(at_its_own_row.inputs_for(("j", None))["texts"]) == []
+    assert list(at_its_own_row.inputs_for(("j", ()))["texts"]) == []
 
     skipped_above = _ledger(nodes)
-    skipped_above.record(("docs", None), Skip(at=None))
-    skipped_above.record(("up", None), Skip(at=None))
-    assert skipped_above.inputs_for(("j", None)) == Skip(at=None)
+    skipped_above.record(("docs", ()), Skip(at=()))
+    skipped_above.record(("up", ()), Skip(at=()))
+    assert skipped_above.inputs_for(("j", ())) == Skip(at=())
 
 
 # --- what the run produced ----------------------------------------------------------------
@@ -451,10 +451,10 @@ def test_results_hold_scalars_and_series_on_their_indexes():
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("up", "result"))}),
     ])
-    ledger.record(("docs", None), {"texts": ["a", "b"], "names": ["x", "y"]})
+    ledger.record(("docs", ()), {"texts": ["a", "b"], "names": ["x", "y"]})
     ledger.record(("up", (1,)), {"result": "B"})
     ledger.record(("up", (0,)), {"result": "A"})
-    ledger.record(("j", None), {"result": "A+B"})
+    ledger.record(("j", ()), {"result": "A+B"})
 
     results = ledger.results()
     assert results["j"] == {"result": "A+B"}
@@ -471,7 +471,7 @@ def test_two_refs_on_one_index_into_a_scalar_input_read_whichever_covers_the_row
         GraphNode(id="b", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
         GraphNode(id="m", type="upper", version=1, bindings={"text": _edge(("a", "result"), ("b", "result"))}),
     ])
-    ledger.record(("docs", None), {"texts": ["x", "y", "z"], "names": ["1", "2", "3"]})
+    ledger.record(("docs", ()), {"texts": ["x", "y", "z"], "names": ["1", "2", "3"]})
     ledger.record(("a", (0,)), {"result": "A0"})
     ledger.record(("b", (0,)), Skip(at=(0,)))
     ledger.record(("a", (1,)), Skip(at=(1,)))
@@ -491,7 +491,7 @@ def test_a_row_two_sources_cover_fails_the_node_with_the_row():
         GraphNode(id="b", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
         GraphNode(id="m", type="upper", version=1, bindings={"text": _edge(("a", "result"), ("b", "result"))}),
     ])
-    ledger.record(("docs", None), {"texts": ["x"], "names": ["1"]})
+    ledger.record(("docs", ()), {"texts": ["x"], "names": ["1"]})
     ledger.record(("a", (0,)), {"result": "A0"})
     ledger.record(("b", (0,)), {"result": "B0"})
 
@@ -507,20 +507,20 @@ def test_two_refs_on_one_index_into_a_series_input_are_one_series_on_it():
         GraphNode(id="b", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("a", "result"), ("b", "result"))}),
     ])
-    ledger.record(("docs", None), {"texts": ["x", "y"], "names": ["1", "2"]})
+    ledger.record(("docs", ()), {"texts": ["x", "y"], "names": ["1", "2"]})
     ledger.record(("a", (0,)), {"result": "A0"})
     ledger.record(("b", (0,)), Skip(at=(0,)))
     ledger.record(("a", (1,)), Skip(at=(1,)))
     ledger.record(("b", (1,)), {"result": "B1"})
 
-    texts = ledger.inputs_for(("j", None))["texts"]
+    texts = ledger.inputs_for(("j", ()))["texts"]
     assert texts.index == Index("docs") and texts.rows == ((0,), (1,))
     assert list(texts) == ["A0", "B1"]
 
 
 def test_a_skipped_node_is_absent_from_the_results():
     ledger = _ledger([GraphNode(id="a", type="upper", version=1, bindings={"text": Static("a")})])
-    ledger.record(("a", None), Skip(at=None))
+    ledger.record(("a", ()), Skip(at=()))
 
     assert ledger.results() == {}
 
@@ -528,7 +528,7 @@ def test_a_skipped_node_is_absent_from_the_results():
 def test_progress_counts_rows_and_knows_the_total_once_sealed():
     ledger = _ledger([DOCS, GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))})])
     assert ledger.progress("up") == (0, None)
-    ledger.record(("docs", None), {"texts": ["a", "b"], "names": ["x", "y"]})
+    ledger.record(("docs", ()), {"texts": ["a", "b"], "names": ["x", "y"]})
     ledger.record(("up", (0,)), {"result": "A"})
 
     assert ledger.progress("up") == (1, 2)
@@ -542,7 +542,7 @@ def test_progress_counts_rows_not_stand_ins():
         GraphNode(id="lines", type="lines", version=1, bindings={"text": _edge(("docs", "texts"))}),
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("lines", "result"))}),
     ])
-    ledger.record(("docs", None), {"texts": ["a\nb", "c"], "names": ["x", "y"]})
+    ledger.record(("docs", ()), {"texts": ["a\nb", "c"], "names": ["x", "y"]})
     ledger.record(("lines", (0,)), {"result": ["a", "b"]})
     ledger.record(("lines", (1,)), {"result": SKIPPED})
 
@@ -556,7 +556,7 @@ def test_progress_counts_rows_not_stand_ins():
 def test_the_ledger_restores_from_its_state():
     """What the ledger holds is the run's state; the next leg starts from it, nothing pruned."""
     ledger = _ledger([DOCS, GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))})])
-    ledger.record(("docs", None), {"texts": ["a", "b"], "names": ["x", "y"]})
+    ledger.record(("docs", ()), {"texts": ["a", "b"], "names": ["x", "y"]})
     ledger.record(("up", (0,)), Skip(at=(0,)))
 
     restored = Ledger.restore(ledger._compiled, ledger.state())
@@ -586,7 +586,7 @@ def test_a_restore_works_out_the_rows_a_nested_node_birthed_and_where_it_skipped
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("lines", "result"))}),
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("up", "result"))}),
     ])
-    ledger.record(("docs", None), {"texts": ["a\nb", "c"], "names": ["x", "y"]})
+    ledger.record(("docs", ()), {"texts": ["a\nb", "c"], "names": ["x", "y"]})
     ledger.record(("lines", (0,)), {"result": ["a", "b"]})
     ledger.record(("lines", (1,)), {"result": SKIPPED})
     ledger.record(("up", (1,)), Skip(at=(1,)))
@@ -598,8 +598,8 @@ def test_a_restore_works_out_the_rows_a_nested_node_birthed_and_where_it_skipped
 def test_a_restore_works_out_a_skip_from_above():
     """A node skipped at its row stands in once for every row it would have had."""
     ledger = _ledger([DOCS, GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))})])
-    ledger.record(("docs", None), Skip(at=None))
-    ledger.record(("up", None), Skip(at=None))
+    ledger.record(("docs", ()), Skip(at=()))
+    ledger.record(("up", ()), Skip(at=()))
 
     _restores_as_it_was(ledger)
 
@@ -609,7 +609,7 @@ def test_a_restore_tells_an_empty_series_from_a_skipped_one(outputs):
     """An empty series seals its index with no rows and nothing stands in; a
     skipped one leaves the index with no rows under the unit's row, so a unit stands in."""
     ledger = _ledger([DOCS, GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))})])
-    ledger.record(("docs", None), outputs)
+    ledger.record(("docs", ()), outputs)
 
     _restores_as_it_was(ledger)
 
@@ -617,7 +617,7 @@ def test_a_restore_tells_an_empty_series_from_a_skipped_one(outputs):
 def test_a_restored_ledger_names_the_nodes_an_earlier_leg_completed():
     """A node is completed when every unit it will have is done; one with a row still to run is not."""
     ledger = _ledger([DOCS, GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))})])
-    ledger.record(("docs", None), {"texts": ["a", "b"], "names": ["x", "y"]})
+    ledger.record(("docs", ()), {"texts": ["a", "b"], "names": ["x", "y"]})
     ledger.record(("up", (0,)), {"result": "A"})
 
     restored = Ledger.restore(ledger._compiled, ledger.state())
@@ -638,12 +638,12 @@ def test_a_pending_unit_waits_and_so_does_what_reads_it():
         GraphNode(id="a", type="upper", version=1, bindings={"text": Static("a")}),
         GraphNode(id="b", type="upper", version=1, bindings={"text": _edge(("a", "result"))}),
     ])
-    ledger.pend(("a", None), (Input(name="result", dtype=Txt, title="Svar", widget=Textarea()),))
+    ledger.pend(("a", ()), (Input(name="result", dtype=Txt, title="Svar", widget=Textarea()),))
 
-    assert ledger.is_pending(("a", None)) and not ledger.is_done(("a", None))
+    assert ledger.is_pending(("a", ())) and not ledger.is_done(("a", ()))
     assert not ledger.complete("a")
-    assert not ledger.ready(("b", None))
+    assert not ledger.ready(("b", ()))
     (waiting,) = ledger.pending()
-    assert (waiting.node_id, waiting.row) == ("a", None)
+    assert (waiting.node_id, waiting.row) == ("a", ())
     assert waiting.questions[0].name == Ref("a", "result")
-    assert ("a", None) not in {(n, None if r is None else tuple(r)) for n, r in Ledger.restore(ledger._compiled, ledger.state())._done}
+    assert ("a", ()) not in Ledger.restore(ledger._compiled, ledger.state())._done

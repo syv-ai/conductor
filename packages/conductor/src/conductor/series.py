@@ -237,7 +237,7 @@ class Series(DType, Sequence[T]):
         """
         from conductor.codec import SERIES_WIRE_SCHEMA, series_from_wire, series_to_wire
 
-        element = getattr(source_type, "element", None)
+        element = source_type.element
         element_schema = (
             handler.generate_schema(element)
             if element is not None
