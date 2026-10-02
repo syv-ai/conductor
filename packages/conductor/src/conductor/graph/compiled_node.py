@@ -104,34 +104,36 @@ def _gate(node: CompiledNode, asked: str, *, needs_wiring: bool, needs_one_unit:
 
 @dataclass(frozen=True, eq=False)
 class CompiledNode:
-    """One node as the compiler left it: what it has, what it holds, how it runs.
+    """What compile worked out about one node in a graph.
 
-    Built once by ``CompiledGraph.from_graph`` and handed back by
-    ``CompiledGraph.node(node_id)`` on every call, so it is equal only to
-    itself: the same node compiled twice is two values. The engine reads
-    ``interface``, ``validate``, ``statics``, ``runner`` and
-    ``iterates_on`` for each node it runs, and ``version`` and
-    ``graph_node`` for the policy and the type it reports; an editor reads
-    ``state`` and ``kind``, then ``interface`` and ``iterates_on`` for each
-    node it draws — a node whose ``kind`` is ``graph`` as a box around its
-    inner nodes, whose own problems are ``version.problems`` — and
-    ``problems`` for its marks.
-    Its sibling is ``CompiledField``, the same for one input or output.
+    You get one from ``CompiledGraph.node(id)``, which hands back the same
+    object every time. Compile builds it once, the first time anyone asks
+    about a node. Its sibling, ``CompiledField``, does the same for one
+    input or output.
 
-    What it answers depends on its ``state``. ``id``, ``state``,
-    ``graph_node``, ``embedded_in`` and ``problems`` answer always.
-    ``kind``, ``definition``, ``version``, ``interface`` and ``statics``
-    need a node compile could resolve, and raise ``NodeResolutionError``
-    otherwise. ``iterates_on`` needs a ready one, and raises
-    ``NodeWiringError`` for a node whose connections compile could not work
-    out. Both errors hold, in ``problems``, the one ``Problem`` that
-    explains the state. ``runner``, ``validate`` and ``fingerprint`` are the
-    run's, and only a node that runs as one unit answers them: on a
-    ``graph`` they raise ``NodeKindError``, since its inner nodes run in its
-    place. A ``graph`` has no fields of its own — an address on it
-    (``Ref("approve", "check.amount")``) reads through to the inner field.
-    One that couldn't be placed is ``wiring_failed`` and has nothing
-    inside; read what is inside through its ``version``.
+    The engine reads it to run the node: its ``interface``, the values set
+    on it (``statics``), how to call it (``validate``, ``runner``) and
+    whether it runs once per row (``iterates_on``). An editor reads it to
+    draw the node: its ``state`` first, then whatever that state allows,
+    and its ``problems`` for the marks.
+
+    How much you can ask depends on the ``state``:
+
+    - Always: ``id``, ``state``, ``graph_node``, ``embedded_in`` and
+      ``problems``.
+    - Unless compile couldn't make sense of the node at all: its ``kind``,
+      ``definition``, ``version``, ``interface`` and ``statics``. Otherwise
+      they raise ``NodeResolutionError``.
+    - Only on a ready node: ``iterates_on``. Otherwise it raises
+      ``NodeWiringError``.
+
+    Both errors carry the one problem that explains why.
+
+    A node whose ``kind`` is ``graph`` is a whole graph embedded as a
+    node. It doesn't run itself; its inner nodes run in its place, so
+    ``runner``, ``validate`` and ``fingerprint`` raise ``NodeKindError``.
+    It has no fields of its own: an address on it reads through to the
+    inner node's field. Its own graph's problems are on its ``version``.
     """
 
     #: The expanded id: ``"approve/check"`` for an inner node.
