@@ -157,6 +157,23 @@ class CompiledGraph:
         its compile and never asked about a node."""
         return self._compilation.compiled_nodes()
 
+    @cached_property
+    def _index_owners(self) -> Mapping[str, CompiledNode | CompiledField]:
+        """Who owns each index's share of the read plan, by index id: a node,
+        for the index named after it, or the input whose typed-in list
+        creates one. The ledger's way back from an index to its owner, read
+        on its first question; compile names the index, so nobody parses
+        the id to find which of the two it is."""
+        owners: dict[str, CompiledNode | CompiledField] = {}
+        for node_id, node in self._nodes.items():
+            if node._kind == "graph":
+                continue
+            owners[node_id] = node
+            for compiled_field in node._fields.values():
+                if compiled_field._listed:
+                    owners[compiled_field.index.id] = compiled_field
+        return owners
+
     def node(self, node_id: str) -> CompiledNode:
         """Look up one compiled node by its expanded id.
 

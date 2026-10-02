@@ -217,11 +217,10 @@ class Ledger:
     # -- the read plan, as compile stored it -----------------------------------
 
     def _owner(self, index_id: str) -> CompiledNode | CompiledField:
-        """What carries an index's read plan. Compile names an index after what
-        births its rows: a node's series outputs (``Index(node_id)``) or an
-        input's typed-in list (``Index(ref)``, an address). A node id holds no ``.``."""
-        compiled = self._compiled
-        return self._fields[Ref(index_id)] if "." in index_id else compiled.node(index_id)
+        """What carries an index's read plan: the node whose series outputs
+        birth its rows (``Index(node_id)``), or the input whose typed-in list
+        does (``Index(ref)``), as compile recorded it (``CompiledGraph._index_owners``)."""
+        return self._compiled._index_owners[index_id]
 
     def _downstream(self, node_ids: Iterable[str]) -> frozenset[str]:
         """Every node that reads an output of one of ``node_ids``, directly or
