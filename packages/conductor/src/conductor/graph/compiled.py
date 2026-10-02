@@ -69,7 +69,7 @@ from conductor.errors import InputNotOffered
 from conductor.graph.binding import Static
 from conductor.graph.compiled_node import CompiledField, CompiledNode, _gate
 from conductor.graph.compiler import Compilation
-from conductor.graph.embedding import SEPARATOR
+from conductor.graph.embedding import as_drawn
 from conductor.graph.problem import Problem
 from conductor.ref import Ref
 
@@ -170,57 +170,32 @@ class CompiledGraph:
     def field(self, ref: Ref) -> CompiledField:
         """Look up one compiled input or output by its address.
 
-        The address can be written against the graph as the author built it
-        (``Ref("emb", "all.result")``) or as it runs (``Ref("emb/all",
-        "result")``). A node or field the graph does not have raises
-        ``KeyError``, since asking for one is a programming error. A node
-        compile could not resolve raises ``NodeResolutionError``: nobody
-        knows its fields."""
-        node_id, name, node = self._reached(ref)
+        A field inside an embedded graph is at its path: ``Ref("emb/all",
+        "result")``. The node ``emb`` itself is a graph and has no fields, so
+        the author's spelling, ``Ref("emb", "all.result")``, raises ``KeyError``
+        like any node or field the graph does not have, since asking for one
+        is a programming error. A node compile could not resolve raises
+        ``NodeResolutionError``: nobody knows its fields."""
+        node = self._nodes.get(ref.node_id)
         if node is None:
-            if node_id != ref.node_id:
-                raise KeyError(f"{ref.node_id!r} has no field {ref.field!r} on this node")
-            raise KeyError(f"{node_id!r} is not a node of this graph")
+            raise KeyError(f"{ref.node_id!r} is not a node of this graph")
         if node._kind == "graph":
-            raise KeyError(f"{node_id!r} has no field {name!r} on this node")
-        _gate(node, f"field {name!r}", needs_wiring=False)
-        compiled_field = node._fields.get(name)
+            raise KeyError(f"{ref.node_id!r} is a graph; its fields are on the nodes inside it")
+        _gate(node, f"field {ref.field!r}", needs_wiring=False)
+        compiled_field = node._fields.get(ref.field)
         if compiled_field is None:
-            raise KeyError(f"{node_id!r} has no field {name!r} on this node")
+            raise KeyError(f"{ref.node_id!r} has no field {ref.field!r} on this node")
         return compiled_field
-
-    # -- the two graphs ------------------------------------------------------
-
-    def expanded(self, ref: Ref) -> Ref:
-        """An address on the authored graph, read through to the node that
-        runs: ``Ref("emb", "all.result")`` becomes ``Ref("emb/all", "result")``.
-        A host reads engine results by the expanded address, since the
-        engine knows only the expanded graph."""
-        node_id, name, _ = self._reached(ref)
-        return Ref(node_id, name)
-
-    def _reached(self, ref: Ref) -> tuple[str, str, CompiledNode | None]:
-        """Where ``ref`` lands once read through every graph it names:
-        the expanded node id, the field name there, and the node (``None``
-        for an id the graph does not have). Splits the address once, since
-        the engine asks ``field`` for every value it reads or writes."""
-        node_id, _, name = ref.partition(".")
-        node = self._nodes.get(node_id)
-        while "." in name and node is not None and node._kind == "graph":
-            inner, name = name.split(".", 1)
-            node_id = f"{node_id}{SEPARATOR}{inner}"
-            node = self._nodes.get(node_id)
-        return node_id, name, node
 
     # -- the interface, from each side --------------------------------------------
 
     def with_inputs(self, **inputs: Any) -> CompiledGraph:
         """This graph with some of its inputs filled, compiled again: what ``run`` takes to run it with those values.
 
-        Each keyword names an input of ``interface.inputs``: by its bare
-        field name (``text=...``) when no other input has that name, else
-        by its address (``**{"a.text": ...}``); an input inside an embedded
-        graph has a dotted field name and is named by address only. A name
+        Each keyword names an input of ``interface.inputs``: by its address
+        (``**{"a.text": ...}``, ``**{"emb/up.text": ...}`` inside an embedded
+        graph), or by its bare field name (``text=...``) when no other input
+        has that name. A name
         the interface does not offer — unknown, locked, fed by an edge, or
         shared by several inputs — is an ``InputNotOffered`` that lists the names
         it does offer. Each value becomes a ``Static`` on its input in a
@@ -244,12 +219,12 @@ class CompiledGraph:
         offered = [inp.name for inp in self.interface.inputs]
         filled: dict[str, dict[str, Static]] = {}
         for name, value in values.items():
-            ref = self._offered(name, offered)
-            filled.setdefault(ref.node_id, {})[ref.field] = Static(value)
+            node_id, key = as_drawn(self._offered(name, offered), self._compilation.expansion.graphs)
+            filled.setdefault(node_id, {})[key] = Static(value)
         taken: dict[str, set[str]] = {}
         for name in cleared:
-            ref = self._offered(name, offered)
-            taken.setdefault(ref.node_id, set()).add(ref.field)
+            node_id, key = as_drawn(self._offered(name, offered), self._compilation.expansion.graphs)
+            taken.setdefault(node_id, set()).add(key)
         graph = self.graph.model_copy(update={"nodes": tuple(
             node.model_copy(update={"bindings": {
                 **{field: binding for field, binding in node.bindings.items() if field not in taken.get(node.id, ())},
@@ -262,13 +237,7 @@ class CompiledGraph:
     def _offered(self, name: str, offered: list[Ref]) -> Ref:
         """The input a keyword to ``with_inputs`` names, or an ``InputNotOffered`` listing what is offered."""
         listing = ", ".join(str(ref) for ref in offered) if offered else "none"
-        if "." in name:
-            ref = Ref(name)
-            if ref in offered:
-                return ref
-            raise InputNotOffered(f"{name!r} is not an input this graph offers; it offers {listing}"
-                            if offered else f"{name!r}: this graph takes no inputs")
-        matches = [ref for ref in offered if ref.field == name]
+        matches = [ref for ref in offered if ref == name] or [ref for ref in offered if ref.field == name]
         if len(matches) == 1:
             return matches[0]
         if matches:
