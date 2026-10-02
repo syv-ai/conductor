@@ -514,8 +514,8 @@ class _Walk:
         """
         if not demands:
             return None, None
-        deepest, deepest_ref = max(demands, key=lambda demand: len(_lineage(demand[0])))
-        lineage = set(_lineage(deepest))
+        deepest, deepest_ref = max(demands, key=lambda demand: demand[0].depth)
+        lineage = set(deepest.lineage)
         for index, ref in demands:
             if index not in lineage:
                 return None, (deepest_ref, ref)
@@ -524,13 +524,3 @@ class _Walk:
     @staticmethod
     def _misaligned(node_id: str, a: Ref, b: Ref) -> Problem:
         return problem("misaligned", node_id, a=str(a), b=str(b))
-
-
-def _lineage(index: Index) -> list[Index]:
-    """This index and every index it was opened from, nearest first."""
-    found: list[Index] = []
-    current: Index | None = index
-    while current is not None:
-        found.append(current)
-        current = current.parent
-    return found

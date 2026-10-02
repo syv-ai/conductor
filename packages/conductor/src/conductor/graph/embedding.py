@@ -245,15 +245,6 @@ def received_renamed(receipt: Receive, renames: Mapping[str, Index]) -> Receive:
     return receipt
 
 
-def _chain(index: Index | None) -> list[Index]:
-    """``index`` and its parents, root first."""
-    chain: list[Index] = []
-    while index is not None:
-        chain.append(index)
-        index = index.parent
-    return chain[::-1]
-
-
 def under(index: Index | None, prefix: str, row: Index | None) -> Index | None:
     """An inner index as it stands placed: each id prefixed, its root hung under ``row`` (rule 1).
 
@@ -264,7 +255,7 @@ def under(index: Index | None, prefix: str, row: Index | None) -> Index | None:
     if index is None:
         return None
     parent = row
-    for step in _chain(index):
+    for step in index.lineage:
         parent = Index(f"{prefix}{step.id}", parent=parent)
     return parent
 

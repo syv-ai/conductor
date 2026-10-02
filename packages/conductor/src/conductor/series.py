@@ -94,6 +94,13 @@ class Index(ConductorModel):
         """The length of a row path on this index: 1 on a root, 2 on its child."""
         return 1 if self.parent is None else self.parent.depth + 1
 
+    @property
+    def lineage(self) -> tuple[Index, ...]:
+        """This index and every index it was opened from, root first:
+        ``(docs, lines)`` for ``lines``. Two indexes align only when one is
+        in the other's lineage."""
+        return (self,) if self.parent is None else (*self.parent.lineage, self)
+
 
 class Series(DType, Sequence[T]):
     """Many values of one type on one index, read as a sequence of the values.
