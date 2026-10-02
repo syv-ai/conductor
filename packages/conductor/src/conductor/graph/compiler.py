@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from functools import cache
+from functools import cache, cached_property
 from typing import TYPE_CHECKING, Any
 
 from pydantic import TypeAdapter, ValidationError
@@ -160,16 +160,10 @@ class Compilation:
         self.output_conditions: dict[Ref, Condition] = {}
         #: What the graph takes and returns (set by ``interface``).
         self.graph_interface: Interface
-        #: Every node id compile met, with the node as stored and the id of the
-        #: graph node it sits inside — ``None`` for every id the author wrote,
-        #: a refused one holding a ``/`` included (set by ``compiled_nodes``).
-        self.every_node_seen: dict[str, tuple[GraphNode, str | None]] = {}
         #: The fatal problem that explains each node that is not ready, found
-        #: once (set by ``compiled_nodes``).
+        #: once (filled by ``cause``). Two threads asking at once only ever
+        #: store the same answer.
         self.causes: dict[str, Problem] = {}
-        #: Every problem, by the node it is on (set by ``compiled_nodes``), so
-        #: finding a node's problems doesn't scan them all.
-        self.problems_by_node: dict[str, list[Problem]] = {}
 
     def run(self) -> None:
         """The steps, in order. Each reads the one before:
@@ -629,12 +623,6 @@ class Compilation:
         problems, and, when it is not ready, the fatal problem that explains
         why (``cause``).
         """
-        for graph_node in self.graph.nodes:
-            self.every_node_seen.setdefault(graph_node.id, (graph_node, None))
-        for node_id, graph_node in self.expansion.nodes.items():
-            self.every_node_seen[node_id] = (graph_node, embedded_in(node_id))
-        for found in self.problems:
-            self.problems_by_node.setdefault(found.node_id, []).append(found)
         plan = _ReadPlan.of(self)
         built: dict[str, CompiledNode] = {}
         for node_id, (graph_node, outer_graph_node_id) in self.every_node_seen.items():
@@ -681,6 +669,26 @@ class Compilation:
                 _fields={} if interface is None else self._fields(node_id, graph_node, interface, cause, problems, plan),
             )
         return built
+
+    @cached_property
+    def every_node_seen(self) -> dict[str, tuple[GraphNode, str | None]]:
+        """Every node id compile met, with the node as stored and the id of the
+        graph node it sits inside: ``None`` for every id the author wrote, a
+        refused one holding a ``/`` included."""
+        seen: dict[str, tuple[GraphNode, str | None]] = {}
+        for graph_node in self.graph.nodes:
+            seen.setdefault(graph_node.id, (graph_node, None))
+        for node_id, graph_node in self.expansion.nodes.items():
+            seen[node_id] = (graph_node, embedded_in(node_id))
+        return seen
+
+    @cached_property
+    def problems_by_node(self) -> dict[str, list[Problem]]:
+        """Every problem, by the node it is on, so finding a node's problems doesn't scan them all."""
+        by_node: dict[str, list[Problem]] = {}
+        for found in self.problems:
+            by_node.setdefault(found.node_id, []).append(found)
+        return by_node
 
     def _fields(
         self, node_id: str, graph_node: GraphNode, interface: Interface, cause: Problem | None,
