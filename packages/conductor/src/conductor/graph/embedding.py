@@ -152,7 +152,7 @@ def graph_as_placed(
     value (``Compilation._as_placed``).
     """
     inner = graph._compilation
-    expansion, iteration = inner.expansion, inner.iteration
+    layout, iteration = inner.layout, inner.iteration
     prefix = f"{node_id}{SEPARATOR}"
 
     def lifted(ref: Ref) -> Ref:
@@ -167,7 +167,7 @@ def graph_as_placed(
 
     nodes: dict[str, GraphNode] = {}
     edge_fed: set[Ref] = set()
-    for inner_id, inner_node in expansion.nodes.items():
+    for inner_id, inner_node in layout.nodes.items():
         bindings: dict[str, Binding] = {}
         for name, binding in inner_node.bindings.items():
             if isinstance(binding, From):
@@ -185,10 +185,10 @@ def graph_as_placed(
 
     structure = {
         "nodes": nodes,
-        "order": tuple(prefix + inner_id for inner_id in expansion.order),
-        "graphs": frozenset(prefix + inner_id for inner_id in expansion.graphs),
-        "versions": {prefix + inner_id: version for inner_id, version in expansion.versions.items()},
-        "definitions": {prefix + inner_id: definition for inner_id, definition in expansion.definitions.items()},
+        "order": tuple(prefix + inner_id for inner_id in layout.order),
+        "graphs": frozenset(prefix + inner_id for inner_id in layout.graphs),
+        "versions": {prefix + inner_id: version for inner_id, version in layout.versions.items()},
+        "definitions": {prefix + inner_id: definition for inner_id, definition in layout.definitions.items()},
         "interfaces": {prefix + inner_id: interface for inner_id, interface in inner.interfaces.items()},
         "statics": {
             prefix + inner_id: {
@@ -227,7 +227,7 @@ def graph_as_placed(
             receives[new_ref] = Iterate(per_row_of)
         elif (
             per_row_of is not None and isinstance(receipt, Gather) and ref in edge_fed
-            and all(iteration.indexes[source] is None for source in expansion.nodes[ref.node_id].bindings[ref.field].refs)
+            and all(iteration.indexes[source] is None for source in layout.nodes[ref.node_id].bindings[ref.field].refs)
         ):
             indexes[new_ref], receives[new_ref] = per_row_of, Group(per_row_of, per_row_of.depth)
         else:

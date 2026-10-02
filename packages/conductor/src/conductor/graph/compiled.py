@@ -40,18 +40,19 @@ Some nodes have a version that is itself a graph, which the host compiled
 on its own; that graph is an embedded graph, and the node is a ``graph``
 (its ``kind``). Compile places the embedded graph's nodes in place of that
 node (``conductor.graph.embedding``), so the graph the author drew (the
-authored graph) differs from the graph that runs (the expanded graph). In
-the authored graph the embedded graph is one node, ``approve``, and its
-fields are addressed through it, ``Ref("approve", "check.amount")``. In the
-expanded graph its inner nodes are nodes of the run, named ``approve/check``.
-Only the fields the embedded graph offers can be addressed from outside.
+authored graph) differs from the graph that runs. In the authored graph the
+embedded graph is one node, ``approve``; in the graph that runs its inner
+nodes are nodes of the run, at their path, ``approve/check``. Only the
+fields the embedded graph offers can be reached from outside.
 
-``execution_order`` and ``decisions`` speak of the expanded graph;
-``problems`` and ``interface`` speak of the authored one. ``node`` answers
-for both graphs: an inner node by its expanded id (``approve/check``) and
-the node that embeds it by its own (``approve``). A question about a field may use either address:
-``field(Ref("approve", "check.amount"))`` and
-``field(Ref("approve/check", "amount"))`` are the same field.
+An address means one thing: a node's path and a field,
+``approve/check.amount``. The author draws an edge to the field
+``check.amount`` of ``approve``; compile reads that spelling once and every
+answer here, ``interface`` included, uses the address. ``execution_order``
+and ``decisions`` speak of the graph that runs; ``problems`` speak of the
+authored one, on the node and field the author drew. ``node`` answers for
+both graphs: an inner node by its path (``approve/check``) and the node that
+embeds it by its own id (``approve``).
 
 It is a plain value: immutable, no I/O, no session. The same graph and
 the same registry always give the same ``CompiledGraph``, so it can be
@@ -139,7 +140,7 @@ class CompiledGraph:
         compilation.run()
         return cls(
             _registry=registry,
-            _order=compilation.expansion.order,
+            _order=compilation.layout.order,
             interface=compilation.graph_interface,
             graph=graph,
             problems=tuple(compilation.problems),
@@ -150,7 +151,7 @@ class CompiledGraph:
 
     @cached_property
     def _nodes(self) -> Mapping[str, CompiledNode]:
-        """Every node compile met, by expanded id, and every node whose version
+        """Every node compile met, by its id in the graph that runs, and every node whose version
         is a graph, by its own: what ``node`` hands back. Folded from the
         compile's last step on first read (``Compilation.compiled_nodes``),
         since a graph compiled only to be embedded in another is read through
@@ -175,7 +176,7 @@ class CompiledGraph:
         return owners
 
     def node(self, node_id: str) -> CompiledNode:
-        """Look up one compiled node by its expanded id.
+        """Look up one compiled node by its id: its path inside an embedded graph (``approve/check``).
 
         Every node compile saw has an entry, broken or not: each node in the
         graph and each node inside an embedded graph placed in it. An id the
@@ -236,11 +237,11 @@ class CompiledGraph:
         offered = [inp.name for inp in self.interface.inputs]
         filled: dict[str, dict[str, Static]] = {}
         for name, value in values.items():
-            node_id, key = as_drawn(self._offered(name, offered), self._compilation.expansion.graphs)
+            node_id, key = as_drawn(self._offered(name, offered), self._compilation.layout.graphs)
             filled.setdefault(node_id, {})[key] = Static(value)
         taken: dict[str, set[str]] = {}
         for name in cleared:
-            node_id, key = as_drawn(self._offered(name, offered), self._compilation.expansion.graphs)
+            node_id, key = as_drawn(self._offered(name, offered), self._compilation.layout.graphs)
             taken.setdefault(node_id, set()).add(key)
         graph = self.graph.model_copy(update={"nodes": tuple(
             node.model_copy(update={"bindings": {
@@ -272,7 +273,7 @@ class CompiledGraph:
 
     @property
     def execution_order(self) -> tuple[str, ...]:
-        """Expanded node ids in an order where every edge's source precedes
+        """The ids of the nodes that run, in an order where every edge's source precedes
         its target. A node in a cycle is not in it; it has a fatal
         ``Problem`` instead."""
         return self._order
@@ -281,7 +282,7 @@ class CompiledGraph:
     def decisions(self) -> dict[str, dict[str, tuple[str, ...]]]:
         """Every decision a caller could observe: for each node that runs
         once and declares a ``choice`` group, the group's alternatives in
-        field order, keyed by expanded node id. A node that runs per row is
+        field order, keyed by node id. A node that runs per row is
         left out: its decision picks rows and gates nothing downstream. So
         is a node that is not ready: whether it runs per row is not
         known."""

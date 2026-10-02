@@ -65,12 +65,11 @@ NodeState = Literal["ready", "wiring_failed", "resolution_failed"]
 
 #: What a node is. ``node``: it runs as one unit, one call of its version's
 #: ``run`` per row. ``graph``: its version is a graph the host compiled,
-#: which compile places, so its inner nodes run in its place and an address
-#: on it reads through to theirs. Compile's last step sets it from the version. It is
+#: which compile places, so its inner nodes run in its place and its fields
+#: are theirs, at their path. Compile's last step sets it from the version. It is
 #: read where the two kinds answer differently: ``_gate``, for the reads only
-#: a unit answers, and the address walk (``CompiledGraph.expanded`` and
-#: ``field``), where an address on a graph reads through. Which nodes are
-#: graphs is ``Expansion.graphs``'s to say.
+#: a unit answers, and ``CompiledGraph.field``, since a graph has no fields of
+#: its own. Which nodes are graphs is ``Layout.graphs``'s to say.
 NodeKind = Literal["node", "graph"]
 
 
@@ -136,13 +135,13 @@ class CompiledNode:
     inner node's field. Its own graph's problems are on its ``version``.
     """
 
-    #: The expanded id: ``"approve/check"`` for an inner node.
+    #: Its id in the graph that runs: its path, ``"approve/check"``, for an inner node.
     id: str
     #: How far compile got with it: ``ready``, ``wiring_failed`` or
     #: ``resolution_failed`` (see ``NodeState``).
     state: NodeState
     #: The node as the author stored it: its type, version number, title
-    #: and bindings. An inner node's has its expanded id; a ``graph``'s
+    #: and bindings. An inner node's has its path as its id; a ``graph``'s
     #: bindings name inner addresses (``check.amount``).
     graph_node: GraphNode = field(repr=False)
     #: The id of the node whose embedded graph this node belongs to —
@@ -313,8 +312,8 @@ class CompiledField:
     or ``listed``.
     """
 
-    #: The expanded address of the field — ``Ref("approve/check", "amount")``
-    #: however it was asked for.
+    #: The field's address — ``Ref("approve/check", "amount")`` for a field
+    #: inside an embedded graph.
     ref: Ref
     #: Every problem about this field, in ``CompiledGraph.problems`` order.
     problems: tuple[Problem, ...] = field(repr=False)

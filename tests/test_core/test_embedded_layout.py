@@ -20,7 +20,7 @@ from test_core.embedded import embedded_graph_node
 
 
 class Txt(DType, str):
-    id = "expansion-test-txt"
+    id = "embedded-layout-test-txt"
     title = "Text"
 
 
@@ -151,7 +151,7 @@ def test_the_placements_bindings_move_onto_the_inner_fields_they_name():
     assert compiled.field(Ref("after", "text")).binding == From("emb/join.result")
 
 
-def test_an_unconnected_placement_keeps_the_inner_statics_and_expands_flat():
+def test_an_unconnected_placement_keeps_the_inner_statics_and_lays_out_flat():
     compiled = _compiled([GraphNode(id="emb", type="inner-graph", version=1)])
 
     assert compiled.is_runnable, compiled.problems
@@ -348,7 +348,7 @@ def test_two_crossings_on_one_lineage_make_the_whole_block_iterate_on_the_deeper
     assert compiled.field(Ref("emb/ua", "result")).index == per_line
 
 
-def test_a_series_entering_a_series_field_is_read_whole_and_the_block_expands_flat():
+def test_a_series_entering_a_series_field_is_read_whole_and_the_block_lays_out_flat():
     """The graph declares it takes a series, so a series is one value to it:
     no scalar crossing, no scope, one reduction over the whole pile."""
     inner = embedded_graph_node("joiner", (GraphNode(id="join", type="join", version=1),), _registry())

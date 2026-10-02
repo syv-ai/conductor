@@ -1,8 +1,8 @@
 """``conductor_providers.mermaid.flowchart`` draws a compiled graph as a Mermaid flowchart.
 
 One box per node the author placed, titled by its id and its type; an
-embedded graph is a subgraph holding its inner nodes under their expanded
-ids. One arrow per ref on every connected input, labelled with how the
+embedded graph is a subgraph holding its inner nodes under their paths.
+One arrow per ref on every connected input, labelled with how the
 reading input receives it. A node with a fatal problem carries the
 ``fault`` class; the problems themselves are not drawn.
 """

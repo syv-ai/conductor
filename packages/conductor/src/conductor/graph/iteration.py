@@ -206,7 +206,7 @@ class _Walk:
         self.definitions = definitions
         self.statics = statics
         self.listed = listed
-        #: The nodes whose version is a compiled graph (``Expansion.graphs``).
+        #: The nodes whose version is a compiled graph (``Layout.graphs``).
         self.graphs = graphs
         #: The index each visited node runs once per row of (``None``: once).
         self.iterated: dict[str, Index | None] = {}
