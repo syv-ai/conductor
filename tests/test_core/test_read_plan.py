@@ -77,7 +77,7 @@ def _compiled(*nodes: GraphNode) -> CompiledGraph:
     return compiled
 
 
-def test_a_node_with_series_outputs_owns_the_index_they_birth():
+def test_a_node_with_series_outputs_owns_the_index_they_make_rows_of():
     compiled = _compiled(
         GraphNode(id="docs", type="docs", version=1),
         GraphNode(id="up", type="upper", version=1, bindings={"text": From("docs.texts")}),
@@ -106,7 +106,7 @@ def test_an_input_holding_a_typed_in_list_owns_its_index():
     assert typed._carried_by == (Ref("u", "result"), Ref("v", "result"))
 
 
-def test_a_typed_in_list_inside_an_iterating_embedded_graph_is_born_under_each_row():
+def test_a_list_set_on_a_node_inside_an_embedded_graph_running_per_row_is_made_under_each_row():
     compiled = _compiled(
         GraphNode(id="docs", type="docs", version=1),
         GraphNode(id="emb", type="pair", version=1, bindings={"a.text": From("docs.texts")}),

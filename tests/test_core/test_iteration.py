@@ -181,7 +181,7 @@ def test_a_scalar_node_fed_scalars_does_not_iterate():
     assert compiled.field(Ref("b", "result")).index is None
 
 
-def test_a_series_is_born_at_the_node_that_produces_it():
+def test_a_series_is_made_at_the_node_that_produces_it():
     compiled = _compiled([GraphNode(id="docs", type="docs", version=1)])
 
     texts_type, texts_index = compiled.field(Ref("docs", "texts")).type, compiled.field(Ref("docs", "texts")).index
@@ -706,7 +706,7 @@ def test_a_reduction_on_a_root_yields_a_scalar_and_does_not_iterate():
     assert compiled.field(Ref("j", "result")).index is None
 
 
-def test_an_iterating_node_returning_a_series_gives_birth_to_a_child_index():
+def test_a_node_running_per_row_returning_a_series_makes_rows_of_a_child_index():
     """An unfold with no special node: one text in, many lines out, each
     line knowing which document it came from."""
     compiled = _compiled([

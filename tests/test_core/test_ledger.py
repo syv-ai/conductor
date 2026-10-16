@@ -138,7 +138,7 @@ def test_an_iterating_node_has_no_units_until_its_index_has_rows():
     assert ledger.units("up") == []
 
 
-def test_a_root_index_is_born_sealed_by_the_unit_that_produces_it():
+def test_a_root_index_is_made_sealed_by_the_unit_that_produces_it():
     ledger = _ledger([DOCS, GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))})])
 
     ledger.record(("docs", ()), {"texts": ["a", "b"], "names": ["x", "y"]})
@@ -203,7 +203,7 @@ def test_contagion_reads_the_upstream_row_and_nothing_waits_on_other_rows():
     assert ledger.inputs_for(("n", (0,))) == {"text": "A"}
 
 
-def test_an_iterating_unit_returning_a_series_births_rows_under_its_row():
+def test_a_unit_running_per_row_returning_a_series_makes_rows_under_its_row():
     ledger = _ledger([DOCS, GraphNode(id="lines", type="lines", version=1, bindings={"text": _edge(("docs", "texts"))})])
     ledger.record(("docs", ()), {"texts": ["a\nb", "c"], "names": ["x", "y"]})
     ledger.record(("lines", (1,)), {"result": ["c"]})
@@ -337,7 +337,7 @@ def test_a_skipped_row_leaves_the_series_sparse():
     assert ledger.inputs_for(("n", (2,))) == {"text": "C"}
 
 
-def test_a_skipped_node_skips_what_it_births():
+def test_a_skipped_node_skips_the_rows_it_would_make():
     ledger = _ledger([
         DOCS,
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),

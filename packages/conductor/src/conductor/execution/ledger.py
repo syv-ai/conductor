@@ -276,9 +276,9 @@ class Ledger:
         runs_per_row_of = self._compiled.node(node_id)._runs_per_row_of
         if runs_per_row_of is None:
             return [(node_id, ())]
-        barren = sorted(self._no_rows_under.get(runs_per_row_of.id, ()))
+        no_rows_under = sorted(self._no_rows_under.get(runs_per_row_of.id, ()))
         rows = sorted(self._rows.get(runs_per_row_of.id, ()))
-        return [(node_id, row) for row in (*barren, *rows)]
+        return [(node_id, row) for row in (*no_rows_under, *rows)]
 
     def is_done(self, unit: Unit) -> bool:
         return unit in self._done
@@ -381,8 +381,8 @@ class Ledger:
         field is skipped there, or every row under it is made and produced."""
         if is_skipped(self._lookup(ref, parent_row)[0]):
             return True
-        barren = self._no_rows_under.get(index.id, ())
-        if any(prefix in barren for prefix in _prefixes(parent_row)):
+        no_rows_under = self._no_rows_under.get(index.id, ())
+        if any(prefix in no_rows_under for prefix in _prefixes(parent_row)):
             return False  # the unit standing in at that shorter row has not run yet
         if parent_row == ():
             made = index.id in self._sealed
@@ -561,14 +561,14 @@ class Ledger:
         makes_rows = self._compiled.node(node_id)._makes_rows is not None
         written: list[tuple[Ref, Row]] = []
         made: list[Row] = []
-        barren: list[Row] = []
+        no_rows_under: list[Row] = []
         if makes_rows:
             self._rows.setdefault(node_id, set())
         if isinstance(outputs, Skip):
             for out in interface.outputs:
                 self._write(Ref(node_id, out.name), outputs.at, SKIPPED, written)
             if makes_rows:
-                barren.append(outputs.at)
+                no_rows_under.append(outputs.at)
         else:
             # Every output is checked before any value is written, so the
             # ledger holds all of a unit's outputs or none of them.
@@ -599,14 +599,14 @@ class Ledger:
                         made.append(key)
                     self._write(ref, key, item, written)
             if makes_rows and length is None:
-                barren.append(row)
+                no_rows_under.append(row)
         typed = [child for key in made for child in self._made_lists(node_id, key)]
-        for at in barren:
+        for at in no_rows_under:
             self._no_rows_under.setdefault(node_id, set()).add(at)
-            typed.extend(self._barren_typed(node_id, at))
+            typed.extend(self._no_rows_under_lists(node_id, at))
         self._finish(unit)
         sealed = self._seal([node_id] if makes_rows else [])
-        return self._woken(unit, written, made, barren, sealed, typed)
+        return self._woken(unit, written, made, no_rows_under, sealed, typed)
 
     def _write(self, ref: Ref, key: Row, value: Any, written: list[tuple[Ref, Row]]) -> None:
         """Put ``value`` at ``(ref, key)``, noting the address in ``written`` when nothing was there."""
@@ -640,14 +640,14 @@ class Ledger:
                     made.extend(self._made_lists(child, (*row, n)))
         return made
 
-    def _barren_typed(self, index_id: str, at: Row) -> list[tuple[str, Row]]:
+    def _no_rows_under_lists(self, index_id: str, at: Row) -> list[tuple[str, Row]]:
         """Where ``index_id`` has no rows under ``at``, neither has a list set
         on a node beneath it; returns each ``(index, row)`` marked."""
         marked: list[tuple[str, Row]] = []
         for child, _ in self._typed_under(index_id):
             self._no_rows_under.setdefault(child, set()).add(at)
             marked.append((child, at))
-            marked.extend(self._barren_typed(child, at))
+            marked.extend(self._no_rows_under_lists(child, at))
         return marked
 
     def _seal_listed(self, index_id: str, sealed: list[str]) -> list[str]:
@@ -695,7 +695,7 @@ class Ledger:
         unit: Unit,
         written: list[tuple[Ref, Row]],
         made: list[Row],
-        barren: list[Row],
+        no_rows_under: list[Row],
         sealed: list[str],
         typed: list[tuple[str, Row]],
     ) -> list[Unit]:
@@ -723,7 +723,7 @@ class Ledger:
         iterating = compiled.node(node_id)._run_per_row_by
         for key in made:
             woken.update((reader, key) for reader in iterating)
-        for at in barren:
+        for at in no_rows_under:
             woken.update((reader, at) for reader in iterating)
         for index_id, key in typed:
             woken.update((reader, key) for reader in self._owner(index_id)._run_per_row_by)
@@ -1044,7 +1044,7 @@ class Ledger:
             at = next((key for key in _prefixes(row) for by_row in series if is_skipped(by_row.get(key))), None)
             if at is not None:
                 self._no_rows_under.setdefault(node_id, set()).add(at)
-                self._barren_typed(node_id, at)
+                self._no_rows_under_lists(node_id, at)
         for node_id in self._compiled.execution_order:
             for key in sorted(made.get(node_id, ())):
                 self._made(node_id, key)

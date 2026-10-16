@@ -354,7 +354,7 @@ def test_two_branches_merge_back_by_wiring_and_the_chain_stays_on_the_index():
     assert results["j"]["result"] == "HEY+X:!+WORLD"
 
 
-def test_a_skipped_node_skips_the_series_it_would_have_born():
+def test_a_skipped_node_skips_the_series_it_would_have_made():
     results = _run([
         GraphNode(id="g", type="long-only", version=1, bindings={"text": Static("hey")}),
         GraphNode(id="docs", type="docs", version=1, bindings={"text": _edge(("g", "short"))}),
