@@ -261,10 +261,10 @@ def test_reading_what_a_state_lacks_names_the_problem():
     compiled = _half_finished()
 
     with pytest.raises(NodeWiringError) as own:
-        compiled.node("b").iterates_on
+        compiled.node("b").runs_per_row_of
     assert own.value.problems[0].code == "unknown_ref_node" and own.value.problems[0].node_id == "b"
     with pytest.raises(NodeWiringError) as upstream:
-        compiled.node("c").iterates_on
+        compiled.node("c").runs_per_row_of
     assert upstream.value.problems[0] is own.value.problems[0]
     with pytest.raises(NodeWiringError):
         compiled.field(Ref("c", "x")).type
@@ -283,13 +283,13 @@ def test_the_named_errors_are_not_key_errors():
     """``except KeyError`` catches a caller's wrong id and nothing else; the message names the node, the read and the cause."""
     compiled = _half_finished()
     with pytest.raises(NodeWiringError) as raised:
-        compiled.node("c").iterates_on
+        compiled.node("c").runs_per_row_of
 
     assert issubclass(NodeWiringError, CompilationError) and not issubclass(NodeWiringError, KeyError)
     assert issubclass(NodeResolutionError, CompilationError) and not issubclass(NodeResolutionError, KeyError)
     assert not issubclass(NodeKindError, CompilationError)
     assert len(raised.value.problems) == 1
-    assert "'c'" in str(raised.value) and "iterates_on" in str(raised.value)
+    assert "'c'" in str(raised.value) and "runs_per_row_of" in str(raised.value)
     assert "b.x — unknown_ref_node" in str(raised.value)
 
 
@@ -303,7 +303,7 @@ def test_a_node_downstream_of_a_cycle_carries_the_cycle():
     assert (compiled.node("a").state, compiled.node("b").state) == ("resolution_failed", "resolution_failed")
     assert compiled.node("c").state == "wiring_failed"
     with pytest.raises(NodeWiringError) as raised:
-        compiled.node("c").iterates_on
+        compiled.node("c").runs_per_row_of
     assert raised.value.problems[0].code == "cycle"
 
 
@@ -317,7 +317,7 @@ def test_a_painter_reads_every_node_of_a_broken_graph():
             continue
         assert node.interface.inputs
         if node.state == "ready":
-            assert node.iterates_on is None
+            assert node.runs_per_row_of is None
             assert all(compiled.field(Ref(placed.id, i.name)).type is Txt for i in node.interface.inputs)
 
 

@@ -162,7 +162,7 @@ class CompiledNode:
     _interface: Interface = field(repr=False)
     _statics: Mapping[str, Any] = field(repr=False)
     #: What the walk decided; ``None`` also on a node that is not ready.
-    _iterates_on: Index | None = field(repr=False)
+    _runs_per_row_of: Index | None = field(repr=False)
     #: The read plan, the engine's alone: the walk's decisions inverted once
     #: at compile, so the ledger looks each up instead of searching the graph
     #: on every run. ``_reads``: every output an edge into this node reads,
@@ -173,11 +173,11 @@ class CompiledNode:
     #: sit on it (``_carried_by``) and the inputs holding a typed-in list
     #: born under each of its rows (``_typed_lists``), each in execution
     #: order. Empty on a node the walk did not derive, and on a ``graph``.
-    _births: Index | None = field(repr=False)
+    _makes_rows: Index | None = field(repr=False)
     _reads: tuple[tuple[Ref, Receive], ...] = field(repr=False)
-    _iterated_by: tuple[str, ...] = field(repr=False)
+    _run_per_row_by: tuple[str, ...] = field(repr=False)
     _carried_by: tuple[Ref, ...] = field(repr=False)
-    _typed_lists: tuple[Ref, ...] = field(repr=False)
+    _listed_inputs: tuple[Ref, ...] = field(repr=False)
     #: Every input and output by name: what ``CompiledGraph.field`` hands back.
     _fields: Mapping[str, CompiledField] = field(repr=False)
 
@@ -281,14 +281,14 @@ class CompiledNode:
         return model_of(self._interface.inputs)
 
     @property
-    def iterates_on(self) -> Index | None:
+    def runs_per_row_of(self) -> Index | None:
         """The index this node runs once per row of, or ``None`` when it runs
         once. Read off its edges at compile — a series arriving on a scalar
         input is what makes a node run per row — and never written on the
         ``GraphNode``. For a ``graph``, the index its inner nodes run once
         per row of, where a series entered it."""
-        _gate(self, "iterates_on", needs_wiring=True)
-        return self._iterates_on
+        _gate(self, "runs_per_row_of", needs_wiring=True)
+        return self._runs_per_row_of
 
 
 @dataclass(frozen=True, eq=False)
@@ -334,9 +334,9 @@ class CompiledField:
     #: plan of the index its typed-in list births.
     _read_by: tuple[tuple[Ref, Receive], ...] = field(repr=False)
     _listed: bool = field(repr=False)
-    _iterated_by: tuple[str, ...] = field(repr=False)
+    _run_per_row_by: tuple[str, ...] = field(repr=False)
     _carried_by: tuple[Ref, ...] = field(repr=False)
-    _typed_lists: tuple[Ref, ...] = field(repr=False)
+    _listed_inputs: tuple[Ref, ...] = field(repr=False)
 
     def _gate(self, asked: str) -> None:
         if self._cause is not None:

@@ -9,7 +9,7 @@ from conductor.execution.ledger import Ledger
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
-from conductor.graph.receive import Iterate, Whole
+from conductor.graph.receive import PerRow, Whole
 from conductor.metadata import Param, Result
 from conductor.node import NodeDefinition
 from conductor.ref import Ref
@@ -85,13 +85,13 @@ def test_a_node_with_series_outputs_owns_the_index_they_birth():
     )
     docs, up = compiled.node("docs"), compiled.node("up")
 
-    assert docs._births == Index("docs")
-    assert docs._iterated_by == ("up",)
+    assert docs._makes_rows == Index("docs")
+    assert docs._run_per_row_by == ("up",)
     assert set(docs._carried_by) == {Ref("docs", "texts"), Ref("docs", "names"), Ref("up", "result")}
-    assert compiled.field(Ref("docs", "texts"))._read_by == ((Ref("up", "text"), Iterate(Index("docs"))),)
+    assert compiled.field(Ref("docs", "texts"))._read_by == ((Ref("up", "text"), PerRow(Index("docs"))),)
     assert compiled.field(Ref("up", "result"))._read_by == ((Ref("join", "texts"), Whole()),)
     assert compiled.node("join")._reads == ((Ref("up", "result"), Whole()),)
-    assert (up._births, up._iterated_by, up._carried_by) == (None, (), ())
+    assert (up._makes_rows, up._run_per_row_by, up._carried_by) == (None, (), ())
 
 
 def test_an_input_holding_a_typed_in_list_owns_its_index():
@@ -102,7 +102,7 @@ def test_an_input_holding_a_typed_in_list_owns_its_index():
     typed = compiled.field(Ref("u", "text"))
 
     assert typed.listed and not compiled.field(Ref("v", "text")).listed
-    assert typed._iterated_by == ("u", "v")
+    assert typed._run_per_row_by == ("u", "v")
     assert typed._carried_by == (Ref("u", "result"), Ref("v", "result"))
 
 
@@ -112,7 +112,7 @@ def test_a_typed_in_list_inside_an_iterating_embedded_graph_is_born_under_each_r
         GraphNode(id="emb", type="pair", version=1, bindings={"a.text": From("docs.texts")}),
     )
 
-    assert compiled.node("docs")._typed_lists == (Ref("emb/b", "text"),)
+    assert compiled.node("docs")._listed_inputs == (Ref("emb/b", "text"),)
 
 
 def test_downstream_is_every_node_a_value_reaches():

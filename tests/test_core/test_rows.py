@@ -773,7 +773,7 @@ def test_a_typed_in_list_inside_an_iterating_embedded_graph_is_a_child_row_under
         ]),
         _registry_with_asks(TypedInside),
     )
-    assert compiled.node("emb/t").iterates_on.parent == Index("docs")
+    assert compiled.node("emb/t").runs_per_row_of.parent == Index("docs")
 
     results = run_sync(compiled).state.results(compiled)
 

@@ -70,7 +70,7 @@ from conductor.graph.binding import From
 from conductor.graph.embedding import SEPARATOR, address, as_drawn, under
 from conductor.graph.model import GraphNode
 from conductor.graph.problem import Problem, problem
-from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Receive, Whole
+from conductor.graph.receive import Broadcast, Gather, PerRow, Receive, RowsUnder, Whole
 from conductor.graph.views import field_problems
 from conductor.interface import Interface
 from conductor.metadata import Input, Output
@@ -97,7 +97,7 @@ class Iteration:
     serves from then on. ``problems``: what went wrong.
     """
 
-    iterated: Mapping[str, Index | None]
+    runs_per_row_of: Mapping[str, Index | None]
     types: Mapping[Ref, Any]
     indexes: Mapping[Ref, Index | None]
     receives: Mapping[Ref, Receive]
@@ -209,7 +209,7 @@ class _Walk:
         #: The nodes whose version is a compiled graph (``Layout.graphs``).
         self.graphs = graphs
         #: The index each visited node runs once per row of (``None``: once).
-        self.iterated: dict[str, Index | None] = {}
+        self.runs_per_row_of: dict[str, Index | None] = {}
         #: What every output of every visited node carries: the sources a
         #: later node's edges may name. Only outputs are sources.
         self.carried: dict[Ref, _Carried] = {}
@@ -226,7 +226,7 @@ class _Walk:
     def result(self) -> Iteration:
         fields = {**self.arrived, **self.carried}
         return Iteration(
-            iterated=self.iterated,
+            runs_per_row_of=self.runs_per_row_of,
             types={ref: c.dtype for ref, c in fields.items()},
             indexes={ref: c.index for ref, c in fields.items()},
             receives=self.receives,
@@ -267,7 +267,7 @@ class _Walk:
             if not isinstance(binding, From):
                 carried, receive = self._originates(inp, ref, inp.name in self.listed[node.id])
                 found.arrivals[ref], found.receives[ref] = carried, receive
-                if isinstance(receive, Iterate):
+                if isinstance(receive, PerRow):
                     found.demands.append((receive.index, ref))
                 continue
             missing = [source for source in binding.refs if source not in self.carried]
@@ -278,7 +278,7 @@ class _Walk:
                 self.problems.extend(
                     problem("unknown_ref_output", node.id, inp.name, source=str(source))
                     for source in missing
-                    if source.node_id in self.iterated or (self.graphs and as_drawn(source, self.graphs)[0] in self.iterated)
+                    if source.node_id in self.runs_per_row_of or (self.graphs and as_drawn(source, self.graphs)[0] in self.runs_per_row_of)
                 )
                 found.broken = True
                 return found
@@ -323,13 +323,13 @@ class _Walk:
                 if arriving.index is None:
                     found.receives[ref] = Broadcast()
                 else:
-                    found.receives[ref] = Iterate(arriving.index)
+                    found.receives[ref] = PerRow(arriving.index)
                     found.demands.append((arriving.index, ref))
             elif self._one_index(sources):
                 arriving = sources[0]  # one series, or a union of several on one index
                 found.arriving[inp.name] = arriving.dtype
                 if arriving.index.parent is not None:
-                    found.receives[ref] = Group(arriving.index, arriving.index.parent.depth)
+                    found.receives[ref] = RowsUnder(arriving.index, arriving.index.parent.depth)
                     found.demands.append((arriving.index.parent, ref))
                 else:
                     found.receives[ref] = Whole()
@@ -364,11 +364,11 @@ class _Walk:
             return
         if not outputs:
             self.problems.append(problem("no_outputs", node.id))
-        iteration_index, disagreeing = self._iteration_index(arrived.demands)
+        runs_per_row_of, disagreeing = self._runs_per_row_of(arrived.demands)
         if disagreeing is not None:
             self.problems.append(self._misaligned(node.id, *disagreeing))
             return
-        self.iterated[node.id] = iteration_index
+        self.runs_per_row_of[node.id] = runs_per_row_of
         self.arrived.update(arrived.arrivals)
         self.receives.update(arrived.receives)
         node_index: Index | None = None
@@ -376,12 +376,12 @@ class _Walk:
         for out in outputs:
             ref = address(node.id, out.name, self.graphs)
             if node.id in self.graphs:
-                self.carried[ref] = self._carried_out_of_graph(node.id, version, out, iteration_index)
+                self.carried[ref] = self._carried_out_of_graph(node.id, version, out, runs_per_row_of)
             elif out.dtype.element is not None:
-                node_index = node_index or Index(node.id, parent=iteration_index)
+                node_index = node_index or Index(node.id, parent=runs_per_row_of)
                 self.carried[ref] = _Carried(out.dtype, node_index)
-            elif iteration_index is not None:
-                self.carried[ref] = _Carried(Series[out.dtype], iteration_index)
+            elif runs_per_row_of is not None:
+                self.carried[ref] = _Carried(Series[out.dtype], runs_per_row_of)
             else:
                 self.carried[ref] = _Carried(out.dtype, None)
 
@@ -488,7 +488,7 @@ class _Walk:
             return _Carried(inp.dtype, Index(ref)), Whole()
         if listed:
             own = Index(ref)
-            return _Carried(Series[inp.dtype], own), Iterate(own)
+            return _Carried(Series[inp.dtype], own), PerRow(own)
         return _Carried(inp.dtype, None), Broadcast()
 
     @staticmethod
@@ -506,7 +506,7 @@ class _Walk:
         return []
 
     @staticmethod
-    def _iteration_index(demands: list[tuple[Index, Ref]]) -> tuple[Index | None, tuple[Ref, Ref] | None]:
+    def _runs_per_row_of(demands: list[tuple[Index, Ref]]) -> tuple[Index | None, tuple[Ref, Ref] | None]:
         """The index a node runs once per row of, given the indexes its inputs
         demand — or the two fields whose indexes disagree.
 

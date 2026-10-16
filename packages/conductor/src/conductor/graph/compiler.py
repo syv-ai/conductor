@@ -38,7 +38,7 @@ from conductor.graph.embedding import (
     address,
     as_drawn,
     embedded_in,
-    graph_as_placed,
+    graph_as_embedded,
 )
 from conductor.graph.iteration import Iteration, derive
 from conductor.graph.model import Graph, GraphNode
@@ -171,7 +171,7 @@ class Compilation:
         self.listed: dict[str, frozenset[str]] = {}
         #: Nodes whose version is a compiled graph that compile could not fully
         #: work out, so it cannot be placed (set by ``pin``).
-        self.unplaceable: set[str] = set()
+        self.unembeddable: set[str] = set()
         #: Nodes whose stored edges are wrong; the edge walk leaves them out (set by ``check_bindings``).
         self.broken: frozenset[str] = frozenset()
         #: What the walk over the edges decided (set by ``walk_edges``).
@@ -212,19 +212,19 @@ class Compilation:
         The last step, ``compiled_nodes``, is not run here: it runs on the
         first question about a node.
         """
-        self.place()
+        self.nodes_by_id()
         self.pin()
         self.order()
         self.ask_inputs()
         self.check_bindings()
         self.walk_edges()
         self.interface()
-        self.place_graphs()
+        self.embed_graphs()
         self.conditions()
 
     # -- the steps --------------------------------------------------------------
 
-    def place(self) -> None:
+    def nodes_by_id(self) -> None:
         """Every node the author placed, by id. Two nodes with one id is a
         fatal problem: the second would silently shadow the first everywhere
         else. An id holding ``/`` is one too: compile names an embedded
@@ -281,7 +281,7 @@ class Compilation:
         faults = _faults(graph)
         if not faults:
             return
-        self.unplaceable.add(node_id)
+        self.unembeddable.add(node_id)
         had = {(found.code, found.node_id, found.field) for found in _faults(stored)} if graph is not stored else None
         brought = [found for found in faults if had is not None and (found.code, found.node_id, found.field) not in had]
         for found in brought:
@@ -360,7 +360,7 @@ class Compilation:
             typed, listed, invalid = self._typed_statics(inputs, node)
             self.problems.extend(invalid)
             if node_id in self.layout.graphs:
-                version = self._as_placed(node_id, node, version, typed, listed)
+                version = self._as_embedded(node_id, node, version, typed, listed)
                 listed = frozenset()
             if version.interface.open is not None:
                 # One Input per edge: `Series[Any]` when the node reduces each
@@ -377,7 +377,7 @@ class Compilation:
             self.statics[node_id] = typed
             self.listed[node_id] = listed
 
-    def _as_placed(
+    def _as_embedded(
         self, node_id: str, node: GraphNode, graph: CompiledGraph, typed: dict[str, Any], listed: frozenset[str],
     ) -> CompiledGraph:
         """The compiled graph as this placement fills it, and whether it can be placed.
@@ -448,7 +448,7 @@ class Compilation:
         everything after it are still worked out.
         """
         nodes = self.layout.nodes
-        broken: set[str] = set(self.unplaceable)
+        broken: set[str] = set(self.unembeddable)
         self.problems.extend(lock_problems(nodes, self.interfaces))
         for node_id, interface in self.interfaces.items():
             node = nodes[node_id]
@@ -524,7 +524,7 @@ class Compilation:
         self.problems.extend(self.iteration.problems)
         self.interfaces = {**self.interfaces, **self.iteration.interfaces}
 
-    def place_graphs(self) -> None:
+    def embed_graphs(self) -> None:
         """Every node whose version is a compiled graph and that the walk derived, filled in with that graph's records (``embedding.graph_as_placed``).
 
         The walk saw each as one node with the compiled graph's interface,
@@ -537,14 +537,14 @@ class Compilation:
         stays one node, with nothing under it.
         """
         layout, iteration = self.layout, self.iteration
-        placed_ids = [node_id for node_id in layout.order if node_id in layout.graphs and node_id in iteration.iterated]
-        if not placed_ids:
+        embedded_ids = [node_id for node_id in layout.order if node_id in layout.graphs and node_id in iteration.runs_per_row_of]
+        if not embedded_ids:
             return
         nodes, order = dict(layout.nodes), list(layout.order)
         versions, definitions, graphs = dict(layout.versions), dict(layout.definitions), set(layout.graphs)
-        iterated, types = dict(iteration.iterated), dict(iteration.types)
+        runs_per_row_of, types = dict(iteration.runs_per_row_of), dict(iteration.types)
         indexes, receives = dict(iteration.indexes), dict(iteration.receives)
-        for node_id in placed_ids:
+        for node_id in embedded_ids:
             node = nodes[node_id]
             # Only an input the graph offers crosses into it; an edge into any
             # other name is already a ``stale_binding`` and reaches nothing.
@@ -555,32 +555,32 @@ class Compilation:
                 for name in edges
                 for at in (address(node_id, name, graphs),)
             }
-            lifted = graph_as_placed(versions[node_id], node_id, edges, self.statics[node_id], iterated[node_id], crossings)
+            embedded = graph_as_embedded(versions[node_id], node_id, edges, self.statics[node_id], runs_per_row_of[node_id], crossings)
             at = order.index(node_id)
-            order[at:at + 1] = lifted.order
-            nodes.update(lifted.nodes)
-            versions.update(lifted.versions)
-            definitions.update(lifted.definitions)
-            graphs |= lifted.graphs
-            self.interfaces.update(lifted.interfaces)
-            self.statics.update(lifted.statics)
-            self.listed.update(lifted.listed)
-            iterated.update(lifted.iterated)
-            types.update(lifted.types)
-            indexes.update(lifted.indexes)
-            receives.update(lifted.receives)
+            order[at:at + 1] = embedded.order
+            nodes.update(embedded.nodes)
+            versions.update(embedded.versions)
+            definitions.update(embedded.definitions)
+            graphs |= embedded.graphs
+            self.interfaces.update(embedded.interfaces)
+            self.statics.update(embedded.statics)
+            self.listed.update(embedded.listed)
+            runs_per_row_of.update(embedded.runs_per_row_of)
+            types.update(embedded.types)
+            indexes.update(embedded.indexes)
+            receives.update(embedded.receives)
         self.layout = replace(
             layout, nodes=nodes, order=tuple(order), versions=versions, definitions=definitions, graphs=frozenset(graphs),
         )
-        self.iteration = replace(iteration, iterated=iterated, types=types, indexes=indexes, receives=receives)
+        self.iteration = replace(iteration, runs_per_row_of=runs_per_row_of, types=types, indexes=indexes, receives=receives)
 
     def conditions(self) -> None:
         """The condition under which each output appears, from the ``choice``
         groups of the nodes that run once (``conditions_of``)."""
         layout, iteration = self.layout, self.iteration
         self.output_conditions = conditions_of(
-            [layout.nodes[node_id] for node_id in layout.order if node_id in iteration.iterated],
-            self.interfaces, iteration.iterated,
+            [layout.nodes[node_id] for node_id in layout.order if node_id in iteration.runs_per_row_of],
+            self.interfaces, iteration.runs_per_row_of,
         )
 
     def interface(self) -> None:
@@ -631,8 +631,8 @@ class Compilation:
                     _interface=interface,
                     _statics=self.statics.get(node_id, {}),
                     _definition=self.layout.definitions[node_id],
-                    _iterates_on=self.iteration.iterated.get(node_id),
-                    _births=None,
+                    _runs_per_row_of=self.iteration.runs_per_row_of.get(node_id),
+                    _makes_rows=None,
                     _reads=(),
                     **plan.share(None),
                     _fields={},
@@ -650,10 +650,10 @@ class Compilation:
                 _version=self.layout.versions.get(node_id),
                 _interface=interface,
                 _statics=self.statics.get(node_id),
-                _iterates_on=self.iteration.iterated.get(node_id),
-                _births=plan.births.get(node_id),
+                _runs_per_row_of=self.iteration.runs_per_row_of.get(node_id),
+                _makes_rows=plan.makes_rows.get(node_id),
                 _reads=tuple(plan.reads.get(node_id, ())),
-                **plan.share(plan.births.get(node_id)),
+                **plan.share(plan.makes_rows.get(node_id)),
                 _fields={} if interface is None else self._fields(node_id, graph_node, interface, cause, problems, plan),
             )
         return built
@@ -719,7 +719,7 @@ class Compilation:
         out its connections; ``wiring_failed`` when compile knows its inputs
         and outputs but not its connections; ``resolution_failed`` when it
         doesn't even know its inputs and outputs."""
-        if node_id in self.iteration.iterated:
+        if node_id in self.iteration.runs_per_row_of:
             return "ready"
         if node_id in self.interfaces:
             return "wiring_failed"
@@ -853,10 +853,10 @@ class _ReadPlan:
 
     read_by: dict[Ref, list[tuple[Ref, Receive]]]
     reads: dict[str, list[tuple[Ref, Receive]]]
-    iterated_by: dict[str, list[str]]
+    run_per_row_by: dict[str, list[str]]
     carried_by: dict[str, list[Ref]]
-    typed_lists: dict[str, list[Ref]]
-    births: dict[str, Index]
+    listed_inputs: dict[str, list[Ref]]
+    makes_rows: dict[str, Index]
     listed: dict[Ref, Index]
 
     @classmethod
@@ -866,7 +866,7 @@ class _ReadPlan:
         iteration, listed = compilation.iteration, compilation.listed
         plan = cls({}, {}, {}, {}, {}, {}, {})
         for node_id in compilation.layout.order:
-            if node_id not in iteration.iterated:
+            if node_id not in iteration.runs_per_row_of:
                 continue
             graph_node, interface = compilation.layout.nodes[node_id], compilation.interfaces[node_id]
             for inp in interface.inputs:
@@ -880,17 +880,17 @@ class _ReadPlan:
                     own = iteration.indexes[ref]
                     plan.listed[ref] = own
                     if own.parent is not None:
-                        plan.typed_lists.setdefault(own.parent.id, []).append(ref)
-            if (index := iteration.iterated[node_id]) is not None:
-                plan.iterated_by.setdefault(index.id, []).append(node_id)
+                        plan.listed_inputs.setdefault(own.parent.id, []).append(ref)
+            if (index := iteration.runs_per_row_of[node_id]) is not None:
+                plan.run_per_row_by.setdefault(index.id, []).append(node_id)
             for out in interface.outputs:
                 ref = Ref(node_id, out.name)
                 if (index := iteration.indexes[ref]) is not None:
                     plan.carried_by.setdefault(index.id, []).append(ref)
                     if out.dtype.element is not None:
-                        plan.births.setdefault(node_id, index)
-        owned = {index.id for index in (*plan.births.values(), *plan.listed.values())}
-        for planned in (plan.iterated_by, plan.carried_by, plan.typed_lists):
+                        plan.makes_rows.setdefault(node_id, index)
+        owned = {index.id for index in (*plan.makes_rows.values(), *plan.listed.values())}
+        for planned in (plan.run_per_row_by, plan.carried_by, plan.listed_inputs):
             for index_id in planned.keys() - owned:
                 raise RuntimeError(f"compile planned index {index_id!r}, which no node or typed-in list owns")
         return plan
@@ -899,9 +899,9 @@ class _ReadPlan:
         """What the plan says about ``index``, for the value that owns it."""
         key = None if index is None else index.id
         return {
-            "_iterated_by": tuple(self.iterated_by.get(key, ())),
+            "_run_per_row_by": tuple(self.run_per_row_by.get(key, ())),
             "_carried_by": tuple(self.carried_by.get(key, ())),
-            "_typed_lists": tuple(self.typed_lists.get(key, ())),
+            "_listed_inputs": tuple(self.listed_inputs.get(key, ())),
         }
 
 

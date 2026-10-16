@@ -68,7 +68,7 @@ from conductor.execution.events import PendingUnit
 from conductor.execution.state import DoneUnit, RunState, StateSkip, StateValue
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.compiled_node import CompiledField, CompiledNode
-from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Receive, Whole
+from conductor.graph.receive import Broadcast, Gather, PerRow, Receive, RowsUnder, Whole
 from conductor.metadata import Input
 from conductor.ref import Ref
 from conductor.series import Index, Row, Series
@@ -110,14 +110,14 @@ def _prefixes(key: Row) -> Iterator[Row]:
         yield key[:n]
 
 
-def _depth_of(received: Receive) -> int:
+def _rows_under_depth(received: Receive) -> int:
     """The depth of the group a reader receives: a ``Group``'s, else ``0`` (everything on the field)."""
-    return received.depth if isinstance(received, Group) else 0
+    return received.depth if isinstance(received, RowsUnder) else 0
 
 
 def _per_row(received: Receive) -> bool:
     """A reader that takes one value at its row, not a group or the whole field."""
-    return isinstance(received, (Iterate, Broadcast))
+    return isinstance(received, (PerRow, Broadcast))
 
 
 #: The ledger each ``RunState`` it wrote came from, and how many units it had
@@ -199,20 +199,20 @@ class Ledger:
                 if not typed.listed or typed.index.parent is not None:
                     continue
                 for n in range(len(node.statics[inp.name])):
-                    self._born(typed.index.id, (n,))
+                    self._made(typed.index.id, (n,))
                 self._sealed.add(typed.index.id)
                 roots.append(typed.index.id)
-        self._birth_typed_roots(roots)
+        self._make_root_list_rows(roots)
 
-    def _birth_typed_roots(self, roots: list[str]) -> None:
+    def _make_root_list_rows(self, roots: list[str]) -> None:
         """Under every row of a typed-in list on a root, birth the typed-in
         lists whose index is its child, and seal them. Then seal the index of
         every node that births rows per row of a list complete from the start."""
         for index_id in roots:
             for row in sorted(self._rows.get(index_id, ())):
-                self._born_typed(index_id, row)
-            self._seal_typed(index_id, [])
-        self._seal([node_id for index_id in roots for node_id in self._births_on(index_id)])
+                self._made_lists(index_id, row)
+            self._seal_listed(index_id, [])
+        self._seal([node_id for index_id in roots for node_id in self._making_rows_on(index_id)])
 
     # -- the read plan, as compile stored it -----------------------------------
 
@@ -242,10 +242,10 @@ class Ledger:
                         frontier.append(reader.node_id)
         return frozenset(found)
 
-    def _births_on(self, index_id: str) -> list[str]:
+    def _making_rows_on(self, index_id: str) -> list[str]:
         """The nodes running once per row of this index that birth rows of their own."""
         compiled = self._compiled
-        return [node_id for node_id in self._owner(index_id)._iterated_by if compiled.node(node_id)._births is not None]
+        return [node_id for node_id in self._owner(index_id)._run_per_row_by if compiled.node(node_id)._makes_rows is not None]
 
     def _grouped_on(self, index_id: str) -> Iterator[tuple[str, Ref, int]]:
         """``(reader node, output read, group depth)`` for every reader of a
@@ -254,7 +254,7 @@ class Ledger:
         for ref in self._owner(index_id)._carried_by:
             for inp, received in self._fields[ref]._read_by:
                 if not _per_row(received):
-                    yield inp.node_id, ref, _depth_of(received)
+                    yield inp.node_id, ref, _rows_under_depth(received)
 
     def _typed_list(self, index_id: str) -> bool:
         """Is this the index of a list the author typed into an input? Its rows are born with its parent's."""
@@ -264,7 +264,7 @@ class Ledger:
     def _typed_under(self, index_id: str) -> Iterator[tuple[str, int]]:
         """``(index, how many values)`` for each typed-in list born under every row of this index."""
         compiled = self._compiled
-        for ref in self._owner(index_id)._typed_lists:
+        for ref in self._owner(index_id)._listed_inputs:
             yield self._fields[ref].index.id, len(compiled.node(ref.node_id).statics[ref.field])
 
     # -- units ---------------------------------------------------------------
@@ -272,11 +272,11 @@ class Ledger:
     def units(self, node_id: str) -> list[Unit]:
         """This node's units right now: one, or — running per row of ``L`` —
         one per row born on ``L``, plus one at each shorter row where ``L`` has no rows."""
-        iterate = self._compiled.node(node_id)._iterates_on
-        if iterate is None:
+        runs_per_row_of = self._compiled.node(node_id)._runs_per_row_of
+        if runs_per_row_of is None:
             return [(node_id, ())]
-        barren = sorted(self._no_rows_under.get(iterate.id, ()))
-        rows = sorted(self._rows.get(iterate.id, ()))
+        barren = sorted(self._no_rows_under.get(runs_per_row_of.id, ()))
+        rows = sorted(self._rows.get(runs_per_row_of.id, ()))
         return [(node_id, row) for row in (*barren, *rows)]
 
     def is_done(self, unit: Unit) -> bool:
@@ -284,13 +284,13 @@ class Ledger:
 
     def complete(self, node_id: str) -> bool:
         """Every unit this node will ever have is done."""
-        iterate = self._compiled.node(node_id)._iterates_on
-        if iterate is None:
+        runs_per_row_of = self._compiled.node(node_id)._runs_per_row_of
+        if runs_per_row_of is None:
             return (node_id, ()) in self._done
         return (
-            iterate.id in self._sealed
-            and self._done_rows.get(node_id, 0) == len(self._rows.get(iterate.id, ()))
-            and self._done_standing_in.get(node_id, 0) == len(self._no_rows_under.get(iterate.id, ()))
+            runs_per_row_of.id in self._sealed
+            and self._done_rows.get(node_id, 0) == len(self._rows.get(runs_per_row_of.id, ()))
+            and self._done_standing_in.get(node_id, 0) == len(self._no_rows_under.get(runs_per_row_of.id, ()))
         )
 
     def completed_nodes(self) -> set[str]:
@@ -307,37 +307,37 @@ class Ledger:
         counts. A unit of a node that runs once, or one standing in at a
         shorter row for rows never born, is not."""
         node_id, row = unit
-        iterate = self._compiled.node(node_id)._iterates_on
-        return iterate is not None and len(row) == iterate.depth
+        runs_per_row_of = self._compiled.node(node_id)._runs_per_row_of
+        return runs_per_row_of is not None and len(row) == runs_per_row_of.depth
 
     def progress(self, node_id: str) -> tuple[int, int | None]:
         """``(done, total)`` rows for a node; ``total`` is ``None`` until the
         node's index is sealed. Cover units stand in for rows that were never
         born, so they count in neither number."""
-        iterate = self._compiled.node(node_id)._iterates_on
-        if iterate is None:
+        runs_per_row_of = self._compiled.node(node_id)._runs_per_row_of
+        if runs_per_row_of is None:
             return int((node_id, ()) in self._done), 1
-        total = len(self._rows.get(iterate.id, ())) if iterate.id in self._sealed else None
+        total = len(self._rows.get(runs_per_row_of.id, ())) if runs_per_row_of.id in self._sealed else None
         return self._done_rows.get(node_id, 0), total
 
     def _units_under(self, node_id: str, row: Row) -> list[Unit]:
         """This node's units at ``row`` or beneath it, in no particular order —
         not counting a unit standing in at a shorter row, which is ready
         the moment it exists."""
-        iterate = self._compiled.node(node_id)._iterates_on
-        if iterate is None:
+        runs_per_row_of = self._compiled.node(node_id)._runs_per_row_of
+        if runs_per_row_of is None:
             return [(node_id, ())] if row == () else []
-        if row in self._rows.get(iterate.id, ()):
+        if row in self._rows.get(runs_per_row_of.id, ()):
             return [(node_id, row)]
-        return [(node_id, r) for r in self._rows_by_prefix.get(iterate.id, {}).get(row, ())]
+        return [(node_id, r) for r in self._rows_by_prefix.get(runs_per_row_of.id, {}).get(row, ())]
 
     # -- readiness -----------------------------------------------------------
 
     def ready(self, unit: Unit) -> bool:
         """Every value this unit needs exists, or its producer is done."""
         node_id, row = unit
-        iterate = self._compiled.node(node_id)._iterates_on
-        if iterate is not None and len(row) < iterate.depth:
+        runs_per_row_of = self._compiled.node(node_id)._runs_per_row_of
+        if runs_per_row_of is not None and len(row) < runs_per_row_of.depth:
             return True  # standing in at a shorter row: the skip above it is already known
         return all(self._read_ready(ref, received, row) for ref, received in self._compiled.node(node_id)._reads)
 
@@ -359,7 +359,7 @@ class Ledger:
         group under it. Whole or gathered: everything on the ref."""
         if _per_row(received):
             return self._present(ref, self._key(ref, row))
-        return self._written(ref, row[: _depth_of(received)])
+        return self._written(ref, row[: _rows_under_depth(received)])
 
     def _present(self, ref: Ref, key: Row) -> bool:
         return self._lookup(ref, key)[0] is not _MISSING
@@ -384,14 +384,14 @@ class Ledger:
         if any(prefix in barren for prefix in _prefixes(parent_row)):
             return False  # the unit standing in at that shorter row has not run yet
         if parent_row == ():
-            born = index.id in self._sealed
+            made = index.id in self._sealed
         elif len(parent_row) == index.depth:
-            born = parent_row in self._rows.get(index.id, ())  # the group is the row itself, so it exists once that row is born
+            made = parent_row in self._rows.get(index.id, ())  # the group is the row itself, so it exists once that row is born
         elif index.parent is not None and self._typed_list(index.id):
-            born = parent_row in self._rows.get(index.parent.id, ())  # a typed-in list's rows are born with the parent row
+            made = parent_row in self._rows.get(index.parent.id, ())  # a typed-in list's rows are born with the parent row
         else:
-            born = (index.id, parent_row) in self._done
-        if not born:
+            made = (index.id, parent_row) in self._done
+        if not made:
             return False
         # A born group's rows are final, so how many are written from the
         # first is kept, and a row once found written is not read again.
@@ -417,8 +417,8 @@ class Ledger:
         """
         node_id, row = unit
         node = self._compiled.node(node_id)
-        iterate = node._iterates_on
-        if iterate is not None and len(row) < iterate.depth:
+        runs_per_row_of = node._runs_per_row_of
+        if runs_per_row_of is not None and len(row) < runs_per_row_of.depth:
             return Skip(at=row)
         values: dict[str, Any] = {}
         statics = node._statics
@@ -433,7 +433,7 @@ class Ledger:
             if inp.name in statics:
                 values[inp.name] = self._typed(received, statics[inp.name], own, row)
                 continue
-            if isinstance(received, (Iterate, Broadcast)):
+            if isinstance(received, (PerRow, Broadcast)):
                 covering, skips = self._covering(node_id, binding.refs, row)
                 if not covering:
                     return Skip(at=max(skips, key=len))
@@ -451,7 +451,7 @@ class Ledger:
                         gathered.extend(self._series(node_id, (ref,), index, self._rows_under(index.id, ())).values)
                 values[inp.name] = Series(received.index, gathered)
             else:
-                group = row[: _depth_of(received)]
+                group = row[: _rows_under_depth(received)]
                 found = [self._lookup(ref, group) for ref in binding.refs]
                 if all(is_skipped(value) for value, _ in found):
                     return Skip(at=max((at for _, at in found), key=len))
@@ -500,7 +500,7 @@ class Ledger:
         """
         if isinstance(received, Whole):
             return Series(self._fields[own].index, value.values if isinstance(value, Series) else list(value))
-        if isinstance(received, Iterate):
+        if isinstance(received, PerRow):
             return list(value)[row[received.index.depth - 1]]
         return value
 
@@ -556,16 +556,16 @@ class Ledger:
         """
         node_id, row = unit
         interface = self._compiled.node(node_id)._interface
-        births = self._compiled.node(node_id)._births is not None
+        makes_rows = self._compiled.node(node_id)._makes_rows is not None
         written: list[tuple[Ref, Row]] = []
-        born: list[Row] = []
+        made: list[Row] = []
         barren: list[Row] = []
-        if births:
+        if makes_rows:
             self._rows.setdefault(node_id, set())
         if isinstance(outputs, Skip):
             for out in interface.outputs:
                 self._write(Ref(node_id, out.name), outputs.at, SKIPPED, written)
-            if births:
+            if makes_rows:
                 barren.append(outputs.at)
         else:
             # Every output is checked before any value is written, so the
@@ -593,18 +593,18 @@ class Ledger:
             for ref, values in series.items():
                 for j, item in enumerate(values):
                     key = (*row, j)
-                    if self._born(node_id, key):
-                        born.append(key)
+                    if self._made(node_id, key):
+                        made.append(key)
                     self._write(ref, key, item, written)
-            if births and length is None:
+            if makes_rows and length is None:
                 barren.append(row)
-        typed = [child for key in born for child in self._born_typed(node_id, key)]
+        typed = [child for key in made for child in self._made_lists(node_id, key)]
         for at in barren:
             self._no_rows_under.setdefault(node_id, set()).add(at)
             typed.extend(self._barren_typed(node_id, at))
         self._finish(unit)
-        sealed = self._seal([node_id] if births else [])
-        return self._woken(unit, written, born, barren, sealed, typed)
+        sealed = self._seal([node_id] if makes_rows else [])
+        return self._woken(unit, written, made, barren, sealed, typed)
 
     def _write(self, ref: Ref, key: Row, value: Any, written: list[tuple[Ref, Row]]) -> None:
         """Put ``value`` at ``(ref, key)``, noting the address in ``written`` when nothing was there."""
@@ -615,7 +615,7 @@ class Ledger:
         if value is SKIPPED:
             self._skipped_on.add(ref)
 
-    def _born(self, index_id: str, row: Row) -> bool:
+    def _made(self, index_id: str, row: Row) -> bool:
         """Birth ``row`` on the index; ``False`` when it already was."""
         rows = self._rows.setdefault(index_id, set())
         if row in rows:
@@ -626,17 +626,17 @@ class Ledger:
             by_prefix.setdefault(prefix, []).append(row)
         return True
 
-    def _born_typed(self, index_id: str, row: Row) -> list[tuple[str, Row]]:
+    def _made_lists(self, index_id: str, row: Row) -> list[tuple[str, Row]]:
         """Birth, under a row just born on ``index_id``, the rows of every
         typed-in list whose index is its child, and theirs in turn; returns
         each ``(index, row)`` born."""
-        born: list[tuple[str, Row]] = []
+        made: list[tuple[str, Row]] = []
         for child, count in self._typed_under(index_id):
             for n in range(count):
-                if self._born(child, (*row, n)):
-                    born.append((child, (*row, n)))
-                    born.extend(self._born_typed(child, (*row, n)))
-        return born
+                if self._made(child, (*row, n)):
+                    made.append((child, (*row, n)))
+                    made.extend(self._made_lists(child, (*row, n)))
+        return made
 
     def _barren_typed(self, index_id: str, at: Row) -> list[tuple[str, Row]]:
         """Where ``index_id`` has no rows under ``at``, neither has a typed-in
@@ -648,19 +648,19 @@ class Ledger:
             marked.extend(self._barren_typed(child, at))
         return marked
 
-    def _seal_typed(self, index_id: str, sealed: list[str]) -> list[str]:
+    def _seal_listed(self, index_id: str, sealed: list[str]) -> list[str]:
         """Seal the typed-in lists beneath a sealed index: every parent row
         is born, so every row under them is. Returns the nodes that birth on
         the indexes sealed, for ``_seal`` to try next."""
-        births: list[str] = []
+        makes_rows: list[str] = []
         for child, _ in self._typed_under(index_id):
             if child in self._sealed:
                 continue
             self._sealed.add(child)
             sealed.append(child)
-            births.extend(self._births_on(child))
-            births.extend(self._seal_typed(child, sealed))
-        return births
+            makes_rows.extend(self._making_rows_on(child))
+            makes_rows.extend(self._seal_listed(child, sealed))
+        return makes_rows
 
     def _finish(self, unit: Unit) -> None:
         """Mark the unit done, and count it toward its node's rows."""
@@ -668,31 +668,31 @@ class Ledger:
             return
         self._done.add(unit)
         node_id, _ = unit
-        if self._compiled.node(node_id)._iterates_on is not None:
+        if self._compiled.node(node_id)._runs_per_row_of is not None:
             counts = self._done_rows if self.on_a_row(unit) else self._done_standing_in
             counts[node_id] = counts.get(node_id, 0) + 1
 
-    def _seal(self, births: list[str]) -> list[str]:
+    def _seal(self, makes_rows: list[str]) -> list[str]:
         """Seal the index of each of these nodes whose rows are all born, and
         of every node that iterates on an index sealed that way, since a
         child index can only be sealed once its parent is. Returns the
         indexes sealed."""
         sealed: list[str] = []
-        while births:
-            node_id = births.pop()
+        while makes_rows:
+            node_id = makes_rows.pop()
             if node_id in self._sealed or not self.complete(node_id):
                 continue
             self._sealed.add(node_id)
             sealed.append(node_id)
-            births.extend(self._births_on(node_id))
-            births.extend(self._seal_typed(node_id, sealed))
+            makes_rows.extend(self._making_rows_on(node_id))
+            makes_rows.extend(self._seal_listed(node_id, sealed))
         return sealed
 
     def _woken(
         self,
         unit: Unit,
         written: list[tuple[Ref, Row]],
-        born: list[Row],
+        made: list[Row],
         barren: list[Row],
         sealed: list[str],
         typed: list[tuple[str, Row]],
@@ -713,20 +713,20 @@ class Ledger:
         woken: set[Unit] = set()
         for ref, key in written:
             for inp, received in self._fields[ref]._read_by:
-                depth = _depth_of(received)
+                depth = _rows_under_depth(received)
                 if _per_row(received) or len(key) < depth:
                     woken.update(self._units_under(inp.node_id, key))
                 else:
                     self._wake_group(ref, inp.node_id, key[:depth], woken)
-        iterating = compiled.node(node_id)._iterated_by
-        for key in born:
+        iterating = compiled.node(node_id)._run_per_row_by
+        for key in made:
             woken.update((reader, key) for reader in iterating)
         for at in barren:
             woken.update((reader, at) for reader in iterating)
         for index_id, key in typed:
-            woken.update((reader, key) for reader in self._owner(index_id)._iterated_by)
+            woken.update((reader, key) for reader in self._owner(index_id)._run_per_row_by)
         for reader, ref, depth in self._grouped_on(node_id):
-            for key in born:
+            for key in made:
                 if depth == len(key):
                     self._wake_group(ref, reader, key, woken)
             if 0 < depth == len(row):  # a whole read (depth 0) waits for the seal below
@@ -774,18 +774,18 @@ class Ledger:
         for name in declared:
             if name not in outputs:
                 raise StartRefused(f"'{node_id}' was given no value for its output '{name}'")
-        iterate = node._iterates_on
-        if iterate is None:
+        runs_per_row_of = node._runs_per_row_of
+        if runs_per_row_of is None:
             # The node's whole output at once: a series output is answered as the series.
             self._inject((node_id, ()), {
                 name: self._answer(node_id, name, value, self._fields[Ref(node_id, name)].type) for name, value in outputs.items()
             })
             return
-        born = self._rows.get(iterate.id, set())
-        open_rows = [row for row in sorted(born) if (node_id, row) not in self._done]
+        made = self._rows.get(runs_per_row_of.id, set())
+        open_rows = [row for row in sorted(made) if (node_id, row) not in self._done]
         by_output = {name: self._answered_rows(node_id, name, value, open_rows) for name, value in outputs.items()}
         for row in sorted({row for rows in by_output.values() for row in rows}):
-            if row not in born:
+            if row not in made:
                 raise StartRefused(f"'{node_id}' has no row {list(row)} to record: the run has not produced it")
             for name, answered in by_output.items():
                 if row not in answered:
@@ -1001,18 +1001,18 @@ class Ledger:
             ledger._values.setdefault(ref, {})[entry.row] = value
         done = [(unit.node_id, unit.row) for unit in state.done_units if unit.node_id not in dropped]
         for node_id, row in done:
-            if not _fits(row, compiled.node(node_id).iterates_on):
+            if not _fits(row, compiled.node(node_id).runs_per_row_of):
                 raise StartRefused(f"the state marks {node_id!r} done at row {list(row)}, which {node_id!r} has no place for")
-        ledger._rebirth(done)
+        ledger._remake_rows(done)
         for unit in done:
             ledger._finish(unit)
         ledger._seal([
             node_id for node_id in reversed(compiled.execution_order)
-            if compiled.node(node_id)._births is not None and node_id not in dropped
+            if compiled.node(node_id)._makes_rows is not None and node_id not in dropped
         ])
         return ledger
 
-    def _rebirth(self, done: list[Unit]) -> None:
+    def _remake_rows(self, done: list[Unit]) -> None:
         """Birth again the rows the done units' writes birthed, and mark again
         where they left an index with no rows: what ``record`` did as each
         unit was written, read back off its values.
@@ -1025,9 +1025,9 @@ class Ledger:
         born in order, and each row born births the typed-in lists under it,
         as ``record`` does.
         """
-        born: dict[str, set[Row]] = {}
+        made: dict[str, set[Row]] = {}
         for node_id, row in done:
-            if self._compiled.node(node_id)._births is None:
+            if self._compiled.node(node_id)._makes_rows is None:
                 continue
             self._rows.setdefault(node_id, set())
             series = [
@@ -1037,13 +1037,13 @@ class Ledger:
             ]
             children = {key for by_row in series for key in by_row if len(key) == len(row) + 1 and key[:-1] == row}
             if children:
-                born.setdefault(node_id, set()).update(children)
+                made.setdefault(node_id, set()).update(children)
                 continue
             at = next((key for key in _prefixes(row) for by_row in series if is_skipped(by_row.get(key))), None)
             if at is not None:
                 self._no_rows_under.setdefault(node_id, set()).add(at)
                 self._barren_typed(node_id, at)
         for node_id in self._compiled.execution_order:
-            for key in sorted(born.get(node_id, ())):
-                self._born(node_id, key)
-                self._born_typed(node_id, key)
+            for key in sorted(made.get(node_id, ())):
+                self._made(node_id, key)
+                self._made_lists(node_id, key)

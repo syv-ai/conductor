@@ -12,16 +12,16 @@ field, against the values that path gave, pinned in
 
 Which scenario pins which lift rule:
 
-1. an index renamed and hung under the row: ``born_inside``, ``nested_iterating``;
+1. an index renamed and hung under the row: ``rows_made_inside``, ``nested_iterating``;
 2. a value that ran once becomes a series on the row: ``entering_scalar``, ``gather_two_inside``;
-3. ``Whole`` → ``Group``, a ``Gather`` of single values → ``Group``: ``born_inside``, ``gather_two_inside``;
-4. a crossing takes the outer walk's record: ``two_crossings``, ``series_field``, ``gathered_into_the_placed_node``;
-5. an output read outside takes the inner field's index: ``born_inside_exposed``, ``read_from_outside``, ``born_under_a_row_inside``;
+3. ``Whole`` → ``Group``, a ``Gather`` of single values → ``Group``: ``rows_made_inside``, ``gather_two_inside``;
+4. a crossing takes the outer walk's record: ``two_crossings``, ``series_field``, ``gathered_into_the_graph_node``;
+5. an output read outside takes the inner field's index: ``rows_made_inside_exposed``, ``read_from_outside``, ``rows_made_under_a_row_inside``;
 6. conditions put in place: every ``cond_`` scenario.
 
 A value typed on the placed node's input is not lifted: the graph is
-compiled again with it, as if typed inside (``value_on_the_placed_node``,
-``many_values_on_the_placed_node``).
+compiled again with it, as if typed inside (``value_on_the_graph_node``,
+``many_values_on_the_graph_node``).
 """
 
 import json
@@ -273,7 +273,7 @@ def _docs():
     return N(id="docs", type="docs", version=1)
 
 
-def _placed_many(k):
+def _embedded_many(k):
     return Scenario(
         graphs=(("stored-graph", _graph_like_a_host_stores()),),
         nodes=(_docs(), *(N(id=f"e{i}", type="stored-graph", version=1, bindings={"holder.value": From("docs.result")}) for i in range(k))),
@@ -310,18 +310,18 @@ SCENARIOS: dict[str, Scenario] = {
         N(id="emb", type="inner-graph", version=1, bindings={"holder.value": From("docs.result")}),
         N(id="after", type="join", version=1, bindings={"texts": From("emb.join.result")}),
     )),
-    "born_inside": Scenario((("splitter", (
+    "rows_made_inside": Scenario((("splitter", (
         N(id="holder", type="holder", version=1, bindings={"value": Static("a\nb")}),
         N(id="lines", type="lines", version=1, bindings={"text": From("holder.result")}),
         N(id="join", type="join", version=1, bindings={"texts": From("lines.result")}),
     )),), (_docs(), N(id="emb", type="splitter", version=1, bindings={"holder.value": From("docs.result")}))),
-    "born_inside_unfed": Scenario((("splitter", (
+    "rows_made_inside_unfed": Scenario((("splitter", (
         N(id="holder", type="holder", version=1, bindings={"value": Static("a\nb")}),
         N(id="entered", type="holder", version=1),
         N(id="lines", type="lines", version=1, bindings={"text": From("holder.result")}),
         N(id="join", type="join", version=1, bindings={"texts": From("lines.result")}),
     )),), (_docs(), N(id="emb", type="splitter", version=1, bindings={"entered.value": From("docs.result")}))),
-    "born_inside_exposed": Scenario((("splitter", (
+    "rows_made_inside_exposed": Scenario((("splitter", (
         N(id="holder", type="holder", version=1, bindings={"value": Static("a\nb")}),
         N(id="lines", type="lines", version=1, bindings={"text": From("holder.result")}),
     )),), (
@@ -340,13 +340,13 @@ SCENARIOS: dict[str, Scenario] = {
     "series_field": Scenario((("joiner", (N(id="join", type="join", version=1),)),), (
         _docs(), N(id="emb", type="joiner", version=1, bindings={"join.texts": From("docs.result")}),
     )),
-    "gathered_into_the_placed_node": Scenario((("joiner", (N(id="join", type="join", version=1),)),), (
+    "gathered_into_the_graph_node": Scenario((("joiner", (N(id="join", type="join", version=1),)),), (
         N(id="h1", type="holder", version=1, bindings={"value": Static("a")}),
         N(id="h2", type="holder", version=1, bindings={"value": Static("b")}),
         N(id="emb", type="joiner", version=1, bindings={"join.texts": From("h1.result", "h2.result")}),
         N(id="after", type="upper", version=1, bindings={"text": From("emb.join.result")}),
     )),
-    "born_under_a_row_inside": Scenario((("rows-inside", (
+    "rows_made_under_a_row_inside": Scenario((("rows-inside", (
         _docs(),
         N(id="lines", type="lines", version=1, bindings={"text": From("docs.result")}),
     )),), (
@@ -405,7 +405,7 @@ SCENARIOS: dict[str, Scenario] = {
         N(id="up", type="upper", version=1, bindings={"text": From("holder.result")}),
         N(id="join", type="join", version=1, bindings={"texts": From("holder.result", "up.result")}),
     )),), (_docs(), N(id="emb", type="two", version=1, bindings={"holder.value": From("docs.result")}))),
-    "placed_3": _placed_many(3),
+    "embedded_3": _embedded_many(3),
     "nested_2": _nested(2),
     "nested_4": _nested(4),
     "nested_iterating": Scenario((
@@ -426,11 +426,11 @@ SCENARIOS: dict[str, Scenario] = {
         N(id="u", type="upper", version=1, bindings={"text": From("n.result")}),
         N(id="join", type="join", version=1, bindings={"texts": From("u.result")}),
     )),), (_docs(), N(id="emb", type="needy", version=1, bindings={"n.text": From("docs.result")}))),
-    "value_on_the_placed_node": Scenario((("inner-graph", _inner_graph()),), (
+    "value_on_the_graph_node": Scenario((("inner-graph", _inner_graph()),), (
         N(id="emb", type="inner-graph", version=1, bindings={"holder.value": Static("set outside")}),
         N(id="after", type="upper", version=1, bindings={"text": From("emb.join.result")}),
     )),
-    "many_values_on_the_placed_node": Scenario((("inner-graph", _inner_graph()),), (
+    "many_values_on_the_graph_node": Scenario((("inner-graph", _inner_graph()),), (
         N(id="emb", type="inner-graph", version=1, bindings={"holder.value": Static(["a", "b"])}),
         N(id="after", type="join", version=1, bindings={"texts": From("emb.join.result")}),
     )),
@@ -534,7 +534,7 @@ def _what_the_engine_reads(compiled: CompiledGraph) -> dict[str, Any]:
                 } if declared.name in inputs else {"condition": _condition(found.condition)}),
             }
         nodes[node_id] = {
-            "iterates_on": repr(node.iterates_on),
+            "runs_per_row_of": repr(node.runs_per_row_of),
             "statics": repr(dict(sorted(node.statics.items()))),
             "fields": fields,
         }
@@ -552,7 +552,7 @@ def test_the_pinned_values_are_the_scenarios():
 
 
 RUN = (
-    "entering_scalar", "born_inside_exposed", "gathered_into_the_placed_node", "many_values_on_the_placed_node",
+    "entering_scalar", "rows_made_inside_exposed", "gathered_into_the_graph_node", "many_values_on_the_graph_node",
     "nested_iterating", "cond_outer_gate_into_graph", "cond_nested_per_row",
     "per_row_output_read_outside", "value_and_edge_per_row", "required_input_filled_inside",
     "edge_into_a_value_filled_inside", "edge_into_a_list_filled_inside",
@@ -589,7 +589,7 @@ def test_the_placed_node_is_a_graph_whose_version_is_the_compiled_graph():
 
 
 def test_a_value_set_on_the_placed_node_is_read_by_the_inner_node():
-    compiled = _compiled("value_on_the_placed_node")
+    compiled = _compiled("value_on_the_graph_node")
 
     assert compiled.node("emb/holder").statics == {"value": Txt("set outside")}
     assert compiled.node("emb").statics == {"holder.value": Txt("set outside")}
@@ -671,7 +671,7 @@ def test_a_graph_whose_required_input_is_left_empty_can_be_placed():
     assert compiled.is_runnable, compiled.problems
 
 
-def _placed_alone(inner: tuple[GraphNode, ...], **bindings: Any) -> CompiledGraph:
+def _embedded_alone(inner: tuple[GraphNode, ...], **bindings: Any) -> CompiledGraph:
     graph = CompiledGraph.from_graph(Graph(nodes=list(inner)), _plain_registry())
     registry = _plain_registry().extended_with({"g": _definition("g", graph)})
     return CompiledGraph.from_graph(Graph(nodes=[N(id="emb", type="g", version=1, bindings=bindings)]), registry)
@@ -680,8 +680,8 @@ def _placed_alone(inner: tuple[GraphNode, ...], **bindings: Any) -> CompiledGrap
 def test_a_graph_with_an_empty_input_it_does_not_offer_cannot_be_placed():
     """Only an input the graph offers can be filled where it is placed. A
     locked one, or one on a node that also has an edge in, stays empty."""
-    locked = _placed_alone((N(id="n", type="need", version=1, locked=("text",)),))
-    fed_beside = _placed_alone((
+    locked = _embedded_alone((N(id="n", type="need", version=1, locked=("text",)),))
+    fed_beside = _embedded_alone((
         N(id="h", type="holder", version=1, bindings={"value": Static("x")}),
         N(id="p", type="both", version=1, bindings={"a": From("h.result")}),
     ))
@@ -693,7 +693,7 @@ def test_a_graph_with_an_empty_input_it_does_not_offer_cannot_be_placed():
 def test_a_value_typed_on_a_placed_graph_that_a_hook_inside_refuses_is_the_outer_authors_problem():
     """Compiled again with the value, the graph refuses it. The outer author
     typed it, so they see the hook's own words on the field they typed in."""
-    compiled = _placed_alone((N(id="p", type="picky", version=1),), **{"p.mode": Static("bad")})
+    compiled = _embedded_alone((N(id="p", type="picky", version=1),), **{"p.mode": Static("bad")})
 
     assert [(p.code, p.message, p.node_id, p.field) for p in compiled.problems] == [
         ("picky_refuses", "Not that mode.", "emb", "p.mode"),
@@ -732,14 +732,14 @@ def test_a_graph_the_walk_leaves_out_is_one_node_with_nothing_inside():
         N(id="emb", type="inner-graph", version=1, bindings={"holder.value": From("bad.result")}),
     ]), _registry(SCENARIOS["runs_once"]))
     broken, registry = _broken_graph_registry()
-    unplaceable = CompiledGraph.from_graph(Graph(nodes=[N(id="emb", type="broken", version=1)]), registry)
+    unembeddable = CompiledGraph.from_graph(Graph(nodes=[N(id="emb", type="broken", version=1)]), registry)
 
-    for compiled, cause in ((upstream_broken, "unknown_node_type"), (unplaceable, "embedded_graph_broken")):
+    for compiled, cause in ((upstream_broken, "unknown_node_type"), (unembeddable, "embedded_graph_broken")):
         node = compiled.node("emb")
         assert (node.state, node.kind, node._cause.code) == ("wiring_failed", "graph", cause)
         with pytest.raises(KeyError):
             compiled.node("emb/holder" if compiled is upstream_broken else "emb/a")
-    assert unplaceable.node("emb").version.node("a").state == "ready"
+    assert unembeddable.node("emb").version.node("a").state == "ready"
 
 
 def test_a_value_on_a_field_the_graph_does_not_offer_is_a_stale_binding():

@@ -57,7 +57,7 @@ from typing import TYPE_CHECKING, Any
 
 from conductor.graph.binding import Binding, From, Static
 from conductor.graph.model import GraphNode
-from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Receive, Whole
+from conductor.graph.receive import Broadcast, Gather, PerRow, Receive, RowsUnder, Whole
 from conductor.ref import Ref
 from conductor.series import Index, Series
 
@@ -113,7 +113,7 @@ class Crossing:
 
 
 @dataclass(frozen=True)
-class Placed:
+class Embedded:
     """A compiled graph's records under one placed node, keyed by the ids and
     refs the graph that places it uses (``emb/join``, ``emb/join.result``).
     ``Compilation.place_graphs`` merges each into its own records."""
@@ -127,20 +127,20 @@ class Placed:
     interfaces: dict[str, Interface]
     statics: dict[str, dict[str, Any]]
     listed: dict[str, frozenset[str]]
-    iterated: dict[str, Index | None]
+    runs_per_row_of: dict[str, Index | None]
     types: dict[Ref, Any]
     indexes: dict[Ref, Index | None]
     receives: dict[Ref, Receive]
 
 
-def graph_as_placed(
+def graph_as_embedded(
     graph: CompiledGraph,
     node_id: str,
     edges: Mapping[str, From],
     values: Mapping[str, Any],
     runs_per_row_of: Index | None,
     crossings: Mapping[str, Crossing],
-) -> Placed:
+) -> Embedded:
     """``graph``'s records as they stand placed at ``node_id``, running once per row of ``runs_per_row_of``.
 
     ``edges`` holds, by the placed node's input name (``holder.value``), the
@@ -155,7 +155,7 @@ def graph_as_placed(
     layout, iteration = inner.layout, inner.iteration
     prefix = f"{node_id}{SEPARATOR}"
 
-    def lifted(ref: Ref) -> Ref:
+    def inside(ref: Ref) -> Ref:
         return Ref(prefix + ref.node_id, ref.field)
 
     edge_at = {Ref(name): edge for name, edge in edges.items()}
@@ -172,7 +172,7 @@ def graph_as_placed(
         for name, binding in inner_node.bindings.items():
             if isinstance(binding, From):
                 edge_fed.add(Ref(inner_id, name))
-                bindings[name] = From(*(lifted(ref) for ref in binding.refs))
+                bindings[name] = From(*(inside(ref) for ref in binding.refs))
             else:
                 bindings[name] = binding
         for ref, edge in edge_at.items():
@@ -201,16 +201,15 @@ def graph_as_placed(
     }
     crossing_at = {Ref(name): crossing for name, crossing in crossings.items()}
 
-    iterated = {
+    inner_runs_per_row_of = {
         prefix + inner_id: runs_per_row_of if index is None else under(index, prefix, runs_per_row_of)
-        for inner_id, index in iteration.iterated.items()
+        for inner_id, index in iteration.runs_per_row_of.items()
     }
     types: dict[Ref, Any] = {}
     indexes: dict[Ref, Index | None] = {}
     receives: dict[Ref, Receive] = {}
-    per_row_of = runs_per_row_of
     for ref, dtype in iteration.types.items():
-        new_ref = lifted(ref)
+        new_ref = inside(ref)
         crossing = crossing_at.get(ref)
         if crossing is not None:
             types[new_ref], indexes[new_ref], receives[new_ref] = crossing.type, crossing.index, crossing.receives
@@ -218,22 +217,22 @@ def graph_as_placed(
         index = iteration.indexes[ref]
         receipt = iteration.receives.get(ref)
         is_output = receipt is None
-        once_per_row = per_row_of is not None and index is None and (is_output or ref in edge_fed)
+        once_per_row = runs_per_row_of is not None and index is None and (is_output or ref in edge_fed)
         types[new_ref] = Series[dtype] if once_per_row else dtype
-        indexes[new_ref] = per_row_of if once_per_row else under(index, prefix, per_row_of)
+        indexes[new_ref] = runs_per_row_of if once_per_row else under(index, prefix, runs_per_row_of)
         if is_output:
             continue
         if once_per_row and isinstance(receipt, Broadcast):
-            receives[new_ref] = Iterate(per_row_of)
+            receives[new_ref] = PerRow(runs_per_row_of)
         elif (
-            per_row_of is not None and isinstance(receipt, Gather) and ref in edge_fed
+            runs_per_row_of is not None and isinstance(receipt, Gather) and ref in edge_fed
             and all(iteration.indexes[source] is None for source in layout.nodes[ref.node_id].bindings[ref.field].refs)
         ):
-            indexes[new_ref], receives[new_ref] = per_row_of, Group(per_row_of, per_row_of.depth)
+            indexes[new_ref], receives[new_ref] = runs_per_row_of, RowsUnder(runs_per_row_of, runs_per_row_of.depth)
         else:
-            receives[new_ref] = _received_under(receipt, index, prefix, per_row_of)
+            receives[new_ref] = _received_under(receipt, index, prefix, runs_per_row_of)
 
-    return Placed(**structure, iterated=iterated, types=types, indexes=indexes, receives=receives)
+    return Embedded(**structure, runs_per_row_of=inner_runs_per_row_of, types=types, indexes=indexes, receives=receives)
 
 
 def under(index: Index | None, prefix: str, row: Index | None) -> Index | None:
@@ -253,12 +252,12 @@ def under(index: Index | None, prefix: str, row: Index | None) -> Index | None:
 
 def _received_under(receipt: Receive, index: Index | None, prefix: str, row: Index | None) -> Receive:
     """An inner receipt as it stands placed (rules 1 and 3)."""
-    if isinstance(receipt, Iterate):
-        return Iterate(under(receipt.index, prefix, row))
-    if isinstance(receipt, Group):
-        return Group(under(receipt.index, prefix, row), receipt.depth + (0 if row is None else row.depth))
+    if isinstance(receipt, PerRow):
+        return PerRow(under(receipt.index, prefix, row))
+    if isinstance(receipt, RowsUnder):
+        return RowsUnder(under(receipt.index, prefix, row), receipt.depth + (0 if row is None else row.depth))
     if isinstance(receipt, Gather):
         return Gather(under(receipt.index, prefix, row))
     if isinstance(receipt, Whole):
-        return receipt if row is None else Group(under(index, prefix, row), row.depth)
+        return receipt if row is None else RowsUnder(under(index, prefix, row), row.depth)
     return receipt

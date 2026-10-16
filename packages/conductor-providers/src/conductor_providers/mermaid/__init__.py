@@ -27,10 +27,10 @@ from conductor import (
     From,
     Gather,
     GraphNode,
-    Group,
-    Iterate,
+    PerRow,
     Receive,
     Ref,
+    RowsUnder,
     Whole,
 )
 
@@ -85,9 +85,9 @@ def _placed(
 def _label(receives: Receive) -> str | None:
     """How an arrow's reading input receives it, in a few words; ``None`` for a broadcast."""
     match receives:
-        case Iterate(index=index):
+        case PerRow(index=index):
             return f"per row of {index.id}"
-        case Group(index=index):
+        case RowsUnder(index=index):
             return f"grouped by {index.id}"
         case Whole():
             return "whole"

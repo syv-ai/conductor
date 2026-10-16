@@ -27,7 +27,7 @@ ending = run_sync(ready)                               # in a notebook: await ru
 assert ending.state.outputs(ready) == {"joined.result": "RED + GREEN"}
 results = ending.state.results(ready)                  # {node_id: {output: value}}
 assert list(results["loud"]["result"]) == ["RED", "GREEN"]   # ran once per word
-assert ready.node("joined").iterates_on is None       # parts is Series[Text]: one call
+assert ready.node("joined").runs_per_row_of is None       # parts is Series[Text]: one call
 ```
 
 An input holds one binding: `From("node.output")` over an edge, `Static(value)` typed in (a list on a single-value input runs the node once per item), or none for the default. A single output is named `result`. `GraphNode` is keyword-only; a node id may not contain `.`.

@@ -289,7 +289,7 @@ class CompiledGraph:
         found: dict[str, dict[str, tuple[str, ...]]] = {}
         for node_id in self._order:
             node = self._nodes[node_id]
-            if node.state != "ready" or node.iterates_on is not None:
+            if node.state != "ready" or node.runs_per_row_of is not None:
                 continue
             groups: dict[str, list[str]] = {}
             for out in node.interface.outputs:

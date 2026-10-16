@@ -35,7 +35,7 @@ from conductor.series import Index
 
 
 @dataclass(frozen=True)
-class Iterate:
+class PerRow:
     """The unit receives the value at its own row, projected onto ``index``.
 
     A scalar input fed a series on ``index``: the node runs once per row
@@ -71,7 +71,7 @@ class Whole:
 
 
 @dataclass(frozen=True)
-class Group:
+class RowsUnder:
     """The unit receives the rows of ``index`` under its own row cut to ``depth``.
 
     A ``Series[X]`` input fed a series on a child index: the node runs once
@@ -99,4 +99,4 @@ class Gather:
     index: Index
 
 
-Receive = Iterate | Broadcast | Whole | Group | Gather
+Receive = PerRow | Broadcast | Whole | RowsUnder | Gather

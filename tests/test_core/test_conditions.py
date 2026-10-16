@@ -179,7 +179,7 @@ def test_an_iterating_decision_masks_rows_and_is_not_a_condition():
     ])
 
     assert compiled.is_runnable, compiled.problems
-    assert compiled.node("g").iterates_on is not None
+    assert compiled.node("g").runs_per_row_of is not None
     assert compiled.field(Ref("yes", "result")).condition == ALWAYS
     assert compiled.decisions == {}
 
@@ -195,5 +195,5 @@ def test_a_decision_on_a_node_whose_wiring_failed_is_not_one_a_run_makes():
     assert compiled.decisions == {}
     assert compiled.node("g").state == "wiring_failed"
     with pytest.raises(NodeWiringError) as raised:
-        compiled.node("g").iterates_on
+        compiled.node("g").runs_per_row_of
     assert raised.value.problems[0].code == "unknown_ref_output"
