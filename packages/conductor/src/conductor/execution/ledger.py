@@ -186,9 +186,9 @@ class Ledger:
         # Who reads what, and what runs on each index, is compile's read plan
         # (``CompiledNode._makes_rows``, ``CompiledField._read_by`` and their
         # kin), looked up where a write needs it. Built here: each node's place
-        # in the execution order, and the rows of every list set on a root
-        # node, made from the graph as it is now so a restore never takes them
-        # from a stored state.
+        # in the execution order, and the rows of every list set on a node
+        # whose own index is a root, made from the graph as it is now so a
+        # restore never takes them from a stored state.
         order = compiled.execution_order
         self._position = {node_id: n for n, node_id in enumerate(order)}
         roots: list[str] = []
@@ -205,10 +205,10 @@ class Ledger:
         self._make_root_list_rows(roots)
 
     def _make_root_list_rows(self, roots: list[str]) -> None:
-        """Under every row of a list set on a root node, make the rows of the
-        lists set on the node whose index is its child, and seal them. Then
-        seal the index of every node that makes rows per row of a list
-        complete from the start."""
+        """Under every row of a list whose own index is a root, make the rows
+        of every list whose index is its child, and seal them. Then seal the
+        index of every node that makes rows per row of a list complete from
+        the start."""
         for index_id in roots:
             for row in sorted(self._rows.get(index_id, ())):
                 self._made_lists(index_id, row)

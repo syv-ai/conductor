@@ -391,8 +391,8 @@ class _Walk:
         will once the graph's nodes are in its place: the type and rows the
         output has inside the graph, its rows named
         under the graph node and hung under the ``row`` it runs on
-        (``embedding.under``). Two outputs share rows only when a node inside
-        makes both; an output that runs once inside is one value per
+        (``embedding.under``). Two outputs share rows only when one node inside
+        makes the rows of both; an output that runs once inside is one value per
         ``row``, or one value."""
         ref, iteration = Ref(out.name), graph._compilation.iteration
         dtype, index = iteration.types[ref], iteration.indexes[ref]

@@ -39,7 +39,7 @@ graph, which compile then follows until Python's recursion limit.
 separator, so an address is a path and a field: ``approve/check.amount``.
 The first ``.`` always splits it, and the field is free text. Only embedding
 writes a ``/``: an id holding one is refused (``invalid_node_id``), or it
-could be read in the place of a node inside. So the id of a node inside is
+could be mistaken for the id of a node inside. So the id of a node inside is
 the path to it, and the graph it sits in is read off it (``embedded_in``).
 
 An embedded graph's own field names are its addresses (``check.amount``), so

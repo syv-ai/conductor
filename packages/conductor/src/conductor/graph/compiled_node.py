@@ -65,7 +65,7 @@ NodeState = Literal["ready", "wiring_failed", "resolution_failed"]
 
 #: What a node is. ``node``: it runs as one unit, one call of its version's
 #: ``run`` per row. ``graph``: its version is a graph the host compiled,
-#: which compile places, so its inner nodes run in its place and its fields
+#: which compile embeds, so its inner nodes run in its place and its fields
 #: are theirs, at their path. Compile's last step sets it from the version. It is
 #: read where the two kinds answer differently: ``_gate``, for the reads only
 #: a unit answers, and ``CompiledGraph.field``, since a graph has no fields of

@@ -38,7 +38,7 @@ of the series; we say the node runs per row of that index.
 
 Some nodes have a version that is itself a graph, which the host compiled
 on its own; that graph is an embedded graph, and the node is a ``graph``
-(its ``kind``). Compile places the embedded graph's nodes in place of that
+(its ``kind``). Compile embeds the graph's nodes in place of that
 node (``conductor.graph.embedding``), so the graph the author drew (the
 authored graph) differs from the graph that runs. In the authored graph the
 embedded graph is one node, ``approve``; in the graph that runs its inner

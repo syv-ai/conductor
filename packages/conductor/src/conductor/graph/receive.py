@@ -1,6 +1,6 @@
 """How an input receives its value: one row at a time, one value everywhere, the whole thing, the rows under a row, or a gathering.
 
-A node in a graph runs as units, one per row of the index it runs per row of
+A node in a graph runs as units, one per row of its index (``runs_per_row_of``)
 (or one unit when it runs once). For every input, the question this
 module answers is: *at a unit's row, which of the input's values does the
 unit receive?* Compile answers it once, while it walks the edges, and
