@@ -126,16 +126,16 @@ def derive_interface(
         needs.update(interface.needs)
         if not dependencies[node.id]:
             inputs.extend(
-                _placed(node, declared, graphs)
+                _as_offered(node, declared, graphs)
                 for declared in interface.inputs
                 if declared.show_handle and declared.name not in node.locked
             )
         if node.id not in consumed:
-            outputs.extend(_placed(node, declared, graphs) for declared in interface.outputs)
+            outputs.extend(_as_offered(node, declared, graphs) for declared in interface.outputs)
     return Interface(inputs=tuple(inputs), outputs=tuple(outputs), returns=Mapping, needs=needs)
 
 
-def _placed(node: GraphNode, declared, graphs: Collection[str]):
+def _as_offered(node: GraphNode, declared, graphs: Collection[str]):
     """``declared`` under its address, with the title the author gave it on this node where there is one."""
     at = address(node.id, declared.name, graphs)
     content = node.fields.get(declared.name)

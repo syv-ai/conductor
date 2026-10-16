@@ -64,7 +64,7 @@ def conditions_of(
     interfaces: Mapping[str, Interface],
     runs_per_row_of: Mapping[str, Index | None],
 ) -> dict[Ref, Condition]:
-    """The condition of every output of every node in ``iterated`` — the nodes the edge walk resolved.
+    """The condition of every output of every node in ``runs_per_row_of`` — the nodes the edge walk resolved.
 
     Walks ``nodes`` in execution order. A node's own condition holds
     when every connected input's does, and an input's holds when any of

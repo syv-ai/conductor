@@ -131,7 +131,7 @@ def test_an_intermediate_base_declares_nothing():
 
 def test_a_node_may_be_deprecated_and_the_notice_is_content():
     """The record's presence is the fact. Nothing is wrong with a
-    graph that places a deprecated node — it is not a Problem."""
+    graph that uses a deprecated node — it is not a Problem."""
 
     @deprecated(header="Retired", alternative="greeter", migration="Use Greeter instead.")
     class Old(NodeDefinition):
@@ -706,9 +706,9 @@ def test_a_node_shapes_its_own_inputs_from_its_values():
     assert [i.name for i in Modes().compute_inputs(declared, {"mode": "b"})] == ["mode", "extra"]
 
 
-def test_a_hook_shapes_the_version_the_placement_pins_not_the_newest():
+def test_a_hook_shapes_the_version_the_node_pins_not_the_newest():
     """A fresh instance knows no version. The caller hands the hook the
-    declaration of the version it is asking about, so an old placement keeps
+    declaration of the version it is asking about, so an old node keeps
     its old interface."""
     from conductor.node import version
 
@@ -754,7 +754,7 @@ def test_a_node_with_no_shaping_declares_none():
 def test_a_hook_that_cannot_answer_raises_refuses():
     """`Refuses(code, message)` is the one refusal a field hook has: the
     host names the code and writes the sentence, and the compiler anchors both
-    as the placement's fatal `Problem` (the graph plans)."""
+    as the node's fatal `Problem` (the graph plans)."""
     from conductor.errors import ConductorError, Refuses
 
     refusal = Refuses("wrong_shape", "What arrives does not fit.")
@@ -913,7 +913,7 @@ class Flag(DType):
 
 
 def test_an_upgrade_takes_values_and_not_an_instance():
-    """It rewrites data. There is no placement to consult and no state."""
+    """It rewrites data. There is no node in a graph to consult and no state."""
 
     class Docs2(NodeDefinition):
         id = "docs-2"
@@ -1089,7 +1089,7 @@ def test_a_definition_may_carry_its_versions_by_value():
     """A definition built from data (an embedded graph) sets ``versions`` in
     the class body, each the stored graph compiled once by its host.
     ``register()`` checks the numbering and ``describe()`` reads its
-    interface; nothing runs it as one unit, since compile places its nodes."""
+    interface; nothing runs it as one unit, since compile embeds its nodes."""
     from conductor.interface import model_of
 
     class Shout(NodeDefinition):

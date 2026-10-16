@@ -129,7 +129,7 @@ def test_several_outputs_are_the_fields_of_a_record():
 
 
 def test_a_computed_roster_declares_no_outputs_and_returns_by_name():
-    """The placed node's interface says what the outputs are; run hands them back by name."""
+    """The node's interface in its graph says what the outputs are; run hands them back by name."""
     from collections.abc import Mapping
     from typing import Any
 

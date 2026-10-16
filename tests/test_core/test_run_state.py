@@ -2,7 +2,7 @@
 
 The state is what a host stores between legs and hands back: every value
 in wire form, what is done, and a fingerprint per node of
-how the graph placed it. It survives JSON, and the next leg's results are
+how the graph uses it. It survives JSON, and the next leg's results are
 typed like the first's. On restore, a node whose fingerprint differs from
 the graph it is restored into — a static edited, a version bumped, a
 binding moved — is dropped with everything downstream of it, so those
@@ -467,8 +467,8 @@ def test_a_unit_whose_second_output_is_invalid_writes_nothing():
 # -- edits between legs, and a state read after the ledger moved on ----------------------
 
 
-def test_a_typed_in_list_edited_between_legs_reruns_on_the_new_rows():
-    """The rows of a typed-in list are the graph's, never the state's: grown,
+def test_a_list_set_on_a_node_edited_between_legs_reruns_on_the_new_rows():
+    """The rows of a list set on a node are the graph's, never the state's: grown,
     shrunk or added between legs, the node runs on what the author typed now."""
     calls.clear()
     state = _leg(_compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a", "b"])})]))[-1].state

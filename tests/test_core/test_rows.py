@@ -455,9 +455,9 @@ def test_progress_is_per_row_and_the_total_is_known_once_the_index_is_sealed():
     assert [e.type for e in events if getattr(e, "node_id", None) == "up"][-1] == "node_complete"
 
 
-def test_a_unit_standing_in_for_rows_never_born_reports_no_progress():
+def test_a_unit_standing_in_for_rows_never_made_reports_no_progress():
     """``a/b`` is long and splits into two lines; ``x`` is short, so its lines are
-    never born and ``up`` stands in at ``(1,)``, which counts as no row."""
+    never made and ``up`` stands in at ``(1,)``, which counts as no row."""
     events = _events([
         _docs("a/b,x"),
         GraphNode(id="long", type="long-only", version=1, bindings={"text": _edge(("docs", "texts"))}),
@@ -781,8 +781,8 @@ def test_a_typed_in_list_inside_an_iterating_embedded_graph_is_a_child_row_under
     assert results["emb/t"]["result"].rows == tuple((i, n) for i in range(len(joined)) for n in range(2))
 
 
-def test_a_restore_leaves_a_typed_in_list_under_a_skipped_outer_row_complete():
-    """A skip above the embedded graph leaves its typed-in list with no rows
+def test_a_restore_leaves_a_list_set_on_a_node_under_a_skipped_outer_row_complete():
+    """A skip above the embedded graph leaves its list set on a node with no rows
     under the outer row, and a restore works that out again, so the inner
     node that stood in is still complete on the next leg."""
     from conductor.execution.ledger import Ledger, Skip

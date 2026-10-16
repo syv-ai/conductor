@@ -1,11 +1,11 @@
 ---
 name: create-graph
-description: Places conductor nodes in a Graph, compiles it with CompiledGraph.from_graph and runs it with execute. Use when building, saving, running, drawing, serving or debugging a conductor graph; binding inputs (From, Static, with_inputs); reading outputs, problems or events; answering Asks (state, cache); or on "build a graph", "run a graph", "connect these nodes".
+description: Puts conductor nodes in a Graph, compiles it with CompiledGraph.from_graph and runs it with execute. Use when building, saving, running, drawing, serving or debugging a conductor graph; binding inputs (From, Static, with_inputs); reading outputs, problems or events; answering Asks (state, cache); or on "build a graph", "run a graph", "connect these nodes".
 ---
 
 # Creating and running a conductor graph
 
-A graph is placed nodes, each pinning a `type` and `version` and binding its inputs. Compile says what is wrong; `execute` runs it as a stream of events. To declare a node, use the **add-node** skill. The installed library is the authority: `python -m conductor.about bindings` (or `compilation`, `rows`, `legs`, `events`, `errors`).
+A graph is a list of nodes, each pinning a `type` and `version` and binding its inputs. Compile says what is wrong; `execute` runs it as a stream of events. To declare a node, use the **add-node** skill. The installed library is the authority: `python -m conductor.about bindings` (or `compilation`, `rows`, `legs`, `events`, `errors`).
 
 ```python
 import conductor_nodes

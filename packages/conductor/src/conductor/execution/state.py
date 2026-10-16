@@ -5,7 +5,7 @@ A run takes several legs when a node waits on a person: one call of
 earlier ones produced. The run's state is that everything, in a form a
 host can keep in a row and hand back: every value the ledger holds, in
 JSON form, which units are done, and a fingerprint per node of how the
-graph placed it. Nothing else: which rows each index has, which indexes
+graph uses it. Nothing else: which rows each index has, which indexes
 will gain no more and where one has none all follow from the values and
 the done units, and a restore works them out again. It accumulates across legs: each leg starts from
 the state the last one ended on and ends on a new one.
@@ -83,7 +83,7 @@ class RunState(ConductorModel):
     refused when the state is read, so a malformed state fails where it
     arrives rather than inside a restore.
     ``done_units`` are the units that ran to completion, each a ``DoneUnit``. ``node_fingerprints`` is
-    one hash per node of its placement in the graph,
+    one hash per node of how the graph uses it,
     ``CompiledNode.fingerprint``. ``RunState()`` is the state of a run that
     has produced nothing.
     """
@@ -132,7 +132,7 @@ class RunState(ConductorModel):
         Their values and done units go, and so do their fingerprints,
         which is what tells ``Ledger.restore`` to run them again with
         everything that reads them. A node id also covers the inner nodes of
-        an embedded graph placed under it (``approve`` covers ``approve/check``).
+        the graph embedded under it (``approve`` covers ``approve/check``).
         """
         def gone(node_id: str) -> bool:
             return any(node_id == dropped or node_id.startswith(f"{dropped}/") for dropped in node_ids)

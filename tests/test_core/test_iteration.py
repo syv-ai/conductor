@@ -37,7 +37,7 @@ class Documents:
 
 
 class Docs(NodeDefinition):
-    """A series is born here: one text per document."""
+    """A series is made here: one text per document."""
 
     id = "docs"
     title = "Documents"
@@ -506,7 +506,7 @@ def test_a_node_with_a_broken_edge_has_no_shape_and_says_so_once():
 
 
 def test_a_node_with_no_outputs_yet_is_the_ordinary_mid_edit_state():
-    """Outputs born of what the author has not yet given are not a fault:
+    """Outputs made from what the author has not yet given are not a fault:
     non-fatal, the graph still runs, the node is still derived — there is
     simply nothing to edge from it yet."""
 
@@ -571,7 +571,7 @@ def test_compute_outputs_sees_the_dtype_each_connected_input_receives():
     assert [o.name for o in compiled.node("bare").interface.outputs] == ["result"]
 
 
-def test_a_hook_that_cannot_answer_refuses_and_the_refusal_is_the_placements_problem():
+def test_a_hook_that_cannot_answer_refuses_and_the_refusal_is_the_nodes_problem():
     """`Refuses(code, message)` from a field hook — asked once, with real
     arrivals — lands as the node's one fatal `Problem`: the host
     names the code and writes the sentence, compile only anchors it, and
@@ -721,7 +721,7 @@ def test_an_iterating_node_returning_a_series_gives_birth_to_a_child_index():
     assert lines_index.parent == Index("docs")
 
 
-def test_a_reduction_on_a_child_iterates_on_the_parent():
+def test_a_reduction_on_a_child_runs_per_row_of_the_parent():
     """One per document again: the index supplies the grouping, and there
     is no key column to pick."""
     compiled = _compiled([
@@ -788,7 +788,7 @@ def test_n_series_refs_concatenate_and_lineage_is_gone():
 
 
 def test_two_refs_on_one_index_into_a_scalar_input_are_a_union_on_it():
-    """A merge is edges. The node iterates on the shared index and reads per row."""
+    """A merge is edges. The node runs per row of the shared index and reads per row."""
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
         GraphNode(id="a", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),

@@ -190,8 +190,8 @@ def _codes(nodes, **kw):
 def test_a_values_own_rule_is_its_types_constructor_and_reaches_compile_anchored():
     """What a value must satisfy to *be* one is the type's rule, and a
     static that breaks it is the statics pass's `invalid_static` — on the
-    field, on the node. No hook is asked, and no node is told where it was
-    placed."""
+    field, on the node. No hook is asked, and no node is told where it
+    sits in the graph."""
     (problem,) = _problems([GraphNode(id="p", type="picky", version=1, bindings={"x": Static("")})])
 
     assert (problem.code, problem.fatal, problem.node_id, problem.field) == ("invalid_static", True, "p", "x")

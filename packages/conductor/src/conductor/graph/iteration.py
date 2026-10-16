@@ -10,10 +10,10 @@ judged by its element type. A refusal is the fatal ``type_mismatch``.
 Does the node run once, or once per row? A series is a value with many
 rows, and an index names where those rows come from. A scalar input is
 an input that takes one value. A series arriving on a scalar input means
-the node runs once per row of that index; we say the node iterates on
-the index. Its other scalar inputs are the same value every row, every
+the node runs once per row of that index; we say the node runs per row
+of the index. Its other scalar inputs are the same value every row, every
 output becomes a series on the same index, and nodes downstream receive
-a series and iterate in turn. Nothing is stored or marked to make this
+a series and run per row in turn. Nothing is stored or marked to make this
 happen; "receives a series" is the whole rule.
 
 Do its inputs agree? A node fed series on several inputs needs their
@@ -37,7 +37,7 @@ the index that series is on. One series on a child index is a reduction:
 the node runs once per parent row and receives the child rows under it.
 One series on a root index is received whole, once. Anything else
 feeding the input — several scalars, several series on different
-indexes, a typed-in list, a default — is gathered onto a fresh index
+indexes, a list set on the node, a default — is gathered onto a fresh index
 that belongs to the input, and the node runs once.
 
 Every one of those answers is written down as the input's receive record
@@ -86,7 +86,7 @@ if TYPE_CHECKING:
 class Iteration:
     """What ``derive`` returns.
 
-    ``iterated``: for each node, the index it runs once per row of, or
+    ``runs_per_row_of``: for each node, the index it runs once per row of, or
     ``None`` when it runs once; for each embedded graph whose entering
     series agree, the index its inner nodes run per row of. A node has an
     entry exactly when the walk derived it. ``types``: the type that travels on every
@@ -120,7 +120,7 @@ def derive(
 
     ``nodes`` holds only nodes whose edges all point at existing nodes
     (the compiler leaves the rest out). A node fed by a node that was
-    left out or could not be resolved gets no entry in ``iterated``,
+    left out or could not be resolved gets no entry in ``runs_per_row_of``,
     ``types``, ``indexes`` or ``receives`` — the broken source carries the
     problem, and nothing downstream of a fault is guessed at — but its
     inputs and outputs are still completed from what did arrive, so an
@@ -137,7 +137,7 @@ def derive(
     ``Refuses`` makes its code and message the node's one fatal problem.
 
     A node in ``graphs``, whose version is a compiled graph, is walked as
-    one node with that graph's interface; ``Compilation.place_graphs`` lifts
+    one node with that graph's interface; ``Compilation.embed_graphs`` embeds
     the graph under the row the walk decides for it.
     """
     walk = _Walk(nodes, interfaces, versions, definitions, statics, listed, graphs)
@@ -387,12 +387,12 @@ class _Walk:
 
     @staticmethod
     def _carried_out_of_graph(node_id: str, graph: CompiledGraph, out: Output, row: Index | None) -> _Carried:
-        """What an output of a compiled graph placed as one node carries, as it
+        """What an output of a compiled graph embedded as one node carries, as it
         will once the graph's nodes are in its place: the type and rows the
         output has inside the graph, its rows named
-        under the placed node and hung under the ``row`` it runs on
+        under the graph node and hung under the ``row`` it runs on
         (``embedding.under``). Two outputs share rows only when a node inside
-        births both; an output that runs once inside is one value per
+        makes both; an output that runs once inside is one value per
         ``row``, or one value."""
         ref, iteration = Ref(out.name), graph._compilation.iteration
         dtype, index = iteration.types[ref], iteration.indexes[ref]
@@ -427,7 +427,7 @@ class _Walk:
         """
         version = self.versions[node.id]
         if node.id in self.graphs:
-            return version.interface.outputs  # a compiled graph placed as a node: it has no hooks
+            return version.interface.outputs  # a compiled graph embedded as a node: it has no hooks
         declared = (*version.interface.inputs, *self.asked[node.id].inputs)
         values = {**{i.name: i.default for i in declared if i.optional}, **self.statics[node.id]}
         try:

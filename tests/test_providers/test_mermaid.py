@@ -1,6 +1,6 @@
 """``conductor_providers.mermaid.flowchart`` draws a compiled graph as a Mermaid flowchart.
 
-One box per node the author placed, titled by its id and its type; an
+One box per node the author drew, titled by its id and its type; an
 embedded graph is a subgraph holding its inner nodes under their paths.
 One arrow per ref on every connected input, labelled with how the
 reading input receives it. A node with a fatal problem carries the
@@ -65,7 +65,7 @@ def _compiled(*nodes: GraphNode) -> CompiledGraph:
     registry = NodeRegistry()
     for node_cls in (Docs, Upper, Join):
         registry.register(node_cls)
-    # A stored graph placed as a node: upper-case each text, then join them.
+    # A stored graph embedded as a node: upper-case each text, then join them.
     registry = registry.extended_with({"shout": embedded_graph_node("shout", (
         GraphNode(id="up", type="upper", version=1),
         GraphNode(id="all", type="join", version=1, bindings={"texts": From("up.result")}),
@@ -147,8 +147,8 @@ def test_a_graph_with_a_broken_edge_and_something_downstream_draws():
         """)
 
 
-def test_a_graph_that_cannot_be_placed_draws_as_one_faulted_box():
-    """A stored graph that names a type the catalog has lost cannot be placed: one box, marked."""
+def test_a_graph_that_cannot_be_embedded_draws_as_one_faulted_box():
+    """A stored graph that names a type the catalog has lost cannot be embedded: one box, marked."""
     registry = NodeRegistry()
     registry = registry.extended_with({"lost": embedded_graph_node("lost", (GraphNode(id="gone", type="nonesuch", version=1),), registry, "Lost")})
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="emb", type="lost", version=1)]), registry)

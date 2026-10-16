@@ -64,7 +64,7 @@ class Deprecation(ConductorModel):
 
     Set by ``@deprecated`` on a class (the whole node) or on a ``@version``
     run method (that version only). It is content an editor shows; a graph
-    that places a deprecated node is not wrong, so this is never a
+    that uses a deprecated node is not wrong, so this is never a
     ``Problem``. The record's presence is the whole fact — there is no
     ``deprecated: bool`` beside it.
     """
@@ -108,7 +108,7 @@ class Policy(ConductorModel):
     """How the engine runs one version of a node: retries, timeout, concurrency.
 
     Written by the node author on the version, ``@version(2, policy=Policy(retries=3))``,
-    and read only by the engine; a person placing the node never sees it.
+    and read only by the engine; a person adding the node never sees it.
     Worth setting for work that can fail transiently or hang, such as a
     network call. Retrying a pure computation only repeats the same failure,
     which is why only an ``ExternalFailure`` is retried: the node raises one
@@ -279,7 +279,7 @@ class NodeDescription(ConductorModel):
     Never stored and never read back, so there is no copy to keep in step
     with the class.
 
-    Describes the *type*. The titles a particular placement shows live on
+    Describes the *type*. The titles one node in a graph shows live on
     its ``GraphNode``.
     """
 
@@ -329,7 +329,7 @@ class NodeDefinition(ABC, metaclass=_NodeMeta):
     """
 
     # --- identity -------------------------------------------------------
-    #: The registry id. Stored in every graph that places this node, so
+    #: The registry id. Stored in every graph that uses this node, so
     #: changing it is a data migration, not a rename.
     id: ClassVar[str]
 
@@ -550,12 +550,12 @@ class NodeDefinition(ABC, metaclass=_NodeMeta):
     def compute_inputs(
         self, declared: tuple[Input, ...], values: Mapping[str, Any]
     ) -> tuple[Input, ...]:
-        """The inputs one placement of this node actually has.
+        """The inputs this node actually has in one graph.
 
         Override when the node's fields depend on configuration — a mode
         dropdown that changes which fields exist. The default returns
         ``declared``. ``declared`` is passed in rather than read off the
-        class because the placement pins a version, which may not be the
+        class because the node in the graph pins a version, which may not be the
         newest; ``values`` are the values the author typed, over the
         declared defaults. A connected input has no value until the graph
         runs, and a required input the author left empty has none either, so
@@ -570,7 +570,7 @@ class NodeDefinition(ABC, metaclass=_NodeMeta):
         values: Mapping[str, Any],
         arriving: Mapping[str, type[DType]],
     ) -> tuple[Output, ...]:
-        """The outputs one placement of this node actually has.
+        """The outputs this node actually has in one graph.
 
         Override when the outputs come from a value (a sheet's header
         row, a schema the author built) or from the *type* arriving on a
@@ -589,7 +589,7 @@ class NodeDefinition(ABC, metaclass=_NodeMeta):
         """This definition as a ``NodeDescription`` — the one serialisation of a node.
 
         A classmethod, because a description is of the type; what a
-        placement adds (its titles, its bindings) lives on the ``GraphNode``.
+        node in a graph adds (its titles, its bindings) lives on the ``GraphNode``.
         """
         return NodeDescription(
             id=cls.id,

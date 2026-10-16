@@ -1,4 +1,4 @@
-"""Conductor: declare nodes, place them in a graph, compile it, run it.
+"""Conductor: declare nodes, put them in a graph, compile it, run it.
 
 This package is the main public door. With ``conductor.widgets`` (the
 input controls) and ``conductor.events`` (what a run emits) it is

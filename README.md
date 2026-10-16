@@ -8,7 +8,7 @@
   A host-agnostic Python engine that compiles and runs graphs of typed nodes.
 </p>
 
-You declare a node as a class whose typed `run` signature is its interface. You place nodes in a graph, compile it into a record that says everything about it, and run it as a stream of events. The same declaration drives validation, execution and the palette a visual editor renders. The core has no web framework, database or auth in it; pydantic is its one hard dependency.
+You declare a node as a class whose typed `run` signature is its interface. You put nodes in a graph, compile it into a record that says everything about it, and run it as a stream of events. The same declaration drives validation, execution and the palette a visual editor renders. The core has no web framework, database or auth in it; pydantic is its one hard dependency.
 
 ## Install
 

@@ -110,7 +110,7 @@ class Range(Widget):
 
 
 class FileUpload(Widget):
-    """Files a person uploads. ``multiple`` births a series of them."""
+    """Files a person uploads. ``multiple`` makes a series of them."""
 
     kind: Literal["file"] = "file"
     accept: tuple[str, ...] | None = None
@@ -141,7 +141,7 @@ class DatePicker(Widget):
     min_date: str | None = None
     max_date: str | None = None
     #: ``"today"`` asks the editor to write today's date into the field
-    #: when the node is placed. Declared here because "today" is not a
+    #: when the node is added. Declared here because "today" is not a
     #: constant a default could hold.
     seed: Literal["today"] | None = None
 

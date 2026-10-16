@@ -61,10 +61,10 @@ if TYPE_CHECKING:
 class Layout:
     """The graph that runs: every node compile works with, by id, and the order the engine runs them in.
 
-    ``Compilation.order`` lays it out from the nodes the author placed, a
+    ``Compilation.order`` lays it out from the nodes the author drew, a
     node whose version is a compiled graph among them as one node, and
-    ``Compilation.place_graphs`` puts each such graph's nodes in its place
-    in the order (``approve/check``). A placed graph node stays in
+    ``Compilation.embed_graphs`` puts each such graph's nodes in its place
+    in the order (``approve/check``). The graph node itself stays in
     ``nodes``, a node the engine doesn't run. ``versions`` and
     ``definitions`` hold what each node resolved to (``resolved``).
     The last step (``Compilation.compiled_nodes``) reads it all; which graph a node sits in is not
@@ -77,14 +77,14 @@ class Layout:
     versions: dict[str, Any]
     #: The class each node resolved to: what its hooks and its runner are made from.
     definitions: dict[str, type[NodeDefinition]]
-    #: Every node whose version is a compiled graph, placed or not, nested
+    #: Every node whose version is a compiled graph, embedded or not, nested
     #: ones included: the one answer to "is this a graph node?", read by
     #: every step after ``order``, the last one included.
     graphs: frozenset[str]
 
 
 def resolved(node: GraphNode, registry: NodeRegistry) -> tuple[type[NodeDefinition], Any] | Problem:
-    """The class a placed node names and the version it pins, or the problem saying which is missing.
+    """The class a node in the graph names and the version it pins, or the problem saying which is missing.
 
     Compile's one lookup of a node (``Compilation.pin``). A stored graph can
     name a type the registry has since lost or a version the class has
@@ -120,7 +120,7 @@ def _resolved_edges(node: GraphNode, offered: Mapping[str, frozenset[str]]) -> G
 
 
 def _faults(graph: CompiledGraph) -> list[Problem]:
-    """What stops ``graph`` being placed: every fatal problem but an input it offers left empty."""
+    """What stops ``graph`` being embedded: every fatal problem but an input it offers left empty."""
     offered = {str(inp.name) for inp in graph.interface.inputs}
     return [
         found for found in graph.problems
@@ -151,16 +151,16 @@ class Compilation:
         #: Every id the author wrote, refused ones included: an edge from one
         #: of these reads a node the author wrote, not a missing one.
         self.graph_ids: frozenset[str] = frozenset(node.id for node in graph.nodes)
-        #: The nodes the author placed, by id (set by ``place``).
+        #: The nodes the author drew, by id (set by ``nodes_by_id``).
         self.authored: dict[str, GraphNode] = {}
-        #: The ids the author wrote with a ``/``, refused (``place``): never nodes of this graph.
+        #: The ids the author wrote with a ``/``, refused (``nodes_by_id``): never nodes of this graph.
         self.refused: set[str] = set()
         #: The class each authored node resolved to and the version it uses (set by ``pin``).
         self.pinned: dict[str, tuple[type[NodeDefinition], Any]] = {}
         #: Who waits for whom, and an execution order, over the authored graph (set by ``order``).
         self.authored_dependencies: dict[str, frozenset[str]] = {}
         self.authored_order: tuple[str, ...] = ()
-        #: The graph that runs (laid out by ``order``, filled in by ``place_graphs``).
+        #: The graph that runs (laid out by ``order``, filled in by ``embed_graphs``).
         self.layout: Layout
         #: Each node's inputs and outputs, and the values the author typed, by
         #: id in the graph that runs (set by ``ask_inputs``; ``walk_edges`` completes them).
@@ -170,7 +170,7 @@ class Compilation:
         #: three files, a list of texts — which the node runs once per value of.
         self.listed: dict[str, frozenset[str]] = {}
         #: Nodes whose version is a compiled graph that compile could not fully
-        #: work out, so it cannot be placed (set by ``pin``).
+        #: work out, so it cannot be embedded (set by ``pin``).
         self.unembeddable: set[str] = set()
         #: Nodes whose stored edges are wrong; the edge walk leaves them out (set by ``check_bindings``).
         self.broken: frozenset[str] = frozenset()
@@ -188,7 +188,7 @@ class Compilation:
     def run(self) -> None:
         """The steps, in order. Each reads the one before:
 
-        1. ``place`` — the nodes by id; two with one id is a problem.
+        1. ``nodes_by_id`` — the nodes by id; two with one id is a problem.
         2. ``pin`` — the version each node uses; an unknown type or version
            is a problem on the node.
         3. ``order`` — who waits for whom and an execution order; a cycle is
@@ -201,13 +201,13 @@ class Compilation:
            decides which nodes run once per row and completes the outputs,
            checking each node's outputs against the field rules as it does.
         7. ``interface`` — what the graph takes and returns.
-        8. ``place_graphs`` — every node whose version is a compiled graph
-           swapped for that graph's records, lifted under the row it runs on.
+        8. ``embed_graphs`` — every node whose version is a compiled graph
+           swapped for that graph's records, under the row it runs on.
         9. ``conditions`` — the condition under which each output appears,
-           over the graph with every placed graph's nodes in their place.
+           over the graph with every embedded graph's nodes in their place.
 
-        Every problem is about a node the author placed, in this graph: a
-        placed graph's own problems stay on it.
+        Every problem is about a node the author drew, in this graph: an
+        embedded graph's own problems stay on it.
 
         The last step, ``compiled_nodes``, is not run here: it runs on the
         first question about a node.
@@ -225,7 +225,7 @@ class Compilation:
     # -- the steps --------------------------------------------------------------
 
     def nodes_by_id(self) -> None:
-        """Every node the author placed, by id. Two nodes with one id is a
+        """Every node the author drew, by id. Two nodes with one id is a
         fatal problem: the second would silently shadow the first everywhere
         else. An id holding ``/`` is one too: compile names an embedded
         graph's nodes with it, and an authored ``e/holder`` beside a graph
@@ -248,7 +248,7 @@ class Compilation:
         a type the registry has since lost or a version the class has since
         dropped, so either miss is a problem on the node rather than an
         error. A version may be a graph the host compiled on its own, once
-        per version; the walk sees it as one node and ``place_graphs`` lifts it.
+        per version; the walk sees it as one node and ``embed_graphs`` embeds it.
         """
         for node in self.authored.values():
             found = resolved(node, self.registry)
@@ -261,21 +261,21 @@ class Compilation:
         self, node_id: str, definition: type[NodeDefinition], graph: CompiledGraph, stored: CompiledGraph,
         typed: Mapping[str, Any],
     ) -> None:
-        """A compiled graph can be placed only when nothing in it is fatal but
+        """A compiled graph can be embedded only when nothing in it is fatal but
         an input it offers left empty: that value arrives from outside, where
-        the graph is placed. An empty input the graph doesn't offer (locked,
+        the graph is embedded. An empty input the graph doesn't offer (locked,
         or on a node with an edge in) can never be filled, so it is a fault
         like any other. A node compile couldn't work out always carries a
         fatal problem of its own or upstream, so the faults are the whole
         answer.
 
-        ``graph`` is the graph as this placement fills it, ``stored`` the one
-        the host handed over. A fault the placement's own values brought in
-        (a hook inside refusing a value typed on the placed node) is the
+        ``graph`` is the graph as this graph node fills it, ``stored`` the one
+        the host handed over. A fault the graph node's own values brought in
+        (a hook inside refusing a value typed on the graph node) is the
         outer author's to fix, so it is reported where they typed it, in the
         hook's words, on the input's address. Every fault the graph had
         already is its own author's: the outer author sees one problem on the
-        placed node, ``embedded_graph_broken``, counting them, and the graph's
+        graph node, ``embedded_graph_broken``, counting them, and the graph's
         problems stay on the graph, in its own words
         (``compiled.node(id).version.problems``)."""
         faults = _faults(graph)
@@ -356,7 +356,7 @@ class Compilation:
                     self.problems.append(Problem(code=refusal.code, message=refusal.message, fatal=True, node_id=node_id))
                     continue
             else:
-                inputs = version.interface.inputs  # a compiled graph placed as a node: it has no hooks
+                inputs = version.interface.inputs  # a compiled graph embedded as a node: it has no hooks
             typed, listed, invalid = self._typed_statics(inputs, node)
             self.problems.extend(invalid)
             if node_id in self.layout.graphs:
@@ -380,19 +380,19 @@ class Compilation:
     def _as_embedded(
         self, node_id: str, node: GraphNode, graph: CompiledGraph, typed: dict[str, Any], listed: frozenset[str],
     ) -> CompiledGraph:
-        """The compiled graph as this placement fills it, and whether it can be placed.
+        """The compiled graph as this graph node fills it, and whether it can be embedded.
 
-        Values typed on a placed graph's inputs belong to the nodes inside,
+        Values typed on an embedded graph's inputs belong to the nodes inside,
         exactly as if they had been typed there, and an outer edge into an
-        input the graph's own author filled replaces that value. Mostly the
-        lift just puts the placement's value or edge on the inner field. But
+        input the graph's own author filled replaces that value. Mostly
+        embedding just puts the graph node's value or edge on the inner field. But
         a value can decide something when compile runs: a list makes the node
         that holds it run once per item, and a hook reads the values typed on
-        its node. When the placement's value, or the inner value an edge
+        its node. When the graph node's value, or the inner value an edge
         replaces, is one of those, what compile decided inside no longer
-        holds, so the graph is compiled again with the placement's values
+        holds, so the graph is compiled again with the graph node's values
         (``CompiledGraph._refilled``). The copy replaces the version for this
-        placement only.
+        graph node only.
         """
         refill = {name: value for name, value in typed.items() if name in listed or self._read_by_a_hook(graph, name)}
         cleared = [
@@ -400,10 +400,10 @@ class Compilation:
             if isinstance(binding, From) and self._filled_inside(graph, name)
             and (self._listed_inside(graph, name) or self._read_by_a_hook(graph, name))
         ]
-        placed = graph._refilled(refill, cleared) if refill or cleared else graph
-        self.layout.versions[node_id] = placed
-        self._refuse_if_broken(node_id, self.layout.definitions[node_id], placed, graph, refill)
-        return placed
+        filled = graph._refilled(refill, cleared) if refill or cleared else graph
+        self.layout.versions[node_id] = filled
+        self._refuse_if_broken(node_id, self.layout.definitions[node_id], filled, graph, refill)
+        return filled
 
     @staticmethod
     def _read_by_a_hook(graph: CompiledGraph, name: str) -> bool:
@@ -502,7 +502,7 @@ class Compilation:
     @staticmethod
     def _filled_inside(graph: CompiledGraph, name: str) -> bool:
         """Is ``name`` an input of ``graph`` that the graph's own author already
-        filled in? Then nothing needs connecting where it is placed: the value
+        filled in? Then nothing needs connecting where it is embedded: the value
         inside holds unless the outer graph gives another."""
         ref = Ref(name)
         return isinstance(graph._compilation.layout.nodes[ref.node_id].bindings.get(ref.field), Static)
@@ -525,15 +525,15 @@ class Compilation:
         self.interfaces = {**self.interfaces, **self.iteration.interfaces}
 
     def embed_graphs(self) -> None:
-        """Every node whose version is a compiled graph and that the walk derived, filled in with that graph's records (``embedding.graph_as_placed``).
+        """Every node whose version is a compiled graph and that the walk derived, filled in with that graph's records (``embedding.graph_as_embedded``).
 
         The walk saw each as one node with the compiled graph's interface,
         its fields already at their addresses inside (``approve/check.amount``),
         and decided the row it runs on; here its nodes take its place in the
-        order and its fields' types, rows and receipts are lifted under that
-        row, as if the nodes had been drawn there. The placed node itself
-        stays, a ``graph`` whose version is the compiled graph. A graph the
-        walk left out (it can't be placed, or an edge into it is broken)
+        order and its fields' types, rows and receipts go under that row, as
+        if the nodes had been drawn there. The graph node itself stays, a
+        ``graph`` whose version is the compiled graph. A graph the walk left
+        out (it can't be embedded, or an edge into it is broken)
         stays one node, with nothing under it.
         """
         layout, iteration = self.layout, self.iteration
@@ -606,7 +606,7 @@ class Compilation:
 
         The ids it answers for are every id the author wrote (the first of two
         that share one) and every node of the graph that runs, each embedded
-        graph's nodes included. A graph compile could not place is one node
+        graph's nodes included. A graph compile could not embed is one node
         with nothing inside. Each node gets its state (``state``), its
         problems, and, when it is not ready, the fatal problem that explains
         why (``cause``).
@@ -744,7 +744,7 @@ class Compilation:
         fatal_problem = next((p for p in self.problems_on(node_id) if p.fatal), None)
         if fatal_problem is None:
             graph_node, _ = self.every_node_seen[node_id]
-            # An edge out of a graph compile could not place reads a field
+            # An edge out of a graph compile could not embed reads a field
             # inside it that was never laid out: the graph node stands for it.
             seen, graphs = self.every_node_seen, self.layout.graphs
             sources = [
@@ -843,11 +843,11 @@ class _ReadPlan:
 
     - ``read_by``: per output, every input that reads it and how.
     - ``reads``: per node, every output its inputs read and how.
-    - Per index: ``iterated_by``, the nodes that run once per row of it;
-      ``carried_by``, the outputs whose values sit on it; ``typed_lists``,
-      the typed-in lists whose rows are born under each of its rows.
-    - ``births`` and ``listed``: what creates each index's rows, a node's
-      series outputs or an input's typed-in list. Each index's share is
+    - Per index: ``run_per_row_by``, the nodes that run once per row of it;
+      ``carried_by``, the outputs whose values sit on it; ``listed_inputs``,
+      the lists set on nodes whose rows are made under each of its rows.
+    - ``makes_rows`` and ``listed``: what makes each index's rows, a node's
+      series outputs or a list set on an input. Each index's share is
       stored on that owner.
     """
 
@@ -892,7 +892,7 @@ class _ReadPlan:
         owned = {index.id for index in (*plan.makes_rows.values(), *plan.listed.values())}
         for planned in (plan.run_per_row_by, plan.carried_by, plan.listed_inputs):
             for index_id in planned.keys() - owned:
-                raise RuntimeError(f"compile planned index {index_id!r}, which no node or typed-in list owns")
+                raise RuntimeError(f"compile planned index {index_id!r}, which no node or list set on a node owns")
         return plan
 
     def share(self, index: Index | None) -> dict[str, Any]:

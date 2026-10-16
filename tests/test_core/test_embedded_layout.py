@@ -1,4 +1,4 @@
-"""A graph compiled on its own and placed as a node: its nodes run under the placement's name, under the row the placement runs on."""
+"""A graph compiled on its own and embedded as a node: its nodes run under the graph node's name, under the row the graph node runs on."""
 
 from collections.abc import Mapping
 from typing import Annotated, Any
@@ -104,10 +104,10 @@ def _compiled(nodes, *extra):
     return CompiledGraph.from_graph(Graph(nodes=nodes), _registry(_inner_definition(), *extra))
 
 
-# --- the nodes of a placement ------------------------------------------------
+# --- the nodes of a graph node -----------------------------------------------
 
 
-def test_the_inner_nodes_are_nodes_of_the_one_run_under_the_placements_name():
+def test_the_inner_nodes_are_nodes_of_the_one_run_under_the_graph_nodes_name():
     compiled = _compiled([
         GraphNode(id="src", type="holder", version=1, bindings={"value": Static("outer")}),
         GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.value": From("src.result")}),
@@ -138,7 +138,7 @@ def test_a_graph_holds_the_values_typed_on_it_by_inner_address():
     assert compiled.node("emb").statics["holder.value"] == compiled.node("emb/holder").statics["value"]
 
 
-def test_the_placements_bindings_move_onto_the_inner_fields_they_name():
+def test_the_graph_nodes_bindings_move_onto_the_inner_fields_they_name():
     """An edge into `emb.holder.value` replaces the inner author's static;
     an outer edge from `emb.join.result` reads the inner node's output."""
     compiled = _compiled([
@@ -160,9 +160,9 @@ def test_an_unconnected_placement_keeps_the_inner_statics_and_lays_out_flat():
     assert all(compiled.node(node_id).runs_per_row_of is None for node_id in compiled.execution_order)
 
 
-def test_a_placement_is_a_node_in_the_interface_named_by_inner_address():
+def test_a_graph_node_is_a_node_in_the_interface_named_by_inner_address():
     """At the interface the embedded graph is one node
-    whose fields are its graph's, under the placement's name."""
+    whose fields are its graph's, under the graph node's name."""
     compiled = _compiled([
         GraphNode(
             id="emb", type="inner-graph", version=1, title="Approve",
@@ -219,9 +219,9 @@ def test_a_field_name_with_a_dot_beside_an_embedded_graph_is_a_plain_field():
     assert run_sync(compiled).state.results(compiled)["after"]["result"] == "NET"
 
 
-def test_a_broken_edge_into_a_placement_is_the_placements_own_problem():
-    """The edge sits on the node the author placed, on the field it names,
-    in the plain words any node gets; the placed node is not worked out, and
+def test_a_broken_edge_into_a_graph_node_is_the_graph_nodes_own_problem():
+    """The edge sits on the node the author drew, on the field it names,
+    in the plain words any node gets; the graph node is not worked out, and
     says why."""
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
@@ -243,7 +243,7 @@ def test_a_stale_key_on_the_placement_is_reported_on_the_placement():
     assert (problem.code, problem.fatal, problem.node_id, problem.field) == ("stale_binding", True, "emb", "nope.value")
 
 
-# --- the row a placement runs on ------------------------------------------------
+# --- the row a graph node runs on -----------------------------------------------
 
 
 def test_a_series_entering_through_a_scalar_field_makes_the_placement_iterate():
@@ -270,8 +270,8 @@ def test_an_inner_reduction_over_the_entering_series_is_a_fold_of_one():
     assert (compiled.field(Ref("emb/join", "result")).type, compiled.field(Ref("emb/join", "result")).index) == (Series[Txt], Index("docs"))
 
 
-def test_a_series_born_inside_reduces_to_the_outer_row_by_lineage_alone():
-    """An iterating inner unfold births a child of the outer index; an inner
+def test_a_series_made_inside_reduces_to_the_outer_row_by_lineage_alone():
+    """An inner unfold running per row makes rows of a child of the outer index; an inner
     reduction over it collapses to the outer row without any scope rule.
     ``Index.__eq__`` reads the id alone, so the parent is asserted by name."""
     inner = embedded_graph_node("splitter", (
@@ -292,8 +292,8 @@ def test_a_series_born_inside_reduces_to_the_outer_row_by_lineage_alone():
     assert (made, made.parent) == (Index("emb/lines"), Index("docs"))
     assert compiled.node("emb/join").runs_per_row_of == Index("docs")
 
-    # The same, when the series is born off an inner *static* the entering
-    # series never touches: the block iterates, so the birth is a child of
+    # The same, when the series is made off an inner *static* the entering
+    # series never touches: the block runs per row, so the new index is a child of
     # the entering index all the same — never a root beside the outer rows.
     unfed = embedded_graph_node("splitter-unfed", (
             GraphNode(id="holder", type="holder", version=1, bindings={"value": Static("a\nb")}),
@@ -384,11 +384,11 @@ def test_two_unrelated_series_entering_one_placement_are_its_misaligned():
 
     assert [(p.code, p.node_id) for p in compiled.problems] == [("misaligned", "emb")]
     (misaligned,) = compiled.problems
-    placement = compiled.node("emb")
-    assert placement.state == "wiring_failed"
-    assert placement.problems == compiled.problems
+    graph_node = compiled.node("emb")
+    assert graph_node.state == "wiring_failed"
+    assert graph_node.problems == compiled.problems
     with pytest.raises(NodeWiringError) as raised:
-        placement.runs_per_row_of
+        graph_node.runs_per_row_of
     assert raised.value.problems[0] == misaligned
     assert "emb" not in compiled.decisions
 
@@ -416,10 +416,10 @@ def test_a_nested_embedded_graph_is_addressed_by_its_path():
 
 
 def test_a_broken_graph_inside_a_graph_breaks_the_graph_around_it():
-    """An unknown inner node leaves its graph unplaceable, and so the graph
-    that places it too. Each level shows one ``embedded_graph_broken`` where
-    it is placed; the unknown node is the innermost graph's own problem.
-    Each is one node where it is placed, read inside through its version."""
+    """An unknown inner node leaves its graph unembeddable, and so the graph
+    that embeds it too. Each level shows one ``embedded_graph_broken`` where
+    it is embedded; the unknown node is the innermost graph's own problem.
+    Each is one node where it is embedded, read inside through its version."""
     broken = embedded_graph_node("broken-graph", (GraphNode(id="x", type="nothing", version=1), GraphNode(id="up", type="upper", version=1)), _registry())
     wrapper = embedded_graph_node("wrapper-graph", (GraphNode(id="mid", type="broken-graph", version=1),), _registry(broken))
     compiled = CompiledGraph.from_graph(
@@ -443,7 +443,7 @@ def test_a_broken_graph_inside_a_graph_breaks_the_graph_around_it():
 
 def test_an_authored_id_with_a_slash_is_refused_and_never_collides_with_an_inner_node():
     """``/`` names the nodes of an embedded graph, so an authored ``e/holder``
-    beside a placement ``e`` is refused on its own: it neither appears twice
+    beside a graph node ``e`` is refused on its own: it neither appears twice
     in the order nor is read by the inner nodes."""
     compiled = _compiled([
         GraphNode(id="e/holder", type="holder", version=1, bindings={"value": Static("impostor")}),
@@ -456,7 +456,7 @@ def test_an_authored_id_with_a_slash_is_refused_and_never_collides_with_an_inner
 
 
 def test_a_refused_authored_id_is_not_the_problem_of_the_inner_node_sharing_it():
-    """`e` can be placed, so its `holder` runs as `e/holder`; the author also
+    """`e` can be embedded, so its `holder` runs as `e/holder`; the author also
     wrote `e/holder`, which is refused. The refusal is the author's: it stays
     in the graph's problems and never shows on the inner node."""
     compiled = _compiled([
@@ -472,7 +472,7 @@ def test_a_refused_authored_id_is_not_the_problem_of_the_inner_node_sharing_it()
 def test_an_authored_id_holding_a_slash_is_refused_and_stays_the_authors():
     """The author wrote `e/holder` beside an embedded graph `e` whose own
     `holder` has a type the registry lacks. The authored id is refused; the
-    graph cannot be placed, which is one problem on `e`, and
+    graph cannot be embedded, which is one problem on `e`, and
     `node("e/holder")` is the author's node, refused."""
     lost = embedded_graph_node("lost", (GraphNode(id="holder", type="nope", version=1),), _registry())
     compiled = CompiledGraph.from_graph(Graph(nodes=[
@@ -491,7 +491,7 @@ def test_an_authored_id_holding_a_slash_is_refused_and_stays_the_authors():
 
 def test_misaligned_inside_an_embedded_graph_is_reported_once_with_the_authors_addresses():
     """One inner node fed two unrelated outer series is reported once, on the
-    placement, with the addresses the author sees, in the shape every
+    graph node, with the addresses the author sees, in the shape every
     ``misaligned`` has."""
 
     class Pair(NodeDefinition):

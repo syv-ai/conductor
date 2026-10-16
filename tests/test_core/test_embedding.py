@@ -1,25 +1,25 @@
-"""A node whose version is a compiled graph: placed as one node, then lifted under the row it runs on.
+"""A node whose version is a compiled graph: embedded as one node, then laid out under the row it runs on.
 
 A host compiles each graph version once and hands the ``CompiledGraph``
-to conductor as the version. The outer compile treats the placed graph as
+to conductor as the version. The outer compile treats the graph node as
 a plain node with the compiled graph's interface, which decides the row it
-runs on; the lift (``graph_as_placed``) then puts the graph's own records
+runs on; embedding (``graph_as_embedded``) then puts the graph's own records
 under that row. What the engine reads must come out exactly as inlining
 the raw graph gave it: the oracle below checks every scenario, field by
 field, against the values that path gave, pinned in
 ``fixtures/embedded_expected.json``, and a run of some of them against
 ``fixtures/embedded_expected_results.json``.
 
-Which scenario pins which lift rule:
+Which scenario pins which embedding rule:
 
 1. an index renamed and hung under the row: ``rows_made_inside``, ``nested_iterating``;
 2. a value that ran once becomes a series on the row: ``entering_scalar``, ``gather_two_inside``;
-3. ``Whole`` → ``Group``, a ``Gather`` of single values → ``Group``: ``rows_made_inside``, ``gather_two_inside``;
+3. ``Whole`` → ``RowsUnder``, a ``Gather`` of single values → ``RowsUnder``: ``rows_made_inside``, ``gather_two_inside``;
 4. a crossing takes the outer walk's record: ``two_crossings``, ``series_field``, ``gathered_into_the_graph_node``;
 5. an output read outside takes the inner field's index: ``rows_made_inside_exposed``, ``read_from_outside``, ``rows_made_under_a_row_inside``;
 6. conditions put in place: every ``cond_`` scenario.
 
-A value typed on the placed node's input is not lifted: the graph is
+A value typed on the graph node's input is not carried over: the graph is
 compiled again with it, as if typed inside (``value_on_the_graph_node``,
 ``many_values_on_the_graph_node``).
 """
@@ -542,7 +542,7 @@ def _what_the_engine_reads(compiled: CompiledGraph) -> dict[str, Any]:
 
 
 @pytest.mark.parametrize("name", sorted(SCENARIOS))
-def test_a_compiled_graph_placed_reads_exactly_as_the_raw_graph_inlined(name):
+def test_a_compiled_graph_embedded_reads_exactly_as_the_raw_graph_inlined(name):
     assert _what_the_engine_reads(_compiled(name)) == json.loads(FIXTURE.read_text())[name]
 
 
@@ -575,7 +575,7 @@ def test_a_compiled_graph_placed_runs_to_the_same_results(name):
 def test_the_pinned_results_are_the_run_scenarios():
     assert set(json.loads(RESULTS.read_text())) == set(RUN)
 
-# -- the placed node ---------------------------------------------------------------------
+# -- the graph node ----------------------------------------------------------------------
 
 
 def test_the_placed_node_is_a_graph_whose_version_is_the_compiled_graph():
@@ -604,9 +604,9 @@ def _broken_graph_registry():
     return broken, _plain_registry().extended_with({"broken": _definition("broken", broken)})
 
 
-def test_a_broken_graph_is_one_problem_on_the_placed_node():
+def test_a_broken_graph_is_one_problem_on_the_graph_node():
     """The graph's own problems stay on the graph, in its own words; where
-    it is placed, the author sees one problem saying the graph needs fixing."""
+    it is embedded, the author sees one problem saying the graph needs fixing."""
     broken, registry = _broken_graph_registry()
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         N(id="emb", type="broken", version=1),
@@ -633,9 +633,9 @@ def test_an_outer_edge_may_only_read_what_the_graph_offers():
 
 
 
-def test_two_series_born_by_different_nodes_inside_do_not_line_up_outside():
-    """Each series output of a placed graph sits on the index of the node
-    inside that births it, so two unrelated ones are ``misaligned`` where they
+def test_two_series_made_by_different_nodes_inside_do_not_line_up_outside():
+    """Each series output of an embedded graph sits on the index of the node
+    inside that makes it, so two unrelated ones are ``misaligned`` where they
     meet, exactly as when the raw graph was inlined."""
     scenario = Scenario((("two-series", (
         N(id="a", type="lines", version=1, bindings={"text": Static("x\ny")}),
@@ -677,8 +677,8 @@ def _embedded_alone(inner: tuple[GraphNode, ...], **bindings: Any) -> CompiledGr
     return CompiledGraph.from_graph(Graph(nodes=[N(id="emb", type="g", version=1, bindings=bindings)]), registry)
 
 
-def test_a_graph_with_an_empty_input_it_does_not_offer_cannot_be_placed():
-    """Only an input the graph offers can be filled where it is placed. A
+def test_a_graph_with_an_empty_input_it_does_not_offer_cannot_be_embedded():
+    """Only an input the graph offers can be filled where it is embedded. A
     locked one, or one on a node that also has an edge in, stays empty."""
     locked = _embedded_alone((N(id="n", type="need", version=1, locked=("text",)),))
     fed_beside = _embedded_alone((
@@ -702,7 +702,7 @@ def test_a_value_typed_on_a_placed_graph_that_a_hook_inside_refuses_is_the_outer
 
 
 def test_a_graph_run_per_row_sees_an_input_fed_whole_as_a_whole():
-    """``u`` is fed one doc per call, so the placed graph runs once per doc.
+    """``u`` is fed one doc per call, so the embedded graph runs once per doc.
     ``j`` is fed the docs too, into a series input: like any node that runs
     per row, each run sees the series whole."""
     scenario = Scenario((("mixed", (N(id="u", type="upper", version=1), N(id="j", type="join", version=1))),), (
@@ -724,7 +724,7 @@ def test_a_broken_graph_with_a_value_typed_on_it_is_one_problem():
 
 
 def test_a_graph_the_walk_leaves_out_is_one_node_with_nothing_inside():
-    """Its edge in is broken, or it can't be placed: either way it stays one
+    """Its edge in is broken, or it can't be embedded: either way it stays one
     ``graph`` node, saying why it is not ready, and nothing inside it is a
     node of this graph. What is inside is read through its version."""
     upstream_broken = CompiledGraph.from_graph(Graph(nodes=[
@@ -744,7 +744,7 @@ def test_a_graph_the_walk_leaves_out_is_one_node_with_nothing_inside():
 
 def test_a_value_on_a_field_the_graph_does_not_offer_is_a_stale_binding():
     """``up.text`` is fed inside, so the graph does not offer it; its value
-    inside is not what the placed node reports holding."""
+    inside is not what the graph node reports holding."""
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         N(id="emb", type="inner-graph", version=1, bindings={"up.text": Static("x")}),
     ]), _registry(SCENARIOS["runs_once"]))

@@ -73,7 +73,7 @@ class Static(ConductorModel):
     engine as one dict.
 
     Written by the editor when a person edits the control, or by a seed
-    when the node is placed; read by compile. Not a default: a default
+    when the node is added; read by compile. Not a default: a default
     belongs to the node's declaration and applies when there is no binding
     at all. Its one sibling is ``From``.
     """

@@ -4,7 +4,7 @@
 
 # Conductor
 
-A host-agnostic Python engine that compiles and runs graphs of typed nodes. A node is a class whose typed `run` signature is its interface. You place nodes in a graph, compile it into a record that says everything about it, and run it as a stream of events, once per row wherever a series arrives.
+A host-agnostic Python engine that compiles and runs graphs of typed nodes. A node is a class whose typed `run` signature is its interface. You put nodes in a graph, compile it into a record that says everything about it, and run it as a stream of events, once per row wherever a series arrives.
 
 ```python
 from typing import Annotated

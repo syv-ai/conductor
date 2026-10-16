@@ -1,45 +1,46 @@
-"""A compiled graph placed as one node: its records, as they stand under the row that node runs on.
+"""A compiled graph embedded as one node: its records, as they stand under the row that node runs on.
 
 A host compiles each graph version once and hands the ``CompiledGraph`` to
-conductor as the node's version. The outer compile walks the placed graph
-as a plain node with the compiled graph's interface, which decides one
-thing: the row the node runs on (``runs_per_row_of``), or none. This module
-then lifts what the graph's own compile decided — its nodes, their fields'
+conductor as the node's version. The outer compile walks the graph node as
+a plain node with the compiled graph's interface, which decides one thing:
+the row the node runs on (``runs_per_row_of``), or none. This module then
+puts what the graph's own compile decided — its nodes, their fields'
 types, rows and receipts, and the rows its nodes run on — under that row,
-so the graph that places it reads exactly as if the graph's nodes had been
-drawn in its place and walked there. Conditions aren't lifted: compile
-works them out once the nodes are in place, as for any node. The compiler
-lifts through it (``Compilation.place_graphs``); ``CompiledGraph`` reads
-its address helpers.
+so the graph that embeds it reads exactly as if the graph's nodes had been
+drawn in its place and walked there. Conditions aren't carried over:
+compile works them out once the nodes are in place, as for any node. The
+compiler embeds through it (``Compilation.embed_graphs``); ``CompiledGraph``
+reads its address helpers.
 
-The lift, rule by rule:
+Embedding, rule by rule:
 
-1. Every index inside is renamed under the placed node (``emb/lines``), and
+1. Every index inside is renamed under the graph node (``emb/lines``), and
    its root hangs under ``runs_per_row_of``.
 2. When the node runs per row, a value that ran once inside becomes a series
    on that row: ``Txt`` becomes ``Series[Txt]``, no index becomes the row,
-   and an edge-fed ``Broadcast`` becomes ``Iterate``.
-3. ``Whole`` becomes ``Group`` at the row's depth; a ``Gather`` whose every
-   source carries one value becomes ``Group`` on the row, since per row the
-   sources line up; a ``Group`` goes as many levels deeper as the row is deep.
+   and an edge-fed ``Broadcast`` becomes ``PerRow``.
+3. ``Whole`` becomes ``RowsUnder`` at the row's depth; a ``Gather`` whose
+   every source carries one value becomes ``RowsUnder`` on the row, since
+   per row the sources line up; a ``RowsUnder`` goes as many levels deeper
+   as the row is deep.
 4. An inner field the outer graph feeds (a crossing) takes what the outer
-   walk decided for the placed node's field of that address.
+   walk decided for the graph node's field of that address.
 5. An output read outside already sits on the inner field's rows: the walk
    gave it the rows it has inside, named and hung the same way (rule 1),
-   and keyed every field of the placed node by its address inside, so an
+   and keyed every field of the graph node by its address inside, so an
    index the walk named after one of them is already the inner field's.
 
-Refusing a graph that places itself is the host's job, as it builds the
+Refusing a graph that embeds itself is the host's job, as it builds the
 versions: a compiled graph can't contain itself, but a host that swaps a
-version in place can close a loop through a value typed on a placed graph,
-which compile then follows until Python's recursion limit.
+version in place can close a loop through a value typed on an embedded
+graph, which compile then follows until Python's recursion limit.
 
 ``/`` separates the levels inside a node id, and ``.`` stays the address
 separator, so an address is a path and a field: ``approve/check.amount``.
-The first ``.`` always splits it, and the field is free text. Only the lift
+The first ``.`` always splits it, and the field is free text. Only embedding
 writes a ``/``: an id holding one is refused (``invalid_node_id``), or it
-could be read in a lifted node's place. So a lifted id is the path to its
-node, and the graph it sits in is read off it (``embedded_in``).
+could be read in the place of a node inside. So the id of a node inside is
+the path to it, and the graph it sits in is read off it (``embedded_in``).
 
 An embedded graph's own field names are its addresses (``check.amount``), so
 the field ``check.amount`` on the graph node ``approve`` is at
@@ -95,7 +96,7 @@ def as_drawn(ref: Ref, graphs: Collection[str]) -> tuple[str, str]:
 
 
 def embedded_in(node_id: str) -> str | None:
-    """The graph a lifted node sits in, read off its id — ``approve`` for
+    """The graph a node inside sits in, read off its id — ``approve`` for
     ``approve/check``, ``approve/check`` for ``approve/check/amount`` — or
     ``None`` for an id with no ``/``."""
     outer, _, _ = node_id.rpartition(SEPARATOR)
@@ -104,7 +105,7 @@ def embedded_in(node_id: str) -> str | None:
 
 @dataclass(frozen=True)
 class Crossing:
-    """What the outer walk decided for one input of the placed node that an
+    """What the outer walk decided for one input of the graph node that an
     outer edge feeds: the type, rows and receipt the inner field takes."""
 
     type: Any
@@ -114,13 +115,13 @@ class Crossing:
 
 @dataclass(frozen=True)
 class Embedded:
-    """A compiled graph's records under one placed node, keyed by the ids and
-    refs the graph that places it uses (``emb/join``, ``emb/join.result``).
-    ``Compilation.place_graphs`` merges each into its own records."""
+    """A compiled graph's records under one graph node, keyed by the ids and
+    refs the graph that embeds it uses (``emb/join``, ``emb/join.result``).
+    ``Compilation.embed_graphs`` merges each into its own records."""
 
     nodes: dict[str, GraphNode]
     order: tuple[str, ...]
-    #: The graph nodes inside, nested ones included, by lifted id.
+    #: The graph nodes inside, nested ones included, by their id in the outer graph.
     graphs: frozenset[str]
     versions: dict[str, Any]
     definitions: dict[str, type[NodeDefinition]]
@@ -141,15 +142,15 @@ def graph_as_embedded(
     runs_per_row_of: Index | None,
     crossings: Mapping[str, Crossing],
 ) -> Embedded:
-    """``graph``'s records as they stand placed at ``node_id``, running once per row of ``runs_per_row_of``.
+    """``graph``'s records as they stand embedded at ``node_id``, running once per row of ``runs_per_row_of``.
 
-    ``edges`` holds, by the placed node's input name (``holder.value``), the
+    ``edges`` holds, by the graph node's input name (``holder.value``), the
     edge the outer graph connected there, and ``crossings`` what the outer
     walk decided for each. ``values`` holds, by input name, what the outer graph typed on
-    the placed node; each lands on the inner field as if typed there. A
+    the graph node; each lands on the inner field as if typed there. A
     value that decides something inside (a list, or a node whose hook reads
     it) is already in ``graph``: the compiler compiled it again with the
-    value (``Compilation._as_placed``).
+    value (``Compilation._as_embedded``).
     """
     inner = graph._compilation
     layout, iteration = inner.layout, inner.iteration
@@ -236,11 +237,11 @@ def graph_as_embedded(
 
 
 def under(index: Index | None, prefix: str, row: Index | None) -> Index | None:
-    """An inner index as it stands placed: each id prefixed, its root hung under ``row`` (rule 1).
+    """An inner index as it stands embedded: each id prefixed, its root hung under ``row`` (rule 1).
 
-    The walk names a placed graph's outputs this way before the lift, so
-    the rows outer nodes read and the rows the lifted fields have are one
-    answer.
+    The walk names an embedded graph's outputs this way before embedding,
+    so the rows outer nodes read and the rows the embedded fields have are
+    one answer.
     """
     if index is None:
         return None
@@ -251,7 +252,7 @@ def under(index: Index | None, prefix: str, row: Index | None) -> Index | None:
 
 
 def _received_under(receipt: Receive, index: Index | None, prefix: str, row: Index | None) -> Receive:
-    """An inner receipt as it stands placed (rules 1 and 3)."""
+    """An inner receipt as it stands embedded (rules 1 and 3)."""
     if isinstance(receipt, PerRow):
         return PerRow(under(receipt.index, prefix, row))
     if isinstance(receipt, RowsUnder):

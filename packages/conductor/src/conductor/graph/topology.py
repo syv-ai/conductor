@@ -3,7 +3,7 @@
 ``dependencies_of`` turns the edges into a map from each node to the nodes
 it reads, and the order and which nodes nothing consumes are read off that
 map. The map keeps node ids only. A pass that needs the fields an edge
-joins — the edge walk, the conditions, placing a compiled graph, a drawn
+joins — the edge walk, the conditions, embedding a compiled graph, a drawn
 edge — or the sources of one node — the fatal cause a node inherits —
 walks the bindings itself.
 """

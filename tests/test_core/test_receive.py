@@ -258,8 +258,8 @@ def test_an_inner_reduction_over_the_entering_series_reduces_to_its_own_row():
 
 def test_unrelated_rows_inside_an_embedded_graph_are_misaligned_not_paired():
     """One inner node fed rows of ``a``, another fed a reduction over
-    lines of ``b``. On one flat node this is ``misaligned``, and inside a
-    placement too: A's row i is never paired with B's row i."""
+    lines of ``b``. On one flat node this is ``misaligned``, and inside an
+    embedded graph too: A's row i is never paired with B's row i."""
     inner = embedded_graph_node("pair-graph", (
             GraphNode(id="up", type="upper", version=1),
             GraphNode(id="j", type="join", version=1),

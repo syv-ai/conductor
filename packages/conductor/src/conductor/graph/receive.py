@@ -1,6 +1,6 @@
-"""How an input receives its value: one row at a time, one value everywhere, the whole thing, a group under a row, or a gathering.
+"""How an input receives its value: one row at a time, one value everywhere, the whole thing, the rows under a row, or a gathering.
 
-A node in a graph runs as units, one per row of the index it iterates on
+A node in a graph runs as units, one per row of the index it runs per row of
 (or one unit when it runs once). For every input, the question this
 module answers is: *at a unit's row, which of the input's values does the
 unit receive?* Compile answers it once, while it walks the edges, and
@@ -9,15 +9,15 @@ ledger reads that record to decide when a unit is ready and what to hand
 it, and never works the answer out again from the types and indexes.
 
 Five records, one per input, named for what happens to the value on its
-way in. ``Iterate`` splits a series into rows: a scalar input fed a
-series, so the node runs once per row and each unit takes the value at its
-own row. ``Broadcast`` copies one value to every unit: a scalar fed by a
+way in. ``PerRow`` takes a series one row at a time: a scalar input fed
+a series, so the node runs once per row and each unit takes the value at
+its own row. ``Broadcast`` copies one value to every unit: a scalar fed by a
 node that ran once, a typed-in value, a default. ``Whole`` leaves the
 value as it sits on the field: a ``Series[X]`` input fed one series on a
 root index takes it entire, and a ``**inputs`` name takes whatever its
-edge carries. ``Group`` cuts a series to the rows under the unit's own
-row: a ``Series[X]`` input fed a series on a child index, reduced once
-per parent row. ``Gather`` collects unrelated sources — several scalars,
+edge carries. ``RowsUnder`` takes the rows under the unit's own row: a
+``Series[X]`` input fed a series on a child index, reduced once per
+parent row. ``Gather`` collects unrelated sources — several scalars,
 several series on different indexes — onto a fresh index that belongs
 to the input.
 
@@ -39,9 +39,9 @@ class PerRow:
     """The unit receives the value at its own row, projected onto ``index``.
 
     A scalar input fed a series on ``index``: the node runs once per row
-    of it, and each unit reads the row it stands on. A typed-in list on a
+    of it, and each unit reads the row it stands on. A list set on a
     scalar input is the same thing on an index of the input's own, one
-    row per value typed.
+    row per value set.
     """
 
     index: Index
@@ -64,7 +64,7 @@ class Whole:
 
     A ``**inputs`` parameter takes whatever its one edge carries, series
     and all; a ``Series[X]`` input fed one series on a root index takes
-    that series entire; a ``Series[X]`` input with a typed-in list or a
+    that series entire; a ``Series[X]`` input with a list set on it or a
     default takes it as a series on its own index. The node does not run
     per row because of this input.
     """

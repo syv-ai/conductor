@@ -1,4 +1,4 @@
-"""The read plan compile stores for a run: who reads each output, and per index who runs on it, what sits on it and which typed-in lists are born under it."""
+"""The read plan compile stores for a run: who reads each output, and per index who runs on it, what sits on it and which lists set on nodes are made under it."""
 
 from dataclasses import dataclass
 from typing import Annotated
@@ -64,7 +64,7 @@ class Join(NodeDefinition):
 
 
 def _pair(registry: NodeRegistry) -> NodeRegistry:
-    """A stored graph: ``a`` takes the placement's text, ``b`` holds a typed-in list."""
+    """A stored graph: ``a`` takes the graph node's text, ``b`` holds a list set on it."""
     return registry.extended_with({"pair": embedded_graph_node("pair", (
         GraphNode(id="a", type="upper", version=1),
         GraphNode(id="b", type="upper", version=1, bindings={"text": Static([Txt("x"), Txt("y")])}),
