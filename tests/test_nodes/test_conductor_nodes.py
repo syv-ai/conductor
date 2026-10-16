@@ -1,6 +1,6 @@
 """The standard node library, node by node, through ``compile`` + ``run_sync``.
 
-Each node is placed in a graph and run, so registration, the declared
+Each node is put in a graph and run, so registration, the declared
 interface and the behaviour of ``run`` are checked together. Results come
 back as the library's own dtypes (``Text``, ``Number``, ``Flag``, ``Json``);
 a series output compares as a list. ``decision`` is called directly: its

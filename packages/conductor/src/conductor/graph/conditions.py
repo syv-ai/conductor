@@ -62,9 +62,9 @@ NEVER: Condition = frozenset()
 def conditions_of(
     nodes: Sequence[GraphNode],
     interfaces: Mapping[str, Interface],
-    iterated: Mapping[str, Index | None],
+    runs_per_row_of: Mapping[str, Index | None],
 ) -> dict[Ref, Condition]:
-    """The condition of every output of every node in ``iterated`` — the nodes the edge walk resolved.
+    """The condition of every output of every node in ``runs_per_row_of`` — the nodes the edge walk resolved.
 
     Walks ``nodes`` in execution order. A node's own condition holds
     when every connected input's does, and an input's holds when any of
@@ -73,14 +73,14 @@ def conditions_of(
     """
     conditions: dict[Ref, Condition] = {}
     for node in nodes:
-        if node.id not in iterated:
+        if node.id not in runs_per_row_of:
             continue
         at_node = ALWAYS
         for binding in node.bindings.values():
             if isinstance(binding, From):
                 at_node = _all_of(at_node, _any_of(conditions.get(ref, ALWAYS) for ref in binding.refs))
         for out in interfaces[node.id].outputs:
-            gates = out.choice is not None and iterated[node.id] is None
+            gates = out.choice is not None and runs_per_row_of[node.id] is None
             conditions[Ref(node.id, out.name)] = (
                 _all_of(at_node, frozenset({frozenset({Atom(node.id, out.choice, out.name)})})) if gates else at_node
             )

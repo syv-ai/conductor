@@ -1,4 +1,4 @@
-"""The read plan compile stores for a run: who reads each output, and per index who runs on it, what sits on it and which typed-in lists are born under it."""
+"""The read plan compile stores for a run: who reads each output, and per index who runs on it, what sits on it and which lists set on nodes are made under it."""
 
 from dataclasses import dataclass
 from typing import Annotated
@@ -9,7 +9,7 @@ from conductor.execution.ledger import Ledger
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
-from conductor.graph.receive import Iterate, Whole
+from conductor.graph.receive import PerRow, Whole
 from conductor.metadata import Param, Result
 from conductor.node import NodeDefinition
 from conductor.ref import Ref
@@ -64,7 +64,7 @@ class Join(NodeDefinition):
 
 
 def _pair(registry: NodeRegistry) -> NodeRegistry:
-    """A stored graph: ``a`` takes the placement's text, ``b`` holds a typed-in list."""
+    """A stored graph: ``a`` takes the graph node's text, ``b`` holds a list set on it."""
     return registry.extended_with({"pair": embedded_graph_node("pair", (
         GraphNode(id="a", type="upper", version=1),
         GraphNode(id="b", type="upper", version=1, bindings={"text": Static([Txt("x"), Txt("y")])}),
@@ -77,7 +77,7 @@ def _compiled(*nodes: GraphNode) -> CompiledGraph:
     return compiled
 
 
-def test_a_node_with_series_outputs_owns_the_index_they_birth():
+def test_a_node_with_series_outputs_owns_the_index_they_make_rows_of():
     compiled = _compiled(
         GraphNode(id="docs", type="docs", version=1),
         GraphNode(id="up", type="upper", version=1, bindings={"text": From("docs.texts")}),
@@ -85,13 +85,13 @@ def test_a_node_with_series_outputs_owns_the_index_they_birth():
     )
     docs, up = compiled.node("docs"), compiled.node("up")
 
-    assert docs._births == Index("docs")
-    assert docs._iterated_by == ("up",)
+    assert docs._makes_rows == Index("docs")
+    assert docs._run_per_row_by == ("up",)
     assert set(docs._carried_by) == {Ref("docs", "texts"), Ref("docs", "names"), Ref("up", "result")}
-    assert compiled.field(Ref("docs", "texts"))._read_by == ((Ref("up", "text"), Iterate(Index("docs"))),)
+    assert compiled.field(Ref("docs", "texts"))._read_by == ((Ref("up", "text"), PerRow(Index("docs"))),)
     assert compiled.field(Ref("up", "result"))._read_by == ((Ref("join", "texts"), Whole()),)
     assert compiled.node("join")._reads == ((Ref("up", "result"), Whole()),)
-    assert (up._births, up._iterated_by, up._carried_by) == (None, (), ())
+    assert (up._makes_rows, up._run_per_row_by, up._carried_by) == (None, (), ())
 
 
 def test_an_input_holding_a_typed_in_list_owns_its_index():
@@ -102,17 +102,17 @@ def test_an_input_holding_a_typed_in_list_owns_its_index():
     typed = compiled.field(Ref("u", "text"))
 
     assert typed.listed and not compiled.field(Ref("v", "text")).listed
-    assert typed._iterated_by == ("u", "v")
+    assert typed._run_per_row_by == ("u", "v")
     assert typed._carried_by == (Ref("u", "result"), Ref("v", "result"))
 
 
-def test_a_typed_in_list_inside_an_iterating_embedded_graph_is_born_under_each_row():
+def test_a_list_set_on_a_node_inside_an_embedded_graph_running_per_row_is_made_under_each_row():
     compiled = _compiled(
         GraphNode(id="docs", type="docs", version=1),
         GraphNode(id="emb", type="pair", version=1, bindings={"a.text": From("docs.texts")}),
     )
 
-    assert compiled.node("docs")._typed_lists == (Ref("emb/b", "text"),)
+    assert compiled.node("docs")._listed_inputs == (Ref("emb/b", "text"),)
 
 
 def test_downstream_is_every_node_a_value_reaches():

@@ -15,7 +15,7 @@ from conductor.dtype import DType, Single
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
-from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Whole
+from conductor.graph.receive import Broadcast, Gather, PerRow, RowsUnder, Whole
 from conductor.metadata import Param, Result
 from conductor.node import NodeDefinition
 from conductor.ref import Ref
@@ -134,8 +134,8 @@ def test_a_scalar_input_fed_a_series_receives_one_value_per_row_of_its_index():
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "result"))}),
     ])
 
-    assert _receives(compiled, "up", "text") == Iterate(Index("docs"))
-    assert compiled.node("up").iterates_on == Index("docs")
+    assert _receives(compiled, "up", "text") == PerRow(Index("docs"))
+    assert compiled.node("up").runs_per_row_of == Index("docs")
 
 
 def test_a_series_input_fed_one_series_on_a_root_receives_it_whole():
@@ -145,7 +145,7 @@ def test_a_series_input_fed_one_series_on_a_root_receives_it_whole():
     ])
 
     assert _receives(compiled, "j", "texts") == Whole()
-    assert compiled.node("j").iterates_on is None
+    assert compiled.node("j").runs_per_row_of is None
 
 
 def test_a_series_input_fed_a_series_on_a_child_reduces_under_the_parent_row():
@@ -155,8 +155,8 @@ def test_a_series_input_fed_a_series_on_a_child_reduces_under_the_parent_row():
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("lines", "result"))}),
     ])
 
-    assert _receives(compiled, "j", "texts") == Group(Index("lines"), depth=1)
-    assert compiled.node("j").iterates_on == Index("docs")
+    assert _receives(compiled, "j", "texts") == RowsUnder(Index("lines"), depth=1)
+    assert compiled.node("j").runs_per_row_of == Index("docs")
 
 
 def test_a_series_input_fed_unrelated_sources_gathers_them_onto_the_fields_own_index():
@@ -178,7 +178,7 @@ def test_an_open_parameter_receives_its_edge_whole_even_when_a_series_arrives():
     ])
 
     assert _receives(compiled, "s", "v") == Whole()
-    assert compiled.node("s").iterates_on is None
+    assert compiled.node("s").runs_per_row_of is None
 
 
 # --- nothing feeds it -------------------------------------------------------------
@@ -192,8 +192,8 @@ def test_a_typed_in_scalar_is_received_once_and_a_typed_in_list_once_per_value()
     ])
 
     assert _receives(compiled, "one", "text") == Broadcast()
-    assert _receives(compiled, "many", "text") == Iterate(Index(Ref("many", "text")))
-    assert compiled.node("many").iterates_on == Index(Ref("many", "text"))
+    assert _receives(compiled, "many", "text") == PerRow(Index(Ref("many", "text")))
+    assert compiled.node("many").runs_per_row_of == Index(Ref("many", "text"))
     assert _receives(compiled, "default", "text") == Broadcast()
 
 
@@ -216,7 +216,7 @@ def test_a_closed_input_typed_as_a_list_holds_one_value_and_the_node_runs_once()
 
     assert compiled.is_runnable, compiled.problems
     assert _receives(compiled, "t", "tags") == Broadcast()
-    assert compiled.node("t").iterates_on is None
+    assert compiled.node("t").runs_per_row_of is None
     assert compiled.node("t").statics == {"tags": ["a", "b", "c"]}
 
 
@@ -251,15 +251,15 @@ def test_an_inner_reduction_over_the_entering_series_reduces_to_its_own_row():
     ], inner)
 
     assert compiled.is_runnable, compiled.problems
-    assert _receives(compiled, "emb/holder", "text") == Iterate(Index("docs"))
-    assert _receives(compiled, "emb/join", "texts") == Group(Index("docs"), depth=1)
-    assert compiled.node("emb/join").iterates_on == Index("docs")
+    assert _receives(compiled, "emb/holder", "text") == PerRow(Index("docs"))
+    assert _receives(compiled, "emb/join", "texts") == RowsUnder(Index("docs"), depth=1)
+    assert compiled.node("emb/join").runs_per_row_of == Index("docs")
 
 
 def test_unrelated_rows_inside_an_embedded_graph_are_misaligned_not_paired():
     """One inner node fed rows of ``a``, another fed a reduction over
-    lines of ``b``. On one flat node this is ``misaligned``, and inside a
-    placement too: A's row i is never paired with B's row i."""
+    lines of ``b``. On one flat node this is ``misaligned``, and inside an
+    embedded graph too: A's row i is never paired with B's row i."""
     inner = embedded_graph_node("pair-graph", (
             GraphNode(id="up", type="upper", version=1),
             GraphNode(id="j", type="join", version=1),

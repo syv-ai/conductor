@@ -5,13 +5,13 @@ report — rather than for an editor, which draws from ``node`` and
 ``field`` itself. Everything here is read through those two and the
 authored graph; nothing is worked out that compile did not already say.
 
-One box per node the author placed, titled by its id and its type. A
+One box per node the author drew, titled by its id and its type. A
 node whose version is a graph is a subgraph holding its inner nodes under
-their paths (``emb/up``), nested as deep as the placements are.
+their paths (``emb/up``), nested as deep as the graphs are embedded.
 One arrow per ref on every connected input, labelled with how the reading
-input receives it: ``per row of <index>`` (``Iterate``), nothing
+input receives it: ``per row of <index>`` (``PerRow``), nothing
 (``Broadcast``), ``whole`` (``Whole``), ``grouped by <index>``
-(``Group``), ``gathered`` (``Gather``). A node with a fatal problem
+(``RowsUnder``), ``gathered`` (``Gather``). A node with a fatal problem
 carries the ``fault`` class — the one piece of styling — and an edge from
 a node that is not there is not drawn; an arrow into a node compile could
 not derive has no label, since how it receives is not known. The
@@ -27,10 +27,10 @@ from conductor import (
     From,
     Gather,
     GraphNode,
-    Group,
-    Iterate,
+    PerRow,
     Receive,
     Ref,
+    RowsUnder,
     Whole,
 )
 
@@ -43,7 +43,7 @@ def flowchart(compiled: CompiledGraph) -> str:
     names: dict[str, str] = {}
     lines = ["flowchart LR"]
     for node in compiled.graph.nodes:
-        lines += _placed(compiled, node, node.id, faulty, names, depth=1)
+        lines += _node_lines(compiled, node, node.id, faulty, names, depth=1)
     for node_id in compiled.execution_order:
         node = compiled.node(node_id)
         for field in node.interface.inputs:
@@ -62,20 +62,20 @@ def flowchart(compiled: CompiledGraph) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _placed(
+def _node_lines(
     compiled: CompiledGraph, node: GraphNode, node_id: str, faulty: set[str], names: dict[str, str], *, depth: int
 ) -> list[str]:
-    """One placed node's lines: a box, or a subgraph of its inner nodes."""
+    """One node's lines: a box, or a subgraph of its inner nodes."""
     indent = "    " * depth
     name = names.setdefault(node_id, f"n{len(names)}")
     title = _quoted(f"{node_id} · {node.type}")
     fault = ":::fault" if node_id in faulty else ""
-    placed = compiled.node(node_id)
-    if placed.state != "ready" or placed.kind != "graph":
-        return [f"{indent}{name}[{title}]{fault}"]  # a graph that couldn't be placed has nothing inside
+    found = compiled.node(node_id)
+    if found.state != "ready" or found.kind != "graph":
+        return [f"{indent}{name}[{title}]{fault}"]  # a graph that couldn't be embedded has nothing inside
     lines = [f"{indent}subgraph {name} [{title}]"]
-    for inner in placed.version.graph.nodes:
-        lines += _placed(compiled, inner, f"{node_id}/{inner.id}", faulty, names, depth=depth + 1)
+    for inner in found.version.graph.nodes:
+        lines += _node_lines(compiled, inner, f"{node_id}/{inner.id}", faulty, names, depth=depth + 1)
     lines.append(f"{indent}end")
     if fault:
         lines.append(f"{indent}class {name} fault")
@@ -85,9 +85,9 @@ def _placed(
 def _label(receives: Receive) -> str | None:
     """How an arrow's reading input receives it, in a few words; ``None`` for a broadcast."""
     match receives:
-        case Iterate(index=index):
+        case PerRow(index=index):
             return f"per row of {index.id}"
-        case Group(index=index):
+        case RowsUnder(index=index):
             return f"grouped by {index.id}"
         case Whole():
             return "whole"

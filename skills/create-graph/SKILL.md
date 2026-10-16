@@ -1,11 +1,11 @@
 ---
 name: create-graph
-description: Places conductor nodes in a Graph, compiles it with CompiledGraph.from_graph and runs it with execute. Use when building, saving, running, drawing, serving or debugging a conductor graph; binding inputs (From, Static, with_inputs); reading outputs, problems or events; answering Asks (state, cache); or on "build a graph", "run a graph", "connect these nodes".
+description: Puts conductor nodes in a Graph, compiles it with CompiledGraph.from_graph and runs it with execute. Use when building, saving, running, drawing, serving or debugging a conductor graph; binding inputs (From, Static, with_inputs); reading outputs, problems or events; answering Asks (state, cache); or on "build a graph", "run a graph", "connect these nodes".
 ---
 
 # Creating and running a conductor graph
 
-A graph is placed nodes, each pinning a `type` and `version` and binding its inputs. Compile says what is wrong; `execute` runs it as a stream of events. To declare a node, use the **add-node** skill. The installed library is the authority: `python -m conductor.about bindings` (or `compilation`, `rows`, `legs`, `events`, `errors`).
+A graph is a list of nodes, each pinning a `type` and `version` and binding its inputs. Compile says what is wrong; `execute` runs it as a stream of events. To declare a node, use the **add-node** skill. The installed library is the authority: `python -m conductor.about bindings` (or `compilation`, `rows`, `legs`, `events`, `errors`).
 
 ```python
 import conductor_nodes
@@ -27,7 +27,7 @@ ending = run_sync(ready)                               # in a notebook: await ru
 assert ending.state.outputs(ready) == {"joined.result": "RED + GREEN"}
 results = ending.state.results(ready)                  # {node_id: {output: value}}
 assert list(results["loud"]["result"]) == ["RED", "GREEN"]   # ran once per word
-assert ready.node("joined").iterates_on is None       # parts is Series[Text]: one call
+assert ready.node("joined").runs_per_row_of is None       # parts is Series[Text]: one call
 ```
 
 An input holds one binding: `From("node.output")` over an edge, `Static(value)` typed in (a list on a single-value input runs the node once per item), or none for the default. A single output is named `result`. `GraphNode` is keyword-only; a node id may not contain `.`.

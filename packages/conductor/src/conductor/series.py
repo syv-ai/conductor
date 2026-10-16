@@ -15,12 +15,12 @@ The **index** says where the rows came from, and it is what the engine
 compares — never lengths: two series may feed one node only if they share
 an index. A child index, ``Index("lines", parent=Index("docs"))``, is made
 when a node opens a nested value one level. Each row on it is a path,
-``(i, j)`` for the j-th row born under parent row ``(i,)``, so a row knows
+``(i, j)`` for the j-th row made under parent row ``(i,)``, so a row knows
 its parent by construction: a value on the parent index broadcasts down to
 the child, and a reduction on the child collapses back up to the parent.
 
 A series may be **sparse** — carry only some of its index's rows — which is
-what a branching node produces when it iterates. There is no ``NA``.
+what a branching node produces when it runs per row. There is no ``NA``.
 
 ``Series[Series[X]]`` is refused: nesting travels as one value on one
 field and is opened one level at a time by a node.
@@ -45,7 +45,7 @@ if TYPE_CHECKING:
     from pydantic import GetCoreSchemaHandler
 
 #: A row's position on its index, as a path: ``(i,)`` on a root index,
-#: ``(i, j)`` for the j-th row born under parent row ``(i,)``.
+#: ``(i, j)`` for the j-th row made under parent row ``(i,)``.
 Row = tuple[int, ...]
 
 class Index(ConductorModel):
@@ -62,7 +62,7 @@ class Index(ConductorModel):
         Index.fresh()                            # a new root with a unique id
 
     Two ``Index.fresh()`` results never align, which is the point: values
-    born separately have no rows in common.
+    made separately have no rows in common.
     """
 
     id: str
@@ -157,7 +157,7 @@ class Series(DType, Sequence[T]):
         self.values: tuple[T, ...] = tuple(values)
         #: One path per value. Left out, the series is dense on a root:
         #: ``(0,), (1,), ...``. A child index has no such default — its rows
-        #: are born under parents, and the engine says which.
+        #: are made under parents, and the engine says which.
         self.rows: tuple[Row, ...] = (
             tuple((i,) for i in range(len(self.values))) if rows is None else tuple(rows)
         )

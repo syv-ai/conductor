@@ -16,7 +16,7 @@ to encode on the way out or decode on the way in. ``node_id`` and
 ``field`` are the only place the string is split.
 
 The node part is the node's **id**, never its title. Titles are for
-people and may be edited; an id is minted when the node is placed and
+people and may be edited; an id is minted when the node is added and
 never changes. That is the reason an address deserves a type: renaming a
 node does not move anything that points at it.
 

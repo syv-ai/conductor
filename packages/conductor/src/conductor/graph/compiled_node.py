@@ -65,7 +65,7 @@ NodeState = Literal["ready", "wiring_failed", "resolution_failed"]
 
 #: What a node is. ``node``: it runs as one unit, one call of its version's
 #: ``run`` per row. ``graph``: its version is a graph the host compiled,
-#: which compile places, so its inner nodes run in its place and its fields
+#: which compile embeds, so its inner nodes run in its place and its fields
 #: are theirs, at their path. Compile's last step sets it from the version. It is
 #: read where the two kinds answer differently: ``_gate``, for the reads only
 #: a unit answers, and ``CompiledGraph.field``, since a graph has no fields of
@@ -112,7 +112,7 @@ class CompiledNode:
 
     The engine reads it to run the node: its ``interface``, the values set
     on it (``statics``), how to call it (``validate``, ``runner``) and
-    whether it runs once per row (``iterates_on``). An editor reads it to
+    whether it runs once per row (``runs_per_row_of``). An editor reads it to
     draw the node: its ``state`` first, then whatever that state allows,
     and its ``problems`` for the marks.
 
@@ -123,7 +123,7 @@ class CompiledNode:
     - Unless compile couldn't make sense of the node at all: its ``kind``,
       ``definition``, ``version``, ``interface`` and ``statics``. Otherwise
       they raise ``NodeResolutionError``.
-    - Only on a ready node: ``iterates_on``. Otherwise it raises
+    - Only on a ready node: ``runs_per_row_of``. Otherwise it raises
       ``NodeWiringError``.
 
     Both errors carry the one problem that explains why.
@@ -146,7 +146,7 @@ class CompiledNode:
     graph_node: GraphNode = field(repr=False)
     #: The id of the node whose embedded graph this node belongs to —
     #: ``"approve"`` for ``"approve/check"`` — or ``None`` for a node the
-    #: author placed.
+    #: author drew.
     embedded_in: str | None = field(repr=False)
     #: Every problem about this node or one of its fields, in
     #: ``CompiledGraph.problems`` order: what an editor marks on it.
@@ -162,22 +162,22 @@ class CompiledNode:
     _interface: Interface = field(repr=False)
     _statics: Mapping[str, Any] = field(repr=False)
     #: What the walk decided; ``None`` also on a node that is not ready.
-    _iterates_on: Index | None = field(repr=False)
+    _runs_per_row_of: Index | None = field(repr=False)
     #: The read plan, the engine's alone: the walk's decisions inverted once
     #: at compile, so the ledger looks each up instead of searching the graph
     #: on every run. ``_reads``: every output an edge into this node reads,
     #: one per edge ref, with how the input it feeds receives it. An index's
-    #: share sits on what births its rows — here, the index this node's
-    #: series outputs birth (``_births``, ``None`` for a node with none): the
-    #: nodes that run once per row of it (``_iterated_by``), the outputs that
-    #: sit on it (``_carried_by``) and the inputs holding a typed-in list
-    #: born under each of its rows (``_typed_lists``), each in execution
-    #: order. Empty on a node the walk did not derive, and on a ``graph``.
-    _births: Index | None = field(repr=False)
+    #: share sits on what makes its rows — here, the index this node's
+    #: series outputs make (``_makes_rows``, ``None`` for a node with none):
+    #: the nodes that run once per row of it (``_run_per_row_by``), the
+    #: outputs that sit on it (``_carried_by``) and the inputs holding a list
+    #: set on the node, made under each of its rows (``_listed_inputs``),
+    #: each in execution order. Empty on a node the walk did not derive, and on a ``graph``.
+    _makes_rows: Index | None = field(repr=False)
     _reads: tuple[tuple[Ref, Receive], ...] = field(repr=False)
-    _iterated_by: tuple[str, ...] = field(repr=False)
+    _run_per_row_by: tuple[str, ...] = field(repr=False)
     _carried_by: tuple[Ref, ...] = field(repr=False)
-    _typed_lists: tuple[Ref, ...] = field(repr=False)
+    _listed_inputs: tuple[Ref, ...] = field(repr=False)
     #: Every input and output by name: what ``CompiledGraph.field`` hands back.
     _fields: Mapping[str, CompiledField] = field(repr=False)
 
@@ -200,7 +200,7 @@ class CompiledNode:
     def version(self) -> NodeVersion | CompiledGraph:
         """The version this node uses: a ``NodeVersion`` — its ``run``,
         interface and policy — for a ``node``; for a ``graph``, the graph
-        compiled on its own, with any values typed on the placed node in it
+        compiled on its own, with any values typed on the graph node in it
         — its interface, and its own problems in its own words."""
         _gate(self, "version", needs_wiring=False)
         return self._version
@@ -237,7 +237,7 @@ class CompiledNode:
 
     @property
     def fingerprint(self) -> str:
-        """A hash of how the graph places this node: its type, version and
+        """A hash of how the graph uses this node: its type, version and
         bindings. A run's state stores one per node, and a leg restored into
         a graph whose fingerprint differs runs the node again — a static
         edited, a version bumped, an edge moved all change it; a title or a
@@ -258,8 +258,8 @@ class CompiledNode:
                 bindings[name] = {"static": _written(self._statics[name], declared[name], self._fields[name].listed)}
             else:
                 bindings[name] = binding.model_dump()
-        placed = {"type": node.type, "version": node.version, "bindings": bindings}
-        return hashlib.sha256(json.dumps(to_jsonable_python(placed), sort_keys=True).encode("utf-8")).hexdigest()
+        used = {"type": node.type, "version": node.version, "bindings": bindings}
+        return hashlib.sha256(json.dumps(to_jsonable_python(used), sort_keys=True).encode("utf-8")).hexdigest()
 
     def validate(self, inputs: Mapping[str, Any]) -> dict[str, Any]:
         """The keyword arguments a call of this node runs with: ``inputs``
@@ -281,14 +281,14 @@ class CompiledNode:
         return model_of(self._interface.inputs)
 
     @property
-    def iterates_on(self) -> Index | None:
+    def runs_per_row_of(self) -> Index | None:
         """The index this node runs once per row of, or ``None`` when it runs
         once. Read off its edges at compile — a series arriving on a scalar
         input is what makes a node run per row — and never written on the
         ``GraphNode``. For a ``graph``, the index its inner nodes run once
         per row of, where a series entered it."""
-        _gate(self, "iterates_on", needs_wiring=True)
-        return self._iterates_on
+        _gate(self, "runs_per_row_of", needs_wiring=True)
+        return self._runs_per_row_of
 
 
 @dataclass(frozen=True, eq=False)
@@ -331,12 +331,12 @@ class CompiledField:
     #: Its share of the read plan (see ``CompiledNode._reads``): every input
     #: an edge from this output feeds, in execution order, with how it
     #: receives the value (``_read_by``); and, for a ``listed`` input, the
-    #: plan of the index its typed-in list births.
+    #: plan of the index its list set on the node makes.
     _read_by: tuple[tuple[Ref, Receive], ...] = field(repr=False)
     _listed: bool = field(repr=False)
-    _iterated_by: tuple[str, ...] = field(repr=False)
+    _run_per_row_by: tuple[str, ...] = field(repr=False)
     _carried_by: tuple[Ref, ...] = field(repr=False)
-    _typed_lists: tuple[Ref, ...] = field(repr=False)
+    _listed_inputs: tuple[Ref, ...] = field(repr=False)
 
     def _gate(self, asked: str) -> None:
         if self._cause is not None:
@@ -377,9 +377,9 @@ class CompiledField:
     @property
     def receives(self) -> Receive:
         """How a unit of this input's node receives the value: the value at
-        its own row (``Iterate``), the one value there is (``Broadcast``),
+        its own row (``PerRow``), the one value there is (``Broadcast``),
         everything on the field (``Whole``), the rows under its row
-        (``Group``) or its unrelated sources collected (``Gather``) — see
+        (``RowsUnder``) or its unrelated sources collected (``Gather``) — see
         ``conductor.graph.receive``. Decided once by the
         walk over the edges; the engine's ledger reads it to tell when a
         unit is ready and what to hand it, and an editor may label the

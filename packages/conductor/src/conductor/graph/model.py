@@ -1,6 +1,6 @@
 """``Graph`` and ``GraphNode`` — the persisted graph.
 
-A graph is a list of placed nodes and nothing else: edges live in each
+A graph is a list of nodes and nothing else: edges live in each
 node's ``bindings``, and a canvas derives its own edges from them. A
 node's fields fall in three groups:
 
@@ -30,7 +30,7 @@ from conductor.model import ConductorModel
 class FieldContent(ConductorModel):
     """The title and description a person reads for one field of one node.
 
-    Copied from the node's declaration when the node is placed, and edited
+    Copied from the node's declaration when the node is added, and edited
     freely afterwards; nothing resolves it against the declaration again,
     so an upstream rename never reaches an existing graph. Read by
     whatever shows the field to a person, by nothing that decides
@@ -42,12 +42,11 @@ class FieldContent(ConductorModel):
 
 
 class GraphNode(ConductorModel):
-    """One node as it sits in a graph: a placement of a definition.
+    """One node as it sits in a graph: one use of a definition.
 
-    A definition (``NodeDefinition``) is what a developer wrote; a
-    placement is one use of it in a graph, with its own ``id``, minted
-    when the node is placed and never renamed. Where the contrast matters
-    the docs say "placement"; everywhere else a placement is just a node.
+    A definition (``NodeDefinition``) is what a developer wrote; a node in
+    a graph is one use of it, with its own ``id``, minted when the node is
+    added and never renamed.
 
     ``type`` names the definition and ``version`` selects one of its
     versions; ``bindings`` says where each input's value comes from (one
@@ -89,7 +88,7 @@ class GraphNode(ConductorModel):
     def _one_way_to_read_a_ref(cls, node_id: str) -> str:
         # ``.`` separates node from field in a ``Ref``, so an id may not
         # contain one. ``/`` may: the compiler uses it to namespace an
-        # embedded graph's nodes under the placing node's id (``approve/check``).
+        # embedded graph's nodes under the graph node's id (``approve/check``).
         # A copy with a new id is built through the constructor, since
         # ``model_copy`` does not validate.
         if "." in node_id:

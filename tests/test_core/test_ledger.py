@@ -138,7 +138,7 @@ def test_an_iterating_node_has_no_units_until_its_index_has_rows():
     assert ledger.units("up") == []
 
 
-def test_a_root_index_is_born_sealed_by_the_unit_that_produces_it():
+def test_a_root_index_is_made_sealed_by_the_unit_that_produces_it():
     ledger = _ledger([DOCS, GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))})])
 
     ledger.record(("docs", ()), {"texts": ["a", "b"], "names": ["x", "y"]})
@@ -203,7 +203,7 @@ def test_contagion_reads_the_upstream_row_and_nothing_waits_on_other_rows():
     assert ledger.inputs_for(("n", (0,))) == {"text": "A"}
 
 
-def test_an_iterating_unit_returning_a_series_births_rows_under_its_row():
+def test_a_unit_running_per_row_returning_a_series_makes_rows_under_its_row():
     ledger = _ledger([DOCS, GraphNode(id="lines", type="lines", version=1, bindings={"text": _edge(("docs", "texts"))})])
     ledger.record(("docs", ()), {"texts": ["a\nb", "c"], "names": ["x", "y"]})
     ledger.record(("lines", (1,)), {"result": ["c"]})
@@ -293,9 +293,9 @@ def test_a_typed_list_on_a_series_input_lands_on_the_inputs_own_index():
     assert texts.rows == ((0,), (1,))
 
 
-def test_a_static_list_on_a_scalar_input_births_the_rows_compile_named():
-    """Compile stored the index a static list iterates on (`field(ref).index`); the
-    ledger births its rows there — before anything runs,
+def test_a_static_list_on_a_scalar_input_makes_the_rows_compile_named():
+    """Compile stored the index a static list runs its node per row of (`field(ref).index`); the
+    ledger makes its rows there — before anything runs,
     sealed — and reads each unit's element off it. The ledger tests the
     value with nothing of its own."""
     ledger = _ledger([GraphNode(id="u", type="upper", version=1, bindings={"text": Static(["a", "b"])})])
@@ -337,7 +337,7 @@ def test_a_skipped_row_leaves_the_series_sparse():
     assert ledger.inputs_for(("n", (2,))) == {"text": "C"}
 
 
-def test_a_skipped_node_skips_what_it_births():
+def test_a_skipped_node_skips_the_rows_it_would_make():
     ledger = _ledger([
         DOCS,
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
@@ -379,7 +379,7 @@ def test_a_decision_over_a_whole_column_gates_what_hangs_off_the_branch_not_take
     assert ledger.ready(("full", ())) and ledger.ready(("empty", ()))
     assert list(ledger.inputs_for(("full", ()))["texts"]) == ["a", "b"]
     assert ledger.inputs_for(("empty", ())) == Skip(at=())
-    # the skip reaches through a node running per row: its rows exist (born by the full branch), each is skipped at its own row
+    # the skip reaches through a node running per row: its rows exist (made by the full branch), each is skipped at its own row
     assert ledger.units("up") == [("up", (0,)), ("up", (1,))]
     assert ledger.inputs_for(("up", (0,))) == Skip(at=())
     assert not ledger.ready(("after", ()))
@@ -536,7 +536,7 @@ def test_progress_counts_rows_and_knows_the_total_once_sealed():
 
 def test_progress_counts_rows_not_stand_ins():
     """The unit at a shorter row stands in for rows a skip above them never
-    let be born; "4 of 10" counts rows, so it is in neither number."""
+    let be made; "4 of 10" counts rows, so it is in neither number."""
     ledger = _ledger([
         DOCS,
         GraphNode(id="lines", type="lines", version=1, bindings={"text": _edge(("docs", "texts"))}),
@@ -577,9 +577,9 @@ def _restores_as_it_was(ledger):
     assert back.completed_nodes() == ledger.completed_nodes()
 
 
-def test_a_restore_works_out_the_rows_a_nested_node_birthed_and_where_it_skipped():
+def test_a_restore_works_out_the_rows_a_nested_node_made_and_where_it_skipped():
     """The state stores no rows: each done unit's values say which rows it
-    birthed, and a skip at its own row that it birthed none there."""
+    made, and a skip at its own row that it made none there."""
     ledger = _ledger([
         DOCS,
         GraphNode(id="lines", type="lines", version=1, bindings={"text": _edge(("docs", "texts"))}),

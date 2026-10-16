@@ -36,7 +36,7 @@ def test_what_is_not_an_address_is_refused():
 
 def test_an_address_has_two_parts_because_depth_is_a_nodes_job():
     """A nested value arrives whole, on one field; the node that opens it
-    births a child index and exposes one field per part. So there is
+    makes rows of a child index and exposes one field per part. So there is
     nothing below a field to address and no path to carry — and the field
     is simply whatever follows the first dot."""
     assert Ref("n1", "excl. VAT").field == "excl. VAT"

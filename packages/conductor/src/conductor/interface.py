@@ -69,7 +69,7 @@ class Interface:
 
     Three things carry one. What one version declares: ``Interface.of``
     reads it off the ``run`` signature when a node class is defined. What
-    one placed node actually has once the compiler has asked its hooks and
+    one node in a graph actually has once the compiler has asked its hooks and
     typed its edges: ``CompiledGraph.node(node_id).interface``, the same record with
     ``returns``, ``needs`` and ``open`` copied from the version. What a
     whole graph takes and returns: ``CompiledGraph.interface``, with
@@ -222,7 +222,7 @@ def model_of(inputs: tuple[Input, ...]) -> type[BaseModel]:
     """The pydantic model that validates a call against ``inputs``.
 
     A function rather than a field on ``Interface``: the inputs a call is
-    validated against are usually a placed node's own interface rather than the bare
+    validated against are usually a node's own interface in its graph rather than the bare
     declaration, and a model class held on a frozen record would make two
     interfaces derived from one signature compare unequal. An ``Any`` input
     validates anything; the compiler has already established what arrives

@@ -45,7 +45,7 @@ async def legs():
     first = [event async for event in execute(asking)][-1]
     assert first.type == "graph_pending" and [unit.row for unit in first.pending] == [(0,), (1,)]
     stored = RunState.model_validate(first.state.model_dump())      # how a host keeps the state between legs
-    answer = Series(asking.node("approve").iterates_on, [Text("Second, approved")], rows=[(1,)])
+    answer = Series(asking.node("approve").runs_per_row_of, [Text("Second, approved")], rows=[(1,)])
     second = [event async for event in execute(asking, state=stored, cache={"approve": {"result": answer}})][-1]
     assert [unit.row for unit in second.pending] == [(0,)]
 

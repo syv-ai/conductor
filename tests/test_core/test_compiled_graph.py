@@ -261,10 +261,10 @@ def test_reading_what_a_state_lacks_names_the_problem():
     compiled = _half_finished()
 
     with pytest.raises(NodeWiringError) as own:
-        compiled.node("b").iterates_on
+        compiled.node("b").runs_per_row_of
     assert own.value.problems[0].code == "unknown_ref_node" and own.value.problems[0].node_id == "b"
     with pytest.raises(NodeWiringError) as upstream:
-        compiled.node("c").iterates_on
+        compiled.node("c").runs_per_row_of
     assert upstream.value.problems[0] is own.value.problems[0]
     with pytest.raises(NodeWiringError):
         compiled.field(Ref("c", "x")).type
@@ -283,13 +283,13 @@ def test_the_named_errors_are_not_key_errors():
     """``except KeyError`` catches a caller's wrong id and nothing else; the message names the node, the read and the cause."""
     compiled = _half_finished()
     with pytest.raises(NodeWiringError) as raised:
-        compiled.node("c").iterates_on
+        compiled.node("c").runs_per_row_of
 
     assert issubclass(NodeWiringError, CompilationError) and not issubclass(NodeWiringError, KeyError)
     assert issubclass(NodeResolutionError, CompilationError) and not issubclass(NodeResolutionError, KeyError)
     assert not issubclass(NodeKindError, CompilationError)
     assert len(raised.value.problems) == 1
-    assert "'c'" in str(raised.value) and "iterates_on" in str(raised.value)
+    assert "'c'" in str(raised.value) and "runs_per_row_of" in str(raised.value)
     assert "b.x — unknown_ref_node" in str(raised.value)
 
 
@@ -303,7 +303,7 @@ def test_a_node_downstream_of_a_cycle_carries_the_cycle():
     assert (compiled.node("a").state, compiled.node("b").state) == ("resolution_failed", "resolution_failed")
     assert compiled.node("c").state == "wiring_failed"
     with pytest.raises(NodeWiringError) as raised:
-        compiled.node("c").iterates_on
+        compiled.node("c").runs_per_row_of
     assert raised.value.problems[0].code == "cycle"
 
 
@@ -311,14 +311,14 @@ def test_a_painter_reads_every_node_of_a_broken_graph():
     """What an editor's compile view does: ask each node its state and read what that state has. Nothing raises."""
     compiled = _half_finished()
 
-    for placed in compiled.graph.nodes:
-        node = compiled.node(placed.id)
+    for drawn in compiled.graph.nodes:
+        node = compiled.node(drawn.id)
         if node.state == "resolution_failed":
             continue
         assert node.interface.inputs
         if node.state == "ready":
-            assert node.iterates_on is None
-            assert all(compiled.field(Ref(placed.id, i.name)).type is Txt for i in node.interface.inputs)
+            assert node.runs_per_row_of is None
+            assert all(compiled.field(Ref(drawn.id, i.name)).type is Txt for i in node.interface.inputs)
 
 
 def test_node_problems_are_the_problems_anchored_on_it():
@@ -423,7 +423,7 @@ def test_an_empty_list_of_anything_breaks_its_node_like_anything():
     assert compiled.node("n").state == "wiring_failed"
 
 
-#: A stored graph placed as a node: one echo inside.
+#: A stored graph embedded as a node: one echo inside.
 Wrapped = embedded_graph_node("wrapped", (GraphNode(id="inner", type="echo", version=1),), _registry(), "Wrapped")
 
 
@@ -435,8 +435,8 @@ class CountingRegistry(NodeRegistry):
         return super().__getitem__(node_id)
 
 
-def test_compile_looks_each_placement_up_once():
-    """One lookup per node the author placed; everything after reads the class compile resolved. An
+def test_compile_looks_each_node_up_once():
+    """One lookup per node the author drew; everything after reads the class compile resolved. An
     embedded graph's own nodes were looked up once, when the host compiled it."""
     registry = CountingRegistry(nodes=(Echo, Wrapped))
     registry.counts = Counter()
@@ -541,10 +541,10 @@ def test_a_field_the_node_does_not_have_has_no_view():
 # --- the pin is resolved once, here ------------------------------------------
 
 
-def test_a_placement_reads_the_version_it_pins():
-    """The version freezes which behaviour a placement points at.
+def test_a_node_reads_the_version_it_pins():
+    """The version freezes which behaviour a node in a graph points at.
     Reading the class's current version instead would silently re-point
-    every old placement at the newest signature."""
+    every old node at the newest signature."""
     compiled = _compiled([GraphNode(id="old", type="renamed", version=1)])
 
     assert [i.name for i in compiled.node("old").interface.inputs] == ["old"]
@@ -573,7 +573,7 @@ def test_a_version_the_class_no_longer_declares_is_a_fatal_problem():
     assert (problem.code, problem.node_id) == ("unknown_node_version", "a")
 
 
-def test_two_placements_with_one_id_is_a_fatal_problem():
+def test_two_nodes_with_one_id_is_a_fatal_problem():
     compiled = _compiled([
         GraphNode(id="a", type="echo", version=1),
         GraphNode(id="a", type="echo", version=1),
@@ -653,7 +653,7 @@ def test_the_interface_is_an_interface_and_types_a_call_by_address():
     assert dict(answers)["besked.value"] == "hej"
 
 
-def test_needs_is_the_union_of_the_placements_needs():
+def test_needs_is_the_union_of_the_nodes_needs():
     """What the run must provide to this graph is what its nodes need,
     by parameter name — and `execute` refuses a graph whose needs it was not
     given."""
@@ -675,13 +675,13 @@ def test_an_input_arrives_with_its_whole_declaration():
     assert declared.name == "besked.value"
     assert declared.widget is not None
     assert declared.dtype is Txt
-    # The placement's title, not the declaration's.
+    # The node's title, not the declaration's.
     assert declared.title == "Message"
 
 
-def test_a_placement_that_did_not_resolve_contributes_no_fields():
+def test_a_node_that_did_not_resolve_contributes_no_fields():
     """The node's own fatal problem says it all; the derivation skips a
-    placement compile could not resolve rather than anchoring it again."""
+    node compile could not resolve rather than anchoring it again."""
     compiled = _compiled([GraphNode(id="a", type="gone", version=1)])
 
     assert [p.code for p in compiled.problems] == ["unknown_node_type"]

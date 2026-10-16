@@ -1,4 +1,4 @@
-"""Conductor: declare nodes, place them in a graph, compile it, run it.
+"""Conductor: declare nodes, put them in a graph, compile it, run it.
 
 This package is the main public door. With ``conductor.widgets`` (the
 input controls) and ``conductor.events`` (what a run emits) it is
@@ -33,7 +33,7 @@ from conductor.graph.compiled_node import CompiledField, CompiledNode
 from conductor.graph.conditions import ALWAYS, NEVER, Atom, Condition
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.problem import Problem
-from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Receive, Whole
+from conductor.graph.receive import Broadcast, Gather, PerRow, Receive, RowsUnder, Whole
 from conductor.graph.topology import dependencies_of
 from conductor.interface import FromRun, Interface, model_of
 from conductor.metadata import Input, Output, Param, Result
@@ -78,12 +78,10 @@ __all__ = [
     "Gather",
     "Graph",
     "GraphNode",
-    "Group",
     "Index",
     "Input",
     "InputNotOffered",
     "Interface",
-    "Iterate",
     "NodeDefinition",
     "NodeDescription",
     "NodeError",
@@ -97,6 +95,7 @@ __all__ = [
     "NodeResolutionError",
     "Output",
     "Param",
+    "PerRow",
     "Policy",
     "Problem",
     "Receive",
@@ -104,6 +103,7 @@ __all__ = [
     "Refuses",
     "RegistryDescription",
     "Result",
+    "RowsUnder",
     "RunState",
     "Series",
     "Single",

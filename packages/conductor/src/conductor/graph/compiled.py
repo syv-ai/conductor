@@ -34,11 +34,11 @@ A series is a value with many rows, and an index names where those rows
 come from: ten uploaded documents are a series of ten rows on the index
 of the node that uploaded them. A scalar input is an input that takes one
 value. A node that receives a series on a scalar input runs once per row
-of the series; we say the node iterates on that index.
+of the series; we say the node runs per row of that index.
 
 Some nodes have a version that is itself a graph, which the host compiled
 on its own; that graph is an embedded graph, and the node is a ``graph``
-(its ``kind``). Compile places the embedded graph's nodes in place of that
+(its ``kind``). Compile embeds the graph's nodes in place of that
 node (``conductor.graph.embedding``), so the graph the author drew (the
 authored graph) differs from the graph that runs. In the authored graph the
 embedded graph is one node, ``approve``; in the graph that runs its inner
@@ -116,12 +116,12 @@ class CompiledGraph:
     graph: Graph
     #: Everything wrong with the graph, fatal or not, each on the node and
     #: field it is about, all on nodes of the authored graph. An embedded
-    #: graph that cannot be placed is one ``embedded_graph_broken`` on the
-    #: node that places it; its own problems are on it (``node(id).version.problems``).
+    #: graph that cannot be embedded is one ``embedded_graph_broken`` on the
+    #: graph node; its own problems are on it (``node(id).version.problems``).
     problems: tuple[Problem, ...]
     #: The finished compile, whose last step builds ``node`` and ``field``'s
-    #: values on the first question. A graph that places this
-    #: one reads its records from here and lifts them (``embedding``);
+    #: values on the first question. A graph that embeds this
+    #: one reads its records from here and embeds them (``embedding``);
     #: nothing else does.
     _compilation: Compilation = field(repr=False)
 
@@ -161,8 +161,8 @@ class CompiledGraph:
     @cached_property
     def _index_owners(self) -> Mapping[str, CompiledNode | CompiledField]:
         """Who owns each index's share of the read plan, by index id: a node,
-        for the index named after it, or the input whose typed-in list
-        creates one. The ledger's way back from an index to its owner, read
+        for the index named after it, or the input whose list set on the
+        node makes one. The ledger's way back from an index to its owner, read
         on its first question; compile names the index, so nobody parses
         the id to find which of the two it is."""
         owners: dict[str, CompiledNode | CompiledField] = {}
@@ -179,7 +179,7 @@ class CompiledGraph:
         """Look up one compiled node by its id: its path inside an embedded graph (``approve/check``).
 
         Every node compile saw has an entry, broken or not: each node in the
-        graph and each node inside an embedded graph placed in it. An id the
+        graph and each node inside a graph embedded in it. An id the
         graph does not have raises ``KeyError``."""
         if node_id not in self._nodes:
             raise KeyError(f"{node_id!r} is not a node of this graph")
@@ -232,8 +232,8 @@ class CompiledGraph:
         """This graph compiled again with ``values`` typed on the inputs they
         name and the values its author typed on the ``cleared`` inputs taken
         off, so they arrive at run time. ``with_inputs`` for a caller; a
-        graph that places this one asks for the copy one placement fills
-        (``Compilation._as_placed``). Names are read as ``with_inputs`` reads them."""
+        graph that embeds this one asks for the copy one graph node fills
+        (``Compilation._as_embedded``). Names are read as ``with_inputs`` reads them."""
         offered = [inp.name for inp in self.interface.inputs]
         filled: dict[str, dict[str, Static]] = {}
         for name, value in values.items():
@@ -267,9 +267,9 @@ class CompiledGraph:
     # -- the run ------------------------------------------------------------------
 
     def __repr__(self) -> str:
-        """One line: the nodes the author placed, whether it runs, how many problems."""
-        placed = tuple(node.id for node in self.graph.nodes)
-        return f"CompiledGraph(nodes={placed!r}, is_runnable={self.is_runnable}, problems={len(self.problems)})"
+        """One line: the nodes the author drew, whether it runs, how many problems."""
+        drawn = tuple(node.id for node in self.graph.nodes)
+        return f"CompiledGraph(nodes={drawn!r}, is_runnable={self.is_runnable}, problems={len(self.problems)})"
 
     @property
     def execution_order(self) -> tuple[str, ...]:
@@ -289,7 +289,7 @@ class CompiledGraph:
         found: dict[str, dict[str, tuple[str, ...]]] = {}
         for node_id in self._order:
             node = self._nodes[node_id]
-            if node.state != "ready" or node.iterates_on is not None:
+            if node.state != "ready" or node.runs_per_row_of is not None:
                 continue
             groups: dict[str, list[str]] = {}
             for out in node.interface.outputs:

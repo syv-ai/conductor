@@ -87,7 +87,7 @@ def test_a_static_sequence_on_a_scalar_input_makes_the_node_iterate():
         GraphNode(id="j", type="joinall", version=1, bindings={"texts": From("u.result")}),
     ]), _registry())
     assert compiled.is_runnable, compiled.problems
-    assert compiled.node("u").iterates_on == Index("u.text")
+    assert compiled.node("u").runs_per_row_of == Index("u.text")
     assert compiled.field(Ref("u", "text")).type is Series[Txt]
     assert compiled.field(Ref("u", "result")).index == Index("u.text")
     results = run_sync(compiled).state.results(compiled)
@@ -108,5 +108,5 @@ def test_an_empty_static_sequence_is_an_empty_series():
 
 def test_a_static_string_is_one_value_not_a_sequence():
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="u", type="upper", version=1, bindings={"text": Static(Txt("abc"))})]), _registry())
-    assert compiled.node("u").iterates_on is None
+    assert compiled.node("u").runs_per_row_of is None
     assert run_sync(compiled).state.results(compiled)["u"]["result"] == "ABC"

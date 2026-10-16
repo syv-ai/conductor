@@ -1,18 +1,4 @@
 {
- "born_inside_exposed": {
-  "after": {
-   "result": "Series(Index('docs'), ['a', 'b'])"
-  },
-  "docs": {
-   "result": "Series(Index('docs'), ['a', 'b'])"
-  },
-  "emb/holder": {
-   "result": "Series(Index('docs'), ['a', 'b'])"
-  },
-  "emb/lines": {
-   "result": "Series(Index('emb/lines', parent=Index('docs')), ['a', 'b'], rows=[(0, 0), (1, 0)])"
-  }
- },
  "cond_nested_per_row": {
   "after": {
    "result": "'A'"
@@ -94,7 +80,7 @@
    "result": "Series(Index('docs'), ['A', 'B'])"
   }
  },
- "gathered_into_the_placed_node": {
+ "gathered_into_the_graph_node": {
   "after": {
    "result": "'A+B'"
   },
@@ -108,7 +94,7 @@
    "result": "'b'"
   }
  },
- "many_values_on_the_placed_node": {
+ "many_values_on_the_graph_node": {
   "after": {
    "result": "'A+B'"
   },
@@ -186,6 +172,20 @@
   },
   "emb/u": {
    "result": "'INSIDE'"
+  }
+ },
+ "rows_made_inside_exposed": {
+  "after": {
+   "result": "Series(Index('docs'), ['a', 'b'])"
+  },
+  "docs": {
+   "result": "Series(Index('docs'), ['a', 'b'])"
+  },
+  "emb/holder": {
+   "result": "Series(Index('docs'), ['a', 'b'])"
+  },
+  "emb/lines": {
+   "result": "Series(Index('emb/lines', parent=Index('docs')), ['a', 'b'], rows=[(0, 0), (1, 0)])"
   }
  },
  "value_and_edge_per_row": {

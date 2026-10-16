@@ -4,8 +4,8 @@ The engine runs a graph as units. A unit is one node on one row. A node
 that runs once is a single unit on the empty row ``()``; a node fed a series on
 a scalar input runs once per row of that series' index, one unit per row.
 A row is a path, ``(i,)`` on a root index and ``(i, j)`` for the j-th row
-born under ``(i,)``, so a unit deep in the tree finds its row on an
-ancestor index by taking a prefix. Rows are born when the unit producing
+made under ``(i,)``, so a unit deep in the tree finds its row on an
+ancestor index by taking a prefix. Rows are made when the unit producing
 the series writes it; until then nobody knows how many there will be.
 
 The ledger keeps everything a run has written, one value per field and
@@ -23,14 +23,14 @@ when it goes quiet, where a ready unit nobody started is a bug.
 
 How a unit receives each input, and who reads what, are compile's
 decisions, read here: a node's ``_reads``, an output's ``_read_by``, and
-per index who runs on it and what sits on it (``CompiledNode._births`` and
-its kin). A node's ``_iterates_on`` and ``_interface`` are read the same
-way, past the check ``iterates_on`` and ``interface`` make for other
+per index who runs on it and what sits on it (``CompiledNode._makes_rows``
+and its kin). A node's ``_runs_per_row_of`` and ``_interface`` are read the
+same way, past the check ``runs_per_row_of`` and ``interface`` make for other
 callers: the engine runs only a graph whose every node is ready. Every
 input carries a receive record (``CompiledField.receives``, from
-``conductor.graph.receive``). ``Iterate`` takes the value at the unit's own
+``conductor.graph.receive``). ``PerRow`` takes the value at the unit's own
 row, ``Broadcast`` the one value there is, ``Whole`` everything on the
-field, ``Group`` the rows under the unit's row cut to a depth, and
+field, ``RowsUnder`` the rows under the unit's row cut to a depth, and
 ``Gather`` unrelated sources collected onto the input's own index. The
 ledger switches on the record to say when a unit is ready and what to
 hand it, and derives none of this from types or indexes itself.
@@ -39,7 +39,7 @@ A skip has a depth. ``SKIPPED`` written at row ``k`` means the field
 holds nothing at ``k`` and at every row under it. A unit that returns
 ``SKIPPED`` writes it at its own row. A reader looks for a skip at its
 own row and at every shorter prefix, and re-emits it at the depth it
-found it. A unit whose every series output is skipped births no rows, so
+found it. A unit whose every series output is skipped makes no rows, so
 a node that would run per row of that index runs once at the shorter row
 instead. That is how a skip keeps its reach down a chain.
 
@@ -68,14 +68,14 @@ from conductor.execution.events import PendingUnit
 from conductor.execution.state import DoneUnit, RunState, StateSkip, StateValue
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.compiled_node import CompiledField, CompiledNode
-from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Receive, Whole
+from conductor.graph.receive import Broadcast, Gather, PerRow, Receive, RowsUnder, Whole
 from conductor.metadata import Input
 from conductor.ref import Ref
 from conductor.series import Index, Row, Series
 
 #: One run of one node: the node id and the row it runs on — ``()`` for
 #: a node that runs once; a row shorter than the node's index for the one
-#: unit standing in for rows a skip above them never let be born.
+#: unit standing in for rows a skip above them never let be made.
 Unit = tuple[str, Row]
 
 _MISSING = object()
@@ -110,14 +110,14 @@ def _prefixes(key: Row) -> Iterator[Row]:
         yield key[:n]
 
 
-def _depth_of(received: Receive) -> int:
-    """The depth of the group a reader receives: a ``Group``'s, else ``0`` (everything on the field)."""
-    return received.depth if isinstance(received, Group) else 0
+def _rows_under_depth(received: Receive) -> int:
+    """The depth of the rows a reader receives: a ``RowsUnder``'s, else ``0`` (everything on the field)."""
+    return received.depth if isinstance(received, RowsUnder) else 0
 
 
 def _per_row(received: Receive) -> bool:
     """A reader that takes one value at its row, not a group or the whole field."""
-    return isinstance(received, (Iterate, Broadcast))
+    return isinstance(received, (PerRow, Broadcast))
 
 
 #: The ledger each ``RunState`` it wrote came from, and how many units it had
@@ -161,7 +161,7 @@ class Ledger:
         self._skipped_on: set[Ref] = set()
         self._rows: dict[str, set[Row]] = {}
         #: Per index, its rows under each shorter row, in the order they were
-        #: born; ``()`` holds them all. Finds the rows under a row without
+        #: made; ``()`` holds them all. Finds the rows under a row without
         #: reading the whole index.
         self._rows_by_prefix: dict[str, dict[Row, list[Row]]] = {}
         self._sealed: set[str] = set()
@@ -180,15 +180,15 @@ class Ledger:
         self._pending: dict[Unit, tuple[str | None, tuple[Input, ...]]] = {}
         #: Per group a series is read by — a field and the row it is read
         #: under — its rows in order and how many from the first are written.
-        #: Kept once every row of the group is born, so no row is read twice.
+        #: Kept once every row of the group is made, so no row is read twice.
         self._written_rows: dict[tuple[Ref, Row], tuple[list[Row], int]] = {}
 
         # Who reads what, and what runs on each index, is compile's read plan
-        # (``CompiledNode._births``, ``CompiledField._read_by`` and their
+        # (``CompiledNode._makes_rows``, ``CompiledField._read_by`` and their
         # kin), looked up where a write needs it. Built here: each node's place
-        # in the execution order, and the rows of every list the author typed
-        # on a root, born from the graph as it is now so a restore never takes
-        # them from a stored state.
+        # in the execution order, and the rows of every list set on a node
+        # whose own index is a root, made from the graph as it is now so a
+        # restore never takes them from a stored state.
         order = compiled.execution_order
         self._position = {node_id: n for n, node_id in enumerate(order)}
         roots: list[str] = []
@@ -199,27 +199,28 @@ class Ledger:
                 if not typed.listed or typed.index.parent is not None:
                     continue
                 for n in range(len(node.statics[inp.name])):
-                    self._born(typed.index.id, (n,))
+                    self._made(typed.index.id, (n,))
                 self._sealed.add(typed.index.id)
                 roots.append(typed.index.id)
-        self._birth_typed_roots(roots)
+        self._make_root_list_rows(roots)
 
-    def _birth_typed_roots(self, roots: list[str]) -> None:
-        """Under every row of a typed-in list on a root, birth the typed-in
-        lists whose index is its child, and seal them. Then seal the index of
-        every node that births rows per row of a list complete from the start."""
+    def _make_root_list_rows(self, roots: list[str]) -> None:
+        """Under every row of a list whose own index is a root, make the rows
+        of every list whose index is its child, and seal them. Then seal the
+        index of every node that makes rows per row of a list complete from
+        the start."""
         for index_id in roots:
             for row in sorted(self._rows.get(index_id, ())):
-                self._born_typed(index_id, row)
-            self._seal_typed(index_id, [])
-        self._seal([node_id for index_id in roots for node_id in self._births_on(index_id)])
+                self._made_lists(index_id, row)
+            self._seal_listed(index_id, [])
+        self._seal([node_id for index_id in roots for node_id in self._making_rows_on(index_id)])
 
     # -- the read plan, as compile stored it -----------------------------------
 
     def _owner(self, index_id: str) -> CompiledNode | CompiledField:
         """What carries an index's read plan: the node whose series outputs
-        birth its rows (``Index(node_id)``), or the input whose typed-in list
-        does (``Index(ref)``), as compile recorded it (``CompiledGraph._index_owners``)."""
+        make its rows (``Index(node_id)``), or the input whose list set on the
+        node does (``Index(ref)``), as compile recorded it (``CompiledGraph._index_owners``)."""
         return self._compiled._index_owners[index_id]
 
     def _downstream(self, node_ids: Iterable[str]) -> frozenset[str]:
@@ -242,10 +243,10 @@ class Ledger:
                         frontier.append(reader.node_id)
         return frozenset(found)
 
-    def _births_on(self, index_id: str) -> list[str]:
-        """The nodes running once per row of this index that birth rows of their own."""
+    def _making_rows_on(self, index_id: str) -> list[str]:
+        """The nodes running once per row of this index that make rows of their own."""
         compiled = self._compiled
-        return [node_id for node_id in self._owner(index_id)._iterated_by if compiled.node(node_id)._births is not None]
+        return [node_id for node_id in self._owner(index_id)._run_per_row_by if compiled.node(node_id)._makes_rows is not None]
 
     def _grouped_on(self, index_id: str) -> Iterator[tuple[str, Ref, int]]:
         """``(reader node, output read, group depth)`` for every reader of a
@@ -254,43 +255,43 @@ class Ledger:
         for ref in self._owner(index_id)._carried_by:
             for inp, received in self._fields[ref]._read_by:
                 if not _per_row(received):
-                    yield inp.node_id, ref, _depth_of(received)
+                    yield inp.node_id, ref, _rows_under_depth(received)
 
     def _typed_list(self, index_id: str) -> bool:
-        """Is this the index of a list the author typed into an input? Its rows are born with its parent's."""
+        """Is this the index of a list set on an input? Its rows are made with its parent's."""
         owner = self._owner(index_id)
         return isinstance(owner, CompiledField) and owner.listed
 
     def _typed_under(self, index_id: str) -> Iterator[tuple[str, int]]:
-        """``(index, how many values)`` for each typed-in list born under every row of this index."""
+        """``(index, how many values)`` for each list set on a node, made under every row of this index."""
         compiled = self._compiled
-        for ref in self._owner(index_id)._typed_lists:
+        for ref in self._owner(index_id)._listed_inputs:
             yield self._fields[ref].index.id, len(compiled.node(ref.node_id).statics[ref.field])
 
     # -- units ---------------------------------------------------------------
 
     def units(self, node_id: str) -> list[Unit]:
         """This node's units right now: one, or — running per row of ``L`` —
-        one per row born on ``L``, plus one at each shorter row where ``L`` has no rows."""
-        iterate = self._compiled.node(node_id)._iterates_on
-        if iterate is None:
+        one per row made on ``L``, plus one at each shorter row where ``L`` has no rows."""
+        runs_per_row_of = self._compiled.node(node_id)._runs_per_row_of
+        if runs_per_row_of is None:
             return [(node_id, ())]
-        barren = sorted(self._no_rows_under.get(iterate.id, ()))
-        rows = sorted(self._rows.get(iterate.id, ()))
-        return [(node_id, row) for row in (*barren, *rows)]
+        no_rows_under = sorted(self._no_rows_under.get(runs_per_row_of.id, ()))
+        rows = sorted(self._rows.get(runs_per_row_of.id, ()))
+        return [(node_id, row) for row in (*no_rows_under, *rows)]
 
     def is_done(self, unit: Unit) -> bool:
         return unit in self._done
 
     def complete(self, node_id: str) -> bool:
         """Every unit this node will ever have is done."""
-        iterate = self._compiled.node(node_id)._iterates_on
-        if iterate is None:
+        runs_per_row_of = self._compiled.node(node_id)._runs_per_row_of
+        if runs_per_row_of is None:
             return (node_id, ()) in self._done
         return (
-            iterate.id in self._sealed
-            and self._done_rows.get(node_id, 0) == len(self._rows.get(iterate.id, ()))
-            and self._done_standing_in.get(node_id, 0) == len(self._no_rows_under.get(iterate.id, ()))
+            runs_per_row_of.id in self._sealed
+            and self._done_rows.get(node_id, 0) == len(self._rows.get(runs_per_row_of.id, ()))
+            and self._done_standing_in.get(node_id, 0) == len(self._no_rows_under.get(runs_per_row_of.id, ()))
         )
 
     def completed_nodes(self) -> set[str]:
@@ -305,39 +306,39 @@ class Ledger:
     def on_a_row(self, unit: Unit) -> bool:
         """Whether this unit is at a row of its node's index: one ``progress``
         counts. A unit of a node that runs once, or one standing in at a
-        shorter row for rows never born, is not."""
+        shorter row for rows never made, is not."""
         node_id, row = unit
-        iterate = self._compiled.node(node_id)._iterates_on
-        return iterate is not None and len(row) == iterate.depth
+        runs_per_row_of = self._compiled.node(node_id)._runs_per_row_of
+        return runs_per_row_of is not None and len(row) == runs_per_row_of.depth
 
     def progress(self, node_id: str) -> tuple[int, int | None]:
         """``(done, total)`` rows for a node; ``total`` is ``None`` until the
         node's index is sealed. Cover units stand in for rows that were never
-        born, so they count in neither number."""
-        iterate = self._compiled.node(node_id)._iterates_on
-        if iterate is None:
+        made, so they count in neither number."""
+        runs_per_row_of = self._compiled.node(node_id)._runs_per_row_of
+        if runs_per_row_of is None:
             return int((node_id, ()) in self._done), 1
-        total = len(self._rows.get(iterate.id, ())) if iterate.id in self._sealed else None
+        total = len(self._rows.get(runs_per_row_of.id, ())) if runs_per_row_of.id in self._sealed else None
         return self._done_rows.get(node_id, 0), total
 
     def _units_under(self, node_id: str, row: Row) -> list[Unit]:
         """This node's units at ``row`` or beneath it, in no particular order —
         not counting a unit standing in at a shorter row, which is ready
         the moment it exists."""
-        iterate = self._compiled.node(node_id)._iterates_on
-        if iterate is None:
+        runs_per_row_of = self._compiled.node(node_id)._runs_per_row_of
+        if runs_per_row_of is None:
             return [(node_id, ())] if row == () else []
-        if row in self._rows.get(iterate.id, ()):
+        if row in self._rows.get(runs_per_row_of.id, ()):
             return [(node_id, row)]
-        return [(node_id, r) for r in self._rows_by_prefix.get(iterate.id, {}).get(row, ())]
+        return [(node_id, r) for r in self._rows_by_prefix.get(runs_per_row_of.id, {}).get(row, ())]
 
     # -- readiness -----------------------------------------------------------
 
     def ready(self, unit: Unit) -> bool:
         """Every value this unit needs exists, or its producer is done."""
         node_id, row = unit
-        iterate = self._compiled.node(node_id)._iterates_on
-        if iterate is not None and len(row) < iterate.depth:
+        runs_per_row_of = self._compiled.node(node_id)._runs_per_row_of
+        if runs_per_row_of is not None and len(row) < runs_per_row_of.depth:
             return True  # standing in at a shorter row: the skip above it is already known
         return all(self._read_ready(ref, received, row) for ref, received in self._compiled.node(node_id)._reads)
 
@@ -359,7 +360,7 @@ class Ledger:
         group under it. Whole or gathered: everything on the ref."""
         if _per_row(received):
             return self._present(ref, self._key(ref, row))
-        return self._written(ref, row[: _depth_of(received)])
+        return self._written(ref, row[: _rows_under_depth(received)])
 
     def _present(self, ref: Ref, key: Row) -> bool:
         return self._lookup(ref, key)[0] is not _MISSING
@@ -377,23 +378,23 @@ class Ledger:
 
     def _all_written(self, ref: Ref, index: Index, parent_row: Row) -> bool:
         """Is every value of ``ref`` under ``parent_row`` written? True when the
-        field is skipped there, or every row under it is born and produced."""
+        field is skipped there, or every row under it is made and produced."""
         if is_skipped(self._lookup(ref, parent_row)[0]):
             return True
-        barren = self._no_rows_under.get(index.id, ())
-        if any(prefix in barren for prefix in _prefixes(parent_row)):
+        no_rows_under = self._no_rows_under.get(index.id, ())
+        if any(prefix in no_rows_under for prefix in _prefixes(parent_row)):
             return False  # the unit standing in at that shorter row has not run yet
         if parent_row == ():
-            born = index.id in self._sealed
+            made = index.id in self._sealed
         elif len(parent_row) == index.depth:
-            born = parent_row in self._rows.get(index.id, ())  # the group is the row itself, so it exists once that row is born
+            made = parent_row in self._rows.get(index.id, ())  # the group is the row itself, so it exists once that row is made
         elif index.parent is not None and self._typed_list(index.id):
-            born = parent_row in self._rows.get(index.parent.id, ())  # a typed-in list's rows are born with the parent row
+            made = parent_row in self._rows.get(index.parent.id, ())  # a list set on a node has its rows made with the parent row
         else:
-            born = (index.id, parent_row) in self._done
-        if not born:
+            made = (index.id, parent_row) in self._done
+        if not made:
             return False
-        # A born group's rows are final, so how many are written from the
+        # A made group's rows are final, so how many are written from the
         # first is kept, and a row once found written is not read again.
         group = (ref, parent_row)
         if group not in self._written_rows:
@@ -417,8 +418,8 @@ class Ledger:
         """
         node_id, row = unit
         node = self._compiled.node(node_id)
-        iterate = node._iterates_on
-        if iterate is not None and len(row) < iterate.depth:
+        runs_per_row_of = node._runs_per_row_of
+        if runs_per_row_of is not None and len(row) < runs_per_row_of.depth:
             return Skip(at=row)
         values: dict[str, Any] = {}
         statics = node._statics
@@ -433,7 +434,7 @@ class Ledger:
             if inp.name in statics:
                 values[inp.name] = self._typed(received, statics[inp.name], own, row)
                 continue
-            if isinstance(received, (Iterate, Broadcast)):
+            if isinstance(received, (PerRow, Broadcast)):
                 covering, skips = self._covering(node_id, binding.refs, row)
                 if not covering:
                     return Skip(at=max(skips, key=len))
@@ -451,7 +452,7 @@ class Ledger:
                         gathered.extend(self._series(node_id, (ref,), index, self._rows_under(index.id, ())).values)
                 values[inp.name] = Series(received.index, gathered)
             else:
-                group = row[: _depth_of(received)]
+                group = row[: _rows_under_depth(received)]
                 found = [self._lookup(ref, group) for ref in binding.refs]
                 if all(is_skipped(value) for value, _ in found):
                     return Skip(at=max((at for _, at in found), key=len))
@@ -494,13 +495,14 @@ class Ledger:
     def _typed(self, received: Receive, value: Any, own: Ref, row: Row = ()) -> Any:
         """A value the author typed (or the declared default) as the unit receives it.
 
-        Received whole, it is a series on the input's own index; iterated
-        on an index of the input's own, it is many typed-in values and the
-        unit takes the one at its row; broadcast, it is the one value.
+        Received whole, it is a series on the input's own index; received
+        per row of an index of the input's own, it is a list set on the node
+        and the unit takes the value at its row; broadcast, it is the one
+        value.
         """
         if isinstance(received, Whole):
             return Series(self._fields[own].index, value.values if isinstance(value, Series) else list(value))
-        if isinstance(received, Iterate):
+        if isinstance(received, PerRow):
             return list(value)[row[received.index.depth - 1]]
         return value
 
@@ -540,14 +542,14 @@ class Ledger:
         did not run, and return the units that are ready because of it.
 
         A scalar output is one value at the unit's row; so is ``SKIPPED`` on
-        any output. A series output births rows under the unit's row —
+        any output. A series output makes rows under the unit's row —
         ``(j,)`` for a node that ran once, ``row + (j,)`` for one running
-        per row — and every series output of one unit must birth the same
+        per row — and every series output of one unit must make the same
         number of rows, since they are columns of one table. A unit that
         skips every series output leaves its index with no rows under that row.
 
         A node returns plain sequences for series outputs, never an index:
-        the node does not know where it was placed, so the ledger, not the
+        the node does not know where it sits in the graph, so the ledger, not the
         node, says which index a series lives on.
 
         The units returned are the ones this write could have made ready and
@@ -556,17 +558,17 @@ class Ledger:
         """
         node_id, row = unit
         interface = self._compiled.node(node_id)._interface
-        births = self._compiled.node(node_id)._births is not None
+        makes_rows = self._compiled.node(node_id)._makes_rows is not None
         written: list[tuple[Ref, Row]] = []
-        born: list[Row] = []
-        barren: list[Row] = []
-        if births:
+        made: list[Row] = []
+        no_rows_under: list[Row] = []
+        if makes_rows:
             self._rows.setdefault(node_id, set())
         if isinstance(outputs, Skip):
             for out in interface.outputs:
                 self._write(Ref(node_id, out.name), outputs.at, SKIPPED, written)
-            if births:
-                barren.append(outputs.at)
+            if makes_rows:
+                no_rows_under.append(outputs.at)
         else:
             # Every output is checked before any value is written, so the
             # ledger holds all of a unit's outputs or none of them.
@@ -593,18 +595,18 @@ class Ledger:
             for ref, values in series.items():
                 for j, item in enumerate(values):
                     key = (*row, j)
-                    if self._born(node_id, key):
-                        born.append(key)
+                    if self._made(node_id, key):
+                        made.append(key)
                     self._write(ref, key, item, written)
-            if births and length is None:
-                barren.append(row)
-        typed = [child for key in born for child in self._born_typed(node_id, key)]
-        for at in barren:
+            if makes_rows and length is None:
+                no_rows_under.append(row)
+        typed = [child for key in made for child in self._made_lists(node_id, key)]
+        for at in no_rows_under:
             self._no_rows_under.setdefault(node_id, set()).add(at)
-            typed.extend(self._barren_typed(node_id, at))
+            typed.extend(self._no_rows_under_lists(node_id, at))
         self._finish(unit)
-        sealed = self._seal([node_id] if births else [])
-        return self._woken(unit, written, born, barren, sealed, typed)
+        sealed = self._seal([node_id] if makes_rows else [])
+        return self._woken(unit, written, made, no_rows_under, sealed, typed)
 
     def _write(self, ref: Ref, key: Row, value: Any, written: list[tuple[Ref, Row]]) -> None:
         """Put ``value`` at ``(ref, key)``, noting the address in ``written`` when nothing was there."""
@@ -615,8 +617,8 @@ class Ledger:
         if value is SKIPPED:
             self._skipped_on.add(ref)
 
-    def _born(self, index_id: str, row: Row) -> bool:
-        """Birth ``row`` on the index; ``False`` when it already was."""
+    def _made(self, index_id: str, row: Row) -> bool:
+        """Make ``row`` on the index; ``False`` when it already was made."""
         rows = self._rows.setdefault(index_id, set())
         if row in rows:
             return False
@@ -626,41 +628,41 @@ class Ledger:
             by_prefix.setdefault(prefix, []).append(row)
         return True
 
-    def _born_typed(self, index_id: str, row: Row) -> list[tuple[str, Row]]:
-        """Birth, under a row just born on ``index_id``, the rows of every
-        typed-in list whose index is its child, and theirs in turn; returns
-        each ``(index, row)`` born."""
-        born: list[tuple[str, Row]] = []
+    def _made_lists(self, index_id: str, row: Row) -> list[tuple[str, Row]]:
+        """Make, under a row just made on ``index_id``, the rows of every
+        list set on a node whose index is its child, and theirs in turn;
+        returns each ``(index, row)`` made."""
+        made: list[tuple[str, Row]] = []
         for child, count in self._typed_under(index_id):
             for n in range(count):
-                if self._born(child, (*row, n)):
-                    born.append((child, (*row, n)))
-                    born.extend(self._born_typed(child, (*row, n)))
-        return born
+                if self._made(child, (*row, n)):
+                    made.append((child, (*row, n)))
+                    made.extend(self._made_lists(child, (*row, n)))
+        return made
 
-    def _barren_typed(self, index_id: str, at: Row) -> list[tuple[str, Row]]:
-        """Where ``index_id`` has no rows under ``at``, neither has a typed-in
-        list beneath it; returns each ``(index, row)`` marked."""
+    def _no_rows_under_lists(self, index_id: str, at: Row) -> list[tuple[str, Row]]:
+        """Where ``index_id`` has no rows under ``at``, neither has a list set
+        on a node beneath it; returns each ``(index, row)`` marked."""
         marked: list[tuple[str, Row]] = []
         for child, _ in self._typed_under(index_id):
             self._no_rows_under.setdefault(child, set()).add(at)
             marked.append((child, at))
-            marked.extend(self._barren_typed(child, at))
+            marked.extend(self._no_rows_under_lists(child, at))
         return marked
 
-    def _seal_typed(self, index_id: str, sealed: list[str]) -> list[str]:
-        """Seal the typed-in lists beneath a sealed index: every parent row
-        is born, so every row under them is. Returns the nodes that birth on
-        the indexes sealed, for ``_seal`` to try next."""
-        births: list[str] = []
+    def _seal_listed(self, index_id: str, sealed: list[str]) -> list[str]:
+        """Seal the lists set on nodes beneath a sealed index: every parent
+        row is made, so every row under them is. Returns the nodes that make
+        rows on the indexes sealed, for ``_seal`` to try next."""
+        makes_rows: list[str] = []
         for child, _ in self._typed_under(index_id):
             if child in self._sealed:
                 continue
             self._sealed.add(child)
             sealed.append(child)
-            births.extend(self._births_on(child))
-            births.extend(self._seal_typed(child, sealed))
-        return births
+            makes_rows.extend(self._making_rows_on(child))
+            makes_rows.extend(self._seal_listed(child, sealed))
+        return makes_rows
 
     def _finish(self, unit: Unit) -> None:
         """Mark the unit done, and count it toward its node's rows."""
@@ -668,65 +670,65 @@ class Ledger:
             return
         self._done.add(unit)
         node_id, _ = unit
-        if self._compiled.node(node_id)._iterates_on is not None:
+        if self._compiled.node(node_id)._runs_per_row_of is not None:
             counts = self._done_rows if self.on_a_row(unit) else self._done_standing_in
             counts[node_id] = counts.get(node_id, 0) + 1
 
-    def _seal(self, births: list[str]) -> list[str]:
-        """Seal the index of each of these nodes whose rows are all born, and
-        of every node that iterates on an index sealed that way, since a
+    def _seal(self, makes_rows: list[str]) -> list[str]:
+        """Seal the index of each of these nodes whose rows are all made, and
+        of every node that runs per row of an index sealed that way, since a
         child index can only be sealed once its parent is. Returns the
         indexes sealed."""
         sealed: list[str] = []
-        while births:
-            node_id = births.pop()
+        while makes_rows:
+            node_id = makes_rows.pop()
             if node_id in self._sealed or not self.complete(node_id):
                 continue
             self._sealed.add(node_id)
             sealed.append(node_id)
-            births.extend(self._births_on(node_id))
-            births.extend(self._seal_typed(node_id, sealed))
+            makes_rows.extend(self._making_rows_on(node_id))
+            makes_rows.extend(self._seal_listed(node_id, sealed))
         return sealed
 
     def _woken(
         self,
         unit: Unit,
         written: list[tuple[Ref, Row]],
-        born: list[Row],
-        barren: list[Row],
+        made: list[Row],
+        no_rows_under: list[Row],
         sealed: list[str],
         typed: list[tuple[str, Row]],
     ) -> list[Unit]:
         """The units ``unit``'s record could have made ready, that are ready.
 
-        A unit's readiness reads values of its inputs, the rows born on the
+        A unit's readiness reads values of its inputs, the rows made on the
         indexes those values and the unit itself sit on, and which of those
         indexes are sealed. So the candidates are: a scalar reader of a
         written value, at its row and under it; a series reader whose group
         the write completed, or everything under a skip above that group;
-        the units a birth or an empty row creates, on this node's index or on
-        a typed-in list beneath it; a series reader of this node's index whose
-        group is born now that this unit is done or the index is sealed.
+        the units new rows or an empty row create, on this node's index or on
+        a list set on a node beneath it; a series reader of this node's index
+        whose group is made now that this unit is done or the index is sealed.
         """
         node_id, row = unit
         compiled = self._compiled
         woken: set[Unit] = set()
         for ref, key in written:
             for inp, received in self._fields[ref]._read_by:
-                depth = _depth_of(received)
+                depth = _rows_under_depth(received)
                 if _per_row(received) or len(key) < depth:
                     woken.update(self._units_under(inp.node_id, key))
                 else:
                     self._wake_group(ref, inp.node_id, key[:depth], woken)
-        iterating = compiled.node(node_id)._iterated_by
-        for key in born:
+        iterating = compiled.node(node_id)._run_per_row_by
+        for key in made:
             woken.update((reader, key) for reader in iterating)
-        for at in barren:
+        for at in no_rows_under:
             woken.update((reader, at) for reader in iterating)
         for index_id, key in typed:
-            woken.update((reader, key) for reader in self._owner(index_id)._iterated_by)
+            woken.update((reader, key) for reader in self._owner(index_id)._run_per_row_by)
         for reader, ref, depth in self._grouped_on(node_id):
-            for key in born:
+            for key in made:
                 if depth == len(key):
                     self._wake_group(ref, reader, key, woken)
             if 0 < depth == len(row):  # a whole read (depth 0) waits for the seal below
@@ -753,7 +755,7 @@ class Ledger:
         running per row, each output is a series on the node's index — a
         ``Series``, ``{"rows": [...], "values": [...]}`` as it came over
         the wire, or a plain list with one value per row still to answer
-        (born and not yet done), in row order — and only the rows it
+        (made and not yet done), in row order — and only the rows it
         names are recorded:
         answering row ``(1,)`` leaves rows ``(0,)`` and ``(2,)`` as they
         were, done or still to run; every output answers the same rows.
@@ -774,18 +776,18 @@ class Ledger:
         for name in declared:
             if name not in outputs:
                 raise StartRefused(f"'{node_id}' was given no value for its output '{name}'")
-        iterate = node._iterates_on
-        if iterate is None:
+        runs_per_row_of = node._runs_per_row_of
+        if runs_per_row_of is None:
             # The node's whole output at once: a series output is answered as the series.
             self._inject((node_id, ()), {
                 name: self._answer(node_id, name, value, self._fields[Ref(node_id, name)].type) for name, value in outputs.items()
             })
             return
-        born = self._rows.get(iterate.id, set())
-        open_rows = [row for row in sorted(born) if (node_id, row) not in self._done]
+        made = self._rows.get(runs_per_row_of.id, set())
+        open_rows = [row for row in sorted(made) if (node_id, row) not in self._done]
         by_output = {name: self._answered_rows(node_id, name, value, open_rows) for name, value in outputs.items()}
         for row in sorted({row for rows in by_output.values() for row in rows}):
-            if row not in born:
+            if row not in made:
                 raise StartRefused(f"'{node_id}' has no row {list(row)} to record: the run has not produced it")
             for name, answered in by_output.items():
                 if row not in answered:
@@ -960,10 +962,10 @@ class Ledger:
         left out together with everything that reads it
         (``_downstream``), so those units run again; the rest is restored, each value read back through the codec
         by its field's type. The rows are not stored: each done unit's values
-        birth them again, as its write did (``_rebirth``), and the indexes
-        whose producers are complete are sealed again. The rows of a typed-in
-        list come from the graph as it is now, which says how many values
-        the author typed, and a fresh ledger births them. A
+        make them again, as its write did (``_remake_rows``), and the indexes
+        whose producers are complete are sealed again. The rows of a list set
+        on a node come from the graph as it is now, which says how many values
+        the author set, and a fresh ledger makes them. A
         value or a done unit for a node the graph does not have is left out
         too. A value that does not read back as its field's type, a value
         or a done unit at a row its field or node cannot have (``[]``, or
@@ -1001,33 +1003,33 @@ class Ledger:
             ledger._values.setdefault(ref, {})[entry.row] = value
         done = [(unit.node_id, unit.row) for unit in state.done_units if unit.node_id not in dropped]
         for node_id, row in done:
-            if not _fits(row, compiled.node(node_id).iterates_on):
+            if not _fits(row, compiled.node(node_id).runs_per_row_of):
                 raise StartRefused(f"the state marks {node_id!r} done at row {list(row)}, which {node_id!r} has no place for")
-        ledger._rebirth(done)
+        ledger._remake_rows(done)
         for unit in done:
             ledger._finish(unit)
         ledger._seal([
             node_id for node_id in reversed(compiled.execution_order)
-            if compiled.node(node_id)._births is not None and node_id not in dropped
+            if compiled.node(node_id)._makes_rows is not None and node_id not in dropped
         ])
         return ledger
 
-    def _rebirth(self, done: list[Unit]) -> None:
-        """Birth again the rows the done units' writes birthed, and mark again
+    def _remake_rows(self, done: list[Unit]) -> None:
+        """Make again the rows the done units' writes made, and mark again
         where they left an index with no rows: what ``record`` did as each
         unit was written, read back off its values.
 
-        A unit of a node with a series output births the rows one level under
+        A unit of a node with a series output makes the rows one level under
         its own row that its series outputs hold values at. A unit that
-        birthed none and holds a skip on a series output at its row, or at a
+        made none and holds a skip on a series output at its row, or at a
         shorter row its skip reached from, left its index with no rows under
         that row. A unit whose series came back empty did neither. Rows are
-        born in order, and each row born births the typed-in lists under it,
-        as ``record`` does.
+        made in order, and each row made makes the rows of the lists set on
+        nodes under it, as ``record`` does.
         """
-        born: dict[str, set[Row]] = {}
+        made: dict[str, set[Row]] = {}
         for node_id, row in done:
-            if self._compiled.node(node_id)._births is None:
+            if self._compiled.node(node_id)._makes_rows is None:
                 continue
             self._rows.setdefault(node_id, set())
             series = [
@@ -1037,13 +1039,13 @@ class Ledger:
             ]
             children = {key for by_row in series for key in by_row if len(key) == len(row) + 1 and key[:-1] == row}
             if children:
-                born.setdefault(node_id, set()).update(children)
+                made.setdefault(node_id, set()).update(children)
                 continue
             at = next((key for key in _prefixes(row) for by_row in series if is_skipped(by_row.get(key))), None)
             if at is not None:
                 self._no_rows_under.setdefault(node_id, set()).add(at)
-                self._barren_typed(node_id, at)
+                self._no_rows_under_lists(node_id, at)
         for node_id in self._compiled.execution_order:
-            for key in sorted(born.get(node_id, ())):
-                self._born(node_id, key)
-                self._born_typed(node_id, key)
+            for key in sorted(made.get(node_id, ())):
+                self._made(node_id, key)
+                self._made_lists(node_id, key)

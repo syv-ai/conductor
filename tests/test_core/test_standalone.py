@@ -226,6 +226,6 @@ def test_an_iteration_and_a_reduction_run_on_the_standard_nodes_alone():
 
     results = run_sync(compiled).state.results(compiled)
 
-    assert compiled.node("upper").iterates_on is not None
+    assert compiled.node("upper").runs_per_row_of is not None
     assert list(results["upper"]["result"]) == ["A", "B", "C"]
     assert results["join"]["result"] == "A+B+C"

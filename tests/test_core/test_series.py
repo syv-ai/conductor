@@ -86,7 +86,7 @@ def test_a_root_index_has_no_parent():
 
 
 def test_an_index_is_its_identity_and_lineage():
-    """Compile names an index and the engine births rows on it
+    """Compile names an index and the engine makes rows on it
     — on the series, never on the index. One index, one object
     shape, compared by id."""
     docs = Index("docs")

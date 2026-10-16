@@ -60,8 +60,8 @@ def test_a_placement_id_contains_no_dot():
 
 
 def test_a_slash_is_the_namespace_separator():
-    """Compile puts an embedded graph's nodes under the name it is placed
-    as — `approve/check` — so `/` is legal in an id and a Ref still reads one way:
+    """Compile puts an embedded graph's nodes under the graph node's name
+    — `approve/check` — so `/` is legal in an id and a Ref still reads one way:
     the split is at the first dot, and there is none in the namespace."""
     inner = GraphNode(id="approve/check", type="upper", version=1)
 
@@ -222,7 +222,7 @@ def _registry():
 
 
 def _resolved(graph, registry=None):
-    """What the compiler hands `derive_interface`: each placement's
+    """What the compiler hands `derive_interface`: each node's
     computed interface, and the version its pin resolved to. Here it
     is the declaration read through the pin — none of these nodes shapes
     itself."""
@@ -301,7 +301,7 @@ def test_a_graph_level_name_is_the_address_a_ref_spells():
     assert interface.outputs[1].name == Ref("summary", "result")
 
 
-def test_needs_is_the_union_of_the_placements_needs():
+def test_needs_is_the_union_of_the_nodes_needs():
     """What a run must provide to the graph is what its nodes need, by name."""
     graph = Graph(nodes=[
         GraphNode(id="a", type="stamped", version=1),
@@ -312,8 +312,8 @@ def test_needs_is_the_union_of_the_placements_needs():
     assert _interface(graph).needs == {"clock": Clock}
 
 
-def test_a_field_reports_the_title_its_placement_carries():
-    """The placement's title is the title. Nothing else changes: the
+def test_a_field_reports_the_title_its_node_carries():
+    """The node's title is the title. Nothing else changes: the
     declaration comes through whole, under its address."""
     interface = _interface(_graph())
 
@@ -332,7 +332,7 @@ def test_an_output_reports_the_title_its_placement_carries():
 
 def test_a_nodes_computed_interface_is_the_same_record_its_version_declares():
     """One record at every scale: a version declares an ``Interface``, compile
-    computes one per placed node, and derives one for the graph."""
+    computes one per node in the graph, and derives one for the graph."""
     from conductor.interface import Interface
 
     interfaces, _ = _resolved(_graph())
@@ -348,7 +348,7 @@ def test_nodes_order_decides_the_order():
 
 def test_an_edge_into_any_field_makes_the_whole_node_static():
     """The rule is node-level: one edge in, and every other field of the
-    placement is author config — not offered, not fillable."""
+    node is author config — not offered, not fillable."""
     graph = _graph(language_bindings={"value": From("application.result")})
 
     assert [i.name for i in _interface(graph).inputs] == ["application.value"]
@@ -407,8 +407,8 @@ def test_a_locked_name_the_node_does_not_declare_is_a_problem():
     assert [i.name for i in _interface(graph).inputs] == ["application.value", "language.value"]
 
 
-def test_a_stale_lock_reports_on_a_connected_placement_too():
-    """A dormant lock stays out of the derivation — a connected placement
+def test_a_stale_lock_reports_on_a_connected_node_too():
+    """A dormant lock stays out of the derivation — a connected node
     contributes no inputs — but a stale one is repairable wherever it
     sits, so it reports there as it would anywhere."""
     graph = _graph(language_bindings={"value": From("application.result")})
@@ -424,7 +424,7 @@ def test_a_stale_lock_reports_on_a_connected_placement_too():
 def test_a_column_a_node_computed_is_derivable():
     """The interface is what the node answers, and a column on no
     declaration is as real a field of the surface as one it declared."""
-    # `GraphNode.fields` is a `Mapping`, so the placement is *built* with the
+    # `GraphNode.fields` is a `Mapping`, so the node is *built* with the
     # authored entry.
     graph = _graph()
     graph = Graph(nodes=[
@@ -443,8 +443,8 @@ def test_a_column_a_node_computed_is_derivable():
     assert [o.name for o in interface.outputs] == ["language.result", "summary.result", "summary.name"]
 
 
-def test_a_field_on_a_placement_compile_could_not_resolve_contributes_nothing():
-    """The placement carries its own fatal problem; a second one
+def test_a_field_on_a_node_compile_could_not_resolve_contributes_nothing():
+    """The node carries its own fatal problem; a second one
     on the field would anchor the same fact twice. A pin that resolved to
     nothing is in neither map."""
     graph = _graph()

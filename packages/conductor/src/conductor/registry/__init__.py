@@ -5,7 +5,7 @@ acts. A registry is the second: ``register(cls)`` files the class under
 its ``id`` and checks the rules that only make sense for a catalogue —
 versions numbered from 1 with no holes, a deprecated current version
 pointing somewhere, an alternative that exists. Compile resolves each
-placement against it once; the engine then runs what compile resolved.
+node in a graph against it once; the engine then runs what compile resolved.
 
 The registry also owns the **vocabulary**: which value types exist. A
 registry's types are the ones its nodes declare on their inputs and
