@@ -47,6 +47,7 @@ class Flag(DType, int):
 
     id = "flag"
     title = "Flag"
+    column = "Boolean"
 
     def __repr__(self) -> str:
         return f"Flag({bool(self)})"

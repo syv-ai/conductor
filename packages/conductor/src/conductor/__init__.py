@@ -52,6 +52,7 @@ from conductor.node import (
 from conductor.ref import Ref
 from conductor.registry import NodeRegistry, RegistryDescription, TypeDescription
 from conductor.series import Index, Series
+from conductor.table import Table
 
 __all__ = [
     "ALWAYS",
@@ -111,6 +112,7 @@ __all__ = [
     "StateSkip",
     "StateValue",
     "Static",
+    "Table",
     "TypeDescription",
     "Upgrade",
     "VersionDescription",

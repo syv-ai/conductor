@@ -30,7 +30,7 @@ DOORS: dict[str, list[str]] = {
         "NodeDefinition", "NodeDescription", "NodeError", "NodeExecutionError", "NodeKindError", "NodeRegistry", "NodeResolutionError",
         "NodeTimeoutError", "NodeValidationError", "NodeVersion", "NodeWiringError", "Output", "Param", "PerRow", "Policy", "Problem",
         "Receive", "Ref", "Refuses", "RegistryDescription", "Result", "RowsUnder", "RunState", "SKIPPED", "Series", "Single",
-        "StartRefused", "StateSkip", "StateValue", "Static", "TypeDescription", "Upgrade", "VersionDescription",
+        "StartRefused", "StateSkip", "StateValue", "Static", "Table", "TypeDescription", "Upgrade", "VersionDescription",
         "Whole", "dependencies_of", "deprecated", "execute", "from_wire", "is_asking", "is_skipped", "model_of",
         "run", "run_sync", "to_wire", "upgrade", "version",
     ],

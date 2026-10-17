@@ -105,6 +105,11 @@ class DType(ABC, metaclass=_DTypeMeta):
     #: type it parameterises and whose ``id`` it carries; ``None`` for a
     #: type of its own.
     parameterises: ClassVar[type["DType"] | None] = None
+    #: The Polars type a table column of these values is stored as, by name
+    #: (``"Boolean"``). ``None`` reads it off the builtin the type is built
+    #: on (``conductor.table.column_type``); a type sets it only where that
+    #: base would be wrong, as a flag built on ``int`` does.
+    column: ClassVar[str | None] = None
 
     @classmethod
     def refuses_whole(cls) -> None:

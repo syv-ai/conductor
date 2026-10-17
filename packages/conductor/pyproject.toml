@@ -15,7 +15,11 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Typing :: Typed",
 ]
-dependencies = ["pydantic>=2.11", "pyyaml>=6.0"]
+dependencies = [
+    "polars>=2.0",
+    "pydantic>=2.11",
+    "pyyaml>=6.0",
+]
 
 [project.optional-dependencies]
 # Sibling-package extras — published in lockstep from this monorepo, so
