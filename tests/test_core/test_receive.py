@@ -134,8 +134,8 @@ def test_a_scalar_input_fed_a_series_receives_one_value_per_row_of_its_index():
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "result"))}),
     ])
 
-    assert _receives(compiled, "up", "text") == PerRow(Index("docs"))
-    assert compiled.node("up").runs_per_row_of == Index("docs")
+    assert _receives(compiled, "up", "text") == PerRow(Index("docs.result"))
+    assert compiled.node("up").runs_per_row_of == Index("docs.result")
 
 
 def test_a_series_input_fed_one_series_on_a_root_receives_it_whole():
@@ -155,8 +155,8 @@ def test_a_series_input_fed_a_series_on_a_child_reduces_under_the_parent_row():
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("lines", "result"))}),
     ])
 
-    assert _receives(compiled, "j", "texts") == RowsUnder(Index("lines"), depth=1)
-    assert compiled.node("j").runs_per_row_of == Index("docs")
+    assert _receives(compiled, "j", "texts") == RowsUnder(Index("lines.result"), depth=1)
+    assert compiled.node("j").runs_per_row_of == Index("docs.result")
 
 
 def test_a_series_input_fed_unrelated_sources_gathers_them_onto_the_fields_own_index():
@@ -251,9 +251,9 @@ def test_an_inner_reduction_over_the_entering_series_reduces_to_its_own_row():
     ], inner)
 
     assert compiled.is_runnable, compiled.problems
-    assert _receives(compiled, "emb/holder", "text") == PerRow(Index("docs"))
-    assert _receives(compiled, "emb/join", "texts") == RowsUnder(Index("docs"), depth=1)
-    assert compiled.node("emb/join").runs_per_row_of == Index("docs")
+    assert _receives(compiled, "emb/holder", "text") == PerRow(Index("docs.result"))
+    assert _receives(compiled, "emb/join", "texts") == RowsUnder(Index("docs.result"), depth=1)
+    assert compiled.node("emb/join").runs_per_row_of == Index("docs.result")
 
 
 def test_unrelated_rows_inside_an_embedded_graph_are_misaligned_not_paired():

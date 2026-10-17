@@ -83,15 +83,17 @@ def test_a_node_with_series_outputs_owns_the_index_they_make_rows_of():
         GraphNode(id="up", type="upper", version=1, bindings={"text": From("docs.texts")}),
         GraphNode(id="join", type="join", version=1, bindings={"texts": From("up.result")}),
     )
-    docs, up = compiled.node("docs"), compiled.node("up")
+    texts, names, up = compiled.field(Ref("docs", "texts")), compiled.field(Ref("docs", "names")), compiled.field(Ref("up", "result"))
 
-    assert docs._makes_rows == Index("docs")
-    assert docs._run_per_row_by == ("up",)
-    assert set(docs._carried_by) == {Ref("docs", "texts"), Ref("docs", "names"), Ref("up", "result")}
-    assert compiled.field(Ref("docs", "texts"))._read_by == ((Ref("up", "text"), PerRow(Index("docs"))),)
-    assert compiled.field(Ref("up", "result"))._read_by == ((Ref("join", "texts"), Whole()),)
+    assert texts._makes_rows == Index("docs.texts") and names._makes_rows == Index("docs.names")
+    assert texts._run_per_row_by == ("up",) and names._run_per_row_by == ()
+    assert texts._carried_by == (Ref("docs", "texts"), Ref("up", "result"))
+    assert names._carried_by == (Ref("docs", "names"),)
+    assert texts._read_by == ((Ref("up", "text"), PerRow(Index("docs.texts"))),)
+    assert up._read_by == ((Ref("join", "texts"), Whole()),)
     assert compiled.node("join")._reads == ((Ref("up", "result"), Whole()),)
     assert (up._makes_rows, up._run_per_row_by, up._carried_by) == (None, (), ())
+    assert compiled._index_owners["docs.texts"] is texts
 
 
 def test_an_input_holding_a_typed_in_list_owns_its_index():
@@ -112,7 +114,7 @@ def test_a_list_set_on_a_node_inside_an_embedded_graph_running_per_row_is_made_u
         GraphNode(id="emb", type="pair", version=1, bindings={"a.text": From("docs.texts")}),
     )
 
-    assert compiled.node("docs")._listed_inputs == (Ref("emb/b", "text"),)
+    assert compiled.field(Ref("docs", "texts"))._listed_inputs == (Ref("emb/b", "text"),)
 
 
 def test_downstream_is_every_node_a_value_reaches():

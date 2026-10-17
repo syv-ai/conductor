@@ -253,9 +253,9 @@ def test_a_series_entering_through_a_scalar_field_makes_the_placement_iterate():
     ])
 
     assert compiled.is_runnable, compiled.problems
-    assert compiled.node("emb").runs_per_row_of == Index("docs")
-    assert compiled.node("emb/holder").runs_per_row_of == Index("docs")
-    assert compiled.node("emb/up").runs_per_row_of == Index("docs")
+    assert compiled.node("emb").runs_per_row_of == Index("docs.result")
+    assert compiled.node("emb/holder").runs_per_row_of == Index("docs.result")
+    assert compiled.node("emb/up").runs_per_row_of == Index("docs.result")
 
 
 def test_an_inner_reduction_over_the_entering_series_is_a_fold_of_one():
@@ -266,8 +266,8 @@ def test_an_inner_reduction_over_the_entering_series_is_a_fold_of_one():
         GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.value": From("docs.result")}),
     ])
 
-    assert compiled.node("emb/join").runs_per_row_of == Index("docs")
-    assert (compiled.field(Ref("emb/join", "result")).type, compiled.field(Ref("emb/join", "result")).index) == (Series[Txt], Index("docs"))
+    assert compiled.node("emb/join").runs_per_row_of == Index("docs.result")
+    assert (compiled.field(Ref("emb/join", "result")).type, compiled.field(Ref("emb/join", "result")).index) == (Series[Txt], Index("docs.result"))
 
 
 def test_a_series_made_inside_reduces_to_the_outer_row_by_lineage_alone():
@@ -289,8 +289,8 @@ def test_a_series_made_inside_reduces_to_the_outer_row_by_lineage_alone():
 
     assert compiled.is_runnable, compiled.problems
     made = compiled.field(Ref("emb/lines", "result")).index
-    assert (made, made.parent) == (Index("emb/lines"), Index("docs"))
-    assert compiled.node("emb/join").runs_per_row_of == Index("docs")
+    assert (made, made.parent) == (Index("emb/lines.result"), Index("docs.result"))
+    assert compiled.node("emb/join").runs_per_row_of == Index("docs.result")
 
     # The same, when the series is made off an inner *static* the entering
     # series never touches: the block runs per row, so the new index is a child of
@@ -310,11 +310,11 @@ def test_a_series_made_inside_reduces_to_the_outer_row_by_lineage_alone():
     )
     assert compiled.is_runnable, compiled.problems
     made = compiled.field(Ref("emb/lines", "result")).index
-    assert (made, made.parent) == (Index("emb/lines"), Index("docs"))
+    assert (made, made.parent) == (Index("emb/lines.result"), Index("docs.result"))
     # The nodes the entering series never reaches still run once per outer row.
-    assert compiled.node("emb/holder").runs_per_row_of == Index("docs")
-    assert compiled.node("emb/lines").runs_per_row_of == Index("docs")
-    assert compiled.node("emb/join").runs_per_row_of == Index("docs")
+    assert compiled.node("emb/holder").runs_per_row_of == Index("docs.result")
+    assert compiled.node("emb/lines").runs_per_row_of == Index("docs.result")
+    assert compiled.node("emb/join").runs_per_row_of == Index("docs.result")
 
 
 def test_two_crossings_on_one_lineage_make_the_whole_block_iterate_on_the_deeper():
@@ -340,7 +340,7 @@ def test_two_crossings_on_one_lineage_make_the_whole_block_iterate_on_the_deeper
     )
 
     assert compiled.is_runnable, compiled.problems
-    per_line = Index("lines", parent=Index("docs"))
+    per_line = Index("lines.result", parent=Index("docs.result"))
     assert compiled.node("emb").runs_per_row_of == per_line
     assert compiled.node("emb/a").runs_per_row_of == per_line
     assert compiled.node("emb/ua").runs_per_row_of == per_line

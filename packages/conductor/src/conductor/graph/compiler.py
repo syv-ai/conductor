@@ -632,9 +632,7 @@ class Compilation:
                     _statics=self.statics.get(node_id, {}),
                     _definition=self.layout.definitions[node_id],
                     _runs_per_row_of=self.iteration.runs_per_row_of.get(node_id),
-                    _makes_rows=None,
                     _reads=(),
-                    **plan.share(None),
                     _fields={},
                 )
                 continue
@@ -651,9 +649,7 @@ class Compilation:
                 _interface=interface,
                 _statics=self.statics.get(node_id),
                 _runs_per_row_of=self.iteration.runs_per_row_of.get(node_id),
-                _makes_rows=plan.makes_rows.get(node_id),
                 _reads=tuple(plan.reads.get(node_id, ())),
-                **plan.share(plan.makes_rows.get(node_id)),
                 _fields={} if interface is None else self._fields(node_id, graph_node, interface, cause, problems, plan),
             )
         return built
@@ -710,7 +706,8 @@ class Compilation:
                 _condition=conditions[ref] if ready and name in outputs else None,
                 _read_by=tuple(plan.read_by.get(ref, ())),
                 _listed=name in self.listed.get(node_id, ()),
-                **plan.share(plan.listed.get(ref)),
+                _makes_rows=plan.makes_rows.get(ref),
+                **plan.share(plan.makes_rows.get(ref) or plan.listed.get(ref)),
             )
         return fields
 
@@ -846,9 +843,9 @@ class _ReadPlan:
     - Per index: ``run_per_row_by``, the nodes that run once per row of it;
       ``carried_by``, the outputs whose values sit on it; ``listed_inputs``,
       the lists set on nodes whose rows are made under each of its rows.
-    - ``makes_rows`` and ``listed``: what makes each index's rows, a node's
-      series outputs or a list set on an input. Each index's share is
-      stored on that owner.
+    - ``makes_rows`` and ``listed``: the field that makes each index's
+      rows, a series output or a list set on an input. Every index has
+      exactly one, and its share is stored on that field.
     """
 
     read_by: dict[Ref, list[tuple[Ref, Receive]]]
@@ -856,7 +853,7 @@ class _ReadPlan:
     run_per_row_by: dict[str, list[str]]
     carried_by: dict[str, list[Ref]]
     listed_inputs: dict[str, list[Ref]]
-    makes_rows: dict[str, Index]
+    makes_rows: dict[Ref, Index]
     listed: dict[Ref, Index]
 
     @classmethod
@@ -888,11 +885,11 @@ class _ReadPlan:
                 if (index := iteration.indexes[ref]) is not None:
                     plan.carried_by.setdefault(index.id, []).append(ref)
                     if out.dtype.element is not None:
-                        plan.makes_rows.setdefault(node_id, index)
+                        plan.makes_rows[ref] = index
         owned = {index.id for index in (*plan.makes_rows.values(), *plan.listed.values())}
         for planned in (plan.run_per_row_by, plan.carried_by, plan.listed_inputs):
             for index_id in planned.keys() - owned:
-                raise RuntimeError(f"compile planned index {index_id!r}, which no node or list set on a node owns")
+                raise RuntimeError(f"compile planned index {index_id!r}, which no field owns")
         return plan
 
     def share(self, index: Index | None) -> dict[str, Any]:

@@ -223,7 +223,7 @@ def test_a_computed_roster_runs_by_name_and_edges_like_any_field():
     ])
 
     assert list(results["c"]["navn"]) == ["navn:a", "navn:b"]
-    assert results["c"]["email"].index == Index("docs")
+    assert results["c"]["email"].index == Index("docs.texts")
     assert list(results["up"]["result"]) == ["EMAIL:A", "EMAIL:B"]
 
 
@@ -246,7 +246,7 @@ def test_an_iterating_chain_runs_per_row_and_a_reduction_collapses_it():
 
     up = results["up"]["result"]
     assert isinstance(up, Series)
-    assert up.index == Index("docs")
+    assert up.index == Index("docs.texts")
     assert up.rows == ((0,), (1,), (2,))
     assert list(up) == ["A", "B", "C"]
     assert results["j"]["result"] == "A+B+C"
@@ -273,11 +273,11 @@ def test_an_iterating_node_returning_a_series_unfolds_and_a_reduction_refolds():
     ])
 
     lines = results["lines"]["result"]
-    assert lines.index == Index("lines", parent=Index("docs"))
+    assert lines.index == Index("lines.result", parent=Index("docs.texts"))
     assert lines.rows == ((0, 0), (0, 1), (1, 0))
     assert results["up"]["result"].rows == ((0, 0), (0, 1), (1, 0))
     per_doc = results["j"]["result"]
-    assert per_doc.index == Index("docs")
+    assert per_doc.index == Index("docs.texts")
     assert list(per_doc) == ["A+B", "C"]
 
 
@@ -285,10 +285,10 @@ def test_a_parent_series_broadcasts_down_to_a_child_row():
     results = _run([
         _docs("a/b,c"),
         GraphNode(id="lines", type="lines", version=1, bindings={"text": _edge(("docs", "texts"))}),
-        GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("lines", "result")), "b": _edge(("docs", "names"))}),
+        GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("lines", "result")), "b": _edge(("docs", "texts"))}),
     ])
 
-    assert list(results["p"]["result"]) == ["a:doc0", "b:doc0", "c:doc1"]
+    assert list(results["p"]["result"]) == ["a:a/b", "b:a/b", "c:c"]
 
 
 def test_a_gather_of_scalars_arrives_as_a_series():
@@ -645,7 +645,7 @@ def test_an_iterating_asking_node_pends_once_per_row_and_is_answered_as_a_series
     assert [(w.node_id, w.row) for w in first.pending] == [("ask", (0,)), ("ask", (1,))]
     assert [w.questions[0].default for w in first.pending] == ["a", "b"]
 
-    second = _leg(compiled, state=first.state, cache={"ask": {"result": Series(Index("docs"), [Txt("x"), Txt("y")])}})
+    second = _leg(compiled, state=first.state, cache={"ask": {"result": Series(Index("docs.texts"), [Txt("x"), Txt("y")])}})
 
     assert list(second[-1].state.results(compiled)["up"]["result"]) == ["X", "Y"]
 
@@ -682,7 +682,7 @@ def test_an_answer_fills_the_rows_it_names_and_the_rows_already_done_stay():
     first = _leg(compiled)[-1]
     assert [(w.node_id, w.row) for w in first.pending] == [("ask", (1,))]
 
-    second = _leg(compiled, state=first.state, cache={"ask": {"result": Series(Index("docs"), [Txt("yes")], rows=[(1,)])}})
+    second = _leg(compiled, state=first.state, cache={"ask": {"result": Series(Index("docs.texts"), [Txt("yes")], rows=[(1,)])}})
 
     assert second[-1].type == "graph_complete"
     assert list(second[-1].state.results(compiled)["ask"]["result"]) == ["a", "yes", "b"]
@@ -695,7 +695,7 @@ def test_a_row_left_unanswered_asks_again_in_the_next_leg():
     compiled = _asks_if_long("long,longer")
     first = _leg(compiled)[-1]
 
-    second = _leg(compiled, state=first.state, cache={"ask": {"result": Series(Index("docs"), [Txt("yes")], rows=[(0,)])}})
+    second = _leg(compiled, state=first.state, cache={"ask": {"result": Series(Index("docs.texts"), [Txt("yes")], rows=[(0,)])}})
 
     assert second[-1].type == "graph_pending"
     assert [(w.node_id, w.row) for w in second[-1].pending] == [("ask", (1,))]
@@ -710,16 +710,16 @@ def test_a_unit_already_done_cannot_be_given_a_result():
     first = _leg(compiled)[-1]
 
     with pytest.raises(ValueError, match="'docs' is already done"):
-        _leg(compiled, state=first.state, cache={"docs": {"texts": Series(Index("docs"), [Txt("z")]), "names": Series(Index("docs"), [Txt("n")])}})
+        _leg(compiled, state=first.state, cache={"docs": {"texts": Series(Index("docs.texts"), [Txt("z")]), "names": Series(Index("docs.texts"), [Txt("n")])}})
     with pytest.raises(ValueError, match=r"'ask' at row \[0\] is already done"):
-        _leg(compiled, state=first.state, cache={"ask": {"result": Series(Index("docs"), [Txt("z"), Txt("yes")])}})
+        _leg(compiled, state=first.state, cache={"ask": {"result": Series(Index("docs.texts"), [Txt("z"), Txt("yes")])}})
 
 
 def test_a_row_the_run_has_not_produced_cannot_be_answered():
     compiled = _asks_if_long("long")
 
     with pytest.raises(ValueError, match=r"'ask' has no row \[0\]"):
-        _leg(compiled, cache={"ask": {"result": Series(Index("docs"), [Txt("yes")])}})
+        _leg(compiled, cache={"ask": {"result": Series(Index("docs.texts"), [Txt("yes")])}})
 
 
 def test_two_asking_nodes_in_parallel_are_one_pending_set():
@@ -773,7 +773,7 @@ def test_a_typed_in_list_inside_an_iterating_embedded_graph_is_a_child_row_under
         ]),
         _registry_with_asks(TypedInside),
     )
-    assert compiled.node("emb/t").runs_per_row_of.parent == Index("docs")
+    assert compiled.node("emb/t").runs_per_row_of.parent == Index("docs.texts")
 
     results = run_sync(compiled).state.results(compiled)
 
@@ -825,5 +825,5 @@ def test_an_inner_reduction_over_the_entering_series_runs_once_per_outer_row():
 
     assert list(results["emb/holder"]["result"]) == ["A", "B", "C"]
     assert list(results["emb/gather"]["result"]) == ["A", "B", "C"]
-    assert results["emb/gather"]["result"].index == Index("docs")
+    assert results["emb/gather"]["result"].index == Index("docs.texts")
     assert results["after"]["result"] == "A+B+C"

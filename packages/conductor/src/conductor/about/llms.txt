@@ -144,7 +144,7 @@ A `DType` is a class on a builtin with its own `id` and `title` (`class Number(D
 A unit is a node on a row; it starts once what it reads exists.
 
 - A series on a scalar input runs the node per row; its outputs are series on that index.
-- A list returned on a `Series[X]` output makes rows on a child index.
+- A list returned on a `Series[X]` output makes rows on an index of that output's own (`split.lines`), under the row the node ran on. Two series outputs of one node are two indexes, each with its own length; a node fed both per row is `misaligned`.
 - A `Series[X]` input receives the whole series (per parent row on a child index).
 - `SKIPPED` at a row leaves the series sparse; above the rows it skips the node.
 
