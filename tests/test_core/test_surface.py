@@ -209,10 +209,9 @@ def test_an_underscore_parameter_is_refused():
 
 @pytest.mark.parametrize("name", ["schema", "copy", "json", "model_config"])
 def test_a_parameter_named_like_a_pydantic_model_attribute_validates_without_a_warning(name):
-    """A call is validated through a pydantic model with one field per input,
-    and ``BaseModel`` already has ``schema``, ``copy``, ``json`` and
-    ``model_config``. The model keeps such an input under a field of its own
-    naming and takes it by its name as the alias, without a warning."""
+    """``BaseModel`` has ``schema``, ``copy``, ``json`` and ``model_config``;
+    a call's check keys its inputs by name in a dict, so an input may carry
+    any of them, without a warning."""
     import warnings
 
     from conductor import run_sync
@@ -227,8 +226,7 @@ def test_a_parameter_named_like_a_pydantic_model_attribute_validates_without_a_w
 
 
 def test_an_aliased_input_and_an_input_named_like_its_field_both_arrive():
-    """``json`` is kept under a field named ``json_``; an input really named
-    ``json_`` is a different input, and neither value may drop the other."""
+    """``json`` and ``json_`` are two inputs, and neither value may drop the other."""
     text = Annotated[Txt, Param(title="X", widget=Textarea())]
     node = _declare(run=_run({"json_": text, "json": text}))
     registry = NodeRegistry(nodes=(node,))

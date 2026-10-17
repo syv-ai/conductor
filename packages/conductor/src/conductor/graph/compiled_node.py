@@ -20,7 +20,6 @@ from dataclasses import dataclass, field
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
 
 from conductor.codec import to_wire
@@ -259,15 +258,14 @@ class CompiledNode:
         filled in where the call gave none. Raises pydantic's
         ``ValidationError`` when a value is not its input's type or a
         required input is missing; the engine turns that into the node's
-        failure. The check runs through a model built on the first call and
-        kept, not built once per unit."""
+        failure. The check is built on the first call and kept, not built
+        once per unit."""
         _gate(self, "validate", needs_wiring=True, needs_one_unit=True)
-        validated = self._call_model(**inputs)
-        return {info.alias or field: getattr(validated, field) for field, info in type(validated).model_fields.items()}
+        return self._check(inputs)
 
     @cached_property
-    def _call_model(self) -> type[BaseModel]:
-        """The pydantic model a call validates through, built on first use.
+    def _check(self) -> Callable[[Mapping[str, Any]], dict[str, Any]]:
+        """The check a call goes through (``model_of``), built on first use.
         Compile has already refused every input name it could not carry
         (``parameter_name_invalid``), so building it cannot fail here.
 

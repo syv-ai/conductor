@@ -1113,7 +1113,7 @@ def test_a_definition_may_carry_its_versions_by_value():
 
     assert set(Wrapped.versions) == {3} and Wrapped.current == 3
     assert [i.name for i in Wrapped.versions[3].interface.inputs] == ["inner.text"]
-    assert isinstance(getattr(model_of(Wrapped.versions[3].interface.inputs)(**{"inner.text": "hi"}), "inner.text"), Txt)
+    assert isinstance(model_of(Wrapped.versions[3].interface.inputs)({"inner.text": "hi"})["inner.text"], Txt)
     described = Wrapped.describe().versions[3]
     assert [i.name for i in described.inputs] == ["inner.text"]
     assert described.policy is None and described.deprecation is None

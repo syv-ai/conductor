@@ -230,7 +230,7 @@ Three public doors: `conductor`, `conductor.widgets` and `conductor.events`. Eac
 
 ### conductor
 
-- Nodes: `NodeDefinition`, `NodeVersion`, `Policy`, `Deprecation`, `NodeDescription`, `version`, `upgrade`, `deprecated`, `Interface`, `FromRun`, `model_of(inputs)` (the pydantic model a call validates through), `Input`, `Output`, `Param`, `Result`, `Upgrade` (an entry of `NodeDefinition.upgrades`), `VersionDescription` (an entry of `NodeDescription.versions`)
+- Nodes: `NodeDefinition`, `NodeVersion`, `Policy`, `Deprecation`, `NodeDescription`, `version`, `upgrade`, `deprecated`, `Interface`, `FromRun`, `model_of(inputs)` (the check a call validates through: a mapping of values in, a dict of keyword arguments out, defaults filled in through their types), `Input`, `Output`, `Param`, `Result`, `Upgrade` (an entry of `NodeDefinition.upgrades`), `VersionDescription` (an entry of `NodeDescription.versions`)
 - Returns: `SKIPPED`, `Asks`, `is_skipped`, `is_asking`
 - Types: `DType`, `Single`, `Series`, `Table`, `Index`, `Ref`, `to_wire(value, dtype)`, `from_wire(data, dtype)`
 - Registry: `NodeRegistry` (`register`, `in`, `[]`, `len`, iteration, `nodes`, `types`, `accepted_as`, `describe`, `upgraded`, `extended_with`), `RegistryDescription`, `TypeDescription`
