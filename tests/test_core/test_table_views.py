@@ -12,7 +12,7 @@ from conductor.ref import Ref
 from conductor.series import Index, Series
 
 from test_core.test_table import Num, Txt
-from test_core.test_table_flows import CSV, Contacts, Text, _registry
+from test_core.test_table_runs import CSV, Contacts, Text, _registry
 
 
 @dataclass(frozen=True)

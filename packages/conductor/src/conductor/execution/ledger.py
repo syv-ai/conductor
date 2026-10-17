@@ -59,7 +59,7 @@ import weakref
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Iterator
+from typing import TYPE_CHECKING, Any, Iterator
 
 from conductor._sentinel import SKIPPED, is_skipped
 from conductor.codec import from_wire, to_wire
@@ -68,11 +68,14 @@ from conductor.execution.events import PendingUnit
 from conductor.execution.state import DoneUnit, RunState, StateSkip, StateValue
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.compiled_node import CompiledField
-from conductor.graph.receive import Broadcast, Gather, PerRow, Receive, RowsUnder, Whole
+from conductor.graph.receive import Broadcast, Gather, Merge, PerRow, Receive, RowsUnder, Whole
 from conductor.metadata import Input
 from conductor.ref import Ref
 from conductor.series import Index, Row, Series
-from conductor.table import Table, with_row_ids
+from conductor.table import ROW_ID, Table, column_type, holds_tables, merge, row_id, with_row_ids
+
+if TYPE_CHECKING:
+    import polars as pl
 
 #: One run of one node: the node id and the row it runs on — ``()`` for
 #: a node that runs once; a row shorter than the index the node runs per row of, for the one
@@ -447,6 +450,13 @@ class Ledger:
                 if not covering:
                     return Skip(at=max(skips, key=len))
                 (values[inp.name],) = covering
+            elif isinstance(received, Merge):
+                merged = self._merged(received, row)
+                if merged is None:
+                    return Skip(at=row)
+                # Read through the input's own type when the call is checked, so a
+                # merged table it won't take fails this node, naming the column.
+                values[inp.name] = Table._holding(merged)
             elif isinstance(received, Gather):
                 gathered: list[Any] = []
                 for ref in binding.refs:
@@ -471,6 +481,66 @@ class Ledger:
                 else:
                     values[inp.name] = self._series(node_id, binding.refs, index, self._rows_under(index.id, group))
         return values
+
+    def _merged(self, received: Merge, row: Row) -> pl.DataFrame | None:
+        """The one table a unit at ``row`` receives from every source of a ``Table``
+        input, or ``None`` when every source is skipped there.
+
+        Each source becomes a frame of its rows with their ids: a table as it is
+        stored, a column as ``__row`` beside its values (the ids a table's own
+        column has are the table's). A source on rows above another's is a
+        parent: its value is copied down onto each row under it.
+        """
+        import polars as pl
+
+        pieces: list[tuple[str, pl.DataFrame, Index, list[Row]]] = []  # (source node, frame, rows' index, row paths)
+        for source, part in received.parts:
+            field = self._fields[source]
+            if field._makes_rows is not None and field._view_of is None and isinstance(part, (PerRow, Broadcast)):
+                at = () if isinstance(part, Broadcast) else row[: part.index.depth]
+                stored, _ = self._lookup(source, at)
+                if stored is _MISSING or is_skipped(stored):
+                    continue
+                pieces.append((source.node_id, stored.frame, field._makes_rows, [(*at, n) for n in range(stored.frame.height)]))
+                continue
+            index = field.index
+            if index is None:
+                raise RuntimeError(f"{source} is merged as a column but sits on no rows")
+            if isinstance(part, PerRow):
+                rows = [row[: index.depth]]
+            else:
+                rows = self._rows_under(index.id, row[: part.depth] if isinstance(part, RowsUnder) else ())
+            present = [(at, value) for at in rows if not is_skipped(value := self._lookup(source, at)[0]) and value is not _MISSING]
+            view = self._views.get(source)
+            name = view[1] if view is not None else source.field
+            frame = pl.DataFrame([
+                pl.Series(ROW_ID, [self._row_id(index, at) for at, _ in present], dtype=pl.String),
+                pl.Series(name, [value for _, value in present], dtype=column_type(self._value_type(source)), strict=False),
+            ])
+            pieces.append((source.node_id, frame, index, [at for at, _ in present]))
+        if not pieces:
+            return None
+        parts: list[tuple[str, pl.DataFrame, str]] = []
+        for name, frame, index, paths in pieces:
+            above = [other for _, _, other, _ in pieces if other != index and index in other.lineage]
+            if above:
+                parts.append((name, frame, f"__{index.id}"))
+                continue
+            for _, _, parent, _ in pieces:
+                if parent != index and parent in index.lineage:
+                    frame = frame.with_columns(pl.Series(f"__{parent.id}", [self._row_id(parent, at[: parent.depth]) for at in paths], dtype=pl.String))
+            parts.append((name, frame, ROW_ID))
+        return merge(parts)
+
+    def _row_id(self, index: Index, row: Row) -> str:
+        """The id of the row at ``row`` on ``index``: on a table's rows, the id
+        its stored table carries, which may have come in with the table; on
+        any other index, the id spelled from the index and the row."""
+        owner = self._compiled._index_owners.get(index.id)
+        if owner is not None and owner._view_of is None and owner._output and holds_tables(owner._type):
+            stored, _ = self._lookup(owner.ref, row[:-1])
+            return stored.frame[ROW_ID][row[-1]]
+        return row_id(index, row)
 
     def _covering(self, node_id: str, refs: tuple[Ref, ...], row: Row) -> tuple[list[Any], list[Row]]:
         """Of several refs read at one row: the values that cover it, and the

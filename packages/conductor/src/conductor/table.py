@@ -67,6 +67,12 @@ def column_type(dtype: type[DType]) -> pl.DataType | None:
     return None if name is None else getattr(pl, name)()
 
 
+def holds_tables(dtype: Any) -> bool:
+    """Is a field of this type a table, one or one per row?"""
+    dtype = getattr(dtype, "element", None) or dtype
+    return isinstance(dtype, type) and issubclass(dtype, Table)
+
+
 def columns_of(dtype: Any) -> tuple[Column, ...]:
     """The columns a table type declares, each offered as a field of its own
     (``rows.email``); ``()`` for bare ``Table`` and for any other type."""
@@ -93,6 +99,51 @@ def with_row_ids(frame: pl.DataFrame, index: Index, parent: Row) -> pl.DataFrame
         frame = frame.drop(ROW_ID)
     fresh = pl.Series(ROW_ID, [row_id(index, (*parent, n)) for n in range(frame.height)], dtype=pl.String)
     return frame.insert_column(0, fresh)
+
+
+def merge(parts: Sequence[tuple[str, pl.DataFrame, str]]) -> pl.DataFrame:
+    """One table from several, matched on their rows' ids: the one place rows are matched.
+
+    Each part is ``(source, frame, key)``. A part keyed on ``__row`` has
+    rows of its own and is joined in full, in wiring order, so a row only
+    one source has is kept with blanks beside it. A part keyed on another
+    column is a parent's value copied down: its ``__row`` is matched against
+    that column of the rows so far, which holds each row's parent id, and
+    the column is dropped after; a parent row no row sits under is kept
+    as a row of its own. A column a source shares with what is already
+    there keeps its name with the source's added (``name_crm``).
+    """
+    import polars as pl
+
+    keys = {key for _, _, key in parts if key != ROW_ID}
+    taken: set[str] = set()
+    named: list[tuple[pl.DataFrame, str]] = []
+    for source, frame, key in parts:  # names and column order follow the wiring
+        renames = {}
+        for name in frame.columns:
+            if name in (ROW_ID, *keys):
+                continue
+            if name in taken:
+                renames[name] = f"{name}_{source}"
+            taken.add(renames.get(name, name))
+        named.append((frame.rename(renames), key))
+    merged: pl.DataFrame | None = None
+    for frame, key in sorted(named, key=lambda part: part[1] != ROW_ID):
+        if merged is None:
+            merged = frame if key == ROW_ID else frame.with_columns(pl.col(ROW_ID).alias(key))
+        elif key != ROW_ID:
+            under = merged.join(frame.rename({ROW_ID: key}), on=key, how="left", maintain_order="left")
+            alone = frame.filter(~pl.col(ROW_ID).is_in(merged[key].implode()))
+            merged = pl.concat([under, alone], how="diagonal_relaxed")
+        else:
+            merged = merged.join(frame, on=ROW_ID, how="full", coalesce=True, maintain_order="left_right")
+            # Two sources under one parent both hold its id: one column of it.
+            for both in [key for key in keys if f"{key}_right" in merged.columns]:
+                merged = merged.with_columns(pl.coalesce(both, f"{both}_right").alias(both)).drop(f"{both}_right")
+    if merged is None:
+        return pl.DataFrame({ROW_ID: []}, schema={ROW_ID: pl.String})
+    order = [ROW_ID, *(name for frame, _ in named for name in frame.columns if name not in (ROW_ID, *keys))]
+    return merged.select(order)
 
 
 _PARAMETERISED: dict[tuple[Column, ...], type[Table]] = {}
@@ -278,7 +329,8 @@ def _cast(column: pl.Series, target: pl.DataType | None, said: str) -> pl.Series
         return column
     try:
         if column.dtype == pl.String and target.is_temporal():
-            parse = {pl.Date: column.str.to_date, pl.Time: column.str.to_time}.get(type(target), column.str.to_datetime)
+            parsers: dict[type, Any] = {pl.Date: column.str.to_date, pl.Time: column.str.to_time}
+            parse = parsers.get(type(target), column.str.to_datetime)
             cast = parse(strict=False)
         else:
             cast = column.cast(target, strict=False)

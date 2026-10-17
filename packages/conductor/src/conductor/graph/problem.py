@@ -98,6 +98,11 @@ CATALOGUE: Mapping[str, tuple[str, bool]] = {
     "lists_on_a_per_row_node": (
         "Only one list can be set directly on a node that runs per row; '{a}' and '{b}' are both lists.", True,
     ),
+    "no_rows_in_common": (
+        "'{source}' shares no rows with what else is wired into '{field}', so its cells will be blank beside them; "
+        "to join unrelated tables, match them on a key.", False,
+    ),
+    "table_column_missing": ("'{field}' needs the column '{column}', which nothing wired into it has.", True),
     "series_of_tables": (
         "The output '{field}' is a series of tables; a table already holds many rows, so return one table.", True,
     ),
