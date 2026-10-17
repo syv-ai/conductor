@@ -643,14 +643,13 @@ def test_the_derived_interface_comes_through_compiled():
 def test_the_interface_is_an_interface_and_types_a_call_by_address():
     """The graph's surface is the record a node version declares, one
     scale out; a graph returns a computed interface by address, and `model_of`
-    types a caller's answers under the addresses — pydantic takes a dotted
-    field name outright."""
+    types a caller's answers under the addresses, a dotted name as any other key."""
     compiled = _compiled([_exposed()])
 
     assert isinstance(compiled.interface, Interface)
     assert compiled.interface.returns is Mapping
-    answers = model_of(compiled.interface.inputs).model_validate({"besked.value": "hej"})
-    assert dict(answers)["besked.value"] == "hej"
+    answers = model_of(compiled.interface.inputs)({"besked.value": "hej"})
+    assert answers["besked.value"] == "hej"
 
 
 def test_needs_is_the_union_of_the_nodes_needs():
@@ -756,6 +755,30 @@ def test_a_compiled_node_validates_a_call_and_hands_back_its_keyword_arguments()
         node.validate({"x": ["not", "text"]})
     with pytest.raises(NodeWiringError):
         _compiled([GraphNode(id="b", type="echo", version=1, bindings={"x": From("ghost.result")})]).node("b").validate({})
+
+
+def test_a_default_reaches_the_node_as_its_input_s_type():
+    """A default is a value of its input like any other: ``n: Num = 3``
+    with nothing bound reaches ``run`` as a ``Num``, not a bare ``int``."""
+    from conductor import run_sync
+
+    seen = []
+
+    class Counted(NodeDefinition):
+        id = "counted"
+        title = "Counted"
+        description = "d"
+        category = "test"
+
+        def run(self, n: Annotated[Num, Param(title="N", widget=Textarea())] = 3) -> Out:  # type: ignore[assignment]
+            seen.append(n)
+            return Txt("")
+
+    compiled = _compiled([GraphNode(id="c", type="counted", version=1)], NodeRegistry(nodes=(Counted,)))
+
+    assert isinstance(compiled.node("c").validate({})["n"], Num)
+    assert run_sync(compiled).type == "graph_complete"
+    assert [type(n) for n in seen] == [Num] and seen == [3.0]
 
 
 def test_the_record_keeps_the_authored_graph_and_the_registry_and_drops_what_nothing_calls():

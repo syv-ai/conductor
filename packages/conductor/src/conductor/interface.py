@@ -11,8 +11,8 @@ A node declares its inputs and outputs by annotating ``run``::
 
 ``Interface.of(run)`` walks that signature once and produces the input
 records, the output records and what the caller must provide.
-``model_of`` builds the pydantic model that validates a call against a
-tuple of inputs. Nothing else reads the signature, so there is one place
+``model_of`` builds the check that validates a call against a tuple of
+inputs. Nothing else reads the signature, so there is one place
 the two could disagree, and it is here.
 
 A parameter carries at most one ``Param``; a parameter with none is
@@ -36,10 +36,11 @@ walk understands beyond ``Annotated[DType, Param(...)]``:
 from __future__ import annotations
 
 import inspect
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Annotated, Any, Callable, Literal, get_args, get_origin, get_type_hints
+from typing import Annotated, Any, Literal, TypedDict, get_args, get_origin, get_type_hints
 
-from pydantic import BaseModel, ConfigDict, Field, create_model
+from pydantic import ConfigDict, TypeAdapter, with_config
 
 from conductor.dtype import DType, Single, dtype_of
 from conductor.metadata import Input, Output, Param, Result
@@ -218,38 +219,38 @@ class Interface:
         return outputs_of(hints["return"])
 
 
-def model_of(inputs: tuple[Input, ...]) -> type[BaseModel]:
-    """The pydantic model that validates a call against ``inputs``.
+def model_of(inputs: tuple[Input, ...]) -> Callable[[Mapping[str, Any]], dict[str, Any]]:
+    """The check a call of ``inputs`` goes through: values in, keyword arguments out.
+
+    The function it returns takes the values a call was given, by input
+    name, and returns one value per input as its type validated it, a
+    default filled in where the call gave none. It raises pydantic's
+    ``ValidationError`` when a value is not its input's type or a required
+    input is missing, and ignores names that are not inputs.
+    ``CompiledNode.validate`` checks every call of a node through one, built
+    the first time and kept.
 
     A function rather than a field on ``Interface``: the inputs a call is
-    validated against are usually a node's own interface in its graph rather than the bare
-    declaration, and a model class held on a frozen record would make two
-    interfaces derived from one signature compare unequal. An ``Any`` input
-    validates anything; the compiler has already established what arrives
-    there.
+    validated against are usually a node's own interface in its graph
+    rather than the bare declaration. An ``Any`` input validates anything;
+    the compiler has already established what arrives there.
 
-    A field is the input's own name, except where ``BaseModel`` already
-    has that name (``schema``, ``json``, ``model_config``): that input gets
-    the field ``schema_`` — its name with underscores added until no
-    ``BaseModel`` attribute and no other input has it — and is taken by its
-    name as the alias, so it neither shadows the model nor collides with an
-    input really named ``schema_``. Read the values back by alias where there
-    is one (``CompiledNode.validate`` does).
+    A default goes through its input's type like a value the call gave, so
+    ``n: Integer = 3`` reaches ``run`` as an ``Integer``. Inputs are the
+    keys of a ``TypedDict``, so any name an input can carry is a key
+    (``schema``, ``json``, ``inner.text``) and the result is a plain dict.
     """
-    taken = {inp.name for inp in inputs}
-    fields: dict[str, Any] = {}
-    for inp in inputs:
-        field_name = inp.name
-        while hasattr(BaseModel, field_name) or (field_name != inp.name and field_name in taken):
-            field_name += "_"
-        taken.add(field_name)
-        alias = None if field_name == inp.name else inp.name
-        fields[field_name] = (inp.dtype, Field(inp.default if inp.optional else ..., alias=alias))
-    return create_model(
-        "Inputs",
-        __config__=ConfigDict(extra="ignore", arbitrary_types_allowed=True),
-        **fields,
+    adapter = TypeAdapter(
+        with_config(ConfigDict(extra="ignore", arbitrary_types_allowed=True))(
+            TypedDict("Inputs", {inp.name: inp.dtype for inp in inputs})  # type: ignore[operator]
+        )
     )
+    defaults = {inp.name: inp.default for inp in inputs if inp.optional}
+
+    def check(values: Mapping[str, Any]) -> dict[str, Any]:
+        return adapter.validate_python({**defaults, **values})
+
+    return check
 
 
 def _refuse_name(name: str) -> None:

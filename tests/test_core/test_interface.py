@@ -40,14 +40,14 @@ def test_one_pass_yields_inputs_outputs_and_the_validator():
 
     assert [i.name for i in iface.inputs] == ["text", "language"]
     assert [o.title for o in iface.outputs] == ["Result"]
-    assert model_of(iface.inputs)(text="hi").language == "da"
+    assert model_of(iface.inputs)({"text": "hi"})["language"] == "da"
 
 
 def test_the_validator_coerces_into_the_dtype():
     """A str subclass validates into the subclass."""
-    validated = model_of(Interface.of(sample).inputs)(text="hi")
+    validated = model_of(Interface.of(sample).inputs)({"text": "hi"})
 
-    assert isinstance(validated.text, Text)
+    assert isinstance(validated["text"], Text)
 
 
 def test_an_input_keeps_its_widget_whole():
@@ -200,9 +200,7 @@ def test_a_closed_param_may_declare_a_static_type():
 
     (inp,) = Interface.of(structured).inputs
     assert inp.dtype is Schema
-    # ``schema`` is a name ``BaseModel`` has, so the model keeps it under a
-    # field of its own naming and takes it by alias.
-    assert isinstance(dict(model_of((inp,))(schema={"fields": ("a",)}))["schema_"], Schema)
+    assert isinstance(model_of((inp,))({"schema": {"fields": ("a",)}})["schema"], Schema)
     assert TypeAdapter(type(inp)).dump_python(inp, mode="json")["dtype"] is None
 
 
@@ -246,8 +244,8 @@ def test_an_any_roster_validates_a_call():
     def route(x: Annotated[Any, Param(title="X", widget=Textarea())]) -> Annotated[Any, Result(title="R")]:
         return x
 
-    model = model_of(Interface.of(route).inputs)
-    assert model(x=Text("hi")).x == Text("hi")
+    check = model_of(Interface.of(route).inputs)
+    assert check({"x": Text("hi")})["x"] == Text("hi")
 
 
 # --- the open interface -------------------------------------------------------
@@ -313,8 +311,8 @@ def test_computed_inputs_arrive_as_keyword_arguments():
 
     assert [i.name for i in Interface.of(templated).inputs] == ["template"]
     interface = (*Interface.of(templated).inputs, Input(name="name", dtype=Text, title="name", widget=Textarea()))
-    validated = model_of(interface)(template="Hi {name}", name="Ida")
-    assert isinstance(validated.name, Text)
+    validated = model_of(interface)({"template": "Hi {name}", "name": "Ida"})
+    assert isinstance(validated["name"], Text)
 
 
 # --- the record is the schema -----------------------------------------------
@@ -374,7 +372,7 @@ def test_a_from_run_parameter_is_a_need_not_an_input():
 
     assert [i.name for i in iface.inputs] == ["text"]
     assert iface.needs == {"who": Who}
-    assert "who" not in model_of(iface.inputs).model_fields
+    assert "who" not in model_of(iface.inputs)({"text": "hi", "who": "Ida"})
 
 
 def test_a_name_on_both_sides_is_refused():
