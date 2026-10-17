@@ -95,6 +95,9 @@ CATALOGUE: Mapping[str, tuple[str, bool]] = {
     "handle_needs_dtype": ("Field '{field}' has a handle but no type that can travel on an edge.", True),
     "invalid_node_id": ("'{node_id}' cannot be a node id: '/' names the nodes of an embedded graph.", True),
     "invalid_static": ("The value in '{field}' cannot be read as the field's type. {reason}", True),
+    "lists_on_a_per_row_node": (
+        "Only one list can be set directly on a node that runs per row; '{a}' and '{b}' are both lists.", True,
+    ),
     "misaligned": ("'{a}' and '{b}' get their rows from different sources, so the node cannot run per row.", True),
     "no_outputs": ("The node has no fields to pass on, so nothing can be connected from it.", False),
     "one_edge_per_parameter": ("Parameter '{field}' takes one edge; an extra edge is an extra parameter.", True),

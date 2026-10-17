@@ -10,6 +10,7 @@ from conductor.errors import NodeWiringError
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
+from conductor.graph.receive import PerRow
 from conductor.metadata import Input, Output, Param, Result
 from conductor.node import NodeDefinition
 from conductor.ref import Ref
@@ -70,6 +71,21 @@ class Pair(NodeDefinition):
         b: Annotated[Txt, Param(title="B", widget=Textarea())] = Txt(""),
     ) -> Out:
         return Txt(a + b)
+
+
+class Triple(NodeDefinition):
+    id = "triple"
+    title = "Triple"
+    description = "d"
+    category = "test"
+
+    def run(
+        self,
+        a: Annotated[Txt, Param(title="A", widget=Textarea())] = Txt(""),
+        b: Annotated[Txt, Param(title="B", widget=Textarea())] = Txt(""),
+        c: Annotated[Txt, Param(title="C", widget=Textarea())] = Txt(""),
+    ) -> Out:
+        return Txt(a + b + c)
 
 
 class Join(NodeDefinition):
@@ -154,7 +170,7 @@ class Script(NodeDefinition):
 
 def _registry():
     registry = NodeRegistry()
-    for node_cls in (Docs, Upper, Pair, Join, Lines, Count, Route, Only, Script):
+    for node_cls in (Docs, Upper, Pair, Triple, Join, Lines, Count, Route, Only, Script):
         registry.register(node_cls)
     return registry
 
@@ -993,3 +1009,46 @@ def test_a_refusal_from_a_node_whose_source_is_broken_is_dropped_for_the_sources
     assert broken == ["unknown_ref_output"]
     assert (node.state, node.interface.outputs) == ("wiring_failed", ())
     assert codes("texts")[0] == ["wrong_shape"]
+
+
+# --- a list set on a node --------------------------------------------------------
+
+
+def test_a_list_set_on_a_node_running_per_row_hangs_under_its_rows():
+    """Questions set on a node that runs per document: a questions index under the documents index, and the node runs per question per document."""
+    compiled = _compiled([
+        GraphNode(id="docs", type="docs", version=1),
+        GraphNode(id="ask", type="pair", version=1, bindings={"a": _edge(("docs", "texts")), "b": Static(["q1", "q2"])}),
+    ])
+
+    assert compiled.is_runnable, compiled.problems
+    questions = Index("ask.b", parent=Index("docs.texts"))
+    assert compiled.field(Ref("ask", "b")).index == questions
+    assert compiled.field(Ref("ask", "b")).receives == PerRow(questions)
+    assert compiled.node("ask").runs_per_row_of == questions
+
+
+def test_a_list_set_on_a_node_that_runs_once_is_a_root():
+    compiled = _compiled([GraphNode(id="ask", type="pair", version=1, bindings={"b": Static(["q1", "q2"])})])
+
+    assert compiled.node("ask").runs_per_row_of == Index("ask.b")
+    assert compiled.field(Ref("ask", "b")).index.parent is None
+
+
+def test_two_lists_on_a_node_running_per_row_are_refused():
+    compiled = _compiled([
+        GraphNode(id="docs", type="docs", version=1),
+        GraphNode(id="ask", type="triple", version=1, bindings={
+            "a": _edge(("docs", "texts")), "b": Static(["q1", "q2"]), "c": Static(["x", "y"]),
+        }),
+    ])
+
+    (refused,) = compiled.problems
+    assert (refused.code, refused.fatal, refused.field) == ("lists_on_a_per_row_node", True, "c")
+    assert refused.details == {"a": "ask.b", "b": "ask.c"}
+
+
+def test_two_lists_on_a_node_that_runs_once_are_misaligned():
+    compiled = _compiled([GraphNode(id="ask", type="pair", version=1, bindings={"a": Static(["p", "q"]), "b": Static(["x", "y"])})])
+
+    assert [problem.code for problem in compiled.problems] == ["misaligned"]

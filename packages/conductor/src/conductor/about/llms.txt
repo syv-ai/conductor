@@ -127,7 +127,7 @@ A `DType` is a class on a builtin with its own `id` and `title` (`class Number(D
 `Graph(nodes=[...])`; `GraphNode(id=, type=, version=, bindings=, locked=, title=, description=, fields=, display=)`. Each input holds at most one binding; there is no edge record. A node id may not contain `.`.
 
 - `From("a.result", ...)`: over edges. Refs on different indexes into a `Series[X]` input gather; refs on one index are a union, and a row covered twice fails with `row_covered_twice`.
-- `Static(...)`: typed in. A list on a scalar input runs the node once per value.
+- `Static(...)`: typed in. A list on a scalar input runs the node once per value, under each row the node otherwise runs on: questions set on a node that runs per document run once per question per document (`Index("ask.b", parent=Index("docs.texts"))`). Only one list may be set on a node that runs per row (`lists_on_a_per_row_node`).
 - No binding: the default. `locked` names inputs no caller may fill.
 - `dependencies_of(nodes)`: who waits for whom; an empty set is an input node.
 

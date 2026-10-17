@@ -301,6 +301,37 @@ def test_a_gather_of_scalars_arrives_as_a_series():
     assert results["j"]["result"] == "A+B"
 
 
+def test_a_list_set_on_a_node_running_per_row_runs_once_per_value_in_each_row():
+    """Questions set on «Spørg», which runs per document: each document asks each question."""
+    results = _run([
+        _docs("a,b,c"),
+        GraphNode(id="ask", type="pair", version=1, bindings={"a": _edge(("docs", "texts")), "b": Static(["q1", "q2", "q3"])}),
+    ])
+
+    asked = results["ask"]["result"]
+    assert asked.rows == tuple((doc, question) for doc in range(3) for question in range(3))
+    assert list(asked) == [f"{doc}:{question}" for doc in "abc" for question in ("q1", "q2", "q3")]
+
+
+def test_no_documents_ask_no_questions():
+    results = _run([
+        _docs(""),
+        GraphNode(id="ask", type="pair", version=1, bindings={"a": _edge(("docs", "texts")), "b": Static(["q1", "q2"])}),
+    ])
+
+    assert list(results["ask"]["result"]) == []
+
+
+def test_a_document_skipped_above_asks_none_of_its_questions():
+    results = _run([
+        _docs("abc,d,efg"),
+        GraphNode(id="g", type="long-only", version=1, bindings={"text": _edge(("docs", "texts"))}),
+        GraphNode(id="ask", type="pair", version=1, bindings={"a": _edge(("g", "long")), "b": Static(["q1", "q2"])}),
+    ])
+
+    assert results["ask"]["result"].rows == ((0, 0), (0, 1), (2, 0), (2, 1))
+
+
 # --- sparse series and skip ---------------------------------------------
 
 
