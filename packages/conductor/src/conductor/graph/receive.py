@@ -1,4 +1,4 @@
-"""How an input receives its value: one row at a time, one value everywhere, the whole thing, the rows under a row, or a gathering.
+"""How an input receives its value: one row at a time, one value everywhere, the whole thing, the rows under a row, a gathering, or a merge.
 
 A node in a graph runs as units, one per row of its index (``runs_per_row_of``)
 (or one unit when it runs once). For every input, the question this
@@ -8,7 +8,7 @@ stores the answer on the field (``CompiledField.receives``). The engine's
 ledger reads that record to decide when a unit is ready and what to hand
 it, and never works the answer out again from the types and indexes.
 
-Five records, one per input, named for what happens to the value on its
+Six records, one per input, named for what happens to the value on its
 way in. ``PerRow`` takes a series one row at a time: a scalar input fed
 a series, so the node runs once per row and each unit takes the value at
 its own row. ``Broadcast`` copies one value to every unit: a scalar fed by a
@@ -19,7 +19,9 @@ edge carries. ``RowsUnder`` takes the rows under the unit's own row: a
 ``Series[X]`` input fed a series on a child index, reduced once per
 parent row. ``Gather`` collects unrelated sources — several scalars,
 several series on different indexes — onto a fresh index that belongs
-to the input.
+to the input. ``Merge`` makes one table of everything wired into a
+``Table`` input, matched on the rows' ids, each source received by a
+record of its own.
 
 These say how a value is *received*, not where it comes from: the
 binding (an edge from another node's output, or a value the author
@@ -31,6 +33,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from conductor.ref import Ref
 from conductor.series import Index
 
 
@@ -99,4 +102,21 @@ class Gather:
     index: Index
 
 
-Receive = PerRow | Broadcast | Whole | RowsUnder | Gather
+@dataclass(frozen=True)
+class Merge:
+    """The unit receives one table merged from every source, each received as its ``part`` says.
+
+    Several tables or columns into one ``Table`` input: each source is read
+    as its part says — a table value at the unit's row (``PerRow``) or the
+    one there is (``Broadcast``), a column's rows under the unit's row
+    (``RowsUnder``) or all of them (``Whole``) — and the pieces are merged on
+    their rows' ids, a parent's value copied down onto each child row. A
+    ``Table`` input never makes its node run per row by itself, and its
+    sources never have to line up: rows that match nothing are blanks.
+    """
+
+    #: Per source, in wiring order: the source and how the unit receives it.
+    parts: tuple[tuple[Ref, PerRow | Broadcast | Whole | RowsUnder], ...]
+
+
+Receive = PerRow | Broadcast | Whole | RowsUnder | Gather | Merge

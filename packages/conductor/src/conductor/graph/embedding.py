@@ -58,7 +58,7 @@ from typing import TYPE_CHECKING, Any
 
 from conductor.graph.binding import Binding, From, Static
 from conductor.graph.model import GraphNode
-from conductor.graph.receive import Broadcast, Gather, PerRow, Receive, RowsUnder, Whole
+from conductor.graph.receive import Broadcast, Gather, Merge, PerRow, Receive, RowsUnder, Whole
 from conductor.ref import Ref
 from conductor.series import Index, Series
 
@@ -133,6 +133,7 @@ class Embedded:
     indexes: dict[Ref, Index | None]
     receives: dict[Ref, Receive]
     views: dict[Ref, tuple[Ref, str]]
+    tables: dict[Ref, Index]
 
 
 def graph_as_embedded(
@@ -231,12 +232,19 @@ def graph_as_embedded(
             and all(iteration.indexes[source] is None for source in layout.nodes[ref.node_id].bindings[ref.field].refs)
         ):
             indexes[new_ref], receives[new_ref] = runs_per_row_of, RowsUnder(runs_per_row_of, runs_per_row_of.depth)
+        elif isinstance(receipt, Merge):
+            receives[new_ref] = Merge(tuple(
+                (inside(source), _part_under(part, iteration.indexes[source], prefix, runs_per_row_of))
+                for source, part in receipt.parts
+            ))
         else:
             receives[new_ref] = _received_under(receipt, index, prefix, runs_per_row_of)
 
     views = {inside(view): (inside(table), column) for view, (table, column) in iteration.views.items()}
+    tables = {inside(table): under(rows, prefix, runs_per_row_of) for table, rows in iteration.tables.items()}
     return Embedded(
-        **structure, runs_per_row_of=inner_runs_per_row_of, types=types, indexes=indexes, receives=receives, views=views,
+        **structure, runs_per_row_of=inner_runs_per_row_of, types=types, indexes=indexes, receives=receives,
+        views=views, tables=tables,
     )
 
 
@@ -253,6 +261,14 @@ def under(index: Index | None, prefix: str, row: Index | None) -> Index | None:
     for step in index.lineage:
         parent = Index(f"{prefix}{step.id}", parent=parent)
     return parent
+
+
+def _part_under(part: Any, index: Index | None, prefix: str, row: Index | None) -> Any:
+    """One source of an inner ``Table`` input as it stands embedded: a table the
+    inner graph makes once is one per ``row`` when the graph runs per row."""
+    if isinstance(part, Broadcast) and index is None and row is not None:
+        return PerRow(row)
+    return _received_under(part, index, prefix, row)
 
 
 def _received_under(receipt: Receive, index: Index | None, prefix: str, row: Index | None) -> Receive:

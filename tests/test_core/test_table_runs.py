@@ -1,4 +1,4 @@
-"""The acceptance flows of "every level is a table" that read a table's columns, built with small nodes and run end to end.
+"""The acceptance scenarios of "every level is a table" that read a table's columns, built with small nodes and run end to end.
 
 A node returns a table; each of its columns is a field of its own
 (``csv.result.email``). Wiring a column into a single-value input runs the
@@ -273,7 +273,7 @@ def test_a_person_approves_each_invoice_and_the_document_totals_once_its_invoice
     assert list(results["all"]["result"]) == ["Ida+Bo", "Nina"]
 
 
-def test_a_sub_flow_run_per_row_lands_its_result_on_the_contacts():
+def test_an_embedded_graph_run_per_row_lands_its_result_on_the_contacts():
     registry = _registry()
     sub = embedded_graph_node("mailer", (GraphNode(id="send", type="send", version=1),), registry, "Mailer")
     compiled = _compiled(
@@ -288,7 +288,7 @@ def test_a_sub_flow_run_per_row_lands_its_result_on_the_contacts():
     assert list(sent) == ["sent to ida@x", "no address", "sent to nina@x"]
 
 
-def test_a_table_made_inside_a_sub_flow_offers_its_columns_at_the_graph_node():
+def test_a_table_made_inside_an_embedded_graph_offers_its_columns_at_the_graph_node():
     registry = _registry()
     sub = embedded_graph_node("reader", (GraphNode(id="csv", type="csv", version=1),), registry, "Reader")
     compiled = _compiled(

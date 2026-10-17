@@ -78,14 +78,14 @@ from conductor.graph.binding import From
 from conductor.graph.embedding import SEPARATOR, address, as_drawn, under
 from conductor.graph.model import GraphNode
 from conductor.graph.problem import Problem, problem
-from conductor.graph.receive import Broadcast, Gather, PerRow, Receive, RowsUnder, Whole
+from conductor.graph.receive import Broadcast, Gather, Merge, PerRow, Receive, RowsUnder, Whole
 from conductor.graph.views import field_problems
 from conductor.interface import Interface
 from conductor.metadata import Input, Output
 from conductor.node import NodeDefinition
 from conductor.ref import Ref
 from conductor.series import Index, Series
-from conductor.table import Table, columns_of
+from conductor.table import Table, column_type, columns_of, holds_tables
 
 if TYPE_CHECKING:
     from conductor.graph.compiled import CompiledGraph
@@ -116,6 +116,9 @@ class Iteration:
     #: Every column of a table output offered as a field of its own, by its
     #: address (``csv.rows.email``): the table output and the column.
     views: Mapping[Ref, tuple[Ref, str]]
+    #: Every table output, by address: the index its rows are on, which the
+    #: table output owns and its columns are offered on.
+    tables: Mapping[Ref, Index]
 
 
 def derive(
@@ -190,6 +193,9 @@ class _Arrivals:
     #: The inputs holding a list set on the node, each with its declared
     #: type; its rows go under the rows the node runs on, once those are known.
     listed: list[tuple[Ref, Any]] = dataclasses.field(default_factory=list)
+    #: The ``Table`` inputs, each with its sources: how each is received is
+    #: decided once the rows the node runs on are known.
+    merging: list[tuple[Ref, Any, list[tuple[Ref, _Carried]]]] = dataclasses.field(default_factory=list)
     bound: dict[str, Any] = dataclasses.field(default_factory=dict)
     broken: bool = False
 
@@ -233,6 +239,16 @@ class _Walk:
         self.arrived: dict[Ref, _Carried] = {}
         #: Each column a table output offers as a field: the table output and the column.
         self.views: dict[Ref, tuple[Ref, str]] = {}
+        #: Each table output: the index its rows are on.
+        self.tables: dict[Ref, Index] = {}
+        #: Where the rows of each output can come from, by index id: the
+        #: index it sits on and every index above it, and for a table a node
+        #: returns, the origins of every table it took in too, since rows keep
+        #: their ids through a filter or a sort. ``None``: not known here (a
+        #: field inside an embedded graph), which never warns.
+        self.origins: dict[Ref, frozenset[str] | None] = {}
+        #: The origins a table's rows carry, by the id of the index they are on.
+        self.index_origins: dict[str, frozenset[str] | None] = {}
         #: How every input of every visited node receives its value.
         self.receives: dict[Ref, Receive] = {}
         #: Each visited node's inputs and outputs, completed: every type the
@@ -251,6 +267,7 @@ class _Walk:
             interfaces=self.completed,
             problems=tuple(self.problems),
             views=self.views,
+            tables=self.tables,
         )
 
     def visit(self, node: GraphNode) -> None:
@@ -324,6 +341,15 @@ class _Walk:
                 found.receives[ref] = Whole()
                 continue
             target = inp.dtype
+            if isinstance(target, type) and issubclass(target, Table):
+                # A table input takes tables and columns, merged on their rows' ids.
+                for source_ref, source in zip(binding.refs, sources, strict=True):
+                    self.problems.extend(self._admit_into_table(target, ref, source_ref, source))
+                    if holds_tables(source.dtype) and source.index is not None:
+                        found.demands.append((source.index, ref))  # a table per row: the node runs per row of it
+                found.merging.append((ref, target, list(zip(binding.refs, sources, strict=True))))
+                found.arriving[inp.name] = target
+                continue
             if target is Any or target.element is Any:
                 # An input with no type of its own takes the type of its first
                 # edge; the other edges are checked against it.
@@ -405,17 +431,25 @@ class _Walk:
             own = self._rows_of(ref, runs_per_row_of)
             arrived.arrivals[ref], arrived.receives[ref] = _Carried(Series[dtype], own), PerRow(own)
             runs_per_row_of = own
+        for ref, target, sources in arrived.merging:
+            arrived.arrivals[ref] = _Carried(target, None) if runs_per_row_of is None else _Carried(Series[target], runs_per_row_of)
+            arrived.receives[ref] = Merge(tuple((source_ref, self._part(source, runs_per_row_of)) for source_ref, source in sources))
+            self._warn_no_rows_in_common(ref, [source_ref for source_ref, _ in sources])
+            self._check_columns(ref, target, sources)
         self.runs_per_row_of[node.id] = runs_per_row_of
         self.arrived.update(arrived.arrivals)
         self.receives.update(arrived.receives)
         version = self.versions[node.id]
         names = {out.name for out in outputs}
+        taken_in = self._origins_taken_in(arrived)
+        if node.id in self.graphs:
+            self._tables_inside(node.id, version, runs_per_row_of)
         for out in outputs:
             ref = address(node.id, out.name, self.graphs)
             if node.id in self.graphs:
                 self.carried[ref] = self._carried_out_of_graph(node.id, version, out, runs_per_row_of)
                 self._views_out_of_graph(node.id, version, out, runs_per_row_of)
-            elif columns_of(out.dtype):
+            elif columns_of(out.dtype) or holds_tables(out.dtype):
                 self._carry_table(node.id, ref, out.dtype, runs_per_row_of, names)
             elif out.dtype.element is not None:
                 self.carried[ref] = _Carried(out.dtype, self._rows_of(ref, runs_per_row_of))
@@ -423,6 +457,7 @@ class _Walk:
                 self.carried[ref] = _Carried(Series[out.dtype], runs_per_row_of)
             else:
                 self.carried[ref] = _Carried(out.dtype, None)
+            self._note_origins(node.id, ref, taken_in)
 
     def _carry_table(self, node_id: str, ref: Ref, dtype: Any, runs_per_row_of: Index | None, names: set[str]) -> None:
         """A table output: one table per run of its node, and each of its
@@ -430,26 +465,140 @@ class _Walk:
         the table's rows, an index the table output owns. A node output already
         named like a column's field is ``view_name_taken``."""
         self.carried[ref] = _Carried(Series[dtype], runs_per_row_of) if runs_per_row_of is not None else _Carried(dtype, None)
-        rows = self._rows_of(ref, runs_per_row_of)
-        for column, column_type in columns_of(dtype):
+        rows = self.tables[ref] = self._rows_of(ref, runs_per_row_of)
+        for column, holds in columns_of(dtype):
             name = f"{ref.field}.{column}"
             if name in names:
                 self.problems.append(problem("view_name_taken", node_id, name, table=ref.field, column=column))
                 continue
             view = Ref(ref.node_id, name)
-            self.carried[view] = _Carried(Series[column_type], rows)
+            self.carried[view] = _Carried(Series[holds], rows)
             self.views[view] = (ref, column)
+
+    def _note_origins(self, node_id: str, ref: Ref, taken_in: frozenset[str] | None) -> None:
+        """Record where the rows of output ``ref`` (and its columns) can come from."""
+        if node_id in self.graphs:
+            self.origins[ref] = None
+            return
+        carried = self.carried[ref]
+        if ref in self.tables:
+            rows = self.tables[ref]
+            known = None if taken_in is None else taken_in | {rows.id}
+            self.index_origins[rows.id] = known
+            for view, (table, _) in self.views.items():
+                if table == ref:
+                    self.origins[view] = known
+            self.origins[ref] = known
+            return
+        self.origins[ref] = self._origins_of(carried.index)
+
+    def _origins_of(self, index: Index | None) -> frozenset[str] | None:
+        """Where the ids of rows on ``index`` can come from: the index itself,
+        whose rows get ids of their own, or, for a table's rows, the ids that
+        table carried in too."""
+        if index is None:
+            return frozenset()
+        return self.index_origins.get(index.id, frozenset({index.id}))
+
+    def _tables_inside(self, node_id: str, graph: CompiledGraph, row: Index | None) -> None:
+        """The rows of every table inside an embedded graph carry ids that came
+        from wherever its inputs did, which this walk can't see: unknown."""
+        for rows in graph._compilation.iteration.tables.values():
+            lifted = under(rows, f"{node_id}{SEPARATOR}", row)
+            if lifted is not None:
+                self.index_origins[lifted.id] = None
+
+    def _origins_taken_in(self, arrived: _Arrivals) -> frozenset[str] | None:
+        """The origins of every table and column wired into this node's ``Table`` inputs: a table it
+        returns may carry their rows' ids. ``None`` when any of them is unknown."""
+        taken: set[str] = set()
+        for _, _, sources in arrived.merging:
+            for source_ref, _ in sources:
+                known = self.origins.get(source_ref)
+                if known is None:
+                    return None
+                taken |= known
+        return frozenset(taken)
+
+    def _warn_no_rows_in_common(self, ref: Ref, sources: list[Ref]) -> None:
+        """A source of a ``Table`` input whose rows can't share an origin with any
+        other source merges into blanks; the author is told while drawing. Nothing is refused."""
+        found = [self.origins.get(source) for source in sources]
+        known = [origins for origins in found if origins is not None]
+        if len(sources) < 2 or len(known) < len(found):
+            return
+        rows = [self.tables.get(source) or self.carried[source].index for source in sources]
+        above = [frozenset() if index is None else frozenset(step.id for step in index.lineage[:-1]) for index in rows]
+
+        def meet(n: int, m: int) -> bool:
+            """Can a row of source ``n`` meet one of source ``m``: by one id, or as its parent copied down?"""
+            return bool(known[n] & known[m] or known[n] & above[m] or known[m] & above[n])
+
+        for n, source in enumerate(sources):
+            if not any(meet(n, m) for m in range(len(sources)) if m != n):
+                self.problems.append(problem("no_rows_in_common", ref.node_id, ref.field, source=str(source)))
+                return
+
+    def _check_columns(self, ref: Ref, target: Any, sources: list[tuple[Ref, _Carried]]) -> None:
+        """A ``Table[...]`` input names the columns it needs; when every source's
+        columns are known (a bare table's are not), one nothing wired in has is
+        ``table_column_missing``. A column a source holds but can't be read as
+        the input wants fails the node when it runs."""
+        if not columns_of(target):
+            return
+        available: set[str] = set()
+        for source_ref, source in sources:
+            if holds_tables(source.dtype):
+                declared = columns_of(source.dtype.element or source.dtype)
+                if not declared:
+                    return
+                available |= {name for name, _ in declared}
+            else:
+                view = self.views.get(source_ref)
+                available.add(view[1] if view is not None else source_ref.field)
+        missing = next((name for name, _ in columns_of(target) if name not in available), None)
+        if missing is not None:
+            self.problems.append(problem("table_column_missing", ref.node_id, ref.field, column=missing))
+
+    def _admit_into_table(self, target: Any, ref: Ref, source_ref: Ref, source: _Carried) -> list[Problem]:
+        """A ``Table`` input takes a table, or a column: a series of a type a
+        table column holds. A single value or anything else is ``type_mismatch``."""
+        element = source.dtype.element
+        if holds_tables(source.dtype) or (element is not None and isinstance(element, type) and column_type(element) is not None):
+            return []
+        return self._admit(target, ref, source_ref, source) or [problem(
+            "type_mismatch", ref.node_id, ref.field, source=str(source_ref), source_type=description_of(source.dtype),
+            target_type=description_of(target), source_said=name_of(source.dtype), target_said=name_of(target),
+        )]
+
+    @staticmethod
+    def _part(source: _Carried, runs_per_row_of: Index | None) -> PerRow | Broadcast | Whole | RowsUnder:
+        """How a unit receives one source of a ``Table`` input: a table at its row
+        or the one there is; a column's rows under its row; or all of them."""
+        index = source.index
+        if index is None:
+            return Broadcast()
+        lineage = set(runs_per_row_of.lineage) if runs_per_row_of is not None else set()
+        if index in lineage:
+            return PerRow(index)
+        shared = [step for step in index.lineage[:-1] if step in lineage]
+        if shared:
+            return RowsUnder(index, shared[-1].depth)
+        return Whole()
 
     def _views_out_of_graph(self, node_id: str, graph: CompiledGraph, out: Output, row: Index | None) -> None:
         """The columns a table output of a compiled graph offers, at the graph
         node, as they will stand once its nodes are in its place."""
         iteration = graph._compilation.iteration
         prefix = f"{node_id}{SEPARATOR}"
+        if Ref(out.name) in iteration.tables:
+            self.tables[address(node_id, out.name, self.graphs)] = under(iteration.tables[Ref(out.name)], prefix, row)
         for view, (table, column) in iteration.views.items():
             if str(table) == out.name:
                 at = address(node_id, f"{out.name}.{column}", self.graphs)
                 self.carried[at] = _Carried(iteration.types[view], under(iteration.indexes[view], prefix, row))
                 self.views[at] = (address(node_id, out.name, self.graphs), column)
+                self.origins[at] = None
 
     @staticmethod
     def _rows_of(ref: Ref, runs_per_row_of: Index | None) -> Index:

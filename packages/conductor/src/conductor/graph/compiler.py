@@ -43,7 +43,7 @@ from conductor.graph.embedding import (
 from conductor.graph.iteration import Iteration, derive
 from conductor.graph.model import Graph, GraphNode
 from conductor.graph.problem import Problem, problem
-from conductor.graph.receive import Receive
+from conductor.graph.receive import Merge, Receive
 from conductor.graph.topology import dependencies_of, order_of
 from conductor.graph.views import derive_interface, field_problems, lock_problems
 from conductor.interface import Interface
@@ -551,6 +551,7 @@ class Compilation:
         versions, definitions, graphs = dict(layout.versions), dict(layout.definitions), set(layout.graphs)
         runs_per_row_of, types = dict(iteration.runs_per_row_of), dict(iteration.types)
         indexes, receives, views = dict(iteration.indexes), dict(iteration.receives), dict(iteration.views)
+        tables = dict(iteration.tables)
         for node_id in embedded_ids:
             node = nodes[node_id]
             # Only an input the graph offers crosses into it; an edge into any
@@ -577,11 +578,13 @@ class Compilation:
             indexes.update(embedded.indexes)
             receives.update(embedded.receives)
             views.update(embedded.views)
+            tables.update(embedded.tables)
         self.layout = replace(
             layout, nodes=nodes, order=tuple(order), versions=versions, definitions=definitions, graphs=frozenset(graphs),
         )
         self.iteration = replace(
             iteration, runs_per_row_of=runs_per_row_of, types=types, indexes=indexes, receives=receives, views=views,
+            tables=tables,
         )
 
     def conditions(self) -> None:
@@ -907,9 +910,12 @@ class _ReadPlan:
                 ref = Ref(node_id, inp.name)
                 binding = graph_node.bindings.get(inp.name)
                 if isinstance(binding, From):
+                    received = iteration.receives[ref]
+                    parts = dict(received.parts) if isinstance(received, Merge) else {}
                     for source in binding.refs:
-                        plan.read_by.setdefault(source, []).append((ref, iteration.receives[ref]))
-                        plan.reads.setdefault(node_id, []).append((source, iteration.receives[ref]))
+                        how = parts.get(source, received)
+                        plan.read_by.setdefault(source, []).append((ref, how))
+                        plan.reads.setdefault(node_id, []).append((source, how))
                 if inp.name in listed[node_id]:
                     own = iteration.indexes[ref]
                     plan.listed[ref] = own
@@ -923,15 +929,13 @@ class _ReadPlan:
                     plan.carried_by.setdefault(index.id, []).append(ref)
                     if out.dtype.element is not None:
                         plan.makes_rows[ref] = index
+        for table, rows in iteration.tables.items():
+            if table.node_id in iteration.runs_per_row_of:
+                plan.makes_rows[table] = rows
         for view, (table, _) in iteration.views.items():
-            if table.node_id not in iteration.runs_per_row_of:
-                continue
-            rows = iteration.indexes[view]
-            if rows is None:
-                raise RuntimeError(f"compile offered the column {view} on no rows")
-            plan.makes_rows[table] = rows
-            plan.carried_by.setdefault(rows.id, []).append(view)
-            plan.views_by_node.setdefault(view.node_id, []).append(view)
+            if table.node_id in iteration.runs_per_row_of:
+                plan.carried_by.setdefault(iteration.tables[table].id, []).append(view)
+                plan.views_by_node.setdefault(view.node_id, []).append(view)
         owned = {index.id for index in (*plan.makes_rows.values(), *plan.listed.values())}
         for planned in (plan.run_per_row_by, plan.carried_by, plan.listed_inputs):
             for index_id in planned.keys() - owned:
