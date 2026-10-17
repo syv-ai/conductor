@@ -52,6 +52,7 @@ from conductor.node import NodeDefinition, NodeVersion
 from conductor.ref import Ref
 from conductor.registry import NodeRegistry
 from conductor.series import Index, Series
+from conductor.table import columns_of
 
 if TYPE_CHECKING:
     from conductor.graph.compiled import CompiledGraph
@@ -305,7 +306,13 @@ class Compilation:
         # A version is a NodeVersion or a compiled graph, which this module
         # may not import; this is the one place compile tells them apart.
         graphs = frozenset(node_id for node_id, version in versions.items() if not isinstance(version, NodeVersion))
-        offered = {node_id: frozenset(str(out.name) for out in versions[node_id].interface.outputs) for node_id in graphs}
+        offered = {
+            node_id: frozenset(
+                name for out in versions[node_id].interface.outputs
+                for name in (str(out.name), *(f"{out.name}.{column}" for column, _ in columns_of(out.dtype)))
+            )
+            for node_id in graphs
+        }
         self.layout = Layout(
             nodes={node_id: _resolved_edges(self.authored[node_id], offered) if offered else self.authored[node_id] for node_id in runs},
             order=tuple(runs),
@@ -543,7 +550,7 @@ class Compilation:
         nodes, order = dict(layout.nodes), list(layout.order)
         versions, definitions, graphs = dict(layout.versions), dict(layout.definitions), set(layout.graphs)
         runs_per_row_of, types = dict(iteration.runs_per_row_of), dict(iteration.types)
-        indexes, receives = dict(iteration.indexes), dict(iteration.receives)
+        indexes, receives, views = dict(iteration.indexes), dict(iteration.receives), dict(iteration.views)
         for node_id in embedded_ids:
             node = nodes[node_id]
             # Only an input the graph offers crosses into it; an edge into any
@@ -569,10 +576,13 @@ class Compilation:
             types.update(embedded.types)
             indexes.update(embedded.indexes)
             receives.update(embedded.receives)
+            views.update(embedded.views)
         self.layout = replace(
             layout, nodes=nodes, order=tuple(order), versions=versions, definitions=definitions, graphs=frozenset(graphs),
         )
-        self.iteration = replace(iteration, runs_per_row_of=runs_per_row_of, types=types, indexes=indexes, receives=receives)
+        self.iteration = replace(
+            iteration, runs_per_row_of=runs_per_row_of, types=types, indexes=indexes, receives=receives, views=views,
+        )
 
     def conditions(self) -> None:
         """The condition under which each output appears, from the ``choice``
@@ -582,6 +592,10 @@ class Compilation:
             [layout.nodes[node_id] for node_id in layout.order if node_id in iteration.runs_per_row_of],
             self.interfaces, iteration.runs_per_row_of,
         )
+        # A column offered as a field appears exactly when its table does.
+        for view, (table, _) in iteration.views.items():
+            if table in self.output_conditions:
+                self.output_conditions[view] = self.output_conditions[table]
 
     def interface(self) -> None:
         """What the graph takes and returns, read off its nodes (``derive_interface``).
@@ -707,7 +721,27 @@ class Compilation:
                 _read_by=tuple(plan.read_by.get(ref, ())),
                 _listed=name in self.listed.get(node_id, ()),
                 _makes_rows=plan.makes_rows.get(ref),
+                _view_of=None,
                 **plan.share(plan.makes_rows.get(ref) or plan.listed.get(ref)),
+            )
+        for view in plan.views_by_node.get(node_id, ()):
+            table, column = iteration.views[view]
+            fields[view.field] = CompiledField(
+                ref=view,
+                problems=(),
+                _cause=cause,
+                _input=False,
+                _output=True,
+                _binding=None,
+                _type=iteration.types[view] if ready else None,
+                _index=iteration.indexes[view] if ready else None,
+                _receives=None,
+                _condition=conditions[view] if ready else None,
+                _read_by=tuple(plan.read_by.get(view, ())),
+                _listed=False,
+                _makes_rows=None,
+                _view_of=(table, column),
+                **plan.share(None),
             )
         return fields
 
@@ -844,8 +878,9 @@ class _ReadPlan:
       ``carried_by``, the outputs whose values sit on it; ``listed_inputs``,
       the lists set on nodes whose rows are made under each of its rows.
     - ``makes_rows`` and ``listed``: the field that makes each index's
-      rows, a series output or a list set on an input. Every index has
-      exactly one, and its share is stored on that field.
+      rows, a series output, a table output (the rows its columns are
+      offered on) or a list set on an input. Every index has exactly one,
+      and its share is stored on that field.
     """
 
     read_by: dict[Ref, list[tuple[Ref, Receive]]]
@@ -855,13 +890,15 @@ class _ReadPlan:
     listed_inputs: dict[str, list[Ref]]
     makes_rows: dict[Ref, Index]
     listed: dict[Ref, Index]
+    #: Per node, the columns of its table outputs offered as fields.
+    views_by_node: dict[str, list[Ref]]
 
     @classmethod
     def of(cls, compilation: Compilation) -> _ReadPlan:
         """The plan for a finished compile. An index with entries and no
         owner is a bug in compile, and raises."""
         iteration, listed = compilation.iteration, compilation.listed
-        plan = cls({}, {}, {}, {}, {}, {}, {})
+        plan = cls({}, {}, {}, {}, {}, {}, {}, {})
         for node_id in compilation.layout.order:
             if node_id not in iteration.runs_per_row_of:
                 continue
@@ -886,6 +923,15 @@ class _ReadPlan:
                     plan.carried_by.setdefault(index.id, []).append(ref)
                     if out.dtype.element is not None:
                         plan.makes_rows[ref] = index
+        for view, (table, _) in iteration.views.items():
+            if table.node_id not in iteration.runs_per_row_of:
+                continue
+            rows = iteration.indexes[view]
+            if rows is None:
+                raise RuntimeError(f"compile offered the column {view} on no rows")
+            plan.makes_rows[table] = rows
+            plan.carried_by.setdefault(rows.id, []).append(view)
+            plan.views_by_node.setdefault(view.node_id, []).append(view)
         owned = {index.id for index in (*plan.makes_rows.values(), *plan.listed.values())}
         for planned in (plan.run_per_row_by, plan.carried_by, plan.listed_inputs):
             for index_id in planned.keys() - owned:

@@ -132,6 +132,7 @@ class Embedded:
     types: dict[Ref, Any]
     indexes: dict[Ref, Index | None]
     receives: dict[Ref, Receive]
+    views: dict[Ref, tuple[Ref, str]]
 
 
 def graph_as_embedded(
@@ -233,7 +234,10 @@ def graph_as_embedded(
         else:
             receives[new_ref] = _received_under(receipt, index, prefix, runs_per_row_of)
 
-    return Embedded(**structure, runs_per_row_of=inner_runs_per_row_of, types=types, indexes=indexes, receives=receives)
+    views = {inside(view): (inside(table), column) for view, (table, column) in iteration.views.items()}
+    return Embedded(
+        **structure, runs_per_row_of=inner_runs_per_row_of, types=types, indexes=indexes, receives=receives, views=views,
+    )
 
 
 def under(index: Index | None, prefix: str, row: Index | None) -> Index | None:

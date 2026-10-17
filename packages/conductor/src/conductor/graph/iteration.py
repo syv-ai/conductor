@@ -85,6 +85,7 @@ from conductor.metadata import Input, Output
 from conductor.node import NodeDefinition
 from conductor.ref import Ref
 from conductor.series import Index, Series
+from conductor.table import Table, columns_of
 
 if TYPE_CHECKING:
     from conductor.graph.compiled import CompiledGraph
@@ -97,7 +98,8 @@ class Iteration:
     ``runs_per_row_of``: for each node, the index it runs once per row of, or
     ``None`` when it runs once; for each embedded graph whose entering
     series agree, the index its inner nodes run per row of. A node has an
-    entry exactly when the walk derived it. ``types``: the type that travels on every
+    entry exactly when the walk derived it. ``views``: each column a table
+    output offers as a field, by address. ``types``: the type that travels on every
     field; ``indexes``: for a field carrying a series, where its rows come
     from (``None`` otherwise). ``receives``: for every input, how a unit
     receives its value. ``interfaces``: each node's inputs and outputs
@@ -111,6 +113,9 @@ class Iteration:
     receives: Mapping[Ref, Receive]
     interfaces: Mapping[str, Interface]
     problems: tuple[Problem, ...]
+    #: Every column of a table output offered as a field of its own, by its
+    #: address (``csv.rows.email``): the table output and the column.
+    views: Mapping[Ref, tuple[Ref, str]]
 
 
 def derive(
@@ -226,6 +231,8 @@ class _Walk:
         self.carried: dict[Ref, _Carried] = {}
         #: What every input of every visited node carries.
         self.arrived: dict[Ref, _Carried] = {}
+        #: Each column a table output offers as a field: the table output and the column.
+        self.views: dict[Ref, tuple[Ref, str]] = {}
         #: How every input of every visited node receives its value.
         self.receives: dict[Ref, Receive] = {}
         #: Each visited node's inputs and outputs, completed: every type the
@@ -243,6 +250,7 @@ class _Walk:
             receives=self.receives,
             interfaces=self.completed,
             problems=tuple(self.problems),
+            views=self.views,
         )
 
     def visit(self, node: GraphNode) -> None:
@@ -367,6 +375,10 @@ class _Walk:
         outputs = answered
         self.completed[node.id] = replace(self.versions[node.id].interface, inputs=inputs, outputs=outputs)
         faults = field_problems(node.id, outputs, frozenset(i.name for i in inputs), untyped_ok=False)
+        faults += [
+            problem("series_of_tables", node.id, out.name) for out in outputs
+            if (element := getattr(out.dtype, "element", None)) is not None and (element is Table or columns_of(element))
+        ]
         if faults:
             # An output no edge could carry, or a name used twice: the node has
             # its interface, so an editor draws it, and nothing is derived
@@ -397,16 +409,47 @@ class _Walk:
         self.arrived.update(arrived.arrivals)
         self.receives.update(arrived.receives)
         version = self.versions[node.id]
+        names = {out.name for out in outputs}
         for out in outputs:
             ref = address(node.id, out.name, self.graphs)
             if node.id in self.graphs:
                 self.carried[ref] = self._carried_out_of_graph(node.id, version, out, runs_per_row_of)
+                self._views_out_of_graph(node.id, version, out, runs_per_row_of)
+            elif columns_of(out.dtype):
+                self._carry_table(node.id, ref, out.dtype, runs_per_row_of, names)
             elif out.dtype.element is not None:
                 self.carried[ref] = _Carried(out.dtype, self._rows_of(ref, runs_per_row_of))
             elif runs_per_row_of is not None:
                 self.carried[ref] = _Carried(Series[out.dtype], runs_per_row_of)
             else:
                 self.carried[ref] = _Carried(out.dtype, None)
+
+    def _carry_table(self, node_id: str, ref: Ref, dtype: Any, runs_per_row_of: Index | None, names: set[str]) -> None:
+        """A table output: one table per run of its node, and each of its
+        columns offered as a field of its own (``rows.email``), a series on
+        the table's rows, an index the table output owns. A node output already
+        named like a column's field is ``view_name_taken``."""
+        self.carried[ref] = _Carried(Series[dtype], runs_per_row_of) if runs_per_row_of is not None else _Carried(dtype, None)
+        rows = self._rows_of(ref, runs_per_row_of)
+        for column, column_type in columns_of(dtype):
+            name = f"{ref.field}.{column}"
+            if name in names:
+                self.problems.append(problem("view_name_taken", node_id, name, table=ref.field, column=column))
+                continue
+            view = Ref(ref.node_id, name)
+            self.carried[view] = _Carried(Series[column_type], rows)
+            self.views[view] = (ref, column)
+
+    def _views_out_of_graph(self, node_id: str, graph: CompiledGraph, out: Output, row: Index | None) -> None:
+        """The columns a table output of a compiled graph offers, at the graph
+        node, as they will stand once its nodes are in its place."""
+        iteration = graph._compilation.iteration
+        prefix = f"{node_id}{SEPARATOR}"
+        for view, (table, column) in iteration.views.items():
+            if str(table) == out.name:
+                at = address(node_id, f"{out.name}.{column}", self.graphs)
+                self.carried[at] = _Carried(iteration.types[view], under(iteration.indexes[view], prefix, row))
+                self.views[at] = (address(node_id, out.name, self.graphs), column)
 
     @staticmethod
     def _rows_of(ref: Ref, runs_per_row_of: Index | None) -> Index:

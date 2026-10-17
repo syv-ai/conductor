@@ -98,6 +98,12 @@ CATALOGUE: Mapping[str, tuple[str, bool]] = {
     "lists_on_a_per_row_node": (
         "Only one list can be set directly on a node that runs per row; '{a}' and '{b}' are both lists.", True,
     ),
+    "series_of_tables": (
+        "The output '{field}' is a series of tables; a table already holds many rows, so return one table.", True,
+    ),
+    "view_name_taken": (
+        "The output '{field}' has the name the column '{column}' of the table '{table}' is offered under.", True,
+    ),
     "misaligned": ("'{a}' and '{b}' get their rows from different sources, so the node cannot run per row.", True),
     "no_outputs": ("The node has no fields to pass on, so nothing can be connected from it.", False),
     "one_edge_per_parameter": ("Parameter '{field}' takes one edge; an extra edge is an extra parameter.", True),

@@ -67,6 +67,12 @@ def column_type(dtype: type[DType]) -> pl.DataType | None:
     return None if name is None else getattr(pl, name)()
 
 
+def columns_of(dtype: Any) -> tuple[Column, ...]:
+    """The columns a table type declares, each offered as a field of its own
+    (``rows.email``); ``()`` for bare ``Table`` and for any other type."""
+    return dtype.columns if isinstance(dtype, type) and issubclass(dtype, Table) else ()
+
+
 def row_id(index: Index, row: Row) -> str:
     """The global id of the row at ``row`` on ``index``: ``contacts:0``, ``structured.invoices:0.1``.
 
@@ -110,6 +116,14 @@ class Table(DType):
 
     def __init__(self, value: Any) -> None:
         self.frame: pl.DataFrame = self._read(value)
+
+    @classmethod
+    def _holding(cls, frame: pl.DataFrame) -> Table:
+        """A table of this type holding ``frame`` as it is, already read: the
+        engine's way to store a table it has given row ids."""
+        made = cls.__new__(cls)
+        made.frame = frame
+        return made
 
     def __class_getitem__(cls, item: Any) -> type[Table]:
         """``Table[("name", Text), ("email", Text)]``: the table type with these columns, built once per set."""
