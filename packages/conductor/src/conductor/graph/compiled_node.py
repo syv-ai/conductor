@@ -166,18 +166,10 @@ class CompiledNode:
     #: The read plan, the engine's alone: the walk's decisions inverted once
     #: at compile, so the ledger looks each up instead of searching the graph
     #: on every run. ``_reads``: every output an edge into this node reads,
-    #: one per edge ref, with how the input it feeds receives it. An index's
-    #: share sits on what makes its rows — here, the index this node's
-    #: series outputs make (``_makes_rows``, ``None`` for a node with none):
-    #: the nodes that run once per row of it (``_run_per_row_by``), the
-    #: outputs that sit on it (``_carried_by``) and the inputs holding a list
-    #: set on the node, made under each of its rows (``_listed_inputs``),
-    #: each in execution order. Empty on a node the walk did not derive, and on a ``graph``.
-    _makes_rows: Index | None = field(repr=False)
+    #: one per edge ref, with how the input it feeds receives it. Empty on a
+    #: node the walk did not derive, and on a ``graph``. What runs on each
+    #: index sits on the field that makes its rows (``CompiledField``).
     _reads: tuple[tuple[Ref, Receive], ...] = field(repr=False)
-    _run_per_row_by: tuple[str, ...] = field(repr=False)
-    _carried_by: tuple[Ref, ...] = field(repr=False)
-    _listed_inputs: tuple[Ref, ...] = field(repr=False)
     #: Every input and output by name: what ``CompiledGraph.field`` hands back.
     _fields: Mapping[str, CompiledField] = field(repr=False)
 
@@ -330,10 +322,15 @@ class CompiledField:
     _condition: Condition = field(repr=False)
     #: Its share of the read plan (see ``CompiledNode._reads``): every input
     #: an edge from this output feeds, in execution order, with how it
-    #: receives the value (``_read_by``); and, for a ``listed`` input, the
-    #: plan of the index its list set on the node makes.
+    #: receives the value (``_read_by``). A field that makes an index's rows —
+    #: a series output (``_makes_rows``, that index) or a ``listed`` input —
+    #: owns that index's share: the nodes that run once per row of it
+    #: (``_run_per_row_by``), the outputs that sit on it (``_carried_by``) and
+    #: the inputs holding a list set on a node, made under each of its rows
+    #: (``_listed_inputs``), each in execution order. Empty on any other field.
     _read_by: tuple[tuple[Ref, Receive], ...] = field(repr=False)
     _listed: bool = field(repr=False)
+    _makes_rows: Index | None = field(repr=False)
     _run_per_row_by: tuple[str, ...] = field(repr=False)
     _carried_by: tuple[Ref, ...] = field(repr=False)
     _listed_inputs: tuple[Ref, ...] = field(repr=False)

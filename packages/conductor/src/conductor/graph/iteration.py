@@ -49,11 +49,14 @@ A scalar input holding a typed-in sequence (a multi-file upload, a list
 typed by hand) is a series on an index of its own, and the node runs once
 per row of it, exactly as it would for a series arriving on an edge.
 
-Indexes are only named here; the engine adds rows to them later. A node's
-series output sits on ``Index(node_id)`` — a root when the node runs
-once, a child of the node's own index when it runs per row; a gathering
-``Series[X]`` input sits on ``Index(ref)``. The compiler reasons about
-which index, never about how many rows.
+Indexes are only named here; the engine adds rows to them later. Every
+index belongs to the field that makes its rows and is named after it
+(``_rows_of``): a series output ``split.lines`` sits on
+``Index("split.lines")`` — a root when the node runs once, a child of the
+node's own index when it runs per row — so two series outputs of one node
+are two indexes, each with its own length. A gathering ``Series[X]`` input
+sits on an index named after the input. The compiler reasons about which
+index, never about how many rows.
 """
 
 from __future__ import annotations
@@ -371,19 +374,25 @@ class _Walk:
         self.runs_per_row_of[node.id] = runs_per_row_of
         self.arrived.update(arrived.arrivals)
         self.receives.update(arrived.receives)
-        node_index: Index | None = None
         version = self.versions[node.id]
         for out in outputs:
             ref = address(node.id, out.name, self.graphs)
             if node.id in self.graphs:
                 self.carried[ref] = self._carried_out_of_graph(node.id, version, out, runs_per_row_of)
             elif out.dtype.element is not None:
-                node_index = node_index or Index(node.id, parent=runs_per_row_of)
-                self.carried[ref] = _Carried(out.dtype, node_index)
+                self.carried[ref] = _Carried(out.dtype, self._rows_of(ref, runs_per_row_of))
             elif runs_per_row_of is not None:
                 self.carried[ref] = _Carried(Series[out.dtype], runs_per_row_of)
             else:
                 self.carried[ref] = _Carried(out.dtype, None)
+
+    @staticmethod
+    def _rows_of(ref: Ref, runs_per_row_of: Index | None) -> Index:
+        """The index the rows an output makes sit on: named after the output
+        (``split.lines``), under the row its node runs on. The one place an
+        output's index is named; an input's own index is named after the input
+        (``_originates``, a gathering ``Series[X]``)."""
+        return Index(str(ref), parent=runs_per_row_of)
 
     @staticmethod
     def _carried_out_of_graph(node_id: str, graph: CompiledGraph, out: Output, row: Index | None) -> _Carried:

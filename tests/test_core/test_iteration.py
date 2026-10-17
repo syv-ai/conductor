@@ -186,15 +186,16 @@ def test_a_series_is_made_at_the_node_that_produces_it():
 
     texts_type, texts_index = compiled.field(Ref("docs", "texts")).type, compiled.field(Ref("docs", "texts")).index
     assert texts_type is Series[Txt]
-    assert texts_index == Index("docs")
+    assert texts_index == Index("docs.texts")
     assert texts_index.parent is None
 
 
-def test_every_series_a_node_produces_shares_its_index():
-    """One node, one index: its series outputs are columns of one table."""
+def test_each_series_output_makes_rows_on_an_index_of_its_own():
+    """Each output that returns rows owns its table: two series outputs of one node are two indexes, named after the outputs."""
     compiled = _compiled([GraphNode(id="docs", type="docs", version=1)])
 
-    assert compiled.field(Ref("docs", "texts")).index == compiled.field(Ref("docs", "filenames")).index
+    assert compiled.field(Ref("docs", "texts")).index == Index("docs.texts")
+    assert compiled.field(Ref("docs", "filenames")).index == Index("docs.filenames")
 
 
 def test_a_series_into_a_scalar_input_makes_the_node_iterate():
@@ -204,8 +205,8 @@ def test_a_series_into_a_scalar_input_makes_the_node_iterate():
     ])
 
     assert compiled.is_runnable
-    assert compiled.node("up").runs_per_row_of == Index("docs")
-    assert compiled.field(Ref("up", "text")).index == Index("docs")
+    assert compiled.node("up").runs_per_row_of == Index("docs.texts")
+    assert compiled.field(Ref("up", "text")).index == Index("docs.texts")
 
 
 def test_an_iterating_nodes_outputs_are_series_on_the_same_index():
@@ -216,7 +217,7 @@ def test_an_iterating_nodes_outputs_are_series_on_the_same_index():
 
     result_type, result_index = compiled.field(Ref("up", "result")).type, compiled.field(Ref("up", "result")).index
     assert result_type is Series[Txt]
-    assert result_index == Index("docs")
+    assert result_index == Index("docs.texts")
 
 
 def test_iteration_is_contagious_and_needs_no_construct():
@@ -228,7 +229,7 @@ def test_iteration_is_contagious_and_needs_no_construct():
         GraphNode(id="n", type="count", version=1, bindings={"text": _edge(("up", "result"))}),
     ])
 
-    assert compiled.node("n").runs_per_row_of == Index("docs")
+    assert compiled.node("n").runs_per_row_of == Index("docs.texts")
     assert compiled.field(Ref("n", "result")).type is Series[Num]
 
 
@@ -241,9 +242,9 @@ def test_a_scalar_beside_a_series_broadcasts():
     ])
 
     assert compiled.is_runnable
-    assert compiled.node("p").runs_per_row_of == Index("docs")
+    assert compiled.node("p").runs_per_row_of == Index("docs.texts")
     assert compiled.field(Ref("p", "a")).index is None
-    assert compiled.field(Ref("p", "b")).index == Index("docs")
+    assert compiled.field(Ref("p", "b")).index == Index("docs.texts")
 
 
 # --- admission: the one type question, asked here ---------------------------------
@@ -301,8 +302,8 @@ def test_an_iterating_pass_through_binds_the_element_and_iterates():
 
     assert compiled.is_runnable, compiled.problems
     assert compiled.field(Ref("r", "result")).type is Series[Txt]
-    assert compiled.node("r").runs_per_row_of == Index("docs")
-    assert compiled.node("up").runs_per_row_of == Index("docs")
+    assert compiled.node("r").runs_per_row_of == Index("docs.texts")
+    assert compiled.node("up").runs_per_row_of == Index("docs.texts")
 
 
 def test_a_reduction_over_the_variable_binds_from_the_series_element():
@@ -468,7 +469,7 @@ def test_an_open_roster_takes_one_input_per_edge_received_whole():
     assert [(i.name, i.dtype) for i in interface.inputs] == [("code", Txt), ("antal", Num), ("tekster", Series[Txt])]
     assert interface.inputs[2].widget is None
     assert compiled.node("s").runs_per_row_of is None
-    assert compiled.field(Ref("s", "tekster")).index == Index("docs")
+    assert compiled.field(Ref("s", "tekster")).index == Index("docs.texts")
 
 
 def test_an_open_roster_parameter_takes_one_edge():
@@ -567,7 +568,7 @@ def test_compute_outputs_sees_the_dtype_each_connected_input_receives():
 
     assert compiled.is_runnable, compiled.problems
     assert [o.name for o in compiled.node("o").interface.outputs] == ["from_iteration-test-txt"]
-    assert compiled.field(Ref("o", "from_iteration-test-txt")).index == Index("docs")
+    assert compiled.field(Ref("o", "from_iteration-test-txt")).index == Index("docs.texts")
     assert [o.name for o in compiled.node("bare").interface.outputs] == ["result"]
 
 
@@ -665,11 +666,21 @@ def test_two_series_on_one_index_align():
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
-        GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("up", "result")), "b": _edge(("docs", "filenames"))}),
+        GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("up", "result")), "b": _edge(("docs", "texts"))}),
     ])
 
     assert compiled.is_runnable
-    assert compiled.node("p").runs_per_row_of == Index("docs")
+    assert compiled.node("p").runs_per_row_of == Index("docs.texts")
+
+
+def test_two_series_outputs_of_one_node_do_not_line_up():
+    """Each output owns its rows, so two of one node's series are two tables: a node fed both per row can't tell which goes with which."""
+    compiled = _compiled([
+        GraphNode(id="docs", type="docs", version=1),
+        GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("docs", "texts")), "b": _edge(("docs", "filenames"))}),
+    ])
+
+    assert [problem.code for problem in compiled.problems] == ["misaligned"]
 
 
 def test_two_series_on_unrelated_indexes_are_a_fatal_problem_naming_both():
@@ -700,7 +711,7 @@ def test_a_reduction_on_a_root_yields_a_scalar_and_does_not_iterate():
 
     assert compiled.is_runnable
     assert compiled.node("j").runs_per_row_of is None
-    assert compiled.field(Ref("j", "texts")).index == Index("docs")
+    assert compiled.field(Ref("j", "texts")).index == Index("docs.texts")
     assert compiled.field(Ref("j", "result")).type is compiled.field(Ref("j", "result")).type
     assert compiled.field(Ref("j", "result")).type is Txt
     assert compiled.field(Ref("j", "result")).index is None
@@ -715,10 +726,10 @@ def test_a_node_running_per_row_returning_a_series_makes_rows_of_a_child_index()
     ])
 
     lines_type, lines_index = compiled.field(Ref("lines", "result")).type, compiled.field(Ref("lines", "result")).index
-    assert compiled.node("lines").runs_per_row_of == Index("docs")
+    assert compiled.node("lines").runs_per_row_of == Index("docs.texts")
     assert lines_type is Series[Txt]
-    assert lines_index == Index("lines")
-    assert lines_index.parent == Index("docs")
+    assert lines_index == Index("lines.result")
+    assert lines_index.parent == Index("docs.texts")
 
 
 def test_a_reduction_on_a_child_runs_per_row_of_the_parent():
@@ -730,9 +741,9 @@ def test_a_reduction_on_a_child_runs_per_row_of_the_parent():
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("lines", "result"))}),
     ])
 
-    assert compiled.node("j").runs_per_row_of == Index("docs")
+    assert compiled.node("j").runs_per_row_of == Index("docs.texts")
     assert compiled.field(Ref("j", "result")).type is Series[Txt]
-    assert compiled.field(Ref("j", "result")).index == Index("docs")
+    assert compiled.field(Ref("j", "result")).index == Index("docs.texts")
 
 
 def test_a_parent_index_series_broadcasts_down_to_a_child_index_node():
@@ -740,11 +751,11 @@ def test_a_parent_index_series_broadcasts_down_to_a_child_index_node():
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
         GraphNode(id="lines", type="lines", version=1, bindings={"text": _edge(("docs", "texts"))}),
-        GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("lines", "result")), "b": _edge(("docs", "filenames"))}),
+        GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("lines", "result")), "b": _edge(("docs", "texts"))}),
     ])
 
     assert compiled.is_runnable
-    assert compiled.node("p").runs_per_row_of == Index("lines")
+    assert compiled.node("p").runs_per_row_of == Index("lines.result")
 
 
 def test_two_children_of_one_parent_do_not_align():
@@ -797,8 +808,8 @@ def test_two_refs_on_one_index_into_a_scalar_input_are_a_union_on_it():
     ])
 
     assert compiled.is_runnable, compiled.problems
-    assert compiled.node("m").runs_per_row_of == Index("docs")
-    assert (compiled.field(Ref("m", "result")).type, compiled.field(Ref("m", "result")).index) == (Series[Txt], Index("docs"))
+    assert compiled.node("m").runs_per_row_of == Index("docs.texts")
+    assert (compiled.field(Ref("m", "result")).type, compiled.field(Ref("m", "result")).index) == (Series[Txt], Index("docs.texts"))
 
 
 def test_two_refs_on_different_indexes_into_a_scalar_input_is_fatal():
@@ -821,7 +832,7 @@ def test_two_series_refs_on_one_index_into_a_series_input_read_that_index_not_a_
     ])
 
     assert compiled.node("j").runs_per_row_of is None
-    assert compiled.field(Ref("j", "texts")).index == Index("docs")
+    assert compiled.field(Ref("j", "texts")).index == Index("docs.texts")
 
 
 def test_one_scalar_ref_into_a_series_input_is_a_gather_of_one():

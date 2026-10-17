@@ -512,7 +512,7 @@ def test_a_static_hashes_as_its_type_writes_it_not_as_the_author_spelled_it():
     assert fingerprint(2) != fingerprint(3)
 
 
-def test_series_outputs_of_two_lengths_fail_the_returning_node_with_invalid_output():
+def test_series_outputs_of_two_lengths_both_land_each_on_its_own_index():
     from dataclasses import dataclass
 
     @dataclass(frozen=True)
@@ -533,9 +533,11 @@ def test_series_outputs_of_two_lengths_fail_the_returning_node_with_invalid_outp
     reg.register(Uneven)
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="u", type="uneven", version=1, bindings={"text": Static("x")})]), reg)
 
-    error = next(e for e in _leg(compiled) if e.type == "node_error")
+    ending = list(_leg(compiled))[-1]
+    result = ending.state.results(compiled)["u"]
 
-    assert error.cause.code == "invalid_output" and "differ in length" in error.cause.details["reason"]
+    assert ending.type == "graph_complete"
+    assert (list(result["a"]), list(result["b"])) == (["x"], ["y", "z"])
 
 
 def test_an_answer_of_the_wrong_shape_or_naming_a_row_twice_names_the_node_and_output():

@@ -148,11 +148,17 @@ def test_a_root_index_is_made_sealed_by_the_unit_that_produces_it():
     assert all(ledger.ready(unit) for unit in ledger.units("up"))
 
 
-def test_series_outputs_of_one_unit_must_agree_in_length():
-    ledger = _ledger([DOCS])
+def test_series_outputs_of_one_unit_may_differ_in_length():
+    """Each output makes rows on its own index, so their lengths are their own."""
+    ledger = _ledger([
+        DOCS,
+        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
+        GraphNode(id="name", type="upper", version=1, bindings={"text": _edge(("docs", "names"))}),
+    ])
+    ledger.record(("docs", ()), {"texts": ["a", "b"], "names": ["x"]})
 
-    with pytest.raises(ValueError, match="length"):
-        ledger.record(("docs", ()), {"texts": ["a", "b"], "names": ["x"]})
+    assert ledger.units("up") == [("up", (0,)), ("up", (1,))]
+    assert ledger.units("name") == [("name", (0,))]
 
 
 def test_a_unit_that_skips_every_series_output_gates_its_index():
@@ -211,7 +217,7 @@ def test_a_unit_running_per_row_returning_a_series_makes_rows_under_its_row():
 
     assert ledger.complete("lines")
     lines = ledger.results()["lines"]["result"]
-    assert lines.index == Index("lines", parent=Index("docs"))
+    assert lines.index == Index("lines.result", parent=Index("docs.texts"))
     assert lines.rows == ((0, 0), (0, 1), (1, 0))
     assert list(lines) == ["a", "b", "c"]
 
@@ -237,12 +243,12 @@ def test_a_parent_index_series_broadcasts_down_to_a_child_row():
     ledger = _ledger([
         DOCS,
         GraphNode(id="lines", type="lines", version=1, bindings={"text": _edge(("docs", "texts"))}),
-        GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("lines", "result")), "b": _edge(("docs", "names"))}),
+        GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("lines", "result")), "b": _edge(("docs", "texts"))}),
     ])
     ledger.record(("docs", ()), {"texts": ["a\nb", "c"], "names": ["x", "y"]})
     ledger.record(("lines", (0,)), {"result": ["a", "b"]})
 
-    assert ledger.inputs_for(("p", (0, 1))) == {"a": "b", "b": "x"}
+    assert ledger.inputs_for(("p", (0, 1))) == {"a": "b", "b": "a\nb"}
 
 
 def test_a_reduction_on_a_root_waits_for_the_whole_series():
@@ -258,8 +264,22 @@ def test_a_reduction_on_a_root_waits_for_the_whole_series():
 
     assert ledger.ready(("j", ()))
     texts = ledger.inputs_for(("j", ()))["texts"]
-    assert texts.index == Index("docs")
+    assert texts.index == Index("docs.texts")
     assert list(texts) == ["A", "B"]
+
+
+def test_a_row_that_makes_no_rows_wakes_the_reduction_under_it():
+    """An empty list is an empty group, made in the same write: the reduction under that row is ready at once."""
+    ledger = _ledger([
+        DOCS,
+        GraphNode(id="lines", type="lines", version=1, bindings={"text": _edge(("docs", "texts"))}),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("lines", "result"))}),
+    ])
+    ledger.record(("docs", ()), {"texts": ["a\nb", ""], "names": ["x", "y"]})
+    ledger.record(("lines", (0,)), {"result": ["a", "b"]})
+
+    assert ledger.record(("lines", (1,)), {"result": []}) == [("j", (1,))]
+    assert list(ledger.inputs_for(("j", (1,)))["texts"]) == []
 
 
 def test_a_gather_lands_on_the_inputs_own_index_and_drops_skipped_sources():
@@ -379,12 +399,11 @@ def test_a_decision_over_a_whole_column_gates_what_hangs_off_the_branch_not_take
     assert ledger.ready(("full", ())) and ledger.ready(("empty", ()))
     assert list(ledger.inputs_for(("full", ()))["texts"]) == ["a", "b"]
     assert ledger.inputs_for(("empty", ())) == Skip(at=())
-    # the skip reaches through a node running per row: its rows exist (made by the full branch), each is skipped at its own row
-    assert ledger.units("up") == [("up", (0,)), ("up", (1,))]
-    assert ledger.inputs_for(("up", (0,))) == Skip(at=())
+    # the branch not taken has an index of its own with no rows, so the node running per row of it stands in once, at the top
+    assert ledger.units("up") == [("up", ())]
+    assert ledger.inputs_for(("up", ())) == Skip(at=())
     assert not ledger.ready(("after", ()))
-    ledger.record(("up", (0,)), Skip(at=()))
-    ledger.record(("up", (1,)), Skip(at=()))
+    ledger.record(("up", ()), Skip(at=()))
     assert ledger.inputs_for(("after", ())) == Skip(at=())
     ledger.record(("empty", ()), Skip(at=()))
     ledger.record(("after", ()), Skip(at=()))
@@ -458,7 +477,7 @@ def test_results_hold_scalars_and_series_on_their_indexes():
 
     results = ledger.results()
     assert results["j"] == {"result": "A+B"}
-    assert results["up"]["result"].index == Index("docs")
+    assert results["up"]["result"].index == Index("docs.texts")
     assert list(results["up"]["result"]) == ["A", "B"]
     assert results["docs"]["names"].rows == ((0,), (1,))
 
@@ -514,7 +533,7 @@ def test_two_refs_on_one_index_into_a_series_input_are_one_series_on_it():
     ledger.record(("b", (1,)), {"result": "B1"})
 
     texts = ledger.inputs_for(("j", ()))["texts"]
-    assert texts.index == Index("docs") and texts.rows == ((0,), (1,))
+    assert texts.index == Index("docs.texts") and texts.rows == ((0,), (1,))
     assert list(texts) == ["A0", "B1"]
 
 

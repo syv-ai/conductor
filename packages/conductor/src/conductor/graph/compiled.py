@@ -159,19 +159,17 @@ class CompiledGraph:
         return self._compilation.compiled_nodes()
 
     @cached_property
-    def _index_owners(self) -> Mapping[str, CompiledNode | CompiledField]:
-        """Who owns each index's share of the read plan, by index id: a node,
-        for the index named after it, or the input whose list set on the
-        node makes one. The ledger's way back from an index to its owner, read
-        on its first question; compile names the index, so nobody parses
-        the id to find which of the two it is."""
-        owners: dict[str, CompiledNode | CompiledField] = {}
-        for node_id, node in self._nodes.items():
-            if node._kind == "graph":
-                continue
-            owners[node_id] = node
+    def _index_owners(self) -> Mapping[str, CompiledField]:
+        """The field that makes each index's rows, by index id: a series
+        output, or an input holding a list set on its node. It carries the
+        index's share of the read plan. The ledger's way back from an index
+        to its owner, read on its first question."""
+        owners: dict[str, CompiledField] = {}
+        for node in self._nodes.values():
             for compiled_field in node._fields.values():
-                if compiled_field._listed:
+                if compiled_field._makes_rows is not None:
+                    owners[compiled_field._makes_rows.id] = compiled_field
+                elif compiled_field._listed:
                     owners[compiled_field.index.id] = compiled_field
         return owners
 

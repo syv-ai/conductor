@@ -89,7 +89,7 @@ def test_every_arrow_says_how_its_input_receives_it():
             n2["all · join"]
             n3["note · upper"]
             n4["both · join"]
-            n0 -->|per row of docs| n1
+            n0 -->|per row of docs.result| n1
             n1 -->|whole| n2
             n2 --> n3
             n3 -->|gathered| n4
@@ -110,8 +110,8 @@ def test_an_embedded_graph_is_a_subgraph_of_its_inner_nodes():
                 n2["emb/up · upper"]
                 n3["emb/all · join"]
             end
-            n0 -->|per row of docs| n2
-            n2 -->|grouped by docs| n3
+            n0 -->|per row of docs.result| n2
+            n2 -->|grouped by docs.result| n3
         """)
 
 
