@@ -72,6 +72,7 @@ from conductor.graph.receive import Broadcast, Gather, PerRow, Receive, RowsUnde
 from conductor.metadata import Input
 from conductor.ref import Ref
 from conductor.series import Index, Row, Series
+from conductor.table import Table, with_row_ids
 
 #: One run of one node: the node id and the row it runs on — ``()`` for
 #: a node that runs once; a row shorter than the index the node runs per row of, for the one
@@ -154,6 +155,9 @@ class Ledger:
         #: Each field the ledger reads, by the address it was asked under:
         #: ``compiled.field`` once per address, a dict read after that.
         self._fields = _FieldsOf(compiled)
+        #: Every column of a table output offered as a field: its values are the
+        #: table's cells, read where the table sits (``_cell``).
+        self._views = compiled._views
         self._values: dict[Ref, dict[Row, Any]] = {}
         #: The fields with a ``SKIPPED`` written at some row. Only these can
         #: hide a value under a skip above it, so a read of any other field is
@@ -513,13 +517,35 @@ class Ledger:
     def _lookup(self, ref: Ref, key: Row) -> tuple[Any, Row]:
         """``(value, row)`` for the value at ``(ref, key)``: ``SKIPPED`` at the
         shortest prefix of ``key`` that holds one, else what is at ``key``
-        (``_MISSING`` when nothing is)."""
+        (``_MISSING`` when nothing is). A column of a table is read off the
+        table at the row above (``_cell``)."""
+        view = self._views.get(ref)
+        if view is not None:
+            return self._cell(ref, view, key)
         by_row = self._values.get(ref, _NO_VALUES)
         if ref in self._skipped_on:
             for prefix in _prefixes(key):
                 if by_row.get(prefix) is SKIPPED:
                     return SKIPPED, prefix
         return by_row.get(key, _MISSING), key
+
+    def _cell(self, ref: Ref, view: tuple[Ref, str], key: Row) -> tuple[Any, Row]:
+        """The value of a table's column at ``key``: the cell in row ``key[-1]``
+        of the table stored at ``key[:-1]``, as its column's type, a blank
+        cell ``None``. A skip on the table is a skip here, at its depth."""
+        table, column = view
+        if len(key) < self._fields[ref].index.depth:
+            # A group above the table's rows: only a skip on the table reaches it.
+            stored, at = self._lookup(table, key)
+            return (stored, at) if is_skipped(stored) else (_MISSING, key)
+        stored, at = self._lookup(table, key[:-1])
+        if stored is _MISSING or is_skipped(stored):
+            return stored, at
+        cells = stored.frame[column]
+        if key[-1] >= len(cells):
+            return _MISSING, key
+        cell = cells[key[-1]]
+        return (None if cell is None else self._value_type(ref)(cell)), key
 
     def _rows_under(self, index_id: str, parent_row: Row) -> list[Row]:
         """The rows of an index whose path starts with ``parent_row``: every
@@ -594,8 +620,23 @@ class Ledger:
                     raise RuntimeError(f"compile gave the series output {ref} no index of its own")
                 series[ref] = (index, list(value))
             for ref, value in scalars.items():
+                index = fields[ref]._makes_rows
+                if index is not None and isinstance(value, Table):
+                    # A table: stored once, its rows given ids, and made on its
+                    # columns' index only when something reads a column.
+                    value = type(value)._holding(with_row_ids(value.frame, index, row))
+                    self._write(ref, row, value, written)
+                    making.append(index.id)
+                    self._rows.setdefault(index.id, set())
+                    if self._columns_read(index.id):
+                        keys = made.setdefault(index.id, [])
+                        for j in range(value.frame.height):
+                            if self._made(index.id, (*row, j)):
+                                keys.append((*row, j))
+                    self._groups.add((index.id, row))
+                    continue
                 self._write(ref, row, value, written)
-                if (index := fields[ref]._makes_rows) is not None:
+                if index is not None:
                     making.append(index.id)
                     self._rows.setdefault(index.id, set())
                     no_rows_under.append((index.id, row))
@@ -617,6 +658,12 @@ class Ledger:
         self._finish(unit)
         sealed = self._seal(list(making))
         return self._woken(unit, written, made, no_rows_under, making, sealed, lists)
+
+    def _columns_read(self, index_id: str) -> bool:
+        """Does anything read a column of the table that owns this index? If
+        nothing does, a table passing through makes no rows at all."""
+        owner = self._owner(index_id)
+        return bool(owner._run_per_row_by) or any(self._fields[view]._read_by for view in owner._carried_by)
 
     def _write(self, ref: Ref, key: Row, value: Any, written: list[tuple[Ref, Row]]) -> None:
         """Put ``value`` at ``(ref, key)``, noting the address in ``written`` when nothing was there."""
@@ -886,7 +933,7 @@ class Ledger:
         was skipped away gives an empty series.
         """
         outputs = self._compiled.node(node_id)._interface.outputs
-        if all(is_skipped(self._values.get(Ref(node_id, out.name), {}).get(())) for out in outputs):
+        if all(is_skipped(self._lookup(Ref(node_id, out.name), ())[0]) for out in outputs):
             return None
         result: dict[str, Any] = {}
         for out in outputs:
@@ -1059,7 +1106,12 @@ class Ledger:
                     self._no_rows_under.setdefault(index.id, set()).add(at)
                     self._no_rows_under_lists(index.id, at)
                     continue
-                made.setdefault(index.id, set()).update(key for key in by_row if len(key) == len(row) + 1 and key[:-1] == row)
+                stored = by_row.get(row)
+                if isinstance(stored, Table):
+                    if self._columns_read(index.id):
+                        made.setdefault(index.id, set()).update((*row, j) for j in range(stored.frame.height))
+                else:
+                    made.setdefault(index.id, set()).update(key for key in by_row if len(key) == len(row) + 1 and key[:-1] == row)
                 self._groups.add((index.id, row))
         for node_id in self._compiled.execution_order:
             for index_id in self._indexes_made_by(node_id):

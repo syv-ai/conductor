@@ -173,6 +173,13 @@ class CompiledGraph:
                     owners[compiled_field.index.id] = compiled_field
         return owners
 
+    @cached_property
+    def _views(self) -> Mapping[Ref, tuple[Ref, str]]:
+        """Every column of a table output offered as a field, by address: the
+        table output and the column. The ledger reads a view's values from
+        the table where they sit."""
+        return self._compilation.iteration.views
+
     def node(self, node_id: str) -> CompiledNode:
         """Look up one compiled node by its id: its path inside an embedded graph (``approve/check``).
 

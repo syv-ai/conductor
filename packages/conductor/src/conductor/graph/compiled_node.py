@@ -269,8 +269,14 @@ class CompiledNode:
     def _call_model(self) -> type[BaseModel]:
         """The pydantic model a call validates through, built on first use.
         Compile has already refused every input name it could not carry
-        (``parameter_name_invalid``), so building it cannot fail here."""
-        return model_of(self._interface.inputs)
+        (``parameter_name_invalid``), so building it cannot fail here.
+
+        Every input also takes ``None``: a blank cell of a table, the one
+        value the engine hands a node as ``None``. A node running per row
+        runs on a blank row with that blank, and decides what it means."""
+        return model_of(tuple(
+            inp if inp.dtype is Any else inp.model_copy(update={"dtype": inp.dtype | None}) for inp in self._interface.inputs
+        ))
 
     @property
     def runs_per_row_of(self) -> Index | None:
@@ -318,8 +324,8 @@ class CompiledField:
     #: What the walk decided; ``None`` on a node that is not ready, or for a kind the field is not.
     _type: Any = field(repr=False)
     _index: Index | None = field(repr=False)
-    _receives: Receive = field(repr=False)
-    _condition: Condition = field(repr=False)
+    _receives: Receive | None = field(repr=False)
+    _condition: Condition | None = field(repr=False)
     #: Its share of the read plan (see ``CompiledNode._reads``): every input
     #: an edge from this output feeds, in execution order, with how it
     #: receives the value (``_read_by``). A field that makes an index's rows —
@@ -331,6 +337,10 @@ class CompiledField:
     _read_by: tuple[tuple[Ref, Receive], ...] = field(repr=False)
     _listed: bool = field(repr=False)
     _makes_rows: Index | None = field(repr=False)
+    #: For a column of a table output offered as a field (``rows.email``):
+    #: the table output and the column. Its values are the table's cells,
+    #: read from the table where they sit, never stored one by one.
+    _view_of: tuple[Ref, str] | None = field(repr=False)
     _run_per_row_by: tuple[str, ...] = field(repr=False)
     _carried_by: tuple[Ref, ...] = field(repr=False)
     _listed_inputs: tuple[Ref, ...] = field(repr=False)
