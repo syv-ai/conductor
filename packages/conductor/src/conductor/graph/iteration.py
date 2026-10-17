@@ -45,9 +45,14 @@ Every one of those answers is written down as the input's receive record
 whole, grouped at which depth, or gathered. The engine reads the record and decides
 nothing of this again.
 
-A scalar input holding a typed-in sequence (a multi-file upload, a list
-typed by hand) is a series on an index of its own, and the node runs once
-per row of it, exactly as it would for a series arriving on an edge.
+A scalar input holding a list set on the node (a multi-file upload, a list
+typed by hand) is a series on an index of its own, under each row the node
+otherwise runs on: questions set on a node that runs per document make a
+questions index under the documents index, and the node runs once per
+question per document. A node that otherwise runs once keeps its list on a
+root index. Only one list may be set on a node that runs per row
+(``lists_on_a_per_row_node``); two lists on a node that runs once are
+``misaligned``, as two unrelated series would be.
 
 Indexes are only named here; the engine adds rows to them later. Every
 index belongs to the field that makes its rows and is named after it
@@ -177,6 +182,9 @@ class _Arrivals:
     receives: dict[Ref, Receive] = dataclasses.field(default_factory=dict)
     arriving: dict[str, Any] = dataclasses.field(default_factory=dict)
     demands: list[tuple[Index, Ref]] = dataclasses.field(default_factory=list)
+    #: The inputs holding a list set on the node, each with its declared
+    #: type; its rows go under the rows the node runs on, once those are known.
+    listed: list[tuple[Ref, Any]] = dataclasses.field(default_factory=list)
     bound: dict[str, Any] = dataclasses.field(default_factory=dict)
     broken: bool = False
 
@@ -268,10 +276,10 @@ class _Walk:
             ref = address(node.id, inp.name, graphs) if graphs else Ref(node.id, inp.name)
             binding = node.bindings.get(inp.name)
             if not isinstance(binding, From):
-                carried, receive = self._originates(inp, ref, inp.name in self.listed[node.id])
-                found.arrivals[ref], found.receives[ref] = carried, receive
-                if isinstance(receive, PerRow):
-                    found.demands.append((receive.index, ref))
+                if inp.name in self.listed[node.id]:
+                    found.listed.append((ref, inp.dtype))
+                    continue
+                found.arrivals[ref], found.receives[ref] = self._originates(inp, ref)
                 continue
             missing = [source for source in binding.refs if source not in self.carried]
             if missing:
@@ -371,6 +379,20 @@ class _Walk:
         if disagreeing is not None:
             self.problems.append(self._misaligned(node.id, *disagreeing))
             return
+        if len(arrived.listed) > 1:
+            (first, _), (second, _) = arrived.listed[:2]
+            if runs_per_row_of is not None:
+                self.problems.append(problem("lists_on_a_per_row_node", node.id, second.field, a=str(first), b=str(second)))
+            else:
+                self.problems.append(self._misaligned(node.id, first, second))
+            return
+        if arrived.listed:
+            # The list's rows go under each row the node runs on, and the node
+            # runs once per value of the list in each of those rows.
+            (ref, dtype), = arrived.listed
+            own = self._rows_of(ref, runs_per_row_of)
+            arrived.arrivals[ref], arrived.receives[ref] = _Carried(Series[dtype], own), PerRow(own)
+            runs_per_row_of = own
         self.runs_per_row_of[node.id] = runs_per_row_of
         self.arrived.update(arrived.arrivals)
         self.receives.update(arrived.receives)
@@ -486,18 +508,14 @@ class _Walk:
         return None
 
     @staticmethod
-    def _originates(inp: Input, ref: Ref, listed: bool) -> tuple[_Carried, Receive]:
+    def _originates(inp: Input, ref: Ref) -> tuple[_Carried, Receive]:
         """What a field carries when no edge feeds it, and how it is received:
-        a scalar, broadcast; or a series on an index of the field's own —
-        always for a ``Series[X]`` input, received whole; and for a scalar
-        input when the author typed many values (``listed``), received one
-        per row, so the node runs once per value.
+        a scalar, broadcast; or, for a ``Series[X]`` input, a series on an
+        index of the field's own, received whole. A list set on a scalar
+        input is placed by ``_derive``, under the rows the node runs on.
         """
         if getattr(inp.dtype, "element", None) is not None:  # only a Series type has an element
             return _Carried(inp.dtype, Index(ref)), Whole()
-        if listed:
-            own = Index(ref)
-            return _Carried(Series[inp.dtype], own), PerRow(own)
         return _Carried(inp.dtype, None), Broadcast()
 
     @staticmethod
