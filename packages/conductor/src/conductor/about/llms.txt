@@ -145,6 +145,7 @@ A unit is a node on a row; it starts once what it reads exists.
 
 - A series on a scalar input runs the node per row; its outputs are series on that index.
 - A list returned on a `Series[X]` output makes rows on an index of that output's own (`split.lines`), under the row the node ran on. Two series outputs of one node are two indexes, each with its own length; a node fed both per row is `misaligned`.
+- `Table[("name", Text), ("email", Text)]` is a whole table as one value, a Polars data frame in `.frame`; a node takes and returns frames. A column's Polars type is read off what its type is built on (`str`, `float`, `int`, `bool`, `datetime.date`); a type sets `column = "Boolean"` only where that base is wrong. Bare `Table` has columns known only when it arrives. Every stored table carries `__row`, each row's global id (`contacts:0`); a table returned with it missing or repeated gets fresh ids.
 - A `Series[X]` input receives the whole series (per parent row on a child index).
 - `SKIPPED` at a row leaves the series sparse; above the rows it skips the node.
 
@@ -231,7 +232,7 @@ Three public doors: `conductor`, `conductor.widgets` and `conductor.events`. Eac
 
 - Nodes: `NodeDefinition`, `NodeVersion`, `Policy`, `Deprecation`, `NodeDescription`, `version`, `upgrade`, `deprecated`, `Interface`, `FromRun`, `model_of(inputs)` (the pydantic model a call validates through), `Input`, `Output`, `Param`, `Result`, `Upgrade` (an entry of `NodeDefinition.upgrades`), `VersionDescription` (an entry of `NodeDescription.versions`)
 - Returns: `SKIPPED`, `Asks`, `is_skipped`, `is_asking`
-- Types: `DType`, `Single`, `Series`, `Index`, `Ref`, `to_wire(value, dtype)`, `from_wire(data, dtype)`
+- Types: `DType`, `Single`, `Series`, `Table`, `Index`, `Ref`, `to_wire(value, dtype)`, `from_wire(data, dtype)`
 - Registry: `NodeRegistry` (`register`, `in`, `[]`, `len`, iteration, `nodes`, `types`, `accepted_as`, `describe`, `upgraded`, `extended_with`), `RegistryDescription`, `TypeDescription`
 - Graph: `Graph`, `GraphNode`, `FieldContent`, `Binding`, `From`, `Static`, `dependencies_of`, `CompiledGraph`, `CompiledNode`, `CompiledField`, `Problem`, `Condition`, `Atom`, `ALWAYS`, `NEVER`, and what an input receives: `Receive` (`PerRow`, `Broadcast`, `Whole`, `RowsUnder`, `Gather`)
 - Errors: `ConductorError`, `CompilationError`, `Refuses`, `StartRefused`, `InputNotOffered`, `NodeResolutionError`, `NodeWiringError`, `NodeKindError`, `NodeError`, `ExternalFailure`, `NodeValidationError`, `NodeExecutionError`, `NodeTimeoutError`, `ErrorCause`

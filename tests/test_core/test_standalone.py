@@ -29,7 +29,7 @@ SOURCES = sorted(
 #: it builds on, and what its ``pyproject.toml`` declares (``pydantic_core``
 #: comes with pydantic). The core imports no other package of the three.
 IMPORTS = {
-    "conductor": {"conductor", "pydantic", "pydantic_core", "yaml"},
+    "conductor": {"conductor", "pydantic", "pydantic_core", "yaml", "polars"},
     "conductor-nodes": {"conductor_nodes", "conductor", "pydantic", "pydantic_core", "regex"},
     "conductor-providers": {"conductor_providers", "conductor", "pydantic", "pydantic_core", "fastapi"},
 }
@@ -37,7 +37,7 @@ IMPORTS = {
 #: What each ``pyproject.toml`` declares, extras included. A dependency added
 #: there fails here until it is listed, so a host's package cannot arrive unseen.
 DISTRIBUTIONS = {
-    "conductor": {"pydantic", "pyyaml", "syv-conductor-nodes", "syv-conductor-providers"},
+    "conductor": {"pydantic", "pyyaml", "polars", "syv-conductor-nodes", "syv-conductor-providers"},
     "conductor-nodes": {"syv-conductor", "pydantic", "regex"},
     "conductor-providers": {"syv-conductor", "fastapi", "pydantic"},
 }
@@ -200,9 +200,9 @@ def _types_declared_by(*packages: str) -> list[str]:
     return ast.literal_eval(printed.strip())
 
 
-def test_the_library_declares_no_type_of_its_own_beyond_series():
-    """Which values exist is the host's decision; importing every module of the core and the providers registers only the series."""
-    assert _types_declared_by("conductor", "conductor_providers") == ["series"]
+def test_the_library_declares_no_type_of_its_own_beyond_series_and_table():
+    """Which values exist is the host's decision; importing every module of the core and the providers declares only the two shapes every level has: a column and a table."""
+    assert _types_declared_by("conductor", "conductor_providers") == ["series", "table"]
 
 
 def test_a_package_that_declares_types_is_found():
