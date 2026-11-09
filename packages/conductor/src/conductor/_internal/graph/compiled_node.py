@@ -24,6 +24,7 @@ from pydantic_core import to_jsonable_python
 from conductor._internal.codec import cell_validator_for, json_schema_of, to_jsonable
 from conductor._internal.execution.run_state import Question
 from conductor._internal.field_records import was_titled_by_its_author
+from conductor._internal.graph.receive_modes import FixedValue
 from conductor._internal.graph.run_plan import NodeRunPlan, plan_of_node
 from conductor._internal.node_definition import NodeVersion
 from conductor._internal.node_signature import build_call_validator
@@ -206,8 +207,14 @@ class CompiledNode:
 
     @cached_property
     def _validate_call_inputs(self) -> Callable[[Mapping[str, Any]], dict[str, Any]]:
-        """The check a call goes through (``build_call_validator``), built on first use."""
-        return build_call_validator(self._inputs)
+        """The check a call goes through (``build_call_validator``), built on first use.
+
+        An input left to a static or a default is not in it: compile read that value once."""
+        fixed = {input_.name for input_ in self._inputs if self._wiring.fields[input_.name]._receive_mode.__class__ is FixedValue}  # type: ignore[union-attr]  # only a ready node is called
+        check = build_call_validator(tuple(input_ for input_ in self._inputs if input_.name not in fixed))
+        if not fixed:
+            return check
+        return lambda values: {**values, **check(values)}
 
     @cached_property
     def _inputs_rejecting_a_blank(self) -> tuple[str, ...]:

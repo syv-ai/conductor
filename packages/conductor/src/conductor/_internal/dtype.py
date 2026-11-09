@@ -70,6 +70,7 @@ from types import NoneType, UnionType
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Union, get_args, get_origin
 
 from pydantic import BaseModel, PlainSerializer, PlainValidator, WithJsonSchema
+from pydantic.errors import PydanticSchemaGenerationError
 from pydantic_core import core_schema
 
 from conductor._internal.errors import NodeDeclarationError
@@ -288,7 +289,10 @@ class _PlainPythonType(DType):
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source_type: Any, handler: "GetCoreSchemaHandler") -> core_schema.CoreSchema:
-        return handler.generate_schema(cls.wrapped_type)
+        try:
+            return handler.generate_schema(cls.wrapped_type)
+        except PydanticSchemaGenerationError:  # a class of the author's own, which only a default or a static of itself can be
+            return core_schema.is_instance_schema(cls.wrapped_type)
 
 
 def _an_edge_can_carry(python_type: Any) -> bool:

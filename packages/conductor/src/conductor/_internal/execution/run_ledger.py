@@ -94,7 +94,6 @@ from conductor._internal.graph.receive_modes import (
     RowsUnder,
 )
 from conductor._internal.index import Index, Row
-from conductor._internal.node_definition import NodeVersion
 from conductor._internal.ref import Ref
 from conductor._internal.skip_and_ask import SKIPPED
 from conductor._internal.table import (
@@ -968,7 +967,7 @@ def _earlier_units_of_node(compiled: CompiledGraph, node_id: str, work: WorkOfNo
     from earlier legs; or ``None`` when it can't reuse any: gone from the graph, a node that's a graph, opted out, nothing with a hash,
     or outputs that no longer read as its types."""
     node = compiled._nodes.get(node_id)
-    if node is None or not isinstance(node.version, NodeVersion) or node.interface is None or not node.version.policy.reuse_when_inputs_match:
+    if node is None or node.embedded_graph is not None or node.interface is None or not node.version.policy.reuse_when_inputs_match:  # type: ignore[union-attr]  # an interface comes with a version
         return None
     outputs = [(out.name, Ref(node_id, out.name)) for out in node.interface.outputs]
     unclaimed: set[_EarlierUnitKey] = set()

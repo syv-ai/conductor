@@ -267,3 +267,22 @@ def test_a_definition_with_no_steps_only_has_its_version_set():
     assert upgraded.nodes[0].bindings == {"text": Static("x")}
     with pytest.raises(InvalidCallError, match="it has 1, 2"):
         upgrade_node(graph, "f", registry, to=5)
+
+
+def _older_out() -> Annotated[str, Result(name="x")]:
+    return "a"
+
+
+def _newer_out() -> Annotated[str, Result(name="y")]:
+    return "b"
+
+
+def test_an_upgrade_that_leaves_an_output_gone_and_not_renamed_is_refused_where_it_is_declared():
+    with pytest.raises(NodeDeclarationError, match="'x'") as raised:
+        node("o", replaces=node("o")(_older_out), upgrade=Upgrade(renamed_inputs={}))(_newer_out)
+    assert raised.value.code == "upgrade_missing"
+
+
+def test_an_output_an_upgrade_renamed_or_rewrites_is_accounted_for():
+    assert node("o", replaces=node("o")(_older_out), upgrade=Upgrade(renamed_outputs={"x": "y"}))(_newer_out).current_version == 2
+    assert node("o", replaces=node("o")(_older_out), upgrade=Upgrade(rewrite=lambda v: v))(_newer_out).current_version == 2

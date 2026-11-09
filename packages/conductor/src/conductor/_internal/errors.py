@@ -39,7 +39,9 @@ for its code, from ``PROBLEM_CATALOGUE``; a ``NodeError`` the node raised keeps
 the message the node chose, since the node wrote it for people. The text
 of a foreign exception goes to ``logging.getLogger("conductor")``, with its
 traceback, and never in a problem, because a host streams problems to a browser;
-the problem's ``ctx`` has its class name.
+the problem's ``ctx`` has its class name. A value a run handled stays out of a
+problem for the same reason: ``value_free_errors`` is what pydantic's account of
+a refused value may say there.
 
 A pause is not an error and nothing raises for one: a node returns
 ``AskPerson`` and the leg ends with the status ``waiting``.
@@ -50,7 +52,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any, NamedTuple
 
-from pydantic import ConfigDict, Field, computed_field
+from pydantic import ConfigDict, Field, ValidationError, computed_field
 
 from conductor._internal.conductor_model import ConductorModel
 
@@ -153,6 +155,24 @@ PROBLEM_CATALOGUE: Mapping[str, CatalogueEntry] = {code: CatalogueEntry(*entry) 
 
 #: The codes a host translating by code has to cover.
 PROBLEM_CODES: frozenset[str] = frozenset(PROBLEM_CATALOGUE)
+
+
+_SAID_OF_A_VALIDATOR = "The value did not pass its type's own check."
+
+
+def value_free_errors(invalid: ValidationError) -> list[dict[str, Any]]:
+    """pydantic's errors as a problem may hold them: nothing of the value.
+
+    Each keeps its ``type``, and ``loc`` as far as the field it is on, since
+    deeper a key of the value can stand there. ``msg`` is pydantic's own when
+    that speaks of the type alone, such as a limit; a sentence built from what
+    a validator raised or from the value's own tag is replaced, because it may
+    quote the value.
+    """
+    return [
+        {"type": error["type"], "loc": error["loc"][:1], "msg": _SAID_OF_A_VALIDATOR if {"error", "tag"} & error.get("ctx", {}).keys() else error["msg"]}
+        for error in invalid.errors(include_url=False, include_input=False)
+    ]
 
 
 class Problem(ConductorModel):

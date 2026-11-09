@@ -17,7 +17,13 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 from pydantic import ValidationError
 
-from conductor._internal.errors import ExternalFailure, NodeError, Problem, make_problem
+from conductor._internal.errors import (
+    ExternalFailure,
+    NodeError,
+    Problem,
+    make_problem,
+    value_free_errors,
+)
 from conductor._internal.execution.run_state import WaitingUnit
 from conductor._internal.execution.validate_unit_outputs import validate_unit_outputs
 from conductor._internal.execution.waiting_units import waiting_unit_for
@@ -97,11 +103,7 @@ def _took_a_row_in(node: CompiledNode, inputs: Mapping[str, Any]) -> bool:
 def _problem_of_invalid_inputs(node: CompiledNode, row: Row, invalid: ValidationError) -> Problem:
     """Why the inputs were refused, one line per field by its title; a table lacking a column names it."""
     titles = {input_.name: input_.title for input_ in node.interface.inputs}
-    parts = []
-    for err in invalid.errors():
-        loc = [segment for segment in err.get("loc", ()) if isinstance(segment, str)]
-        name = loc[0] if loc else "?"
-        parts.append(f"{titles.get(name, name)}: {err.get('msg', '')}")
+    parts = [f"{titles.get(name, name)}: {error['msg']}" for error in value_free_errors(invalid) for name in error["loc"] or ("?",)]
     reason = "Invalid input — " + "; ".join(parts)
     column = missing_column_in(invalid)
     if column is not None:

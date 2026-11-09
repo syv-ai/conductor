@@ -36,12 +36,13 @@ def test_one_pass_yields_inputs_outputs_and_the_validator():
 
     assert [i.name for i in iface.inputs] == ["text", "language"]
     assert [o.title for o in iface.outputs] == ["Result"]
-    assert build_call_validator(iface.inputs)({"text": "hi"})["language"] == "da"
+    assert iface.inputs[1].default == "da"
+    assert build_call_validator(iface.inputs)({"text": "hi", "language": "da"})["language"] == "da"
 
 
 def test_the_validator_coerces_into_the_dtype():
     """A str subclass validates into the subclass."""
-    validated = build_call_validator(read_signature(sample).interface.inputs)({"text": "hi"})
+    validated = build_call_validator(read_signature(sample).interface.inputs)({"text": "hi", "language": "da"})
 
     assert isinstance(validated["text"], Text)
 

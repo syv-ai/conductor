@@ -50,7 +50,7 @@ from conductor._internal.dtype import (
     split_off_none,
 )
 from conductor._internal.errors import NodeDeclarationError, Problem
-from conductor._internal.field_records import Input, Output, Param, Result, type_with_bounds
+from conductor._internal.field_records import Input, Output, Param, Result, type_read_by_input
 from conductor._internal.skip_and_ask import AskPerson
 from conductor.widgets import Widget
 
@@ -281,39 +281,17 @@ def _wrong_shape(message: str) -> list[Problem]:
     return [Problem(type="invalid_output", msg=message)]
 
 
-def _type_a_call_reads(input_: Input) -> Any:
-    """The type a call's value of ``input_`` is checked against: one value or a list of them, each ``None`` where the input takes a blank, and held to its bounds; a blank is held to none."""
-    if not input_.many:
-        bounded = type_with_bounds(input_.dtype, input_.bounds)
-        return bounded | None if input_.takes_blank else bounded
-    many = type_with_bounds(list[input_.dtype | None if input_.takes_blank else input_.dtype], input_.bounds)
-    return many | None if input_.takes_blank and not input_.required and input_.default is None else many
-
-
 def build_call_validator(inputs: tuple[Input, ...]) -> Callable[[Mapping[str, Any]], dict[str, Any]]:
-    """The check a call of ``inputs`` goes through: values in, keyword arguments out.
+    """The check the values of ``inputs`` go through at a call: values in, one per input as its type read it.
 
-    The function it returns takes the values a call was given, by input
-    name, and returns one value per input as its type validated it, a
-    default filled in where the call gave none. It raises pydantic's
-    ``ValidationError`` when a value is not its input's type or a required
-    input is missing, and ignores names that are not inputs.
-    ``CompiledNode.validate`` checks every call of a node through one, built
-    the first time and kept.
-
-    A default goes through its input's type like a value the call gave, so
-    ``n: Integer = 3`` reaches the node as an ``Integer``. Inputs are the
-    keys of a ``TypedDict``, so any name an input can carry is a key
-    (``schema``, ``json``, ``inner.text``) and the result is a plain dict.
+    It raises pydantic's ``ValidationError`` when a value is not its input's
+    type or one is missing, and ignores names that are not among ``inputs``.
+    Inputs are the keys of a ``TypedDict``, so any name an input can carry is
+    a key (``schema``, ``json``, ``inner.text``) and the result is a plain dict.
     """
     adapter = TypeAdapter(
         with_config(ConfigDict(extra="ignore", arbitrary_types_allowed=True))(
-            TypedDict("Inputs", {input_.name: _type_a_call_reads(input_) for input_ in inputs})  # type: ignore[operator]
+            TypedDict("Inputs", {input_.name: type_read_by_input(input_) for input_ in inputs})  # type: ignore[operator]
         )
     )
-    defaults = {input_.name: input_.default for input_ in inputs if not input_.required}
-
-    def check(values: Mapping[str, Any]) -> dict[str, Any]:
-        return adapter.validate_python({**defaults, **values})
-
-    return check
+    return adapter.validate_python

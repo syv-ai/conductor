@@ -314,9 +314,14 @@ def _raise_if_upgrade_is_missing(older: NodeVersion, newer: NodeVersion) -> None
     gone_inputs = {i.name for i in older.interface.inputs} - {i.name for i in newer.interface.inputs}
     gone_outputs = {o.name for o in older.interface.outputs} - {o.name for o in newer.interface.outputs}
     upgrade = newer.upgrade_from_previous
-    unexplained = gone_inputs if upgrade is None else gone_inputs - set(upgrade.renamed_inputs) if upgrade.rewrite is None else set()
-    if unexplained or (upgrade is None and gone_outputs):
-        raise NodeDeclarationError(f"the version it replaces has {sorted(unexplained | gone_outputs)}, gone from this one; its Upgrade says where they went", code="upgrade_missing")
+    if upgrade is None:
+        unexplained = gone_inputs | gone_outputs
+    elif upgrade.rewrite is None:
+        unexplained = (gone_inputs - set(upgrade.renamed_inputs)) | (gone_outputs - set(upgrade.renamed_outputs))
+    else:
+        unexplained = set()
+    if unexplained:
+        raise NodeDeclarationError(f"the version it replaces has {sorted(unexplained)}, gone from this one; its Upgrade says where they went", code="upgrade_missing")
 
 
 @dataclass(frozen=True, eq=False, repr=False)

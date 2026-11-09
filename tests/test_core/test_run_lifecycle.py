@@ -619,3 +619,16 @@ def test_an_input_that_starts_taking_a_blank_changes_the_fingerprint_and_is_call
     assert after._nodes_changed_since(state) == ["c"]
     after.run_sync(state)
     assert calls == {"counted": 1}
+
+
+def test_a_leg_from_a_state_where_a_function_nodes_id_now_holds_a_graph_runs_it_again():
+    @node("upper")
+    def upper(text: str) -> str:
+        return text.upper()
+
+    registry = NodeRegistry([upper])
+    state = CompiledGraph.from_graph(Graph(nodes=[upper.graph_node("x", text="a")]), registry).run_sync()
+    inner = CompiledGraph.from_graph(Graph(nodes=[upper.graph_node("in", text="b")]), registry)
+    sub = NodeDefinition.from_compiled_graphs("sub", versions=inner)
+    replaced = CompiledGraph.from_graph(Graph(nodes=[sub.graph_node("x")]), NodeRegistry([upper, sub]))
+    assert replaced.run_sync(state).status == "complete"

@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import ValidationError
 
-from conductor._internal.errors import Problem, make_problem
+from conductor._internal.errors import Problem, make_problem, value_free_errors
 from conductor._internal.execution.run_state import OutputColumn, RunState
 from conductor._internal.index import Index, Row, ValuesOnRows
 from conductor._internal.ref import Ref
@@ -280,7 +280,7 @@ def _restored_cell(field: CompiledField, stored: Any, read: Any) -> Any:
 def _read_failure_message(unreadable: Exception) -> str:
     """Why a value did not read: pydantic's first message when pydantic said, never the value."""
     if isinstance(unreadable, ValidationError):
-        return unreadable.errors(include_url=False, include_input=False, include_context=False)[0]["msg"]
+        return value_free_errors(unreadable)[0]["msg"]
     return str(unreadable)
 
 

@@ -102,9 +102,34 @@ def _checked_bounds(bounds: Mapping[str, Any]) -> dict[str, Any]:
         raise NodeDeclarationError(f"an input's limits are {sorted(ValueBounds.__annotations__)}; {invalid.errors()[0]['msg']} at {invalid.errors()[0]['loc']}", code="bound_invalid") from invalid
 
 
-def type_with_bounds(dtype: Any, bounds: Mapping[str, Any]) -> Any:
-    """The type a value of an input is validated as: ``dtype``, held to ``bounds``."""
-    return Annotated[dtype, Field(**bounds)] if bounds else dtype
+def _type_of_values(dtype: Any, bounds: tuple[tuple[str, Any], ...], many: bool, takes_blank: bool, whole_may_be_blank: bool) -> Any:
+    """What a value of an input is read as: one value or a list of them, each ``None`` where the input takes a blank, and held to its bounds; a blank is held to none."""
+    limits = dict(bounds)
+    if not many:
+        bounded = Annotated[dtype, Field(**limits)] if limits else dtype
+        return bounded | None if takes_blank else bounded
+    of_many = list[dtype | None if takes_blank else dtype]
+    of_many = Annotated[of_many, Field(**limits)] if limits else of_many
+    return of_many | None if whole_may_be_blank else of_many
+
+
+@cache
+def _adapter_of_values(dtype: Any, bounds: tuple[tuple[str, Any], ...], many: bool, takes_blank: bool, whole_may_be_blank: bool) -> TypeAdapter[Any]:
+    return TypeAdapter(_type_of_values(dtype, bounds, many, takes_blank, whole_may_be_blank))
+
+
+def _what_decides_how_input_reads(input_: Input) -> tuple[Any, tuple[tuple[str, Any], ...], bool, bool, bool]:
+    return input_.dtype, tuple(input_.bounds.items()), input_.many, input_.takes_blank, input_.takes_blank and not input_.required and input_.default is None
+
+
+def type_read_by_input(input_: Input) -> Any:
+    """The one type every value of ``input_`` is read as: a static, a default or what a call receives."""
+    return _type_of_values(*_what_decides_how_input_reads(input_))
+
+
+def adapter_of_input(input_: Input) -> TypeAdapter[Any]:
+    """A validator of ``type_read_by_input``, built once per kind of input."""
+    return _adapter_of_values(*_what_decides_how_input_reads(input_))
 
 
 @cache
@@ -223,9 +248,15 @@ class Input(ConductorModel):
         required = default is _NO_DEFAULT
         if default is None and not takes_blank:
             raise NodeDeclarationError(f"input {name!r} defaults to None, which is a blank; write its type with | None", code="none_default_needs_blank")
+        checked_bounds = _checked_bounds(bounds)
+        if not required and default is not None:
+            try:
+                default = _adapter_of_values(dtype, tuple(checked_bounds.items()), many, takes_blank, False).validate_python(default)
+            except ValidationError as invalid:
+                raise NodeDeclarationError(f"input {name!r} defaults to {default!r}, which its type can't read: {invalid.errors()[0]['msg']}", code="default_invalid") from invalid
         super().__init__(
             name=name, dtype=dtype, title=title or humanised(name), description=description, widget=widget,
-            connectable=connectable, bounds=_checked_bounds(bounds), default=None if required else default, required=required, takes_blank=takes_blank, many=many,
+            connectable=connectable, bounds=checked_bounds, default=None if required else default, required=required, takes_blank=takes_blank, many=many,
         )
 
 

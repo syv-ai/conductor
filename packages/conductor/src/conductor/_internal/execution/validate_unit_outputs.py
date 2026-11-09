@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
-from conductor._internal.errors import Problem
+from conductor._internal.errors import Problem, value_free_errors
 from conductor._internal.execution.values_of_run import held_form_of_return, output_problem
 from conductor._internal.index import Row
 from conductor._internal.skip_and_ask import SKIPPED
@@ -55,7 +55,7 @@ def validate_unit_outputs(node: CompiledNode, row: Row, value_by_output: Mapping
         except ValidationError as invalid:
             problems.append(output_problem(
                 name, f"'{name}' must be {_type_name_for_error(field)}, not a {type(value).__name__}",
-                errors=tuple(invalid.errors(include_url=False, include_input=False, include_context=False)),
+                errors=tuple(value_free_errors(invalid)),
             ))
         else:
             if cell.__class__ is Problem:

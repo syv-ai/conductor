@@ -1,6 +1,7 @@
 """One call of a node, with no event loop: every way it can end, as a value."""
 
 import asyncio
+import inspect
 import threading
 from typing import Annotated, TypedDict
 
@@ -11,6 +12,7 @@ from conductor import (
     CompiledGraph,
     DType,
     ExternalFailure,
+    From,
     Graph,
     GraphNode,
     NodeError,
@@ -40,6 +42,13 @@ def _compiled_node(function):
     return CompiledGraph.from_graph(graph, NodeRegistry([function])).node("n")
 
 
+def _compiled_node_fed_by_an_edge(function, source):
+    """``function``, its one input on an edge: a value that isn't on an edge was read at compile, and a call doesn't read it again."""
+    name = next(iter(inspect.signature(function.versions[1].body).parameters))
+    graph = Graph(nodes=[GraphNode(id="s", type=source.id, version=1), GraphNode(id="n", type=function.id, version=1, bindings={name: From("s.result")})])
+    return CompiledGraph.from_graph(graph, NodeRegistry([source, function])).node("n")
+
+
 def _failure(outcome) -> tuple[str, str, bool]:
     assert isinstance(outcome, CallFailed), outcome
     return outcome.problem.type, outcome.problem.msg, outcome.retryable
@@ -50,12 +59,22 @@ def double(x: int) -> int:
     return x * 2
 
 
+@node("gives_an_int", category="t")
+def _gives_an_int() -> int:
+    return 1
+
+
+@node("gives_contacts", category="t")
+def _gives_contacts() -> Contacts:
+    return pl.DataFrame({"name": ["Ida"], "email": ["i@a"]})
+
+
 def test_a_good_call_returns_the_cells_it_wrote():
-    assert call_node(_compiled_node(double), (), {"x": 21}, {}, "hash") == {"result": 42}
+    assert call_node(_compiled_node_fed_by_an_edge(double, _gives_an_int), (), {"x": 21}, {}, "hash") == {"result": 42}
 
 
 def test_an_input_that_does_not_fit_is_invalid_input_with_the_engines_reason_text():
-    outcome = call_node(_compiled_node(double), (2,), {"x": "not a number"}, {}, "hash")
+    outcome = call_node(_compiled_node_fed_by_an_edge(double, _gives_an_int), (2,), {"x": "not a number"}, {}, "hash")
 
     assert _failure(outcome)[0] == "invalid_input"
     assert outcome.problem.loc == ("n", 2)
@@ -68,7 +87,7 @@ def test_a_table_without_a_column_it_needs_says_which():
     def needs_email(contacts: Contacts) -> str:
         return "ok"
 
-    outcome = call_node(_compiled_node(needs_email), (), {"contacts": pl.DataFrame({"name": ["Ida"]})}, {}, "hash")
+    outcome = call_node(_compiled_node_fed_by_an_edge(needs_email, _gives_contacts), (), {"contacts": pl.DataFrame({"name": ["Ida"]})}, {}, "hash")
 
     assert _failure(outcome)[0] == "table_column_missing"
     assert outcome.problem.ctx == {"column": "email"}

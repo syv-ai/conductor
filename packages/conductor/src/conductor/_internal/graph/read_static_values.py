@@ -11,14 +11,13 @@ left alone: only an edge can give that parameter a type.
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from functools import cache
 from typing import Any
 
-from pydantic import TypeAdapter, ValidationError
+from pydantic import ValidationError
 
 from conductor._internal.dtype import type_name_for_sentence
 from conductor._internal.errors import Problem, make_problem
-from conductor._internal.field_records import Input, type_with_bounds
+from conductor._internal.field_records import Input, adapter_of_input
 from conductor._internal.graph.binding import static_values
 from conductor._internal.graph.graph_records import GraphNode
 from conductor._internal.table import is_table_type, missing_column_in
@@ -53,21 +52,12 @@ def read_static_values(inputs: Iterable[Input], node: GraphNode) -> tuple[dict[s
 
 
 def _read_value_or_list(input_: Input, value: Any) -> tuple[Any, bool]:
-    """``value`` read through ``input_``'s type, and whether it is many values."""
-    if input_.many:
-        if not _is_sequence(value):
-            raise TypeError("a Series input takes a sequence")
-        values = [None if item is None and input_.takes_blank else _adapter(input_.dtype).validate_python(item) for item in value]
-        if input_.bounds:
-            _adapter(list[Any], tuple(input_.bounds.items())).validate_python(values)
-        return values, False
-    if value is None and input_.takes_blank:
-        return None, False
-    adapter = _adapter(input_.dtype, tuple(input_.bounds.items()))
+    """``value`` read through ``input_``'s type, and whether it is many values: a sequence on an input of one value that can't read it whole."""
+    adapter = adapter_of_input(input_)
     try:
         return adapter.validate_python(value), False
     except ValidationError:
-        if _is_sequence(value) and not is_table_type(input_.dtype):  # records are one table, not many
+        if not input_.many and _is_sequence(value) and not is_table_type(input_.dtype):  # records are one table, not many
             return [adapter.validate_python(item) for item in value], True
         raise
 
@@ -81,11 +71,6 @@ def _short_repr(value: Any) -> str:
 def _is_sequence(value: Any) -> bool:
     """A sequence of values, as a list widget or a multi-upload holds one? Text and bytes are one value each."""
     return isinstance(value, Sequence) and not isinstance(value, (str, bytes))
-
-
-@cache
-def _adapter(dtype: type, bounds: tuple[tuple[str, Any], ...] = ()) -> TypeAdapter[Any]:
-    return TypeAdapter(type_with_bounds(dtype, dict(bounds)))
 
 
 def _message_from_type_constructor(unreadable: Exception) -> str:
