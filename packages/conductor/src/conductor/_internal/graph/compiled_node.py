@@ -171,15 +171,15 @@ class CompiledNode:
     @cached_property
     def _questions(self) -> tuple[Question, ...]:
         """What a person is asked when this node asks, one record per output:
-        built once, shared by every unit, and never written to."""
+        built once, shared by every unit, and never written to. Worker threads ask at once; each gets the first one stored."""
         assert self.interface is not None
-        return tuple(
+        return self.__dict__.setdefault("_questions", tuple(
             Question(
                 name=out.name, title=self._title_of_a_question(out), description=out.description, dtype=out.dtype.describe(), many=out.many,
                 json_schema=json_schema_of(out.dtype, out.many), required=not out.takes_blank or out.exclusive_group is not None, exclusive_group=out.exclusive_group,
             )
             for out in self.interface.outputs
-        )
+        ))
 
     def _title_of_a_question(self, out: Any) -> str:
         """An output nobody titled, on a node with one output, reads as the node's own title rather than ``result``."""
