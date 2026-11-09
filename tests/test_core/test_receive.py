@@ -18,7 +18,6 @@ from conductor import (
     GraphNode,
     NodeRegistry,
     Param,
-    Ref,
     Result,
     Series,
     Static,
@@ -77,10 +76,6 @@ def _compiled(nodes, *extra):
     return CompiledGraph.from_graph(Graph(nodes=nodes), _registry(*extra))
 
 
-def _edge(*refs):
-    return From(*(Ref(n, f) for n, f in refs))
-
-
 def _input_plan(compiled, node_id, field):
     return compiled.run_plan.nodes[node_id].inputs[field]
 
@@ -91,7 +86,7 @@ def _input_plan(compiled, node_id, field):
 def test_a_scalar_input_fed_a_scalar_receives_one_value_once():
     compiled = _compiled([
         GraphNode(id="a", type="upper", version=1, bindings={"text": Static("hi")}),
-        GraphNode(id="b", type="upper", version=1, bindings={"text": _edge(("a", "result"))}),
+        GraphNode(id="b", type="upper", version=1, bindings={"text": From("a.result")}),
     ])
 
     assert _input_plan(compiled, "b", "text").receive_mode == "same_value_every_row"
@@ -100,7 +95,7 @@ def test_a_scalar_input_fed_a_scalar_receives_one_value_once():
 def test_a_scalar_input_fed_a_series_receives_one_value_per_row_of_its_index():
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "result"))}),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": From("docs.result")}),
     ])
 
     assert (_input_plan(compiled, "up", "text").receive_mode, _input_plan(compiled, "up", "text").rows_of) == ("value_at_row", "docs.result")
@@ -110,7 +105,7 @@ def test_a_scalar_input_fed_a_series_receives_one_value_per_row_of_its_index():
 def test_a_series_input_fed_one_series_on_a_root_receives_it_whole():
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("docs", "result"))}),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": From("docs.result")}),
     ])
 
     assert _input_plan(compiled, "j", "texts").receive_mode == "entire_value"
@@ -120,8 +115,8 @@ def test_a_series_input_fed_one_series_on_a_root_receives_it_whole():
 def test_a_series_input_fed_a_series_on_a_child_reduces_under_the_parent_row():
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="lines", type="lines", version=1, bindings={"text": _edge(("docs", "result"))}),
-        GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("lines", "result"))}),
+        GraphNode(id="lines", type="lines", version=1, bindings={"text": From("docs.result")}),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": From("lines.result")}),
     ])
 
     assert (_input_plan(compiled, "j", "texts").receive_mode, _input_plan(compiled, "j", "texts").rows_of) == ("all_rows_under_row", "lines.result")
@@ -132,7 +127,7 @@ def test_a_series_input_fed_unrelated_sources_gathers_them_onto_the_fields_own_i
     compiled = _compiled([
         GraphNode(id="a", type="upper", version=1, bindings={"text": Static("a")}),
         GraphNode(id="b", type="upper", version=1, bindings={"text": Static("b")}),
-        GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("a", "result"), ("b", "result"))}),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": From("a.result", "b.result")}),
     ])
 
     assert _input_plan(compiled, "j", "texts").receive_mode == "collected"
@@ -141,7 +136,7 @@ def test_a_series_input_fed_unrelated_sources_gathers_them_onto_the_fields_own_i
 def test_an_open_parameter_receives_its_edge_whole_even_when_a_series_arrives():
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="s", type="script", version=1, bindings={"v": _edge(("docs", "result"))}),
+        GraphNode(id="s", type="script", version=1, bindings={"v": From("docs.result")}),
     ])
 
     assert _input_plan(compiled, "s", "v").receive_mode == "entire_value"
@@ -190,11 +185,11 @@ def test_a_default_is_not_a_static():
 def test_an_inner_reduction_over_the_entering_series_reduces_to_its_own_row():
     inner = embedded_graph_node("inner-graph", (
             GraphNode(id="holder", type="upper", version=1),
-            GraphNode(id="join", type="join", version=1, bindings={"texts": _edge(("holder", "result"))}),
+            GraphNode(id="join", type="join", version=1, bindings={"texts": From("holder.result")}),
         ), _registry())
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="emb", type="inner-graph", version=1, bindings={"text": _edge(("docs", "result"))}),
+        GraphNode(id="emb", type="inner-graph", version=1, bindings={"text": From("docs.result")}),
     ], inner)
 
     assert compiled.is_runnable, compiled.problems
@@ -215,8 +210,8 @@ def test_unrelated_rows_inside_an_embedded_graph_are_misaligned_not_paired():
     compiled = _compiled([
         GraphNode(id="a", type="docs", version=1),
         GraphNode(id="b", type="docs", version=1),
-        GraphNode(id="lb", type="lines", version=1, bindings={"text": _edge(("b", "result"))}),
-        GraphNode(id="e", type="pair-graph", version=1, bindings={"text": _edge(("a", "result")), "texts": _edge(("lb", "result"))}),
+        GraphNode(id="lb", type="lines", version=1, bindings={"text": From("b.result")}),
+        GraphNode(id="e", type="pair-graph", version=1, bindings={"text": From("a.result"), "texts": From("lb.result")}),
     ], inner)
 
     assert [(p.type, p.loc[0]) for p in compiled.problems] == [("misaligned", "e")]
@@ -228,7 +223,7 @@ def test_an_edge_from_another_nodes_input_is_not_a_source():
     ``unknown_ref_output`` at compile, not a run with nothing left to run."""
     compiled = _compiled([
         GraphNode(id="h", type="upper", version=1, bindings={"text": Static("hi")}),
-        GraphNode(id="u", type="upper", version=1, bindings={"text": _edge(("h", "text"))}),
+        GraphNode(id="u", type="upper", version=1, bindings={"text": From("h.text")}),
     ])
 
     assert [(p.type, p.loc[0], p.loc[1]) for p in compiled.problems] == [("unknown_ref_output", "u", "text")]
@@ -242,7 +237,7 @@ def test_an_open_parameter_inside_an_embedded_graph_is_not_an_input_it_offers():
     inner = embedded_graph_node("script-graph", (GraphNode(id="s", type="script", version=1),), _registry())
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="emb", type="script-graph", version=1, bindings={"v": _edge(("docs", "result"))}),
+        GraphNode(id="emb", type="script-graph", version=1, bindings={"v": From("docs.result")}),
     ], inner)
 
     assert [(p.type, p.loc[0], p.loc[1]) for p in compiled.problems] == [("stale_binding", "emb", "v")]

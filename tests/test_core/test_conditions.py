@@ -88,10 +88,6 @@ def _compiled(nodes):
     return CompiledGraph.from_graph(Graph(nodes=nodes), registry)
 
 
-def _edge(*refs):
-    return From(*(Ref(n, f) for n, f in refs))
-
-
 def test_an_output_nothing_gates_appears_always():
     compiled = _compiled([GraphNode(id="h", type="holder", version=1, bindings={"value": Static("x")})])
 
@@ -101,8 +97,8 @@ def test_an_output_nothing_gates_appears_always():
 def test_a_branch_appears_when_its_decision_went_that_way():
     compiled = _compiled([
         GraphNode(id="h", type="holder", version=1, bindings={"value": Static("x")}),
-        GraphNode(id="g", type="gate", version=1, bindings={"value": _edge(("h", "result"))}),
-        GraphNode(id="yes", type="upper", version=1, bindings={"text": _edge(("g", "if_true"))}),
+        GraphNode(id="g", type="gate", version=1, bindings={"value": From("h.result")}),
+        GraphNode(id="yes", type="upper", version=1, bindings={"text": From("g.if_true")}),
     ])
 
     assert compiled.is_runnable, compiled.problems
@@ -116,10 +112,10 @@ def test_a_merge_adds_an_alternative():
     merge the output appears when either branch fired."""
     compiled = _compiled([
         GraphNode(id="h", type="holder", version=1, bindings={"value": Static("x")}),
-        GraphNode(id="g", type="gate", version=1, bindings={"value": _edge(("h", "result"))}),
-        GraphNode(id="a", type="upper", version=1, bindings={"text": _edge(("g", "if_true"))}),
-        GraphNode(id="b", type="upper", version=1, bindings={"text": _edge(("g", "if_false"))}),
-        GraphNode(id="m", type="single", version=1, bindings={"values": _edge(("a", "result"), ("b", "result"))}),
+        GraphNode(id="g", type="gate", version=1, bindings={"value": From("h.result")}),
+        GraphNode(id="a", type="upper", version=1, bindings={"text": From("g.if_true")}),
+        GraphNode(id="b", type="upper", version=1, bindings={"text": From("g.if_false")}),
+        GraphNode(id="m", type="single", version=1, bindings={"values": From("a.result", "b.result")}),
     ])
 
     assert compiled.is_runnable, compiled.problems
@@ -131,9 +127,9 @@ def test_a_merge_adds_an_alternative():
 def test_two_decisions_in_series_conjoin_and_a_contradiction_is_dropped():
     compiled = _compiled([
         GraphNode(id="h", type="holder", version=1, bindings={"value": Static("x")}),
-        GraphNode(id="g1", type="gate", version=1, bindings={"value": _edge(("h", "result"))}),
-        GraphNode(id="g2", type="gate", version=1, bindings={"value": _edge(("g1", "if_true"))}),
-        GraphNode(id="both", type="single", version=1, bindings={"values": _edge(("g2", "if_true"), ("g1", "if_false"))}),
+        GraphNode(id="g1", type="gate", version=1, bindings={"value": From("h.result")}),
+        GraphNode(id="g2", type="gate", version=1, bindings={"value": From("g1.if_true")}),
+        GraphNode(id="both", type="single", version=1, bindings={"values": From("g2.if_true", "g1.if_false")}),
     ])
 
     assert compiled.is_runnable, compiled.problems
@@ -151,8 +147,8 @@ def test_an_iterating_decision_masks_rows_and_is_not_a_condition():
     iterating decision is conditional on it — and it is not a dimension."""
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="g", type="gate", version=1, bindings={"value": _edge(("docs", "result"))}),
-        GraphNode(id="yes", type="upper", version=1, bindings={"text": _edge(("g", "if_true"))}),
+        GraphNode(id="g", type="gate", version=1, bindings={"value": From("docs.result")}),
+        GraphNode(id="yes", type="upper", version=1, bindings={"text": From("g.if_true")}),
     ])
 
     assert compiled.is_runnable, compiled.problems

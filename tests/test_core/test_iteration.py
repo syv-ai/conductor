@@ -125,17 +125,13 @@ def _compiled(nodes, **kw):
     return CompiledGraph.from_graph(Graph(nodes=nodes, **kw), _registry())
 
 
-def _edge(*refs):
-    return From(*(Ref(n, f) for n, f in refs))
-
-
 # --- a series into a scalar input makes the node iterate --------------------------------
 
 
 def test_a_scalar_node_fed_scalars_does_not_iterate():
     compiled = _compiled([
         GraphNode(id="a", type="upper", version=1, bindings={"text": Static("hi")}),
-        GraphNode(id="b", type="upper", version=1, bindings={"text": _edge(("a", "result"))}),
+        GraphNode(id="b", type="upper", version=1, bindings={"text": From("a.result")}),
     ])
 
     assert compiled.run_plan.nodes["b"].runs_per_row_of is None
@@ -160,7 +156,7 @@ def test_each_series_output_makes_rows_on_an_index_of_its_own():
 def test_a_series_into_a_scalar_input_makes_the_node_iterate():
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": From("docs.texts")}),
     ])
 
     assert compiled.is_runnable
@@ -171,7 +167,7 @@ def test_a_series_into_a_scalar_input_makes_the_node_iterate():
 def test_an_iterating_nodes_outputs_are_series_on_the_same_index():
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": From("docs.texts")}),
     ])
 
     assert compiled.field(Ref("up", "result")).type is Txt and compiled.field(Ref("up", "result")).many
@@ -183,8 +179,8 @@ def test_iteration_is_contagious_and_needs_no_construct():
     iterates in turn. Nothing is stored, marked or grouped."""
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
-        GraphNode(id="n", type="count", version=1, bindings={"text": _edge(("up", "result"))}),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": From("docs.texts")}),
+        GraphNode(id="n", type="count", version=1, bindings={"text": From("up.result")}),
     ])
 
     assert compiled.run_plan.nodes["n"].runs_per_row_of == "docs.texts"
@@ -196,7 +192,7 @@ def test_a_scalar_beside_a_series_broadcasts():
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
         GraphNode(id="prefix", type="upper", version=1, bindings={"text": Static("Attachment: ")}),
-        GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("prefix", "result")), "b": _edge(("docs", "texts"))}),
+        GraphNode(id="p", type="pair", version=1, bindings={"a": From("prefix.result"), "b": From("docs.texts")}),
     ])
 
     assert compiled.is_runnable
@@ -211,7 +207,7 @@ def test_a_scalar_beside_a_series_broadcasts():
 def test_a_mismatched_edge_is_a_fatal_problem_on_the_target_field():
     compiled = _compiled([
         GraphNode(id="n", type="count", version=1, bindings={"text": Static("hi")}),
-        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("n", "result"))}),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": From("n.result")}),
     ])
 
     (make_problem,) = compiled.problems
@@ -225,8 +221,8 @@ def test_a_mismatched_edge_is_a_fatal_problem_on_the_target_field():
 def test_a_mismatched_series_is_judged_by_its_element():
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="n", type="count", version=1, bindings={"text": _edge(("docs", "texts"))}),
-        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("n", "result"))}),
+        GraphNode(id="n", type="count", version=1, bindings={"text": From("docs.texts")}),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": From("n.result")}),
     ])
 
     assert [p.type for p in compiled.problems] == ["type_mismatch"]
@@ -238,8 +234,8 @@ def test_a_pass_through_binds_its_type_from_the_edge():
     lost type."""
     compiled = _compiled([
         GraphNode(id="n", type="count", version=1, bindings={"text": Static("hi")}),
-        GraphNode(id="r", type="route", version=1, bindings={"value": _edge(("n", "result"))}),
-        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("r", "result"))}),
+        GraphNode(id="r", type="route", version=1, bindings={"value": From("n.result")}),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": From("r.result")}),
     ])
 
     assert compiled.node("r").interface.inputs[0].dtype is Num
@@ -254,8 +250,8 @@ def test_an_iterating_pass_through_binds_the_element_and_iterates():
     takes the element as its type."""
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="r", type="route", version=1, bindings={"value": _edge(("docs", "texts"))}),
-        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("r", "result"))}),
+        GraphNode(id="r", type="route", version=1, bindings={"value": From("docs.texts")}),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": From("r.result")}),
     ])
 
     assert compiled.is_runnable, compiled.problems
@@ -267,7 +263,7 @@ def test_an_iterating_pass_through_binds_the_element_and_iterates():
 def test_a_reduction_over_the_variable_binds_from_the_series_element():
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="one", type="only", version=1, bindings={"values": _edge(("docs", "texts"))}),
+        GraphNode(id="one", type="only", version=1, bindings={"values": From("docs.texts")}),
     ])
 
     assert compiled.is_runnable, compiled.problems
@@ -303,8 +299,8 @@ def test_an_open_inputs_takes_one_input_per_edge_received_whole():
         GraphNode(id="n", type="count", version=1, bindings={"text": Static("hi")}),
         GraphNode(id="s", type="script", version=1, bindings={
             "code": Static("return {}"),
-            "antal": _edge(("n", "result")),
-            "tekster": _edge(("docs", "texts")),
+            "antal": From("n.result"),
+            "tekster": From("docs.texts"),
         }),
     ])
 
@@ -320,7 +316,7 @@ def test_an_open_inputs_parameter_takes_one_edge():
     compiled = _compiled([
         GraphNode(id="a", type="upper", version=1, bindings={"text": Static("a")}),
         GraphNode(id="b", type="upper", version=1, bindings={"text": Static("b")}),
-        GraphNode(id="s", type="script", version=1, bindings={"code": Static(""), "x": _edge(("a", "result"), ("b", "result"))}),
+        GraphNode(id="s", type="script", version=1, bindings={"code": Static(""), "x": From("a.result", "b.result")}),
     ])
 
     assert [p.type for p in compiled.problems] == ["one_edge_per_parameter"]
@@ -331,7 +327,7 @@ def test_an_open_inputs_parameter_is_named_like_a_keyword_argument():
     identifier, or the node has no signature to receive it in."""
     compiled = _compiled([
         GraphNode(id="a", type="upper", version=1, bindings={"text": Static("a")}),
-        GraphNode(id="s", type="script", version=1, bindings={"code": Static(""), "my value": _edge(("a", "result"))}),
+        GraphNode(id="s", type="script", version=1, bindings={"code": Static(""), "my value": From("a.result")}),
     ])
 
     assert [(p.type, p.loc[1]) for p in compiled.problems] == [("parameter_name_invalid", "my value")]
@@ -339,8 +335,8 @@ def test_an_open_inputs_parameter_is_named_like_a_keyword_argument():
 
 def test_a_node_with_a_broken_edge_has_no_shape_and_says_so_once():
     compiled = _compiled([
-        GraphNode(id="b", type="upper", version=1, bindings={"text": _edge(("ghost", "result"))}),
-        GraphNode(id="c", type="upper", version=1, bindings={"text": _edge(("b", "result"))}),
+        GraphNode(id="b", type="upper", version=1, bindings={"text": From("ghost.result")}),
+        GraphNode(id="c", type="upper", version=1, bindings={"text": From("b.result")}),
     ])
 
     assert [p.type for p in compiled.problems] == ["unknown_ref_node"]
@@ -393,7 +389,7 @@ def test_compute_outputs_sees_the_dtype_each_connected_input_receives():
     registry = _registry().extended_with([opener])
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="o", type="opener", version=1, bindings={"value": _edge(("docs", "texts"))}),
+        GraphNode(id="o", type="opener", version=1, bindings={"value": From("docs.texts")}),
         GraphNode(id="bare", type="opener", version=1),
     ]), registry)
 
@@ -420,7 +416,7 @@ def test_a_hook_that_cannot_answer_refuses_and_the_refusal_is_the_nodes_problem(
     registry = _registry().extended_with([fussy])
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="f", type="fussy", version=1, bindings={"value": _edge(("docs", "texts"))}),
+        GraphNode(id="f", type="fussy", version=1, bindings={"value": From("docs.texts")}),
     ]), registry)
 
     (make_problem,) = [p for p in compiled.problems if p.loc[0] == "f"]
@@ -445,7 +441,7 @@ def test_an_inputs_hook_that_cannot_answer_refuses_and_compile_does_not_raise():
     registry = _registry().extended_with([fussy])
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         GraphNode(id="f", type="fussy-inputs", version=1, bindings={"value": Static("x")}),
-        GraphNode(id="u", type="upper", version=1, bindings={"text": _edge(("f", "result"))}),
+        GraphNode(id="u", type="upper", version=1, bindings={"text": From("f.result")}),
     ]), registry)
 
     (make_problem,) = compiled.problems
@@ -478,8 +474,8 @@ def test_a_hook_reads_a_defaulted_static_nothing_bound():
 def test_two_series_on_one_index_align():
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
-        GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("up", "result")), "b": _edge(("docs", "texts"))}),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": From("docs.texts")}),
+        GraphNode(id="p", type="pair", version=1, bindings={"a": From("up.result"), "b": From("docs.texts")}),
     ])
 
     assert compiled.is_runnable
@@ -490,7 +486,7 @@ def test_two_series_outputs_of_one_node_do_not_line_up():
     """Each output owns its rows, so two of one node's series are two tables: a node fed both per row can't tell which goes with which."""
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("docs", "texts")), "b": _edge(("docs", "filenames"))}),
+        GraphNode(id="p", type="pair", version=1, bindings={"a": From("docs.texts"), "b": From("docs.filenames")}),
     ])
 
     assert [make_problem.type for make_problem in compiled.problems] == ["misaligned"]
@@ -501,7 +497,7 @@ def test_two_series_on_unrelated_indexes_are_a_fatal_problem_naming_both():
     compiled = _compiled([
         GraphNode(id="a", type="docs", version=1),
         GraphNode(id="b", type="docs", version=1),
-        GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("a", "texts")), "b": _edge(("b", "texts"))}),
+        GraphNode(id="p", type="pair", version=1, bindings={"a": From("a.texts"), "b": From("b.texts")}),
     ])
 
     (make_problem,) = compiled.problems
@@ -517,8 +513,8 @@ def test_two_series_on_unrelated_indexes_are_a_fatal_problem_naming_both():
 def test_a_reduction_on_a_root_yields_a_scalar_and_does_not_iterate():
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
-        GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("up", "result"))}),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": From("docs.texts")}),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": From("up.result")}),
     ])
 
     assert compiled.is_runnable
@@ -532,7 +528,7 @@ def test_a_node_running_per_row_returning_a_series_makes_rows_of_a_child_index()
     line knowing which document it came from."""
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="lines", type="lines", version=1, bindings={"text": _edge(("docs", "texts"))}),
+        GraphNode(id="lines", type="lines", version=1, bindings={"text": From("docs.texts")}),
     ])
 
     assert compiled.run_plan.nodes["lines"].runs_per_row_of == "docs.texts"
@@ -545,8 +541,8 @@ def test_a_reduction_on_a_child_runs_per_row_of_the_parent():
     is no key column to pick."""
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="lines", type="lines", version=1, bindings={"text": _edge(("docs", "texts"))}),
-        GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("lines", "result"))}),
+        GraphNode(id="lines", type="lines", version=1, bindings={"text": From("docs.texts")}),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": From("lines.result")}),
     ])
 
     assert compiled.run_plan.nodes["j"].runs_per_row_of == "docs.texts"
@@ -557,8 +553,8 @@ def test_a_parent_index_series_broadcasts_down_to_a_child_index_node():
     """The firma is the same for each of its employees."""
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="lines", type="lines", version=1, bindings={"text": _edge(("docs", "texts"))}),
-        GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("lines", "result")), "b": _edge(("docs", "texts"))}),
+        GraphNode(id="lines", type="lines", version=1, bindings={"text": From("docs.texts")}),
+        GraphNode(id="p", type="pair", version=1, bindings={"a": From("lines.result"), "b": From("docs.texts")}),
     ])
 
     assert compiled.is_runnable
@@ -568,9 +564,9 @@ def test_a_parent_index_series_broadcasts_down_to_a_child_index_node():
 def test_two_children_of_one_parent_do_not_align():
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="l1", type="lines", version=1, bindings={"text": _edge(("docs", "texts"))}),
-        GraphNode(id="l2", type="lines", version=1, bindings={"text": _edge(("docs", "filenames"))}),
-        GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("l1", "result")), "b": _edge(("l2", "result"))}),
+        GraphNode(id="l1", type="lines", version=1, bindings={"text": From("docs.texts")}),
+        GraphNode(id="l2", type="lines", version=1, bindings={"text": From("docs.filenames")}),
+        GraphNode(id="p", type="pair", version=1, bindings={"a": From("l1.result"), "b": From("l2.result")}),
     ])
 
     assert [p.type for p in compiled.problems] == ["misaligned"]
@@ -583,7 +579,7 @@ def test_n_scalar_refs_into_a_series_input_gather_onto_a_fresh_index():
     compiled = _compiled([
         GraphNode(id="a", type="upper", version=1, bindings={"text": Static("a")}),
         GraphNode(id="b", type="upper", version=1, bindings={"text": Static("b")}),
-        GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("a", "result"), ("b", "result"))}),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": From("a.result", "b.result")}),
     ])
 
     assert compiled.run_plan.nodes["j"].runs_per_row_of is None
@@ -595,7 +591,7 @@ def test_n_series_refs_concatenate_and_lineage_is_gone():
     compiled = _compiled([
         GraphNode(id="a", type="docs", version=1),
         GraphNode(id="b", type="docs", version=1),
-        GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("a", "texts"), ("b", "texts"))}),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": From("a.texts", "b.texts")}),
     ])
 
     assert compiled.is_runnable
@@ -607,9 +603,9 @@ def test_two_refs_on_one_index_into_a_scalar_input_are_a_union_on_it():
     """A merge is edges. The node runs per row of the shared index and reads per row."""
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="a", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
-        GraphNode(id="b", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
-        GraphNode(id="m", type="upper", version=1, bindings={"text": _edge(("a", "result"), ("b", "result"))}),
+        GraphNode(id="a", type="upper", version=1, bindings={"text": From("docs.texts")}),
+        GraphNode(id="b", type="upper", version=1, bindings={"text": From("docs.texts")}),
+        GraphNode(id="m", type="upper", version=1, bindings={"text": From("a.result", "b.result")}),
     ])
 
     assert compiled.is_runnable, compiled.problems
@@ -621,7 +617,7 @@ def test_two_refs_on_different_indexes_into_a_scalar_input_is_fatal():
     compiled = _compiled([
         GraphNode(id="a", type="docs", version=1),
         GraphNode(id="b", type="docs", version=1),
-        GraphNode(id="m", type="upper", version=1, bindings={"text": _edge(("a", "texts"), ("b", "texts"))}),
+        GraphNode(id="m", type="upper", version=1, bindings={"text": From("a.texts", "b.texts")}),
     ])
 
     (make_problem,) = [p for p in compiled.problems if p.loc[0] == "m"]
@@ -631,9 +627,9 @@ def test_two_refs_on_different_indexes_into_a_scalar_input_is_fatal():
 def test_two_series_refs_on_one_index_into_a_series_input_read_that_index_not_a_pile():
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="a", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
-        GraphNode(id="b", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
-        GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("a", "result"), ("b", "result"))}),
+        GraphNode(id="a", type="upper", version=1, bindings={"text": From("docs.texts")}),
+        GraphNode(id="b", type="upper", version=1, bindings={"text": From("docs.texts")}),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": From("a.result", "b.result")}),
     ])
 
     assert compiled.run_plan.nodes["j"].runs_per_row_of is None
@@ -643,7 +639,7 @@ def test_two_series_refs_on_one_index_into_a_series_input_read_that_index_not_a_
 def test_one_scalar_ref_into_a_series_input_is_a_gather_of_one():
     compiled = _compiled([
         GraphNode(id="a", type="upper", version=1, bindings={"text": Static("a")}),
-        GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("a", "result"))}),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": From("a.result")}),
     ])
 
     assert compiled.run_plan.nodes["j"].inputs["texts"].receive_mode == "collected"
@@ -663,7 +659,7 @@ def test_a_gathered_series_judges_each_ref_by_the_element():
     compiled = _compiled([
         GraphNode(id="a", type="upper", version=1, bindings={"text": Static("a")}),
         GraphNode(id="n", type="count", version=1, bindings={"text": Static("a")}),
-        GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("a", "result"), ("n", "result"))}),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": From("a.result", "n.result")}),
     ])
 
     assert [p.type for p in compiled.problems] == ["type_mismatch"]
@@ -675,7 +671,7 @@ def test_a_gathered_series_judges_each_ref_by_the_element():
 def test_compile_stores_no_rows_and_no_mask():
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": From("docs.texts")}),
     ])
 
     assert not hasattr(compiled, "rows")
@@ -698,7 +694,7 @@ def test_a_hook_that_adds_an_input_of_a_type_no_edge_can_carry_closes_it():
     registry = _registry().extended_with([adds])
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         GraphNode(id="n", type="count", version=1, bindings={"text": Static("hi")}),
-        GraphNode(id="a", type="adds", version=1, bindings={"raw": _edge(("n", "result"))}),
+        GraphNode(id="a", type="adds", version=1, bindings={"raw": From("n.result")}),
     ]), registry)
 
     assert [(p.type, p.loc[1]) for p in compiled.problems] == [("edge_into_unconnectable_input", "raw")]
@@ -718,7 +714,7 @@ def test_a_hook_that_leaves_a_connected_output_untyped_is_a_problem_not_a_crash(
     registry = _registry().extended_with([vague])
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         GraphNode(id="v", type="vague", version=1, bindings={"value": Static("hi")}),
-        GraphNode(id="u", type="upper", version=1, bindings={"text": _edge(("v", "result"))}),
+        GraphNode(id="u", type="upper", version=1, bindings={"text": From("v.result")}),
     ]), registry)
 
     assert [(p.type, p.fatal, p.loc[0], p.loc[1]) for p in compiled.problems] == [("output_has_no_type", True, "v", "result")]
@@ -743,7 +739,7 @@ def test_a_refusal_from_a_node_whose_source_is_broken_is_dropped_for_the_sources
     def codes(source_field):
         compiled = CompiledGraph.from_graph(Graph(nodes=[
             GraphNode(id="docs", type="docs", version=1),
-            GraphNode(id="f", type="fussy", version=1, bindings={"value": _edge(("docs", source_field))}),
+            GraphNode(id="f", type="fussy", version=1, bindings={"value": From(f"docs.{source_field}")}),
         ]), registry)
         return [p.type for p in compiled.problems if p.loc[0] == "f"], compiled.node("f")
 
@@ -760,7 +756,7 @@ def test_a_list_set_on_a_node_running_per_row_hangs_under_its_rows():
     """Questions set on a node that runs per document: a questions index under the documents index, and the node runs per question per document."""
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="ask", type="pair", version=1, bindings={"a": _edge(("docs", "texts")), "b": Static(["q1", "q2"])}),
+        GraphNode(id="ask", type="pair", version=1, bindings={"a": From("docs.texts"), "b": Static(["q1", "q2"])}),
     ])
 
     assert compiled.is_runnable, compiled.problems
@@ -779,7 +775,7 @@ def test_two_lists_on_a_node_running_per_row_are_refused():
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
         GraphNode(id="ask", type="triple", version=1, bindings={
-            "a": _edge(("docs", "texts")), "b": Static(["q1", "q2"]), "c": Static(["x", "y"]),
+            "a": From("docs.texts"), "b": Static(["q1", "q2"]), "c": Static(["x", "y"]),
         }),
     ])
 

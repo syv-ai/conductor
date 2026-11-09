@@ -16,7 +16,6 @@ from conductor import (
     GraphNode,
     NodeRegistry,
     Param,
-    Ref,
     Result,
     Series,
     Static,
@@ -111,10 +110,6 @@ def _ledger(nodes):
     return RunLedger(compiled)
 
 
-def _edge(*refs):
-    return From(*(Ref(n, f) for n, f in refs))
-
-
 DOCS = GraphNode(id="docs", type="docs", version=1)
 
 
@@ -124,11 +119,11 @@ def test_a_decision_over_a_whole_column_gates_what_hangs_off_the_branch_not_take
     running per row of it has no units and finishes with it."""
     ledger = _ledger([
         DOCS,
-        GraphNode(id="decide", type="decide", version=1, bindings={"texts": _edge(("docs", "texts"))}),
-        GraphNode(id="full", type="join", version=1, bindings={"texts": _edge(("decide", "full"))}),
-        GraphNode(id="empty", type="join", version=1, bindings={"texts": _edge(("decide", "empty"))}),
-        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("decide", "empty"))}),
-        GraphNode(id="after", type="join", version=1, bindings={"texts": _edge(("up", "result"))}),
+        GraphNode(id="decide", type="decide", version=1, bindings={"texts": From("docs.texts")}),
+        GraphNode(id="full", type="join", version=1, bindings={"texts": From("decide.full")}),
+        GraphNode(id="empty", type="join", version=1, bindings={"texts": From("decide.empty")}),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": From("decide.empty")}),
+        GraphNode(id="after", type="join", version=1, bindings={"texts": From("up.result")}),
     ])
     ledger.units_ready_to_start()
     ledger.record(("docs", ()), {"texts": ["a", "b"], "names": ["x", "y"]})
@@ -163,10 +158,10 @@ def test_a_skip_written_on_a_longer_row_reaches_the_group_above_it():
 
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         DOCS,
-        GraphNode(id="g", type="gate", version=1, bindings={"text": _edge(("docs", "texts"))}),
-        GraphNode(id="line", type="lines", version=1, bindings={"text": _edge(("docs", "texts"))}),
-        GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("line", "result")), "b": _edge(("g", "open"))}),
-        GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("p", "result"))}),
+        GraphNode(id="g", type="gate", version=1, bindings={"text": From("docs.texts")}),
+        GraphNode(id="line", type="lines", version=1, bindings={"text": From("docs.texts")}),
+        GraphNode(id="p", type="pair", version=1, bindings={"a": From("line.result"), "b": From("g.open")}),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": From("p.result")}),
     ]), _registry().extended_with([gate_row]))
     assert compiled.is_runnable, compiled.problems
     ledger = RunLedger(compiled)
@@ -193,11 +188,11 @@ def test_a_skip_above_a_maker_reaches_every_index_under_it():
     row to run on, while the open document is reduced as usual."""
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         DOCS,
-        GraphNode(id="g", type="per-row-gate", version=1, bindings={"text": _edge(("docs", "texts"))}),
-        GraphNode(id="paras", type="lines", version=1, bindings={"text": _edge(("g", "open"))}),
-        GraphNode(id="lines", type="lines", version=1, bindings={"text": _edge(("paras", "result"))}),
-        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("lines", "result"))}),
-        GraphNode(id="j", type="join-per-text", version=1, bindings={"text": _edge(("docs", "texts")), "texts": _edge(("up", "result"))}),
+        GraphNode(id="g", type="per-row-gate", version=1, bindings={"text": From("docs.texts")}),
+        GraphNode(id="paras", type="lines", version=1, bindings={"text": From("g.open")}),
+        GraphNode(id="lines", type="lines", version=1, bindings={"text": From("paras.result")}),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": From("lines.result")}),
+        GraphNode(id="j", type="join-per-text", version=1, bindings={"text": From("docs.texts"), "texts": From("up.result")}),
     ]), _registry().extended_with([per_row_gate]))
     assert compiled.is_runnable, compiled.problems
     ledger = RunLedger(compiled)
@@ -225,8 +220,8 @@ def test_a_node_over_an_empty_list_has_no_units_and_is_not_announced():
     over it runs, on an empty series."""
     ledger = _ledger([
         DOCS,
-        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
-        GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("up", "result"))}),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": From("docs.texts")}),
+        GraphNode(id="j", type="join", version=1, bindings={"texts": From("up.result")}),
     ])
     ledger.units_ready_to_start()
 
@@ -245,9 +240,9 @@ def test_a_group_reduction_is_asked_a_handful_of_times_however_long_the_group():
     for lines in (100, 800):
         ledger = _ledger([
             DOCS,
-            GraphNode(id="lines", type="lines", version=1, bindings={"text": _edge(("docs", "texts"))}),
-            GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("lines", "result"))}),
-            GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("up", "result"))}),
+            GraphNode(id="lines", type="lines", version=1, bindings={"text": From("docs.texts")}),
+            GraphNode(id="up", type="upper", version=1, bindings={"text": From("lines.result")}),
+            GraphNode(id="j", type="join", version=1, bindings={"texts": From("up.result")}),
         ])
         ledger.units_ready_to_start()
         calls = 0
@@ -425,7 +420,7 @@ def test_what_record_returns_is_exactly_what_it_released(seed):
 
 
 def _per_row_over_docs(*more):
-    return _ledger([DOCS, GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}), *more])
+    return _ledger([DOCS, GraphNode(id="up", type="upper", version=1, bindings={"text": From("docs.texts")}), *more])
 
 
 def test_a_unit_with_its_inputs_is_to_be_called():
@@ -444,8 +439,8 @@ def test_a_unit_with_its_inputs_is_to_be_called():
 def test_a_unit_a_skip_reaches_is_recorded_skipped():
     ledger = _ledger([
         DOCS,
-        GraphNode(id="decide", type="decide", version=1, bindings={"texts": _edge(("docs", "texts"))}),
-        GraphNode(id="empty", type="join", version=1, bindings={"texts": _edge(("decide", "empty"))}),
+        GraphNode(id="decide", type="decide", version=1, bindings={"texts": From("docs.texts")}),
+        GraphNode(id="empty", type="join", version=1, bindings={"texts": From("decide.empty")}),
     ])
     ledger.units_ready_to_start()
     ledger.record(("docs", ()), {"texts": ["a"], "names": ["x"]})
@@ -472,8 +467,8 @@ def test_a_unit_a_blank_stops_is_recorded_without_a_call():
 
 def test_a_unit_covered_twice_could_not_read_its_inputs():
     ledger = _per_row_over_docs(
-        GraphNode(id="up2", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
-        GraphNode(id="both", type="upper", version=1, bindings={"text": _edge(("up", "result"), ("up2", "result"))}),
+        GraphNode(id="up2", type="upper", version=1, bindings={"text": From("docs.texts")}),
+        GraphNode(id="both", type="upper", version=1, bindings={"text": From("up.result", "up2.result")}),
     )
     ledger.units_ready_to_start()
     ledger.record(("docs", ()), {"texts": ["a"], "names": ["x"]})
