@@ -120,15 +120,18 @@ def compile_one_node(node: GraphNode, progress: CompileProgress, registry: NodeR
         return _record_compiled_node(progress, node, problems, definition, version, _interface_with_fields(declared, inputs, declared.outputs), statics)
 
     inputs_read = read_what_arrives_on_inputs(node, inputs, statics, inputs_given_a_list, progress, problems)
-    if inputs_read.stopped_at_unreadable_source:
-        return _record_compiled_node(progress, node, problems, definition, version, _interface_without_wiring(node, version, inputs, inputs_read, statics, problems), statics)
     inputs_typed_by_their_edges = _with_types_from_their_edges(inputs, inputs_read)
+    stopped = inputs_read.stopped_at_unreadable_source
     try:
         outputs = _outputs_after_compute_outputs(version, inputs_read, statics)
     except ComputeHookError as hook_error:
-        problems.append(hook_error.as_problem_on_node(node.id))
+        if not stopped:  # a stopped node's broken source carries the problem; its missing arrival is the same fact
+            problems.append(hook_error.as_problem_on_node(node.id))
         return _record_compiled_node(progress, node, problems, definition, version, _interface_with_fields(version.interface, inputs_typed_by_their_edges, ()), statics)
     interface = _interface_with_fields(version.interface, inputs_typed_by_their_edges, outputs)
+    if stopped:  # complete its fields from what did arrive, so an editor can draw it
+        problems.extend(field_problems(node.id, outputs, frozenset(input_.name for input_ in inputs_typed_by_their_edges), untyped_ok=True))
+        return _record_compiled_node(progress, node, problems, definition, version, interface, statics)
     problems_found: list[Problem] = []
     if not placed_inside_a_graph or hooks_decide_fields:
         problems_found = field_problems(node.id, outputs, frozenset(input_.name for input_ in inputs_typed_by_their_edges), untyped_ok=False)
@@ -254,21 +257,6 @@ def _bindings_can_be_wired(
             continue
         problems.append(make_problem("unbound_required", node.id, input_.name))
     return can_wire
-
-
-def _interface_without_wiring(
-    node: GraphNode, version: Any, inputs: tuple[Input, ...], inputs_read: WhatArrivesOnInputs, statics: dict[str, Any], problems: list[Problem],
-) -> Interface:
-    """A source couldn't be read: complete the node's fields from what did arrive, so an editor can draw it."""
-    try:
-        answered = _outputs_after_compute_outputs(version, inputs_read, statics)
-    except ComputeHookError:
-        # The broken source carries the problem; a problem about its missing
-        # arrival would report the same fact twice.
-        answered = ()
-    inputs_typed_by_their_edges = _with_types_from_their_edges(inputs, inputs_read)
-    problems.extend(field_problems(node.id, answered, frozenset(input_.name for input_ in inputs_typed_by_their_edges), untyped_ok=True))
-    return _interface_with_fields(version.interface, inputs_typed_by_their_edges, answered)
 
 
 def _outputs_after_compute_outputs(version: Any, inputs_read: WhatArrivesOnInputs, statics: dict[str, Any]) -> tuple[Output, ...]:
