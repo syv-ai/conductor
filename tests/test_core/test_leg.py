@@ -132,7 +132,12 @@ def test_cancelling_the_consumer_stops_the_rest():
                     started.set()
 
         consumer = asyncio.create_task(consume())
-        await started.wait()
+        seeing_it_start = asyncio.create_task(started.wait())
+        await asyncio.wait({consumer, seeing_it_start}, timeout=10, return_when=asyncio.FIRST_COMPLETED)
+        seeing_it_start.cancel()
+        if consumer.done():
+            consumer.result()  # the consumer's own exception, rather than a wait that never ends
+        assert started.is_set(), "the node never started"
         consumer.cancel()
         await asyncio.gather(consumer, return_exceptions=True)
         await asyncio.sleep(0.3)
