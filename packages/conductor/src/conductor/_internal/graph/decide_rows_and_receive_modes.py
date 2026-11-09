@@ -189,7 +189,8 @@ def _reading_of_edges(
         target = sources[0].type
         given_by_edge = {"dtype": target}
     for source_ref, source in zip(refs, sources, strict=True):
-        problems.extend(_type_mismatch_unless_accepted(target, node_id, input_.name, source_ref, source, target_many=input_.many))
+        if not target.accepts(source.type):
+            problems.append(_type_mismatch(target, node_id, input_.name, source_ref, source, target_many=input_.many))
     if not input_.many:
         if len(sources) > 1 and not _all_on_one_index(sources):
             problems.append(make_problem("union_needs_one_index", node_id, input_.name))
@@ -472,14 +473,7 @@ def _type_mismatch_unless_table_or_column(target: Any, node_id: str, name: str, 
     table column holds. A single value or anything else is ``type_mismatch``."""
     if is_table_type(source.type) or (source.many and polars_type_of(source.type) is not None):
         return []
-    return _type_mismatch_unless_accepted(target, node_id, name, source_ref, source) or [_type_mismatch(target, node_id, name, source_ref, source)]
-
-
-def _type_mismatch_unless_accepted(target: Any, node_id: str, name: str, source_ref: Ref, source: CompiledField, *, target_many: bool = False) -> list[Problem]:
-    """May what arrives land? The target's ``accepts`` decides, asked about one value of each."""
-    if target.accepts(source.type):
-        return []
-    return [_type_mismatch(target, node_id, name, source_ref, source, target_many=target_many)]
+    return [_type_mismatch(target, node_id, name, source_ref, source)]
 
 
 def _type_mismatch(target: Any, node_id: str, name: str, source_ref: Ref, source: CompiledField, *, target_many: bool = False) -> Problem:
