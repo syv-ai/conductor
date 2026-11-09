@@ -230,6 +230,8 @@ def _check_bindings(
     if node.locked:
         problems.extend(problem("unknown_locked_field", node.id, name) for name in node.locked if name not in declared)
     can_wire = True
+    #: A misspelled binding also leaves its input unbound: one problem, the typo, for each.
+    unbound_explained_by_typos = 0
     faults = field_problems(node.id, inputs, untyped_ok=True)
     faults += [problem("parameter_name_invalid", node.id, i.name) for i in inputs if i.name.startswith("_")]
     if faults:
@@ -239,6 +241,7 @@ def _check_bindings(
         if name not in declared:
             hook_decides_inputs = embeddable is None and version.compute_inputs is not None
             problems.append(problem("unused_binding" if hook_decides_inputs else "stale_binding", node.id, name, inputs=", ".join(sorted(declared)) or "none"))
+            unbound_explained_by_typos += not hook_decides_inputs
             continue
         if not isinstance(binding, From):
             continue
@@ -254,13 +257,17 @@ def _check_bindings(
                 problems.append(problem("unknown_ref_node", node.id, name, source_node=source_id))
     for inp in inputs:
         if is_untyped(inp.dtype):
-            if not isinstance(node.bindings.get(inp.name), From):
-                can_wire = False
-                problems.append(problem("unbound_required", node.id, inp.name))
-        elif inp.required and inp.name not in node.bindings and not (
+            if isinstance(node.bindings.get(inp.name), From):
+                continue
+            can_wire = False
+        elif not inp.required or inp.name in node.bindings or (
             embeddable is not None and inp.name in embeddable.inputs and embeddable.inputs[inp.name].filled_inside
         ):
-            problems.append(problem("unbound_required", node.id, inp.name))
+            continue
+        if unbound_explained_by_typos:
+            unbound_explained_by_typos -= 1
+            continue
+        problems.append(problem("unbound_required", node.id, inp.name))
     return can_wire
 
 

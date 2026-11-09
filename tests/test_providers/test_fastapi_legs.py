@@ -129,3 +129,43 @@ def test_answers_with_no_state_are_refused(client):
     refused = client.post("/run", json={"graph": ONCE, "answers": {"ok": {"result": True}}})
 
     assert refused.status_code == 422 and refused.json()["detail"][0]["type"] == "not_waiting"
+
+
+def _app(*definitions) -> TestClient:
+    app = FastAPI()
+    app.include_router(conductor_router(NodeRegistry(list(definitions))))
+    return TestClient(app)
+
+
+@node("say")
+def _say(name: str) -> str:
+    return f"hello {name}"
+
+
+_SAY = {"graph": {"nodes": [{"id": "a", "type": "say", "version": 1, "bindings": {"name": {"value": "x"}}}]}}
+
+
+def test_run_takes_the_graphs_inputs():
+    body = _app(_say).post("/run", json={**_SAY, "inputs": {"name": "Ida"}}).json()
+    assert body["results"]["a"]["result"] == "hello Ida"
+
+
+def test_a_bad_input_on_run_is_a_422_listing_what_is_wrong():
+    response = _app(_say).post("/run", json={**_SAY, "inputs": {"nane": "x"}})
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["type"] == "not_offered"
+
+
+def test_an_unknown_key_on_the_request_is_refused():
+    assert _app(_say).post("/run", json={**_SAY, "cache": {}}).status_code == 422
+
+
+def test_openapi_types_the_run_response():
+    schema = _app(_say).get("/openapi.json").json()
+    assert schema["paths"]["/run"]["post"]["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].endswith("RunResult")
+
+
+def test_the_state_of_a_run_round_trips_through_its_typed_response():
+    client = _app(_say)
+    first = client.post("/run", json=_SAY).json()
+    assert client.post("/run", json={**_SAY, "state": first["state"]}).json()["state"]["status"] == "complete"

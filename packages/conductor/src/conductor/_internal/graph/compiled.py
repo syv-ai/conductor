@@ -176,13 +176,14 @@ class CompiledGraph:
             raise KeyError(f"{node_id!r} is not a node of this graph")
         return self._nodes[node_id]
 
-    def field(self, ref: Ref) -> CompiledField:
-        """One compiled input or output by its address.
+    def field(self, ref: Ref | str) -> CompiledField:
+        """One compiled input or output by its address, a ``Ref`` or the string.
 
         A field inside an embedded graph is at its path: ``Ref("emb/all",
         "result")``. Anything the graph has no such field for raises
         ``KeyError``, naming the problem behind it when a node compile
         couldn't work out is why."""
+        ref = Ref(ref)
         node = self.node(ref.node_id)
         if node.wiring is None:
             raise KeyError(f"{ref.node_id!r} has no fields compile could work out: {node.cause.msg if node.cause else ''}")
@@ -205,32 +206,34 @@ class CompiledGraph:
         ``InvalidCallError``, code ``not_offered``, every such name at once.
         Each value becomes a ``Static`` on its input in a copy of the graph,
         which compiles against the same registry: a list on an input for one
-        value runs the graph once per item, a value the type cannot read is
-        ``invalid_static``. The copy still offers every input.
-
-        Not a run, and it validates nothing itself.
+        value runs the graph once per item. A value its input's type can't
+        read is an ``invalid_static``, raised with any names it doesn't offer.
+        The copy still offers every input. Not a run.
         """
-        return self._refilled({**(inputs or {}), **by_name}, ())
+        return self._refilled({**(inputs or {}), **by_name}, (), refuse_unreadable_values=True)
 
-    def _refilled(self, values: Mapping[str, Any], cleared: Iterable[str]) -> CompiledGraph:
+    def _refilled(self, values: Mapping[str, Any], cleared: Iterable[str], *, refuse_unreadable_values: bool = False) -> CompiledGraph:
         """This graph compiled again with ``values`` typed on the inputs they
         name and the values its author typed on the ``cleared`` inputs taken
         off, so they arrive at run time. ``with_inputs`` for a caller; a
-        graph that embeds this one asks for the copy one graph node fills. Names are read as ``with_inputs`` reads them."""
+        graph that embeds this one asks for the copy one graph node fills. Names are read as ``with_inputs`` reads them.
+        A graph that embeds this one wants a value its input can't read as
+        a problem of the compile, so it says so with ``refuse_unreadable_values=False``; a caller
+        gets it raised."""
         offered = [inp.name for inp in self.interface.inputs]
         faults: list[Problem] = []
         filled: dict[str, dict[str, Static]] = {}
+        written_as: dict[tuple[str, str], str] = {}
         for name, value in values.items():
             ref = self._offered(name, offered, faults)
             if ref is not None:
                 filled.setdefault(ref.node_id, {})[ref.field] = Static(value)
+                written_as[ref.node_id, ref.field] = name
         taken: dict[str, set[str]] = {}
         for name in cleared:
             ref = self._offered(name, offered, faults)
             if ref is not None:
                 taken.setdefault(ref.node_id, set()).add(ref.field)
-        if faults:
-            raise InvalidCallError(faults)
         graph = self.graph.model_copy(update={"nodes": tuple(
             node.model_copy(update={"bindings": {
                 **{field: binding for field, binding in node.bindings.items() if field not in taken.get(node.id, ())},
@@ -238,7 +241,15 @@ class CompiledGraph:
             }})
             for node in self.graph.nodes
         )})
-        return CompiledGraph.from_graph(graph, self._registry)
+        refilled = CompiledGraph.from_graph(graph, self._registry)
+        if refuse_unreadable_values:
+            faults += [
+                found.model_copy(update={"loc": ("inputs", written_as[found.loc])})  # type: ignore[index]
+                for found in refilled.problems if found.type == "invalid_static" and found.loc in written_as
+            ]
+        if faults:
+            raise InvalidCallError(faults)
+        return refilled
 
     def _offered(self, name: str, offered: list[Ref], faults: list[Problem]) -> Ref | None:
         """The input a keyword to ``with_inputs`` names; or ``None``, and the fault that lists what is offered."""
@@ -317,7 +328,7 @@ class CompiledGraph:
         ``state`` is where to go on from, ``None`` for a fresh run: a node the
         graph has changed since, and whatever reads it, runs again. ``from_run``
         supplies values by type to parameters annotated
-        ``Annotated[X, FromRun()]``; a type no one supplied is a ``TypeError``.
+        ``FromRun[X]``; a type no one supplied, or a key that is no type, is an ``InvalidCallError``. A type no node needs is left alone, so a host can hand every graph the same values.
         ``timeout`` bounds the leg in seconds and ends it ``timed_out``;
         setting ``cancel`` ends it ``cancelled`` at once.
 

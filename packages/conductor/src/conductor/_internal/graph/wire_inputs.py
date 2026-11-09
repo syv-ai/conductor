@@ -114,7 +114,7 @@ def read_inputs(
             # A source that was worked out but has no such output is this input's
             # fault; one that wasn't carries its own problem already.
             problems.extend(
-                problem("unknown_ref_output", node.id, name, source=str(ref_))
+                problem("unknown_ref_output", node.id, name, source=str(ref_), outputs=_outputs_offered_by(ref_.node_id, walk))
                 for ref_, source in zip(binding.refs, feeding, strict=True)
                 if source is None and _source_node_is_wired(ref_, walk)
             )
@@ -194,6 +194,16 @@ def _source(ref: Ref, walk: WalkSoFar) -> CompiledField | None:
         return None
     found = node.wiring.fields.get(ref.field)
     return found if found is not None and found._is_output else None
+
+
+def _outputs_offered_by(node_id: str, walk: WalkSoFar) -> str:
+    """The names an edge may read from ``node_id``, for a sentence."""
+    node = walk.compiled[node_id]
+    if node.embedded_graph is not None:
+        names = sorted(node.embedded_graph._for_embedding.outputs)
+    else:
+        names = sorted(name for name, field in node.wiring.fields.items() if field._is_output)  # type: ignore[union-attr]
+    return ", ".join(names) or "none"
 
 
 def _source_node_is_wired(ref: Ref, walk: WalkSoFar) -> bool:

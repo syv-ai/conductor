@@ -31,8 +31,8 @@ registry = NodeRegistry([greet])
 ## Rules, checked by `@node`
 
 - Only the id is required. The title defaults to the function's name, the description to its docstring.
-- An input without a widget is filled by edges only; a default makes it optional; `connectable=False` closes it to edges, and a plain Python type closes it by itself. `Any` is a value routed unread.
-- The function is a plain `def` returning the declared type (`Text("done")`, not `"done"`).
+- An input without a widget is filled by edges only; a default makes it optional; `connectable=False` closes it to edges, and a type no edge can carry (`list[X]`) closes it by itself. `Any` is a value routed unread.
+- The function is a plain `def` returning a value of its declared type.
 
 ## Quick reference
 
@@ -41,7 +41,7 @@ registry = NodeRegistry([greet])
 | Several outputs | a frozen dataclass of `Result` fields as the return type |
 | A whole list in one call | a `Series[X]` input |
 | A branch | return `SKIPPED` on the output not taken; share a `choice` |
-| A blank (an empty cell) | `email: Text \| None`; otherwise the node is not called for that row and its outputs are blank there |
+| A blank (an empty cell) | `email: str \| None`; otherwise the node is not called for that row and its outputs are blank there |
 | A person's answer | `-> X \| AskPerson`, returning `AskPerson(defaults=..., widgets=...)`; the declared outputs are the questions |
 | A client, a clock, the caller | `FromRun[T]`, supplied by `compiled.run(from_run={T: value})` |
 | Retries, a timeout, a concurrency bound | `@node("x", policy=Policy(retries=3, timeout=10, concurrency=4))` |

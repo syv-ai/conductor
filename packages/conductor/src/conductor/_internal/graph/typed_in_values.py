@@ -16,6 +16,7 @@ from typing import Any
 
 from pydantic import TypeAdapter, ValidationError
 
+from conductor._internal.dtype import name_of
 from conductor._internal.errors import Problem, problem
 from conductor._internal.field_records import Input
 from conductor._internal.graph.binding import static_values
@@ -39,7 +40,7 @@ def read_typed_in_values(inputs: Iterable[Input], node: GraphNode) -> tuple[dict
             typed[name], many = _read_one_value(inp, value)
         except (ValidationError, TypeError, ValueError) as unreadable:
             said = _what_the_type_said(unreadable)
-            invalid.append(problem("invalid_static", node.id, name, **({"reason": said} if said else {})))
+            invalid.append(problem("invalid_static", node.id, name, input=_short_repr(value), expected=name_of(inp.dtype), **({"reason": said} if said else {})))
             continue
         if many:
             listed.add(name)
@@ -61,6 +62,12 @@ def _read_one_value(inp: Input, value: Any) -> tuple[Any, bool]:
         if _is_sequence(value):
             return [_adapter(inp.dtype).validate_python(v) for v in value], True
         raise
+
+
+def _short_repr(value: Any) -> str:
+    """``value`` as written in a problem's sentence: never a page of it."""
+    written = repr(value)
+    return written if len(written) <= 60 else f"{written[:57]}..."
 
 
 def _is_sequence(value: Any) -> bool:

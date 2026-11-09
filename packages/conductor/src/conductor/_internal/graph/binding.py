@@ -12,7 +12,10 @@ author touched; an input with no entry takes its declared default::
     }
 
 Both read as they are written, positionally; stored, they are
-``{"refs": [...]}`` and ``{"value": ...}``.
+``{"refs": [...]}`` and ``{"value": ...}``. A type checker reads ``From(...)``
+as ``Any``, so an edge can be written where a value is expected
+(``upper.graph_node("b", text=From("a.result"))``): an edge carries what its
+source produces, and only compile knows if that fits.
 
 Because one input holds one binding, an edge and a typed value can never
 both claim the same input.
@@ -32,36 +35,45 @@ not taken carries ``SKIPPED``.
 
 from __future__ import annotations
 
-from typing import Any, Mapping, TypeAlias
+from typing import TYPE_CHECKING, Annotated, Any, Mapping, TypeAlias
 
-from pydantic import Field
+from pydantic import Discriminator, Field, Tag
 
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.ref import Ref
 
+if TYPE_CHECKING:
+    # A type checker sees a call of ``From`` as ``Any``, so an edge may stand where a value of the
+    # input's type is written; it still knows the class, for an ``isinstance``.
+    class From:
+        refs: tuple[Ref, ...]
 
-class From(ConductorModel):
-    """The input's value arrives over one or more edges from other nodes' outputs.
+        def __new__(cls, *refs: Ref | str, **stored: Any) -> Any: ...
 
-    ``refs`` names those outputs in the order the author connected them,
-    and that order is the only order there is; an edge with no refs is not
-    a binding and is refused where it is written. A scalar input has one
-    ref; a ``Series[X]`` input may have several, gathered into one series.
-    There is no per-ref enable flag: muting an operand is deleting it.
+        def model_dump(self, **options: Any) -> dict[str, Any]: ...
+else:
+    class From(ConductorModel):
+        """The input's value arrives over one or more edges from other nodes' outputs.
 
-    Written by the editor when two handles are connected; read by compile.
-    Its one sibling is ``Static``.
-    """
+        ``refs`` names those outputs in the order the author connected them,
+        and that order is the only order there is; an edge with no refs is not
+        a binding and is refused where it is written. A scalar input has one
+        ref; a ``Series[X]`` input may have several, gathered into one series.
+        There is no per-ref enable flag: muting an operand is deleting it.
 
-    refs: tuple[Ref, ...] = Field(min_length=1)
+        Written by the editor when two handles are connected; read by compile.
+        Its one sibling is ``Static``.
+        """
 
-    def __init__(self, *refs: Ref | str, **stored: Any) -> None:
-        """``From("a.result")``, or several: ``From("a.result", "b.result")``. A ref
-        is a ``Ref`` or its address as a string. The stored form, ``refs=``,
-        is what pydantic passes when it reads a saved graph."""
-        if refs and stored:
-            raise TypeError("From takes its refs positionally or as refs=, not both")
-        super().__init__(**({"refs": refs} if refs else stored))
+        refs: tuple[Ref, ...] = Field(min_length=1)
+
+        def __init__(self, *refs: Ref | str, **stored: Any) -> None:
+            """``From("a.result")``, or several: ``From("a.result", "b.result")``. A ref
+            is a ``Ref`` or its address as a string. The stored form, ``refs=``,
+            is what pydantic passes when it reads a saved graph."""
+            if refs and stored:
+                raise TypeError("From takes its refs positionally or as refs=, not both")
+            super().__init__(**({"refs": refs} if refs else stored))
 
 
 class Static(ConductorModel):
@@ -88,7 +100,19 @@ class Static(ConductorModel):
         super().__init__(**({"value": value[0]} if value else stored))
 
 
-Binding: TypeAlias = From | Static
+def _kind_of_binding(value: Any) -> str | None:
+    """``From`` or ``Static``, read off what ``value`` holds: the one question a union of the two would otherwise ask by trying both."""
+    if isinstance(value, From) or (isinstance(value, Mapping) and "refs" in value):
+        return "from"
+    if isinstance(value, Static) or (isinstance(value, Mapping) and "value" in value):
+        return "static"
+    return None
+
+
+Binding: TypeAlias = Annotated[
+    Annotated[From, Tag("from")] | Annotated[Static, Tag("static")],
+    Discriminator(_kind_of_binding, custom_error_type="not_a_binding", custom_error_message="A binding is From('node.output') or Static(value)."),
+]
 
 
 def static_values(bindings: Mapping[str, Binding]) -> dict[str, Any]:

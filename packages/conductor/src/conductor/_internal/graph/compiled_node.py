@@ -191,11 +191,16 @@ class CompiledNode:
         assert self.interface is not None
         return tuple(
             Question(
-                name=out.name, title=out.title, description=out.description, dtype=description_of(out.dtype),
+                name=out.name, title=self._title_of_a_question(out), description=out.description, dtype=description_of(out.dtype),
                 json_schema=json_schema_of(out.dtype), optional=out.takes_blank and out.choice is None, choice=out.choice,
             )
             for out in self.interface.outputs
         )
+
+    def _title_of_a_question(self, out: Any) -> str:
+        """An output nobody titled, on a node with one output, reads as the node's own title rather than ``result``."""
+        untitled = out.title == out.name and len(self.interface.outputs) == 1  # type: ignore[union-attr]
+        return (self.graph_node.title or self.definition.title) if untitled and self.definition is not None else out.title
 
     @cached_property
     def _check(self) -> Callable[[Mapping[str, Any]], dict[str, Any]]:

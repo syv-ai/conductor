@@ -50,5 +50,5 @@ asyncio.run(legs())
 
 - An asking node waits with its readers; the rest runs on. Each entry of `state.waiting` carries `id`, `node_id`, `row`, `prompt`, `questions`.
 - An answer is `{unit.id: {output: value}}`; for a node that runs once the id is the node id: `{"approve": {"result": "Yes"}}`. A unit left out goes on waiting and is not called again.
-- A wrong answer raises `InvalidCallError`, every fault listed; a missing `FromRun` value raises `TypeError`. A node changed since the state was taken reruns with its readers.
+- A wrong answer raises `InvalidCallError`, every fault listed; a missing `FromRun` value raises `InvalidCallError` too. A node changed since the state was taken reruns with its readers.
 - Events are records, not JSON; `conductor_providers.fastapi.sse.sse_frame` serialises one. Leaving `async with compiled.stream() as events:` stops every unit.

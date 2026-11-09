@@ -10,6 +10,7 @@ from conductor import (
     FromRun,
     Graph,
     GraphNode,
+    InvalidCallError,
     NodeRegistry,
     Param,
     Ref,
@@ -69,7 +70,7 @@ def test_the_run_supplies_a_need_by_type():
 
 def test_a_need_the_host_did_not_provide_is_refused_before_anything_runs():
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="g", type="greet", version=1, bindings={"text": Static(Txt("hello"))})]), _registry())
-    with pytest.raises(TypeError, match="needs a Who"):
+    with pytest.raises(InvalidCallError, match="needs a Who"):
         compiled.run_sync()
 
 

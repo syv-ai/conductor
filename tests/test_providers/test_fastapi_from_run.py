@@ -67,5 +67,5 @@ def test_the_hook_supplies_each_request_on_both_endpoints():
 def test_a_run_missing_what_it_needs_fails_the_request_on_both_endpoints():
     client = _client()
 
-    assert client.post("/run", json=GRAPH).status_code == 500
-    assert client.post("/run-stream", json=GRAPH).status_code == 500
+    assert client.post("/run", json=GRAPH).status_code == 422
+    assert client.post("/run-stream", json=GRAPH).status_code == 422

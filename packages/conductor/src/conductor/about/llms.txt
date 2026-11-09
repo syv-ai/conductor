@@ -2,42 +2,34 @@
 
 > Compile-then-execute DAG engine behind visual node editors.
 
-A node is a class whose typed `run` signature is its interface. A graph binds each node's inputs to other nodes' outputs or typed-in values. Compile gives an immutable `CompiledGraph` that reports what is wrong; the engine runs it as a stream of events, once per row wherever a series arrives. The host declares its own types and nodes.
+A node is a function whose typed signature is its interface. A graph binds each node's inputs to other nodes' outputs or typed-in values. Compile gives an immutable `CompiledGraph` that reports what is wrong; the engine runs it as a stream of events, once per row wherever a series arrives. The host declares its own types and nodes.
 
 ## Quick Start
 
 One node takes a single value, the other a whole series; that is all iteration is.
 
 ```python
-from typing import Annotated
-
-from conductor import CompiledGraph, DType, From, Graph, GraphNode, NodeRegistry, Param, Series, node
-from conductor.widgets import Textarea
+from conductor import CompiledGraph, From, Graph, NodeRegistry, Series, node
 
 
-class Text(DType, str):
-    id = "text"
+@node("upper")
+def upper(text: str) -> str:
+    return text.upper()
 
 
-@node("upper", title="Upper case", description="Upper-cases one text", category="text")
-def upper(text: Annotated[Text, Param(title="Text", widget=Textarea())]) -> Text:
-    return Text(text.upper())
-
-
-@node("join", category="text")
-def join(texts: Series[Text]) -> Text:
+@node("join")
+def join(texts: Series[str]) -> str:
     """Joins every text of a series."""
-    return Text("+".join(texts))
+    return "+".join(texts)
 
 
-assert upper(Text("a")) == "A"  # a node is called like its function
-registry = NodeRegistry([upper, join])
+assert upper("a") == "A"  # a node is called like its function
 
 graph = Graph(nodes=[
-    GraphNode(id="upper", type="upper", version=1),
-    GraphNode(id="join", type="join", version=1, bindings={"texts": From("upper.result")}),
+    upper.graph_node("upper", text=""),
+    join.graph_node("join", texts=From("upper.result")),
 ])
-compiled = CompiledGraph.from_graph(graph, registry)   # upper.text is the graph's one open input
+compiled = CompiledGraph.from_graph(graph, NodeRegistry([upper, join]))
 ready = compiled.with_inputs(text=["a", "b", "c"])     # by name; by address, **{"upper.text": ...}
 assert ready.is_runnable, ready.problems
 
@@ -45,8 +37,10 @@ state = await ready.run()          # in a script: ready.run_sync()
 ready.outputs(state)               # {"join.result": "A+B+C"}: what the graph returns, by address
 results = ready.results(state)     # every node's outputs, by node id
 list(results["upper"]["result"])   # ["A", "B", "C"]: ran once per value
-results["join"]["result"]          # "A+B+C": Series[Text] received the whole series once
+results["join"]["result"]          # "A+B+C": Series[str] received the whole series once
 ```
+
+`node.graph_node(id, ...)` is a `GraphNode` at the current version, its arguments checked like the function's. A value is typed in; `From(...)` is an edge, and types as `Any`. An input left open, or a `FromRun`, is written with `GraphNode(...)`.
 
 ## Core Concepts
 
@@ -54,10 +48,10 @@ results["join"]["result"]          # "A+B+C": Series[Text] received the whole se
 
 `@node("id", title=, description=, category=, tags=, docs=, policy=, deprecation=, compute_inputs=, compute_outputs=, older=)` wraps a plain function and returns a frozen, callable `NodeDefinition`; it registers nothing. Only the id is required: the title defaults to the function's name, the description to its docstring.
 
-- Input: `text: Text`, or `Annotated[Text, Param(title=, description=, widget=, connectable=)]` beside it. Without a widget only an edge fills it; a default makes it optional. A non-`DType` annotation (a schema, a list of branches) cannot travel on an edge, so the input is closed by itself; `connectable=False` closes one that could.
-- Output: `-> Text` is one output named `result`, `Result(name=, title=, description=, choice=)` beside it says more; a frozen dataclass is one output per field; `-> Mapping[str, Any]` returns the computed outputs by name and needs `compute_outputs`; `-> None` declares no outputs.
+- Input: `text: str`, or `Annotated[str, Param(title=, description=, widget=, connectable=)]` beside it. Without a widget only an edge fills it; a default makes it optional. A type no edge can carry (`list[X]`, a `Literal`) closes the input by itself; `connectable=False` closes one that could.
+- Output: `-> str` is one output named `result`, `Result(name=, title=, description=, choice=)` beside it says more; a frozen dataclass is one output per field; `-> Mapping[str, Any]` returns the computed outputs by name and needs `compute_outputs`; `-> None` declares no outputs.
 - `Any` is a value routed unread; an `Any` output needs `compute_outputs` to type it.
-- A value can be blank. If an input's type doesn't say `| None` (`email: Text | None`), the node isn't called for that row: its outputs are blank there, a `choice` output is skipped, and an output that makes rows has none. `Series[X]` leaves blanks out, row by row across the series inputs on one index; `Series[X | None]` keeps them. `Any`, `Series[Any]` and `AsItArrives` take blanks. `| None` on a return lets the node return `None`, and a question may be left blank. A default is for an input nothing is wired to, never for a blank. `node_complete.rows_not_called` and `RunState.rows_not_called` count, per input, the rows skipped this way.
+- A value can be blank. If an input's type doesn't say `| None` (`email: str | None`), the node isn't called for that row: its outputs are blank there, a `choice` output is skipped, and an output that makes rows has none. `Series[X]` leaves blanks out, row by row across the series inputs on one index; `Series[X | None]` keeps them. `Any`, `Series[Any]` and `AsItArrives` take blanks. `| None` on a return lets the node return `None`, and a question may be left blank. A default is for an input nothing is wired to, never for a blank. `node_complete.rows_not_called` and `RunState.rows_not_called` count, per input, the rows skipped this way.
 - `**x: T` makes every edge an input declared `T` when no `compute_inputs` owns the parameter: `Any` or a type runs the node per row, `Series[Any]` reduces each edge, `AsItArrives` hands each as it arrives (a column as a column) and never runs per row.
 - The function returns `SKIPPED` on a branch not taken and `AskPerson` when a person must answer (`-> ... | AskPerson`).
 - What the run supplies arrives through `FromRun[T]` parameters.
@@ -85,7 +79,7 @@ def greet(first: Text, last: Text) -> Text: ...
 - `OlderVersion(run, upgrade=, policy=, deprecation=, compute_inputs=, compute_outputs=)` is one earlier version, with its own policy and hooks. `Upgrade(renamed_inputs={old: new}, renamed_outputs={old: new}, rewrite=fn)` sits on the version it leaves; renames carry lock and content; it is required only when a field name is gone from the next version.
 - `upgrade_node(graph, node_id, registry, to=None)` moves one node to a version and rewrites edges on renamed outputs, returning a `Graph`; what it can't do is `InvalidCallError`. Compile never upgrades.
 - `Deprecation(header=, description=, alternative=, migration=)` retires a node (`deprecation=` on `@node`) or a version; `NodeRegistry` checks an `alternative` exists.
-- `NodeDefinition.from_compiled_graphs(id, title=, description=, category=, versions={3: compiled})` makes a node whose versions are graphs: a host compiles each stored graph version once. Compile walks the graph node as one node with the graph's `interface`, then puts the graph's nodes in its place under the graph node's id (`approve/check`), under the row the graph node runs on; the run reads exactly as if they had been drawn there. Only the inputs and outputs the graph offers are reachable from outside: an edge or value on any other inner field is `unknown_ref_output` or `stale_binding`. An offered input needs a type: one typed `Any` or `Series[Any]` leaves its node not ready. A graph with anything fatal in it but an input it offers left empty is refused where it is embedded with one fatal `embedded_graph_broken` (`graph`, `problems` in its details); it stays one node with nothing inside, and its own problems stay on it, `compiled.node(id).version.problems`. A value typed on an embedded graph's input, or an edge into an input its author filled, lands on the inner field as if typed or connected there; a value typed there that a hook inside refuses is the hook's own problem on that field of the graph node. Refusing a graph that embeds itself is the host's job.
+- `NodeDefinition.from_compiled_graphs(id, versions={3: compiled}, title=, description=, category=)` makes a node whose versions are graphs: a host compiles each stored graph version once. The title defaults to the id. Outside it, its fields go by the names it offers: bare where unique, the address on a clash (`text`, `t.text`). Bindings and `From` use them, and inner addresses only read a run. Compile walks the graph node as one node with the graph's `interface`, then puts the graph's nodes in its place under the graph node's id (`approve/check`), under the row the graph node runs on; the run reads exactly as if they had been drawn there. Only the inputs and outputs the graph offers are reachable from outside: an edge or value on any other inner field is `unknown_ref_output` or `stale_binding`. An offered input needs a type: one typed `Any` or `Series[Any]` leaves its node not ready. A graph with anything fatal in it but an input it offers left empty is refused where it is embedded with one fatal `embedded_graph_broken` (`graph`, `problems` in its details); it stays one node with nothing inside, and its own problems stay on it, `compiled.node(id).version.problems`. A value typed on an embedded graph's input, or an edge into an input its author filled, lands on the inner field as if typed or connected there; a value typed there that a hook inside refuses is the hook's own problem on that field of the graph node. Refusing a graph that embeds itself is the host's job.
 
 ### Field Hooks
 
@@ -98,7 +92,7 @@ Each is a plain function, given per version (`compute_inputs=` and `compute_outp
 
 ### Types
 
-A `DType` is a class on a builtin with its own `id`, `title` defaulting to the class name (`class Text(DType, str)`). It never converts or picks a widget. `Input.dtype` and `Output.dtype` are always a `DType`: `Any` is held as a private type whose `id` is `any`, a closed input's plain type as one whose `id` is `setting`. `Series[X]` reads as `Sequence[X]` to a type checker, so a node returns a list; `Table[...]` takes a `TypedDict` naming the columns, and `Table.with_columns({"name": Text})` is the same type for a hook.
+`str`, `int`, `float`, `bool`, `date`, `datetime` and a pydantic model travel on edges as they are; `dtype_of` makes each the `DType` compile reads, so nothing past it knows the difference. `class Text(DType, str)` with an `id`, `display_title` defaulting to the class name, is for a type of your own: one that restricts its edges, a word for a palette, one that formats itself; a subtype lands on its parent, so a `Text` lands on `str`. It never converts or picks a widget. `Input.dtype` and `Output.dtype` are always a `DType`: `Any` is held as a private type whose `id` is `any`, a type no edge can carry as one whose `id` is `setting`. `Series[X]` reads as `Sequence[X]` to a type checker, so a node returns a list; `Table[...]` takes a `TypedDict` naming the columns, and `Table.with_columns({"name": Text})` is the same type for a hook.
 
 - `target.accepts(source)`: may an edge land, asked about one value of each side (default `issubclass`). `as_text` formats. `describe()`, `dtype_of(annotation)`.
 - `registry.types`: node types plus `NodeRegistry(..., types=[...])`; `registry.accepted_as(T)`: ids `T` lands on.
@@ -118,7 +112,7 @@ A `DType` is a class on a builtin with its own `id`, `title` defaulting to the c
 
 `CompiledGraph.from_graph(graph, registry)` is pure and never raises for a fault in the graph: each is a `Problem` (`type`, `loc`, `msg`, `ctx`, and `fatal`, read off the code). A hook that raises anything but `CompileProblem` is a bug in the hook and leaves `from_graph` as it is. A required input with a type and nothing bound is a fatal `unbound_required`, but its node stays `ready`: compile types it from its declaration, so the node and everything after it are worked out. Definitions loaded at run time go in `registry.extended_with([cls])`.
 
-- Graph: `problems`, `is_runnable`, `interface` (open inputs, unread outputs), `graph`, `execution_order`, `decisions`. An address is a node's path and a field: a field inside an embedded graph is `Ref("emb/check", "amount")`, in `field`, results, `outputs` and `interface` alike.
+- Graph: `problems`, `is_runnable`, `interface` (open inputs, unread outputs), `graph`, `execution_order`, `decisions`. An address is `node.field`; `interface` and `outputs` name an embedded graph's fields the same way, by what it offers (`emb.amount`). Reading a run, `results` and `field` use the path `Ref("emb/check", "amount")`.
 - `compiled.node(node_id)` answers for every node compile met: `id`, `graph_node`, `embedded_in`, `problems`, `state` (`ready`, `wiring_failed`, `resolution_failed`), `cause` (the one `Problem` behind a node that isn't `ready`), `definition`, `version`, `interface`, `statics`, `wiring`, `embedded_graph` and `fingerprint`. What compile doesn't know is `None`, never an error: `interface` when it can't tell the node's fields, `wiring` when it can't work out its connections, `fingerprint` on a node that doesn't run as one unit. `wiring.fields` holds one record per field (`ref`, `type`, `binding`, `condition`, `problems`), and `compiled.field(ref)` hands one back; an unwired node or an unknown field is a `KeyError`.
 - `compiled.run_plan` says where every ready node runs and what each of its inputs receives: `.nodes[node_id]` has `runs_per_row_of` (a `Ref` or `None`), `inputs` (an `InputPlan` per input with `sources`, `arrives`, `rows_of`, `grouped_under`, `takes_blank`, `parts`, `copied_down`) and `makes_rows`. `print(compiled.run_plan)` is the same as text. It is what a host compares between two versions of a graph.
 - A field's `condition` says when it has a value: a set of alternatives, each a set of `Atom`, or `ALWAYS` or `NEVER`.
@@ -228,7 +222,7 @@ Every verb is on `CompiledGraph`:
 - `compiled.run(state=None, /, *, from_run=None, timeout=None, cancel=None)`: one leg, its `RunState`. A pause or failure is a `status`. `run_sync` is `run` under `asyncio.run`.
 - `compiled.stream(...)`, the same arguments: an async context manager yielding the events.
 - `compiled.answer(state, answers)`: a new state with these units answered; no node runs.
-- `compiled.with_inputs(**inputs)`: a copy with inputs filled as `Static`s, by bare name or address; `compiled.graph` is then what ran.
+- `compiled.with_inputs(**inputs)`: a copy with inputs filled as `Static`s, by bare name or address; a name it doesn't offer or a value its type can't read raises `InvalidCallError`, every fault at once; `compiled.graph` is then what ran.
 - `compiled.results(state)`: every node's outputs so far, by node id, the rows that have values so far on a node that runs per row. `compiled.outputs(state)`: narrowed to `compiled.interface.outputs`, by address, on a `complete` state only.
 - `compiled.nodes_changed_since(state)`: which nodes must run again.
 

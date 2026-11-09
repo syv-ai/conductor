@@ -158,8 +158,8 @@ def test_the_problem_carries_what_the_type_itself_said():
     names the field; the type's follows it."""
     (problem,) = _problems([GraphNode(id="p", type="picky", version=1, bindings={"x": Static("")})])
 
-    assert problem.msg == "The value in 'x' cannot be read as the field's type. The field must be filled in."
-    assert problem.ctx == {"reason": "The field must be filled in."}
+    assert problem.msg.endswith("The field must be filled in.") and "'x'" in problem.msg
+    assert problem.ctx["reason"] == "The field must be filled in."
 
 
 def test_a_type_that_said_nothing_of_its_own_leaves_the_generic_sentence_alone():
@@ -167,8 +167,8 @@ def test_a_type_that_said_nothing_of_its_own_leaves_the_generic_sentence_alone()
     input handed a scalar is the same: nothing a person should read."""
     (problem,) = _problems([GraphNode(id="j", type="join", version=1, bindings={"texts": Static(3)})])
 
-    assert problem.msg == "The value in 'texts' cannot be read as the field's type."
-    assert problem.ctx == {}
+    assert "'texts'" in problem.msg
+    assert "reason" not in problem.ctx
 
 
 def test_a_value_that_satisfies_its_type_contributes_nothing():
@@ -267,7 +267,7 @@ def test_a_ref_to_an_output_the_node_does_not_have_is_fatal():
     ])
 
     assert (problem.type, problem.loc[0], problem.loc[1]) == ("unknown_ref_output", "b", "x")
-    assert problem.ctx == {"source": "a.nope"}
+    assert problem.ctx == {"source": "a.nope", "outputs": "result"}
 
 
 def test_a_required_input_with_nothing_bound_is_fatal():
@@ -368,7 +368,7 @@ def test_a_slot_the_details_do_not_fill_raises_unless_it_is_optional():
 
     with pytest.raises(KeyError):
         problem("unknown_ref_node", "b", "text")  # no source_node
-    assert problem("invalid_static", "b", "text").msg == "The value in 'text' cannot be read as the field's type."
+    assert problem("invalid_static", "b", "text", input="1", expected="text").msg == "The value 1 in 'text' cannot be read as text."
 
 
 def test_a_problem_is_formatted_from_its_details_and_keeps_them():
@@ -447,8 +447,8 @@ def test_an_edge_into_a_field_an_embedded_graph_lacks_names_the_authors_address(
     )
 
     assert [(p.type, p.loc[0], p.loc[1], p.ctx) for p in compiled.problems] == [
-        ("unknown_ref_output", "u", "x", {"source": "e.nope"}),
-        ("unknown_ref_output", "w", "x", {"source": "e.ghost.out"}),
+        ("unknown_ref_output", "u", "x", {"source": "e.nope", "outputs": "result"}),
+        ("unknown_ref_output", "w", "x", {"source": "e.ghost.out", "outputs": "result"}),
     ]
 
 

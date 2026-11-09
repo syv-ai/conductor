@@ -57,6 +57,8 @@ from conductor._internal.dtype import (
 )
 from conductor._internal.errors import NodeDeclarationError
 from conductor._internal.field_records import Input, Output
+from conductor._internal.graph.binding import From, Static
+from conductor._internal.graph.graph_records import GraphNode
 from conductor._internal.interface import Interface, open_input_of, read_signature
 from conductor._internal.table import Table, is_frame
 
@@ -348,6 +350,26 @@ class NodeDefinition(Generic[_P, _R]):
             raise TypeError(f"{self.id!r} is a graph, so it has no function to call; run it through a compiled graph")
         return version.run(*args, **kwargs)
 
+    def graph_node(self, id: str, /, *args: _P.args, **kwargs: _P.kwargs) -> GraphNode:
+        """This node as it sits in a graph, at its current version, called the way its function is::
+
+            upper.graph_node("b", text=From("a.result"), times=2)
+
+        A value is typed in; ``From`` is an edge. An input left open, or one the
+        run supplies with ``FromRun``, is written with ``GraphNode(...)``, the stored form this returns.
+        """
+        version = self.versions[self.current]
+        if isinstance(version, NodeVersion):
+            bound = inspect.signature(version.run).bind_partial(*args, **kwargs).arguments
+            spread = next((name for name, parameter in inspect.signature(version.run).parameters.items() if parameter.kind is inspect.Parameter.VAR_KEYWORD), None)
+            values = {**{name: value for name, value in bound.items() if name != spread}, **bound.get(spread, {})}
+        elif args:
+            raise TypeError(f"{self.id!r} is a graph; its inputs are given by name")
+        else:
+            values = kwargs
+        bindings = {name: value if isinstance(value, (From, Static)) else Static(value) for name, value in values.items()}
+        return GraphNode(id=id, type=self.id, version=self.current, bindings=bindings)
+
     def __repr__(self) -> str:
         """The record as the call that states what it is, optional parts only when set."""
         parts = [f"id={self.id!r}", f"title={self.title!r}", f"category={self.category!r}"]
@@ -417,6 +439,8 @@ def node(
     older: Sequence[OlderVersion] = (),
 ) -> Callable[[Callable[_P, _R]], NodeDefinition[_P, _R]]:
     """Declare a node from the function below it (see the module docstring)."""
+    if not isinstance(id, str) or not id:
+        raise NodeDeclarationError(f"@node takes the node's id first, a non-empty string: @node('upper'); got {id!r}", code="node_id_invalid")
 
     def decorate(run: Callable[_P, _R]) -> NodeDefinition[_P, _R]:
         try:
@@ -431,6 +455,7 @@ def node(
             _check_upgrades(versions)
         except NodeDeclarationError as wrong:
             wrong.node_id = id
+            wrong.args = (f"@node({id!r}) on {run.__name__}: {wrong.args[0]}",)
             raise
         return NodeDefinition(
             id=id,

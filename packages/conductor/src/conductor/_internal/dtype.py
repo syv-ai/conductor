@@ -281,6 +281,10 @@ class _PlainPythonType(DType):
     plain: ClassVar[Any] = None
     travels_on_edges: ClassVar[bool] = False
 
+    def __new__(cls, value: Any) -> Any:
+        """A value of a plain type stays plain: making "one of these" from a cell of its own type is the cell."""
+        return value
+
     @classmethod
     def describe(cls) -> dict[str, Any]:
         return {"id": cls.id} if cls.travels_on_edges else {"id": cls.id, "of": getattr(cls.plain, "__name__", str(cls.plain))}

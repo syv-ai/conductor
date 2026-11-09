@@ -54,6 +54,7 @@ from pydantic import ValidationError
 from conductor._internal.errors import (
     CATALOGUE,
     ExternalFailure,
+    InvalidCallError,
     NodeError,
     NodeExecutionError,
     NodeTimeoutError,
@@ -163,17 +164,21 @@ class Leg:
         checkpoint_every: float | None = None,
     ) -> None:
         self.compiled = compiled
+        if state is not None and not isinstance(state, RunState):
+            raise InvalidCallError([problem("state_unreadable", "state", reason=f"A state is a RunState, not a {type(state).__name__}.")])
         self.live = LiveRunValues(compiled) if state is None else LiveRunValues.restore(compiled, state)
         self.changed_nodes = [] if state is None else compiled.nodes_changed_since(state)
         self.free_slots: dict[str, int] = {}
+        faults = [problem("from_run_not_a_type", "from_run", repr(key), key=repr(key)) for key in from_run if not isinstance(key, type)]
         for node_id in compiled.execution_order:
             version = compiled.node(node_id).version
-            for name, needed in version.from_run.items():
-                if needed not in from_run:
-                    raise TypeError(
-                        f"'{node_id}' needs a {needed.__name__} for '{name}', and run() was not given one"
-                    )
+            faults += [
+                problem("from_run_missing", "from_run", needed.__name__, node=node_id, parameter=name, needs=needed.__name__)
+                for name, needed in version.from_run.items() if needed not in from_run
+            ]
             self.free_slots[node_id] = version.policy.concurrency
+        if faults:
+            raise InvalidCallError(faults)
         self.from_run = dict(from_run)
         self.timeout = timeout
         self.cancel = cancel
@@ -187,6 +192,9 @@ class Leg:
         self.queue: asyncio.Queue[Event | _UnitDone | _Cancelled | _TimedOut] = asyncio.Queue()
         self.in_flight: dict[Unit, asyncio.Task[None] | None] = {}
         self.timed_out: _TimedOut | None = None
+
+    def __aiter__(self) -> None:
+        raise TypeError("a stream is read with: async with compiled.stream() as events: async for event in events: ...")
 
     async def __aenter__(self) -> AsyncGenerator[Event, None]:
         self.started_at = self.last_checkpoint_at = time.monotonic()

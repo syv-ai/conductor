@@ -139,7 +139,9 @@ def read_embeddable(graph: CompiledGraph) -> EmbeddableGraph:
         inside = offered.inputs[ref.field].runs_at if side == "input" else offered.outputs[ref.field]
         return Ref(f"{ref.node_id}{SEPARATOR}{inside.node_id}", inside.field)
 
-    input_names = offered_names(Ref(inp.name) for inp in graph.interface.inputs)
+    # One namespace for both sides: a field name is unique within the node this graph becomes.
+    names = offered_names(Ref(field.name) for field in (*graph.interface.inputs, *graph.interface.outputs))
+    input_names = {Ref(inp.name): names[Ref(inp.name)] for inp in graph.interface.inputs}
     inputs: dict[str, OfferedInput] = {}
     for ref in input_names:
         node = nodes[ref.node_id]
@@ -150,15 +152,14 @@ def read_embeddable(graph: CompiledGraph) -> EmbeddableGraph:
             list_typed_inside=field is not None and field._listed,
             read_by_a_hook=isinstance(node.version, NodeVersion) and ref.field in node.version.hook_reads,
         )
-    output_names = offered_names(Ref(out.name) for out in graph.interface.outputs)
     outputs: dict[str, Ref] = {}
     for out in graph.interface.outputs:
-        name, at = output_names[Ref(out.name)], in_the_run(Ref(out.name), "output")
+        name, at = names[Ref(out.name)], in_the_run(Ref(out.name), "output")
         outputs[name] = at
         outputs.update({f"{name}.{column}": Ref(at.node_id, f"{at.field}.{column}") for column, _ in columns_of(out.dtype)})
     interface = Interface(
         inputs=tuple(inp.model_copy(update={"name": input_names[Ref(inp.name)]}) for inp in graph.interface.inputs),
-        outputs=tuple(out.model_copy(update={"name": output_names[Ref(out.name)]}) for out in graph.interface.outputs),
+        outputs=tuple(out.model_copy(update={"name": names[Ref(out.name)]}) for out in graph.interface.outputs),
         needs=graph.interface.needs,
     )
     return EmbeddableGraph(

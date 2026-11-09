@@ -74,7 +74,7 @@ CATALOGUE: Mapping[str, tuple[str, bool]] = {
     "edge_into_unconnectable_input": ("Nothing can be connected to the field '{field}'.", True),
     "output_has_no_type": ("The output '{field}' has no type that can travel on an edge.", True),
     "invalid_node_id": ("'{node_id}' cannot be a node id: '/', '.' and '@' each mean something in an address.", True),
-    "invalid_static": ("The value in '{field}' cannot be read as the field's type. {reason}", True),
+    "invalid_static": ("The value {input} in '{field}' cannot be read as {expected}. {reason}", True),
     "lists_on_a_per_row_node": (
         "Only one list can be set directly on a node that runs per row; '{a}' and '{b}' are both lists.", True,
     ),
@@ -105,12 +105,14 @@ CATALOGUE: Mapping[str, tuple[str, bool]] = {
     "unknown_node_type": ("Node type '{node_type}' does not exist; the types are {choices}.", True),
     "unknown_node_version": ("'{node_type}' has no version {version}.", True),
     "unknown_ref_node": ("Field '{field}' is connected to '{source_node}', which is not in the graph.", True),
-    "unknown_ref_output": ("Field '{field}' is connected to '{source}', which is not an output of that node.", True),
+    "unknown_ref_output": ("Field '{field}' is connected to '{source}', which is not an output of that node; it has {outputs}.", True),
     "unused_binding": (
         "Field '{field}' is not an input of the node as it is set up, so its value is not used; it has {inputs}.", False,
     ),
     # -- what a call to a compiled graph is refused for ------------------------
     "cannot_move_to_version": ("'{node_type}' cannot move from version {version} to {target}; it has {versions}.", True),
+    "from_run_missing": ("'{node}' needs a {needs} for '{parameter}', and the call did not give one in from_run.", True),
+    "from_run_not_a_type": ("from_run is keyed by type; {key} is not one.", True),
     "choice_unanswered": ("Answer exactly one of {alternatives}; {answered} answered.", True),
     "invalid_value": ("{reason}", True),
     "missing": ("'{name}' was not answered.", True),

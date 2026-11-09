@@ -4,7 +4,7 @@ Conductor compiles and runs graphs of typed nodes. It ships as three packages: `
 
 ## One declaration, three readers
 
-A node's `run` signature is read once into `Input` and `Output` records. Execution calls `run` on a fresh instance. Validation builds a pydantic model from the inputs. An editor reads `describe()`, the palette entry with each field's type, widget and title. Nothing is declared twice.
+A node's signature is read once into `Input` and `Output` records. Execution calls the function. Validation builds a pydantic model from the inputs. An editor reads `describe()`, the palette entry with each field's type, widget and title. Nothing is declared twice.
 
 ## Declare, compile, run
 

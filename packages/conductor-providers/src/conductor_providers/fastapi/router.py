@@ -16,7 +16,7 @@ from conductor.events import Event, RunEnd
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from conductor_providers.fastapi.models import CompileResult, RunRequest
+from conductor_providers.fastapi.models import CompileResult, RunRequest, RunResult
 from conductor_providers.fastapi.sse import as_data, sse_frame
 
 
@@ -37,7 +37,8 @@ def conductor_router(
 
     - ``GET  {prefix}/nodes``           — every definition's ``describe()``
     - ``POST {prefix}/run``             — one leg; returns ``state`` and every
-      node's ``results``, however the leg ended
+      node's ``results``, however the leg ended. ``inputs`` in the body fills the
+      graph's inputs, by name or address, as ``with_inputs`` does
     - ``POST {prefix}/run-stream``      — SSE stream of event frames
 
     A run that asks goes on in legs: send its ``state`` back with the
@@ -64,7 +65,7 @@ def conductor_router(
 
     A request the run cannot start from is the caller's fault and a 422,
     with ``detail`` the ``InvalidCallError``'s ``errors()``: a graph with a
-    fatal problem, a state that does not read, a wrong answer. Anything else
+    fatal problem, a state that does not read, a wrong answer, inputs it can't take. Anything else
     raised before the leg starts is the server's and stays a 500. ``/compile`` answers a broken graph with 200 and its
     problems, since describing it is what was asked.
     """
@@ -76,6 +77,8 @@ def conductor_router(
     def _prepared(req: RunRequest) -> tuple[CompiledGraph, RunState | None]:
         """The compiled graph and the state this leg goes on from, the answers written in."""
         compiled = CompiledGraph.from_graph(req.graph, registry)
+        if req.inputs:
+            compiled = compiled.with_inputs(req.inputs)
         if not req.answers:
             return compiled, req.state
         return compiled, compiled.answer(req.state or RunState(status="waiting"), req.answers)
@@ -85,15 +88,15 @@ def conductor_router(
         """Every registered definition as a record — the palette."""
         return [cls.describe() for cls in registry.nodes]
 
-    @router.post("/run")
-    async def run_graph(req: RunRequest, request: Request) -> dict[str, Any]:
+    @router.post("/run", response_model=RunResult)
+    async def run_graph(req: RunRequest, request: Request) -> RunResult:
         """Run one leg, and return its ``state`` and every node's ``results``."""
         try:
             compiled, state = _prepared(req)
             state = await compiled.run(state, from_run=from_run(request) if from_run else None)
         except InvalidCallError as refused:
             raise _unprocessable(refused) from refused
-        return {"state": as_data(state), "results": as_data(compiled.results(state))}
+        return RunResult(state=state, results=as_data(compiled.results(state)))
 
     @router.post("/run-stream")
     async def run_graph_stream(req: RunRequest, request: Request) -> StreamingResponse:
