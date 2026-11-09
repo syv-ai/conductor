@@ -34,7 +34,7 @@ from conductor import (
     SKIPPED,
     Arriving,
     CompiledGraph,
-    CompileProblem,
+    ComputeHookError,
     DType,
     From,
     Graph,
@@ -119,7 +119,7 @@ def both(
 
 def picky_inputs(mode):
     if mode == "bad":
-        raise CompileProblem("picky_refuses", "Not that mode.")
+        raise ComputeHookError("picky_refuses", "Not that mode.")
     return ()
 
 @node("picky", title="Picky", description="d", category="test", compute_inputs=picky_inputs)
@@ -448,7 +448,7 @@ def _compiled(name: str) -> CompiledGraph:
 
 def _condition(condition) -> list[list[str]]:
     """A condition in one order, so two equal ones write the same."""
-    return sorted(sorted(repr(atom) for atom in alternative) for alternative in condition)
+    return sorted(sorted(repr(branch_taken) for branch_taken in alternative) for alternative in condition)
 
 
 def _what_compile_says(compiled: CompiledGraph) -> dict[str, Any]:

@@ -6,7 +6,7 @@ from typing import Annotated, Any, Mapping, TypedDict
 import polars as pl
 import pytest
 from conductor import (
-    ROW_ID,
+    ROW_ID_COLUMN,
     Arriving,
     AskPerson,
     CompiledGraph,
@@ -57,7 +57,7 @@ def export(table: Table) -> Annotated[Table, Result(title="Sheet")]:
 @node("rebuild", category="t")
 def rebuild(table: Contacts) -> Annotated[Contacts, Result(title="Contacts")]:
     """Returns the same rows without their ids: a node that rebuilt its table, as a join or a CSV round trip does."""
-    return table.drop(ROW_ID)
+    return table.drop(ROW_ID_COLUMN)
 
 
 @node("keep", category="t")
@@ -82,7 +82,7 @@ def _sheet(compiled: CompiledGraph, node_id: str = "x") -> pl.DataFrame:
     assert compiled.is_runnable, compiled.problems
     state = compiled.run_sync()
     assert state.status == "complete", state.failure
-    return compiled.results(state)[node_id]["result"].drop(ROW_ID)
+    return compiled.results(state)[node_id]["result"].drop(ROW_ID_COLUMN)
 
 
 def _embedded(node_id: str, nodes: tuple[GraphNode, ...], registry: NodeRegistry) -> NodeDefinition:
@@ -106,7 +106,7 @@ def test_a_table_rebuilt_inside_an_embedded_graph_fails_as_it_would_drawn_flat(i
         assert state.failure.type == flat.failure.type
         return
     assert (state.status, flat.status) == ("complete", "complete")
-    sheet = compiled.results(state)["x"]["result"].drop(ROW_ID)
+    sheet = compiled.results(state)["x"]["result"].drop(ROW_ID_COLUMN)
     assert sheet.height == 3
     assert sheet["sent"].to_list() == ["sent:ida@x", None, "sent:nina@x"]
 
@@ -166,7 +166,7 @@ def _chosen(table: Arriving, keep: str) -> list[Output]:
 
 @node("choose", category="t", compute_outputs=_chosen)
 def choose_columns(table: Table, keep: Annotated[str, Param(title="Keep", connectable=False, widget=TextWidget())]) -> Mapping[str, Any]:
-    return {"result": table.select(ROW_ID, *keep.split(","))}
+    return {"result": table.select(ROW_ID_COLUMN, *keep.split(","))}
 
 
 def test_scenario_6_a_filter_is_followed_by_a_per_row_node_on_its_columns() -> None:
@@ -200,7 +200,7 @@ def test_arriving_merged_table_names_every_column_as_the_run_does() -> None:
     assert declared == ["name", "email", "sent", "sent_s2"]
     state = compiled.run_sync()
     assert state.status == "complete", state.failure
-    frame = compiled.results(state)["x"]["result"].drop(ROW_ID)
+    frame = compiled.results(state)["x"]["result"].drop(ROW_ID_COLUMN)
     assert frame.columns == declared
     assert frame["sent"].to_list() == ["sent:ida@x", "sent:nina@x"]
 
@@ -250,7 +250,7 @@ def test_a_typed_in_frame_arrives_with_the_columns_it_holds() -> None:
         return {"result": value}
 
     compiled = _compiled(_node("h", "hold", value=Static([{"a": "1", "n": 2}])), _node("s", "send", email=From("h.result.a")), registry=_catalogue(hold))
-    assert [(name, dtype.plain) for name, dtype in seen[0].columns] == [("a", str), ("n", int)]
+    assert [(name, dtype.wrapped_type) for name, dtype in seen[0].columns] == [("a", str), ("n", int)]
     assert compiled.is_runnable, compiled.problems
 
 
@@ -289,7 +289,7 @@ def test_flow_8a_answers_sit_beside_their_questions() -> None:
     assert compiled.is_runnable, compiled.problems
     state = compiled.run_sync()
     assert state.status == "complete", state.failure
-    frame = compiled.results(state)["x"]["result"].drop(ROW_ID)
+    frame = compiled.results(state)["x"]["result"].drop(ROW_ID_COLUMN)
     assert frame.columns == ["question", "Answer"]
     assert frame.height == 6
     assert sorted(frame["question"].to_list()) == sorted(questions * 3)
@@ -297,7 +297,7 @@ def test_flow_8a_answers_sit_beside_their_questions() -> None:
     # Nothing of the typed-in list travels in the state.
     assert "q.question" not in state.output_columns
     restored = RunState.model_validate_json(state.model_dump_json())
-    assert compiled.results(restored)["x"]["result"].drop(ROW_ID).equals(frame)
+    assert compiled.results(restored)["x"]["result"].drop(ROW_ID_COLUMN).equals(frame)
 
 
 def test_a_series_of_typed_in_questions_read_under_each_document() -> None:
@@ -332,7 +332,7 @@ def test_a_typed_in_list_read_by_a_run_that_restores() -> None:
     assert waiting.status == "waiting"
     done = compiled.answer(RunState.model_validate_json(waiting.model_dump_json()), {unit.id: {"result": f"answer {unit.id}"} for unit in waiting.waiting})
     finished = compiled.run_sync(done)
-    assert compiled.results(finished)["x"]["result"].drop(ROW_ID).to_dicts() == [{"question": "a", "A": "answer w@0"}, {"question": "b", "A": "answer w@1"}]
+    assert compiled.results(finished)["x"]["result"].drop(ROW_ID_COLUMN).to_dicts() == [{"question": "a", "A": "answer w@0"}, {"question": "b", "A": "answer w@1"}]
 
 
 # -- a table read from outside ---------------------------------------------------------

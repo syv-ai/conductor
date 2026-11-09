@@ -56,8 +56,8 @@ def test_a_node_never_builds_a_series():
     """A node returns values; the engine says which index they live on.
     A fresh root exists for what the validator is handed with no index."""
     assert not hasattr(Series, "of")
-    assert Index.fresh().parent is None
-    assert Index.fresh() != Index.fresh()
+    assert Index.new_root().parent is None
+    assert Index.new_root() != Index.new_root()
 
 
 # --- the index is lineage ---------------------------------------------------

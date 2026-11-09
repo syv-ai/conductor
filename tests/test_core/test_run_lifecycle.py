@@ -449,7 +449,7 @@ def test_without_runs_one_node_again_though_nothing_changed():
     state = compiled.run_sync()
     calls.clear()
     assert compiled.nodes_changed_since(state) == []
-    compiled.run_sync(state.without("b"))
+    compiled.run_sync(state.without_nodes("b"))
     assert calls["upper"] == 1
 
 

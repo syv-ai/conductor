@@ -255,7 +255,7 @@ def test_from_compiled_graphs_takes_one_graph_as_version_one():
 
     definition = NodeDefinition.from_compiled_graphs("flow", title="F", description="", versions=compiled)
 
-    assert definition.versions == {1: compiled} and definition.current == 1
+    assert definition.versions == {1: compiled} and definition.current_version == 1
 
 
 def test_with_inputs_takes_an_address_as_a_mapping_beside_keywords():
@@ -318,10 +318,10 @@ def test_an_untyped_input_left_empty_inside_a_graph_cant_be_embedded():
 
 
 def test_a_hook_refusing_leaves_a_node_that_is_only_known_by_its_problem():
-    from conductor import CompileProblem
+    from conductor import ComputeHookError
 
     def refuse():
-        raise CompileProblem("nope", "Nej.", field=None)
+        raise ComputeHookError("nope", "Nej.", field=None)
 
     @node("raised", compute_inputs=refuse)
     def raised(**more: Any) -> Txt:

@@ -413,10 +413,10 @@ def test_a_hook_that_cannot_answer_refuses_and_the_refusal_is_the_nodes_problem(
     arrivals — lands as the node's one fatal `Problem`: the host
     names the code and writes the sentence, compile only anchors it, and
     there is no `no_outputs` echo beside it."""
-    from conductor import CompileProblem
+    from conductor import ComputeHookError
 
     def fussy_outputs():
-        raise CompileProblem("wrong_shape", "What arrives does not fit.")
+        raise ComputeHookError("wrong_shape", "What arrives does not fit.")
 
     @node("fussy", title="Fussy", description="d", category="test", compute_outputs=fussy_outputs)
     def fussy(value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
@@ -439,10 +439,10 @@ def test_an_inputs_hook_that_cannot_answer_refuses_and_compile_does_not_raise():
     """`CompileProblem` from `compute_inputs` is the node's one fatal `Problem`
     too, asked before any edge is walked: compile never raises for a fault
     in the graph, and a node reading the refused one carries no echo."""
-    from conductor import CompileProblem
+    from conductor import ComputeHookError
 
     def fussy_inputs():
-        raise CompileProblem("wrong_mode", "That mode is not one this node has.")
+        raise ComputeHookError("wrong_mode", "That mode is not one this node has.")
 
     @node("fussy-inputs", title="Fussy", description="d", category="test", compute_inputs=fussy_inputs)
     def fussy(value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt(""), **more: Any) -> Out:
@@ -739,10 +739,10 @@ def test_a_refusal_from_a_node_whose_source_is_broken_is_dropped_for_the_sources
     """The broken edge carries the fault; the hook's refusal about the arrival
     it never got would report the same fact twice. The node still gets an
     interface an editor can draw, with no outputs."""
-    from conductor import CompileProblem
+    from conductor import ComputeHookError
 
     def fussy_outputs():
-        raise CompileProblem("wrong_shape", "What arrives does not fit.")
+        raise ComputeHookError("wrong_shape", "What arrives does not fit.")
 
     @node("fussy", title="Fussy", description="d", category="test", compute_outputs=fussy_outputs)
     def fussy(value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:

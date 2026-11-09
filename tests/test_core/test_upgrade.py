@@ -61,7 +61,7 @@ def rename_v2(
 ) -> Annotated[Txt, Result(title="R")]:
     return Txt(f"{first} {last}")
 
-@node("rename", title="Rename", description="d", category="test", older=[OlderVersion(rename_v1, upgrade=Upgrade(rewrite=rename_upgrade_1)), OlderVersion(rename_v2, upgrade=Upgrade(renamed_outputs={"result": "text"}))])
+@node("rename", title="Rename", description="d", category="test", older_versions=[OlderVersion(rename_v1, upgrade=Upgrade(rewrite=rename_upgrade_1)), OlderVersion(rename_v2, upgrade=Upgrade(renamed_outputs={"result": "text"}))])
 def rename(
     first: Annotated[Txt, _param("First")] = Txt(""),
     last: Annotated[Txt, _param("Last")] = Txt(""),
@@ -101,22 +101,22 @@ def _newer_y(y: Annotated[Txt, _param("Y")]) -> Annotated[Txt, Result(title="R")
 
 def test_an_input_gone_from_the_next_version_needs_an_upgrade():
     with pytest.raises(NodeDeclarationError) as raised:
-        node("two", older=[OlderVersion(_older_x)])(_newer_y)
+        node("two", older_versions=[OlderVersion(_older_x)])(_newer_y)
     assert raised.value.code == "upgrade_missing" and raised.value.node_id == "two"
 
 
 def test_an_upgrade_must_say_where_a_gone_input_went():
     with pytest.raises(NodeDeclarationError, match="upgrade|Upgrade"):
-        node("two", older=[OlderVersion(_older_x, upgrade=Upgrade(renamed_outputs={}))])(_newer_y)
+        node("two", older_versions=[OlderVersion(_older_x, upgrade=Upgrade(renamed_outputs={}))])(_newer_y)
 
 
 def test_a_rename_or_a_rewrite_says_where_it_went():
-    assert node("two", older=[OlderVersion(_older_x, upgrade=Upgrade(renamed_inputs={"x": "y"}))])(_newer_y).current == 2
-    assert node("two", older=[OlderVersion(_older_x, upgrade=Upgrade(rewrite=lambda v: {"y": v["x"]}))])(_newer_y).current == 2
+    assert node("two", older_versions=[OlderVersion(_older_x, upgrade=Upgrade(renamed_inputs={"x": "y"}))])(_newer_y).current_version == 2
+    assert node("two", older_versions=[OlderVersion(_older_x, upgrade=Upgrade(rewrite=lambda v: {"y": v["x"]}))])(_newer_y).current_version == 2
 
 
 def test_a_version_keeping_its_fields_needs_no_upgrade():
-    assert node("two", older=[OlderVersion(_older_x)])(_older_x).current == 2
+    assert node("two", older_versions=[OlderVersion(_older_x)])(_older_x).current_version == 2
 
 
 # --- registry.upgraded -----------------------------------------------------------
@@ -164,7 +164,7 @@ def test_an_edge_into_an_input_the_step_renames_moves_with_it():
     def carry_v1(name: Annotated[Txt, _param("Name")] = Txt("")) -> Annotated[Txt, Result(title="R")]:
         return name
 
-    @node("carry", title="Carry", description="d", category="test", older=[OlderVersion(carry_v1, upgrade=Upgrade(rewrite=carry_upgrade_1))])
+    @node("carry", title="Carry", description="d", category="test", older_versions=[OlderVersion(carry_v1, upgrade=Upgrade(rewrite=carry_upgrade_1))])
     def carry(full: Annotated[Txt, _param("Full")] = Txt("")) -> Annotated[Txt, Result(title="R")]:
         return full
 
@@ -197,7 +197,7 @@ def test_compile_leaves_a_pinned_version_alone():
 def renames_v1(name: Annotated[Txt, _param("Name")] = Txt("")) -> Annotated[Txt, Result(title="R")]:
     return name
 
-@node("renames", title="Renames", description="d", category="test", older=[OlderVersion(renames_v1, upgrade=Upgrade(renamed_inputs={"name": "full"}, renamed_outputs={"result": "text"}))])
+@node("renames", title="Renames", description="d", category="test", older_versions=[OlderVersion(renames_v1, upgrade=Upgrade(renamed_inputs={"name": "full"}, renamed_outputs={"result": "text"}))])
 def renames(full: Annotated[Txt, _param("Full")] = Txt("")) -> Named:
     """Version 2 renames the input ``name`` to ``full`` and the output ``result`` to ``text``."""
     return Named(text=full)
@@ -236,7 +236,7 @@ def test_a_later_step_reusing_a_renamed_away_name_does_not_catch_an_older_edge()
     def reuse_v2() -> Mapping[str, Txt]:
         return {}
 
-    @node("reuse", title="Reuse", description="d", category="test", compute_outputs=reuse_outputs, older=[OlderVersion(reuse_v1, upgrade=Upgrade(renamed_outputs={"result": "first"})), OlderVersion(reuse_v2, compute_outputs=reuse_outputs, upgrade=Upgrade(renamed_outputs={"result": "second"}))])
+    @node("reuse", title="Reuse", description="d", category="test", compute_outputs=reuse_outputs, older_versions=[OlderVersion(reuse_v1, upgrade=Upgrade(renamed_outputs={"result": "first"})), OlderVersion(reuse_v2, compute_outputs=reuse_outputs, upgrade=Upgrade(renamed_outputs={"result": "second"}))])
     def reuse() -> Mapping[str, Txt]:
         return {}
 

@@ -40,7 +40,7 @@ def registry():
 
 def _current(node_cls):
     """The interface of the version the catalog currently offers."""
-    return node_cls.versions[node_cls.current].interface
+    return node_cls.versions[node_cls.current_version].interface
 
 
 def _is_vocabulary(dtype) -> bool:
@@ -141,7 +141,7 @@ def test_no_stdlib_node_overrides_a_shaping_hook(registry):
     its dtype's constructor rules.
     """
     for node_cls in registry.nodes:
-        version = node_cls.versions[node_cls.current]
+        version = node_cls.versions[node_cls.current_version]
         assert version.compute_inputs is None, f"{node_cls.id} has compute_inputs — record why it must"
         if node_cls.id != "decision":
             assert version.compute_outputs is None, f"{node_cls.id} has compute_outputs — record why it must"

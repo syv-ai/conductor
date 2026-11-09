@@ -38,7 +38,7 @@ def greet(name: Annotated[Txt, Param(title="Name", widget=TextWidget())]) -> Ann
 def truncate_v1(text: Annotated[Txt, Param(title="Text", widget=Textarea())]) -> Annotated[Txt, Result(title="Short")]:
     return text
 
-@node("truncate", title="Truncate", description="Cuts a text short", category="text", policy=Policy(retries=2), older=[OlderVersion(truncate_v1, upgrade=Upgrade())])
+@node("truncate", title="Truncate", description="Cuts a text short", category="text", policy=Policy(retries=2), older_versions=[OlderVersion(truncate_v1, upgrade=Upgrade())])
 def truncate(text: Annotated[Txt, Param(title="Text", widget=Textarea())], limit: Annotated[Txt, Param(title="Limit", widget=TextWidget())] = Txt("10")
 ) -> Annotated[Txt, Result(title="Short")]:
     return text

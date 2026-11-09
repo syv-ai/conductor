@@ -123,7 +123,7 @@ def test_several_outputs_are_the_fields_of_a_record():
 
     outputs = read_signature(branches).interface.outputs
     assert [(o.name, o.title) for o in outputs] == [("yes", "Yes"), ("no", "No")]
-    assert read_signature(branches).returns is Answer
+    assert read_signature(branches).return_shape is Answer
 
 
 def test_a_computed_roster_declares_no_outputs_and_returns_by_name():
@@ -136,7 +136,7 @@ def test_a_computed_roster_declares_no_outputs_and_returns_by_name():
 
     read = read_signature(columns)
     assert read.interface.outputs == ()
-    assert read.returns is Mapping
+    assert read.return_shape is Mapping
 
 
 def test_a_record_field_is_titled_by_its_name_without_a_result():
@@ -173,7 +173,7 @@ def test_a_type_no_edge_can_carry_closes_the_input_by_itself():
         return Text(x)
 
     (x,) = read_signature(plain).interface.inputs
-    assert x.connectable is False and x.dtype.plain == list[str]
+    assert x.connectable is False and x.dtype.wrapped_type == list[str]
 
 
 def test_a_plain_str_input_is_open_to_edges_and_a_host_closes_it_with_param():
@@ -202,7 +202,7 @@ def test_a_closed_param_may_declare_a_static_type():
         return Text("")
 
     (inp,) = read_signature(structured).interface.inputs
-    assert inp.dtype.plain is Schema
+    assert inp.dtype.wrapped_type is Schema
     assert isinstance(build_call_validator((inp,))({"schema": {"fields": ("a",)}})["schema"], Schema)
     assert TypeAdapter(type(inp)).dump_python(inp, mode="json")["dtype"] == {"id": "setting", "of": "Schema"}
 
@@ -236,7 +236,7 @@ def test_a_pass_through_declares_any():
 
     assert iface.inputs[0].dtype.id == "any"
     assert iface.outputs[0].dtype.id == "any"
-    assert read_signature(route).returns.id == "any"
+    assert read_signature(route).return_shape.id == "any"
 
 
 def test_an_any_roster_validates_a_call():

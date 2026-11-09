@@ -64,13 +64,13 @@ class Ref(str):
         if field is not None and "." in node_id:
             raise ValueError(f"node id {node_id!r} contains '.'; an address reads 'node.field'")
         address = node_id if field is None else f"{node_id}.{field}"
-        head, dot, tail = address.partition(".")
-        if not dot or not head or not tail:
+        node_part, separator, field_part = address.partition(".")
+        if not separator or not node_part or not field_part:
             raise ValueError(f"{address!r} is not an address; one reads 'node.field'")
         return super().__new__(cls, address)
 
     @classmethod
-    def _of_parts(cls, node_id: str, field: str) -> Ref:
+    def _from_checked_parts(cls, node_id: str, field: str) -> Ref:
         """``Ref(node_id, field)`` for an id compile has already checked: read for every field of a graph."""
         return str.__new__(cls, f"{node_id}.{field}")
 

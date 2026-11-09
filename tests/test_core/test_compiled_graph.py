@@ -7,7 +7,7 @@ import pytest
 from conductor import (
     AsItArrives,
     CompiledGraph,
-    CompileProblem,
+    ComputeHookError,
     DType,
     FieldContent,
     From,
@@ -92,7 +92,7 @@ def open_sheet(header: Annotated[Txt, Param(title="Header", widget=Textarea())] 
 def renamed_v1(old: Annotated[Txt, Param(title="Old", widget=Textarea())] = Txt("")) -> Out:
     return old
 
-@node("renamed", title="Renamed", description="d", category="test", policy=Policy(retries=2), older=[OlderVersion(renamed_v1, upgrade=Upgrade(renamed_inputs={"old": "new"}))])
+@node("renamed", title="Renamed", description="d", category="test", policy=Policy(retries=2), older_versions=[OlderVersion(renamed_v1, upgrade=Upgrade(renamed_inputs={"old": "new"}))])
 def renamed(new: Annotated[Txt, Param(title="New", widget=Textarea())] = Txt("")) -> Out:
     return new
 
@@ -313,7 +313,7 @@ def test_an_empty_typed_input_is_a_value_that_arrives_later():
 
 def headed_outputs(header=None):
     if header is None:
-        raise CompileProblem("header_missing", "Type a header first.")
+        raise ComputeHookError("header_missing", "Type a header first.")
     return (Output("result", Txt, title="R"),)
 
 @node("headed", title="Headed", description="d", category="test", compute_outputs=headed_outputs)
@@ -642,7 +642,7 @@ def test_the_artifact_and_its_diagnostics_are_importable_from_the_root():
 
     assert conductor.CompiledGraph is CompiledGraph
     assert conductor.Problem is Problem
-    assert conductor.Atom is not None
+    assert conductor.BranchTaken is not None
     assert callable(conductor.CompiledGraph.from_graph)
 
 

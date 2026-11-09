@@ -35,11 +35,11 @@ from uuid import uuid4
 from pydantic_core import core_schema
 
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.dtype import DType, description_of, dtype_of, read_blank
+from conductor._internal.dtype import DType, description_of, dtype_of, split_off_none
 from conductor._internal.errors import NodeDeclarationError
 
 #: The element type, for the ``Sequence`` protocol: ``Series[Text]`` yields ``Text``.
-T = TypeVar("T")
+ElementT = TypeVar("T")
 
 if TYPE_CHECKING:
     from pydantic import GetCoreSchemaHandler
@@ -61,7 +61,7 @@ class Index(ConductorModel):
         lines.depth                              # 2
         Index.fresh()                            # a new root with a unique id
 
-    Two ``Index.fresh()`` results never align, which is the point: values
+    Two ``Index.new_root()`` results never align, which is the point: values
     made separately have no rows in common.
     """
 
@@ -85,7 +85,7 @@ class Index(ConductorModel):
         return hash(self.id)
 
     @classmethod
-    def fresh(cls) -> "Index":
+    def new_root(cls) -> "Index":
         """A new root index with a unique id."""
         return cls(uuid4().hex)
 
@@ -102,7 +102,7 @@ class Index(ConductorModel):
         return (self,) if self.parent is None else (*self.parent.lineage, self)
 
 
-class Series(DType, Sequence[T]):
+class Series(DType, Sequence[ElementT]):
     """Many values of one type on one index, read as a sequence of the values.
 
     ``Series[Text]`` is a real subclass created on first use, not a
@@ -126,13 +126,13 @@ class Series(DType, Sequence[T]):
     __slots__ = ("index", "rows", "values")
 
     #: One subclass per element type, built once, so ``Series[Text] is Series[Text]``.
-    _parameterised: ClassVar[dict[tuple[Any, bool], type["Series[Any]"]]] = {}
+    _subclass_by_element: ClassVar[dict[tuple[Any, bool], type["Series[Any]"]]] = {}
 
     def __class_getitem__(cls, item: Any) -> type["Series[Any]"]:
-        written, keeps_blanks = read_blank(item)
-        made = Series._parameterised.get((written, keeps_blanks))
-        if made is not None:
-            return made
+        written, element_takes_blank = split_off_none(item)
+        series_type = Series._subclass_by_element.get((written, element_takes_blank))
+        if series_type is not None:
+            return series_type
         item = dtype_of(written)
         if item is None:
             raise NodeDeclarationError(f"Series[{written!r}]: a series holds values an edge can carry, not {written!r}", code="series_element_invalid")
@@ -142,30 +142,30 @@ class Series(DType, Sequence[T]):
                 "Table cell, opened one level by a node",
                 code="nested_series",
             )
-        made = Series._parameterised.get((item, keeps_blanks))
-        if made is None:
+        series_type = Series._subclass_by_element.get((item, element_takes_blank))
+        if series_type is None:
             # A parameterisation carries the base's id on purpose, where any
             # other subclass must name itself.
-            made = type(
-                f"Series[{getattr(item, '__name__', item)}{' | None' if keeps_blanks else ''}]",
+            series_type = type(
+                f"Series[{getattr(item, '__name__', item)}{' | None' if element_takes_blank else ''}]",
                 (cls,),
-                {"element": item, "element_takes_blank": keeps_blanks, "__slots__": ()},
-                _parameterises=Series,
+                {"element": item, "element_takes_blank": element_takes_blank, "__slots__": ()},
+                _generic_base=Series,
             )
-            Series._parameterised[(item, keeps_blanks)] = made
-        Series._parameterised[(written, keeps_blanks)] = made
-        return made
+            Series._subclass_by_element[(item, element_takes_blank)] = series_type
+        Series._subclass_by_element[(written, element_takes_blank)] = series_type
+        return series_type
 
     def __init__(
         self,
-        values: Sequence[T],
+        values: Sequence[ElementT],
         *,
         index: Index | None = None,
         rows: Sequence[Row] | None = None,
     ) -> None:
         #: Where the rows come from. Left out, a new root: values made apart share no rows.
-        self.index = Index.fresh() if index is None else index
-        self.values: tuple[T, ...] = tuple(values)
+        self.index = Index.new_root() if index is None else index
+        self.values: tuple[ElementT, ...] = tuple(values)
         #: One path per value. Left out, the series is dense on a root:
         #: ``(0,), (1,), ...``. A child index has no such default — its rows
         #: are made under parents, and the engine says which.
@@ -181,13 +181,13 @@ class Series(DType, Sequence[T]):
 
     # -- read as a sequence of values ------------------------------------
 
-    def __getitem__(self, position: int) -> T:  # type: ignore[override]
+    def __getitem__(self, position: int) -> ElementT:  # type: ignore[override]
         return self.values[position]
 
     def __len__(self) -> int:
         return len(self.values)
 
-    def __iter__(self) -> Iterator[T]:
+    def __iter__(self) -> Iterator[ElementT]:
         return iter(self.values)
 
     def __eq__(self, other: object) -> bool:
@@ -225,7 +225,7 @@ class Series(DType, Sequence[T]):
         return {"id": cls.id, "of": description_of(cls.element)}
 
     @classmethod
-    def _when_written_bare(cls) -> type["Series[Any]"]:
+    def _type_of_bare_annotation(cls) -> type["Series[Any]"]:
         """Bare ``Series`` means many of whatever arrives; ``Series[X | None]`` is held as ``Series[X]``, the field saying it takes blanks."""
         if cls.element is None:
             return Series[Any]  # type: ignore[return-value]

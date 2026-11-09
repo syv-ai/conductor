@@ -69,15 +69,15 @@ class NodeRegistry:
 
     def __init__(self, nodes: Iterable[NodeDefinition[..., Any]] = (), *, types: Iterable[type[DType]] = ()) -> None:
         """A registry holding ``nodes`` and the words in ``types``, checked whole."""
-        given = list(nodes)
-        for definition in given:
+        definitions = list(nodes)
+        for definition in definitions:
             _raise_unless_definition(definition)
         #: The definitions, by id, in the order given.
         self._nodes: dict[str, NodeDefinition[..., Any]] = {}
         #: The vocabulary, by id, in the order the words arrived.
         self._types: dict[str, type[DType]] = {}
-        self._file(given)
-        self._types.update(self._admitted([_word_of(dtype_of(dtype) or dtype, adding=True) for dtype in types]))
+        self._add_definitions(definitions)
+        self._types.update(self._types_checked_for_id_clash([_vocabulary_type_of(dtype_of(dtype) or dtype, named_by_host=True) for dtype in types]))
 
     def __repr__(self) -> str:
         """Its nodes, each as its own repr, one per line: ``NodeRegistry(nodes=(NodeDefinition(...),))``."""
@@ -86,7 +86,7 @@ class NodeRegistry:
         lines = "".join(f"    {definition!r},\n" for definition in self._nodes.values())
         return f"NodeRegistry(nodes=(\n{lines}))"
 
-    def _file(self, definitions: list[NodeDefinition[..., Any]]) -> None:
+    def _add_definitions(self, definitions: list[NodeDefinition[..., Any]]) -> None:
         """File these, after the checks every node passes: one definition per id,
         each deprecation pointing at something that is here."""
         for definition in definitions:
@@ -94,9 +94,9 @@ class NodeRegistry:
             if existing is not None and existing is not definition:
                 raise NodeDeclarationError(f"{definition.id!r} is declared twice; ids are unique.", code="duplicate_node_id", node_id=definition.id)
             self._nodes[definition.id] = definition
-            self._types.update(self._admitted(_declared_words(definition)))
+            self._types.update(self._types_checked_for_id_clash(_types_declared_by(definition)))
         for definition in definitions:
-            notices = [definition.deprecation] + [v.deprecation for v in definition.versions.values() if isinstance(v, NodeVersion)]
+            notices = [definition.deprecation] + [version.deprecation for version in definition.versions.values() if isinstance(version, NodeVersion)]
             for notice in notices:
                 if notice is not None and notice.alternative is not None and notice.alternative not in self._nodes:
                     raise NodeDeclarationError(
@@ -135,10 +135,10 @@ class NodeRegistry:
         """
         extended = NodeRegistry()
         extended._nodes, extended._types = dict(self._nodes), dict(self._types)
-        fresh = list(definitions)
-        for definition in fresh:
+        new_definitions = list(definitions)
+        for definition in new_definitions:
             _raise_unless_definition(definition)
-        extended._file([definition for definition in fresh if definition.id not in self._nodes])
+        extended._add_definitions([definition for definition in new_definitions if definition.id not in self._nodes])
         return extended
 
     # -- the vocabulary ----------------------------------------------------------
@@ -158,30 +158,30 @@ class NodeRegistry:
         silent absence.
         """
         one_value = dtype.element or dtype
-        return tuple(word.id for word in self._types.values() if word.accepts(one_value))
+        return tuple(dtype.id for dtype in self._types.values() if dtype.accepts(one_value))
 
     def describe(self) -> RegistryDescription:
         """This registry as the palette: every node's record and the vocabulary, each type once."""
         return RegistryDescription(
             nodes=tuple(definition.describe() for definition in self._nodes.values()),
             types=tuple(
-                TypeDescription(id=word.id, title=word.display_title, accepted_as=self.accepted_as(word))
-                for word in self._types.values()
+                TypeDescription(id=dtype.id, title=dtype.display_title, accepted_as=self.accepted_as(dtype))
+                for dtype in self._types.values()
             ),
         )
 
-    def _admitted(self, words: Iterable[type[DType]]) -> dict[str, type[DType]]:
-        """``words`` by id, refused as a whole when one id names two classes — among the words or against what is filed."""
+    def _types_checked_for_id_clash(self, dtypes: Iterable[type[DType]]) -> dict[str, type[DType]]:
+        """``dtypes`` by id, refused as a whole when one id names two classes — among the words or against what is filed."""
         admitted: dict[str, type[DType]] = {}
-        for word in words:
-            existing = self._types.get(word.id, admitted.get(word.id))
-            if existing is not None and existing is not word:
+        for dtype in dtypes:
+            existing = self._types.get(dtype.id, admitted.get(dtype.id))
+            if existing is not None and existing is not dtype:
                 raise NodeDeclarationError(
-                    f"type id {word.id!r} is declared by both {_where(existing)} and {_where(word)}; "
+                    f"type id {dtype.id!r} is declared by both {_qualified_name(existing)} and {_qualified_name(dtype)}; "
                     "one registry holds one type per id",
                 code="duplicate_type_id",
                 )
-            admitted[word.id] = word
+            admitted[dtype.id] = dtype
         return admitted
 
 
@@ -190,44 +190,44 @@ def _raise_unless_definition(definition: Any) -> None:
         raise NodeDeclarationError(f"{definition!r} is not a node; declare one with @node", code="not_a_node_definition")
 
 
-def _word_of(declared: Any, *, adding: bool = False) -> type[DType] | None:
+def _vocabulary_type_of(declared: Any, *, named_by_host: bool = False) -> type[DType] | None:
     """The vocabulary word a declared type names, or ``None`` when it names none.
 
     A scalar type is its own word; a ``Table[...]`` is ``Table``'s; a
     ``Series[X]`` is ``X``'s. An untyped field and a type no edge can carry
-    name no word. With ``adding`` — the host
+    name no word. With ``named_by_host`` — the host
     naming a type in ``types`` — a series, the base ``DType`` and a
     non-type are refused rather than silently naming nothing.
     """
     if not (isinstance(declared, type) and issubclass(declared, DType)):
-        if adding:
+        if named_by_host:
             raise NodeDeclarationError(f"{declared!r} is not a DType subclass", code="not_a_dtype")
         return None
     if issubclass(declared, _UntypedValue) or (issubclass(declared, _PlainPythonType) and not declared.travels_on_edges):
         return None
     if declared is DType:
-        if adding:
+        if named_by_host:
             raise NodeDeclarationError("the base DType is not a word; add a concrete type", code="base_dtype_added")
         return None
     if issubclass(declared, Series):
-        if adding:
+        if named_by_host:
             raise NodeDeclarationError(f"{declared!r} is a series; its element is the word to add", code="series_added")
-        return _word_of(declared.element)
-    if declared._parameterised_from is not None:
-        return _word_of(declared._parameterised_from, adding=adding)
+        return _vocabulary_type_of(declared.element)
+    if declared._generic_base is not None:
+        return _vocabulary_type_of(declared._generic_base, named_by_host=named_by_host)
     return declared
 
 
-def _declared_words(definition: NodeDefinition[..., Any]) -> list[type[DType]]:
+def _types_declared_by(definition: NodeDefinition[..., Any]) -> list[type[DType]]:
     """Every word a node's versions declare on their inputs and outputs, each once, in declaration order."""
-    words: list[type[DType]] = []
+    dtypes: list[type[DType]] = []
     for version in definition.versions.values():
         for field in (*version.interface.inputs, *version.interface.outputs):
-            word = _word_of(field.dtype)
-            if word is not None and word not in words:
-                words.append(word)
-    return words
+            dtype = _vocabulary_type_of(field.dtype)
+            if dtype is not None and dtype not in dtypes:
+                dtypes.append(dtype)
+    return dtypes
 
 
-def _where(dtype: type[DType]) -> str:
+def _qualified_name(dtype: type[DType]) -> str:
     return f"{dtype.__module__}.{dtype.__qualname__}"

@@ -94,14 +94,14 @@ from conductor._internal.ref import Ref
 from conductor._internal.series import Index, Row, Series
 from conductor._internal.skip_and_ask import SKIPPED
 from conductor._internal.table import (
-    ROW_ID,
+    ROW_ID_COLUMN,
     MergeSource,
-    column_frame,
     frame_with_no_rows,
-    holds_tables,
+    global_row_id,
     is_frame,
-    merge,
-    row_id,
+    is_table_or_series_of_tables,
+    merge_tables_on_row_ids,
+    one_column_frame_with_row_ids,
 )
 
 if TYPE_CHECKING:
@@ -517,13 +517,13 @@ class RunLedger:
     def _merged(self, receive_mode: Merge, row: Row) -> pl.DataFrame | None:
         """The one table a unit at ``row`` receives from every source of a ``Table``
         input, or ``None`` when every source is skipped there. Reads each source's
-        rows; ``conductor._internal.table.merge`` matches them. A skipped source has no rows
+        rows; ``conductor._internal.table.merge_tables_on_row_ids`` matches them. A skipped source has no rows
         and still counts as a source."""
         sources: list[MergeSource] = []
         skipped = 0
         for source, source_receive_mode in receive_mode.receive_mode_by_source:
             field = self._fields[source]
-            is_table = holds_tables(field.type)
+            is_table = is_table_or_series_of_tables(field.type)
             index: Index = field._makes_rows if is_table else field._index  # type: ignore[assignment]
             group_row = row[: source_receive_mode.index.depth] if isinstance(source_receive_mode, PerRow) else row[: _rows_under_depth(source_receive_mode)]
             stored, _ = self._lookup(source, group_row)
@@ -537,19 +537,19 @@ class RunLedger:
                 (row, value) for row in self._rows_under(index.id, group_row)
                 if (value := self._lookup(source, row)[0]) is not SKIPPED and value is not _MISSING
             ]
-            frame = column_frame(field._title, field._cell_type, [self._row_id(index, row) for row, _ in present], [value for _, value in present])
+            frame = one_column_frame_with_row_ids(field._title, field._cell_type, [self._row_id(index, row) for row, _ in present], [value for _, value in present])
             sources.append(MergeSource(source.node_id, frame, index, [row for row, _ in present]))
-        return None if skipped == len(sources) else merge(sources)
+        return None if skipped == len(sources) else merge_tables_on_row_ids(sources)
 
     def _row_id(self, index: Index, row: Row) -> str:
         """The id of the row at ``row`` on ``index``: on a table's rows, the id
         its stored table carries, which may have come in with the table; on
         any other index, the id spelled from the index and the row."""
         owner = self._lookups.owners.get(index.id)
-        if owner is not None and owner._view_of is None and owner._is_output and holds_tables(owner.type):
+        if owner is not None and owner._view_of is None and owner._is_output and is_table_or_series_of_tables(owner.type):
             stored, _ = self._lookup(owner.ref, row[:-1])
-            return stored[ROW_ID][row[-1]]
-        return row_id(index, row)
+            return stored[ROW_ID_COLUMN][row[-1]]
+        return global_row_id(index, row)
 
     def _covering(self, node_id: str, refs: tuple[Ref, ...], row: Row) -> tuple[list[Any], list[Row]]:
         """Of several refs read at one row: the values that cover it, and the
@@ -1159,7 +1159,7 @@ def _restored_cell(field: CompiledField, stored: Any, read: Any) -> Any:
     if stored is None or type(stored) is field._cell_type:
         return stored
     cell = read(stored)
-    if field._makes_rows is not None and not field._holds_many and ROW_ID not in cell.columns:
+    if field._makes_rows is not None and not field._holds_many and ROW_ID_COLUMN not in cell.columns:
         raise ValueError("a stored table has lost the ids of its rows")
     return cell
 

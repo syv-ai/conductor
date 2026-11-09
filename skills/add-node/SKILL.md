@@ -45,7 +45,7 @@ registry = NodeRegistry([greet])
 | A person's answer | `-> X \| AskPerson`, returning `AskPerson(defaults=..., widgets=...)`; the declared outputs are the questions |
 | A client, a clock, the caller | `FromRun[T]`, supplied by `compiled.run(from_run={T: value})` |
 | Retries, a timeout, a concurrency bound | `@node("x", policy=Policy(retries=3, timeout=10, concurrency=4))` |
-| A second version | `older=[OlderVersion(run_v1, upgrade=Upgrade(renamed_inputs={...}))]` on `@node`, oldest first |
+| A second version | `older_versions=[OlderVersion(run_v1, upgrade=Upgrade(renamed_inputs={...}))]` on `@node`, oldest first |
 | Fields that depend on configuration | `compute_inputs=` / `compute_outputs=`: plain functions whose parameters name the inputs they read; `Arriving` gives the type on an edge |
 | Every connected name as an input | `**inputs: AsItArrives`, or `**values: Number` to run per row |
 

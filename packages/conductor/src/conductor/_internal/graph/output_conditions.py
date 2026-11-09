@@ -8,7 +8,7 @@ module is where it gets the answer, derived from the ``choice`` groups
 in the nodes' interfaces and the edges — nothing else.
 
 A ``Condition`` is a set of alternatives, each a set of decisions that
-must all hold; an ``Atom`` is one decision ("the ``choice`` group on node
+must all hold; an ``BranchTaken`` is one decision ("the ``choice`` group on node
 N went to output O"). The output appears when any alternative holds::
 
     ALWAYS = frozenset({frozenset()})   # one empty alternative: no gate
@@ -38,7 +38,7 @@ from conductor._internal.ref import Ref
 
 
 @dataclass(frozen=True, slots=True)
-class Atom:
+class BranchTaken:
     """One way one decision went: output ``output`` of the ``choice`` group on ``node_id``.
 
     Made by ``output_condition`` for every output with a ``choice`` on a node
@@ -52,29 +52,29 @@ class Atom:
     output: str
 
 
-Condition = frozenset[frozenset[Atom]]
+Condition = frozenset[frozenset[BranchTaken]]
 
 ALWAYS: Condition = frozenset({frozenset()})
 NEVER: Condition = frozenset()
 
 
-def condition_at_node(bindings: Mapping[str, Any], condition_of: Callable[[Ref], Condition]) -> Condition:
+def condition_node_runs_under(bindings: Mapping[str, Any], condition_of: Callable[[Ref], Condition]) -> Condition:
     """The condition under which a node runs at all: every connected input's
     holds, and an input's holds when any of its sources' does."""
-    at_node = ALWAYS
+    node_condition = ALWAYS
     for binding in bindings.values():
         if isinstance(binding, From):
             refs = binding.refs
-            at_node = _all_of(at_node, condition_of(refs[0]) if len(refs) == 1 else _any_of(condition_of(ref) for ref in refs))
-    return at_node
+            node_condition = _all_of(node_condition, condition_of(refs[0]) if len(refs) == 1 else _any_of(condition_of(ref) for ref in refs))
+    return node_condition
 
 
-def output_condition(node_id: str, out: Output, at_node: Condition, runs_once: bool) -> Condition:
+def output_condition(node_id: str, out: Output, node_condition: Condition, runs_once: bool) -> Condition:
     """The condition of one output: its node's, and for a ``choice`` output on
     a node that runs once, that decision going this way."""
     if out.choice is None or not runs_once:
-        return at_node
-    return _all_of(at_node, frozenset({frozenset({Atom(node_id, out.choice, out.name)})}))
+        return node_condition
+    return _all_of(node_condition, frozenset({frozenset({BranchTaken(node_id, out.choice, out.name)})}))
 
 
 def _any_of(conditions: Iterable[Condition]) -> Condition:
@@ -82,31 +82,31 @@ def _any_of(conditions: Iterable[Condition]) -> Condition:
     conditions = tuple(conditions)
     if len(conditions) == 1:
         return conditions[0]
-    joined: set[frozenset[Atom]] = set()
+    joined: set[frozenset[BranchTaken]] = set()
     for condition in conditions:
         joined |= condition
     return frozenset(joined)
 
 
-def _all_of(a: Condition, b: Condition) -> Condition:
-    """Holds when both ``a`` and ``b`` do: every alternative of one joined
+def _all_of(left: Condition, right: Condition) -> Condition:
+    """Holds when both ``left`` and ``right`` do: every alternative of one joined
     with every alternative of the other, the impossible ones dropped."""
-    if a is ALWAYS:
-        return b
-    if b is ALWAYS:
-        return a
+    if left is ALWAYS:
+        return right
+    if right is ALWAYS:
+        return left
     return frozenset(
         alternative
-        for x in a
-        for y in b
-        if (alternative := x | y) is not None and _consistent(alternative)
+        for left_alternative in left
+        for right_alternative in right
+        if (alternative := left_alternative | right_alternative) is not None and no_decision_goes_two_ways(alternative)
     )
 
 
-def _consistent(alternative: frozenset[Atom]) -> bool:
+def no_decision_goes_two_ways(alternative: frozenset[BranchTaken]) -> bool:
     """No decision named twice with two different outputs."""
     taken: dict[tuple[str, str], str] = {}
-    for atom in alternative:
-        if taken.setdefault((atom.node_id, atom.choice), atom.output) != atom.output:
+    for branch_taken in alternative:
+        if taken.setdefault((branch_taken.node_id, branch_taken.choice), branch_taken.output) != branch_taken.output:
             return False
     return True

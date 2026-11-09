@@ -113,19 +113,19 @@ class DType(ABC, metaclass=_DTypeMeta):
     element: ClassVar[Any] = None
     #: The Polars type a table column of these values is stored as, by name
     #: (``"Boolean"``). ``None`` reads it off the builtin the type is built
-    #: on (``conductor._internal.table.column_type``); a type sets it only where that
+    #: on (``conductor._internal.table.polars_type_of``); a type sets it only where that
     #: base would be wrong, as a flag built on ``int`` does.
     column: ClassVar[str | None] = None
     #: On ``Series[X | None]`` only: the series keeps its blank cells.
     element_takes_blank: ClassVar[bool] = False
     #: The type this one carries a detail of (``Series[Text]`` of ``Series``),
     #: and shares its id with; ``None`` for a type of its own.
-    _parameterised_from: ClassVar[type["DType"] | None] = None
+    _generic_base: ClassVar[type["DType"] | None] = None
 
-    def __init_subclass__(cls, *, _parameterises: type["DType"] | None = None, **kwargs: Any) -> None:
+    def __init_subclass__(cls, *, _generic_base: type["DType"] | None = None, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
-        cls._parameterised_from = _parameterises
-        if _parameterises is not None:
+        cls._generic_base = _generic_base
+        if _generic_base is not None:
             return
         if "id" not in vars(cls):
             raise NodeDeclarationError(
@@ -151,7 +151,7 @@ class DType(ABC, metaclass=_DTypeMeta):
         return {"id": cls.id}
 
     @classmethod
-    def _when_written_bare(cls) -> type["DType"]:
+    def _type_of_bare_annotation(cls) -> type["DType"]:
         """The type a bare annotation of this class declares: itself, but for ``Series``."""
         return cls
 
@@ -288,7 +288,7 @@ class _PlainPythonType(DType):
 
     id = "setting"
     #: The Python type this one stands for.
-    plain: ClassVar[Any] = None
+    wrapped_type: ClassVar[Any] = None
     travels_on_edges: ClassVar[bool] = False
 
     def __new__(cls, value: Any) -> Any:
@@ -297,25 +297,25 @@ class _PlainPythonType(DType):
 
     @classmethod
     def describe(cls) -> dict[str, Any]:
-        return {"id": cls.id} if cls.travels_on_edges else {"id": cls.id, "of": getattr(cls.plain, "__name__", str(cls.plain))}
+        return {"id": cls.id} if cls.travels_on_edges else {"id": cls.id, "of": getattr(cls.wrapped_type, "__name__", str(cls.wrapped_type))}
 
     @classmethod
     def accepts(cls, source: Any) -> bool:
         """A value of its own type, or a subtype of it, ``DType`` or plain. An ``int`` lands on a ``float``, as a type checker says."""
         carried = source._builtin_base()
-        return carried is not None and issubclass(carried, (float, int) if cls.plain is float else cls.plain)
+        return carried is not None and issubclass(carried, (float, int) if cls.wrapped_type is float else cls.wrapped_type)
 
     @classmethod
     def _instance_type(cls) -> type:
-        return cls.plain
+        return cls.wrapped_type
 
     @classmethod
     def _builtin_base(cls) -> type | None:
-        return cls.plain if isinstance(cls.plain, type) else None
+        return cls.wrapped_type if isinstance(cls.wrapped_type, type) else None
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source_type: Any, handler: "GetCoreSchemaHandler") -> core_schema.CoreSchema:
-        return handler.generate_schema(cls.plain)
+        return handler.generate_schema(cls.wrapped_type)
 
 
 def _an_edge_can_carry(python_type: Any) -> bool:
@@ -333,9 +333,9 @@ def plain_python_dtype(python_type: Any) -> type[_PlainPythonType]:
         return made
     name = getattr(python_type, "__name__", str(python_type))
     if _an_edge_can_carry(python_type):
-        made = type(name, (_PlainPythonType,), {"id": name, "display_title": name, "plain": python_type, "travels_on_edges": True})
+        made = type(name, (_PlainPythonType,), {"id": name, "display_title": name, "wrapped_type": python_type, "travels_on_edges": True})
     else:
-        made = type(f"Setting[{name}]", (_PlainPythonType,), {"plain": python_type}, _parameterises=_PlainPythonType)
+        made = type(f"Setting[{name}]", (_PlainPythonType,), {"wrapped_type": python_type}, _generic_base=_PlainPythonType)
     _PLAIN_PYTHON_DTYPES[python_type] = made
     return made
 
@@ -346,7 +346,7 @@ def is_untyped(dtype: Any) -> bool:
     return issubclass(dtype.element or dtype, _UntypedValue)
 
 
-def read_blank(annotation: Any) -> tuple[Any, bool]:
+def split_off_none(annotation: Any) -> tuple[Any, bool]:
     """``annotation`` without its ``| None``, and whether it said ``| None``.
 
     ``| None`` is how a field says it takes a blank: nothing else about it
@@ -375,7 +375,7 @@ def dtype_of(annotation: Any) -> type[DType] | None:
     if annotation is Any:
         return _UntypedValue
     if isinstance(annotation, type) and issubclass(annotation, DType):
-        return annotation._when_written_bare()
+        return annotation._type_of_bare_annotation()
     return plain_python_dtype(annotation) if _an_edge_can_carry(annotation) else None
 
 
@@ -388,14 +388,14 @@ def description_of(declared: Any) -> dict[str, Any]:
     return declared.describe()
 
 
-def name_of(declared: Any) -> str:
+def type_name_for_sentence(declared: Any) -> str:
     """A declared type named for an English sentence: ``text``, ``a series of
     text``, ``any`` — by its id, which is what a host also keys on."""
     return f"a series of {declared.element.id}" if declared.element is not None else declared.id
 
 
-def _as_field_type(value: Any) -> type[DType]:
-    """Validator for a ``DTypeRef`` field: whatever ``dtype_of`` makes a type; anything else is refused."""
+def _validate_dtype_field(value: Any) -> type[DType]:
+    """Validator for a ``DTypeField`` field: whatever ``dtype_of`` makes a type; anything else is refused."""
     declared = dtype_of(value)
     if declared is None:
         raise ValueError(f"dtype must be a DType, a type an edge can carry or Any, not {value!r}")
@@ -411,9 +411,9 @@ _DESCRIPTION_SCHEMA: dict[str, Any] = {
 
 #: The type of a record's ``dtype`` field. In Python it holds a ``DType``
 #: class; dumped it is ``describe()``'s record, so nothing downstream parses a type.
-DTypeRef = Annotated[
+DTypeField = Annotated[
     Any,
-    PlainValidator(_as_field_type),
+    PlainValidator(_validate_dtype_field),
     PlainSerializer(description_of, return_type=dict),
     WithJsonSchema(_DESCRIPTION_SCHEMA),
 ]

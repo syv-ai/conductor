@@ -41,7 +41,12 @@ from dataclasses import dataclass, field
 from functools import cache
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
-from conductor._internal.dtype import _ReceivedAsItArrives, description_of, is_untyped, name_of
+from conductor._internal.dtype import (
+    _ReceivedAsItArrives,
+    description_of,
+    is_untyped,
+    type_name_for_sentence,
+)
 from conductor._internal.errors import Problem, make_problem
 from conductor._internal.field_records import Input
 from conductor._internal.graph.binding import From
@@ -61,9 +66,9 @@ from conductor._internal.series import Index, Series
 from conductor._internal.table import (
     Column,
     Table,
-    column_type,
     columns_of,
-    holds_tables,
+    is_table_or_series_of_tables,
+    polars_type_of,
     renames_in_merge,
 )
 
@@ -150,7 +155,7 @@ def read_inputs(
             problems_found = [problem for source_ref, source in pairs for problem in _admit_into_table(target, node.id, name, source_ref, source)]
             problems.extend(problems_found)
             merged = None if problems_found else _merged_columns(pairs)
-            found.demands.extend((source._index, name) for source in sources if holds_tables(source.type) and source._index is not None)
+            found.demands.extend((source._index, name) for source in sources if is_table_or_series_of_tables(source.type) and source._index is not None)
             carried = _table_a_call_receives(target, merged)
             _check_columns(node.id, name, target, merged, problems)
             found.merging.append((name, carried, pairs))
@@ -271,7 +276,7 @@ def _merged_columns(sources: list[tuple[Ref, CompiledField]]) -> tuple[Column, .
     """The columns the merged table of ``sources`` has, named as the merge names them; ``None`` when a table among them names none."""
     columns_each: list[tuple[str, tuple[Column, ...]]] = []
     for source_ref, source in sources:
-        if holds_tables(source.type):
+        if is_table_or_series_of_tables(source.type):
             columns = columns_of(source.type.element or source.type)
             if not columns:
                 return None
@@ -303,7 +308,7 @@ def _admit_into_table(target: Any, node_id: str, name: str, source_ref: Ref, sou
     """A ``Table`` input takes a table, or a column: a series of a type a
     table column holds. A single value or anything else is ``type_mismatch``."""
     element = source.type.element
-    if holds_tables(source.type) or (element is not None and isinstance(element, type) and column_type(element) is not None):
+    if is_table_or_series_of_tables(source.type) or (element is not None and isinstance(element, type) and polars_type_of(element) is not None):
         return []
     return _admit(target, node_id, name, source_ref, source) or [_type_mismatch(target, node_id, name, source_ref, source)]
 
@@ -318,7 +323,7 @@ def _admit(target: Any, node_id: str, name: str, source_ref: Ref, source: Compil
 def _type_mismatch(target: Any, node_id: str, name: str, source_ref: Ref, source: CompiledField) -> Problem:
     return make_problem(
         "type_mismatch", node_id, name, source=str(source_ref), source_type=description_of(source.type),
-        target_type=description_of(target), source_said=name_of(source.type), target_said=name_of(target),
+        target_type=description_of(target), source_said=type_name_for_sentence(source.type), target_said=type_name_for_sentence(target),
     )
 
 

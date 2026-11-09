@@ -52,7 +52,7 @@ from conductor._internal.graph.compiled_node import CompiledField, CompiledNode,
 from conductor._internal.graph.output_conditions import (
     ALWAYS,
     Condition,
-    condition_at_node,
+    condition_node_runs_under,
     output_condition,
 )
 from conductor._internal.graph.receive_modes import (
@@ -73,7 +73,7 @@ from conductor._internal.node_definition import NodeVersion
 from conductor._internal.node_signature import Interface
 from conductor._internal.ref import Ref
 from conductor._internal.series import Index, Series
-from conductor._internal.table import columns_of, holds_tables
+from conductor._internal.table import columns_of, is_table_or_series_of_tables
 
 if TYPE_CHECKING:
     from conductor._internal.errors import Problem
@@ -156,7 +156,7 @@ def read_embeddable(graph: CompiledGraph) -> EmbeddableGraph:
             drawn=ref, runs_at=in_the_run(ref, "input"),
             has_static_inside=isinstance(node.graph_node.bindings.get(ref.field), Static),
             list_on_node_inside=field is not None and field._is_list_on_node,
-            read_by_a_hook=isinstance(node.version, NodeVersion) and ref.field in node.version.hook_reads,
+            read_by_a_hook=isinstance(node.version, NodeVersion) and ref.field in node.version.inputs_read_by_hooks,
         )
     outputs: dict[str, Ref] = {}
     for out in graph.interface.outputs:
@@ -221,7 +221,7 @@ def lift_embedded_nodes(
 
     def inside(ref: Ref) -> Ref:
         node_part, _, field_part = ref.partition(".")
-        return Ref._of_parts(prefix + node_part, field_part)
+        return Ref._from_checked_parts(prefix + node_part, field_part)
 
     edges_on: dict[str, dict[str, From]] = {}
     for ref, edge in edges.items():
@@ -258,7 +258,7 @@ def lift_embedded_nodes(
         if inner.embedded_graph is not None:
             fields: dict[str, CompiledField] = {}
         else:
-            at_node = condition_at_node(bindings, condition_of)
+            node_condition = condition_node_runs_under(bindings, condition_of)
             runs_once = new_runs_per_row_of is None
             outputs_of = {out.name: out for out in inner.interface.outputs}
             fields = {}
@@ -273,7 +273,7 @@ def lift_embedded_nodes(
                 if field._view_of is not None:  # a column appears exactly when its table does
                     condition = fields[field._view_of[0].field].condition
                 elif field._is_output:
-                    condition = output_condition(new_id, outputs_of[name], at_node, runs_once)
+                    condition = output_condition(new_id, outputs_of[name], node_condition, runs_once)
                 dtype, index, receive_mode = _field_under(field, crossings, inner_nodes, prefix, runs_per_row_of, inside)
                 makes = None if field._makes_rows is None else under(field._makes_rows, prefix, runs_per_row_of)
                 is_list = field._is_list_on_node and name not in crossed
@@ -281,11 +281,11 @@ def lift_embedded_nodes(
                     row_origins.note_merge(new_id, name, [(source, found) for source, _ in receive_mode.receive_mode_by_source if (found := field_at(source)) is not None])
                 origins: frozenset[str] | None = None
                 if field._is_output:
-                    origins = row_origins.note_table(makes, taken_in) if makes is not None and holds_tables(dtype) else row_origins.of_rows_on(index)
+                    origins = row_origins.note_table(makes, taken_in) if makes is not None and is_table_or_series_of_tables(dtype) else row_origins.of_rows_on(index)
                 elif is_list:
                     origins = row_origins.of_rows_on(index)
                 fields[name] = CompiledField(
-                    ref=Ref._of_parts(new_id, name), type=dtype, binding=bindings.get(name) if not field._is_output else None, condition=condition,
+                    ref=Ref._from_checked_parts(new_id, name), type=dtype, binding=bindings.get(name) if not field._is_output else None, condition=condition,
                     problems=(), _index=index, _receive_mode=receive_mode, _is_list_on_node=is_list,
                     _makes_rows=makes, _view_of=None if field._view_of is None else (inside(field._view_of[0]), field._view_of[1]),
                     _takes_blank=field._takes_blank, _title=field._title, _row_origins=origins,

@@ -18,7 +18,7 @@ written. An upgrade sits on the version it leaves::
 
     def split_v1(text: Text, sep: Text = Text("\\n")) -> Series[Text]: ...
 
-    @node("split", older=[OlderVersion(split_v1, upgrade=Upgrade(renamed_inputs={"sep": "separator"}))])
+    @node("split", older_versions=[OlderVersion(split_v1, upgrade=Upgrade(renamed_inputs={"sep": "separator"}))])
     def split(text: Text, separator: Text = Text("\\n")) -> Series[Text]: ...
 
 Two hooks shape a node from what it is given in one graph, each a plain
@@ -49,7 +49,7 @@ from pydantic.json_schema import SkipJsonSchema
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.dtype import (
     DType,
-    DTypeRef,
+    DTypeField,
     _AsItArrivesMark,
     _UntypedValue,
     dtype_of,
@@ -59,7 +59,11 @@ from conductor._internal.errors import NodeDeclarationError
 from conductor._internal.field_records import Input, Output
 from conductor._internal.graph.binding import From, Static
 from conductor._internal.graph.graph_records import GraphNode
-from conductor._internal.node_signature import Interface, open_input_of, read_signature
+from conductor._internal.node_signature import (
+    Interface,
+    input_template_for_var_keyword,
+    read_signature,
+)
 from conductor._internal.table import is_frame, type_of_frame
 
 if TYPE_CHECKING:
@@ -156,7 +160,7 @@ class Upgrade:
 
 @dataclass(frozen=True)
 class OlderVersion:
-    """One earlier version of a node, as listed in ``@node(older=[...])``."""
+    """One earlier version of a node, as listed in ``@node(older_versions=[...])``."""
 
     run: Callable[..., Any]
     _: KW_ONLY
@@ -168,29 +172,29 @@ class OlderVersion:
 
 
 @dataclass(frozen=True, repr=False)
-class _Hook:
+class _ComputeFieldsHook:
     """A ``compute_inputs`` or ``compute_outputs`` function and what its signature reads."""
 
     function: Callable[..., Iterable[Any]]
-    #: The inputs whose typed values it receives; those in ``required`` it can't be called without.
-    reads: tuple[str, ...]
-    required: frozenset[str]
+    #: The inputs whose typed values it receives; those in ``inputs_it_cannot_run_without`` it can't be called without.
+    inputs_it_reads: tuple[str, ...]
+    inputs_it_cannot_run_without: frozenset[str]
     #: The inputs whose arriving type it receives by name, and whether it takes all of them.
-    arriving: tuple[str, ...]
-    all_arriving: bool
+    inputs_whose_arriving_type_it_reads: tuple[str, ...]
+    reads_every_arriving_type: bool
 
-    def answer(self, values: Mapping[str, Any], arriving_types: Mapping[str, Any], statics: Mapping[str, Any]) -> tuple[Any, ...] | None:
+    def call_with(self, values: Mapping[str, Any], arriving_types: Mapping[str, Any], statics: Mapping[str, Any]) -> tuple[Any, ...] | None:
         """The hook's fields for these values and arriving types; ``None`` when a value it needs has none.
 
         An ``Arriving`` parameter gets the edge's type, or the type of the
         value typed in when no edge is there; ``Any`` until something is."""
-        if not self.required <= values.keys():
+        if not self.inputs_it_cannot_run_without <= values.keys():
             return None
-        arguments = {name: values[name] for name in self.reads if name in values}
-        for name in self.arriving:
+        arguments = {name: values[name] for name in self.inputs_it_reads if name in values}
+        for name in self.inputs_whose_arriving_type_it_reads:
             static_value: Any = statics.get(name)
             arguments[name] = arriving_types.get(name, type_of_frame(static_value) if is_frame(static_value) else (dtype_of(type(static_value)) or _UntypedValue))
-        if self.all_arriving:
+        if self.reads_every_arriving_type:
             arguments.update({name: dtype for name, dtype in arriving_types.items() if name not in arguments})
         return tuple(self.function(**arguments))
 
@@ -198,35 +202,35 @@ class _Hook:
         return self.function.__qualname__
 
 
-def _read_hook(function: Callable[..., Iterable[Any]], interface: Interface, kind: str) -> _Hook:
+def _parse_hook(function: Callable[..., Iterable[Any]], interface: Interface, kind: str) -> _ComputeFieldsHook:
     """``function``'s signature, checked against the version it shapes."""
     hints = get_type_hints(function, include_extras=True)
     names = {inp.name: inp for inp in interface.inputs}
     reads: list[str] = []
     required: set[str] = set()
     arriving: list[str] = []
-    all_arriving = False
+    reads_every_arriving_type = False
     for name, parameter in inspect.signature(function).parameters.items():
         hint = hints.get(name)
-        marked = getattr(hint, "__metadata__", ()) and any(isinstance(extra, _ArrivingMark) for extra in hint.__metadata__)
-        if marked and kind == "compute_inputs":
+        is_arriving = getattr(hint, "__metadata__", ()) and any(isinstance(extra, _ArrivingMark) for extra in hint.__metadata__)
+        if is_arriving and kind == "compute_inputs":
             raise NodeDeclarationError(f"compute_inputs parameter {name!r} is Arriving, but inputs are decided before anything arrives", code="arriving_on_compute_inputs")
         if parameter.kind is inspect.Parameter.VAR_KEYWORD:
-            if not marked:
+            if not is_arriving:
                 raise NodeDeclarationError(f"{kind} parameter **{name}: the only ** a hook can take is **{name}: Arriving", code="hook_parameter_unknown")
-            all_arriving = True
+            reads_every_arriving_type = True
             continue
         if parameter.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.POSITIONAL_ONLY):
             raise NodeDeclarationError(f"{kind} parameter {name!r}: a hook's parameters are passed by name", code="hook_parameter_unknown")
         if name not in names:
             raise NodeDeclarationError(f"{kind} parameter {name!r} names no input of the node; it has {sorted(names)}", code="hook_parameter_unknown")
-        if marked:
+        if is_arriving:
             arriving.append(name)
             continue
         reads.append(name)
         if parameter.default is inspect.Parameter.empty:
             required.add(name)
-    return _Hook(function, tuple(reads), frozenset(required), tuple(arriving), all_arriving)
+    return _ComputeFieldsHook(function, tuple(reads), frozenset(required), tuple(arriving), reads_every_arriving_type)
 
 
 @dataclass(frozen=True, repr=False)
@@ -246,20 +250,20 @@ class NodeVersion:
     deprecation: Deprecation | None = None
     #: The ``FromRun`` parameters: the value of each type goes under this name in a call.
     from_run: Mapping[str, type] = field(default_factory=dict)
-    #: How a return splits across the outputs (``ReadSignature.returns``).
-    returns: Any = None
+    #: How a return splits across the outputs (``ParsedSignature.return_shape``).
+    return_shape: Any = None
     #: For a ``**x: T`` no hook owns: what every edge into the node is an input
     #: like, its name left to the edge. ``None`` otherwise.
-    open_input: Input | None = None
-    compute_inputs: _Hook | None = None
-    compute_outputs: _Hook | None = None
+    open_input_template: Input | None = None
+    compute_inputs: _ComputeFieldsHook | None = None
+    compute_outputs: _ComputeFieldsHook | None = None
     #: How a node saved at this version moves to the next; ``None`` when nothing moves.
     upgrade_to_next: Upgrade | None = None
 
     @property
-    def hook_reads(self) -> frozenset[str]:
+    def inputs_read_by_hooks(self) -> frozenset[str]:
         """The inputs whose typed-in values this version's hooks read."""
-        return frozenset(name for hook in (self.compute_inputs, self.compute_outputs) if hook is not None for name in hook.reads)
+        return frozenset(name for hook in (self.compute_inputs, self.compute_outputs) if hook is not None for name in hook.inputs_it_reads)
 
     def __repr__(self) -> str:
         """The run by its qualified name rather than a function address."""
@@ -267,7 +271,7 @@ class NodeVersion:
         return f"NodeVersion(run={self.run.__qualname__}, interface={self.interface!r}, policy={self.policy!r}{notice})"
 
 
-def _version(
+def _build_node_version(
     run: Callable[..., Any],
     *,
     policy: Policy,
@@ -279,24 +283,24 @@ def _version(
     """One ``NodeVersion``, its signature read and its hooks checked against it."""
     if inspect.iscoroutinefunction(run) or inspect.isasyncgenfunction(run):
         raise NodeDeclarationError(f"{run.__name__} is async; a node is a plain function, and the engine gives each call a thread", code="async_run")
-    read = read_signature(run)
-    outputs_hook = None if compute_outputs is None else _read_hook(compute_outputs, read.interface, "compute_outputs")
-    inputs_hook = None if compute_inputs is None else _read_hook(compute_inputs, read.interface, "compute_inputs")
-    if outputs_hook is None and read.returns is Mapping:
+    signature = read_signature(run)
+    outputs_hook = None if compute_outputs is None else _parse_hook(compute_outputs, signature.interface, "compute_outputs")
+    inputs_hook = None if compute_inputs is None else _parse_hook(compute_inputs, signature.interface, "compute_inputs")
+    if outputs_hook is None and signature.return_shape is Mapping:
         raise NodeDeclarationError(f"{run.__name__} returns a Mapping but has no compute_outputs to say which outputs it holds", code="mapping_return_without_hook")
-    if outputs_hook is None and any(is_untyped(out.dtype) for out in read.interface.outputs):
+    if outputs_hook is None and any(is_untyped(out.dtype) for out in signature.interface.outputs):
         raise NodeDeclarationError(f"{run.__name__} declares an output typed Any but no compute_outputs to type it from what arrives", code="any_output_without_hook")
-    open_input = None
+    open_input_template = None
     if inputs_hook is not None:
-        if read.var_keyword is None:
+        if signature.var_keyword_name_and_hint is None:
             raise NodeDeclarationError(f"{run.__name__} has a compute_inputs hook but no **parameter for its inputs to land on", code="compute_inputs_without_var_keyword")
-        if any(isinstance(extra, _AsItArrivesMark) for extra in getattr(read.var_keyword[1], "__metadata__", ())):
-            raise NodeDeclarationError(f"**{read.var_keyword[0]}: AsItArrives is every edge an input, so a compute_inputs hook has nothing to land on it", code="as_it_arrives_beside_compute_inputs")
-    elif read.var_keyword is not None:
-        open_input = open_input_of(*read.var_keyword)
+        if any(isinstance(extra, _AsItArrivesMark) for extra in getattr(signature.var_keyword_name_and_hint[1], "__metadata__", ())):
+            raise NodeDeclarationError(f"**{signature.var_keyword_name_and_hint[0]}: AsItArrives is every edge an input, so a compute_inputs hook has nothing to land on it", code="as_it_arrives_beside_compute_inputs")
+    elif signature.var_keyword_name_and_hint is not None:
+        open_input_template = input_template_for_var_keyword(*signature.var_keyword_name_and_hint)
     return NodeVersion(
-        run=run, interface=read.interface, policy=policy, deprecation=deprecation, from_run=read.from_run, returns=read.returns,
-        open_input=open_input, compute_inputs=inputs_hook, compute_outputs=outputs_hook, upgrade_to_next=upgrade,
+        run=run, interface=signature.interface, policy=policy, deprecation=deprecation, from_run=signature.from_run, return_shape=signature.return_shape,
+        open_input_template=open_input_template, compute_inputs=inputs_hook, compute_outputs=outputs_hook, upgrade_to_next=upgrade,
     )
 
 
@@ -305,9 +309,9 @@ def _check_upgrades(versions: Sequence[NodeVersion]) -> None:
     for older, newer in zip(versions, versions[1:], strict=False):
         gone_inputs = {i.name for i in older.interface.inputs} - {i.name for i in newer.interface.inputs}
         gone_outputs = {o.name for o in older.interface.outputs} - {o.name for o in newer.interface.outputs}
-        step = older.upgrade_to_next
-        unexplained = gone_inputs - set(step.renamed_inputs) if step is not None and step.rewrite is None else gone_inputs if step is None else set()
-        if unexplained or (step is None and gone_outputs):
+        upgrade_step = older.upgrade_to_next
+        unexplained = gone_inputs - set(upgrade_step.renamed_inputs) if upgrade_step is not None and upgrade_step.rewrite is None else gone_inputs if upgrade_step is None else set()
+        if unexplained or (upgrade_step is None and gone_outputs):
             raise NodeDeclarationError(
                 f"{older.run.__name__} has {sorted(unexplained | gone_outputs)}, gone from the version after it; its Upgrade says where they went",
                 code="upgrade_missing",
@@ -320,7 +324,7 @@ class NodeDefinition(Generic[_P, _R]):
 
     Frozen, and callable with the function's own signature, so a node is
     tested by calling it. ``versions`` holds one record per version, keyed
-    by number, and ``current`` is the highest.
+    by number, and ``current_version`` is the highest.
     """
 
     #: The registry id. Stored in every graph that uses this node, so
@@ -341,11 +345,11 @@ class NodeDefinition(Generic[_P, _R]):
     #: A version's own notice sits on its ``NodeVersion``.
     deprecation: Deprecation | None
     versions: Mapping[int, NodeVersion | CompiledGraph]
-    current: int
+    current_version: int
 
     def __call__(self, *args: _P.args, **kwargs: _P.kwargs) -> _R:
         """Call the newest version's function, as a test or a host would."""
-        version = self.versions[self.current]
+        version = self.versions[self.current_version]
         if not isinstance(version, NodeVersion):
             raise TypeError(f"{self.id!r} is a graph, so it has no function to call; run it through a compiled graph")
         return version.run(*args, **kwargs)
@@ -358,7 +362,7 @@ class NodeDefinition(Generic[_P, _R]):
         A value is typed in; ``From`` is an edge. An input left open, or one the
         run supplies with ``FromRun``, is written with ``GraphNode(...)``, the stored form this returns.
         """
-        version = self.versions[self.current]
+        version = self.versions[self.current_version]
         if isinstance(version, NodeVersion):
             bound = inspect.signature(version.run).bind_partial(*args, **kwargs).arguments
             spread = next((name for name, parameter in inspect.signature(version.run).parameters.items() if parameter.kind is inspect.Parameter.VAR_KEYWORD), None)
@@ -368,7 +372,7 @@ class NodeDefinition(Generic[_P, _R]):
         else:
             values = kwargs
         bindings = {name: value if isinstance(value, (From, Static)) else Static(value) for name, value in values.items()}
-        return GraphNode(id=id, type=self.id, version=self.current, bindings=bindings)
+        return GraphNode(id=id, type=self.id, version=self.current_version, bindings=bindings)
 
     def __repr__(self) -> str:
         """The record as the call that states what it is, optional parts only when set."""
@@ -401,7 +405,7 @@ class NodeDefinition(Generic[_P, _R]):
             raise NodeDeclarationError(f"{id!r} has no versions; a definition declares at least one", code="versions_empty", node_id=id)
         return NodeDefinition(
             id=id, title=title or id.replace("-", " ").replace("_", " ").strip().capitalize(), description=description, category=category, tags=tuple(tags), docs=docs,
-            deprecation=deprecation, versions=MappingProxyType(dict(versions)), current=max(versions),
+            deprecation=deprecation, versions=MappingProxyType(dict(versions)), current_version=max(versions),
         )
 
     def describe(self) -> NodeDescription:
@@ -414,12 +418,12 @@ class NodeDefinition(Generic[_P, _R]):
                     inputs=(version.interface if isinstance(version, NodeVersion) else version._for_embedding.interface).inputs,
                     outputs=(version.interface if isinstance(version, NodeVersion) else version._for_embedding.interface).outputs,
                     policy=version.policy if isinstance(version, NodeVersion) else None,
-                    open=version.open_input.dtype if isinstance(version, NodeVersion) and version.open_input is not None else None,
+                    open_input_type=version.open_input_template.dtype if isinstance(version, NodeVersion) and version.open_input_template is not None else None,
                     deprecation=version.deprecation if isinstance(version, NodeVersion) else None,
                 )
                 for number, version in self.versions.items()
             },
-            current=self.current,
+            current_version=self.current_version,
         )
 
 
@@ -436,7 +440,7 @@ def node(
     deprecation: Deprecation | None = None,
     compute_inputs: Callable[..., Iterable[Input]] | None = None,
     compute_outputs: Callable[..., Iterable[Output]] | None = None,
-    older: Sequence[OlderVersion] = (),
+    older_versions: Sequence[OlderVersion] = (),
 ) -> Callable[[Callable[_P, _R]], NodeDefinition[_P, _R]]:
     """Declare a node from the function below it (see the module docstring)."""
     if not isinstance(id, str) or not id:
@@ -445,17 +449,17 @@ def node(
     def decorate(run: Callable[_P, _R]) -> NodeDefinition[_P, _R]:
         try:
             versions = [
-                _version(
-                    each.run, policy=each.policy, deprecation=each.deprecation,
-                    compute_inputs=each.compute_inputs, compute_outputs=each.compute_outputs, upgrade=each.upgrade,
+                _build_node_version(
+                    older_version.run, policy=older_version.policy, deprecation=older_version.deprecation,
+                    compute_inputs=older_version.compute_inputs, compute_outputs=older_version.compute_outputs, upgrade=older_version.upgrade,
                 )
-                for each in older
+                for older_version in older_versions
             ]
-            versions.append(_version(run, policy=policy, deprecation=None, compute_inputs=compute_inputs, compute_outputs=compute_outputs, upgrade=None))
+            versions.append(_build_node_version(run, policy=policy, deprecation=None, compute_inputs=compute_inputs, compute_outputs=compute_outputs, upgrade=None))
             _check_upgrades(versions)
-        except NodeDeclarationError as wrong:
-            wrong.node_id = id
-            wrong.args = (f"@node({id!r}) on {run.__name__}: {wrong.args[0]}",)
+        except NodeDeclarationError as error:
+            error.node_id = id
+            error.args = (f"@node({id!r}) on {run.__name__}: {error.args[0]}",)
             raise
         return NodeDefinition(
             id=id,
@@ -466,7 +470,7 @@ def node(
             docs=docs,
             deprecation=deprecation,
             versions=MappingProxyType({number: version for number, version in enumerate(versions, start=1)}),
-            current=len(versions),
+            current_version=len(versions),
         )
 
     return decorate
@@ -483,7 +487,7 @@ class VersionDescription(ConductorModel):
     inputs: tuple[Input, ...]
     outputs: tuple[Output, ...]
     policy: Policy | None
-    open: DTypeRef | None
+    open_input_type: DTypeField | None
     deprecation: Deprecation | None
 
 
@@ -503,4 +507,4 @@ class NodeDescription(ConductorModel):
     docs: str | None
     deprecation: Deprecation | None
     versions: dict[int, VersionDescription]
-    current: int
+    current_version: int

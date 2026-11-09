@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from conductor._internal.dtype import is_untyped
-from conductor._internal.errors import CompileProblem, Problem, make_problem
+from conductor._internal.errors import ComputeHookError, Problem, make_problem
 from conductor._internal.field_records import Input, Output
 from conductor._internal.graph.binding import From
 from conductor._internal.graph.compiled_node import CompiledField, CompiledNode, Wiring
@@ -34,7 +34,7 @@ from conductor._internal.graph.graph_records import GraphNode
 from conductor._internal.graph.output_conditions import (
     ALWAYS,
     Condition,
-    condition_at_node,
+    condition_node_runs_under,
     output_condition,
 )
 from conductor._internal.graph.read_static_values import read_static_values
@@ -44,7 +44,7 @@ from conductor._internal.node_signature import Interface
 from conductor._internal.ref import Ref
 from conductor._internal.registry import NodeRegistry
 from conductor._internal.series import Index, Series
-from conductor._internal.table import columns_of, holds_tables
+from conductor._internal.table import columns_of, is_table_or_series_of_tables
 
 if TYPE_CHECKING:
     from conductor._internal.graph.compile_graph import WalkSoFar
@@ -79,9 +79,9 @@ def compile_one_node(node: GraphNode, walk: WalkSoFar, registry: NodeRegistry) -
     if not is_graph and version.compute_inputs is not None:
         defaults = {i.name: i.default for i in inputs if not i.required}
         try:
-            added = version.compute_inputs.answer({**defaults, **statics}, {}, statics) or ()
-        except CompileProblem as hook_error:
-            problems.append(hook_error.at(node.id))
+            added = version.compute_inputs.call_with({**defaults, **statics}, {}, statics) or ()
+        except ComputeHookError as hook_error:
+            problems.append(hook_error.as_problem_on_node(node.id))
             return _add(walk, node, problems, definition, version, None, {})
         inputs = (*inputs, *added)
         statics_added, lists_added, unreadable_added = read_static_values(added, node)
@@ -94,10 +94,10 @@ def compile_one_node(node: GraphNode, walk: WalkSoFar, registry: NodeRegistry) -
         version, can_be_wired = _graph_as_this_node_fills_it(node, version, definition.title, statics, inputs_given_a_list, problems)
         embeddable = version._for_embedding
         inputs_given_a_list = frozenset()
-    elif version.open_input is not None:
+    elif version.open_input_template is not None:
         named = {i.name for i in inputs}
         inputs = (*inputs, *(
-            version.open_input.model_copy(update={"name": name, "title": name})
+            version.open_input_template.model_copy(update={"name": name, "title": name})
             for name, binding in node.bindings.items()
             if name not in named and isinstance(binding, From)
         ))
@@ -112,16 +112,16 @@ def compile_one_node(node: GraphNode, walk: WalkSoFar, registry: NodeRegistry) -
     inputs_typed_by_their_edges = tuple(_with_type_from_its_edge(inp, found.bound) for inp in inputs)
     try:
         outputs = _ask_outputs(version, found.arriving_types, statics)
-    except CompileProblem as hook_error:
-        problems.append(hook_error.at(node.id))
+    except ComputeHookError as hook_error:
+        problems.append(hook_error.as_problem_on_node(node.id))
         return _add(walk, node, problems, definition, version, _replaced(version.interface, inputs_typed_by_their_edges, ()), statics)
     interface = _replaced(version.interface, inputs_typed_by_their_edges, outputs)
     problems_found = field_problems(node.id, outputs, frozenset(i.name for i in inputs_typed_by_their_edges), untyped_ok=False)
-    problems_found += [make_problem("series_of_tables", node.id, out.name) for out in outputs if out.dtype.element is not None and holds_tables(out.dtype.element)]
+    problems_found += [make_problem("series_of_tables", node.id, out.name) for out in outputs if out.dtype.element is not None and is_table_or_series_of_tables(out.dtype.element)]
     if problems_found:
         problems.extend(problems_found)
         return _add(walk, node, problems, definition, version, interface, statics)
-    if not outputs and (is_graph or version.returns is not None):
+    if not outputs and (is_graph or version.return_shape is not None):
         problems.append(make_problem("no_outputs", node.id))
     rows_agree, runs_per_row_of = decide_rows(node, found, problems, walk.row_origins)
     if not rows_agree:
@@ -280,7 +280,7 @@ def _interface_without_wiring(
     """A source couldn't be read: complete the node's fields from what did arrive, so an editor can draw it."""
     try:
         answered = _ask_outputs(version, found.arriving_types, statics)
-    except CompileProblem:
+    except ComputeHookError:
         # The broken source carries the fault; a refusal about its missing
         # arrival would report the same fact twice.
         answered = ()
@@ -294,7 +294,7 @@ def _ask_outputs(version: Any, arriving_types: dict[str, Any], statics: dict[str
     if not isinstance(version, NodeVersion) or version.compute_outputs is None:
         return _interface_it_declares(version).outputs
     values = {**{i.name: i.default for i in version.interface.inputs if not i.required}, **statics}
-    answered = version.compute_outputs.answer(values, arriving_types, statics)
+    answered = version.compute_outputs.call_with(values, arriving_types, statics)
     return version.interface.outputs if answered is None else answered
 
 
@@ -325,7 +325,7 @@ def _wiring_of_function_node(
     names = {out.name for out in outputs}
     taken_in = origins_taken_in(found.tables_taken_in)
     for out in outputs:
-        if holds_tables(out.dtype):
+        if is_table_or_series_of_tables(out.dtype):
             for column, _ in columns_of(out.dtype):
                 name = f"{out.name}.{column}"
                 if name in names:
@@ -339,19 +339,19 @@ def _wiring_of_function_node(
     for inp in interface.inputs:
         carried = found.carries[inp.name]
         fields[inp.name] = CompiledField(
-            ref=Ref._of_parts(node_id, inp.name), type=carried.dtype, binding=node.bindings.get(inp.name), condition=None,
+            ref=Ref._from_checked_parts(node_id, inp.name), type=carried.dtype, binding=node.bindings.get(inp.name), condition=None,
             problems=tuple(on_field.get(inp.name, ())), _index=carried.index, _receive_mode=found.receive_modes[inp.name],
             _is_list_on_node=inp.name in inputs_given_a_list, _makes_rows=None, _view_of=None, _takes_blank=False, _title=inp.title,
             _row_origins=walk.row_origins.of_rows_on(carried.index) if inp.name in inputs_given_a_list else None,
         )
-    at_node = condition_at_node(node.bindings, _condition_of_source_above(walk))
+    node_condition = condition_node_runs_under(node.bindings, _condition_of_source_above(walk))
     runs_once = runs_per_row_of is None
     for out in outputs:
-        ref = Ref._of_parts(node_id, out.name)
-        condition = output_condition(node_id, out, at_node, runs_once)
+        ref = Ref._from_checked_parts(node_id, out.name)
+        condition = output_condition(node_id, out, node_condition, runs_once)
         takes_blank, field_problems_here = out.takes_blank, tuple(on_field.get(out.name, ()))
         dtype = out.dtype
-        if holds_tables(dtype):
+        if is_table_or_series_of_tables(dtype):
             table_rows_index = Index(str(ref), parent=runs_per_row_of)
             known = walk.row_origins.note_table(table_rows_index, taken_in)
             fields[out.name] = CompiledField(
@@ -363,7 +363,7 @@ def _wiring_of_function_node(
                 if name in names:
                     continue
                 fields[name] = CompiledField(
-                    ref=Ref._of_parts(node_id, name), type=Series[holds], binding=None, condition=condition, problems=(),
+                    ref=Ref._from_checked_parts(node_id, name), type=Series[holds], binding=None, condition=condition, problems=(),
                     _index=table_rows_index, _receive_mode=None, _is_list_on_node=False, _makes_rows=None, _view_of=(ref, column), _takes_blank=True, _title=column, _row_origins=known,
                 )
             continue

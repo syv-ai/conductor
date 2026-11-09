@@ -12,7 +12,7 @@ from conductor._internal.codec import to_wire
 from conductor._internal.dtype import AsItArrives, DType
 from conductor._internal.errors import (
     PROBLEM_CODES,
-    CompileProblem,
+    ComputeHookError,
     ExternalFailure,
     InvalidCallError,
     NodeDeclarationError,
@@ -26,7 +26,7 @@ from conductor._internal.field_records import Input, Output, Param, Result
 from conductor._internal.graph.binding import From, Static
 from conductor._internal.graph.compiled_graph import CompiledGraph
 from conductor._internal.graph.graph_records import FieldContent, Graph, GraphNode
-from conductor._internal.graph.output_conditions import ALWAYS, NEVER, Atom
+from conductor._internal.graph.output_conditions import ALWAYS, NEVER, BranchTaken
 from conductor._internal.graph.run_plan import InputPlan, RunPlan
 from conductor._internal.graph.topology import dependencies_of
 from conductor._internal.graph.upgrade import upgrade_node
@@ -44,7 +44,7 @@ from conductor._internal.node_signature import FromRun, Interface
 from conductor._internal.ref import Ref
 from conductor._internal.registry import NodeRegistry, TypeDescription
 from conductor._internal.skip_and_ask import SKIPPED, AskPerson
-from conductor._internal.table import ROW_ID
+from conductor._internal.table import ROW_ID_COLUMN
 
 if TYPE_CHECKING:
     # A node takes and returns plain sequences and frames; a type checker reads ``Series[X]`` as one and ``Table[R]`` as the other.
@@ -59,14 +59,14 @@ __all__ = [
     "ALWAYS",
     "NEVER",
     "PROBLEM_CODES",
-    "ROW_ID",
+    "ROW_ID_COLUMN",
     "SKIPPED",
     "Arriving",
     "AsItArrives",
     "AskPerson",
-    "Atom",
-    "CompileProblem",
+    "BranchTaken",
     "CompiledGraph",
+    "ComputeHookError",
     "DType",
     "Deprecation",
     "ExternalFailure",
@@ -76,9 +76,9 @@ __all__ = [
     "Graph",
     "GraphNode",
     "Input",
-    "InvalidCallError",
     "InputPlan",
     "Interface",
+    "InvalidCallError",
     "NodeDeclarationError",
     "NodeDefinition",
     "NodeDescription",
@@ -86,8 +86,8 @@ __all__ = [
     "NodeExecutionError",
     "NodeRegistry",
     "NodeValidationError",
-    "Output",
     "OlderVersion",
+    "Output",
     "Param",
     "Policy",
     "Problem",

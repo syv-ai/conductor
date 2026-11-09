@@ -7,7 +7,7 @@ from conductor import (
     ALWAYS,
     SKIPPED,
     Arriving,
-    Atom,
+    BranchTaken,
     CompiledGraph,
     DType,
     From,
@@ -108,8 +108,8 @@ def test_a_branch_appears_when_its_decision_went_that_way():
     ])
 
     assert compiled.is_runnable, compiled.problems
-    assert compiled.field(Ref("g", "if_true")).condition == frozenset({frozenset({Atom("g", "branches", "if_true")})})
-    assert compiled.field(Ref("yes", "result")).condition == frozenset({frozenset({Atom("g", "branches", "if_true")})})
+    assert compiled.field(Ref("g", "if_true")).condition == frozenset({frozenset({BranchTaken("g", "branches", "if_true")})})
+    assert compiled.field(Ref("yes", "result")).condition == frozenset({frozenset({BranchTaken("g", "branches", "if_true")})})
     assert compiled.decisions == {"g": {"branches": ("if_true", "if_false")}}
 
 
@@ -126,7 +126,7 @@ def test_a_merge_adds_an_alternative():
 
     assert compiled.is_runnable, compiled.problems
     assert compiled.field(Ref("m", "result")).condition == frozenset({
-        frozenset({Atom("g", "branches", "if_true")}), frozenset({Atom("g", "branches", "if_false")}),
+        frozenset({BranchTaken("g", "branches", "if_true")}), frozenset({BranchTaken("g", "branches", "if_false")}),
     })
 
 
@@ -140,11 +140,11 @@ def test_two_decisions_in_series_conjoin_and_a_contradiction_is_dropped():
 
     assert compiled.is_runnable, compiled.problems
     assert compiled.field(Ref("g2", "if_true")).condition == frozenset({
-        frozenset({Atom("g1", "branches", "if_true"), Atom("g2", "branches", "if_true")}),
+        frozenset({BranchTaken("g1", "branches", "if_true"), BranchTaken("g2", "branches", "if_true")}),
     })
     assert compiled.field(Ref("both", "result")).condition == frozenset({
-        frozenset({Atom("g1", "branches", "if_true"), Atom("g2", "branches", "if_true")}),
-        frozenset({Atom("g1", "branches", "if_false")}),
+        frozenset({BranchTaken("g1", "branches", "if_true"), BranchTaken("g2", "branches", "if_true")}),
+        frozenset({BranchTaken("g1", "branches", "if_false")}),
     })
 
 

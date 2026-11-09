@@ -4,7 +4,7 @@ from typing import Annotated
 
 import polars as pl
 from conductor import (
-    ROW_ID,
+    ROW_ID_COLUMN,
     SKIPPED,
     CompiledGraph,
     From,
@@ -21,7 +21,7 @@ from conductor import (
     node,
 )
 from conductor._internal.series import Index
-from conductor._internal.table import MergeSource, merge
+from conductor._internal.table import MergeSource, merge_tables_on_row_ids
 from conductor.widgets import Textarea
 
 from test_core.embedded import embedded_graph_node
@@ -54,7 +54,7 @@ def _compiled(*nodes: GraphNode, registry: NodeRegistry | None = None) -> Compil
 
 def _sheet(compiled: CompiledGraph, graph_node: str = "excel") -> pl.DataFrame:
     assert compiled.is_runnable, compiled.problems
-    return compiled.results(compiled.run_sync())[graph_node]["result"].drop(ROW_ID)
+    return compiled.results(compiled.run_sync())[graph_node]["result"].drop(ROW_ID_COLUMN)
 
 
 SEND = GraphNode(id="send", type="send", version=1, bindings={"email": From("csv.result.email")})
@@ -152,7 +152,7 @@ def test_a_table_input_on_a_node_running_per_document_gets_that_documents_rows()
     assert (read.sources[0], read.receive_mode, read.rows_of) == ("read.result", "value_at_row", "docs.result")
     assert (check.sources[0], check.receive_mode, check.rows_of, check.grouped_under) == ("check.result", "all_rows_under_row", "read.result", "docs.result")
     sheets = compiled.results(compiled.run_sync())["excel"]["result"]
-    assert [sheet.drop(ROW_ID).to_dicts() for sheet in sheets] == [
+    assert [sheet.drop(ROW_ID_COLUMN).to_dicts() for sheet in sheets] == [
         [{"vendor": "acme", "amount": 10.0, "Approved": "acme ok"}, {"vendor": "beta", "amount": 5.0, "Approved": "beta ok"}],
         [{"vendor": "gamma", "amount": 7.0, "Approved": "gamma ok"}],
     ]
@@ -166,24 +166,24 @@ def test_columns_of_two_unrelated_tables_into_a_node_running_per_row_are_misalig
 
 
 def test_merge_matches_rows_on_their_ids_and_keeps_a_clashing_name_apart():
-    left = pl.DataFrame({ROW_ID: ["c:0", "c:1"], "name": ["Ida", "Bo"]})
-    right = pl.DataFrame({ROW_ID: ["c:1", "x:0"], "name": ["Bob", "Ole"]})
+    left = pl.DataFrame({ROW_ID_COLUMN: ["c:0", "c:1"], "name": ["Ida", "Bo"]})
+    right = pl.DataFrame({ROW_ID_COLUMN: ["c:1", "x:0"], "name": ["Bob", "Ole"]})
 
-    assert merge([MergeSource("csv", left, Index("c"), [(0,), (1,)]), MergeSource("crm", right, Index("c"), [(1,), (2,)])]).to_dicts() == [
-        {ROW_ID: "c:0", "name": "Ida", "name_crm": None},
-        {ROW_ID: "c:1", "name": "Bo", "name_crm": "Bob"},
-        {ROW_ID: "x:0", "name": None, "name_crm": "Ole"},
+    assert merge_tables_on_row_ids([MergeSource("csv", left, Index("c"), [(0,), (1,)]), MergeSource("crm", right, Index("c"), [(1,), (2,)])]).to_dicts() == [
+        {ROW_ID_COLUMN: "c:0", "name": "Ida", "name_crm": None},
+        {ROW_ID_COLUMN: "c:1", "name": "Bo", "name_crm": "Bob"},
+        {ROW_ID_COLUMN: "x:0", "name": None, "name_crm": "Ole"},
     ]
 
 
 def test_merge_copies_a_parent_down_by_each_rows_path():
-    docs = pl.DataFrame({ROW_ID: ["d:0", "d:1"], "doc": ["a", "b"]})
-    lines = pl.DataFrame({ROW_ID: ["l:0.0", "l:0.1"], "line": ["x", "y"]})
+    docs = pl.DataFrame({ROW_ID_COLUMN: ["d:0", "d:1"], "doc": ["a", "b"]})
+    lines = pl.DataFrame({ROW_ID_COLUMN: ["l:0.0", "l:0.1"], "line": ["x", "y"]})
     parent = Index("d")
 
-    assert merge([MergeSource("docs", docs, parent, [(0,), (1,)]), MergeSource("split", lines, Index("l", parent=parent), [(0, 0), (0, 1)])]).to_dicts() == [
-        {ROW_ID: "l:0.0", "doc": "a", "line": "x"},
-        {ROW_ID: "l:0.1", "doc": "a", "line": "y"},
+    assert merge_tables_on_row_ids([MergeSource("docs", docs, parent, [(0,), (1,)]), MergeSource("split", lines, Index("l", parent=parent), [(0, 0), (0, 1)])]).to_dicts() == [
+        {ROW_ID_COLUMN: "l:0.0", "doc": "a", "line": "x"},
+        {ROW_ID_COLUMN: "l:0.1", "doc": "a", "line": "y"},
     ]
 
 
@@ -400,7 +400,7 @@ def test_a_parent_column_beside_a_table_made_per_row_of_it_is_copied_down():
     compiled = _compiled(DOCS, READ, GraphNode(id="excel", type="export", version=1, bindings={"table": From("docs.result", "read.result")}))
     sheets = compiled.results(compiled.run_sync())["excel"]["result"]
 
-    assert [sheet.drop(ROW_ID).to_dicts() for sheet in sheets] == [
+    assert [sheet.drop(ROW_ID_COLUMN).to_dicts() for sheet in sheets] == [
         [{"Documents": "acme:10,beta:5", "vendor": "acme", "amount": 10.0}, {"Documents": "acme:10,beta:5", "vendor": "beta", "amount": 5.0}],
         [{"Documents": "gamma:7", "vendor": "gamma", "amount": 7.0}],
     ]
@@ -416,7 +416,7 @@ def test_a_child_table_a_branch_skipped_gives_no_rows_and_the_sheet_keeps_its_co
     sheets = compiled.results(compiled.run_sync())["excel"]["result"]
 
     assert [sheet.height for sheet in sheets] == [1, 0]
-    assert sheets.values[1].columns == [ROW_ID, "Documents", "vendor", "amount"]
+    assert sheets.values[1].columns == [ROW_ID_COLUMN, "Documents", "vendor", "amount"]
 
 
 def test_a_series_two_levels_down_with_nothing_else_runs_per_row_of_the_level_above_it():

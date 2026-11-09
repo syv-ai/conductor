@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 from conductor._internal.errors import Problem, make_problem
 from conductor._internal.ref import Ref
-from conductor._internal.table import holds_tables
+from conductor._internal.table import is_table_or_series_of_tables
 
 if TYPE_CHECKING:
     from conductor._internal.graph.compiled_node import CompiledField
@@ -77,7 +77,7 @@ class RowOriginsSoFar:
 
 def sources_taken_in_whole(reader_type: Any, sources: Sequence[CompiledField]) -> list[CompiledField]:
     """The sources a node takes in as a whole table, whichever side says so: a table it returns may carry their rows' ids."""
-    return list(sources) if holds_tables(reader_type) else [source for source in sources if holds_tables(source.type)]
+    return list(sources) if is_table_or_series_of_tables(reader_type) else [source for source in sources if is_table_or_series_of_tables(source.type)]
 
 
 def origins_taken_in(sources: list[CompiledField]) -> frozenset[str] | None:

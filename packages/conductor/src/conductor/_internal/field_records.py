@@ -20,7 +20,7 @@ A ``Param`` with a widget is edited in place and reachable by an edge; a
 closes the input to edges. A parameter of a type no edge can carry
 (``list[Branch]``) is closed by itself.
 
-These records are their own schema: ``dtype`` is a ``DTypeRef``, so a
+These records are their own schema: ``dtype`` is a ``DTypeField``, so a
 dump gives the type's ``describe()``, and a palette is these records
 dumped. A dump does not read back into one of these records: ``dtype``
 is a ``DType`` class, never a description, and the class itself lives on
@@ -33,25 +33,25 @@ from typing import Any, Final
 
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.dtype import (
-    DTypeRef,
+    DTypeField,
     _UntypedValue,
     dtype_of,
     is_untyped,
     plain_python_dtype,
-    read_blank,
+    split_off_none,
 )
 from conductor._internal.errors import NodeDeclarationError
 from conductor.widgets import AnyWidget
 
 
-class _Required:
+class _NoDefault:
     """The default of an input that has none."""
 
     def __repr__(self) -> str:
         return "REQUIRED"
 
 
-_REQUIRED: Final = _Required()
+_NO_DEFAULT: Final = _NoDefault()
 
 
 class Param(ConductorModel):
@@ -108,7 +108,7 @@ class Input(ConductorModel):
     """
 
     name: str
-    dtype: DTypeRef
+    dtype: DTypeField
     title: str
     description: str | None = None
     widget: AnyWidget | None = None
@@ -128,19 +128,19 @@ class Input(ConductorModel):
         description: str | None = None,
         widget: AnyWidget | None = None,
         connectable: bool = True,
-        default: Any = _REQUIRED,
+        default: Any = _NO_DEFAULT,
     ) -> None:
-        written, blank = read_blank(dtype)
-        declared = dtype_of(written)
-        if declared is None or (not connectable and declared is _UntypedValue):
+        annotation_without_none, says_none = split_off_none(dtype)
+        dtype = dtype_of(annotation_without_none)
+        if dtype is None or (not connectable and dtype is _UntypedValue):
             # Nothing can travel here, so what is typed in is read as the plain type.
-            declared, connectable = plain_python_dtype(written), False
-        takes_blank = blank or written is Any or getattr(written, "element_takes_blank", False) or is_untyped(declared)
-        required = default is _REQUIRED
+            dtype, connectable = plain_python_dtype(annotation_without_none), False
+        takes_blank = says_none or annotation_without_none is Any or getattr(annotation_without_none, "element_takes_blank", False) or is_untyped(dtype)
+        required = default is _NO_DEFAULT
         if default is None and not takes_blank:
             raise NodeDeclarationError(f"input {name!r} defaults to None, which is a blank; write its type with | None", code="none_default_needs_blank")
         super().__init__(
-            name=name, dtype=declared, title=title or name, description=description, widget=widget,
+            name=name, dtype=dtype, title=title or name, description=description, widget=widget,
             connectable=connectable, default=None if required else default, required=required, takes_blank=takes_blank,
         )
 
@@ -158,7 +158,7 @@ class Output(ConductorModel):
     """
 
     name: str
-    dtype: DTypeRef
+    dtype: DTypeField
     title: str
     description: str | None = None
     choice: str | None = None
@@ -174,5 +174,5 @@ class Output(ConductorModel):
         description: str | None = None,
         choice: str | None = None,
     ) -> None:
-        written, blank = read_blank(dtype)
-        super().__init__(name=name, dtype=written, title=title or name, description=description, choice=choice, takes_blank=blank or getattr(written, "element_takes_blank", False))
+        annotation_without_none, says_none = split_off_none(dtype)
+        super().__init__(name=name, dtype=annotation_without_none, title=title or name, description=description, choice=choice, takes_blank=says_none or getattr(annotation_without_none, "element_takes_blank", False))

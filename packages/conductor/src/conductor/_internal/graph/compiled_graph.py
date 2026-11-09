@@ -133,7 +133,7 @@ class CompiledGraph:
         Pure: the same graph and registry always give the same result. Every
         definition the graph names must already be in the registry. Nothing
         raises for a fault in the graph; read ``problems`` and ``is_runnable``.
-        A node's hook that raises anything but ``CompileProblem`` is a bug in
+        A node's hook that raises anything but ``ComputeHookError`` is a bug in
         the node, and that exception leaves here as it is.
         """
         records = compile_graph(graph, registry)

@@ -6,9 +6,9 @@ import sys
 
 import polars as pl
 import pytest
-from conductor import ROW_ID, DType, Table, node, to_wire
+from conductor import ROW_ID_COLUMN, DType, Table, node, to_wire
 from conductor._internal.series import Index
-from conductor._internal.table import column_type, row_id, with_row_ids
+from conductor._internal.table import global_row_id, polars_type_of, with_row_ids
 from helpers import read_table
 from pydantic import TypeAdapter
 
@@ -47,11 +47,11 @@ Contacts = Table.with_columns({"name": Txt, "score": Num})
 
 
 def test_a_column_type_is_read_off_what_the_type_is_built_on():
-    assert (column_type(Txt), column_type(Num), column_type(Day)) == (pl.String(), pl.Float64(), pl.Date())
+    assert (polars_type_of(Txt), polars_type_of(Num), polars_type_of(Day)) == (pl.String(), pl.Float64(), pl.Date())
 
 
 def test_a_type_whose_base_would_be_wrong_says_its_column_itself():
-    assert column_type(Flag) == pl.Boolean()
+    assert polars_type_of(Flag) == pl.Boolean()
 
 
 def test_a_type_with_no_column_cant_be_a_table_column_and_says_which():
@@ -87,7 +87,7 @@ def test_a_date_column_reads_dates_written_as_text():
 
 
 def test_the_wire_form_round_trips_with_blanks_and_row_ids():
-    table = read_table(Contacts, pl.DataFrame({ROW_ID: ["contacts:0", "contacts:1"], "name": ["Ida", None], "score": [4.5, None]}))
+    table = read_table(Contacts, pl.DataFrame({ROW_ID_COLUMN: ["contacts:0", "contacts:1"], "name": ["Ida", None], "score": [4.5, None]}))
     wire = to_wire(table, Contacts)
 
     assert wire == {
@@ -107,8 +107,8 @@ def test_a_bare_table_keeps_every_column_and_round_trips_a_date():
 
 
 def test_a_row_id_names_the_index_and_the_row():
-    assert row_id(Index("contacts"), (0,)) == "contacts:0"
-    assert row_id(Index("structured.invoices", parent=Index("docs.result")), (0, 1)) == "structured.invoices:0.1"
+    assert global_row_id(Index("contacts"), (0,)) == "contacts:0"
+    assert global_row_id(Index("structured.invoices", parent=Index("docs.result")), (0, 1)) == "structured.invoices:0.1"
 
 
 def test_a_table_that_kept_its_row_ids_keeps_them():
@@ -116,7 +116,7 @@ def test_a_table_that_kept_its_row_ids_keeps_them():
     contacts = with_row_ids(pl.DataFrame({"name": ["Ida", "Bo", "Nina"]}), Index("contacts"), ())
     kept = with_row_ids(contacts.filter(pl.col("name") != "Bo").sort("name"), Index("narrowed"), ())
 
-    assert kept[ROW_ID].to_list() == ["contacts:0", "contacts:2"]
+    assert kept[ROW_ID_COLUMN].to_list() == ["contacts:0", "contacts:2"]
 
 
 def test_a_row_without_an_id_or_with_one_an_earlier_row_holds_is_a_new_row():
@@ -124,8 +124,8 @@ def test_a_row_without_an_id_or_with_one_an_earlier_row_holds_is_a_new_row():
     chosen = with_row_ids(contacts.select("name"), Index("chosen"), (3,))
     doubled = with_row_ids(pl.concat([contacts, contacts]), Index("doubled"), ())
 
-    assert chosen[ROW_ID].to_list() == ["chosen:3.0", "chosen:3.1"]
-    assert doubled[ROW_ID].to_list() == ["contacts:0", "contacts:1", "doubled:0", "doubled:1"]
+    assert chosen[ROW_ID_COLUMN].to_list() == ["chosen:3.0", "chosen:3.1"]
+    assert doubled[ROW_ID_COLUMN].to_list() == ["contacts:0", "contacts:1", "doubled:0", "doubled:1"]
 
 
 def test_a_table_input_takes_a_table_with_at_least_its_columns():

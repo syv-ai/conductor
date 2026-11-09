@@ -79,7 +79,7 @@ from conductor._internal.execution.run_ledger import NotCalled, RunLedger, Skip,
 from conductor._internal.execution.run_state import RunState
 from conductor._internal.execution.validate_unit_outputs import took_a_row_in, validate_unit_outputs
 from conductor._internal.execution.waiting_units import waiting_unit_for
-from conductor._internal.node_signature import unpack
+from conductor._internal.node_signature import split_return_into_outputs
 from conductor._internal.skip_and_ask import AskPerson
 from conductor._internal.table import missing_column_in
 
@@ -447,7 +447,7 @@ class Leg:
             must_survive = compiled._row_ids_must_survive
             if must_survive and not took_a_row_in(inputs):
                 must_survive = frozenset()
-            cells, problems = validate_unit_outputs(node, row, unpack(version.returns, value, node.interface.outputs, version.interface.outputs), must_survive)
+            cells, problems = validate_unit_outputs(node, row, split_return_into_outputs(version.return_shape, value, node.interface.outputs, version.interface.outputs), must_survive)
         except ValueError as invalid:  # the wrong shape of return, or an ask that isn't sound
             queue.put_nowait(_UnitDone(unit, error=self._invalid_output(node_id, row, str(invalid), code="invalid_output")))
             return

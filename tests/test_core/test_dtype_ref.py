@@ -3,7 +3,7 @@
 from typing import Any
 
 from conductor import DType
-from conductor._internal.dtype import DTypeRef, description_of, plain_python_dtype
+from conductor._internal.dtype import DTypeField, description_of, plain_python_dtype
 from pydantic import TypeAdapter
 
 
@@ -15,12 +15,12 @@ class Text(DType, str):
 
 
 def test_a_dtype_ref_dumps_as_the_description():
-    assert TypeAdapter(DTypeRef).dump_python(Text, mode="json") == {"id": "dtype-ref-test-text"}
+    assert TypeAdapter(DTypeField).dump_python(Text, mode="json") == {"id": "dtype-ref-test-text"}
 
 
 def test_a_dtype_ref_keeps_the_declared_class_in_python():
     """The class is read off a signature, never off the wire, so validation is identity."""
-    assert TypeAdapter(DTypeRef).validate_python(Text) is Text
+    assert TypeAdapter(DTypeField).validate_python(Text) is Text
 
 
 def test_an_any_input_dumps_as_any():
@@ -28,8 +28,8 @@ def test_an_any_input_dumps_as_any():
     connected, so the declaration needs a JSON form — and it says "any", never
     a dtype id."""
 
-    declared = TypeAdapter(DTypeRef).validate_python(Any)
-    assert TypeAdapter(DTypeRef).dump_python(declared, mode="json") == {"id": "any"}
+    declared = TypeAdapter(DTypeField).validate_python(Any)
+    assert TypeAdapter(DTypeField).dump_python(declared, mode="json") == {"id": "any"}
 
 
 def test_a_closed_inputs_plain_type_dumps_as_a_setting():
@@ -44,7 +44,7 @@ def test_a_closed_inputs_plain_type_dumps_as_a_setting():
 
 def test_a_dtype_ref_has_a_json_schema():
     """So a record holding one can be a FastAPI response model."""
-    wire = TypeAdapter(DTypeRef).json_schema()
+    wire = TypeAdapter(DTypeField).json_schema()
 
     assert wire["type"] == "object"
     assert wire["properties"]["id"] == {"type": "string"}

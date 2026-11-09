@@ -105,7 +105,7 @@ def test_connectable_false_closes_the_input_and_admits_a_static_type():
     def run(tags: Annotated[list[str], Param(title="Tags", connectable=False, widget=Textarea())] = []) -> Out: ...
 
     (tags,) = read_signature(run).interface.inputs
-    assert tags.connectable is False and tags.dtype.plain == list[str]
+    assert tags.connectable is False and tags.dtype.wrapped_type == list[str]
 
 
 def test_an_inputs_widget_reads_back_its_dump():

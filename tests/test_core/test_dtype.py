@@ -168,7 +168,7 @@ def test_dtype_of_reads_the_annotation():
 
 
 def test_dtype_of_makes_a_dtype_of_a_type_an_edge_can_carry():
-    assert dtype_of(str).plain is str and dtype_of(str).id == "str" and dtype_of(str) is dtype_of(str)
+    assert dtype_of(str).wrapped_type is str and dtype_of(str).id == "str" and dtype_of(str) is dtype_of(str)
 
 
 def test_dtype_of_returns_None_for_a_type_no_edge_can_carry():

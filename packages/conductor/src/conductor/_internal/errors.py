@@ -247,7 +247,7 @@ class NodeDeclarationError(ConductorError, TypeError):
         super().__init__(message)
 
 
-class CompileProblem(ConductorError):
+class ComputeHookError(ConductorError):
     """A node's hook cannot answer for what it was given, and says why.
 
     Raised by ``compute_inputs`` and ``compute_outputs`` when the values or
@@ -270,7 +270,7 @@ class CompileProblem(ConductorError):
         self.field = field
         super().__init__(message)
 
-    def at(self, node_id: str) -> Problem:
+    def as_problem_on_node(self, node_id: str) -> Problem:
         """The ``Problem`` this is on ``node_id``."""
         return Problem(type=self.code, msg=self.message, loc=(node_id,) if self.field is None else (node_id, self.field))
 

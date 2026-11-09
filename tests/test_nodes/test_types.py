@@ -12,7 +12,7 @@ def test_the_vocabulary_is_the_plain_types_and_json():
     """Each is declared by some node, so a registry of the standard nodes holds it."""
     vocabulary = conductor_nodes.registry().types
     assert {"str", "float", "bool", "json"} <= vocabulary.keys()
-    assert issubclass(vocabulary["str"], DType) and vocabulary["str"].plain is str
+    assert issubclass(vocabulary["str"], DType) and vocabulary["str"].wrapped_type is str
     assert vocabulary["json"] is Json
 
 

@@ -530,7 +530,7 @@ def test_a_float_output_that_is_not_finite_survives_json_as_the_float(value, spe
     assert state.model_dump(mode="json")["output_columns"]["n.result"]["values"] == [spelled]
     back = _through_json(state)
     assert _same_float(compiled.results(back)["n"]["result"], value)
-    assert _same_float(compiled.results(compiled.run_sync(back.without("p")))["p"]["result"], value)
+    assert _same_float(compiled.results(compiled.run_sync(back.without_nodes("p")))["p"]["result"], value)
 
 
 @pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])

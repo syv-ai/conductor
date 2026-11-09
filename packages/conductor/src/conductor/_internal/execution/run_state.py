@@ -114,7 +114,7 @@ class RunState(ConductorModel):
     """A run, as of the end of its last leg or of a checkpoint during one.
 
     ``compiled.run(state)`` goes on from one, ``compiled.answer(state, ...)``
-    returns a new one with answers written in, and ``without`` returns one
+    returns a new one with answers written in, and ``without_nodes`` returns one
     that forgets some nodes. Nothing changes one in place.
     """
 
@@ -144,7 +144,7 @@ class RunState(ConductorModel):
             written[ref] = {"rows": column.rows, "values": values, "skipped": column.skipped}
         return written
 
-    def without(self, *node_ids: str) -> RunState:
+    def without_nodes(self, *node_ids: str) -> RunState:
         """This state as if these nodes had never run: a host's "run from here".
 
         Their values, finished rows, waiting units and fingerprints go, which

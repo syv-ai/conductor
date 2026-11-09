@@ -6,7 +6,7 @@
      "result": {
       "condition": [
        [
-        "Atom(node_id='emb/gate', choice='branches', output='if_true')"
+        "BranchTaken(node_id='emb/gate', choice='branches', output='if_true')"
        ]
       ],
       "type": "Txt"
@@ -41,7 +41,7 @@
      "if_false": {
       "condition": [
        [
-        "Atom(node_id='emb/gate', choice='branches', output='if_false')"
+        "BranchTaken(node_id='emb/gate', choice='branches', output='if_false')"
        ]
       ],
       "type": "Txt"
@@ -49,7 +49,7 @@
      "if_true": {
       "condition": [
        [
-        "Atom(node_id='emb/gate', choice='branches', output='if_true')"
+        "BranchTaken(node_id='emb/gate', choice='branches', output='if_true')"
        ]
       ],
       "type": "Txt"
@@ -128,10 +128,10 @@
      "result": {
       "condition": [
        [
-        "Atom(node_id='emb/gate', choice='branches', output='if_false')"
+        "BranchTaken(node_id='emb/gate', choice='branches', output='if_false')"
        ],
        [
-        "Atom(node_id='emb/gate', choice='branches', output='if_true')"
+        "BranchTaken(node_id='emb/gate', choice='branches', output='if_true')"
        ]
       ],
       "type": "Txt"
@@ -167,7 +167,7 @@
      "result": {
       "condition": [
        [
-        "Atom(node_id='emb/gate', choice='branches', output='if_true')"
+        "BranchTaken(node_id='emb/gate', choice='branches', output='if_true')"
        ]
       ],
       "type": "Txt"
@@ -443,7 +443,7 @@
      "result": {
       "condition": [
        [
-        "Atom(node_id='og', choice='branches', output='if_true')"
+        "BranchTaken(node_id='og', choice='branches', output='if_true')"
        ]
       ],
       "type": "Txt"
@@ -509,7 +509,7 @@
      "if_false": {
       "condition": [
        [
-        "Atom(node_id='emb/g', choice='branches', output='if_false')"
+        "BranchTaken(node_id='emb/g', choice='branches', output='if_false')"
        ]
       ],
       "type": "Txt"
@@ -517,7 +517,7 @@
      "if_true": {
       "condition": [
        [
-        "Atom(node_id='emb/g', choice='branches', output='if_true')"
+        "BranchTaken(node_id='emb/g', choice='branches', output='if_true')"
        ]
       ],
       "type": "Txt"
@@ -565,10 +565,10 @@
      "result": {
       "condition": [
        [
-        "Atom(node_id='emb/g', choice='branches', output='if_true')"
+        "BranchTaken(node_id='emb/g', choice='branches', output='if_true')"
        ],
        [
-        "Atom(node_id='og', choice='branches', output='if_true')"
+        "BranchTaken(node_id='og', choice='branches', output='if_true')"
        ]
       ],
       "type": "Txt"
@@ -635,7 +635,7 @@
      "if_false": {
       "condition": [
        [
-        "Atom(node_id='og', choice='branches', output='if_false')"
+        "BranchTaken(node_id='og', choice='branches', output='if_false')"
        ]
       ],
       "type": "Txt"
@@ -643,7 +643,7 @@
      "if_true": {
       "condition": [
        [
-        "Atom(node_id='og', choice='branches', output='if_true')"
+        "BranchTaken(node_id='og', choice='branches', output='if_true')"
        ]
       ],
       "type": "Txt"
@@ -703,11 +703,11 @@
      "result": {
       "condition": [
        [
-        "Atom(node_id='top/b/gate', choice='branches', output='if_true')",
-        "Atom(node_id='top/g', choice='branches', output='if_true')"
+        "BranchTaken(node_id='top/b/gate', choice='branches', output='if_true')",
+        "BranchTaken(node_id='top/g', choice='branches', output='if_true')"
        ],
        [
-        "Atom(node_id='top/g', choice='branches', output='if_false')"
+        "BranchTaken(node_id='top/g', choice='branches', output='if_false')"
        ]
       ],
       "type": "Txt"
@@ -742,8 +742,8 @@
      "if_false": {
       "condition": [
        [
-        "Atom(node_id='top/b/gate', choice='branches', output='if_false')",
-        "Atom(node_id='top/g', choice='branches', output='if_true')"
+        "BranchTaken(node_id='top/b/gate', choice='branches', output='if_false')",
+        "BranchTaken(node_id='top/g', choice='branches', output='if_true')"
        ]
       ],
       "type": "Txt"
@@ -751,8 +751,8 @@
      "if_true": {
       "condition": [
        [
-        "Atom(node_id='top/b/gate', choice='branches', output='if_true')",
-        "Atom(node_id='top/g', choice='branches', output='if_true')"
+        "BranchTaken(node_id='top/b/gate', choice='branches', output='if_true')",
+        "BranchTaken(node_id='top/g', choice='branches', output='if_true')"
        ]
       ],
       "type": "Txt"
@@ -800,7 +800,7 @@
      "result": {
       "condition": [
        [
-        "Atom(node_id='top/g', choice='branches', output='if_true')"
+        "BranchTaken(node_id='top/g', choice='branches', output='if_true')"
        ]
       ],
       "type": "Txt"
@@ -835,12 +835,12 @@
      "result": {
       "condition": [
        [
-        "Atom(node_id='top/b/gate', choice='branches', output='if_false')",
-        "Atom(node_id='top/g', choice='branches', output='if_true')"
+        "BranchTaken(node_id='top/b/gate', choice='branches', output='if_false')",
+        "BranchTaken(node_id='top/g', choice='branches', output='if_true')"
        ],
        [
-        "Atom(node_id='top/b/gate', choice='branches', output='if_true')",
-        "Atom(node_id='top/g', choice='branches', output='if_true')"
+        "BranchTaken(node_id='top/b/gate', choice='branches', output='if_true')",
+        "BranchTaken(node_id='top/g', choice='branches', output='if_true')"
        ]
       ],
       "type": "Txt"
@@ -876,8 +876,8 @@
      "result": {
       "condition": [
        [
-        "Atom(node_id='top/b/gate', choice='branches', output='if_true')",
-        "Atom(node_id='top/g', choice='branches', output='if_true')"
+        "BranchTaken(node_id='top/b/gate', choice='branches', output='if_true')",
+        "BranchTaken(node_id='top/g', choice='branches', output='if_true')"
        ]
       ],
       "type": "Txt"
@@ -912,7 +912,7 @@
      "if_false": {
       "condition": [
        [
-        "Atom(node_id='top/g', choice='branches', output='if_false')"
+        "BranchTaken(node_id='top/g', choice='branches', output='if_false')"
        ]
       ],
       "type": "Txt"
@@ -920,7 +920,7 @@
      "if_true": {
       "condition": [
        [
-        "Atom(node_id='top/g', choice='branches', output='if_true')"
+        "BranchTaken(node_id='top/g', choice='branches', output='if_true')"
        ]
       ],
       "type": "Txt"
@@ -999,11 +999,11 @@
      "result": {
       "condition": [
        [
-        "Atom(node_id='top/b/gate', choice='branches', output='if_true')",
-        "Atom(node_id='top/g', choice='branches', output='if_true')"
+        "BranchTaken(node_id='top/b/gate', choice='branches', output='if_true')",
+        "BranchTaken(node_id='top/g', choice='branches', output='if_true')"
        ],
        [
-        "Atom(node_id='top/g', choice='branches', output='if_false')"
+        "BranchTaken(node_id='top/g', choice='branches', output='if_false')"
        ]
       ],
       "type": "Txt"
@@ -1405,12 +1405,12 @@
      "result": {
       "condition": [
        [
-        "Atom(node_id='emb/gate', choice='branches', output='if_false')",
-        "Atom(node_id='og', choice='branches', output='if_false')"
+        "BranchTaken(node_id='emb/gate', choice='branches', output='if_false')",
+        "BranchTaken(node_id='og', choice='branches', output='if_false')"
        ],
        [
-        "Atom(node_id='emb/gate', choice='branches', output='if_true')",
-        "Atom(node_id='og', choice='branches', output='if_false')"
+        "BranchTaken(node_id='emb/gate', choice='branches', output='if_true')",
+        "BranchTaken(node_id='og', choice='branches', output='if_false')"
        ]
       ],
       "type": "Txt"
@@ -1445,8 +1445,8 @@
      "if_false": {
       "condition": [
        [
-        "Atom(node_id='emb/gate', choice='branches', output='if_false')",
-        "Atom(node_id='og', choice='branches', output='if_false')"
+        "BranchTaken(node_id='emb/gate', choice='branches', output='if_false')",
+        "BranchTaken(node_id='og', choice='branches', output='if_false')"
        ]
       ],
       "type": "Txt"
@@ -1454,8 +1454,8 @@
      "if_true": {
       "condition": [
        [
-        "Atom(node_id='emb/gate', choice='branches', output='if_true')",
-        "Atom(node_id='og', choice='branches', output='if_false')"
+        "BranchTaken(node_id='emb/gate', choice='branches', output='if_true')",
+        "BranchTaken(node_id='og', choice='branches', output='if_false')"
        ]
       ],
       "type": "Txt"
@@ -1503,7 +1503,7 @@
      "result": {
       "condition": [
        [
-        "Atom(node_id='og', choice='branches', output='if_false')"
+        "BranchTaken(node_id='og', choice='branches', output='if_false')"
        ]
       ],
       "type": "Txt"
@@ -1538,12 +1538,12 @@
      "result": {
       "condition": [
        [
-        "Atom(node_id='emb/gate', choice='branches', output='if_false')",
-        "Atom(node_id='og', choice='branches', output='if_false')"
+        "BranchTaken(node_id='emb/gate', choice='branches', output='if_false')",
+        "BranchTaken(node_id='og', choice='branches', output='if_false')"
        ],
        [
-        "Atom(node_id='emb/gate', choice='branches', output='if_true')",
-        "Atom(node_id='og', choice='branches', output='if_false')"
+        "BranchTaken(node_id='emb/gate', choice='branches', output='if_true')",
+        "BranchTaken(node_id='og', choice='branches', output='if_false')"
        ]
       ],
       "type": "Txt"
@@ -1579,8 +1579,8 @@
      "result": {
       "condition": [
        [
-        "Atom(node_id='emb/gate', choice='branches', output='if_true')",
-        "Atom(node_id='og', choice='branches', output='if_false')"
+        "BranchTaken(node_id='emb/gate', choice='branches', output='if_true')",
+        "BranchTaken(node_id='og', choice='branches', output='if_false')"
        ]
       ],
       "type": "Txt"
@@ -1646,7 +1646,7 @@
      "if_false": {
       "condition": [
        [
-        "Atom(node_id='og', choice='branches', output='if_false')"
+        "BranchTaken(node_id='og', choice='branches', output='if_false')"
        ]
       ],
       "type": "Txt"
@@ -1654,7 +1654,7 @@
      "if_true": {
       "condition": [
        [
-        "Atom(node_id='og', choice='branches', output='if_true')"
+        "BranchTaken(node_id='og', choice='branches', output='if_true')"
        ]
       ],
       "type": "Txt"

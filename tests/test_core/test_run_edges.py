@@ -16,7 +16,7 @@ import pytest
 from conductor import (
     ALWAYS,
     NEVER,
-    ROW_ID,
+    ROW_ID_COLUMN,
     SKIPPED,
     AskPerson,
     CompiledGraph,
@@ -266,7 +266,7 @@ def test_a_table_returned_on_two_rows_has_its_own_ids_on_each_and_the_merge_has_
     )
     state = compiled.run_sync()
     assert state.status == "complete", state.failure
-    assert [v[ROW_ID].to_list() for v in state.output_columns[Ref("h.result")].values] == [["h.result:0.0", "h.result:0.1"], ["h.result:1.0", "h.result:1.1"]]
+    assert [v[ROW_ID_COLUMN].to_list() for v in state.output_columns[Ref("h.result")].values] == [["h.result:0.0", "h.result:0.1"], ["h.result:1.0", "h.result:1.1"]]
     assert compiled.results(state)["m"]["result"].height == 4
 
 
@@ -275,7 +275,7 @@ def test_a_static_table_is_the_same_after_a_run_so_a_later_compile_finds_nothing
         return compiled_of(n("s", "source", text=Static(["p"])), n("h", "pass_table", x=From("s.result"), t=Static(read_table(Contacts, [{"name": "a", "email": "x"}]))))
     ran = graph()
     state = ran.run_sync()
-    assert ROW_ID not in ran.node("h").statics["t"].columns
+    assert ROW_ID_COLUMN not in ran.node("h").statics["t"].columns
     assert graph().nodes_changed_since(through_json(state)) == []
 
 
@@ -294,7 +294,7 @@ def test_a_number_that_is_not_finite_comes_back_a_number_and_its_reader_runs(val
     state = through_json(compiled.run_sync())
     back = compiled.results(state)["v"]["result"]
     assert isinstance(back, Num) and (math.isnan(back) if math.isnan(value) else back == value)
-    assert compiled.results(compiled.run_sync(state.without("r")))["r"]["result"] is not None
+    assert compiled.results(compiled.run_sync(state.without_nodes("r")))["r"]["result"] is not None
     assert len(CALLS) == 2
 
 
@@ -355,10 +355,10 @@ def test_every_column_type_comes_back_exactly_or_the_dump_refuses(frame):
     CANNED["k"] = frame
     compiled = compiled_of(n("v", "frame", k=Static("k")), n("r", "frame_in", table=From("v.result")))
     state = through_json(compiled.run_sync())
-    back = compiled.results(state)["v"]["result"].drop(ROW_ID)
+    back = compiled.results(state)["v"]["result"].drop(ROW_ID_COLUMN)
     assert dict(back.schema) == dict(frame.schema)
     assert back.equals(frame)
-    compiled.run_sync(state.without("r"))
+    compiled.run_sync(state.without_nodes("r"))
     assert CALLS[0] == CALLS[1]
 
 
@@ -378,11 +378,11 @@ def test_a_column_json_can_not_keep_is_refused_at_the_dump_naming_the_column(fra
 
 
 def test_integer_row_ids_read_as_text_the_same_fresh_and_after_json():
-    CANNED["k"] = pl.DataFrame({ROW_ID: [1, 2], "a": ["x", "y"]})
+    CANNED["k"] = pl.DataFrame({ROW_ID_COLUMN: [1, 2], "a": ["x", "y"]})
     compiled = compiled_of(n("v", "frame", k=Static("k")))
     state = compiled.run_sync()
-    assert compiled.results(state)["v"]["result"][ROW_ID].to_list() == ["1", "2"]
-    assert compiled.results(through_json(state))["v"]["result"][ROW_ID].to_list() == ["1", "2"]
+    assert compiled.results(state)["v"]["result"][ROW_ID_COLUMN].to_list() == ["1", "2"]
+    assert compiled.results(through_json(state))["v"]["result"][ROW_ID_COLUMN].to_list() == ["1", "2"]
 
 
 def test_a_json_form_cannot_name_anything_but_a_column_type():
@@ -394,7 +394,7 @@ def test_a_json_form_cannot_name_anything_but_a_column_type():
 
 
 def test_a_typed_table_of_no_records_is_a_table_with_its_columns_and_no_rows():
-    assert read_table(Contacts, []).columns == [ROW_ID, "name", "email"] and read_table(Contacts, []).height == 0
+    assert read_table(Contacts, []).columns == [ROW_ID_COLUMN, "name", "email"] and read_table(Contacts, []).height == 0
 
 
 def test_a_node_filtering_every_row_away_returns_zero_rows():
@@ -430,9 +430,9 @@ def test_a_node_given_no_rows_has_no_id_to_lose_when_it_makes_a_row_of_its_own()
 
 
 def test_a_fresh_id_never_takes_one_a_later_row_holds():
-    CANNED["k"] = pl.DataFrame({ROW_ID: [None, "v.result:0"], "a": ["x", "y"]}, schema={ROW_ID: pl.String, "a": pl.String})
+    CANNED["k"] = pl.DataFrame({ROW_ID_COLUMN: [None, "v.result:0"], "a": ["x", "y"]}, schema={ROW_ID_COLUMN: pl.String, "a": pl.String})
     compiled = compiled_of(n("v", "frame", k=Static("k")))
-    ids = compiled.results(compiled.run_sync())["v"]["result"][ROW_ID].to_list()
+    ids = compiled.results(compiled.run_sync())["v"]["result"][ROW_ID_COLUMN].to_list()
     assert len(set(ids)) == 2 and ids[1] == "v.result:0"
 
 
@@ -707,7 +707,7 @@ def test_without_covers_the_nodes_of_an_embedded_graph():
     outer = compiled_of(n("approve", "inner"), registry=REGISTRY.extended_with([inner]))
     done = outer.run_sync()
     assert "approve/check" in done.finished_rows
-    assert "approve/check" not in done.without("approve").finished_rows
+    assert "approve/check" not in done.without_nodes("approve").finished_rows
 
 
 def test_an_alternative_taking_both_ways_of_one_decision_can_never_hold():
@@ -778,14 +778,14 @@ def test_which_parent_a_repeated_id_lands_on_does_not_depend_on_which_finished_f
 def test_the_published_table_answer_may_carry_row_ids_and_need_not():
     compiled = compiled_of(n("c", "csv", k=Static("a,b")), n("r", "ask_table", t=From("c.result")))
     record = compiled.run_sync().waiting[0].questions[0].json_schema["items"]
-    assert ROW_ID in record["properties"] and ROW_ID not in record["required"]
+    assert ROW_ID_COLUMN in record["properties"] and ROW_ID_COLUMN not in record["required"]
 
 
 def test_records_in_the_published_shape_that_keep_row_ids_merge_on_their_source_without_doubling():
     compiled = compiled_of(n("c", "csv", k=Static("a,b")), n("r", "ask_table", t=From("c.result")), n("m", "merged", table=From("c.result", "r.result")))
     state = compiled.run_sync()
     default = state.waiting[0].questions[0].default
-    records = [{ROW_ID: row_id, "name": name, "email": "edited"} for row_id, name in zip(default["rows"], default["data"]["name"], strict=True)]
+    records = [{ROW_ID_COLUMN: global_row_id, "name": name, "email": "edited"} for global_row_id, name in zip(default["rows"], default["data"]["name"], strict=True)]
     ended = compiled.run_sync(compiled.answer(state, {"r": {"result": records}}))
     assert ended.status == "complete", ended.failure
     assert compiled.results(ended)["m"]["result"].height == 2

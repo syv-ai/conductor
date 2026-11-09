@@ -33,7 +33,7 @@ Out = Annotated[Txt, Result(title="Output")]
 def echo_v1(text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
     return text
 
-@node("echo", title="Echo", description="Returns input unchanged", category="test", older=[OlderVersion(echo_v1, upgrade=Upgrade())])
+@node("echo", title="Echo", description="Returns input unchanged", category="test", older_versions=[OlderVersion(echo_v1, upgrade=Upgrade())])
 def echo(
     text: Annotated[Txt, Param(title="Input", widget=Textarea())],
     prefix: Annotated[Txt, Param(title="Prefix", widget=Textarea())] = Txt(""),

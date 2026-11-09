@@ -21,14 +21,14 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic_core import to_jsonable_python
 
-from conductor._internal.codec import json_schema_of, reader_of, to_wire
+from conductor._internal.codec import cell_validator_for, json_schema_of, to_wire
 from conductor._internal.dtype import description_of
 from conductor._internal.execution.run_state import Question
 from conductor._internal.graph.run_plan import NodeRunPlan, plan_of_node
 from conductor._internal.node_definition import NodeVersion
 from conductor._internal.node_signature import build_call_validator
 from conductor._internal.series import Series
-from conductor._internal.table import holds_tables
+from conductor._internal.table import is_table_or_series_of_tables
 
 if TYPE_CHECKING:
     from conductor._internal.errors import Problem
@@ -285,13 +285,13 @@ class CompiledField:
     @cached_property
     def _read_cell(self) -> Callable[[Any], Any]:
         """The one check a value of this output passes to enter a run's state
-        (``conductor._internal.codec.reader_of``), returned by a node, answered by a
+        (``conductor._internal.codec.cell_validator_for``), returned by a node, answered by a
         person or read back from a stored state. A blank passes where the
         output's type says ``| None``."""
-        read = reader_of(self._cell_type)
+        read = cell_validator_for(self._cell_type)
         return (lambda value: None if value is None else read(value)) if self._takes_blank else read
 
     @cached_property
     def _holds_many(self) -> bool:
         """One unit writes many cells here, one per row it makes: a series output, not a table."""
-        return self._makes_rows is not None and not holds_tables(self.type)
+        return self._makes_rows is not None and not is_table_or_series_of_tables(self.type)

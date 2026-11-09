@@ -4,7 +4,7 @@
 no I/O, no loading. Every definition the graph names must already be in the
 registry. Everything wrong with the graph comes back as a ``Problem`` rather
 than raising, so an editor can show a half-finished graph with its faults
-marked; a hook that raises anything but ``CompileProblem`` is a bug in the
+marked; a hook that raises anything but ``ComputeHookError`` is a bug in the
 node, and that exception leaves here as it is.
 """
 

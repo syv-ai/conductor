@@ -9,7 +9,7 @@ from conductor import (
     PROBLEM_CODES,
     AsItArrives,
     CompiledGraph,
-    CompileProblem,
+    ComputeHookError,
     DType,
     Graph,
     GraphNode,
@@ -143,7 +143,7 @@ def _hooked(raised: Exception) -> Any:
 
 
 def test_a_compile_problem_from_a_hook_lands_on_the_field_it_names():
-    registry = _registry(_hooked(CompileProblem("wrong_mode", "Not that mode.", field="text")))
+    registry = _registry(_hooked(ComputeHookError("wrong_mode", "Not that mode.", field="text")))
     graph = Graph(nodes=[GraphNode(id="h", type="hooked", version=1)])
 
     (told,) = CompiledGraph.from_graph(graph, registry).problems
@@ -153,7 +153,7 @@ def test_a_compile_problem_from_a_hook_lands_on_the_field_it_names():
 
 def test_a_hook_may_not_raise_a_code_the_catalogue_says_can_still_run():
     with pytest.raises(ValueError, match="no_outputs"):
-        CompileProblem("no_outputs", "m")
+        ComputeHookError("no_outputs", "m")
 
 
 def test_a_hook_that_raises_anything_else_is_a_bug_and_leaves_compile():

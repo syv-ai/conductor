@@ -6,12 +6,12 @@ from typing import Annotated, Any
 
 import pytest
 from conductor import DType, Output, Result, Series
-from conductor._internal.node_signature import _read_return, unpack
+from conductor._internal.node_signature import _return_shape_and_outputs, split_return_into_outputs
 from pydantic import TypeAdapter
 
 
 def _read_return_hint(hint):
-    return _read_return({"return": hint})
+    return _return_shape_and_outputs({"return": hint})
 
 
 class Text(DType, str):
@@ -126,13 +126,13 @@ def test_a_return_that_is_none_of_the_three_is_refused():
 def test_unpack_puts_a_dtype_return_on_its_one_output():
     _, outputs = _read_return_hint(Annotated[Text, Result(title="R")])
 
-    assert unpack(Text, "hello", outputs, outputs) == {"result": "hello"}
+    assert split_return_into_outputs(Text, "hello", outputs, outputs) == {"result": "hello"}
 
 
 def test_unpack_reads_a_record_by_field():
     _, outputs = _read_return_hint(Pair)
 
-    assert unpack(Pair, Pair(text=Text("a"), number=Num(1)), outputs, outputs) == {"text": "a", "number": 1}
+    assert split_return_into_outputs(Pair, Pair(text=Text("a"), number=Num(1)), outputs, outputs) == {"text": "a", "number": 1}
 
 
 def test_unpack_refuses_a_value_that_is_not_the_record():
@@ -140,12 +140,12 @@ def test_unpack_refuses_a_value_that_is_not_the_record():
     _, outputs = _read_return_hint(Pair)
 
     with pytest.raises(ValueError, match="must return a Pair"):
-        unpack(Pair, ("a", 1), outputs, outputs)
+        split_return_into_outputs(Pair, ("a", 1), outputs, outputs)
 
 
 def test_unpack_reads_a_mapping_against_the_roster():
     interface = (Output("name", Text, title="Name"), Output("age", Num, title="Age"))
 
-    assert unpack(Mapping, {"name": "Ida", "age": 3}, interface, interface) == {"name": "Ida", "age": 3}
+    assert split_return_into_outputs(Mapping, {"name": "Ida", "age": 3}, interface, interface) == {"name": "Ida", "age": 3}
     with pytest.raises(ValueError, match="exactly the outputs"):
-        unpack(Mapping, {"name": "Ida"}, interface, interface)
+        split_return_into_outputs(Mapping, {"name": "Ida"}, interface, interface)

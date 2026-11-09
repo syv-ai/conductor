@@ -38,7 +38,7 @@ def upgrade_node(graph: Graph, node_id: str, registry: NodeRegistry, *, to: int 
     if node.type not in registry:
         raise InvalidCallError([make_problem("unknown_node_type", "node", node_id, node_type=node.type, choices=", ".join(sorted(registry)) or "none")])
     definition = registry[node.type]
-    target = definition.current if to is None else to
+    target = definition.current_version if to is None else to
     if target == node.version:
         return graph
     if target < node.version or target not in definition.versions or node.version not in definition.versions:

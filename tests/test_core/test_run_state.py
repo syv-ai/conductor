@@ -6,7 +6,7 @@ typed like the first's. On restore, a node whose fingerprint differs from
 the graph it is restored into — a static edited, a version bumped, a
 binding moved — is dropped with everything downstream of it, so those
 units run again; a node the graph no longer has is dropped the same way,
-and ``without`` drops one on purpose (a host's "run from here").
+and ``without_nodes`` drops one on purpose (a host's "run from here").
 """
 
 import asyncio
@@ -63,7 +63,7 @@ def wrap_v1(text: In = Txt("")) -> Out:
     calls.append(f"wrap:{text}")
     return Txt(f"[{text}]")
 
-@node("wrap", title="Wrap", description="d", category="test", older=[OlderVersion(wrap_v1, upgrade=Upgrade())])
+@node("wrap", title="Wrap", description="d", category="test", older_versions=[OlderVersion(wrap_v1, upgrade=Upgrade())])
 def wrap(text: In = Txt("")) -> Out:
     calls.append(f"wrap2:{text}")
     return Txt(f"<{text}>")
@@ -224,12 +224,12 @@ def test_without_drops_a_node_on_purpose_with_everything_downstream():
     state = _leg(compiled)[-1].state
     calls.clear()
 
-    ending = _leg(compiled, state=_through_json(state.without("up")))[-1].state
+    ending = _leg(compiled, state=_through_json(state.without_nodes("up")))[-1].state
 
     assert ending.status == "complete"
     assert list(compiled.results(ending)["w"]["result"]) == ["[A]", "[B]"]
     assert sorted(calls) == ["upper:a", "upper:b", "wrap:A", "wrap:B"]
-    assert "up" not in state.without("up").node_fingerprints and "split" in state.without("up").node_fingerprints
+    assert "up" not in state.without_nodes("up").node_fingerprints and "split" in state.without_nodes("up").node_fingerprints
 
 
 # -- what a node returns and what a person answers are checked ------------------------

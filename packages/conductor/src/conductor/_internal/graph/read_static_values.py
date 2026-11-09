@@ -16,12 +16,12 @@ from typing import Any
 
 from pydantic import TypeAdapter, ValidationError
 
-from conductor._internal.dtype import name_of
+from conductor._internal.dtype import type_name_for_sentence
 from conductor._internal.errors import Problem, make_problem
 from conductor._internal.field_records import Input
 from conductor._internal.graph.binding import static_values
 from conductor._internal.graph.graph_records import GraphNode
-from conductor._internal.table import holds_tables, missing_column_in
+from conductor._internal.table import is_table_or_series_of_tables, missing_column_in
 
 
 def read_static_values(inputs: Iterable[Input], node: GraphNode) -> tuple[dict[str, Any], frozenset[str], list[Problem]]:
@@ -45,7 +45,7 @@ def read_static_values(inputs: Iterable[Input], node: GraphNode) -> tuple[dict[s
                 problems.append(make_problem("table_column_missing", node.id, name, column=column))
                 continue
             said = _what_the_type_said(unreadable)
-            problems.append(make_problem("invalid_static", node.id, name, input=_short_repr(value), expected=name_of(inp.dtype), **({"reason": said} if said else {})))
+            problems.append(make_problem("invalid_static", node.id, name, input=_short_repr(value), expected=type_name_for_sentence(inp.dtype), **({"reason": said} if said else {})))
             continue
         if many:
             inputs_given_a_list.add(name)
@@ -64,7 +64,7 @@ def _read_value_or_list(inp: Input, value: Any) -> tuple[Any, bool]:
     try:
         return _adapter(inp.dtype).validate_python(value), False
     except ValidationError:
-        if _is_sequence(value) and not holds_tables(inp.dtype):  # records are one table, not many
+        if _is_sequence(value) and not is_table_or_series_of_tables(inp.dtype):  # records are one table, not many
             return [_adapter(inp.dtype).validate_python(v) for v in value], True
         raise
 

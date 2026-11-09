@@ -244,10 +244,10 @@ def test_a_graphs_nodes_are_a_tuple():
 
 def test_compile_problem_is_a_conductor_error_at_the_root():
     import conductor
-    from conductor import CompileProblem
+    from conductor import ComputeHookError
     from conductor._internal.errors import ConductorError
 
-    assert conductor.CompileProblem is CompileProblem and issubclass(CompileProblem, ConductorError)
+    assert conductor.ComputeHookError is ComputeHookError and issubclass(ComputeHookError, ConductorError)
 
 
 # --- a declared type is a type -------------------------------------------------------
