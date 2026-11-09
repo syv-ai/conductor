@@ -33,15 +33,15 @@ class EngineLookups:
     #: Per node, every output an edge into it reads, one per edge ref.
     reads: dict[str, tuple[tuple[Ref, ReceiveMode], ...]]
     #: Per index id: the nodes that run once per row of it.
-    run_per_row_by: dict[str, tuple[str, ...]]
+    nodes_running_per_row_of_index: dict[str, tuple[str, ...]]
     #: Per index id: the outputs whose values sit on it, and a list set on a node whose own rows they are.
-    carried_by: dict[str, tuple[Ref, ...]]
+    outputs_on_index: dict[str, tuple[Ref, ...]]
     #: Per index id: the lists set on nodes whose rows are made under each of its rows.
     lists_on_nodes_under_index: dict[str, tuple[Ref, ...]]
     #: The field that makes each index's rows, by index id.
-    owners: dict[str, CompiledField]
+    field_making_rows_of_index: dict[str, CompiledField]
     #: Every column of a table output offered as a field: the table output and the column.
-    views: dict[Ref, tuple[Ref, str]]
+    table_column_fields: dict[Ref, tuple[Ref, str]]
     #: The table outputs a merge matches against a table they were built from: a
     #: return where no row kept its id can never match (``row_ids_lost``).
     row_ids_must_survive: frozenset[Ref]
@@ -55,16 +55,16 @@ def build_engine_lookups(nodes: Iterable[CompiledNode], row_ids_must_survive: fr
     interfaces: dict[str, Interface] = {}
     reads: dict[str, list[tuple[Ref, ReceiveMode]]] = {}
     read_by: dict[Ref, list[tuple[Ref, ReceiveMode]]] = {}
-    run_per_row_by: dict[str, list[str]] = {}
-    carried_by: dict[str, list[Ref]] = {}
+    nodes_running_per_row_of_index: dict[str, list[str]] = {}
+    outputs_on_index: dict[str, list[Ref]] = {}
     lists_on_nodes_under_index: dict[str, list[Ref]] = {}
-    owners: dict[str, CompiledField] = {}
-    views: dict[Ref, tuple[Ref, str]] = {}
+    field_making_rows_of_index: dict[str, CompiledField] = {}
+    table_column_fields: dict[Ref, tuple[Ref, str]] = {}
 
-    def owned(index_id: str, field: CompiledField) -> None:
-        owners[index_id] = field
-        run_per_row_by.setdefault(index_id, [])
-        carried_by.setdefault(index_id, [])
+    def register_index_owner(index_id: str, field: CompiledField) -> None:
+        field_making_rows_of_index[index_id] = field
+        nodes_running_per_row_of_index.setdefault(index_id, [])
+        outputs_on_index.setdefault(index_id, [])
         lists_on_nodes_under_index.setdefault(index_id, [])
 
     for node in nodes:
@@ -75,7 +75,7 @@ def build_engine_lookups(nodes: Iterable[CompiledNode], row_ids_must_survive: fr
         runs_per_row_of[node.id] = wiring._runs_per_row_of
         interfaces[node.id] = node.interface
         if (index := wiring._runs_per_row_of) is not None:
-            run_per_row_by.setdefault(index.id, []).append(node.id)
+            nodes_running_per_row_of_index.setdefault(index.id, []).append(node.id)
         for field in wiring.fields.values():
             ref = field.ref
             fields[ref] = field
@@ -89,25 +89,25 @@ def build_engine_lookups(nodes: Iterable[CompiledNode], row_ids_must_survive: fr
                         read_by.setdefault(source, []).append((ref, receive_mode))
                         node_reads.append((source, receive_mode))
                 if field._is_list_on_node and field._index is not None:
-                    owned(field._index.id, field)
-                    carried_by[field._index.id].append(ref)
+                    register_index_owner(field._index.id, field)
+                    outputs_on_index[field._index.id].append(ref)
                     if field._index.parent is not None:
                         lists_on_nodes_under_index.setdefault(field._index.parent.id, []).append(ref)
                 continue
-            if field._view_of is not None:
-                views[ref] = field._view_of
+            if field._column_of_table is not None:
+                table_column_fields[ref] = field._column_of_table
             if field._makes_rows is not None:
-                owned(field._makes_rows.id, field)
+                register_index_owner(field._makes_rows.id, field)
             if (index := field._index) is not None:
-                carried_by.setdefault(index.id, []).append(ref)
-    for planned in (run_per_row_by, carried_by, lists_on_nodes_under_index):
-        for index_id in planned.keys() - owners.keys():
+                outputs_on_index.setdefault(index.id, []).append(ref)
+    for by_index_id in (nodes_running_per_row_of_index, outputs_on_index, lists_on_nodes_under_index):
+        for index_id in by_index_id.keys() - field_making_rows_of_index.keys():
             raise RuntimeError(f"compile planned index {index_id!r}, which no field owns")
     return EngineLookups(
-        fields, runs_per_row_of, interfaces, _tuples(read_by), _tuples(reads), _tuples(run_per_row_by), _tuples(carried_by), _tuples(lists_on_nodes_under_index),
-        owners, views, row_ids_must_survive,
+        fields, runs_per_row_of, interfaces, _lists_as_tuples(read_by), _lists_as_tuples(reads), _lists_as_tuples(nodes_running_per_row_of_index), _lists_as_tuples(outputs_on_index), _lists_as_tuples(lists_on_nodes_under_index),
+        field_making_rows_of_index, table_column_fields, row_ids_must_survive,
     )
 
 
-def _tuples[K, V](planned: dict[K, list[V]]) -> dict[K, tuple[V, ...]]:
-    return {key: tuple(values) for key, values in planned.items()}
+def _lists_as_tuples[K, V](by_index_id: dict[K, list[V]]) -> dict[K, tuple[V, ...]]:
+    return {key: tuple(values) for key, values in by_index_id.items()}

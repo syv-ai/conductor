@@ -656,10 +656,10 @@ def test_a_compiled_node_validates_a_call_and_hands_back_its_keyword_arguments()
     compiled = _compiled([GraphNode(id="a", type="echo", version=1, bindings={"x": Static("hi")})])
     graph_node = compiled.node("a")
 
-    kwargs = graph_node._check({"x": Txt("a")})
+    kwargs = graph_node._validate_call_inputs({"x": Txt("a")})
     assert set(kwargs) == {"x", "y"} and isinstance(kwargs["x"], Txt) and kwargs["y"] == Txt("")
     with pytest.raises(ValidationError):
-        graph_node._check({"x": ["not", "text"]})
+        graph_node._validate_call_inputs({"x": ["not", "text"]})
 
 
 def test_a_default_reaches_the_node_as_its_input_s_type():
@@ -675,7 +675,7 @@ def test_a_default_reaches_the_node_as_its_input_s_type():
 
     compiled = _compiled([GraphNode(id="c", type="counted", version=1)], NodeRegistry((counted,)))
 
-    assert isinstance(compiled.node("c")._check({})["n"], Num)
+    assert isinstance(compiled.node("c")._validate_call_inputs({})["n"], Num)
     assert compiled.run_sync().status == "complete"
     assert [type(n) for n in seen] == [Num] and seen == [3.0]
 

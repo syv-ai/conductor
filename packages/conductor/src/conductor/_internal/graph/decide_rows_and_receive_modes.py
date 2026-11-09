@@ -73,7 +73,7 @@ from conductor._internal.table import (
 )
 
 if TYPE_CHECKING:
-    from conductor._internal.graph.compile_graph import WalkSoFar
+    from conductor._internal.graph.compile_graph import CompileProgress
     from conductor._internal.graph.compiled_node import CompiledField
 
 
@@ -110,7 +110,7 @@ class InputsRead:
 
 
 def read_inputs(
-    node: GraphNode, inputs: tuple[Input, ...], inputs_given_a_list: frozenset[str], walk: WalkSoFar, problems: list[Problem],
+    node: GraphNode, inputs: tuple[Input, ...], inputs_given_a_list: frozenset[str], progress: CompileProgress, problems: list[Problem],
 ) -> InputsRead:
     """What arrives on each of ``inputs``. Stops at the first input that can't be read and says so in ``broken``."""
     found = InputsRead()
@@ -123,14 +123,14 @@ def read_inputs(
                 continue
             found.carries[name], found.receive_modes[name] = _originates(inp, node.id)
             continue
-        feeding = [_source(source, walk) for source in binding.refs]
+        feeding = [_source(source, progress) for source in binding.refs]
         if None in feeding:
             # A source that was worked out but has no such output is this input's
             # fault; one that wasn't carries its own problem already.
             problems.extend(
-                make_problem("unknown_ref_output", node.id, name, source=str(ref_), outputs=_outputs_offered_by(ref_.node_id, walk))
+                make_problem("unknown_ref_output", node.id, name, source=str(ref_), outputs=_outputs_offered_by(ref_.node_id, progress))
                 for ref_, source in zip(binding.refs, feeding, strict=True)
-                if source is None and _source_node_is_wired(ref_, walk)
+                if source is None and _source_node_is_wired(ref_, progress)
             )
             found.broken = True
             return found
@@ -201,28 +201,28 @@ def _is_table_type(dtype: Any) -> bool:
     return isinstance(dtype, type) and issubclass(dtype, Table)
 
 
-def _source(ref: Ref, walk: WalkSoFar) -> CompiledField | None:
+def _source(ref: Ref, progress: CompileProgress) -> CompiledField | None:
     """The output ``ref`` names, on a node above this one; ``None`` when no such output has been worked out."""
     source_id = ref.node_id
-    node = walk.compiled.get(source_id)
-    if node is None or node.wiring is None or source_id in walk.invalid_node_ids:
+    node = progress.compiled.get(source_id)
+    if node is None or node.wiring is None or source_id in progress.invalid_node_ids:
         return None
     found = node.wiring.fields.get(ref.field)
     return found if found is not None and (found._is_output or found._is_list_on_node) else None
 
 
-def _outputs_offered_by(node_id: str, walk: WalkSoFar) -> str:
+def _outputs_offered_by(node_id: str, progress: CompileProgress) -> str:
     """The names an edge may read from ``node_id``, for a sentence."""
-    node = walk.compiled[node_id]
+    node = progress.compiled[node_id]
     if node.embedded_graph is not None:
-        names = sorted(node.embedded_graph._for_embedding.outputs)
+        names = sorted(node.embedded_graph._embeddable.outputs)
     else:
         names = sorted(name for name, field in node.wiring.fields.items() if field._is_output or field._is_list_on_node)  # type: ignore[union-attr]
     return ", ".join(names) or "none"
 
 
-def _source_node_is_wired(ref: Ref, walk: WalkSoFar) -> bool:
-    node = walk.compiled.get(ref.node_id)
+def _source_node_is_wired(ref: Ref, progress: CompileProgress) -> bool:
+    node = progress.compiled.get(ref.node_id)
     return node is not None and node.wiring is not None
 
 

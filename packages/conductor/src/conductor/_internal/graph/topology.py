@@ -35,7 +35,7 @@ def dependencies_of(nodes: Iterable[GraphNode]) -> dict[str, frozenset[str]]:
     }
 
 
-def order_of(
+def topological_order(
     dependencies: Mapping[str, frozenset[str]],
 ) -> tuple[tuple[str, ...], frozenset[str]]:
     """A topological order of ``dependencies``, and the ids on a cycle.

@@ -28,13 +28,13 @@ if TYPE_CHECKING:
 
 
 def field_problems(
-    node_id: str, fields: Sequence[Input | Output], taken: frozenset[str] = frozenset(), *, untyped_ok: bool
+    node_id: str, fields: Sequence[Input | Output], names_on_other_side: frozenset[str] = frozenset(), *, untyped_ok: bool
 ) -> list[Problem]:
     """Which of a node's fields break the two rules every field obeys?
 
     A field name is unique within a node across inputs and outputs, because
     a ``Ref(node, field)`` must name one field: a name repeated in ``fields``,
-    or already in ``taken`` (the names on the other side), is
+    or already in ``names_on_other_side`` (the names on the other side), is
     ``duplicate_field_name``. And a field left untyped once its edges are
     known can carry nothing: with ``untyped_ok=False`` it is
     ``output_has_no_type``. An input typed ``Any`` takes its type from its
@@ -46,7 +46,7 @@ def field_problems(
     the outputs as the walk completes them.
     """
     problems: list[Problem] = []
-    seen = set(taken)
+    seen = set(names_on_other_side)
     for declared in fields:
         if declared.name in seen:
             problems.append(make_problem("duplicate_field_name", node_id, declared.name))
@@ -83,7 +83,7 @@ def derive_interface(
 
     Asked once per compile, of the authored graph.
     """
-    consumed = frozenset().union(*dependencies.values())
+    nodes_read_by_another = frozenset().union(*dependencies.values())
     inputs: list[Input] = []
     outputs: list[Output] = []
     needs: set[type] = set()
@@ -94,16 +94,16 @@ def derive_interface(
         needs |= interface.needs
         if not dependencies[node.id]:
             inputs.extend(
-                _as_offered(node, declared)
+                _field_under_its_address(node, declared)
                 for declared in interface.inputs
                 if declared.connectable and declared.name not in node.locked
             )
-        if node.id not in consumed:
-            outputs.extend(_as_offered(node, declared) for declared in interface.outputs)
+        if node.id not in nodes_read_by_another:
+            outputs.extend(_field_under_its_address(node, declared) for declared in interface.outputs)
     return Interface(inputs=tuple(inputs), outputs=tuple(outputs), needs=frozenset(needs))
 
 
-def _as_offered(node: GraphNode, declared):
+def _field_under_its_address(node: GraphNode, declared):
     """``declared`` under its address, ``node.field``, an embedded graph's fields under the names it offers; with the title the author gave it on this node where there is one."""
     at = Ref(node.id, declared.name)
     content = node.fields.get(declared.name)

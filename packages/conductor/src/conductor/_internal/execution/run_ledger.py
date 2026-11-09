@@ -174,7 +174,7 @@ class RunLedger:
         self._fields = self._lookups.fields
         #: Every column of a table output offered as a field: its values are the
         #: table's cells, read where the table sits (``_cell``).
-        self._views = self._lookups.views
+        self._table_column_fields = self._lookups.table_column_fields
         self._values: dict[Ref, dict[Row, Any]] = {}
         #: The fields with a ``SKIPPED`` written at some row. Only these can
         #: hide a value under a skip above it, so a read of any other field is
@@ -255,11 +255,11 @@ class RunLedger:
         """The field that makes an index's rows and carries its read plan: a
         series output, or an input holding a list set on its node, as compile
         recorded it."""
-        return self._lookups.owners[index_id]
+        return self._lookups.field_making_rows_of_index[index_id]
 
     def _making_rows_on(self, index_id: str) -> list[str]:
         """The indexes whose rows are made by nodes running once per row of this one."""
-        return [made for node_id in self._lookups.run_per_row_by[index_id] for made in self._indexes_made_by(node_id)]
+        return [made for node_id in self._lookups.nodes_running_per_row_of_index[index_id] for made in self._indexes_made_by(node_id)]
 
     def _indexes_made_by(self, node_id: str) -> list[str]:
         """The indexes this node's series outputs make rows on, one per output."""
@@ -273,7 +273,7 @@ class RunLedger:
         """``(reader node, output read, group depth)`` for every reader of a
         series on this index that receives it grouped or whole, not one row
         at a time."""
-        for ref in self._lookups.carried_by[index_id]:
+        for ref in self._lookups.outputs_on_index[index_id]:
             for inp, receive_mode in self._lookups.read_by[ref]:
                 if not _per_row(receive_mode):
                     yield inp.node_id, ref, _rows_under_depth(receive_mode)
@@ -545,8 +545,8 @@ class RunLedger:
         """The id of the row at ``row`` on ``index``: on a table's rows, the id
         its stored table carries, which may have come in with the table; on
         any other index, the id spelled from the index and the row."""
-        owner = self._lookups.owners.get(index.id)
-        if owner is not None and owner._view_of is None and owner._is_output and is_table_or_series_of_tables(owner.type):
+        owner = self._lookups.field_making_rows_of_index.get(index.id)
+        if owner is not None and owner._column_of_table is None and owner._is_output and is_table_or_series_of_tables(owner.type):
             stored, _ = self._lookup(owner.ref, row[:-1])
             return stored[ROW_ID_COLUMN][row[-1]]
         return global_row_id(index, row)
@@ -589,7 +589,7 @@ class RunLedger:
         shortest prefix of ``row`` that holds one, else what is at ``row``
         (``_MISSING`` when nothing is). A column of a table is read off the
         table at the row above (``_cell``)."""
-        view = self._views.get(ref)
+        view = self._table_column_fields.get(ref)
         if view is not None:
             return self._cell(ref, view, row)
         by_row = self._values.get(ref, _NO_VALUES)
@@ -690,7 +690,7 @@ class RunLedger:
             if value is SKIPPED:
                 self._write(ref, write_row, value, written)
                 no_rows_under.append((index.id, write_row))
-            elif not field._holds_many:
+            elif not field._unit_writes_many_cells:
                 self._write(ref, write_row, value, written)
                 if self._columns_read(index.id):
                     new_rows = rows_made.setdefault(index.id, [])
@@ -722,7 +722,7 @@ class RunLedger:
         """Does anything read a column of the table that owns this index? If
         nothing does, a table passing through makes no rows at all."""
         lookups = self._lookups
-        return bool(lookups.run_per_row_by[index_id]) or any(lookups.read_by[view] for view in lookups.carried_by[index_id])
+        return bool(lookups.nodes_running_per_row_of_index[index_id]) or any(lookups.read_by[view] for view in lookups.outputs_on_index[index_id])
 
     def _write(self, ref: Ref, row: Row, value: Any, written: list[tuple[Ref, Row]]) -> None:
         """Put ``value`` at ``(ref, row)``, noting the address in ``written`` when nothing was there."""
@@ -846,11 +846,11 @@ class RunLedger:
                 else:
                     self._wake_group(ref, inp.node_id, new_row[:depth], woken)
         for index_id, new_rows in rows_made.items():
-            readers = self._lookups.run_per_row_by[index_id]
+            readers = self._lookups.nodes_running_per_row_of_index[index_id]
             for new_row in new_rows:
                 woken.update((reader, new_row) for reader in readers)
         for index_id, new_row in (*no_rows_under, *lists):
-            woken.update((reader, new_row) for reader in self._lookups.run_per_row_by[index_id])
+            woken.update((reader, new_row) for reader in self._lookups.nodes_running_per_row_of_index[index_id])
         for index_id, new_row in lists:
             for reader, ref, depth in self._grouped_on(index_id):
                 if 0 < depth <= len(new_row):
@@ -1015,7 +1015,7 @@ class RunLedger:
         for node_id, rows in by_node.items():
             for out in self._lookups.interfaces[node_id].outputs:
                 ref = Ref(node_id, out.name)
-                if self._fields[ref]._holds_many:
+                if self._fields[ref]._unit_writes_many_cells:
                     continue
                 problems.extend(
                     make_problem("state_unreadable", "state", ref, *row, reason=f"the state has {node_id!r} finished at row {list(row)}, with no value for {ref}")
@@ -1074,7 +1074,7 @@ def _blank_of(field: CompiledField, out: Output) -> Any:
     there; any other is blank."""
     if out.choice is not None:
         return SKIPPED
-    if field._holds_many:
+    if field._unit_writes_many_cells:
         return []
     if field._makes_rows is not None:
         return frame_with_no_rows(field._cell_type)
@@ -1141,7 +1141,7 @@ def _read_output_column(compiled: CompiledGraph, ref: Ref, column: OutputColumn,
     if misplaced:
         return None
     by_row: dict[Row, Any] = {}
-    read = field._read_cell
+    read = field._validate_cell
     for row, stored in zip(column.rows, column.values, strict=True):
         try:
             by_row[row] = _restored_cell(field, stored, read)
@@ -1159,7 +1159,7 @@ def _restored_cell(field: CompiledField, stored: Any, read: Any) -> Any:
     if stored is None or type(stored) is field._cell_type:
         return stored
     cell = read(stored)
-    if field._makes_rows is not None and not field._holds_many and ROW_ID_COLUMN not in cell.columns:
+    if field._makes_rows is not None and not field._unit_writes_many_cells and ROW_ID_COLUMN not in cell.columns:
         raise ValueError("a stored table has lost the ids of its rows")
     return cell
 

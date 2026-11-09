@@ -4,7 +4,7 @@ from typing import Annotated
 
 import pytest
 from conductor import CompiledGraph, DType, From, Graph, GraphNode, Param, Result, Static, node
-from conductor._internal.graph.topology import order_of
+from conductor._internal.graph.topology import topological_order
 from conductor.widgets import Textarea
 from pydantic import ValidationError
 
@@ -33,7 +33,7 @@ class TestGraphModel:
 
 class TestOrderOf:
     def test_linear_chain(self):
-        order, cyclic = order_of({"a": frozenset(), "b": frozenset({"a"}), "c": frozenset({"b"})})
+        order, cyclic = topological_order({"a": frozenset(), "b": frozenset({"a"}), "c": frozenset({"b"})})
         assert order.index("a") < order.index("b") < order.index("c")
         assert cyclic == frozenset()
 
@@ -42,7 +42,7 @@ class TestOrderOf:
         A -> B -> D
         A -> C -> D
         """
-        order, _ = order_of({
+        order, _ = topological_order({
             "a": frozenset(), "b": frozenset({"a"}), "c": frozenset({"a"}), "d": frozenset({"b", "c"}),
         })
         assert order.index("a") < order.index("b")
@@ -51,20 +51,20 @@ class TestOrderOf:
         assert order.index("c") < order.index("d")
 
     def test_single_node(self):
-        assert order_of({"a": frozenset()}) == (("a",), frozenset())
+        assert topological_order({"a": frozenset()}) == (("a",), frozenset())
 
     def test_disconnected_nodes(self):
-        order, _ = order_of({x: frozenset() for x in ["a", "b", "c"]})
+        order, _ = topological_order({x: frozenset() for x in ["a", "b", "c"]})
         assert set(order) == {"a", "b", "c"}
 
     def test_a_cycle_is_returned_not_raised(self):
         """A cycle is a state an editor can be in; compile anchors a problem on each node in it."""
-        order, cyclic = order_of({"a": frozenset({"b"}), "b": frozenset({"a"}), "c": frozenset()})
+        order, cyclic = topological_order({"a": frozenset({"b"}), "b": frozenset({"a"}), "c": frozenset()})
         assert order == ("c",)
         assert cyclic == frozenset({"a", "b"})
 
     def test_self_loop_is_a_cycle(self):
-        assert order_of({"a": frozenset({"a"})}) == ((), frozenset({"a"}))
+        assert topological_order({"a": frozenset({"a"})}) == ((), frozenset({"a"}))
 
 
 class TestCompile:

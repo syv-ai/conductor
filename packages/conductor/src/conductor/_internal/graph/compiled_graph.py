@@ -74,7 +74,7 @@ from conductor._internal.execution.waiting_units import apply_answers
 from conductor._internal.graph.binding import Static
 from conductor._internal.graph.compile_graph import compile_graph
 from conductor._internal.graph.compiled_node import CompiledField, CompiledNode
-from conductor._internal.graph.embedding import EmbeddableGraph, offered_names, read_embeddable
+from conductor._internal.graph.embedding import EmbeddableGraph, embeddable_view_of, offered_names
 from conductor._internal.graph.engine_lookups import EngineLookups, build_engine_lookups
 from conductor._internal.graph.run_plan import RunPlan
 from conductor._internal.ref import Ref
@@ -105,7 +105,7 @@ class CompiledGraph:
     #: graph can produce another (``with_inputs``).
     _registry: NodeRegistry
     #: What ``execution_order`` answers.
-    _order: tuple[str, ...]
+    _execution_order: tuple[str, ...]
     #: What this graph takes and returns, in the same record a node version
     #: declares: ``inputs`` are the unlocked, connectable fields of the nodes
     #: nothing feeds into (each declaration whole, titled as the author
@@ -138,7 +138,7 @@ class CompiledGraph:
         """
         records = compile_graph(graph, registry)
         return cls(
-            _registry=registry, _order=records.order, interface=records.interface, graph=graph, problems=records.problems,
+            _registry=registry, _execution_order=records.order, interface=records.interface, graph=graph, problems=records.problems,
             _nodes=records.nodes, _row_ids_must_survive=records.row_ids_must_survive,
         )
 
@@ -147,17 +147,17 @@ class CompiledGraph:
     @cached_property
     def _engine_lookups(self) -> EngineLookups:
         """What the engine looks up on every step, built on the first run: compiling alone never pays for it."""
-        return build_engine_lookups((self._nodes[node_id] for node_id in self._order), self._row_ids_must_survive)
+        return build_engine_lookups((self._nodes[node_id] for node_id in self._execution_order), self._row_ids_must_survive)
 
     @cached_property
-    def _for_embedding(self) -> EmbeddableGraph:
+    def _embeddable(self) -> EmbeddableGraph:
         """What a graph that embeds this one asks of it (``conductor._internal.graph.embedding``)."""
-        return read_embeddable(self)
+        return embeddable_view_of(self)
 
     @cached_property
     def _where_each_output_is_in_the_run(self) -> dict[Ref, Ref]:
         names = offered_names(Ref(out.name) for out in self.interface.outputs)
-        return {at: self._for_embedding.outputs[name] for at, name in names.items()}
+        return {output_address: self._embeddable.outputs[name] for output_address, name in names.items()}
 
     @cached_property
     def run_plan(self) -> RunPlan:
@@ -166,7 +166,7 @@ class CompiledGraph:
         compare (``conductor._internal.graph.run_plan``). ``str(compiled.run_plan)`` is
         that as text. A node that isn't ready is absent."""
         return RunPlan.model_construct(nodes={
-            node_id: node._run_plan for node_id in self._order if (node := self._nodes[node_id]).wiring is not None
+            node_id: node._run_plan for node_id in self._execution_order if (node := self._nodes[node_id]).wiring is not None
         })
 
     def node(self, node_id: str) -> CompiledNode:
@@ -210,11 +210,11 @@ class CompiledGraph:
         read is an ``invalid_static``, raised with any names it doesn't offer.
         The copy still offers every input. Not a run.
         """
-        return self._refilled({**(inputs or {}), **by_name}, (), raise_on_unreadable_values=True)
+        return self._recompiled_with({**(inputs or {}), **by_name}, (), raise_on_unreadable_values=True)
 
-    def _refilled(self, values: Mapping[str, Any], cleared: Iterable[str], *, raise_on_unreadable_values: bool = False) -> CompiledGraph:
+    def _recompiled_with(self, values: Mapping[str, Any], input_names_to_clear: Iterable[str], *, raise_on_unreadable_values: bool = False) -> CompiledGraph:
         """This graph compiled again with ``values`` typed on the inputs they
-        name and the values its author typed on the ``cleared`` inputs taken
+        name and the values its author typed on the ``statics_to_remove`` inputs taken
         off, so they arrive at run time. ``with_inputs`` for a caller; a
         graph that embeds this one asks for the copy one graph node fills. Names are read as ``with_inputs`` reads them.
         A graph that embeds this one wants a value its input can't read as
@@ -222,22 +222,22 @@ class CompiledGraph:
         gets it raised."""
         offered = [inp.name for inp in self.interface.inputs]
         problems: list[Problem] = []
-        filled: dict[str, dict[str, Static]] = {}
+        statics_to_set: dict[str, dict[str, Static]] = {}
         written_as: dict[tuple[str, str], str] = {}
         for name, value in values.items():
-            ref = self._offered(name, offered, problems)
+            ref = self._offered_input_named(name, offered, problems)
             if ref is not None:
-                filled.setdefault(ref.node_id, {})[ref.field] = Static(value)
+                statics_to_set.setdefault(ref.node_id, {})[ref.field] = Static(value)
                 written_as[ref.node_id, ref.field] = name
-        taken: dict[str, set[str]] = {}
-        for name in cleared:
-            ref = self._offered(name, offered, problems)
+        statics_to_remove: dict[str, set[str]] = {}
+        for name in input_names_to_clear:
+            ref = self._offered_input_named(name, offered, problems)
             if ref is not None:
-                taken.setdefault(ref.node_id, set()).add(ref.field)
+                statics_to_remove.setdefault(ref.node_id, set()).add(ref.field)
         graph = self.graph.model_copy(update={"nodes": tuple(
             node.model_copy(update={"bindings": {
-                **{field: binding for field, binding in node.bindings.items() if field not in taken.get(node.id, ())},
-                **filled.get(node.id, {}),
+                **{field: binding for field, binding in node.bindings.items() if field not in statics_to_remove.get(node.id, ())},
+                **statics_to_set.get(node.id, {}),
             }})
             for node in self.graph.nodes
         )})
@@ -251,7 +251,7 @@ class CompiledGraph:
             raise InvalidCallError(problems)
         return refilled
 
-    def _offered(self, name: str, offered: list[Ref], problems: list[Problem]) -> Ref | None:
+    def _offered_input_named(self, name: str, offered: list[Ref], problems: list[Problem]) -> Ref | None:
         """The input a keyword to ``with_inputs`` names; or ``None``, and the fault that lists what is offered."""
         names = offered_names(offered)
         matches = [ref for ref in offered if ref == name or names[ref] == name]
@@ -280,7 +280,7 @@ class CompiledGraph:
         """The ids of the nodes that run, in an order where every edge's source precedes
         its target. A node in a cycle is not in it; it has a fatal
         ``Problem`` instead."""
-        return self._order
+        return self._execution_order
 
     @property
     def decisions(self) -> dict[str, dict[str, tuple[str, ...]]]:
@@ -291,7 +291,7 @@ class CompiledGraph:
         is a node that is not ready: whether it runs per row is not
         known."""
         groups_by_node: dict[str, dict[str, tuple[str, ...]]] = {}
-        for node_id in self._order:
+        for node_id in self._execution_order:
             node = self._nodes[node_id]
             if node.wiring is None or node.wiring._runs_per_row_of is not None:
                 continue
@@ -412,7 +412,7 @@ class CompiledGraph:
         if faults:
             raise InvalidCallError(faults)
         produced: dict[str, dict[str, Any]] = {}
-        for node_id in self._order:
+        for node_id in self._execution_order:
             if node_id in state.finished_rows and node_id not in dropped:
                 result = node_result(self._engine_lookups, node_id, values)
                 if result is not None:
@@ -438,7 +438,7 @@ class CompiledGraph:
                 failure=None if failure is None else failure.model_dump(mode="json"),
             )])
         where = self._where_each_output_is_in_the_run
-        changed = set(self.nodes_changed_since(state)).intersection(at.node_id for at in where.values())
+        changed = set(self.nodes_changed_since(state)).intersection(output_address.node_id for output_address in where.values())
         if changed:
             raise InvalidCallError([make_problem(
                 "run_not_complete", "state", "status", status="stale",
@@ -447,9 +447,9 @@ class CompiledGraph:
         results = self.results(state)
         returned: dict[str, Any] = {}
         for output in self.interface.outputs:
-            at = where[Ref(output.name)]
-            if at.field in results.get(at.node_id, {}):
-                returned[str(output.name)] = results[at.node_id][at.field]
+            output_address = where[Ref(output.name)]
+            if output_address.field in results.get(output_address.node_id, {}):
+                returned[str(output.name)] = results[output_address.node_id][output_address.field]
         return returned
 
     def nodes_changed_since(self, state: RunState, /) -> list[str]:
@@ -464,10 +464,10 @@ class CompiledGraph:
         """
         self._raise_unless_runnable()
         fingerprints = state.node_fingerprints
-        changed = {node_id for node_id in self._order if fingerprints.get(node_id) != self._nodes[node_id].fingerprint}
+        changed = {node_id for node_id in self._execution_order if fingerprints.get(node_id) != self._nodes[node_id].fingerprint}
         stale = changed | self._readers_of(changed)
         named = {*fingerprints, *state.finished_rows, *(ref.node_id for ref in state.output_columns), *(unit.node_id for unit in state.waiting)}
-        return [node_id for node_id in self._order if node_id in stale] + sorted(named - set(self._order))
+        return [node_id for node_id in self._execution_order if node_id in stale] + sorted(named - set(self._execution_order))
 
     def _readers_of(self, node_ids: Iterable[str]) -> set[str]:
         """Every node that reads a field of one of ``node_ids``, directly or

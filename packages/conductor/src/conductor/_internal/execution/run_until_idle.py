@@ -480,7 +480,7 @@ class Leg:
         node = self.compiled.node(node_id)
         version = node.version
         try:
-            kwargs = node._check(inputs)
+            kwargs = node._validate_call_inputs(inputs)
         except ValidationError as invalid:
             reason = self._describe(invalid, node.interface.inputs)
             column = missing_column_in(invalid)

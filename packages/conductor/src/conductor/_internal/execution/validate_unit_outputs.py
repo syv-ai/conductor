@@ -2,7 +2,7 @@
 
 A value enters the state three ways: a node returns it, a person answers with
 it, or a stored state is read back. Each passes the one check its output has
-(``CompiledField._read_cell``, built once per output from its type). Inside a
+(``CompiledField._validate_cell``, built once per output from its type). Inside a
 leg nothing checks a value again on the way into the state.
 
 ``validate_unit_outputs`` is the shared part for a return and an answer, which
@@ -52,7 +52,7 @@ def validate_unit_outputs(node: CompiledNode, row: Row, named: Mapping[str, Any]
             continue
         field = node.wiring.fields[name]
         try:
-            cells[name] = _read_many(field, name, value) if field._holds_many else _read_one(field, row, value, row_ids_must_survive)
+            cells[name] = _read_many(field, name, value) if field._unit_writes_many_cells else _read_one(field, row, value, row_ids_must_survive)
         except ValidationError as invalid:
             problems.append(_output_problem(
                 name, f"'{name}' must be {_named(field)}, not a {type(value).__name__}",
@@ -80,12 +80,12 @@ def _read_many(field: CompiledField, name: str, value: Any) -> list[Any]:
         value = value.values
     elif not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
         raise _NotASequence(f"'{name}' is many values and must be a sequence, not a {type(value).__name__}")
-    read = field._read_cell
+    read = field._validate_cell
     return [item if item is SKIPPED else read(item) for item in value]
 
 
 def _read_one(field: CompiledField, row: Row, value: Any, row_ids_must_survive: frozenset[Ref]) -> Any:
-    cell = field._read_cell(value)
+    cell = field._validate_cell(value)
     if field._makes_rows is None:
         return cell
     if cell is None:  # row-making outputs have no blank form: no rows

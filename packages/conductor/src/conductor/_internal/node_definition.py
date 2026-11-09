@@ -415,8 +415,8 @@ class NodeDefinition(Generic[_P, _R]):
             docs=self.docs, deprecation=self.deprecation,
             versions={
                 number: VersionDescription(
-                    inputs=(version.interface if isinstance(version, NodeVersion) else version._for_embedding.interface).inputs,
-                    outputs=(version.interface if isinstance(version, NodeVersion) else version._for_embedding.interface).outputs,
+                    inputs=(version.interface if isinstance(version, NodeVersion) else version._embeddable.interface).inputs,
+                    outputs=(version.interface if isinstance(version, NodeVersion) else version._embeddable.interface).outputs,
                     policy=version.policy if isinstance(version, NodeVersion) else None,
                     open_input_type=version.open_input_template.dtype if isinstance(version, NodeVersion) and version.open_input_template is not None else None,
                     deprecation=version.deprecation if isinstance(version, NodeVersion) else None,

@@ -189,7 +189,7 @@ def _with_units_finished(compiled: CompiledGraph, state: RunState, finished: lis
             made_no_rows = made_no_rows or (makes_rows and len(value) == 0)
             if value is SKIPPED:
                 column.skipped.append(asked.row)
-            elif isinstance(value, list) and node.wiring.fields[out.name]._holds_many:
+            elif isinstance(value, list) and node.wiring.fields[out.name]._unit_writes_many_cells:
                 for j, item in enumerate(value):
                     (column.skipped if item is SKIPPED else column.rows).append((*asked.row, j))
                     if item is not SKIPPED:

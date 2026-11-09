@@ -60,7 +60,7 @@ if TYPE_CHECKING:
 NodeState = Literal["ready", "wiring_failed", "resolution_failed"]
 
 
-def _written(value: Any, dtype: Any) -> Any:
+def _static_as_json(value: Any, dtype: Any) -> Any:
     """A static as its field's type writes it, for ``CompiledNode.fingerprint``:
     each of many values through the element type, one value through its own."""
     if value is None:
@@ -70,7 +70,7 @@ def _written(value: Any, dtype: Any) -> Any:
     return to_wire(value, dtype)
 
 
-def _or_blank(dtype: Any) -> Any:
+def _nullable_dtype(dtype: Any) -> Any:
     """The type a call reads an input that takes a blank as: a series' cells may be blank, one value may."""
     return Series[dtype.element | None] if dtype.element is not None else dtype | None
 
@@ -172,7 +172,7 @@ class CompiledNode:
                 # The value as its type writes it, never as the author spelled
                 # it: ``2`` and ``2.0`` on a number are one value, and a graph
                 # built in Python hashes like the stored graph with its JSON.
-                bindings[name] = {"static": _written(self.statics[name], fields[name].type)}
+                bindings[name] = {"static": _static_as_json(self.statics[name], fields[name].type)}
             else:
                 bindings[name] = binding.model_dump()
         used = {
@@ -203,11 +203,11 @@ class CompiledNode:
         return (self.graph_node.title or self.definition.title) if untitled and self.definition is not None else out.title
 
     @cached_property
-    def _check(self) -> Callable[[Mapping[str, Any]], dict[str, Any]]:
+    def _validate_call_inputs(self) -> Callable[[Mapping[str, Any]], dict[str, Any]]:
         """The check a call goes through (``build_call_validator``), built on first use. An
         input that takes a blank is read as its type or ``None``."""
         return build_call_validator(tuple(
-            inp.model_copy(update={"dtype": _or_blank(inp.dtype)}) if inp.takes_blank else inp for inp in self._inputs
+            inp.model_copy(update={"dtype": _nullable_dtype(inp.dtype)}) if inp.takes_blank else inp for inp in self._inputs
         ))
 
     @cached_property
@@ -252,7 +252,7 @@ class CompiledField:
     _makes_rows: Index | None = field(repr=False)
     #: For a column of a table output offered as a field: the table output and
     #: the column. Its values are read from the table, never stored one by one.
-    _view_of: tuple[Ref, str] | None = field(repr=False)
+    _column_of_table: tuple[Ref, str] | None = field(repr=False)
     #: For an output: ``None`` is a value it may be given.
     _takes_blank: bool = field(repr=False)
     #: What a person reads it as, and the name it comes into a merged table under:
@@ -264,13 +264,13 @@ class CompiledField:
 
     def __init__(
         self, ref: Ref, type: Any, binding: Binding | None, condition: Condition | None, problems: tuple[Problem, ...], *,
-        _index: Index | None, _receive_mode: ReceiveMode | None, _is_list_on_node: bool, _makes_rows: Index | None, _view_of: tuple[Ref, str] | None,
+        _index: Index | None, _receive_mode: ReceiveMode | None, _is_list_on_node: bool, _makes_rows: Index | None, _column_of_table: tuple[Ref, str] | None,
         _takes_blank: bool, _title: str, _row_origins: frozenset[str] | None,
     ) -> None:
         """Compile builds one per field of a graph, so this sets them in one step instead of one at a time."""
         self.__dict__.update(
             ref=ref, type=type, binding=binding, condition=condition, problems=problems, _index=_index, _receive_mode=_receive_mode,
-            _is_list_on_node=_is_list_on_node, _makes_rows=_makes_rows, _view_of=_view_of, _takes_blank=_takes_blank, _title=_title, _row_origins=_row_origins,
+            _is_list_on_node=_is_list_on_node, _makes_rows=_makes_rows, _column_of_table=_column_of_table, _takes_blank=_takes_blank, _title=_title, _row_origins=_row_origins,
         )
 
     @property
@@ -283,7 +283,7 @@ class CompiledField:
         return self.type if self._index is None or self.type.element is None else self.type.element
 
     @cached_property
-    def _read_cell(self) -> Callable[[Any], Any]:
+    def _validate_cell(self) -> Callable[[Any], Any]:
         """The one check a value of this output passes to enter a run's state
         (``conductor._internal.codec.cell_validator_for``), returned by a node, answered by a
         person or read back from a stored state. A blank passes where the
@@ -292,6 +292,6 @@ class CompiledField:
         return (lambda value: None if value is None else read(value)) if self._takes_blank else read
 
     @cached_property
-    def _holds_many(self) -> bool:
+    def _unit_writes_many_cells(self) -> bool:
         """One unit writes many cells here, one per row it makes: a series output, not a table."""
         return self._makes_rows is not None and not is_table_or_series_of_tables(self.type)
