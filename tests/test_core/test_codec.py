@@ -1,37 +1,55 @@
 """One codec: a value goes to JSON and back by its declared type.
 
-``to_wire`` and ``from_wire`` are the one crossing between a value in
+``to_jsonable`` and pydantic's reading back are the one crossing between a value in
 memory and its JSON form — the ledger's values, a cached answer, a run's
-return all go through them. A series carries its index and rows and comes
-back on that index; a skip is marked beside its address, never as a string in
-the value's place.
+return all go through them. A skip is marked beside its address, never as a
+string in the value's place.
 """
 
 import json
-from typing import Annotated, Any
+from typing import Annotated
 
 import pytest
-from conductor import CompiledGraph, GraphNode, NodeRegistry, Param
-from conductor.codec import from_wire, to_wire
-from conductor.dtype import DType
-from conductor.execution.ledger import Ledger
-from conductor.execution.state import RunState, StateSkip
-from conductor.graph.binding import From, Static
-from conductor.graph.model import Graph
-from conductor.metadata import Result
-from conductor.node import NodeDefinition
-from conductor.series import Index, Series
+from conductor import (
+    CompiledGraph,
+    DType,
+    From,
+    Graph,
+    GraphNode,
+    NodeDefinition,
+    NodeRegistry,
+    Param,
+    Result,
+    RunState,
+    Series,
+    Static,
+    node,
+    to_jsonable,
+)
+from conductor._internal.execution.run_ledger import RunLedger
 from conductor.widgets import Textarea
-from conductor_nodes.types import Flag, Json, Number, Text
+from conductor_nodes.types import Json
 from pydantic import TypeAdapter
 
 
 class Txt(DType, str):
     id = "codec-test-text"
-    title = "Text"
+    display_title = "Text"
 
 
-# -- the shipped types -------------------------------------------------------------
+class Text(DType, str):
+    id = "text"
+
+
+class Number(DType, float):
+    id = "number"
+
+
+class Flag(DType, int):
+    id = "flag"
+
+
+# -- types declared with DType -------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -45,146 +63,102 @@ class Txt(DType, str):
     ],
 )
 def test_each_shipped_type_round_trips(dtype, value, wire):
-    on_the_wire = to_wire(value, dtype)
+    on_the_wire = to_jsonable(value)
 
     assert on_the_wire == wire
     assert json.loads(json.dumps(on_the_wire)) == wire
-    back = from_wire(on_the_wire, dtype)
+    back = TypeAdapter(dtype).validate_python(on_the_wire)
     assert back == value and type(back) is dtype
 
 
-def test_any_passes_through_as_json_ready_data():
-    assert to_wire({"k": (1, 2)}, Any) == {"k": [1, 2]}
-    assert from_wire({"k": [1, 2]}, Any) == {"k": [1, 2]}
+def test_plain_data_comes_out_json_ready_with_the_typed_values_inside_written_by_their_own_type():
+    assert to_jsonable({"k": (1, Json({"a": 2}), {"rows": [(0,)], "values": [Text("b")]})}) == {"k": [1, {"a": 2}, {"rows": [[0]], "values": ["b"]}]}
 
 
-# -- a series -------------------------------------------------------------------------
+def test_a_float_survives_the_writer_to_the_last_bit():
+    values = [0.1 + 0.2, 1e308, 5e-324, -0.0, 2**70]
+    assert to_jsonable(values) == values
 
 
-def test_a_series_of_json_round_trips_in_both_modes():
-    docs = Index("docs")
-    lines = Index("lines", parent=docs)
-    series = Series[Json](lines, [Json({"n": 1}), Json([2])], rows=((0, 0), (1, 0)))
-
-    wire = to_wire(series, Series[Json])
-
-    assert wire == {
-        "index": {"id": "lines", "parent": {"id": "docs", "parent": None}},
-        "rows": [[0, 0], [1, 0]],
-        "values": [{"n": 1}, [2]],
-    }
-    for back in (
-        from_wire(wire, Series[Json]),
-        TypeAdapter(Series[Json]).validate_python(wire),
-        TypeAdapter(Series[Json]).validate_json(json.dumps(wire)),
-    ):
-        assert isinstance(back, Series)
-        assert (back.index, back.rows, back.values) == (lines, series.rows, series.values)
-        assert back.index.parent == docs
-        assert all(type(v) is Json for v in back.values)
-
-
-def test_a_series_still_reads_a_plain_list_as_dense_rows_on_a_fresh_index():
-    back = from_wire(["a", "b"], Series[Text])
-
-    assert back.rows == ((0,), (1,)) and list(back) == ["a", "b"]
+@pytest.mark.parametrize(("value", "written"), [(float("nan"), "NaN"), (float("inf"), "Infinity"), (float("-inf"), "-Infinity"), (Number(float("nan")), "NaN"), ({"a": [float("nan")]}, {"a": ["NaN"]})])
+def test_a_float_that_is_not_finite_is_text_at_any_depth(value, written):
+    assert to_jsonable(value) == written
+    assert to_jsonable(value) == json.loads(json.dumps(to_jsonable(value), allow_nan=False))
 
 
 # -- the ledger's values --------------------------------------------------------------
 
 
-class Split(NodeDefinition):
-    id = "split"
-    title = "Split"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="In", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Parts")]:
-        return [Txt(part) for part in text.split(",")]
+@node("split", title="Split", description="d", category="test")
+def split_node(text: Annotated[Txt, Param(title="In", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Parts")]:
+    return [Txt(part) for part in text.split(",")]
 
 
-class Upper(NodeDefinition):
-    id = "upper"
-    title = "Upper"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="In", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="Out")]:
-        return Txt(text.upper())
+@node("upper", title="Upper", description="d", category="test")
+def upper_node(text: Annotated[Txt, Param(title="In", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="Out")]:
+    return Txt(text.upper())
 
 
 def _compiled(*classes: type[NodeDefinition], nodes: list[GraphNode]) -> CompiledGraph:
     reg = NodeRegistry()
     for cls in classes:
-        reg.register(cls)
+        reg = reg.extended_with([cls])
     return CompiledGraph.from_graph(Graph(nodes=nodes), reg)
 
 
 def test_a_text_that_spells_the_old_skip_marker_is_a_text_after_a_round_trip():
-    compiled = _compiled(Split, Upper, nodes=[
+    compiled = _compiled(split_node, upper_node, nodes=[
         GraphNode(id="split", type="split", version=1, bindings={"text": Static("__skipped__,x")}),
         GraphNode(id="up", type="upper", version=1, bindings={"text": From("split.result")}),
     ])
-    ledger = Ledger(compiled)
-    ledger.record(("split", None), {"result": [Txt("__skipped__"), Txt("x")]})
+    ledger = RunLedger(compiled)
+    ledger.record(("split", ()), {"result": [Txt("__skipped__"), Txt("x")]})
     ledger.record(("up", (0,)), {"result": Txt("__SKIPPED__")})
     ledger.record(("up", (1,)), {"result": Txt("X")})
 
-    state = ledger.state()
-    restored = Ledger.restore(compiled, RunState.model_validate(json.loads(json.dumps(state.model_dump()))))
+    state = ledger.state("complete")
+    restored = RunLedger.restore(compiled, RunState.model_validate(json.loads(state.model_dump_json())))
 
-    values = restored.result_of("split")["result"]
-    assert list(values) == ["__skipped__", "x"] and all(type(v) is Txt for v in values)
-    assert list(restored.result_of("up")["result"]) == ["__SKIPPED__", "X"]
-    assert not any(isinstance(entry, StateSkip) for entry in state.values)
+    values = restored.result_of("split")["result"]["values"]
+    assert values == ["__skipped__", "x"] and all(type(v) is Txt for v in values)
+    assert restored.result_of("up")["result"]["values"] == ["__SKIPPED__", "X"]
+    assert state.nodes["split"].outputs["result"].skipped == []
 
 
-def test_a_skip_is_marked_beside_its_address_with_its_depth():
+def test_a_skip_is_listed_beside_the_values():
     from conductor import SKIPPED
 
-    compiled = _compiled(Split, Upper, nodes=[
+    compiled = _compiled(split_node, upper_node, nodes=[
         GraphNode(id="split", type="split", version=1, bindings={"text": Static("a,b")}),
         GraphNode(id="up", type="upper", version=1, bindings={"text": From("split.result")}),
     ])
-    ledger = Ledger(compiled)
-    ledger.record(("split", None), {"result": [Txt("a"), Txt("b")]})
+    ledger = RunLedger(compiled)
+    ledger.record(("split", ()), {"result": [Txt("a"), Txt("b")]})
     ledger.record(("up", (0,)), {"result": SKIPPED})
     ledger.record(("up", (1,)), {"result": Txt("B")})
 
-    state = ledger.state()
-    wire = json.loads(state.model_dump_json())["values"]
+    state = ledger.state("complete")
+    wire = json.loads(state.model_dump_json())["nodes"]
 
-    assert [entry for entry in wire if "skipped" in entry] == [{"ref": "up.result", "row": [0], "skipped": 1}]
-    assert [entry for entry in wire if "value" in entry] == [
-        {"ref": "split.result", "row": [0], "value": "a"},
-        {"ref": "split.result", "row": [1], "value": "b"},
-        {"ref": "up.result", "row": [1], "value": "B"},
-    ]
-    restored = Ledger.restore(compiled, RunState.model_validate(json.loads(json.dumps(state.model_dump()))))
-    assert list(restored.result_of("up")["result"]) == ["B"]
-    assert restored.result_of("up")["result"].rows == ((1,),)
+    assert wire["up"]["outputs"]["result"] == {"rows": [[1]], "values": ["B"], "skipped": [[0]]}
+    assert wire["split"]["outputs"]["result"] == {"rows": [[]], "values": [["a", "b"]], "skipped": []}
 
 
 def test_a_value_with_no_json_form_raises_naming_the_field():
     class Opaque(DType):
         id = "codec-test-opaque"
-        title = "Opaque"
+        display_title = "Opaque"
 
         def __init__(self, handle: object) -> None:
             self.handle = handle
 
-    class Opens(NodeDefinition):
-        id = "opens"
-        title = "Opens"
-        description = "d"
-        category = "test"
+    @node("opens", title="Opens", description="d", category="test")
+    def opens(text: Annotated[Txt, Param(title="In", widget=Textarea())] = Txt("")) -> Annotated[Opaque, Result(title="Handle")]:
+        return Opaque(object())
 
-        def run(self, text: Annotated[Txt, Param(title="In", widget=Textarea())] = Txt("")) -> Annotated[Opaque, Result(title="Handle")]:
-            return Opaque(object())
+    compiled = _compiled(opens, nodes=[GraphNode(id="o", type="opens", version=1, bindings={"text": Static("x")})])
+    ledger = RunLedger(compiled)
+    ledger.record(("o", ()), {"result": Opaque(object())})
 
-    compiled = _compiled(Opens, nodes=[GraphNode(id="o", type="opens", version=1, bindings={"text": Static("x")})])
-    ledger = Ledger(compiled)
-    ledger.record(("o", None), {"result": Opaque(object())})
-
-    with pytest.raises(TypeError, match=r"o\.result"):
-        ledger.state()
+    with pytest.raises(Exception, match=r"o\.result"):
+        ledger.state("complete").model_dump_json()

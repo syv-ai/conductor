@@ -3,32 +3,36 @@
 import dataclasses
 
 import pytest
-from conductor.dtype import DType
-from conductor.errors import ErrorCause
-from conductor.execution.ledger import Skip
-from conductor.graph.binding import From, Static
-from conductor.graph.compiled import CompiledField, CompiledGraph, CompiledNode
-from conductor.graph.model import FieldContent, Graph, GraphNode
-from conductor.graph.problem import Problem
-from conductor.interface import Interface
-from conductor.metadata import Field, Input, Output, Param, Result
-from conductor.model import ConductorModel
-from conductor.node import (
+from conductor import (
+    CompiledGraph,
     Deprecation,
-    GraphVersion,
+    DType,
+    FieldContent,
+    From,
+    Graph,
+    GraphNode,
+    Input,
+    Interface,
     NodeDescription,
-    NodeVersion,
+    Output,
+    Param,
     Policy,
-    VersionDescription,
+    Problem,
+    Result,
+    Static,
 )
-from conductor.series import Index
-from conductor.widgets import Choice, Dropdown, OperatorChoice, SchemaBuilder, Textarea, Widget
+from conductor._internal.conductor_model import ConductorModel
+from conductor._internal.execution.run_ledger import SkippedAtRow
+from conductor._internal.graph.compiled_node import CompiledField, CompiledNode
+from conductor._internal.index import Index
+from conductor._internal.node_definition import NodeVersion, VersionDescription
+from conductor.widgets import Choice, Dropdown, Textarea, Widget
 from pydantic import ValidationError
 
 
 class Txt(DType, str):
     id = "model-test-txt"
-    title = "Text"
+    display_title = "Text"
 
 
 def _graph() -> Graph:
@@ -86,11 +90,9 @@ def test_a_node_without_a_type_is_refused():
         Graph.model_validate({"nodes": [{"id": "a", "version": 1}]})
 
 
-def test_a_node_id_with_a_dot_is_refused_however_the_node_is_built():
-    with pytest.raises(ValueError, match="contains '.'"):
-        GraphNode(id="a.b", type="echo", version=1)
-    with pytest.raises(ValueError, match="contains '.'"):
-        Graph.from_yaml("nodes:\n- {id: a.b, type: echo, version: 1}\n")
+def test_a_node_id_with_a_dot_reads_back_and_is_for_compile_to_refuse():
+    assert GraphNode(id="a.b", type="echo", version=1).id == "a.b"
+    assert Graph.from_yaml("nodes:\n- {id: a.b, type: echo, version: 1}\n").nodes[0].id == "a.b"
 
 
 def test_an_index_is_its_id_whatever_its_parent():
@@ -103,25 +105,14 @@ def test_an_index_is_its_id_whatever_its_parent():
     assert Index("lines", parent=docs).model_dump() == {"id": "lines", "parent": {"id": "docs", "parent": None}}
 
 
-def test_a_schema_builder_keeps_its_schema_key_on_the_wire():
-    """``schema`` is also a pydantic method name, so the attribute is ``schema_`` and the wire and keyword say ``schema``."""
-    builder = SchemaBuilder(schema={"type": "object"})
-
-    assert builder.schema_ == {"type": "object"}
-    assert builder.model_dump()["schema"] == {"type": "object"}
-    assert SchemaBuilder.model_validate({"schema": {"a": 1}}).schema_ == {"a": 1}
-
-
 READ_BACK = (
     FieldContent(title="X", description="x"),
     From("a.result", "b.result"),
     Static({"rows": [1, 2]}),
-    Problem(code="cycle", message="m", fatal=True, node_id="a", field="x", details={"path": ["a", "b"]}),
-    ErrorCause(code="timeout", message="m", details={"seconds": 3}, row=(0, 2)),
+    Problem(type="cycle", msg="m", loc=("a", "x"), ctx={"path": ["a", "b"]}),
     Deprecation(header="Gone", alternative="echo"),
-    Policy(retries=2, delay=0.5, timeout=3.0, concurrency=1),
-    Choice(id="en", title="English", element={"id": "text"}),
-    OperatorChoice(id="contains", title="indeholder", category="text", arity=2),
+    Policy(retries=2, retry_delay=0.5, attempt_timeout=3.0, concurrency=1),
+    Choice(id="en", title="English"),
     Index("lines", parent=Index("docs")),
     Textarea(rows=2),
 )
@@ -138,22 +129,22 @@ def test_a_description_does_not_read_back_as_a_type():
     description, and the class the signature holds is not rebuilt from it —
     a description in the type's place is refused, never carried as a dict.
     The widget reads back as written."""
-    text = Input(name="text", dtype=Txt, title="Text", widget=Textarea())
+    text = Input("text", Txt, title="Text", widget=Textarea())
     dumped = text.model_dump(mode="json")
 
     assert dumped["dtype"] == Txt.describe()
     assert "title" not in dumped["widget"]
     assert Textarea.model_validate(dumped["widget"]) == Textarea()
-    with pytest.raises(ValidationError, match="dtype"):
+    with pytest.raises(TypeError):
         Input.model_validate(dumped)
 
 
 SAVED = (
-    Graph, GraphNode, FieldContent, From, Static, Problem, ErrorCause,
+    Graph, GraphNode, FieldContent, From, Static, Problem,
     Deprecation, Policy, VersionDescription, NodeDescription,
-    Field, Param, Result, Input, Output, Widget, Textarea, Dropdown, Choice, OperatorChoice, Index,
+    Param, Result, Input, Output, Widget, Textarea, Dropdown, Choice, Index,
 )
-BUILT_PER_CALL = (CompiledGraph, CompiledNode, CompiledField, NodeVersion, GraphVersion, Interface, Skip)
+BUILT_PER_CALL = (CompiledGraph, CompiledNode, CompiledField, NodeVersion, Interface, SkippedAtRow)
 
 
 @pytest.mark.parametrize("record", SAVED, ids=lambda r: r.__name__)

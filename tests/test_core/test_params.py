@@ -6,7 +6,7 @@ on the ``Param`` inside ``Annotated``, and becomes the ``Input`` the node
 carries. The widget is the control and nothing else: it has no title of
 its own, and a bare widget in ``Annotated`` is refused when the class is
 defined. ``Param(title=...)`` with no widget is an input only an edge can
-fill. ``Asks()`` with no questions asks for the node's declared outputs,
+fill. ``AskPerson()`` with no questions asks for the node's declared outputs,
 and a per-row node's answer may be a plain list.
 """
 
@@ -14,27 +14,35 @@ import asyncio
 from typing import Annotated, Any
 
 import pytest
-from conductor import SKIPPED, Asks, CompiledGraph, GraphNode, NodeRegistry
-from conductor.dtype import DType
-from conductor.execution.engine import execute
-from conductor.graph.binding import From, Static
-from conductor.graph.model import Graph
-from conductor.interface import Interface
-from conductor.metadata import Input, Param, Result
-from conductor.node import NodeDefinition
-from conductor.ref import Ref
-from conductor.series import Index, Series
+from conductor import (
+    SKIPPED,
+    AskPerson,
+    CompiledGraph,
+    DType,
+    From,
+    Graph,
+    GraphNode,
+    Input,
+    NodeRegistry,
+    Param,
+    Result,
+    Series,
+    Static,
+    node,
+)
+from conductor._internal.node_signature import read_signature
 from conductor.widgets import NumberWidget, Textarea
+from helpers import stream_of
 
 
 class Txt(DType, str):
     id = "params-test-text"
-    title = "Text"
+    display_title = "Text"
 
 
 class Num(DType, float):
     id = "params-test-number"
-    title = "Number"
+    display_title = "Number"
 
 
 Out = Annotated[Txt, Result(title="Answer")]
@@ -44,122 +52,102 @@ Out = Annotated[Txt, Result(title="Answer")]
 
 
 def test_a_param_with_a_widget_describes_with_one_title():
-    def run(self, a: Annotated[Num, Param(title="A", description="The first", widget=NumberWidget(min_val=0))]) -> Out: ...
+    def run(a: Annotated[Num, Param(title="A", description="The first", widget=NumberWidget(step=2.0))]) -> Out: ...
 
-    (a,) = Interface.of(run).inputs
+    (a,) = read_signature(run).interface.inputs
     dumped = a.model_dump(mode="json")
 
-    assert (a.title, a.description, a.show_handle) == ("A", "The first", True)
-    assert a.widget == NumberWidget(min_val=0)
+    assert (a.title, a.description, a.connectable) == ("A", "The first", True)
+    assert a.widget == NumberWidget(step=2.0)
     assert dumped["title"] == "A"
-    assert dumped["widget"] == {"kind": "number", "min_val": 0.0, "max_val": None, "step": None, "integer_only": False}
+    assert dumped["widget"] == {"kind": "number", "step": 2.0, "integer_only": False}
     assert "title" not in dumped["widget"]
 
 
 def test_a_bare_widget_in_annotated_is_refused_naming_param():
-    def run(self, a: Annotated[Num, NumberWidget()]) -> Out: ...
+    def run(a: Annotated[Num, NumberWidget()]) -> Out: ...
 
-    with pytest.raises(TypeError, match=r"Param\(title=.*widget=") as refused:
-        Interface.of(run)
-    assert "'a'" in str(refused.value)
+    with pytest.raises(TypeError, match=r"Param\(title=.*widget=") as raised:
+        read_signature(run).interface
+    assert "'a'" in str(raised.value)
 
 
 def test_a_param_with_a_title_alone_is_a_connection_only_input():
     param = Param(title="B")
-    assert param.widget is None and param.show_handle is True
+    assert param.widget is None and param.connectable is True
 
-    def run(self, b: Annotated[Series[Txt], Param(title="B")]) -> Out: ...
+    def run(b: Annotated[Series[Txt], Param(title="B")]) -> Out: ...
 
-    (b,) = Interface.of(run).inputs
-    assert b.widget is None and b.show_handle is True and b.title == "B"
+    (b,) = read_signature(run).interface.inputs
+    assert b.widget is None and b.connectable is True and b.title == "B"
 
 
 def test_a_result_on_a_parameter_and_a_param_on_the_return_are_refused():
-    def swapped(self, a: Annotated[Num, Result(title="A")]) -> Out: ...
+    def swapped(a: Annotated[Num, Result(title="A")]) -> Out: ...
 
     with pytest.raises(TypeError, match="carries a Result"):
-        Interface.of(swapped)
+        read_signature(swapped).interface
 
-    def returned(self, a: Annotated[Num, Param(title="A")]) -> Annotated[Txt, Param(title="X"), Result(title="Y")]: ...
+    def returned(a: Annotated[Num, Param(title="A")]) -> Annotated[Txt, Param(title="X"), Result(title="Y")]: ...
 
     with pytest.raises(TypeError, match="carries a Param"):
-        Interface.of(returned)
+        read_signature(returned).interface
 
 
 def test_a_parameter_without_a_param_is_titled_by_its_name():
-    def run(self, texts: Series[Txt]) -> Out: ...
+    def run(texts: Series[Txt]) -> Out: ...
 
-    (texts,) = Interface.of(run).inputs
-    assert (texts.title, texts.widget, texts.show_handle) == ("texts", None, True)
+    (texts,) = read_signature(run).interface.inputs
+    assert (texts.title, texts.widget, texts.connectable) == ("Texts", None, True)
 
 
-def test_show_handle_false_closes_the_input_and_admits_a_static_type():
-    def run(self, tags: Annotated[list[str], Param(title="Tags", show_handle=False, widget=Textarea())] = []) -> Out: ...
+def test_connectable_false_closes_the_input_and_admits_a_static_type():
+    def run(tags: Annotated[list[str], Param(title="Tags", connectable=False, widget=Textarea())] = []) -> Out: ...
 
-    (tags,) = Interface.of(run).inputs
-    assert tags.show_handle is False and tags.dtype == list[str]
+    (tags,) = read_signature(run).interface.inputs
+    assert tags.connectable is False and tags.dtype.wrapped_type == list[str]
 
 
 def test_an_inputs_widget_reads_back_its_dump():
     """The widget carries nothing that is left out of its dump, so what an
     editor was sent reads back whole. The type does not: the class lives on
     the signature, and its description is not a type."""
-    text = Input(name="text", dtype=Txt, title="Text", widget=Textarea(rows=2))
+    text = Input("text", Txt, title="Text", widget=Textarea(rows=2))
     dumped = text.model_dump(mode="json")
 
-    assert (dumped["name"], dumped["title"], dumped["show_handle"]) == ("text", "Text", True)
+    assert (dumped["name"], dumped["title"], dumped["connectable"]) == ("text", "Text", True)
     assert Textarea.model_validate(dumped["widget"]) == Textarea(rows=2)
     assert dumped["dtype"] == Txt.describe()
 
 
-# -- Asks() asks the declared outputs ---------------------------------------------------
+# -- AskPerson() asks the declared outputs ---------------------------------------------------
 
 
-class AskEach(NodeDefinition):
-    """Asks a person about every row, with no questions of its own."""
-
-    id = "ask-each"
-    title = "Ask each"
-    description = "d"
-    category = "test"
-
-    def run(self, proposal: Annotated[Txt, Param(title="Proposal", widget=Textarea())] = Txt("")) -> Out | Asks:
-        return Asks()
+@node("ask-each", title="Ask each", description="d", category="test")
+def ask_each(proposal: Annotated[Txt, Param(title="Proposal", widget=Textarea())] = Txt("")) -> Out | AskPerson:
+    """AskPerson a person about every row, with no questions of its own."""
+    return AskPerson()
 
 
-class SkipShort(NodeDefinition):
+@node("skip-short", title="Skip short", description="d", category="test")
+def skip_short(text: Annotated[Txt, Param(title="Text")]) -> Out:
     """Passes a text on, skipping one shorter than two characters."""
-
-    id = "skip-short"
-    title = "Skip short"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text")]) -> Out:
-        return SKIPPED if len(text) < 2 else text
+    return SKIPPED if len(text) < 2 else text
 
 
-class Docs(NodeDefinition):
-    id = "docs"
-    title = "Docs"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Docs")]:
-        return [Txt(part) for part in text.split(",")]
+@node("docs", title="Docs", description="d", category="test")
+def docs(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Docs")]:
+    return [Txt(part) for part in text.split(",")]
 
 
 def _registry() -> NodeRegistry:
-    reg = NodeRegistry()
-    reg.register(Docs)
-    reg.register(SkipShort)
-    reg.register(AskEach)
+    reg = NodeRegistry([docs, skip_short, ask_each])
     return reg
 
 
 def _leg(compiled: CompiledGraph, **kw: Any) -> list[dict]:
     async def run() -> list[dict]:
-        return [event async for event in execute(compiled, **kw)]
+        return [event async for event in stream_of(compiled, **kw)]
 
     return asyncio.run(run())
 
@@ -185,31 +173,30 @@ def _asking_per_row(text: str) -> CompiledGraph:
     return compiled
 
 
-def test_asks_with_no_questions_asks_the_declared_outputs():
-    ending = _leg(_asking_once())[-1]
+def test_a_node_that_asks_is_asked_its_declared_outputs():
+    ending = _leg(_asking_once())[-1].state
 
-    assert ending.type == "graph_pending"
-    (pending,) = ending.pending
+    assert ending.status == "waiting"
+    (pending,) = ending.waiting
     (question,) = pending.questions
-    assert question == Input(name=Ref("ask", "result"), dtype=Txt, title="Answer")
+    assert (question.name, question.title, question.dtype) == ("result", "Answer", Txt.describe())
     assert question.widget is None
 
 
-def test_a_list_answers_a_per_row_node():
+def test_each_row_of_a_per_row_node_is_answered_by_its_own_id():
     compiled = _asking_per_row("a,b,c")
-    first = _leg(compiled)[-1]
-    assert [w.row for w in first.pending] == [(0,), (1,), (2,)]
+    first = _leg(compiled)[-1].state
+    assert [w.row for w in first.waiting] == [(0,), (1,), (2,)]
 
-    second = _leg(compiled, state=first.state, cache={"ask": {"result": ["x", "y", "z"]}})
+    second = _leg(compiled, state=first, answers={"ask@0": {"result": "x"}, "ask@1": {"result": "y"}, "ask@2": {"result": "z"}})
 
-    assert second[-1].type == "graph_complete"
-    assert list(second[-1].state.results(compiled)["ask"]["result"]) == ["x", "y", "z"]
-    assert second[-1].state.results(compiled)["ask"]["result"] == Series(Index("docs"), [Txt("x"), Txt("y"), Txt("z")], rows=[(0,), (1,), (2,)])
+    assert second[-1].state.status == "complete"
+    assert compiled.results(second[-1].state)["ask"]["result"]["values"] == ["x", "y", "z"]
+    assert compiled.results(second[-1].state)["ask"]["result"]["rows"] == [(0,), (1,), (2,)]
 
 
-def test_a_list_answers_the_rows_still_open_and_leaves_a_skipped_row_alone():
-    """Row 1 was skipped upstream, so the asking node never asked about it;
-    a list answers the two rows that are open, in order."""
+def test_a_row_skipped_upstream_never_asks():
+    """Row 1 was skipped upstream, so the asking node never asked about it."""
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="docs", type="docs", version=1, bindings={"text": Static("aa,b,cc")}),
@@ -219,18 +206,11 @@ def test_a_list_answers_the_rows_still_open_and_leaves_a_skipped_row_alone():
         _registry(),
     )
     assert compiled.is_runnable, compiled.problems
-    first = _leg(compiled)[-1]
-    assert [w.row for w in first.pending] == [(0,), (2,)]
+    first = _leg(compiled)[-1].state
+    assert [w.row for w in first.waiting] == [(0,), (2,)]
 
-    second = _leg(compiled, state=first.state, cache={"ask": {"result": ["x", "z"]}})
+    second = _leg(compiled, state=first, answers={"ask@0": {"result": "x"}, "ask@2": {"result": "z"}})
 
-    assert second[-1].type == "graph_complete"
-    assert second[-1].state.results(compiled)["ask"]["result"] == Series(Index("docs"), [Txt("x"), Txt("z")], rows=[(0,), (2,)])
-
-
-def test_a_list_of_the_wrong_length_is_refused_naming_node_and_output():
-    compiled = _asking_per_row("a,b,c")
-    first = _leg(compiled)[-1]
-
-    with pytest.raises(ValueError, match=r"'ask'.*'result'.*3 rows still open"):
-        _leg(compiled, state=first.state, cache={"ask": {"result": ["x", "y"]}})
+    assert second[-1].state.status == "complete"
+    answered = compiled.results(second[-1].state)["ask"]["result"]
+    assert answered == {"rows": [(0,), (2,)], "values": ["x", "z"]}

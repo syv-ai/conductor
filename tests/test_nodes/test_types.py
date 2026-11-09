@@ -1,37 +1,19 @@
-"""The four types the catalog is declared with."""
+"""What the catalog is declared with: plain types, and one of its own."""
+
+from datetime import date
 
 import conductor_nodes
-from conductor.dtype import DType
-from conductor_nodes.types import Flag, Json, Number, Text
+from conductor import DType
+from conductor_nodes.types import Json
 from pydantic import BaseModel
 
 
-def test_the_vocabulary_is_four_dtypes():
-    """Each is declared by some node, so a registry of the standard nodes holds all four."""
+def test_the_vocabulary_is_the_plain_types_and_json():
+    """Each is declared by some node, so a registry of the standard nodes holds it."""
     vocabulary = conductor_nodes.registry().types
-    for dtype, dtype_id, title in (
-        (Text, "text", "Text"),
-        (Number, "number", "Number"),
-        (Flag, "flag", "Flag"),
-        (Json, "json", "JSON"),
-    ):
-        assert issubclass(dtype, DType)
-        assert dtype.id == dtype_id
-        assert dtype.title == title
-        assert vocabulary[dtype_id] is dtype
-
-
-def test_text_and_number_are_their_builtins():
-    assert isinstance(Text("a"), str)
-    assert isinstance(Number(2.5), float)
-    assert Number("3") == 3.0
-
-
-def test_a_flag_is_a_boolean_built_on_int():
-    """``bool`` cannot be subclassed; ``int`` can, and a ``bool`` is an ``int``."""
-    assert bool(Flag(True)) is True
-    assert bool(Flag(0)) is False
-    assert Flag(True) == Flag(1)
+    assert {"str", "float", "bool", "json"} <= vocabulary.keys()
+    assert issubclass(vocabulary["str"], DType) and vocabulary["str"].wrapped_type is str
+    assert vocabulary["json"] is Json
 
 
 def test_json_wraps_any_json_value():
@@ -40,16 +22,9 @@ def test_json_wraps_any_json_value():
     assert Json([1]) == Json([1])
 
 
-def test_pydantic_validates_each_into_the_dtype():
+def test_pydantic_validates_json_into_the_dtype():
     class M(BaseModel):
-        t: Text
-        n: Number
-        f: Flag
         j: Json
+        when: date
 
-    v = M(t="hi", n="3.5", f=False, j={"k": 1})
-
-    assert isinstance(v.t, Text)
-    assert isinstance(v.n, Number) and v.n == 3.5
-    assert isinstance(v.f, Flag) and bool(v.f) is False
-    assert isinstance(v.j, Json) and v.j.value == {"k": 1}
+    assert M(j={"k": 1}, when=date(2026, 1, 1)).j == Json({"k": 1})

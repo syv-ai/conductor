@@ -1,22 +1,30 @@
 import dataclasses
 import inspect
-from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Annotated
 
 import pytest
-from conductor import NodeRegistry, run_sync
-from conductor._sentinel import SKIPPED
-from conductor.dtype import DType
-from conductor.graph.binding import From, Static, static_values
-from conductor.graph.compiled import CompiledGraph
-from conductor.graph.model import FieldContent, Graph, GraphNode
-from conductor.graph.topology import dependencies_of
-from conductor.graph.views import derive_interface, is_input_node, lock_problems
-from conductor.interface import FromRun, Interface
-from conductor.metadata import Output, Param, Result
-from conductor.node import NodeDefinition
-from conductor.ref import Ref
+from conductor import (
+    SKIPPED,
+    CompiledGraph,
+    DType,
+    FieldContent,
+    From,
+    FromRun,
+    Graph,
+    GraphNode,
+    Interface,
+    NodeRegistry,
+    Output,
+    Param,
+    Ref,
+    Result,
+    Static,
+    dependencies_of,
+    node,
+)
+from conductor._internal.graph.binding import static_values
+from conductor._internal.graph.graph_interface import derive_interface
 from conductor.widgets import Textarea
 from pydantic import TypeAdapter
 
@@ -52,16 +60,17 @@ def test_static_values_extracts_only_static_bindings():
 def test_bindings_are_frozen():
     with pytest.raises(Exception):
         Static(1).value = 2
-def test_a_placement_id_contains_no_dot():
-    """A Ref reads as 'node.field' everywhere it is spelled — an index
-    name, a caller's payload key — so an id with a '.' is refused."""
-    with pytest.raises(ValueError, match="contains '.'"):
-        GraphNode(id="a.b", type="upper", version=1)
+def test_a_node_id_with_a_dot_or_a_slash_is_a_problem_on_the_graph():
+    """A Ref reads as 'node.field', so '.' can't be in an id; '/' is an inner node's path. Both are the one refusal, on the stored graph."""
+    for bad in ("a.b", "a/b"):
+        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id=bad, type="upper", version=1)]), _registry())
+        assert [(p.type, p.loc) for p in compiled.problems] == [("invalid_node_id", (bad,))]
+        assert compiled.node(bad).interface is None
 
 
 def test_a_slash_is_the_namespace_separator():
-    """The compiler inlines an embedded graph under its placement's name —
-    `approve/check` — so `/` is legal in an id and a Ref still reads one way:
+    """Compile puts an embedded graph's nodes under the graph node's name
+    — `approve/check` — so `/` is legal in an id and a Ref still reads one way:
     the split is at the first dot, and there is none in the namespace."""
     inner = GraphNode(id="approve/check", type="upper", version=1)
 
@@ -71,7 +80,7 @@ def test_a_slash_is_the_namespace_separator():
 
 
 def test_a_node_stores_bindings_and_derives_data():
-    node = GraphNode(
+    graph_node = GraphNode(
         id="n1",
         type="translate",
         version=1,
@@ -80,7 +89,7 @@ def test_a_node_stores_bindings_and_derives_data():
             "source": From("n0.result"),
         },
     )
-    assert node.data == {"text": "hi"}
+    assert static_values(graph_node.bindings) == {"text": "hi"}
 
 
 def test_a_node_is_behaviour_content_and_chrome():
@@ -97,9 +106,9 @@ def test_a_graph_is_nodes_and_display():
 
 
 def test_chrome_is_opaque():
-    node = GraphNode(id="n", type="t", version=1, display={"x": 10, "y": 20, "anything": [1]})
+    graph_node = GraphNode(id="n", type="t", version=1, display={"x": 10, "y": 20, "anything": [1]})
 
-    assert node.display == {"x": 10, "y": 20, "anything": [1]}
+    assert graph_node.display == {"x": 10, "y": 20, "anything": [1]}
 
 
 def test_the_record_is_the_schema():
@@ -164,75 +173,52 @@ def test_two_edges_from_the_same_node_are_one_dependency():
 
 class Txt(DType, str):
     id = "bindings-test-txt"
-    title = "Text"
+    display_title = "Text"
 
 
 class Clock:
     """Something the run supplies, not the graph (`FromRun`)."""
 
 
-class TextInput(NodeDefinition):
+@node("text-input", title="Text", description="A value the caller supplies", category="test")
+def text_input(value: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")
+) -> Annotated[Txt, Result(title="Text")]:
     """An ordinary node. Nothing marks it as one the graph exposes."""
-
-    id = "text-input"
-    title = "Text"
-    description = "A value the caller supplies"
-    category = "test"
-
-    def run(
-        self, value: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")
-    ) -> Annotated[Txt, Result(title="Text")]:
-        return value
+    return value
 
 
-class Summarise(NodeDefinition):
-    id = "summarise"
-    title = "Opsummering"
-    description = "An ordinary node — neither end of what the graph exposes"
-    category = "test"
-
-    def run(
-        self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")
-    ) -> Annotated[Txt, Result(title="Result")]:
-        return text
+@node("summarise", title="Opsummering", description="An ordinary node — neither end of what the graph exposes", category="test")
+def summarise(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")
+) -> Annotated[Txt, Result(title="Result")]:
+    return text
 
 
-class Stamped(NodeDefinition):
+@node("stamped", title="Stemplet", description="d", category="test")
+def stamped(
+    clock: FromRun[Clock],
+    text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt(""),
+) -> Annotated[Txt, Result(title="Result")]:
     """A node with a need: the run must provide a `Clock`."""
-
-    id = "stamped"
-    title = "Stemplet"
-    description = "d"
-    category = "test"
-
-    def run(
-        self,
-        clock: Annotated[Clock, FromRun()],
-        text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt(""),
-    ) -> Annotated[Txt, Result(title="Result")]:
-        return text
+    return text
 
 
 def _registry():
-    reg = NodeRegistry()
-    reg.register(TextInput)
-    reg.register(Summarise)
-    reg.register(Stamped)
+    reg = NodeRegistry([text_input, summarise, stamped])
     return reg
 
 
 def _resolved(graph, registry=None):
-    """What the compiler hands `derive_interface`: each placement's
+    """What the compiler hands `derive_interface`: each node's
     computed interface, and the version its pin resolved to. Here it
     is the declaration read through the pin — none of these nodes shapes
     itself."""
     registry = registry or _registry()
     interfaces = {}
     versions = {}
-    for node in graph.nodes:
-        version = registry[node.type].versions[node.version]
-        versions[node.id] = version
-        interfaces[node.id] = version.interface
+    for graph_node in graph.nodes:
+        version = registry[graph_node.type].versions[graph_node.version]
+        versions[graph_node.id] = version
+        interfaces[graph_node.id] = version.interface
     return interfaces, versions
 
 
@@ -267,8 +253,7 @@ def _interface(graph, registry=None):
 
 
 def _locks(graph, registry=None):
-    interfaces, _ = _resolved(graph, registry)
-    return lock_problems({n.id: n for n in graph.nodes}, interfaces)
+    return tuple(p for p in CompiledGraph.from_graph(graph, registry or _registry()).problems if p.type == "unknown_locked_field")
 
 
 def test_the_interface_is_derived_node_level():
@@ -287,8 +272,7 @@ def test_the_interface_is_the_record_a_node_version_declares():
     interface = _interface(_graph())
 
     assert isinstance(interface, Interface)
-    assert interface.returns is Mapping
-    assert interface.needs == {}
+    assert interface.needs == frozenset()
 
 
 def test_a_graph_level_name_is_the_address_a_ref_spells():
@@ -301,7 +285,7 @@ def test_a_graph_level_name_is_the_address_a_ref_spells():
     assert interface.outputs[1].name == Ref("summary", "result")
 
 
-def test_needs_is_the_union_of_the_placements_needs():
+def test_needs_is_the_union_of_the_nodes_needs():
     """What a run must provide to the graph is what its nodes need, by name."""
     graph = Graph(nodes=[
         GraphNode(id="a", type="stamped", version=1),
@@ -309,11 +293,11 @@ def test_needs_is_the_union_of_the_placements_needs():
         GraphNode(id="c", type="text-input", version=1),
     ])
 
-    assert _interface(graph).needs == {"clock": Clock}
+    assert _interface(graph).needs == {Clock}
 
 
-def test_a_field_reports_the_title_its_placement_carries():
-    """The placement's title is the title. Nothing else changes: the
+def test_a_field_reports_the_title_its_node_carries():
+    """The node's title is the title. Nothing else changes: the
     declaration comes through whole, under its address."""
     interface = _interface(_graph())
 
@@ -332,8 +316,8 @@ def test_an_output_reports_the_title_its_placement_carries():
 
 def test_a_nodes_computed_interface_is_the_same_record_its_version_declares():
     """One record at every scale: a version declares an ``Interface``, compile
-    computes one per placed node, and derives one for the graph."""
-    from conductor.interface import Interface
+    computes one per node in the graph, and derives one for the graph."""
+    from conductor import Interface
 
     interfaces, _ = _resolved(_graph())
     assert all(isinstance(i, Interface) for i in interfaces.values())
@@ -346,16 +330,9 @@ def test_nodes_order_decides_the_order():
     assert [i.name for i in _interface(reordered).inputs] == ["language.value", "application.value"]
 
 
-def test_is_input_node_is_the_one_home_of_the_predicate():
-    """A Static does not disqualify a placement; any From does."""
-    graph = _graph()
-    assert is_input_node(graph.nodes[0]) and is_input_node(graph.nodes[1])
-    assert not is_input_node(graph.nodes[2])
-
-
 def test_an_edge_into_any_field_makes_the_whole_node_static():
     """The rule is node-level: one edge in, and every other field of the
-    placement is author config — not offered, not fillable."""
+    node is author config — not offered, not fillable."""
     graph = _graph(language_bindings={"value": From("application.result")})
 
     assert [i.name for i in _interface(graph).inputs] == ["application.value"]
@@ -379,19 +356,13 @@ def test_a_field_with_no_handle_is_never_an_input():
     """A field with no handle has no way in, for an edge or a caller.
     No lock is needed to say so; the field is simply not on the surface."""
 
-    class Script(NodeDefinition):
-        id = "script"
-        title = "Python"
-        description = "d"
-        category = "test"
-
-        def run(
-            self, code: Annotated[Txt, Param(title="Kode", show_handle=False, widget=Textarea())] = Txt("")
-        ) -> Annotated[Txt, Result(title="Result")]:
-            return code
+    @node("script", title="Python", description="d", category="test")
+    def script(code: Annotated[Txt, Param(title="Kode", connectable=False, widget=Textarea())] = Txt("")
+    ) -> Annotated[Txt, Result(title="Result")]:
+        return code
 
     reg = _registry()
-    reg.register(Script)
+    reg = reg.extended_with([script])
     graph = Graph(
         nodes=[GraphNode(id="s", type="script", version=1, title="Python",
                          fields={"code": FieldContent(title="Kode"), "result": FieldContent(title="Result")})],
@@ -410,39 +381,39 @@ def test_a_locked_name_the_node_does_not_declare_is_a_problem():
     without it."""
     graph = _graph(application_locked=("ghost",))
 
-    assert [(p.code, p.node_id, p.fatal) for p in _locks(graph)] == [("unknown_locked_field", "application", False)]
+    assert [(p.type, p.loc[0], p.fatal) for p in _locks(graph)] == [("unknown_locked_field", "application", False)]
     assert [i.name for i in _interface(graph).inputs] == ["application.value", "language.value"]
 
 
-def test_a_stale_lock_reports_on_a_connected_placement_too():
-    """A dormant lock stays out of the derivation — a connected placement
+def test_a_stale_lock_reports_on_a_connected_node_too():
+    """A dormant lock stays out of the derivation — a connected node
     contributes no inputs — but a stale one is repairable wherever it
     sits, so it reports there as it would anywhere."""
     graph = _graph(language_bindings={"value": From("application.result")})
     graph = Graph(nodes=[
-        node.model_copy(update={"locked": ("ghost",)}) if node.id == "language" else node
-        for node in graph.nodes
+        graph_node.model_copy(update={"locked": ("ghost",)}) if graph_node.id == "language" else graph_node
+        for graph_node in graph.nodes
     ])
 
-    assert [(p.code, p.node_id, p.fatal) for p in _locks(graph)] == [("unknown_locked_field", "language", False)]
+    assert [(p.type, p.loc[0], p.fatal) for p in _locks(graph)] == [("unknown_locked_field", "language", False)]
     assert [i.name for i in _interface(graph).inputs] == ["application.value"]
 
 
 def test_a_column_a_node_computed_is_derivable():
     """The interface is what the node answers, and a column on no
     declaration is as real a field of the surface as one it declared."""
-    # `GraphNode.fields` is a `Mapping`, so the placement is *built* with the
+    # `GraphNode.fields` is a `Mapping`, so the node is *built* with the
     # authored entry.
     graph = _graph()
     graph = Graph(nodes=[
-        node.model_copy(update={"fields": {**node.fields, "name": FieldContent(title="Name")}})
-        if node.id == "summary" else node
-        for node in graph.nodes
+        graph_node.model_copy(update={"fields": {**graph_node.fields, "name": FieldContent(title="Name")}})
+        if graph_node.id == "summary" else graph_node
+        for graph_node in graph.nodes
     ])
     interfaces, versions = _resolved(graph)
     declared = interfaces["summary"]
     interfaces["summary"] = dataclasses.replace(
-        declared, outputs=(*declared.outputs, Output(name="name", dtype=Txt, title="Name")),
+        declared, outputs=(*declared.outputs, Output("name", Txt, title="Name")),
     )
 
     interface = derive_interface(graph, interfaces, dependencies_of(graph.nodes))
@@ -450,8 +421,8 @@ def test_a_column_a_node_computed_is_derivable():
     assert [o.name for o in interface.outputs] == ["language.result", "summary.result", "summary.name"]
 
 
-def test_a_field_on_a_placement_compile_could_not_resolve_contributes_nothing():
-    """The placement carries its own fatal problem; a second one
+def test_a_field_on_a_node_compile_could_not_resolve_contributes_nothing():
+    """The node carries its own fatal problem; a second one
     on the field would anchor the same fact twice. A pin that resolved to
     nothing is in neither map."""
     graph = _graph()
@@ -476,17 +447,11 @@ def test_an_unauthored_field_reads_the_declarations_title():
 
 
 def _echo_registry():
-    class Echo(NodeDefinition):
-        id = "echo"
-        title = "Echo"
-        description = "d"
-        category = "test"
+    @node("echo", title="Echo", description="d", category="test")
+    def echo(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="Result")]:
+        return Txt(x.upper())
 
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="Result")]:
-            return Txt(x.upper())
-
-    registry = NodeRegistry()
-    registry.register(Echo)
+    registry = NodeRegistry([echo])
     return registry
 
 
@@ -498,7 +463,7 @@ def test_a_graph_of_bindings_compiles_and_runs():
         ],
     )
     compiled = CompiledGraph.from_graph(graph=graph, registry=_echo_registry())
-    results = run_sync(compiled).state.results(compiled)
+    results = compiled.results(compiled.run_sync())
 
     assert results["a"]["result"] == "HI"
     assert results["b"]["result"] == "HI"
@@ -510,7 +475,7 @@ def test_an_unbound_input_falls_back_to_its_declared_default():
 
     compiled = CompiledGraph.from_graph(graph=graph, registry=_echo_registry())
 
-    assert run_sync(compiled).state.results(compiled)["a"]["result"] == ""
+    assert compiled.results(compiled.run_sync())["a"]["result"] == ""
 
 
 def test_a_branch_not_taken_is_skipped_downstream():
@@ -518,22 +483,16 @@ def test_a_branch_not_taken_is_skipped_downstream():
 
     @dataclass(frozen=True)
     class Answer:
-        yes: Annotated[Txt, Result(title="Yes", choice="answer")]
-        no: Annotated[Txt, Result(title="No", choice="answer")]
+        yes: Annotated[Txt, Result(title="Yes", exclusive_group="answer")]
+        no: Annotated[Txt, Result(title="No", exclusive_group="answer")]
 
-    class Gate(NodeDefinition):
-        id = "gate"
-        title = "Gate"
-        description = "d"
-        category = "test"
-
-        def run(
-            self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")
-        ) -> Answer:
-            return Answer(yes=x, no=SKIPPED) if x else Answer(yes=SKIPPED, no=x)
+    @node("gate", title="Gate", description="d", category="test")
+    def gate(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")
+    ) -> Answer:
+        return Answer(yes=x, no=SKIPPED) if x else Answer(yes=SKIPPED, no=x)
 
     registry = _echo_registry()
-    registry.register(Gate)
+    registry = registry.extended_with([gate])
     graph = Graph(
         nodes=[
             GraphNode(id="g", type="gate", version=1, bindings={"x": Static("hi")}),
@@ -542,7 +501,7 @@ def test_a_branch_not_taken_is_skipped_downstream():
         ],
     )
     compiled = CompiledGraph.from_graph(graph=graph, registry=registry)
-    results = run_sync(compiled).state.results(compiled)
+    results = compiled.results(compiled.run_sync())
 
     assert results["yes"]["result"] == "HI"
     # The results a leg ends with omit a skipped node.

@@ -9,91 +9,66 @@ fields is read off ``Cls.versions[n].interface``.
 from typing import Annotated, Any
 
 import pytest
-from conductor.dtype import DType
-from conductor.metadata import Param, Result
-from conductor.node import NodeDefinition, upgrade, version
-from conductor.registry import NodeRegistry
+from conductor import (
+    DType,
+    NodeDeclarationError,
+    NodeRegistry,
+    Param,
+    Result,
+    Upgrade,
+    node,
+)
 from conductor.widgets import Textarea
 
 
 class Txt(DType, str):
     id = "registry-test-text"
-    title = "Text"
+    display_title = "Text"
 
 
 Out = Annotated[Txt, Result(title="Output")]
 
 
-class Echo(NodeDefinition):
-    id = "echo"
-    title = "Echo"
-    description = "Returns input unchanged"
-    category = "test"
+def echo_v1(text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
+    return text
 
-    @upgrade(1, 2)
-    def _v1_to_v2(values):
-        return values
-
-    @version(1)
-    def run_v1(self, text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
-        return text
-
-    @version(2)
-    def run(
-        self,
-        text: Annotated[Txt, Param(title="Input", widget=Textarea())],
-        prefix: Annotated[Txt, Param(title="Prefix", widget=Textarea())] = Txt(""),
-    ) -> Out:
-        return Txt(f"{prefix}{text}")
+@node("echo", title="Echo", description="Returns input unchanged", category="test", replaces=node("echo")(echo_v1), upgrade=Upgrade())
+def echo(
+    text: Annotated[Txt, Param(title="Input", widget=Textarea())],
+    prefix: Annotated[Txt, Param(title="Prefix", widget=Textarea())] = Txt(""),
+) -> Out:
+    return Txt(f"{prefix}{text}")
 
 
-class Upper(NodeDefinition):
-    id = "upper"
-    title = "Uppercase"
-    description = "Uppercases text"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
-        return Txt(text.upper())
+@node("upper", title="Uppercase", description="Uppercases text", category="test")
+def upper_node(text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
+    return Txt(text.upper())
 
 
 @pytest.fixture
 def populated_registry() -> NodeRegistry:
-    reg = NodeRegistry()
-    reg.register(Echo)
-    reg.register(Upper)
+    reg = NodeRegistry([echo, upper_node])
     return reg
 
 
 def test_register_files_the_class_under_its_id(registry):
-    registry.register(Echo)
+    registry = registry.extended_with([echo])
 
-    assert registry["echo"] is Echo
+    assert registry["echo"] is echo
     assert registry["echo"].title == "Echo"
 
 
 def test_a_second_class_under_the_same_id_is_refused(registry):
-    class First(NodeDefinition):
-        id = "dup"
-        title = "Dup"
-        description = "First"
-        category = "test"
+    @node("dup", title="Dup", description="First", category="test")
+    def first(x: Annotated[Txt, Param(title="X", widget=Textarea())]) -> Out:
+        return x
 
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())]) -> Out:
-            return x
+    @node("dup", title="Dup2", description="Second", category="test")
+    def second(x: Annotated[Txt, Param(title="X", widget=Textarea())]) -> Out:
+        return x
 
-    class Second(NodeDefinition):
-        id = "dup"
-        title = "Dup2"
-        description = "Second"
-        category = "test"
-
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())]) -> Out:
-            return x
-
-    registry.register(First)
-    with pytest.raises(ValueError, match="already registered"):
-        registry.register(Second)
+    with pytest.raises(NodeDeclarationError, match="declared twice"):
+        NodeRegistry([first, second])
 
 
 def test_get_returns_none_for_unknown(populated_registry):
@@ -121,74 +96,54 @@ def test_multi_input_node(populated_registry):
 def test_default_values_captured(populated_registry):
     iface = populated_registry["echo"].versions[2].interface
     text, prefix = iface.inputs
-    assert text.optional is False
+    assert text.required is True
     assert prefix.default == ""
-    assert prefix.optional is True
+    assert prefix.required is False
 
 
 def test_var_keyword_is_not_an_input():
-    """``**values`` is where the inputs a ``compute_inputs`` hook adds arrive;
+    """``**values`` is where the inputs a ``compute_added_inputs`` hook adds arrive;
     the hook declares them, so the signature walk skips the parameter."""
 
-    class VarKw(NodeDefinition):
-        id = "varkw"
-        title = "VarKw"
-        description = "Dynamic"
-        category = "test"
+    @node("varkw", title="VarKw", description="Dynamic", category="test")
+    def var_kw(text: Annotated[Txt, Param(title="Text", widget=Textarea())], **values: Any) -> Out:
+        return text
 
-        def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())], **values: Any) -> Out:
-            return text
-
-    assert [i.name for i in VarKw.versions[1].interface.inputs] == ["text"]
+    assert [i.name for i in var_kw.versions[1].interface.inputs] == ["text"]
 
 
 def test_var_positional_is_refused():
     """A ``*args`` parameter has no name an edge could land on."""
     with pytest.raises(TypeError, match=r"\*args names none"):
 
-        class VarPos(NodeDefinition):
-            id = "varpos"
-            title = "VarPos"
-            description = "Dynamic"
-            category = "test"
-
-            def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())], *args: Any) -> Out:
-                return text
+        @node("varpos", title="VarPos", description="Dynamic", category="test")
+        def var_pos(text: Annotated[Txt, Param(title="Text", widget=Textarea())], *args: Any) -> Out:
+            return text
 
 
 def test_a_node_that_is_only_var_keyword_declares_no_inputs():
-    class AllKw(NodeDefinition):
-        id = "allkw"
-        title = "AllKw"
-        description = "Dynamic"
-        category = "test"
+    @node("allkw", title="AllKw", description="Dynamic", category="test")
+    def all_kw(**values: Any) -> Out:
+        return Txt("x")
 
-        def run(self, **values: Any) -> Out:
-            return Txt("x")
-
-    assert AllKw.versions[1].interface.inputs == ()
+    assert all_kw.versions[1].interface.inputs == ()
 
 
 def _node(node_id):
-    class Made(NodeDefinition):
-        id = node_id
-        title = node_id
-        description = "d"
-        category = "test"
+    @node(node_id, title=node_id, description="d", category="test")
+    def made(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="R")]:
+        return x
 
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="R")]:
-            return x
-
-    return Made
+    return made
 
 
 def test_extending_leaves_the_original_alone():
     """A per-run registry must not mutate the process-wide catalog."""
     base = NodeRegistry()
-    base.register(_node("static"))
+    base = base.extended_with([_node("static")])
     loaded = _node("loaded")
 
-    extended = base.extended_with({"loaded": loaded})
+    extended = base.extended_with([loaded])
 
     assert "loaded" in extended
     assert "static" in extended
@@ -198,47 +153,25 @@ def test_extending_leaves_the_original_alone():
 def test_a_registered_type_cannot_be_shadowed():
     """A statically registered node means what it says, whatever a host loads."""
     static = _node("shared-id")
-    base = NodeRegistry()
-    base.register(static)
+    base = NodeRegistry([static])
 
-    extended = base.extended_with({"shared-id": _node("other")})
+    extended = base.extended_with([_node("other")])
 
     assert extended["shared-id"] is static
 
 
-def test_a_loaded_definition_need_not_number_from_one():
-    """An embedded graph is one version a host stored, loaded because a graph pinned it;
-    its versions are {3} and nothing is missing. `register()` refuses that;
-    `extended_with` does not, because the catalog rule is the catalog's."""
-    from conductor.node import version
-
-    class Loaded(NodeDefinition):
-        id = "loaded-3"
-        title = "Loaded"
-        description = "d"
-        category = "test"
-
-        @version(3)
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="R")]:
-            return x
-
-    extended = NodeRegistry().extended_with({"loaded-3": Loaded})
-
-    assert extended["loaded-3"].versions.keys() == {3}
-
-
 def test_extending_with_nothing_is_the_same_registry_contents():
     base = NodeRegistry()
-    base.register(_node("only"))
+    base = base.extended_with([_node("only")])
 
-    assert base.extended_with({})["only"] is base["only"]
+    assert base.extended_with([])["only"] is base["only"]
 
 
 def test_a_registry_lists_its_nodes_as_the_classes_in_registration_order():
     registry = NodeRegistry()
     greet, truncate = _node("greet"), _node("truncate")
-    registry.register(greet)
-    registry.register(truncate)
+    registry = registry.extended_with([greet])
+    registry = registry.extended_with([truncate])
 
     assert registry.nodes == (greet, truncate)
     assert [cls.id for cls in registry.nodes] == ["greet", "truncate"]

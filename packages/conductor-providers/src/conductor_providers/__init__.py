@@ -1,33 +1,10 @@
-"""conductor-providers — adapters that sit between conductor and the
-outside world.
+"""conductor-providers: adapters that sit between conductor and the outside world.
 
-Two flavors of subpackage:
-
-* **Frontend wire-format adapters** — translate conductor's Python-side data
-  model (``NodeRegistry``, ``Graph``) into a shape a
-  specific frontend framework expects. ``conductor_providers.react``
-  speaks ReactFlow. Svelte, Vue, etc. go in sibling subpackages.
-
-* **Pictures** — ``conductor_providers.mermaid.flowchart(compiled)`` draws
-  a compiled graph as a Mermaid flowchart, for a person reading it in a
-  notebook, a pull request or a bug report.
-
-* **Transport adapters** — mount conductor over a specific protocol or
-  framework. ``conductor_providers.fastapi`` ships an ``APIRouter``
-  factory so hosts don't have to hand-roll pydantic payloads + SSE
-  framing + compile-result plumbing.
-
-Transport subpackages declare their framework dep as an optional extra
-(e.g. ``uv add "syv-conductor-providers[fastapi]"``) so frontend-only
-consumers don't pay for it.
-
-    from conductor_providers import react
-    wire = react.graph_to_react(graph)
-
-    from conductor_providers.fastapi import conductor_router
-    app.include_router(conductor_router(registry, prefix="/conductor"))
+``conductor_providers.mermaid.flowchart(compiled)`` draws a compiled graph
+as a Mermaid flowchart, for a person reading it in a notebook, a pull
+request or a bug report.
 """
 
-from conductor_providers import mermaid, react
+from conductor_providers import mermaid
 
-__all__ = ["mermaid", "react"]
+__all__ = ["mermaid"]

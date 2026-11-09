@@ -3,28 +3,36 @@
 from dataclasses import dataclass
 from typing import Annotated, Any
 
-from conductor import NodeRegistry, Param
-from conductor._sentinel import SKIPPED
-from conductor.dtype import DType
-from conductor.graph.binding import From, Static
-from conductor.graph.compiled import CompiledGraph
-from conductor.graph.conditions import ALWAYS, Atom
-from conductor.graph.model import Graph, GraphNode
-from conductor.metadata import Result
-from conductor.node import NodeDefinition
-from conductor.ref import Ref
-from conductor.series import Series
+from conductor import (
+    ALWAYS,
+    SKIPPED,
+    ArrivingType,
+    BranchTaken,
+    CompiledGraph,
+    DType,
+    From,
+    Graph,
+    GraphNode,
+    NodeRegistry,
+    Output,
+    Param,
+    Ref,
+    Result,
+    Series,
+    Static,
+    node,
+)
 from conductor.widgets import Switch, Textarea
 
 
 class Txt(DType, str):
     id = "conditions-test-txt"
-    title = "Text"
+    display_title = "Text"
 
 
 class Flag(DType, int):
     id = "conditions-test-flag"
-    title = "Yes/No"
+    display_title = "Yes/No"
 
 
 Out = Annotated[Txt, Result(title="Result")]
@@ -32,80 +40,53 @@ Out = Annotated[Txt, Result(title="Result")]
 
 @dataclass(frozen=True)
 class Branches:
-    if_true: Annotated[Any, Result(title="If true", choice="branches")]
-    if_false: Annotated[Any, Result(title="If false", choice="branches")]
+    if_true: Annotated[Any, Result(title="If true", exclusive_group="branches")]
+    if_false: Annotated[Any, Result(title="If false", exclusive_group="branches")]
 
 
-class Gate(NodeDefinition):
-    id = "gate"
-    title = "If/else"
-    description = "d"
-    category = "test"
+def gate_outputs(value: ArrivingType):
+    dtype = value
+    return (Output("if_true", dtype, title="If true", exclusive_group="branches"), Output("if_false", dtype, title="If false", exclusive_group="branches"))
 
-    def run(
-        self,
-        value: Annotated[Any, Param(title="Value")],
-        when: Annotated[Flag, Param(title="When", widget=Switch())] = Flag(1),
-    ) -> Branches:
-        return Branches(if_true=value, if_false=SKIPPED) if when else Branches(if_true=SKIPPED, if_false=value)
-
-    def compute_outputs(self, declared, values, arriving):
-        dtype = arriving.get("value", Any)
-        return tuple(out.model_copy(update={"dtype": dtype}) for out in declared)
+@node("gate", title="If/else", description="d", category="test", compute_outputs=gate_outputs)
+def gate(
+    value: Annotated[Any, Param(title="Value")],
+    when: Annotated[Flag, Param(title="When", widget=Switch())] = Flag(1),
+) -> Branches:
+    return Branches(if_true=value, if_false=SKIPPED) if when else Branches(if_true=SKIPPED, if_false=value)
 
 
-class Holder(NodeDefinition):
-    id = "holder"
-    title = "Text"
-    description = "d"
-    category = "test"
-
-    def run(self, value: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
-        return value
+@node("holder", title="Text", description="d", category="test")
+def holder(value: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
+    return value
 
 
-class Upper(NodeDefinition):
-    id = "upper"
-    title = "Upper"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
-        return Txt(text.upper())
+@node("upper", title="Upper", description="d", category="test")
+def upper_node(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
+    return Txt(text.upper())
 
 
-class Single(NodeDefinition):
+def single_outputs(**arriving: ArrivingType):
+    series = arriving.get("values")
+    dtype = series if series is not None else Any
+    return (Output("result", dtype, title="The value"),)
+
+@node("single", title="Only one", description="d", category="test", compute_outputs=single_outputs)
+def single(values: Annotated[Series[Any], Param(title="Values")]) -> Annotated[Any, Result(title="The value")]:
     """The merge for scalars: a `Series[X]` input drops the skipped edges, so
     whichever branch fired is the one value it receives."""
-
-    id = "single"
-    title = "Only one"
-    description = "d"
-    category = "test"
-
-    def run(self, values: Annotated[Series[Any], Param(title="Values")]) -> Annotated[Any, Result(title="The value")]:
-        return values[0]
-
-    def compute_outputs(self, declared, values, arriving):
-        series = arriving.get("values")
-        dtype = series.element if series is not None else Any
-        return tuple(out.model_copy(update={"dtype": dtype}) for out in declared)
+    return values[0]
 
 
-class Docs(NodeDefinition):
-    id = "docs"
-    title = "Docs"
-    description = "d"
-    category = "test"
-
-    def run(self, folder: Annotated[Txt, Param(title="Folder", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Texts")]:
-        return [Txt("a")]
+@node("docs", title="Docs", description="d", category="test")
+def docs(folder: Annotated[Txt, Param(title="Folder", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Texts")]:
+    return [Txt("a")]
 
 
 def _compiled(nodes):
     registry = NodeRegistry()
-    for node_cls in (Gate, Holder, Upper, Docs, Single):
-        registry.register(node_cls)
+    for node_cls in (gate, holder, upper_node, docs, single):
+        registry = registry.extended_with([node_cls])
     return CompiledGraph.from_graph(Graph(nodes=nodes), registry)
 
 
@@ -127,8 +108,8 @@ def test_a_branch_appears_when_its_decision_went_that_way():
     ])
 
     assert compiled.is_runnable, compiled.problems
-    assert compiled.field(Ref("g", "if_true")).condition == frozenset({frozenset({Atom("g", "branches", "if_true")})})
-    assert compiled.field(Ref("yes", "result")).condition == frozenset({frozenset({Atom("g", "branches", "if_true")})})
+    assert compiled.field(Ref("g", "if_true")).condition == frozenset({frozenset({BranchTaken("g", "branches", "if_true")})})
+    assert compiled.field(Ref("yes", "result")).condition == frozenset({frozenset({BranchTaken("g", "branches", "if_true")})})
     assert compiled.decisions == {"g": {"branches": ("if_true", "if_false")}}
 
 
@@ -145,7 +126,7 @@ def test_a_merge_adds_an_alternative():
 
     assert compiled.is_runnable, compiled.problems
     assert compiled.field(Ref("m", "result")).condition == frozenset({
-        frozenset({Atom("g", "branches", "if_true")}), frozenset({Atom("g", "branches", "if_false")}),
+        frozenset({BranchTaken("g", "branches", "if_true")}), frozenset({BranchTaken("g", "branches", "if_false")}),
     })
 
 
@@ -159,11 +140,11 @@ def test_two_decisions_in_series_conjoin_and_a_contradiction_is_dropped():
 
     assert compiled.is_runnable, compiled.problems
     assert compiled.field(Ref("g2", "if_true")).condition == frozenset({
-        frozenset({Atom("g1", "branches", "if_true"), Atom("g2", "branches", "if_true")}),
+        frozenset({BranchTaken("g1", "branches", "if_true"), BranchTaken("g2", "branches", "if_true")}),
     })
     assert compiled.field(Ref("both", "result")).condition == frozenset({
-        frozenset({Atom("g1", "branches", "if_true"), Atom("g2", "branches", "if_true")}),
-        frozenset({Atom("g1", "branches", "if_false")}),
+        frozenset({BranchTaken("g1", "branches", "if_true"), BranchTaken("g2", "branches", "if_true")}),
+        frozenset({BranchTaken("g1", "branches", "if_false")}),
     })
 
 
@@ -177,6 +158,90 @@ def test_an_iterating_decision_masks_rows_and_is_not_a_condition():
     ])
 
     assert compiled.is_runnable, compiled.problems
-    assert compiled.node("g").iterates_on is not None
+    assert compiled.run_plan.nodes["g"].runs_per_row_of is not None
     assert compiled.field(Ref("yes", "result")).condition == ALWAYS
     assert compiled.decisions == {}
+
+
+def test_a_decision_on_a_node_whose_wiring_failed_is_not_one_a_run_makes():
+    """A gate whose edge names an output its source lacks has failed wiring: it
+    is not counted as a decision, and asking whether it runs per row says why."""
+    compiled = _compiled([
+        GraphNode(id="h", type="holder", version=1, bindings={"value": Static("x")}),
+        GraphNode(id="g", type="gate", version=1, bindings={"value": From("h.nope")}),
+    ])
+
+    assert compiled.decisions == {}
+    assert compiled.node("g").state == "wiring_failed"
+    assert compiled.node("g")._wiring is None
+    raised = compiled.node("g").cause
+    assert raised.type == "unknown_ref_output"
+
+
+def _per_row_branches():
+    @dataclass(frozen=True)
+    class Branched:
+        yes: Annotated[str | None, Result(exclusive_group="g")]
+        no: Annotated[str | None, Result(exclusive_group="g")]
+
+    @node("branch_on_each_row", category="test")
+    def branch_on_each_row(value: str) -> Branched:
+        return Branched(yes=value, no=SKIPPED) if value == "a" else Branched(yes=SKIPPED, no=value)
+
+    @node("rows", category="test")
+    def rows() -> Series[str]:
+        return ["a", "b"]
+
+    @node("split_row", category="test")
+    def split_row(value: str) -> Series[str]:
+        return [f"{value}1", f"{value}2"]
+
+    @node("pair_up", category="test")
+    def pair_up(cell: str, up: str) -> str:
+        return cell + up
+
+    @node("both_series", category="test")
+    def both_series(xs: Series[str], ys: Series[str]) -> str:
+        return f"{xs}|{ys}"
+
+    return [branch_on_each_row, rows, split_row, pair_up, both_series]
+
+
+def _types_of_problems(*nodes):
+    definitions = _per_row_branches()
+    by_id = {definition.id: definition for definition in definitions}
+    built = Graph(nodes=[by_id[kind].graph_node(node_id, **bindings) for kind, node_id, bindings in nodes])
+    compiled = CompiledGraph.from_graph(built, NodeRegistry(definitions))
+    return compiled, [problem.type for problem in compiled.problems]
+
+
+def test_a_per_row_decision_read_from_a_row_above_still_keeps_two_branches_apart():
+    _, problems = _types_of_problems(
+        ("rows", "s", {}), ("branch_on_each_row", "d", {"value": From("s.result")}), ("split_row", "sp", {"value": From("s.result")}),
+        ("pair_up", "ua", {"cell": From("sp.result"), "up": From("d.yes")}), ("pair_up", "ub", {"cell": From("sp.result"), "up": From("d.no")}),
+        ("both_series", "z", {"xs": From("ua.result"), "ys": From("ub.result")}),
+    )
+    assert problems == ["series_inputs_never_share_a_row"]
+
+
+def test_a_cell_of_several_sources_carries_the_per_row_decisions_it_reads():
+    _, problems = _types_of_problems(
+        ("rows", "s", {}), ("branch_on_each_row", "d", {"value": From("s.result")}),
+        ("pair_up", "ua", {"cell": From("s.result"), "up": From("d.yes")}), ("pair_up", "ub", {"cell": From("s.result"), "up": From("d.yes", "d.no")}),
+        ("both_series", "z", {"xs": From("ua.result"), "ys": From("ub.result")}),
+    )
+    assert problems == []
+
+
+def test_a_field_s_public_condition_holds_only_decisions_on_nodes_that_run_once():
+    compiled, problems = _types_of_problems(("rows", "s", {}), ("branch_on_each_row", "d", {"value": From("s.result")}))
+    assert problems == [] and compiled.field("d.yes").condition == ALWAYS
+
+
+def test_a_long_chain_of_decisions_merged_per_row_stays_small():
+    definitions = _per_row_branches()
+    by_id = {definition.id: definition for definition in definitions}
+    nodes = [by_id["rows"].graph_node("s"), by_id["branch_on_each_row"].graph_node("d0", value=From("s.result"))]
+    nodes += [by_id["branch_on_each_row"].graph_node(f"d{i}", value=From(f"d{i-1}.yes", f"d{i-1}.no")) for i in range(1, 40)]
+    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), NodeRegistry(definitions))
+    assert compiled.is_runnable and len(compiled.field("d39.yes")._condition_with_rows) <= 32

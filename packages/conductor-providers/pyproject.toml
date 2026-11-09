@@ -1,7 +1,7 @@
 [project]
 name = "syv-conductor-providers"
 version = "2.0.0"
-description = "Framework adapters for conductor. Ships a React (ReactFlow) provider with graph_to_react / react_to_graph; sibling subpackages can add Vue, Svelte, etc."
+description = "Adapters for conductor: draw a compiled graph in Mermaid."
 requires-python = ">=3.12"
 authors = [{ name = "Syvai", email = "billy@syv.ai" }]
 license = "Apache-2.0"
@@ -16,11 +16,6 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = ["syv-conductor==2.0.0"]
-
-[project.optional-dependencies]
-# `conductor_providers.fastapi` — HTTP transport adapter. Optional because
-# frontend-only consumers (e.g. conductor_providers.react) don't need fastapi.
-fastapi = ["fastapi>=0.100", "pydantic>=2.11"]
 
 [project.urls]
 Repository = "https://github.com/syv-ai/conductor"
