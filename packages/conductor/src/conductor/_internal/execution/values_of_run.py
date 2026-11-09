@@ -481,7 +481,7 @@ class ValuesOfRun:
         (the branch not taken) is absent, never ``SKIPPED``. A scalar output of a
         node that ran once is its value; anything on an index is ``ValuesOnRows``,
         the rows written so far and a value each, without the rows that were skipped."""
-        outputs = self._lookups.nodes[node_id].interface.outputs
+        outputs = self._lookups.nodes[node_id].interface.outputs  # type: ignore[union-attr]  # lookups hold only ready nodes
         skipped_at_top = {out.name: self._row_a_skip_reaches_on(Ref(node_id, out.name), ()) is not None for out in outputs}
         if outputs and all(skipped_at_top.values()):
             return None
@@ -520,7 +520,7 @@ class ValuesOfRun:
     def output_columns_of(self, node_id: str) -> dict[str, OutputColumn]:
         """What this node's outputs hold, as a state writes it. An output nothing was written to is left out."""
         columns: dict[str, OutputColumn] = {}
-        for out in self._lookups.nodes[node_id].interface.outputs:
+        for out in self._lookups.nodes[node_id].interface.outputs:  # type: ignore[union-attr]  # lookups hold only ready nodes
             ref = Ref(node_id, out.name)
             if ref in self._values:
                 columns[out.name] = output_column_of(self._values[ref], self._fields[ref])

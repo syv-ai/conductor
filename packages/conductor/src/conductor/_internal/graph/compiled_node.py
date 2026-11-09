@@ -191,7 +191,7 @@ class CompiledNode:
         """The check a call goes through (``build_call_validator``), built on first use.
 
         An input left to a static or a default is not in it: compile read that value once."""
-        fixed = {input_.name for input_ in self._inputs if self._fields[input_.name]._receive_mode.__class__ is FixedValue}  # type: ignore[union-attr]  # only a ready node is called
+        fixed = {input_.name for input_ in self._inputs if self._fields[input_.name]._receive_mode.__class__ is FixedValue}  # type: ignore[union-attr, index]  # only a ready node is called
         check = build_call_validator(tuple(input_ for input_ in self._inputs if input_.name not in fixed))
         if not fixed:
             return check

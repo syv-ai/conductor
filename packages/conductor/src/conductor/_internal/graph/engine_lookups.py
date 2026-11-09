@@ -86,7 +86,7 @@ def build_engine_lookups(nodes: Iterable[CompiledNode]) -> EngineLookups:
         runs_per_row_of[node.id] = node._runs_per_row_of
         if (index := node._runs_per_row_of) is not None:
             nodes_running_per_row_of_index.setdefault(index.id, []).append(node.id)
-        for field in node._fields.values():
+        for field in node._fields.values():  # type: ignore[union-attr]  # lookups hold only ready nodes
             ref = field.ref
             fields[ref] = field
             read_by.setdefault(ref, [])

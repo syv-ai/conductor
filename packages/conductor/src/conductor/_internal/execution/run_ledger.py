@@ -548,7 +548,7 @@ class RunLedger:
             counts = self._rows_not_called.setdefault(node_id, {})
             for name in not_called.blank_inputs:
                 counts[name] = counts.get(name, 0) + 1
-        for out in self._lookups.nodes[node_id].interface.outputs:
+        for out in self._lookups.nodes[node_id].interface.outputs:  # type: ignore[union-attr]  # lookups hold only ready nodes
             field = fields[out.name]
             if skip_row is not None:
                 value = SKIPPED
@@ -710,7 +710,7 @@ class RunLedger:
         ``None`` when the state has lost a value, and the unit runs."""
         node_id, row = unit
         cells: dict[str, Any] = {}
-        for out in self._lookups.nodes[node_id].interface.outputs:
+        for out in self._lookups.nodes[node_id].interface.outputs:  # type: ignore[union-attr]  # lookups hold only ready nodes
             value = claimed.cells.get(out.name, MISSING)
             if value is MISSING:
                 return None
@@ -820,7 +820,7 @@ class RunLedger:
                     problems.append(make_problem("state_unreadable", "state", node_id, *row, reason=f"the state lists {node_id!r} as finished at row {list(row)} twice"))
                     continue
                 rows_seen.add(row)
-                for out in self._lookups.nodes[node_id].interface.outputs:
+                for out in self._lookups.nodes[node_id].interface.outputs:  # type: ignore[union-attr]  # lookups hold only ready nodes
                     field = self._fields[Ref(node_id, out.name)]
                     if not self._values.make_rows_again_from_stored_output(field, row):
                         problems.append(make_problem("state_unreadable", "state", field.ref, *row, reason=f"the state has {node_id!r} finished at row {list(row)}, with no value for {field.ref}"))
