@@ -251,6 +251,14 @@ def merge(sources: Sequence[MergeSource]) -> pl.DataFrame:
     return merged.select(ROW_ID, *columns)
 
 
+@cache
+def _schema_as_read(table_type: type[Table]) -> dict[str, pl.DataType]:
+    """The schema of a frame already read as ``table_type``: its row ids first, then its columns."""
+    import polars as pl
+
+    return {ROW_ID: pl.String(), **{name: column_type(dtype) for name, dtype in table_type.columns}}
+
+
 def _first_free_name(wanted: str, taken: set[str]) -> str:
     """``wanted``, or ``wanted_2``, ``wanted_3`` and on when an earlier column holds it."""
     name, n = wanted, 1
@@ -345,7 +353,7 @@ class Table(DType, Generic[RowsOf]):
             raise ValueError(f"a table is a DataFrame, a list of records or a table's JSON form, not a {type(value).__name__}")
         if ROW_ID in frame.columns and frame.schema[ROW_ID] != pl.String:
             frame = frame.with_columns(pl.col(ROW_ID).cast(pl.String))
-        if not cls.columns:
+        if not cls.columns or frame.schema == _schema_as_read(cls):
             return frame
         if not frame.columns:
             return frame_with_no_rows(cls)

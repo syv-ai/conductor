@@ -130,6 +130,9 @@ class Series(DType, Sequence[T]):
 
     def __class_getitem__(cls, item: Any) -> type["Series[Any]"]:
         written, keeps_blanks = read_blank(item)
+        made = Series._parameterised.get((written, keeps_blanks))
+        if made is not None:
+            return made
         item = dtype_of(written)
         if item is None:
             raise NodeDeclarationError(f"Series[{written!r}]: a series holds values an edge can carry, not {written!r}", code="series_element_invalid")
@@ -150,6 +153,7 @@ class Series(DType, Sequence[T]):
                 _parameterises=Series,
             )
             Series._parameterised[(item, keeps_blanks)] = made
+        Series._parameterised[(written, keeps_blanks)] = made
         return made
 
     def __init__(

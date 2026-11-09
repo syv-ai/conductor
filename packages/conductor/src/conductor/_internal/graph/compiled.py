@@ -183,7 +183,7 @@ class CompiledGraph:
         "result")``. Anything the graph has no such field for raises
         ``KeyError``, naming the problem behind it when a node compile
         couldn't work out is why."""
-        ref = Ref(ref)
+        ref = ref if isinstance(ref, Ref) else Ref(ref)
         node = self.node(ref.node_id)
         if node.wiring is None:
             raise KeyError(f"{ref.node_id!r} has no fields compile could work out: {node.cause.msg if node.cause else ''}")

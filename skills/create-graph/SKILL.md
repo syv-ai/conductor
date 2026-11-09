@@ -21,7 +21,7 @@ graph = Graph(nodes=[
 compiled = CompiledGraph.from_graph(graph, registry)
 ready = compiled.with_inputs(text="red,green")        # words.text is the graph's open input
 if not ready.is_runnable:
-    raise ValueError([(p.code, p.node_id, p.message) for p in ready.problems])
+    raise ValueError([(p.type, p.loc, p.msg) for p in ready.problems])
 
 state = ready.run_sync()                               # in a notebook: await ready.run()
 assert ready.outputs(state) == {"joined.result": "RED + GREEN"}
@@ -29,6 +29,8 @@ results = ready.results(state)                         # {node_id: {output: valu
 assert list(results["loud"]["result"]) == ["RED", "GREEN"]   # ran once per word
 assert ready.node("joined").runs_per_row_of is None       # parts is Series[str]: one call
 ```
+
+A node you declared yourself is placed with `upper.graph_node("b", text=From("a.result"), times=2)`, the same record with the function's own signature for a checker to read. A value is typed in, `From(...)` is an edge, and an input left open is written `GraphNode(...)`.
 
 An input holds one binding: `From("node.output")` over an edge, `Static(value)` typed in (a list on a single-value input runs the node once per item), or none for the default. A single output is named `result`. `GraphNode` is keyword-only; a node id may not contain `.`.
 
