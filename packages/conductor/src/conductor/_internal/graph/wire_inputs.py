@@ -95,7 +95,7 @@ class InputsRead:
     #: The child levels ``Series[X]`` inputs read, placed once the node's row is known.
     reductions: list[tuple[Index, str]] = field(default_factory=list)
     #: The inputs holding a list set on the node, each with its declared type.
-    listed: list[tuple[str, Any]] = field(default_factory=list)
+    lists_on_node: list[tuple[str, Any]] = field(default_factory=list)
     #: The ``Table`` inputs with the table type each carries and its sources.
     merging: list[tuple[str, Any, list[tuple[Ref, CompiledField]]]] = field(default_factory=list)
     #: Every table and merged column taken in whole: a table the node returns may carry their ids.
@@ -105,7 +105,7 @@ class InputsRead:
 
 
 def read_inputs(
-    node: GraphNode, inputs: tuple[Input, ...], listed: frozenset[str], walk: WalkSoFar, problems: list[Problem],
+    node: GraphNode, inputs: tuple[Input, ...], inputs_given_a_list: frozenset[str], walk: WalkSoFar, problems: list[Problem],
 ) -> InputsRead:
     """What arrives on each of ``inputs``. Stops at the first input that can't be read and says so in ``broken``."""
     found = InputsRead()
@@ -113,8 +113,8 @@ def read_inputs(
         name = inp.name
         binding = node.bindings.get(name)
         if not isinstance(binding, From):
-            if name in listed:
-                found.listed.append((name, inp.dtype))
+            if name in inputs_given_a_list:
+                found.lists_on_node.append((name, inp.dtype))
                 continue
             found.arrivals[name], found.receives[name] = _originates(inp, node.id)
             continue
@@ -203,7 +203,7 @@ def _source(ref: Ref, walk: WalkSoFar) -> CompiledField | None:
     if node is None or node.wiring is None or source_id in walk.refused:
         return None
     found = node.wiring.fields.get(ref.field)
-    return found if found is not None and (found._is_output or found._listed) else None
+    return found if found is not None and (found._is_output or found._is_list_on_node) else None
 
 
 def _outputs_offered_by(node_id: str, walk: WalkSoFar) -> str:
@@ -212,7 +212,7 @@ def _outputs_offered_by(node_id: str, walk: WalkSoFar) -> str:
     if node.embedded_graph is not None:
         names = sorted(node.embedded_graph._for_embedding.outputs)
     else:
-        names = sorted(name for name, field in node.wiring.fields.items() if field._is_output or field._listed)  # type: ignore[union-attr]
+        names = sorted(name for name, field in node.wiring.fields.items() if field._is_output or field._is_list_on_node)  # type: ignore[union-attr]
     return ", ".join(names) or "none"
 
 
@@ -236,12 +236,12 @@ def decide_rows(node: GraphNode, found: InputsRead, problems: list[Problem], row
         (_, first), (_, second) = found.reductions[:2]
         problems.append(_misaligned(node_id, where(first), where(second)))
         return False, None
-    if len(found.listed) > 1:
-        (first, _), (second, _) = found.listed[:2]
+    if len(found.lists_on_node) > 1:
+        (first, _), (second, _) = found.lists_on_node[:2]
         problems.append(problem("lists_on_a_per_row_node", node_id, second, a=str(where(first)), b=str(where(second))))
         return False, None
-    if found.listed:
-        (name, dtype), = found.listed
+    if found.lists_on_node:
+        (name, dtype), = found.lists_on_node
         own = Index(str(where(name)), parent=runs_per_row_of)
         found.arrivals[name], found.receives[name] = Arrival(Series[dtype], own), PerRow(own)
         runs_per_row_of = own

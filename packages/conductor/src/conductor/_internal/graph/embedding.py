@@ -109,9 +109,9 @@ class OfferedInput:
     #: Where the value lands in the graph that runs, ``check/inner.amount`` through a nested graph.
     runs_at: Ref
     #: Its author typed a value on it, so nothing needs connecting where it's embedded.
-    filled_inside: bool
+    has_static_inside: bool
     #: Its author typed a list on it, so the node holding it runs once per item.
-    list_typed_inside: bool
+    list_on_node_inside: bool
     #: A hook of the node it lands on reads its value.
     read_by_a_hook: bool
 
@@ -154,8 +154,8 @@ def read_embeddable(graph: CompiledGraph) -> EmbeddableGraph:
         field = None if node.wiring is None else node.wiring.fields.get(ref.field)
         inputs[input_names[ref]] = OfferedInput(
             drawn=ref, runs_at=in_the_run(ref, "input"),
-            filled_inside=isinstance(node.graph_node.bindings.get(ref.field), Static),
-            list_typed_inside=field is not None and field._listed,
+            has_static_inside=isinstance(node.graph_node.bindings.get(ref.field), Static),
+            list_on_node_inside=field is not None and field._is_list_on_node,
             read_by_a_hook=isinstance(node.version, NodeVersion) and ref.field in node.version.hook_reads,
         )
     outputs: dict[str, Ref] = {}
@@ -276,17 +276,17 @@ def lift_embedded_nodes(
                     condition = output_condition(new_id, outputs_of[name], at_node, runs_once)
                 dtype, index, receives = _field_under(field, crossings, inner_nodes, prefix, runs_per_row_of, inside)
                 makes = None if field._makes_rows is None else under(field._makes_rows, prefix, runs_per_row_of)
-                listed = field._listed and name not in crossed
+                is_list = field._is_list_on_node and name not in crossed
                 if isinstance(receives, Merge) and field.ref not in crossings:
                     row_origins.note_merge(new_id, name, [(source, found) for source, _ in receives.parts if (found := field_at(source)) is not None])
                 origins: frozenset[str] | None = None
                 if field._is_output:
                     origins = row_origins.note_table(makes, taken_in) if makes is not None and holds_tables(dtype) else row_origins.of_rows_on(index)
-                elif listed:
+                elif is_list:
                     origins = row_origins.of_rows_on(index)
                 fields[name] = CompiledField(
                     ref=Ref._of_parts(new_id, name), type=dtype, binding=bindings.get(name) if not field._is_output else None, condition=condition,
-                    problems=(), _index=index, _receives=receives, _listed=listed,
+                    problems=(), _index=index, _receives=receives, _is_list_on_node=is_list,
                     _makes_rows=makes, _view_of=None if field._view_of is None else (inside(field._view_of[0]), field._view_of[1]),
                     _takes_blank=field._takes_blank, _title=field._title, _row_origins=origins,
                 )

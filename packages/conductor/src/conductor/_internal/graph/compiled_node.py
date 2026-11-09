@@ -247,7 +247,7 @@ class CompiledField:
     _receives: Receive | None = field(repr=False)
     #: An input the author typed many values into, so its node runs once per
     #: value; an edge may read the values as a column of those rows.
-    _listed: bool = field(repr=False)
+    _is_list_on_node: bool = field(repr=False)
     #: The rows this output makes: a series output or a table output. ``None`` on any other field.
     _makes_rows: Index | None = field(repr=False)
     #: For a column of a table output offered as a field: the table output and
@@ -264,13 +264,13 @@ class CompiledField:
 
     def __init__(
         self, ref: Ref, type: Any, binding: Binding | None, condition: Condition | None, problems: tuple[Problem, ...], *,
-        _index: Index | None, _receives: Receive | None, _listed: bool, _makes_rows: Index | None, _view_of: tuple[Ref, str] | None,
+        _index: Index | None, _receives: Receive | None, _is_list_on_node: bool, _makes_rows: Index | None, _view_of: tuple[Ref, str] | None,
         _takes_blank: bool, _title: str, _row_origins: frozenset[str] | None,
     ) -> None:
         """Compile builds one per field of a graph, so this sets them in one step instead of one at a time."""
         self.__dict__.update(
             ref=ref, type=type, binding=binding, condition=condition, problems=problems, _index=_index, _receives=_receives,
-            _listed=_listed, _makes_rows=_makes_rows, _view_of=_view_of, _takes_blank=_takes_blank, _title=_title, _row_origins=_row_origins,
+            _is_list_on_node=_is_list_on_node, _makes_rows=_makes_rows, _view_of=_view_of, _takes_blank=_takes_blank, _title=_title, _row_origins=_row_origins,
         )
 
     @property

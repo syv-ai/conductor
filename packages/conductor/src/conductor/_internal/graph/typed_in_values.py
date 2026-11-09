@@ -24,21 +24,21 @@ from conductor._internal.graph.graph_records import GraphNode
 from conductor._internal.table import holds_tables, missing_column_in
 
 
-def read_typed_in_values(inputs: Iterable[Input], node: GraphNode) -> tuple[dict[str, Any], frozenset[str], list[Problem]]:
+def read_static_values(inputs: Iterable[Input], node: GraphNode) -> tuple[dict[str, Any], frozenset[str], list[Problem]]:
     """Every value the author typed into ``node`` on ``inputs``, typed; which of them hold many values; and the values no type could read."""
     values = static_values(node.bindings)
     if not values:
         return {}, frozenset(), []
     declared = {i.name: i for i in inputs}
-    typed: dict[str, Any] = {}
-    listed: set[str] = set()
+    statics: dict[str, Any] = {}
+    inputs_given_a_list: set[str] = set()
     invalid: list[Problem] = []
     for name, value in values.items():
         inp = declared.get(name)
         if inp is None or inp.dtype.id == "any":
             continue
         try:
-            typed[name], many = _read_one_value(inp, value)
+            statics[name], many = _read_value_or_list(inp, value)
         except (ValidationError, TypeError, ValueError) as unreadable:
             column = missing_column_in(unreadable) if isinstance(unreadable, ValidationError) else None
             if column is not None:
@@ -48,11 +48,11 @@ def read_typed_in_values(inputs: Iterable[Input], node: GraphNode) -> tuple[dict
             invalid.append(problem("invalid_static", node.id, name, input=_short_repr(value), expected=name_of(inp.dtype), **({"reason": said} if said else {})))
             continue
         if many:
-            listed.add(name)
-    return typed, frozenset(listed), invalid
+            inputs_given_a_list.add(name)
+    return statics, frozenset(inputs_given_a_list), invalid
 
 
-def _read_one_value(inp: Input, value: Any) -> tuple[Any, bool]:
+def _read_value_or_list(inp: Input, value: Any) -> tuple[Any, bool]:
     """``value`` read through ``inp``'s type, and whether it is many values."""
     element = inp.dtype.element
     if element is not None:

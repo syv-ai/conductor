@@ -33,7 +33,7 @@ from conductor._internal.graph.embedding import (
 from conductor._internal.graph.graph_interface import field_problems
 from conductor._internal.graph.graph_records import GraphNode
 from conductor._internal.graph.row_origins import origins_taken_in
-from conductor._internal.graph.typed_in_values import read_typed_in_values
+from conductor._internal.graph.typed_in_values import read_static_values
 from conductor._internal.graph.wire_inputs import InputsRead, decide_rows, read_inputs
 from conductor._internal.interface import Interface
 from conductor._internal.node_decorator import NodeVersion
@@ -70,26 +70,26 @@ def compile_one_node(node: GraphNode, walk: WalkSoFar, registry: NodeRegistry) -
         walk.graph_nodes.add(node.id)
 
     declared = _interface_it_declares(version)
-    typed, listed, invalid = read_typed_in_values(declared.inputs, node)
+    statics, inputs_given_a_list, invalid = read_static_values(declared.inputs, node)
     inputs = declared.inputs
     if not is_graph and version.compute_inputs is not None:
         defaults = {i.name: i.default for i in inputs if not i.required}
         try:
-            added = version.compute_inputs.answer({**defaults, **typed}, {}, typed) or ()
+            added = version.compute_inputs.answer({**defaults, **statics}, {}, statics) or ()
         except CompileProblem as refusal:
             problems.append(refusal.at(node.id))
             return _add(walk, node, problems, definition, version, None, {})
         inputs = (*inputs, *added)
-        typed_added, listed_added, invalid_added = read_typed_in_values(added, node)
-        typed, listed, invalid = {**typed, **typed_added}, listed | listed_added, [*invalid, *invalid_added]
+        statics_added, lists_added, invalid_added = read_static_values(added, node)
+        statics, inputs_given_a_list, invalid = {**statics, **statics_added}, inputs_given_a_list | lists_added, [*invalid, *invalid_added]
     problems.extend(invalid)
 
     embeddable = None
     can_be_wired = True
     if is_graph:
-        version, can_be_wired = _graph_as_this_node_fills_it(node, version, definition.title, typed, listed, problems)
+        version, can_be_wired = _graph_as_this_node_fills_it(node, version, definition.title, statics, inputs_given_a_list, problems)
         embeddable = version._for_embedding
-        listed = frozenset()
+        inputs_given_a_list = frozenset()
     elif version.open_input is not None:
         named = {i.name for i in inputs}
         inputs = (*inputs, *(
@@ -100,33 +100,33 @@ def compile_one_node(node: GraphNode, walk: WalkSoFar, registry: NodeRegistry) -
 
     can_be_wired = _check_bindings(drawn, inputs, version, embeddable, walk, problems) and can_be_wired
     if not can_be_wired:
-        return _add(walk, node, problems, definition, version, _replaced(declared, inputs, declared.outputs), typed)
+        return _add(walk, node, problems, definition, version, _replaced(declared, inputs, declared.outputs), statics)
 
-    found = read_inputs(node, inputs, listed, walk, problems)
+    found = read_inputs(node, inputs, inputs_given_a_list, walk, problems)
     if found.broken:
-        return _add(walk, node, problems, definition, version, _interface_without_wiring(node, version, inputs, found, typed, problems), typed)
-    typed_inputs = tuple(_with_type_from_its_edge(inp, found.bound) for inp in inputs)
+        return _add(walk, node, problems, definition, version, _interface_without_wiring(node, version, inputs, found, statics, problems), statics)
+    inputs_typed_by_their_edges = tuple(_with_type_from_its_edge(inp, found.bound) for inp in inputs)
     try:
-        outputs = _ask_outputs(version, found.arriving, typed)
+        outputs = _ask_outputs(version, found.arriving, statics)
     except CompileProblem as refusal:
         problems.append(refusal.at(node.id))
-        return _add(walk, node, problems, definition, version, _replaced(version.interface, typed_inputs, ()), typed)
-    interface = _replaced(version.interface, typed_inputs, outputs)
-    faults = field_problems(node.id, outputs, frozenset(i.name for i in typed_inputs), untyped_ok=False)
+        return _add(walk, node, problems, definition, version, _replaced(version.interface, inputs_typed_by_their_edges, ()), statics)
+    interface = _replaced(version.interface, inputs_typed_by_their_edges, outputs)
+    faults = field_problems(node.id, outputs, frozenset(i.name for i in inputs_typed_by_their_edges), untyped_ok=False)
     faults += [problem("series_of_tables", node.id, out.name) for out in outputs if out.dtype.element is not None and holds_tables(out.dtype.element)]
     if faults:
         problems.extend(faults)
-        return _add(walk, node, problems, definition, version, interface, typed)
+        return _add(walk, node, problems, definition, version, interface, statics)
     if not outputs and (is_graph or version.returns is not None):
         problems.append(problem("no_outputs", node.id))
     rows_agree, runs_per_row_of = decide_rows(node, found, problems, walk.row_origins)
     if not rows_agree:
-        return _add(walk, node, problems, definition, version, interface, typed)
+        return _add(walk, node, problems, definition, version, interface, statics)
     if is_graph:
-        _place_embedded_graph(node, definition, version, embeddable, interface, typed, runs_per_row_of, found, walk, problems)
+        _place_embedded_graph(node, definition, version, embeddable, interface, statics, runs_per_row_of, found, walk, problems)
         return
-    wiring = _wiring_of_function_node(node, interface, found, listed, runs_per_row_of, walk, problems)
-    _add(walk, node, problems, definition, version, interface, typed, wiring)
+    wiring = _wiring_of_function_node(node, interface, found, inputs_given_a_list, runs_per_row_of, walk, problems)
+    _add(walk, node, problems, definition, version, interface, statics, wiring)
 
 
 def _add(
@@ -183,7 +183,7 @@ def _with_edges_out_of_embedded_graphs_resolved(node: GraphNode, walk: WalkSoFar
 
 
 def _graph_as_this_node_fills_it(
-    node: GraphNode, stored: CompiledGraph, title: str, typed: dict[str, Any], listed: frozenset[str], problems: list[Problem],
+    node: GraphNode, stored: CompiledGraph, title: str, statics: dict[str, Any], inputs_given_a_list: frozenset[str], problems: list[Problem],
 ) -> tuple[CompiledGraph, bool]:
     """The compiled graph as this graph node fills it, and whether it can be embedded.
 
@@ -195,11 +195,11 @@ def _graph_as_this_node_fills_it(
     Only then is the graph compiled again with the graph node's values.
     """
     embeddable = stored._for_embedding
-    refill = {name: value for name, value in typed.items() if name in listed or (name in embeddable.inputs and embeddable.inputs[name].read_by_a_hook)}
+    refill = {name: value for name, value in statics.items() if name in inputs_given_a_list or (name in embeddable.inputs and embeddable.inputs[name].read_by_a_hook)}
     cleared = [
         name for name, binding in node.bindings.items()
-        if isinstance(binding, From) and name in embeddable.inputs and embeddable.inputs[name].filled_inside
-        and (embeddable.inputs[name].list_typed_inside or embeddable.inputs[name].read_by_a_hook)
+        if isinstance(binding, From) and name in embeddable.inputs and embeddable.inputs[name].has_static_inside
+        and (embeddable.inputs[name].list_on_node_inside or embeddable.inputs[name].read_by_a_hook)
     ]
     filled = stored._refilled(refill, cleared) if refill or cleared else stored
     faults = filled._for_embedding.faults
@@ -260,7 +260,7 @@ def _check_bindings(
                 continue
             can_wire = False
         elif not inp.required or inp.name in node.bindings or (
-            embeddable is not None and inp.name in embeddable.inputs and embeddable.inputs[inp.name].filled_inside
+            embeddable is not None and inp.name in embeddable.inputs and embeddable.inputs[inp.name].has_static_inside
         ):
             continue
         if unbound_explained_by_typos:
@@ -271,26 +271,26 @@ def _check_bindings(
 
 
 def _interface_without_wiring(
-    node: GraphNode, version: Any, inputs: tuple[Input, ...], found: InputsRead, typed: dict[str, Any], problems: list[Problem],
+    node: GraphNode, version: Any, inputs: tuple[Input, ...], found: InputsRead, statics: dict[str, Any], problems: list[Problem],
 ) -> Interface:
     """A source couldn't be read: complete the node's fields from what did arrive, so an editor can draw it."""
     try:
-        answered = _ask_outputs(version, found.arriving, typed)
+        answered = _ask_outputs(version, found.arriving, statics)
     except CompileProblem:
         # The broken source carries the fault; a refusal about its missing
         # arrival would report the same fact twice.
         answered = ()
-    typed_inputs = tuple(_with_type_from_its_edge(inp, found.bound) for inp in inputs)
-    problems.extend(field_problems(node.id, answered, frozenset(i.name for i in typed_inputs), untyped_ok=True))
-    return _replaced(version.interface, typed_inputs, answered)
+    inputs_typed_by_their_edges = tuple(_with_type_from_its_edge(inp, found.bound) for inp in inputs)
+    problems.extend(field_problems(node.id, answered, frozenset(i.name for i in inputs_typed_by_their_edges), untyped_ok=True))
+    return _replaced(version.interface, inputs_typed_by_their_edges, answered)
 
 
-def _ask_outputs(version: Any, arriving: dict[str, Any], typed: dict[str, Any]) -> tuple[Output, ...]:
+def _ask_outputs(version: Any, arriving: dict[str, Any], statics: dict[str, Any]) -> tuple[Output, ...]:
     """What ``compute_outputs`` answers now that it can be told what arrives; a compiled graph has no hooks."""
     if not isinstance(version, NodeVersion) or version.compute_outputs is None:
         return _interface_it_declares(version).outputs
-    values = {**{i.name: i.default for i in version.interface.inputs if not i.required}, **typed}
-    answered = version.compute_outputs.answer(values, arriving, typed)
+    values = {**{i.name: i.default for i in version.interface.inputs if not i.required}, **statics}
+    answered = version.compute_outputs.answer(values, arriving, statics)
     return version.interface.outputs if answered is None else answered
 
 
@@ -314,7 +314,7 @@ def _condition_of_source_above(walk: WalkSoFar) -> Any:
 
 
 def _wiring_of_function_node(
-    node: GraphNode, interface: Interface, found: InputsRead, listed: frozenset[str], runs_per_row_of: Index | None, walk: WalkSoFar, problems: list[Problem],
+    node: GraphNode, interface: Interface, found: InputsRead, inputs_given_a_list: frozenset[str], runs_per_row_of: Index | None, walk: WalkSoFar, problems: list[Problem],
 ) -> Wiring:
     """Every field of a node that is a function, built once its row is known."""
     outputs = interface.outputs
@@ -337,8 +337,8 @@ def _wiring_of_function_node(
         fields[inp.name] = CompiledField(
             ref=Ref._of_parts(node_id, inp.name), type=arrived.dtype, binding=node.bindings.get(inp.name), condition=None,
             problems=tuple(on_field.get(inp.name, ())), _index=arrived.index, _receives=found.receives[inp.name],
-            _listed=inp.name in listed, _makes_rows=None, _view_of=None, _takes_blank=False, _title=inp.title,
-            _row_origins=walk.row_origins.of_rows_on(arrived.index) if inp.name in listed else None,
+            _is_list_on_node=inp.name in inputs_given_a_list, _makes_rows=None, _view_of=None, _takes_blank=False, _title=inp.title,
+            _row_origins=walk.row_origins.of_rows_on(arrived.index) if inp.name in inputs_given_a_list else None,
         )
     at_node = condition_at_node(node.bindings, _condition_of_source_above(walk))
     runs_once = runs_per_row_of is None
@@ -352,7 +352,7 @@ def _wiring_of_function_node(
             known = walk.row_origins.note_table(table_rows_index, taken_in)
             fields[out.name] = CompiledField(
                 ref=ref, type=Series[dtype] if runs_per_row_of is not None else dtype, binding=None, condition=condition, problems=field_problems_here,
-                _index=runs_per_row_of, _receives=None, _listed=False, _makes_rows=table_rows_index, _view_of=None, _takes_blank=takes_blank, _title=out.title, _row_origins=known,
+                _index=runs_per_row_of, _receives=None, _is_list_on_node=False, _makes_rows=table_rows_index, _view_of=None, _takes_blank=takes_blank, _title=out.title, _row_origins=known,
             )
             for column, holds in columns_of(dtype):
                 name = f"{out.name}.{column}"
@@ -360,7 +360,7 @@ def _wiring_of_function_node(
                     continue
                 fields[name] = CompiledField(
                     ref=Ref._of_parts(node_id, name), type=Series[holds], binding=None, condition=condition, problems=(),
-                    _index=table_rows_index, _receives=None, _listed=False, _makes_rows=None, _view_of=(ref, column), _takes_blank=True, _title=column, _row_origins=known,
+                    _index=table_rows_index, _receives=None, _is_list_on_node=False, _makes_rows=None, _view_of=(ref, column), _takes_blank=True, _title=column, _row_origins=known,
                 )
             continue
         if dtype.element is not None:
@@ -371,14 +371,14 @@ def _wiring_of_function_node(
             carried, index, makes = dtype, None, False
         fields[out.name] = CompiledField(
             ref=ref, type=carried, binding=None, condition=condition, problems=field_problems_here,
-            _index=index, _receives=None, _listed=False, _makes_rows=index if makes else None, _view_of=None, _takes_blank=takes_blank, _title=out.title,
+            _index=index, _receives=None, _is_list_on_node=False, _makes_rows=index if makes else None, _view_of=None, _takes_blank=takes_blank, _title=out.title,
             _row_origins=walk.row_origins.of_rows_on(index),
         )
     return Wiring(fields, runs_per_row_of)
 
 
 def _place_embedded_graph(
-    node: GraphNode, definition: Any, graph: CompiledGraph, embeddable: EmbeddableGraph, interface: Interface, typed: dict[str, Any], runs_per_row_of: Index | None,
+    node: GraphNode, definition: Any, graph: CompiledGraph, embeddable: EmbeddableGraph, interface: Interface, statics: dict[str, Any], runs_per_row_of: Index | None,
     found: InputsRead, walk: WalkSoFar, problems: list[Problem],
 ) -> None:
     """The graph node's record, and every node inside it under ``runs_per_row_of``."""
@@ -386,7 +386,7 @@ def _place_embedded_graph(
     connected = [name for name, binding in node.bindings.items() if isinstance(binding, From) and name in offered]
     edges: dict[Ref, From] = {offered[name].runs_at: node.bindings[name] for name in connected}  # type: ignore[misc]
     crossings = {offered[name].runs_at: Crossing(type=found.arrivals[name].dtype, index=found.arrivals[name].index, receives=found.receives[name]) for name in connected}
-    values = {offered[name].runs_at: value for name, value in typed.items()}
+    values = {offered[name].runs_at: value for name, value in statics.items()}
     lifted = lift_embedded_nodes(embeddable, node.id, edges, values, runs_per_row_of, crossings, lambda ref: _field_above(walk, ref), walk.row_origins)
-    _add(walk, node, problems, definition, graph, interface, typed, Wiring({}, runs_per_row_of))
+    _add(walk, node, problems, definition, graph, interface, statics, Wiring({}, runs_per_row_of))
     walk.compiled.update(lifted)

@@ -226,14 +226,14 @@ class LiveRunValues:
         for node_id in order:
             node = compiled.node(node_id)
             for inp in self._plan.interfaces[node_id].inputs:
-                typed = compiled.field(Ref(node_id, inp.name))
-                if not typed._listed or typed._index.parent is not None:
+                list_field = compiled.field(Ref(node_id, inp.name))
+                if not list_field._is_list_on_node or list_field._index.parent is not None:
                     continue
                 for position, value in enumerate(node.statics[inp.name]):
-                    self._made(typed._index.id, (position,))
-                    self._values.setdefault(typed.ref, {})[(position,)] = value
-                self._close(typed._index.id)
-                roots.append(typed._index.id)
+                    self._made(list_field._index.id, (position,))
+                    self._values.setdefault(list_field.ref, {})[(position,)] = value
+                self._close(list_field._index.id)
+                roots.append(list_field._index.id)
         self._make_root_list_rows(roots)
 
     def _make_root_list_rows(self, roots: list[str]) -> None:
@@ -244,9 +244,9 @@ class LiveRunValues:
         next_up: list[str] = []
         for index_id in roots:
             for row in sorted(self._rows.get(index_id, ())):
-                self._made_lists(index_id, row)
+                self._add_rows_of_lists_under(index_id, row)
             next_up.extend(self._making_rows_on(index_id))
-            next_up.extend(self._seal_listed(index_id, []))
+            next_up.extend(self._seal_lists_on_nodes_under(index_id, []))
         self._seal(next_up)
 
     # -- the read plan, as compile stored it -----------------------------------
@@ -278,9 +278,9 @@ class LiveRunValues:
                 if not _per_row(received):
                     yield inp.node_id, ref, _rows_under_depth(received)
 
-    def _typed_under(self, index_id: str) -> Iterator[tuple[Ref, str]]:
+    def _lists_on_nodes_under(self, index_id: str) -> Iterator[tuple[Ref, str]]:
         """``(the input, its index)`` for each list set on a node, made under every row of this index."""
-        for ref in self._plan.listed_inputs[index_id]:
+        for ref in self._plan.lists_on_nodes_under_index[index_id]:
             yield ref, self._fields[ref]._index.id
 
     # -- units ---------------------------------------------------------------
@@ -467,10 +467,10 @@ class LiveRunValues:
             received = self._fields[own]._receives
             if binding is None:
                 if isinstance(received, EntireValue):
-                    values[inp.name] = self._typed(received, inp.default, own)
+                    values[inp.name] = self._static_or_default_for_unit(received, inp.default, own)
                 continue  # a scalar default is the node's own; the call applies it
             if inp.name in statics:
-                values[inp.name] = self._typed(received, statics[inp.name], own, row)
+                values[inp.name] = self._static_or_default_for_unit(received, statics[inp.name], own, row)
                 continue
             if isinstance(received, (PerRow, Broadcast)):
                 covering, skips = self._covering(node_id, binding.refs, row)
@@ -570,7 +570,7 @@ class LiveRunValues:
             raise NodeExecutionError(CATALOGUE["row_covered_twice"][0], node_id=node_id, code="row_covered_twice", ctx={"edges": len(covering), "row": list(row)})
         return covering, skips
 
-    def _typed(self, received: Receive, value: Any, own: Ref, row: Row = ()) -> Any:
+    def _static_or_default_for_unit(self, received: Receive, value: Any, own: Ref, row: Row = ()) -> Any:
         """A value the author typed (or the declared default) as the unit receives it.
 
         Received whole, it is a series on the input's own index; received
@@ -706,10 +706,10 @@ class LiveRunValues:
                         new_rows.append(new_row)
                     self._write(ref, new_row, item, written)
                 self._groups.add((index.id, write_row))
-        lists = [child for index_id, new_rows in rows_made.items() for new_row in new_rows for child in self._made_lists(index_id, new_row)]
+        lists = [child for index_id, new_rows in rows_made.items() for new_row in new_rows for child in self._add_rows_of_lists_under(index_id, new_row)]
         for index_id, write_row in no_rows_under:
             self._no_rows_under.setdefault(index_id, set()).add(write_row)
-            lists.extend(self._no_rows_under_lists(index_id, write_row))
+            lists.extend(self._mark_lists_empty_under(index_id, write_row))
         self._finish(unit)
         sealed = self._seal(list(making))
         return self._woken(unit, written, rows_made, no_rows_under, making, sealed, lists)
@@ -744,43 +744,43 @@ class LiveRunValues:
             rows_under_row.setdefault(row_on_path, []).append(row)
         return True
 
-    def _made_lists(self, index_id: str, row: Row) -> list[tuple[str, Row]]:
+    def _add_rows_of_lists_under(self, index_id: str, row: Row) -> list[tuple[str, Row]]:
         """Make, under a row just made on ``index_id``, the rows of every
         list set on a node whose index is its child, and theirs in turn;
         returns each ``(index, row)`` made."""
         made: list[tuple[str, Row]] = []
-        for ref, child in self._typed_under(index_id):
+        for ref, child in self._lists_on_nodes_under(index_id):
             cells = self._values.setdefault(ref, {})
             for position, value in enumerate(self._compiled.node(ref.node_id).statics[ref.field]):
                 if self._made(child, (*row, position)):
                     made.append((child, (*row, position)))
-                    made.extend(self._made_lists(child, (*row, position)))
+                    made.extend(self._add_rows_of_lists_under(child, (*row, position)))
                 cells[(*row, position)] = value
             self._groups.add((child, row))
         return made
 
-    def _no_rows_under_lists(self, index_id: str, skip_row: Row) -> list[tuple[str, Row]]:
+    def _mark_lists_empty_under(self, index_id: str, skip_row: Row) -> list[tuple[str, Row]]:
         """Where ``index_id`` has no rows under ``skip_row``, neither has a list set
         on a node beneath it; returns each ``(index, row)`` marked."""
         marked: list[tuple[str, Row]] = []
-        for _, child in self._typed_under(index_id):
+        for _, child in self._lists_on_nodes_under(index_id):
             self._no_rows_under.setdefault(child, set()).add(skip_row)
             marked.append((child, skip_row))
-            marked.extend(self._no_rows_under_lists(child, skip_row))
+            marked.extend(self._mark_lists_empty_under(child, skip_row))
         return marked
 
-    def _seal_listed(self, index_id: str, sealed: list[str]) -> list[str]:
+    def _seal_lists_on_nodes_under(self, index_id: str, sealed: list[str]) -> list[str]:
         """Seal the lists set on nodes beneath a sealed index: every parent
         row is made, so every row under them is. Returns the indexes made by
         nodes running per row of the ones sealed, for ``_seal`` to try next."""
         next_up: list[str] = []
-        for _, child in self._typed_under(index_id):
+        for _, child in self._lists_on_nodes_under(index_id):
             if child in self._sealed:
                 continue
             self._close(child)
             sealed.append(child)
             next_up.extend(self._making_rows_on(child))
-            next_up.extend(self._seal_listed(child, sealed))
+            next_up.extend(self._seal_lists_on_nodes_under(child, sealed))
         return next_up
 
     def _close(self, index_id: str) -> None:
@@ -811,7 +811,7 @@ class LiveRunValues:
             self._close(index_id)
             sealed.append(index_id)
             index_ids.extend(self._making_rows_on(index_id))
-            index_ids.extend(self._seal_listed(index_id, sealed))
+            index_ids.extend(self._seal_lists_on_nodes_under(index_id, sealed))
         return sealed
 
     def _woken(
@@ -925,7 +925,7 @@ class LiveRunValues:
         each one by its own type."""
         columns: dict[Ref, OutputColumn] = {}
         for ref in sorted(self._values):
-            if self._fields[ref]._listed:  # the graph holds a list set on a node, never a state
+            if self._fields[ref]._is_list_on_node:  # the graph holds a list set on a node, never a state
                 continue
             by_row = self._values[ref]
             rows: list[Row] = []
@@ -1050,7 +1050,7 @@ class LiveRunValues:
                 skip_row = next((row_on_path for row_on_path in _rows_from_root_to(row) if by_row.get(row_on_path) is SKIPPED), None)
                 if skip_row is not None:
                     self._no_rows_under.setdefault(index.id, set()).add(skip_row)
-                    self._no_rows_under_lists(index.id, skip_row)
+                    self._mark_lists_empty_under(index.id, skip_row)
                     continue
                 stored = by_row.get(row)
                 if is_frame(stored):
@@ -1065,7 +1065,7 @@ class LiveRunValues:
             for index_id in self._indexes_made_by(node_id):
                 for new_row in sorted(made.get(index_id, ())):
                     self._made(index_id, new_row)
-                    self._made_lists(index_id, new_row)
+                    self._add_rows_of_lists_under(index_id, new_row)
 
 
 def _blank_of(field: CompiledField, out: Output) -> Any:

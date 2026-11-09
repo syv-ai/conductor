@@ -179,7 +179,7 @@ class _Hook:
     arriving: tuple[str, ...]
     all_arriving: bool
 
-    def answer(self, values: Mapping[str, Any], arriving: Mapping[str, Any], typed_in: Mapping[str, Any]) -> tuple[Any, ...] | None:
+    def answer(self, values: Mapping[str, Any], arriving: Mapping[str, Any], statics: Mapping[str, Any]) -> tuple[Any, ...] | None:
         """The hook's fields for these values and arriving types; ``None`` when a value it needs has none.
 
         An ``Arriving`` parameter gets the edge's type, or the type of the
@@ -188,8 +188,8 @@ class _Hook:
             return None
         arguments = {name: values[name] for name in self.reads if name in values}
         for name in self.arriving:
-            typed: Any = typed_in.get(name)
-            arguments[name] = arriving.get(name, type_of_frame(typed) if is_frame(typed) else (dtype_of(type(typed)) or _UntypedValue))
+            static_value: Any = statics.get(name)
+            arguments[name] = arriving.get(name, type_of_frame(static_value) if is_frame(static_value) else (dtype_of(type(static_value)) or _UntypedValue))
         if self.all_arriving:
             arguments.update({name: dtype for name, dtype in arriving.items() if name not in arguments})
         return tuple(self.function(**arguments))

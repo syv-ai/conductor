@@ -37,7 +37,7 @@ class EngineReadPlan:
     #: Per index id: the outputs whose values sit on it, and a list set on a node whose own rows they are.
     carried_by: dict[str, tuple[Ref, ...]]
     #: Per index id: the lists set on nodes whose rows are made under each of its rows.
-    listed_inputs: dict[str, tuple[Ref, ...]]
+    lists_on_nodes_under_index: dict[str, tuple[Ref, ...]]
     #: The field that makes each index's rows, by index id.
     owners: dict[str, CompiledField]
     #: Every column of a table output offered as a field: the table output and the column.
@@ -57,7 +57,7 @@ def build_engine_read_plan(nodes: Iterable[CompiledNode], row_ids_must_survive: 
     read_by: dict[Ref, list[tuple[Ref, Receive]]] = {}
     run_per_row_by: dict[str, list[str]] = {}
     carried_by: dict[str, list[Ref]] = {}
-    listed_inputs: dict[str, list[Ref]] = {}
+    lists_on_nodes_under_index: dict[str, list[Ref]] = {}
     owners: dict[str, CompiledField] = {}
     views: dict[Ref, tuple[Ref, str]] = {}
 
@@ -65,7 +65,7 @@ def build_engine_read_plan(nodes: Iterable[CompiledNode], row_ids_must_survive: 
         owners[index_id] = field
         run_per_row_by.setdefault(index_id, [])
         carried_by.setdefault(index_id, [])
-        listed_inputs.setdefault(index_id, [])
+        lists_on_nodes_under_index.setdefault(index_id, [])
 
     for node in nodes:
         wiring = node.wiring
@@ -88,11 +88,11 @@ def build_engine_read_plan(nodes: Iterable[CompiledNode], row_ids_must_survive: 
                         how = parts.get(source, received)
                         read_by.setdefault(source, []).append((ref, how))
                         node_reads.append((source, how))
-                if field._listed and field._index is not None:
+                if field._is_list_on_node and field._index is not None:
                     owned(field._index.id, field)
                     carried_by[field._index.id].append(ref)
                     if field._index.parent is not None:
-                        listed_inputs.setdefault(field._index.parent.id, []).append(ref)
+                        lists_on_nodes_under_index.setdefault(field._index.parent.id, []).append(ref)
                 continue
             if field._view_of is not None:
                 views[ref] = field._view_of
@@ -100,11 +100,11 @@ def build_engine_read_plan(nodes: Iterable[CompiledNode], row_ids_must_survive: 
                 owned(field._makes_rows.id, field)
             if (index := field._index) is not None:
                 carried_by.setdefault(index.id, []).append(ref)
-    for planned in (run_per_row_by, carried_by, listed_inputs):
+    for planned in (run_per_row_by, carried_by, lists_on_nodes_under_index):
         for index_id in planned.keys() - owners.keys():
             raise RuntimeError(f"compile planned index {index_id!r}, which no field owns")
     return EngineReadPlan(
-        fields, runs_per_row_of, interfaces, _tuples(read_by), _tuples(reads), _tuples(run_per_row_by), _tuples(carried_by), _tuples(listed_inputs),
+        fields, runs_per_row_of, interfaces, _tuples(read_by), _tuples(reads), _tuples(run_per_row_by), _tuples(carried_by), _tuples(lists_on_nodes_under_index),
         owners, views, row_ids_must_survive,
     )
 
