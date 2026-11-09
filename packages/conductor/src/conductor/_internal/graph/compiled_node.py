@@ -24,6 +24,7 @@ from pydantic_core import to_jsonable_python
 from conductor._internal.codec import cell_validator_for, json_schema_of, to_jsonable
 from conductor._internal.execution.run_state import Question
 from conductor._internal.field_records import was_titled_by_its_author
+from conductor._internal.graph.output_conditions import run_once_condition
 from conductor._internal.graph.receive_modes import FixedValue
 from conductor._internal.graph.run_plan import NodeRunPlan, plan_of_node
 from conductor._internal.node_definition import NodeVersion
@@ -36,7 +37,7 @@ if TYPE_CHECKING:
     from conductor._internal.graph.binding import Binding
     from conductor._internal.graph.compiled_graph import CompiledGraph
     from conductor._internal.graph.graph_records import GraphNode
-    from conductor._internal.graph.output_conditions import BranchTaken, Condition
+    from conductor._internal.graph.output_conditions import Condition
     from conductor._internal.graph.receive_modes import ReceiveMode
     from conductor._internal.index import Index
     from conductor._internal.node_definition import NodeDefinition
@@ -242,7 +243,8 @@ class CompiledField:
     #: Where this input's value comes from: ``From``, ``Static``, or ``None``
     #: when its declared default applies. Always ``None`` on an output.
     binding: Binding | None
-    #: Under which condition this output appears (``ALWAYS`` when no decision holds it back). Always ``None`` on an input.
+    #: Under which condition this output appears: the decisions on nodes that run once
+    #: (``ALWAYS`` when none holds it back). Always ``None`` on an input.
     condition: Condition | None
     #: Every problem about this field.
     problems: tuple[Problem, ...] = field(repr=False)
@@ -254,21 +256,21 @@ class CompiledField:
     _held_as: HeldAs = field(repr=False)
     #: For an output: ``None`` is a value it may be given.
     _takes_blank: bool = field(repr=False)
-    #: The per-row decisions this field has a value only one way of, read at its own row. Empty on a field no such decision holds back.
-    _branches_on_its_row: frozenset[BranchTaken] = field(repr=False)
+    #: ``condition`` with the per-row decisions as well, each naming the rows it is decided on: what can keep two fields off one row.
+    _condition_with_rows: Condition | None = field(repr=False)
     #: For an output or a list set on a node: the indexes its rows can trace back to, ``None`` when
     #: that can't be known (``conductor._internal.graph.row_origins``).
     _row_origins: frozenset[str] | None = field(repr=False)
 
     def __init__(
-        self, ref: Ref, type: Any, binding: Binding | None, condition: Condition | None, problems: tuple[Problem, ...], *,
-        _index: Index | None, _receive_mode: ReceiveMode | None, _held_as: HeldAs,
-        _takes_blank: bool, _branches_on_its_row: frozenset[BranchTaken], _row_origins: frozenset[str] | None,
+        self, ref: Ref, type: Any, binding: Binding | None, problems: tuple[Problem, ...], *,
+        _condition_with_rows: Condition | None, _index: Index | None, _receive_mode: ReceiveMode | None, _held_as: HeldAs,
+        _takes_blank: bool, _row_origins: frozenset[str] | None,
     ) -> None:
         """Compile builds one per field of a graph, so this sets them in one step, not one at a time."""
         self.__dict__.update(
-            ref=ref, type=type, binding=binding, condition=condition, problems=problems, _index=_index, _receive_mode=_receive_mode,
-            _held_as=_held_as, _takes_blank=_takes_blank, _branches_on_its_row=_branches_on_its_row, _row_origins=_row_origins,
+            ref=ref, type=type, binding=binding, condition=None if _condition_with_rows is None else run_once_condition(_condition_with_rows), problems=problems,
+            _condition_with_rows=_condition_with_rows, _index=_index, _receive_mode=_receive_mode, _held_as=_held_as, _takes_blank=_takes_blank, _row_origins=_row_origins,
         )
 
     @property

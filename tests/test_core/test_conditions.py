@@ -176,3 +176,72 @@ def test_a_decision_on_a_node_whose_wiring_failed_is_not_one_a_run_makes():
     assert compiled.node("g")._wiring is None
     raised = compiled.node("g").cause
     assert raised.type == "unknown_ref_output"
+
+
+def _per_row_branches():
+    @dataclass(frozen=True)
+    class Branched:
+        yes: Annotated[str | None, Result(exclusive_group="g")]
+        no: Annotated[str | None, Result(exclusive_group="g")]
+
+    @node("branch_on_each_row", category="test")
+    def branch_on_each_row(value: str) -> Branched:
+        return Branched(yes=value, no=SKIPPED) if value == "a" else Branched(yes=SKIPPED, no=value)
+
+    @node("rows", category="test")
+    def rows() -> Series[str]:
+        return ["a", "b"]
+
+    @node("split_row", category="test")
+    def split_row(value: str) -> Series[str]:
+        return [f"{value}1", f"{value}2"]
+
+    @node("pair_up", category="test")
+    def pair_up(cell: str, up: str) -> str:
+        return cell + up
+
+    @node("both_series", category="test")
+    def both_series(xs: Series[str], ys: Series[str]) -> str:
+        return f"{xs}|{ys}"
+
+    return [branch_on_each_row, rows, split_row, pair_up, both_series]
+
+
+def _types_of_problems(*nodes):
+    definitions = _per_row_branches()
+    by_id = {definition.id: definition for definition in definitions}
+    built = Graph(nodes=[by_id[kind].graph_node(node_id, **bindings) for kind, node_id, bindings in nodes])
+    compiled = CompiledGraph.from_graph(built, NodeRegistry(definitions))
+    return compiled, [problem.type for problem in compiled.problems]
+
+
+def test_a_per_row_decision_read_from_a_row_above_still_keeps_two_branches_apart():
+    _, problems = _types_of_problems(
+        ("rows", "s", {}), ("branch_on_each_row", "d", {"value": From("s.result")}), ("split_row", "sp", {"value": From("s.result")}),
+        ("pair_up", "ua", {"cell": From("sp.result"), "up": From("d.yes")}), ("pair_up", "ub", {"cell": From("sp.result"), "up": From("d.no")}),
+        ("both_series", "z", {"xs": From("ua.result"), "ys": From("ub.result")}),
+    )
+    assert problems == ["series_inputs_never_share_a_row"]
+
+
+def test_a_cell_of_several_sources_carries_the_per_row_decisions_it_reads():
+    _, problems = _types_of_problems(
+        ("rows", "s", {}), ("branch_on_each_row", "d", {"value": From("s.result")}),
+        ("pair_up", "ua", {"cell": From("s.result"), "up": From("d.yes")}), ("pair_up", "ub", {"cell": From("s.result"), "up": From("d.yes", "d.no")}),
+        ("both_series", "z", {"xs": From("ua.result"), "ys": From("ub.result")}),
+    )
+    assert problems == []
+
+
+def test_a_field_s_public_condition_holds_only_decisions_on_nodes_that_run_once():
+    compiled, problems = _types_of_problems(("rows", "s", {}), ("branch_on_each_row", "d", {"value": From("s.result")}))
+    assert problems == [] and compiled.field("d.yes").condition == ALWAYS
+
+
+def test_a_long_chain_of_decisions_merged_per_row_stays_small():
+    definitions = _per_row_branches()
+    by_id = {definition.id: definition for definition in definitions}
+    nodes = [by_id["rows"].graph_node("s"), by_id["branch_on_each_row"].graph_node("d0", value=From("s.result"))]
+    nodes += [by_id["branch_on_each_row"].graph_node(f"d{i}", value=From(f"d{i-1}.yes", f"d{i-1}.no")) for i in range(1, 40)]
+    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), NodeRegistry(definitions))
+    assert compiled.is_runnable and len(compiled.field("d39.yes")._condition_with_rows) <= 32

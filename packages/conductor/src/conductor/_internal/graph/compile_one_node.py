@@ -40,13 +40,12 @@ from conductor._internal.graph.graph_interface import field_problems
 from conductor._internal.graph.graph_records import GraphNode
 from conductor._internal.graph.output_conditions import (
     ALWAYS,
-    BranchTaken,
     Condition,
+    condition_for_reader_on_rows,
     condition_node_runs_under,
     output_condition,
 )
 from conductor._internal.graph.read_static_values import read_static_values
-from conductor._internal.graph.receive_modes import Cell, ReceiveMode
 from conductor._internal.graph.row_origins import origins_taken_in
 from conductor._internal.index import Index
 from conductor._internal.node_signature import Interface
@@ -293,25 +292,9 @@ def _field_above(progress: CompileProgress, ref: Ref) -> CompiledField | None:
 def _condition_lookup_for_sources(progress: CompileProgress) -> Any:
     def condition_of(ref: Ref) -> Condition:
         field = _field_above(progress, ref)
-        return field.condition if field is not None and field.condition is not None else ALWAYS
+        return field._condition_with_rows if field is not None and field._condition_with_rows is not None else ALWAYS
 
     return condition_of
-
-
-def _branches_read_at_the_row(receive_modes: Mapping[str, ReceiveMode], runs_per_row_of: Index | None, progress: CompileProgress) -> frozenset[BranchTaken]:
-    """The per-row decisions this node runs only one way of: those of a source read alone at the node's own row, whose skip skips the unit."""
-    branches: frozenset[BranchTaken] = frozenset()
-    for receive_mode in receive_modes.values():
-        if receive_mode.__class__ is Cell and len(receive_mode.sources) == 1:  # type: ignore[union-attr]  # a Cell has sources
-            source = _field_above(progress, receive_mode.sources[0])  # type: ignore[union-attr]
-            if source is not None and source._branches_on_its_row and source._index == runs_per_row_of:
-                branches |= source._branches_on_its_row
-    return branches
-
-
-def _branches_of_output(node_id: str, out: Output, branches_read: frozenset[BranchTaken]) -> frozenset[BranchTaken]:
-    """What holds an output of a node running per row back: what its node runs under, and its own ``exclusive_group``."""
-    return branches_read if out.exclusive_group is None else branches_read | {BranchTaken(node_id, out.exclusive_group, out.name)}
 
 
 def _wiring_of_function_node(
@@ -337,40 +320,41 @@ def _wiring_of_function_node(
         field_type = inputs_read.carries[input_.name]
         is_list_set_on_it = input_.name in lists_set_on_inputs
         fields[input_.name] = CompiledField(
-            ref=Ref._from_checked_parts(node_id, input_.name), type=field_type.dtype, binding=node.bindings.get(input_.name), condition=None,
+            ref=Ref._from_checked_parts(node_id, input_.name), type=field_type.dtype, binding=node.bindings.get(input_.name), _condition_with_rows=None,
             problems=tuple(problems_by_field.get(input_.name, ())), _index=field_type.index, _receive_mode=inputs_read.receive_modes[input_.name],
             _held_as=ListOnNode(field_type.index, list(lists_set_on_inputs[input_.name])) if is_list_set_on_it else NotHeld(),  # type: ignore[arg-type]  # a list on a node has its index
-            _takes_blank=False, _branches_on_its_row=frozenset(),
+            _takes_blank=False,
             _row_origins=progress.row_origins.origins_of_rows_on(field_type.index) if is_list_set_on_it else None,
         )
-    node_condition = condition_node_runs_under(node.bindings, _condition_lookup_for_sources(progress))
-    runs_once = runs_per_row_of is None
-    branches_read = frozenset() if runs_once else _branches_read_at_the_row(inputs_read.receive_modes, runs_per_row_of, progress)
+    rows_of_this_node = frozenset() if runs_per_row_of is None else frozenset(step.id for step in runs_per_row_of.lineage)
+    condition_above = _condition_lookup_for_sources(progress)
+    node_condition = condition_node_runs_under(node.bindings, lambda ref: condition_for_reader_on_rows(condition_above(ref), rows_of_this_node))
+    on_rows_of = None if runs_per_row_of is None else runs_per_row_of.id
     for out in outputs:
         ref = Ref._from_checked_parts(node_id, out.name)
-        condition = output_condition(node_id, out, node_condition, runs_once)
+        condition = output_condition(node_id, out, node_condition, on_rows_of)
         takes_blank, field_problems_here = out.takes_blank, tuple(problems_by_field.get(out.name, ()))
         dtype = out.dtype
         if is_table_type(dtype):
             table_rows_index = Index(str(ref), parent=runs_per_row_of)
             origins = progress.row_origins.record_table(table_rows_index, taken_in)
             fields[out.name] = CompiledField(
-                ref=ref, type=dtype, binding=None, condition=condition, problems=field_problems_here,
-                _index=runs_per_row_of, _receive_mode=None, _held_as=TableAtRow(table_rows_index), _takes_blank=takes_blank, _branches_on_its_row=_branches_of_output(node_id, out, branches_read), _row_origins=origins,
+                ref=ref, type=dtype, binding=None, _condition_with_rows=condition, problems=field_problems_here,
+                _index=runs_per_row_of, _receive_mode=None, _held_as=TableAtRow(table_rows_index), _takes_blank=takes_blank, _row_origins=origins,
             )
             for column, column_dtype in columns_of(dtype):
                 name = f"{out.name}.{column}"
                 if name in names:
                     continue
                 fields[name] = CompiledField(
-                    ref=Ref._from_checked_parts(node_id, name), type=column_dtype, binding=None, condition=condition, problems=(),
-                    _index=table_rows_index, _receive_mode=None, _held_as=ColumnOfTable(ref, column), _takes_blank=True, _branches_on_its_row=frozenset(), _row_origins=origins,
+                    ref=Ref._from_checked_parts(node_id, name), type=column_dtype, binding=None, _condition_with_rows=condition, problems=(),
+                    _index=table_rows_index, _receive_mode=None, _held_as=ColumnOfTable(ref, column), _takes_blank=True, _row_origins=origins,
                 )
             continue
         index = Index(str(ref), parent=runs_per_row_of) if out.many else runs_per_row_of
         fields[out.name] = CompiledField(
-            ref=ref, type=dtype, binding=None, condition=condition, problems=field_problems_here,
-            _index=index, _receive_mode=None, _held_as=CellsInAList(index) if out.many else OneValue(), _takes_blank=takes_blank, _branches_on_its_row=frozenset() if out.many else _branches_of_output(node_id, out, branches_read),
+            ref=ref, type=dtype, binding=None, _condition_with_rows=condition, problems=field_problems_here,
+            _index=index, _receive_mode=None, _held_as=CellsInAList(index) if out.many else OneValue(), _takes_blank=takes_blank,
             _row_origins=progress.row_origins.origins_of_rows_on(index),
         )
     return Wiring(fields, runs_per_row_of)

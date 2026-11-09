@@ -75,10 +75,7 @@ from conductor._internal.field_records import Input
 from conductor._internal.graph.binding import From
 from conductor._internal.graph.embedding import parent_graph_of_node_id
 from conductor._internal.graph.graph_records import GraphNode
-from conductor._internal.graph.output_conditions import (
-    can_never_both_hold,
-    no_decision_goes_two_ways,
-)
+from conductor._internal.graph.output_conditions import can_never_both_hold
 from conductor._internal.graph.receive_modes import (
     Cell,
     FixedValue,
@@ -385,7 +382,7 @@ def _never_hold_a_value_on_one_row(left: CompiledField, right: CompiledField) ->
     """Two fields on one index of which at most one ever has a value at a row: two outputs of one ``exclusive_group``, or what hangs off two branches of one decision."""
     if left._index != right._index:
         return False
-    return not no_decision_goes_two_ways(left._branches_on_its_row | right._branches_on_its_row) or can_never_both_hold(left.condition, right.condition)  # type: ignore[arg-type]  # a field without a condition holds nothing back
+    return can_never_both_hold(left._condition_with_rows, right._condition_with_rows)  # type: ignore[arg-type]  # a field without a condition holds nothing back
 
 
 def _columns_carried_on(places: list[SourcesThatAreAlternatives]) -> list[frozenset[int]]:

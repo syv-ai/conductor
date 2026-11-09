@@ -19,18 +19,22 @@ it appears when any one of its sources appeared — that is where a second
 alternative comes from. An alternative naming one decision twice with different
 outputs is dropped, since it can never hold.
 
-Only a decision on a node that runs once holds anything back. A node that runs
-once per row may take one branch on some rows and the
-other on the rest, so each branch output is a series missing the rows
-that went the other way. Nothing downstream is switched off, so such a
-node contributes no atom.
+A decision on a node that runs once holds back everything downstream. A node
+that runs once per row may take one branch on some rows and the other on the
+rest, so nothing downstream is switched off: its atom names the rows it is
+decided on, and only a reader at or under those rows is held back by it. A
+field's public ``condition`` is the run-once part, what a caller of a whole
+run can read; the engine's answer about one row (can two fields hold a value
+on one row?) reads the whole condition.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, field
+from typing import Annotated, Any
+
+from pydantic import Field
 
 from conductor._internal.field_records import Output
 from conductor._internal.graph.binding import From
@@ -41,21 +45,42 @@ from conductor._internal.ref import Ref
 class BranchTaken:
     """One way one decision went: output ``output`` of the ``exclusive_group`` group on ``node_id``.
 
-    Made by ``output_condition`` for every output with an ``exclusive_group`` on a node
-    that runs once, and only ever used inside a ``Condition``. The
-    engine never sees one: it propagates ``SKIPPED`` without knowing which
-    decision caused it.
+    Made by ``output_condition`` for every output with an ``exclusive_group``,
+    and only ever used inside a ``Condition``. The engine never sees one: it
+    propagates ``SKIPPED`` without knowing which decision caused it.
     """
 
     node_id: str
     exclusive_group: str
     output: str
+    #: The index the decision is made once per row of; ``None`` when its node runs once.
+    on_rows_of: Annotated[str | None, Field(exclude=True)] = field(default=None, repr=False)
 
 
 Condition = frozenset[frozenset[BranchTaken]]
 
 ALWAYS: Condition = frozenset({frozenset()})
 NEVER: Condition = frozenset()
+
+#: Past this many alternatives a condition stops following per-row decisions,
+#: so what they would have kept apart compiles as if they weren't there.
+_MOST_ALTERNATIVES_FOLLOWED = 32
+
+
+def condition_for_reader_on_rows(condition: Condition, rows: frozenset[str]) -> Condition:
+    """``condition`` as a reader on ``rows`` sees it: a per-row decision holds back only rows at or under its own, and a run-once decision every row."""
+    return _keeping_only(condition, lambda branch: branch.on_rows_of is None or branch.on_rows_of in rows)
+
+
+def run_once_condition(condition: Condition) -> Condition:
+    """The run-once decisions of ``condition``, what a field's public ``condition`` says."""
+    return _keeping_only(condition, lambda branch: branch.on_rows_of is None)
+
+
+def _keeping_only(condition: Condition, keep: Callable[[BranchTaken], bool]) -> Condition:
+    if all(keep(branch) for alternative in condition for branch in alternative):
+        return condition
+    return frozenset(frozenset(filter(keep, alternative)) for alternative in condition)
 
 
 def condition_node_runs_under(bindings: Mapping[str, Any], condition_of: Callable[[Ref], Condition]) -> Condition:
@@ -69,12 +94,11 @@ def condition_node_runs_under(bindings: Mapping[str, Any], condition_of: Callabl
     return node_condition
 
 
-def output_condition(node_id: str, out: Output, node_condition: Condition, runs_once: bool) -> Condition:
-    """The condition of one output: its node's, and for an ``exclusive_group`` output on
-    a node that runs once, that decision going this way."""
-    if out.exclusive_group is None or not runs_once:
+def output_condition(node_id: str, out: Output, node_condition: Condition, on_rows_of: str | None) -> Condition:
+    """The condition of one output: its node's, and for an ``exclusive_group`` output that decision going this way."""
+    if out.exclusive_group is None:
         return node_condition
-    return _all_of(node_condition, frozenset({frozenset({BranchTaken(node_id, out.exclusive_group, out.name)})}))
+    return _all_of(node_condition, frozenset({frozenset({BranchTaken(node_id, out.exclusive_group, out.name, on_rows_of)})}))
 
 
 def _any_of(conditions: Iterable[Condition]) -> Condition:
@@ -85,7 +109,7 @@ def _any_of(conditions: Iterable[Condition]) -> Condition:
     joined: set[frozenset[BranchTaken]] = set()
     for condition in conditions:
         joined |= condition
-    return frozenset(joined)
+    return _within_the_most_alternatives(frozenset(joined))
 
 
 def _all_of(left: Condition, right: Condition) -> Condition:
@@ -95,12 +119,17 @@ def _all_of(left: Condition, right: Condition) -> Condition:
         return right
     if right is ALWAYS:
         return left
-    return frozenset(
+    return _within_the_most_alternatives(frozenset(
         alternative
         for left_alternative in left
         for right_alternative in right
         if (alternative := left_alternative | right_alternative) is not None and no_decision_goes_two_ways(alternative)
-    )
+    ))
+
+
+def _within_the_most_alternatives(condition: Condition) -> Condition:
+    """``condition``, without its per-row decisions when it has more alternatives than compile follows: a chain of decisions merged per row doubles them at every step."""
+    return run_once_condition(condition) if len(condition) > _MOST_ALTERNATIVES_FOLLOWED else condition
 
 
 def can_never_both_hold(left: Condition, right: Condition) -> bool:
