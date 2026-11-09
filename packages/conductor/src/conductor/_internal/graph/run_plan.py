@@ -57,7 +57,7 @@ class InputPlan(ConductorModel):
     takes_blank: bool
     #: For ``merged``: one plan per source, in wiring order.
     source_plans: tuple[InputPlan, ...] = ()
-    #: On a part of a merge: a parent table or column whose value is copied down
+    #: On a source of a merge: a parent table or column whose value is copied down
     #: onto the rows of a deeper source.
     copied_down: bool = False
 
@@ -76,7 +76,7 @@ class InputPlan(ConductorModel):
             case "collected":
                 return f"collected into one list: {source}"
             case "merged":
-                return "merged: " + " + ".join(f"{part.sources[0]}{' [copied down]' if part.copied_down else ''}" for part in self.source_plans)
+                return "merged: " + " + ".join(f"{source_plan.sources[0]}{' [copied down]' if source_plan.copied_down else ''}" for source_plan in self.source_plans)
 
 
 class NodeRunPlan(ConductorModel):
