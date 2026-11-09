@@ -225,8 +225,10 @@ def test_a_gathering_unit_waits_only_for_its_own_group_of_each_source():
     ledger.record(("o", ()), {"result": [Txt("z"), Txt("y")]})
     ledger.record(("a", (0,)), {"result": [Txt("p")]})
 
-    assert ledger.first_thing_unit_still_needs(("j", (0,))) is None
-    assert ledger.first_thing_unit_still_needs(("j", (1,))) == ("a", (1,))
+    ready: list = []
+    ledger._ask(("j", (0,)), ready)
+    ledger._ask(("j", (1,)), ready)
+    assert ready == [("j", (0,))] and ledger._parked[("a", (1,))][-1] == ("j", (1,))
 
 
 def test_as_it_arrives_on_the_nodes_own_row_is_cut_to_that_row():

@@ -117,9 +117,9 @@ def test_a_text_that_spells_the_old_skip_marker_is_a_text_after_a_round_trip():
     state = ledger.state("complete")
     restored = RunLedger.restore(compiled, RunState.model_validate(json.loads(state.model_dump_json())))
 
-    values = restored.result_of("split")["result"]["values"]
+    values = restored._values.result_of("split")["result"]["values"]
     assert values == ["__skipped__", "x"] and all(type(v) is Txt for v in values)
-    assert restored.result_of("up")["result"]["values"] == ["__SKIPPED__", "X"]
+    assert restored._values.result_of("up")["result"]["values"] == ["__SKIPPED__", "X"]
     assert state.nodes["split"].outputs["result"].skipped == []
 
 

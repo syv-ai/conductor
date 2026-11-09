@@ -137,8 +137,8 @@ def test_a_decision_over_a_whole_column_gates_what_hangs_off_the_branch_not_take
     ledger.record(("after", ()), SkippedAtRow(row=()))
     results = _results_of(ledger)
     assert "empty" not in results and "up" not in results and "after" not in results
-    assert "empty" not in ledger.result_of("decide")  # the branch not taken is absent, never SKIPPED
-    assert ledger.result_of("up") is None  # the node stands for a skipped row as a whole
+    assert "empty" not in ledger._values.result_of("decide")  # the branch not taken is absent, never SKIPPED
+    assert ledger._values.result_of("up") is None  # the node stands for a skipped row as a whole
 
 
 def test_a_skip_written_on_a_longer_row_reaches_the_group_above_it():
@@ -244,15 +244,15 @@ def test_a_group_reduction_is_asked_a_handful_of_times_however_long_the_group():
         ])
         ledger.units_ready_to_start()
         calls = 0
-        original = ledger.first_thing_unit_still_needs
+        original = ledger._ask
 
-        def counted(unit):
+        def counted(unit, ready):
             nonlocal calls
             if unit[0] == "j":
                 calls += 1
-            return original(unit)
+            return original(unit, ready)
 
-        ledger.first_thing_unit_still_needs = counted  # type: ignore[method-assign]
+        ledger._ask = counted  # type: ignore[method-assign]
         ledger.record(("docs", ()), {"texts": ["text"], "names": ["n"]})
         ledger.record(("lines", (0,)), {"result": ["l"] * lines})
         for line in range(lines):

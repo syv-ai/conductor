@@ -261,20 +261,6 @@ class RunLedger:
 
     # -- readiness -----------------------------------------------------------
 
-    def first_thing_unit_still_needs(self, unit: Unit) -> Unit | None:
-        """The first of what this unit reads that isn't finished, as ``(writer, row)``, or ``None`` when all is.
-
-        The writer's units at that row finished writing, or, at a shorter row, its units
-        under it, which needs that row's rows of its own index all made. The one
-        rule of what makes a unit ready: nothing about a unit's readiness is decided anywhere else."""
-        node_id, row = unit
-        done = self._done
-        for writer, depth in self._reads_wait_for[node_id]:
-            needed = (writer, row[:depth])
-            if needed not in done and not self._finished_at_or_under(writer, needed[1]):
-                return needed
-        return None
-
     def units_ready_to_start(self) -> list[Unit]:
         """Every unit that may start now: not done, not waiting on a person, nothing left it needs.
 
@@ -291,12 +277,19 @@ class RunLedger:
         return ready
 
     def _ask(self, unit: Unit, ready: list[Unit]) -> None:
-        """Ask this unit what it needs: ready, or parked on that one thing."""
-        needed = self.first_thing_unit_still_needs(unit)
-        if needed is None:
-            ready.append(unit)
-        else:
-            self._parked.setdefault(needed, []).append(unit)
+        """This unit is ready, or parked on the first thing it reads that isn't finished, as ``(writer, row)``.
+
+        The writer's units at that row finished writing, or, at a shorter row, its units
+        under it, which needs that row's rows of its own index all made. The one
+        rule of what makes a unit ready: nothing about a unit's readiness is decided anywhere else."""
+        node_id, row = unit
+        done = self._done
+        for writer, depth in self._reads_wait_for[node_id]:
+            needed = (writer, row[:depth])
+            if needed not in done and not self._finished_at_or_under(writer, needed[1]):
+                self._parked.setdefault(needed, []).append(unit)
+                return
+        ready.append(unit)
 
     def _finished_at_or_under(self, node_id: str, row: Row) -> bool:
         """The units of this node at ``row`` or under it are all done: the unit at
@@ -616,7 +609,7 @@ class RunLedger:
 
     def _event_of_completed_node(self, node_id: str) -> NodeComplete | NodeSkipped:
         """What the engine says of a node with no units left: skipped when it did nothing, else its result."""
-        result = self.result_of(node_id)
+        result = self._values.result_of(node_id)
         rows_not_called = self._rows_not_called.get(node_id, {})
         if result is None and not rows_not_called:
             return NodeSkipped(node_id=node_id)
@@ -744,19 +737,6 @@ class RunLedger:
             for unit in earlier.unclaimed()
         ]
 
-    # -- what the run produced -------------------------------------------------------
-
-    def result_of(self, node_id: str) -> dict[str, Any] | None:
-        """This node's outputs by name, or ``None`` when the node did not run
-        (every output is skipped at the top).
-
-        A result holds only what the node produced: an output the node
-        skipped (the branch not taken) is absent, never ``SKIPPED``. A scalar
-        output of a node that ran once is its value; anything on an index is
-        ``ValuesOnRows``, without the rows that were skipped.
-        """
-        return self._values.result_of(node_id)
-
     # -- the state ----------------------------------------------------------------
 
     def state(self, status: RunStatus, failure: Problem | None = None) -> RunState:
@@ -822,7 +802,7 @@ class RunLedger:
         problems = restored._values.read_state(compiled, state, changed)
         if problems:
             raise InvalidCallError(problems)
-        restored._earlier_units = _earlier_units_of_nodes(compiled, state, changed)
+        restored._earlier_units = {node_id: pool for node_id, work in state.nodes.items() if (pool := _earlier_units_of_node(compiled, node_id, work, read_its_own_units=node_id in changed))}
         kept = {node_id: work for node_id, work in state.nodes.items() if node_id not in changed}
         restored._waiting = {(waiting_unit.node_id, waiting_unit.row): waiting_unit for work in kept.values() for waiting_unit in work.waiting}
         restored._tables_received = {(node_id, row): tables for node_id, work in kept.items() for row, tables in work.tables_received}
@@ -914,17 +894,6 @@ class _EarlierUnitsOfNode:
 
     def unclaimed(self) -> list[_EarlierUnit]:
         return sorted(chain.from_iterable(self.units_with_reuse_key_lowest_row_last.values()), key=itemgetter(0, 1))
-
-
-def _earlier_units_of_nodes(compiled: CompiledGraph, state: RunState, changed: set[str]) -> dict[str, _EarlierUnitsOfNode]:
-    """Per node to re-plan and per node carrying work from a leg that stopped short, what it can reuse."""
-    pools: dict[str, _EarlierUnitsOfNode] = {}
-    for node_id, work in state.nodes.items():
-        if node_id in changed or work.earlier_units:
-            pool = _earlier_units_of_node(compiled, node_id, work, read_its_own_units=node_id in changed)
-            if pool is not None:
-                pools[node_id] = pool
-    return pools
 
 
 def _earlier_units_of_node(compiled: CompiledGraph, node_id: str, work: WorkOfNode, read_its_own_units: bool) -> _EarlierUnitsOfNode | None:
