@@ -415,7 +415,7 @@ class RunLedger:
     def read_input(self, receive_mode: ReceiveMode, unit: Unit) -> Any | SkippedAtRow:
         """What this unit receives on an input that receives ``receive_mode``, or a ``SkippedAtRow``:
         the one match over receive modes a run needs. What it waits for first is ``reads_of_input``, once, at compile."""
-        node_id, row = unit
+        row = unit[1]
         match receive_mode:
             case Cell(sources=sources, depth=depth):
                 if len(sources) == 1:
@@ -423,7 +423,7 @@ class RunLedger:
                     if value is MISSING:
                         raise KeyError(f"{sources[0]} has no value at {value_row} — the unit was not ready")
                     return SkippedAtRow(row=value_row) if value is SKIPPED else value
-                covering, skips = self._values_covering_row(node_id, sources, row[:depth])
+                covering, skips = self._values_covering_row(sources, row[:depth])
                 return covering[0] if covering else SkippedAtRow(row=max(skips, key=len))
             case FixedValue(value=value):
                 return value
@@ -431,7 +431,7 @@ class RunLedger:
                 found = [self._value_or_skip_at(ref, row[:depth]) for ref in sources]
                 if all(value is SKIPPED for value, _ in found):
                     return SkippedAtRow(row=max((value_row for _, value_row in found), key=len))
-                return self._rows_and_values_on(node_id, sources, row[:depth])[1]
+                return self._rows_and_values_on(sources, row[:depth])[1]
             case Gather():
                 return self._gathered_for_unit(receive_mode, unit)
             case Merge():
@@ -475,13 +475,13 @@ class RunLedger:
                 sources.append(MergeSource(output_name, frame, field._held_as.rows_made, [(*group_row, position) for position in range(frame.height)], copied_down, carried))  # type: ignore[arg-type]
                 continue
             index: Index = field._index  # type: ignore[assignment]
-            rows, values = self._rows_and_values_on(unit[0], read.sources, group_row)
+            rows, values = self._rows_and_values_on(read.sources, group_row)
             row_id_at = self._values.row_id
             frame = one_column_frame_with_row_ids(names_in_a_merge(field)[0], field.type, [row_id_at(index, row) for row in rows], values)
             sources.append(MergeSource(output_name, frame, index, rows, copied_down, carried))
         return None if skipped == len(sources) else merge_tables_on_row_ids(sources)
 
-    def _values_covering_row(self, node_id: str, refs: tuple[Ref, ...], row: Row) -> tuple[list[Any], list[Row]]:
+    def _values_covering_row(self, refs: tuple[Ref, ...], row: Row) -> tuple[list[Any], list[Row]]:
         """Of several refs read at one row: the values that cover it, and the
         rows at which the others were skipped. Two covering the same row
         means two edges both supplied that row, and the node fails with
@@ -497,10 +497,10 @@ class RunLedger:
             else:
                 covering.append(value)
         if len(covering) > 1:
-            raise NodeError(PROBLEM_CATALOGUE["row_covered_twice"].message, node_id=node_id, code="row_covered_twice", ctx={"edges": len(covering), "row": list(row)})
+            raise NodeError(PROBLEM_CATALOGUE["row_covered_twice"].message, code="row_covered_twice", ctx={"edges": len(covering), "row": list(row)})
         return covering, skips
 
-    def _rows_and_values_on(self, node_id: str, refs: tuple[Ref, ...], under: Row) -> tuple[list[Row], list[Any]]:
+    def _rows_and_values_on(self, refs: tuple[Ref, ...], under: Row) -> tuple[list[Row], list[Any]]:
         """The rows of ``refs``' index under ``under`` that hold a value and those values,
         from one ref or from whichever of several covers each row."""
         index = self._fields[refs[0]]._index
@@ -508,7 +508,7 @@ class RunLedger:
         rows: list[Row] = []
         values: list[Any] = []
         for row in self._rows[index.id].rows_under(under):
-            covering, _ = self._values_covering_row(node_id, refs, row)
+            covering, _ = self._values_covering_row(refs, row)
             if covering:
                 rows.append(row)
                 values.append(covering[0])
@@ -531,7 +531,7 @@ class RunLedger:
             if isinstance(receive_mode, RowsUnder):
                 index = self._fields[receive_mode.sources[0]]._index
                 assert index is not None  # what is read as rows has an index
-                rows, cells = self._rows_and_values_on(node_id, receive_mode.sources, row[: receive_mode.depth])
+                rows, cells = self._rows_and_values_on(receive_mode.sources, row[: receive_mode.depth])
                 read_as_rows[name] = (index, dict(zip(rows, cells, strict=True)))
                 rows_of_index.setdefault(index, set()).update(rows)
         rows_leaving: dict[Index, set[Row]] = {}
