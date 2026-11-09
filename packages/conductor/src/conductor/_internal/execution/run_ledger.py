@@ -36,7 +36,7 @@ and a table it returned takes on the ids of the rows it received now.
 
 A person's answer belongs to more than the inputs. A question is bound to the
 row it was asked on: the row read whole, the rows above it, the row its id came
-from, and which of how many identical rows it is (``_read_of_row``). The unit's
+from, and which of how many identical rows it is (``_identity_of_row_for_a_question``). The unit's
 ``reuse_key`` folds that in, so only the same row can take the answer, or the
 question while it waits, and a form opened for another row is refused.
 """
@@ -233,7 +233,7 @@ class RunLedger:
         self._tables_received: dict[Unit, list[pl.DataFrame]] = {}
         self._nodes_returning_a_table = frozenset(field.ref.node_id for field in lookups.field_making_rows_of_index.values() if field._held_as.__class__ is TableAtRow)
         #: Per (index id, row above), what each row under it reads: worked out once, for a unit a person is asked about.
-        self._reads_of_rows: dict[tuple[str, Row], list[str]] = {}
+        self._identities_of_rows_for_a_question: dict[tuple[str, Row], list[str]] = {}
         self._nodes_with_series_inputs_on_one_index = frozenset(node_id for node_id, sources in lookups.sources_of_series_inputs_on_one_index.items() if sources)
         #: Per changed node, what a later unit may still reuse.
         self._earlier_units: dict[str, _EarlierUnitsOfNode] = {}
@@ -665,28 +665,28 @@ class RunLedger:
     def _reuse_key_of_question(self, unit: Unit, input_hash: str) -> str:
         """The reuse key of a question this unit puts to a person: ``input_hash``, and on a row the row it is asked on."""
         index = self._runs_per_row_of[unit[0]]
-        return input_hash if index is None else blake2b(f"{input_hash}|{self._read_of_row(index, unit[1])}".encode(), digest_size=16).hexdigest()
+        return input_hash if index is None else blake2b(f"{input_hash}|{self._identity_of_row_for_a_question(index, unit[1])}".encode(), digest_size=16).hexdigest()
 
-    def _read_of_row(self, index: Index, row: Row) -> str:
+    def _identity_of_row_for_a_question(self, index: Index, row: Row) -> str:
         """All a row is: what it holds, the row above it, the row its id came from, and which of how many identical rows it is."""
         group = row[:-1]
-        reads = self._reads_of_rows.get((index.id, group))
-        if reads is None:
-            reads = self._reads_of_rows[(index.id, group)] = self._reads_of_rows_under(index, group)
-        return reads[row[-1]]
+        identities = self._identities_of_rows_for_a_question.get((index.id, group))
+        if identities is None:
+            identities = self._identities_of_rows_for_a_question[(index.id, group)] = self._identities_of_rows_under(index, group)
+        return identities[row[-1]]
 
-    def _reads_of_rows_under(self, index: Index, group: Row) -> list[str]:
-        """Every row of ``index`` under ``group``, as ``_read_of_row`` has it, in order."""
+    def _identities_of_rows_under(self, index: Index, group: Row) -> list[str]:
+        """Every row of ``index`` under ``group``, as ``_identity_of_row_for_a_question`` has it, in order."""
         holds = self._what_rows_under_hold(index, group)
-        above = "" if index.parent is None else self._read_of_row(index.parent, group)
+        above = "" if index.parent is None else self._identity_of_row_for_a_question(index.parent, group)
         how_many_alike = Counter(holds)
         seen: dict[str, int] = {}
-        reads: list[str] = []
+        identities: list[str] = []
         for held in holds:
             nth = seen.get(held, 0)
             seen[held] = nth + 1
-            reads.append(f"{above}|{held}|{nth}/{how_many_alike[held]}")
-        return reads
+            identities.append(f"{above}|{held}|{nth}/{how_many_alike[held]}")
+        return identities
 
     def _what_rows_under_hold(self, index: Index, group: Row) -> list[str]:
         """What each row of ``index`` under ``group`` holds; a row of a table whose id another index spelled holds that row too."""
@@ -697,10 +697,10 @@ class RunLedger:
         stored, _ = self._value_or_skip_at(maker.ref, group)
         values = without_row_id_columns(stored)
         held = list(map(repr, values.iter_rows())) if values.width else [""] * stored.height  # a table's cells are plain, and their repr is exact
-        return [digest if row_id.rpartition(":")[0] == index.id else digest + self._read_of_row_id_came_from(row_id) for digest, row_id in zip(held, stored[ROW_ID_COLUMN].to_list(), strict=True)]
+        return [digest if row_id.rpartition(":")[0] == index.id else digest + self._identity_of_the_row_its_id_came_from(row_id) for digest, row_id in zip(held, stored[ROW_ID_COLUMN].to_list(), strict=True)]
 
-    def _read_of_row_id_came_from(self, row_id: str) -> str:
-        """The read of the row a carried id names, ``""`` when it names none this run has: a node may hand on any text."""
+    def _identity_of_the_row_its_id_came_from(self, row_id: str) -> str:
+        """The identity of the row a carried id names, ``""`` when it names none this run has: a node may hand on any text."""
         spelled = row_of_global_id(row_id)
         field = None if spelled is None else self._lookups.field_making_rows_of_index.get(spelled[0])
         if spelled is None or field is None:
@@ -711,7 +711,7 @@ class RunLedger:
             return ""
         index = field._held_as.rows_made
         assert index is not None  # a field that makes rows has their index
-        return self._read_of_row(index, row)
+        return self._identity_of_row_for_a_question(index, row)
 
     def waiting(self) -> tuple[WaitingUnit, ...]:
         """Every unit waiting on a person, in execution order and row order

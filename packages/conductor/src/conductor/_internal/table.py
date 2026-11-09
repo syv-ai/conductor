@@ -558,7 +558,6 @@ class Table(DType, Generic[RowsOf]):
         )
 
 
-#: The tables of the document being written, by digest; ``None`` outside one, where a table is written whole.
 def table_with_columns(columns: Mapping[str, Any], *, base: type[Table[Any]] | None = None) -> type[Table[Any]]:
     """The table type with these columns, for a hook that only knows them once it runs. Built once per set of columns; ``Table[Contact]`` with the same columns is this type. ``base`` is a host's own ``Table``."""
     cls = Table if base is None else base
@@ -585,6 +584,7 @@ def table_with_columns(columns: Mapping[str, Any], *, base: type[Table[Any]] | N
     return made
 
 
+#: The tables of the document being written, by digest; ``None`` outside one, where a table is written whole.
 _tables_of_document_being_written: ContextVar[dict[str, Any] | None] = ContextVar("tables_of_document_being_written", default=None)
 
 
