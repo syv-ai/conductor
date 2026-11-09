@@ -180,12 +180,15 @@ class _ComputeFieldsHook:
     #: The inputs whose arriving type it receives by name, and whether it takes all of them.
     inputs_whose_arriving_type_it_reads: tuple[str, ...]
     reads_every_arriving_type: bool
+    #: What each input it reads holds when nothing sets it, for the inputs that have a default.
+    defaults: Mapping[str, Any]
 
-    def call_with(self, values: Mapping[str, Any], arriving_types: Mapping[str, Any], statics: Mapping[str, Any]) -> tuple[Any, ...] | None:
-        """The hook's fields for these values and arriving types; ``None`` when a value it needs has none.
+    def call_with(self, statics: Mapping[str, Any], arriving_types: Mapping[str, Any]) -> tuple[Any, ...] | None:
+        """The hook's fields for these statics and arriving types; ``None`` when a value it needs has none.
 
         An ``ArrivingType`` parameter gets the edge's type, or the type of the
         static when no edge is there; ``Any`` until something is."""
+        values = {**self.defaults, **statics}
         if not self.inputs_it_cannot_run_without <= values.keys():
             return None
         arguments = {name: values[name] for name in self.inputs_it_reads if name in values}
@@ -228,7 +231,7 @@ def _parse_hook(function: Callable[..., Iterable[Any]], interface: Interface, ki
         reads.append(name)
         if parameter.default is inspect.Parameter.empty:
             required.add(name)
-    return _ComputeFieldsHook(function, tuple(reads), frozenset(required), tuple(arriving), reads_every_arriving_type)
+    return _ComputeFieldsHook(function, tuple(reads), frozenset(required), tuple(arriving), reads_every_arriving_type, {name: names[name].default for name in reads if not names[name].required})
 
 
 @dataclass(frozen=True, repr=False)

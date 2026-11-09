@@ -89,9 +89,8 @@ def compile_one_node(node: GraphNode, progress: CompileProgress, registry: NodeR
     statics, inputs_given_a_list, unreadable_static_problems = read_static_values(declared.inputs, node)
     inputs = declared.inputs
     if version.compute_added_inputs is not None:
-        defaults = {input_.name: input_.default for input_ in inputs if not input_.required}
         try:
-            added = version.compute_added_inputs.call_with({**defaults, **statics}, {}, statics) or ()
+            added = version.compute_added_inputs.call_with(statics, {}) or ()
         except ComputeHookError as hook_error:
             problems.append(hook_error.as_problem_on_node(node.id))
             return _record_compiled_node(progress, node, problems, definition, version, None, {})
@@ -275,8 +274,7 @@ def _outputs_after_compute_outputs(version: Any, inputs_read: WhatArrivesOnInput
     """What ``compute_outputs`` says once it can be told what arrives."""
     if version.compute_outputs is None:
         return version.interface.outputs
-    values = {**{input_.name: input_.default for input_ in version.interface.inputs if not input_.required}, **statics}
-    answered = version.compute_outputs.call_with(values, _arriving_types(inputs_read), statics)
+    answered = version.compute_outputs.call_with(statics, _arriving_types(inputs_read))
     return version.interface.outputs if answered is None else answered
 
 
