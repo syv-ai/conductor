@@ -10,12 +10,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import Any
 
 from conductor._internal.execution.values_of_run import is_held_at_its_own_row, is_list_on_node
 from conductor._internal.graph.compiled_node import CompiledField, CompiledNode
-from conductor._internal.graph.receive_modes import ReceiveMode, RowsUnder, reads_of_input
+from conductor._internal.graph.receive_modes import RowsUnder, reads_of_input
 from conductor._internal.index import Index
-from conductor._internal.node_signature import Interface
 from conductor._internal.ref import Ref
 
 
@@ -26,10 +26,8 @@ class EngineLookups:
     fields: dict[Ref, CompiledField]
     #: Per node: the index it runs once per row of, ``None`` when it runs once.
     runs_per_row_of: dict[str, Index | None]
-    #: Per node: its inputs and outputs.
-    interfaces: dict[str, Interface]
-    #: Per node, how each of its inputs receives its value, by input name.
-    receive_modes_of_node: dict[str, tuple[tuple[str, ReceiveMode], ...]]
+    #: Every node that runs as units, by id.
+    nodes: dict[str, CompiledNode]
     #: Per output, every input an edge from it feeds, in execution order.
     read_by: dict[Ref, tuple[Ref, ...]]
     #: Per index id: the nodes that run once per row of it.
@@ -64,12 +62,11 @@ class EngineLookups:
 
 
 def build_engine_lookups(nodes: Iterable[CompiledNode]) -> EngineLookups:
-    """The plan for a finished compile, over its ready nodes in execution order.
+    """The plan for a runnable graph, over its nodes in execution order, every one a ready function.
     An index with entries and no owner is a bug in compile, and raises."""
     fields: dict[Ref, CompiledField] = {}
     runs_per_row_of: dict[str, Index | None] = {}
-    interfaces: dict[str, Interface] = {}
-    receive_modes_of_node: dict[str, list[tuple[str, ReceiveMode]]] = {}
+    nodes_by_id = {node.id: node for node in nodes}
     read_by: dict[Ref, list[Ref]] = {}
     read_at_depth: dict[str, list[tuple[Ref, int]]] = {}
     nodes_running_per_row_of_index: dict[str, list[str]] = {}
@@ -84,13 +81,9 @@ def build_engine_lookups(nodes: Iterable[CompiledNode]) -> EngineLookups:
         outputs_on_index.setdefault(index_id, [])
         lists_on_nodes_under_index.setdefault(index_id, [])
 
-    for node in nodes:
-        if node._fields is None or node.embedded_graph is not None or node.interface is None:
-            continue
-        node_receive_modes = receive_modes_of_node.setdefault(node.id, [])
+    for node in nodes_by_id.values():
         node_reads = read_at_depth.setdefault(node.id, [])
         runs_per_row_of[node.id] = node._runs_per_row_of
-        interfaces[node.id] = node.interface
         if (index := node._runs_per_row_of) is not None:
             nodes_running_per_row_of_index.setdefault(index.id, []).append(node.id)
         for field in node._fields.values():
@@ -99,7 +92,6 @@ def build_engine_lookups(nodes: Iterable[CompiledNode]) -> EngineLookups:
             read_by.setdefault(ref, [])
             receive_mode = field._receive_mode
             if receive_mode is not None:
-                node_receive_modes.append((ref.field, receive_mode))
                 for source, depth in reads_of_input(receive_mode):
                     if source != ref:  # a list set on this input is read off the input itself: there is nothing to wait for
                         read_by.setdefault(source, []).append(ref)
@@ -167,14 +159,14 @@ def build_engine_lookups(nodes: Iterable[CompiledNode]) -> EngineLookups:
     for node_id in runs_per_row_of:
         nodes_finished_when_rows_made_by[node_id] = tuple(
             on_rows
-            for out in interfaces[node_id].outputs
+            for out in nodes_by_id[node_id].interface.outputs  # type: ignore[union-attr]  # a node that runs has one
             if (index := fields[Ref(node_id, out.name)]._held_as.rows_made) is not None
             for on_rows in nodes_on_rows_and_lists_under(index.id)
         )
     return EngineLookups(
-        fields, runs_per_row_of, interfaces, _lists_as_tuples(receive_modes_of_node), _lists_as_tuples(read_by), _lists_as_tuples(nodes_running_per_row_of_index), _lists_as_tuples(outputs_on_index), _lists_as_tuples(lists_on_nodes_under_index),
+        fields, runs_per_row_of, nodes_by_id, _lists_as_tuples(read_by), _lists_as_tuples(nodes_running_per_row_of_index), _lists_as_tuples(outputs_on_index), _lists_as_tuples(lists_on_nodes_under_index),
         field_making_rows_of_index,
-        {node_id: _sources_of_series_inputs_on_one_index(modes, fields) for node_id, modes in receive_modes_of_node.items()},
+        {node_id: _sources_of_series_inputs_on_one_index(node._run_plan.inputs.values(), fields) for node_id, node in nodes_by_id.items()},
         _lists_as_tuples(what_each_read_waits_for),
         {node_id: tuple(sorted(depths)) for node_id, depths in depths_counted.items()},
         nodes_finished_when_rows_made_by, node_making_rows_of_index, _lists_as_tuples(index_ids_by_parent), tuple(lists_on_nodes_at_the_top),
@@ -182,10 +174,10 @@ def build_engine_lookups(nodes: Iterable[CompiledNode]) -> EngineLookups:
     )
 
 
-def _sources_of_series_inputs_on_one_index(receive_modes: list[tuple[str, ReceiveMode]], fields: dict[Ref, CompiledField]) -> tuple[Ref, ...]:
+def _sources_of_series_inputs_on_one_index(receive_modes: Iterable[Any], fields: dict[Ref, CompiledField]) -> tuple[Ref, ...]:
     """The sources of every input read as rows of an index another such input also reads."""
     inputs_reading: dict[Index | None, list[RowsUnder]] = {}
-    for _, receive_mode in receive_modes:
+    for receive_mode in receive_modes:
         if isinstance(receive_mode, RowsUnder):
             inputs_reading.setdefault(fields[receive_mode.sources[0]]._index, []).append(receive_mode)
     return tuple(source for readers in inputs_reading.values() if len(readers) > 1 for reader in readers for source in reader.sources)

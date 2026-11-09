@@ -350,7 +350,7 @@ class RunLedger:
     def _tables_received_by(self, node_id: str, inputs: dict[str, Any]) -> list[pl.DataFrame]:
         """The stored tables this unit received whole, as they are, and of a merged one its ids: what its own table's ids can have come from."""
         received: list[pl.DataFrame] = []
-        for name, receive_mode in self._lookups.receive_modes_of_node[node_id]:
+        for name, receive_mode in self._lookups.nodes[node_id]._run_plan.inputs.items():
             value = inputs[name]
             if receive_mode.__class__ is Cell and is_frame(value) and ROW_ID_COLUMN in value.columns:
                 received.append(value)
@@ -371,7 +371,7 @@ class RunLedger:
         """
         node_id = unit[0]
         values: dict[str, Any] = {}
-        for name, receive_mode in self._lookups.receive_modes_of_node[node_id]:
+        for name, receive_mode in self._lookups.nodes[node_id]._run_plan.inputs.items():
             value = self.read_input(receive_mode, unit)
             if value.__class__ is SkippedAtRow:
                 return value
@@ -499,7 +499,7 @@ class RunLedger:
             return
         read_as_rows: dict[str, tuple[Index, dict[Row, Any]]] = {}
         rows_of_index: dict[Index, set[Row]] = {}
-        for name, receive_mode in self._lookups.receive_modes_of_node[node_id]:
+        for name, receive_mode in self._lookups.nodes[node_id]._run_plan.inputs.items():
             if isinstance(receive_mode, RowsUnder):
                 index = self._fields[receive_mode.sources[0]]._index
                 assert index is not None  # what is read as rows has an index
@@ -549,7 +549,7 @@ class RunLedger:
             counts = self._rows_not_called.setdefault(node_id, {})
             for name in not_called.blank_inputs:
                 counts[name] = counts.get(name, 0) + 1
-        for out in self._lookups.interfaces[node_id].outputs:
+        for out in self._lookups.nodes[node_id].interface.outputs:
             field = fields[out.name]
             if skip_row is not None:
                 value = SKIPPED
@@ -711,7 +711,7 @@ class RunLedger:
         ``None`` when the state has lost a value, and the unit runs."""
         node_id, row = unit
         cells: dict[str, Any] = {}
-        for out in self._lookups.interfaces[node_id].outputs:
+        for out in self._lookups.nodes[node_id].interface.outputs:
             value = claimed.cells.get(out.name, MISSING)
             if value is MISSING:
                 return None
@@ -807,7 +807,6 @@ class RunLedger:
         """Write every finished unit, in execution order, as its record did, and
         report one at a row that doesn't exist or with no value at its row."""
         problems: list[Problem] = []
-        interfaces = self._lookups.interfaces
         for node_id in self._compiled.execution_order:
             work = kept.get(node_id)
             if work is None or work.finished_units is None:
@@ -822,7 +821,7 @@ class RunLedger:
                     problems.append(make_problem("state_unreadable", "state", node_id, *row, reason=f"the state lists {node_id!r} as finished at row {list(row)} twice"))
                     continue
                 rows_seen.add(row)
-                for out in interfaces[node_id].outputs:
+                for out in self._lookups.nodes[node_id].interface.outputs:
                     field = self._fields[Ref(node_id, out.name)]
                     if not self._values.make_rows_again_from_stored_output(field, row):
                         problems.append(make_problem("state_unreadable", "state", field.ref, *row, reason=f"the state has {node_id!r} finished at row {list(row)}, with no value for {field.ref}"))
