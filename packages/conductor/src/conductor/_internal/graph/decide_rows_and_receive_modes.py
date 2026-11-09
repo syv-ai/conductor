@@ -56,8 +56,8 @@ rows and is named after it.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from conductor._internal.dtype import (
@@ -103,49 +103,45 @@ if TYPE_CHECKING:
     from conductor._internal.graph.compiled_node import CompiledField
 
 
-class InputCarries(NamedTuple):
-    """What one input carries: its type and, for a series, the index its rows are on."""
+class ReceivedAtTheRow(NamedTuple):
+    """What one input ends up with on the node's row: its type, the index its rows are on for a series, and how a call receives it."""
 
     dtype: Any
     index: Index | None
+    receive_mode: ReceiveMode
 
 
-class SourcesReadAtTheRow(NamedTuple):
-    """An input whose receive mode waits for the node's row, because each of its sources is read at that row."""
+@dataclass(frozen=True, slots=True)
+class ReadingOfInput:
+    """How one input reads what arrives on it, what a call's row depends on, and how it is received once the row is known.
+
+    One function per kind of input builds one of these, whole: everything about
+    how that kind receives is in the one place. ``decide_runs_per_row_of`` reads
+    only what the row depends on."""
 
     input: Input
-    sources: tuple[tuple[Ref, CompiledField], ...]
-    #: The input's own index when it gathers; ``None`` when it reads one column's rows.
-    collected_onto: Index | None
+    received_at_the_row: Callable[[Index | None], ReceivedAtTheRow]
+    #: What ``compute_outputs`` is told about this input; ``None`` on one no edge feeds.
+    arriving_type: Any = None
+    #: What an edge gave an input that had no type of its own: the fields to set on it.
+    given_by_edge: Mapping[str, Any] | None = None
+    #: The indexes this input makes the node run per row of.
+    requires_rows_of: tuple[Index, ...] = ()
+    #: The child index a ``Series[X]`` input reduces, placed once the node's row is known.
+    reduces: Index | None = None
+    is_list_on_node: bool = False
 
 
 #: One place in a merge: a source, or tables of which only one is ever at a row.
 SourcesThatAreAlternatives = list[tuple[Ref, "CompiledField"]]
 
 
-@dataclass
-class WhatArrivesOnInputs:
-    """What one node's inputs receive, gathered as its edges are read."""
+class WhatArrivesOnInputs(NamedTuple):
+    """The reading of each input, as far as they could be read."""
 
-    #: Per input name: what it carries, and how a call receives it.
-    carries: dict[str, InputCarries] = field(default_factory=dict)
-    receive_modes: dict[str, ReceiveMode] = field(default_factory=dict)
-    #: Per connected input: the type one call sees, what ``compute_outputs`` is told.
-    arriving_types: dict[str, Any] = field(default_factory=dict)
-    #: What edges gave to inputs that had no type of their own: the fields to set on each.
-    given_by_edge: dict[str, dict[str, Any]] = field(default_factory=dict)
-    #: The rows the node must run per row of, each with the input that demands it.
-    rows_required_by_inputs: tuple[tuple[Index, str], ...] = ()
-    #: The child indexes ``Series[X]`` inputs read, placed once the node's row is known.
-    child_indexes_read_by_series_inputs: tuple[tuple[Index, Input, tuple[Ref, ...]], ...] = ()
-    #: The inputs that don't choose the node's row and are cut by it, placed once it is known.
-    sources_read_at_the_row: tuple[SourcesReadAtTheRow, ...] = ()
-    #: The inputs holding a list set on the node.
-    lists_on_node: tuple[Input, ...] = ()
-    #: The ``Table`` inputs with the table type each carries and its sources, one group of alternatives per place in the merge.
-    table_inputs_and_sources: tuple[tuple[Input, Any, list[SourcesThatAreAlternatives]], ...] = ()
+    readings: tuple[ReadingOfInput, ...]
     #: Every table and merged column taken in whole: a table the node returns may carry their ids.
-    tables_taken_in: tuple[CompiledField, ...] = ()
+    tables_taken_in: tuple[CompiledField, ...]
     #: A source couldn't be read; the walk stopped at that input.
     stopped_at_unreadable_source: bool = False
 
@@ -153,16 +149,14 @@ class WhatArrivesOnInputs:
 def read_what_arrives_on_inputs(
     node: GraphNode, inputs: tuple[Input, ...], statics: Mapping[str, Any], inputs_given_a_list: frozenset[str], progress: CompileProgress, problems: list[Problem],
 ) -> WhatArrivesOnInputs:
-    """What arrives on each of ``inputs``. Stops at the first input that can't be read and says so in ``stopped_at_unreadable_source``."""
-    found = WhatArrivesOnInputs()
+    """The reading of each of ``inputs``, stopping at the first one that can't be read."""
+    readings: list[ReadingOfInput] = []
+    tables_taken_in: tuple[CompiledField, ...] = ()
     for input_ in inputs:
         name = input_.name
         binding = node.bindings.get(name)
         if not isinstance(binding, From):
-            if name in inputs_given_a_list:
-                found.lists_on_node += (input_,)
-                continue
-            found.carries[name], found.receive_modes[name] = _what_an_unwired_input_carries(input_, node.id, statics)
+            readings.append(_reading_of_a_list_on_the_node(input_, node.id) if name in inputs_given_a_list else _reading_of_a_value_set_on_it(input_, node.id, statics))
             continue
         feeding = [_source_output(source, node.id, progress) for source in binding.refs]
         if None in feeding:
@@ -173,74 +167,122 @@ def read_what_arrives_on_inputs(
                 for ref_, source in zip(binding.refs, feeding, strict=True)
                 if source is None and _source_node_is_wired(ref_, progress)
             )
-            found.stopped_at_unreadable_source = True
-            return found
+            return WhatArrivesOnInputs(tuple(readings), tables_taken_in, True)
         sources: list[CompiledField] = cast("list[CompiledField]", feeding)
-        target = input_.dtype
-        taken_in_whole = sources_taken_in_whole(target, sources)
-        if taken_in_whole:
-            found.tables_taken_in += tuple(taken_in_whole)
-        if target is _ReceivedAsItArrives:
-            if not name.isidentifier():
-                problems.append(make_problem("parameter_name_invalid", node.id, name))
-                found.stopped_at_unreadable_source = True
-                return found
-            if len(sources) > 1:
-                problems.append(make_problem("one_edge_per_parameter", node.id, name))
-                found.stopped_at_unreadable_source = True
-                return found
-            source = sources[0]
-            one_value_per_run_of_a_graph = _sits_on_the_row_of_a_graph_around_both(node.id, source, progress)
-            found.given_by_edge[name] = {"dtype": source.type, "many": source.many and not one_value_per_run_of_a_graph}
-            found.arriving_types[name] = source.type
-            found.carries[name] = InputCarries(source.type, source._index)
-            if source._index is None or one_value_per_run_of_a_graph:
-                found.receive_modes[name] = cell_at_the_row(binding.refs, source._index)
-            else:
-                found.sources_read_at_the_row += (SourcesReadAtTheRow(input_, ((binding.refs[0], source),), None),)
-            continue
-        if is_table_type(target) and not input_.many:
-            pairs = list(zip(binding.refs, sources, strict=True))
-            problems_found = [problem for source_ref, source in pairs for problem in _type_mismatch_unless_table_or_column(target, node.id, name, source_ref, source)]
-            problems.extend(problems_found)
-            places = _sources_grouped_into_alternatives(pairs)
-            merged = None if problems_found else _merged_columns(places)
-            found.rows_required_by_inputs += tuple((source._index, name) for source in sources if is_table_type(source.type) and source._index is not None)
-            carried = _table_a_call_receives(target, merged)
-            _check_columns(node.id, name, target, merged, problems)
-            found.table_inputs_and_sources += ((input_, carried, places),)
-            found.arriving_types[name] = carried
-            continue
-        if is_untyped(target):
-            target = sources[0].type
-            found.given_by_edge[name] = {"dtype": target}
-        for source_ref, source in zip(binding.refs, sources, strict=True):
-            problems.extend(_type_mismatch_unless_accepted(target, node.id, name, source_ref, source, target_many=input_.many))
-        if not input_.many:
-            if len(sources) > 1 and not _all_on_one_index(sources):
-                problems.append(make_problem("union_needs_one_index", node.id, name))
-                found.stopped_at_unreadable_source = True
-                return found
-            source = sources[0]
-            found.arriving_types[name] = source.type
-            found.receive_modes[name] = cell_at_the_row(binding.refs, source._index)
-            if source._index is not None:
-                found.rows_required_by_inputs += ((source._index, name),)
-            found.carries[name] = InputCarries(source.type, source._index)
-        elif _all_on_one_index(sources) and not _sits_on_the_row_of_a_graph_around_both(node.id, sources[0], progress):
-            source = sources[0]
-            found.arriving_types[name] = source.type
-            if source._index.parent is not None:
-                found.child_indexes_read_by_series_inputs += ((source._index, input_, binding.refs),)
-            else:
-                found.receive_modes[name] = rows_under_the_row(binding.refs, source._index, 0)
-            found.carries[name] = InputCarries(source.type, source._index)
-        else:
-            input_own_index = Index(Ref(node.id, name))
-            found.arriving_types[name] = target
-            found.sources_read_at_the_row += (SourcesReadAtTheRow(input_, tuple(zip(binding.refs, sources, strict=True)), input_own_index),)
-            found.carries[name] = InputCarries(target, input_own_index)
-    return found
+        tables_taken_in += tuple(sources_taken_in_whole(input_.dtype, sources))
+        reading = _reading_of_edges(node.id, input_, binding.refs, sources, progress, problems)
+        if reading is None:
+            return WhatArrivesOnInputs(tuple(readings), tables_taken_in, True)
+        readings.append(reading)
+    return WhatArrivesOnInputs(tuple(readings), tables_taken_in)
+
+
+def _reading_of_edges(
+    node_id: str, input_: Input, refs: tuple[Ref, ...], sources: list[CompiledField], progress: CompileProgress, problems: list[Problem],
+) -> ReadingOfInput | None:
+    """The reading of an input with edges into it, by the kind of input it is; ``None`` when the input can't be read."""
+    target = input_.dtype
+    if target is _ReceivedAsItArrives:
+        return _reading_of_as_it_arrives(node_id, input_, refs, sources, progress, problems)
+    if is_table_type(target) and not input_.many:
+        return _reading_of_a_table(node_id, input_, refs, sources, progress, problems)
+    given_by_edge = None
+    if is_untyped(target):
+        target = sources[0].type
+        given_by_edge = {"dtype": target}
+    for source_ref, source in zip(refs, sources, strict=True):
+        problems.extend(_type_mismatch_unless_accepted(target, node_id, input_.name, source_ref, source, target_many=input_.many))
+    if not input_.many:
+        if len(sources) > 1 and not _all_on_one_index(sources):
+            problems.append(make_problem("union_needs_one_index", node_id, input_.name))
+            return None
+        return _reading_of_one_value(input_, refs, sources[0], given_by_edge)
+    if _all_on_one_index(sources) and not _sits_on_the_row_of_a_graph_around_both(node_id, sources[0], progress):
+        return _reading_of_a_series_on_one_index(input_, refs, sources[0], given_by_edge)
+    return _reading_of_a_collected_series(node_id, input_, refs, sources, target, given_by_edge)
+
+
+def _reading_of_a_value_set_on_it(input_: Input, node_id: str, statics: Mapping[str, Any]) -> ReadingOfInput:
+    """An input no edge feeds holds one value copied to every call, or for a ``Series[X]`` input a column of its own, received whole."""
+    value = statics.get(input_.name, input_.default)
+    received = (
+        ReceivedAtTheRow(input_.dtype, Index(Ref(node_id, input_.name)), FixedValue("entire_value", None if value is None else list(value)))
+        if input_.many else ReceivedAtTheRow(input_.dtype, None, FixedValue("same_value_every_row", value))
+    )
+    return ReadingOfInput(input_, lambda _: received)
+
+
+def _reading_of_a_list_on_the_node(input_: Input, node_id: str) -> ReadingOfInput:
+    """A list set on an input that takes one value: a column of its own, on the row it makes."""
+    own_ref = Ref(node_id, input_.name)
+    return ReadingOfInput(input_, lambda row: ReceivedAtTheRow(input_.dtype, row, cell_at_the_row((own_ref,), row)), is_list_on_node=True)
+
+
+def _reading_of_as_it_arrives(node_id: str, input_: Input, refs: tuple[Ref, ...], sources: list[CompiledField], progress: CompileProgress, problems: list[Problem]) -> ReadingOfInput | None:
+    """``**x: AsItArrives`` takes what its one edge carries and never makes the node run per row."""
+    name = input_.name
+    if not name.isidentifier():
+        problems.append(make_problem("parameter_name_invalid", node_id, name))
+        return None
+    if len(sources) > 1:
+        problems.append(make_problem("one_edge_per_parameter", node_id, name))
+        return None
+    source = sources[0]
+    one_value_per_run_of_a_graph = _sits_on_the_row_of_a_graph_around_both(node_id, source, progress)
+
+    def received_at_the_row(row: Index | None) -> ReceivedAtTheRow:
+        mode = cell_at_the_row(refs, source._index) if source._index is None or one_value_per_run_of_a_graph else _read_of_source_at_the_row(refs[0], source, row)
+        return ReceivedAtTheRow(source.type, source._index, mode)
+
+    return ReadingOfInput(input_, received_at_the_row, arriving_type=source.type, given_by_edge={"dtype": source.type, "many": source.many and not one_value_per_run_of_a_graph})
+
+
+def _reading_of_a_table(node_id: str, input_: Input, refs: tuple[Ref, ...], sources: list[CompiledField], progress: CompileProgress, problems: list[Problem]) -> ReadingOfInput:
+    """A ``Table`` input merges everything wired in; it runs per row only of a table that arrives per row."""
+    name, target = input_.name, input_.dtype
+    pairs = list(zip(refs, sources, strict=True))
+    problems_found = [problem for source_ref, source in pairs for problem in _type_mismatch_unless_table_or_column(target, node_id, name, source_ref, source)]
+    problems.extend(problems_found)
+    places = _sources_grouped_into_alternatives(pairs)
+    merged = None if problems_found else _merged_columns(places)
+    carried = _table_a_call_receives(target, merged)
+    _check_columns(node_id, name, target, merged, problems)
+
+    def received_at_the_row(row: Index | None) -> ReceivedAtTheRow:
+        problems.extend(progress.row_origins.check_merge(node_id, name, places))
+        return ReceivedAtTheRow(carried, row, _receive_mode_of_table_input(places, row))
+
+    return ReadingOfInput(input_, received_at_the_row, arriving_type=carried, requires_rows_of=tuple(source._index for source in sources if is_table_type(source.type) and source._index is not None))
+
+
+def _reading_of_one_value(input_: Input, refs: tuple[Ref, ...], source: CompiledField, given_by_edge: Mapping[str, Any] | None) -> ReadingOfInput:
+    """One value at the call's row; a series arriving makes the node run per row of it."""
+    received = ReceivedAtTheRow(source.type, source._index, cell_at_the_row(refs, source._index))
+    return ReadingOfInput(input_, lambda _: received, arriving_type=source.type, given_by_edge=given_by_edge, requires_rows_of=() if source._index is None else (source._index,))
+
+
+def _reading_of_a_series_on_one_index(input_: Input, refs: tuple[Ref, ...], source: CompiledField, given_by_edge: Mapping[str, Any] | None) -> ReadingOfInput:
+    """A ``Series[X]`` fed one column: a child index reduces under the call's row; on a root it is received whole."""
+    index = source._index
+    assert index is not None  # the kind is a series on one index
+    if index.parent is None:
+        received = ReceivedAtTheRow(source.type, index, rows_under_the_row(refs, index, 0))
+        return ReadingOfInput(input_, lambda _: received, arriving_type=source.type, given_by_edge=given_by_edge)
+
+    def received_at_the_row(row: Index | None) -> ReceivedAtTheRow:
+        return ReceivedAtTheRow(source.type, index, rows_under_the_row(refs, index, _depth_shared_with_row(index.parent, row)))  # type: ignore[arg-type]  # checked once the row is known
+
+    return ReadingOfInput(input_, received_at_the_row, arriving_type=source.type, given_by_edge=given_by_edge, reduces=index)
+
+
+def _reading_of_a_collected_series(node_id: str, input_: Input, refs: tuple[Ref, ...], sources: list[CompiledField], target: Any, given_by_edge: Mapping[str, Any] | None) -> ReadingOfInput:
+    """Anything else into a ``Series[X]`` input: each source read at the call's row on its own, collected onto an index of the input's own."""
+    collected_onto = Index(Ref(node_id, input_.name))
+
+    def received_at_the_row(row: Index | None) -> ReceivedAtTheRow:
+        return ReceivedAtTheRow(target, collected_onto, Gather(tuple(_read_of_source_at_the_row(ref, source, row) for ref, source in zip(refs, sources, strict=True)), Ref(collected_onto.id)))
+
+    return ReadingOfInput(input_, received_at_the_row, arriving_type=target, given_by_edge=given_by_edge)
 
 
 def _sits_on_the_row_of_a_graph_around_both(node_id: str, source: CompiledField, progress: CompileProgress) -> bool:
@@ -282,47 +324,31 @@ def _source_node_is_wired(ref: Ref, progress: CompileProgress) -> bool:
     return node is not None and node._wiring is not None
 
 
-def decide_runs_per_row_of_and_receive_modes(node: GraphNode, found: WhatArrivesOnInputs, problems: list[Problem], row_origins: Any, runs_under: Index | None) -> tuple[bool, Index | None]:
-    """The index ``node_id`` runs once per row of, with every input's receive mode settled.
-
-    ``runs_under`` is the row of the graph it sits inside: the node runs at least
+def decide_runs_per_row_of(node_id: str, readings: tuple[ReadingOfInput, ...], problems: list[Problem], runs_under: Index | None) -> tuple[bool, Index | None]:
+    """The index the node runs once per row of. ``runs_under`` is the row of the graph it sits inside: the node runs at least
     per row of it. ``False`` when its inputs disagree, with the problem in ``problems``."""
-    node_id = node.id
     field_address_of = lambda name: Ref(node_id, name)  # noqa: E731
-    required_rows = found.rows_required_by_inputs or _row_above_reductions(found.child_indexes_read_by_series_inputs)
-    runs_per_row_of, disagreeing = _deepest_index_on_one_line_of_descent(required_rows)
+    rows_required = tuple((index, reading.input.name) for reading in readings for index in reading.requires_rows_of)
+    reductions = [reading for reading in readings if reading.reduces is not None]
+    runs_per_row_of, disagreeing = _deepest_index_on_one_line_of_descent(rows_required or _row_above_reductions(reductions))
     if disagreeing is not None:
         problems.append(_misaligned(node_id, field_address_of(disagreeing[0]), field_address_of(disagreeing[1])))
         return False, None
-    if not found.rows_required_by_inputs and any(runs_per_row_of not in index.lineage for index, _, _ in found.child_indexes_read_by_series_inputs):
-        (_, first, _), (_, second, _) = found.child_indexes_read_by_series_inputs[:2]
-        problems.append(_misaligned(node_id, field_address_of(first.name), field_address_of(second.name)))
+    if not rows_required and any(runs_per_row_of not in reading.reduces.lineage for reading in reductions):  # type: ignore[union-attr]  # kept above
+        problems.append(_misaligned(node_id, field_address_of(reductions[0].input.name), field_address_of(reductions[1].input.name)))
         return False, None
-    if len(found.lists_on_node) > 1:
-        first, second = found.lists_on_node[:2]
-        problems.append(make_problem("lists_on_a_per_row_node", node_id, second.name, a=str(field_address_of(first.name)), b=str(field_address_of(second.name))))
+    lists = [reading for reading in readings if reading.is_list_on_node]
+    if len(lists) > 1:
+        problems.append(make_problem("lists_on_a_per_row_node", node_id, lists[1].input.name, a=str(field_address_of(lists[0].input.name)), b=str(field_address_of(lists[1].input.name))))
         return False, None
     if runs_under is not None and (runs_per_row_of is None or runs_under.depth > runs_per_row_of.depth):
         runs_per_row_of = runs_under
-    if found.lists_on_node:
-        (input_,) = found.lists_on_node
-        own_ref = field_address_of(input_.name)
-        input_own_index = Index(str(own_ref), parent=runs_per_row_of)
-        found.carries[input_.name] = InputCarries(input_.dtype, input_own_index)
-        found.receive_modes[input_.name] = cell_at_the_row((own_ref,), input_own_index)
-        runs_per_row_of = input_own_index
-    for index, input_, refs in found.child_indexes_read_by_series_inputs:
-        depth = _depth_shared_with_row(index.parent, runs_per_row_of)  # type: ignore[arg-type]  # a reduction reads a child index
-        if depth is None:
-            problems.append(_misaligned(node_id, field_address_of(found.rows_required_by_inputs[0][1]), field_address_of(input_.name)))
+    if lists:
+        runs_per_row_of = Index(str(field_address_of(lists[0].input.name)), parent=runs_per_row_of)
+    for reading in reductions:
+        if _depth_shared_with_row(reading.reduces.parent, runs_per_row_of) is None:  # type: ignore[union-attr, arg-type]  # a reduction reads a child index
+            problems.append(_misaligned(node_id, field_address_of(rows_required[0][1]), field_address_of(reading.input.name)))
             return False, None
-        found.receive_modes[input_.name] = rows_under_the_row(refs, index, depth)
-    for read in found.sources_read_at_the_row:
-        found.receive_modes[read.input.name] = _receive_mode_read_at_the_row(read, runs_per_row_of)
-    for input_, carried, sources in found.table_inputs_and_sources:
-        found.carries[input_.name] = InputCarries(carried, runs_per_row_of)
-        found.receive_modes[input_.name] = _receive_mode_of_table_input(sources, runs_per_row_of)
-        problems.extend(row_origins.check_merge(node_id, input_.name, sources))
     return True, runs_per_row_of
 
 
@@ -338,14 +364,6 @@ def series_inputs_that_never_share_a_row(node_id: str, inputs: Sequence[Input], 
             if all(_never_hold_a_value_on_one_row(left, right) for left in sources_of_a for right in sources_of_b):
                 return [make_problem("series_inputs_never_share_a_row", node_id, a, a=a, b=b)]
     return []
-
-
-def _receive_mode_read_at_the_row(read: SourcesReadAtTheRow, runs_per_row_of: Index | None) -> Cell | RowsUnder | Gather:
-    """How an input that doesn't choose the node's row receives its sources on that row: each source by its own read."""
-    source_reads = tuple(_read_of_source_at_the_row(ref, source, runs_per_row_of) for ref, source in read.sources)
-    if read.collected_onto is None:
-        return source_reads[0]
-    return Gather(source_reads, Ref(read.collected_onto.id))
 
 
 def _receive_mode_of_table_input(places: list[SourcesThatAreAlternatives], runs_per_row_of: Index | None) -> Cell | Merge:
@@ -497,21 +515,12 @@ def _all_on_one_index(sources: Sequence[CompiledField]) -> bool:
     return all(source._index is not None for source in sources) and len({source._index for source in sources}) == 1
 
 
-def _what_an_unwired_input_carries(input_: Input, node_id: str, statics: Mapping[str, Any]) -> tuple[InputCarries, ReceiveMode]:
-    """What an input carries when no edge feeds it: one value copied to every
-    call, or for a ``Series[X]`` input a column of its own, received whole."""
-    value = statics.get(input_.name, input_.default)
-    if not input_.many:
-        return InputCarries(input_.dtype, None), FixedValue("same_value_every_row", value)
-    return InputCarries(input_.dtype, Index(Ref(node_id, input_.name))), FixedValue("entire_value", None if value is None else list(value))
-
-
-def _row_above_reductions(reductions: tuple[tuple[Index, Input, tuple[Ref, ...]], ...]) -> tuple[tuple[Index, str], ...]:
+def _row_above_reductions(reductions: list[ReadingOfInput]) -> tuple[tuple[Index, str], ...]:
     """The one demand reductions make when nothing else does: the shallowest index right above a series."""
     if not reductions:
         return ()
-    index, input_, _ = min(reductions, key=lambda reduction: reduction[0].depth)
-    return ((index.parent, input_.name),)  # type: ignore[return-value]
+    reading = min(reductions, key=lambda reading: reading.reduces.depth)  # type: ignore[union-attr]  # kept above
+    return ((reading.reduces.parent, reading.input.name),)  # type: ignore[union-attr, return-value]
 
 
 def _deepest_index_on_one_line_of_descent(required_rows: tuple[tuple[Index, str], ...]) -> tuple[Index | None, tuple[str, str] | None]:

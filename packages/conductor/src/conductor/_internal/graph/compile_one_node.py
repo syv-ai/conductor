@@ -27,8 +27,9 @@ from conductor._internal.field_records import Input, Output
 from conductor._internal.graph.binding import Binding, From
 from conductor._internal.graph.compiled_node import CompiledField, CompiledNode, Wiring
 from conductor._internal.graph.decide_rows_and_receive_modes import (
+    ReceivedAtTheRow,
     WhatArrivesOnInputs,
-    decide_runs_per_row_of_and_receive_modes,
+    decide_runs_per_row_of,
     read_what_arrives_on_inputs,
     series_inputs_that_never_share_a_row,
 )
@@ -121,9 +122,9 @@ def compile_one_node(node: GraphNode, progress: CompileProgress, registry: NodeR
     inputs_read = read_what_arrives_on_inputs(node, inputs, statics, inputs_given_a_list, progress, problems)
     if inputs_read.stopped_at_unreadable_source:
         return _record_compiled_node(progress, node, problems, definition, version, _interface_without_wiring(node, version, inputs, inputs_read, statics, problems), statics)
-    inputs_typed_by_their_edges = tuple(_with_type_from_its_edge(input_, inputs_read.given_by_edge) for input_ in inputs)
+    inputs_typed_by_their_edges = _with_types_from_their_edges(inputs, inputs_read)
     try:
-        outputs = _outputs_after_compute_outputs(version, inputs_read.arriving_types, statics)
+        outputs = _outputs_after_compute_outputs(version, _arriving_types(inputs_read), statics)
     except ComputeHookError as hook_error:
         problems.append(hook_error.as_problem_on_node(node.id))
         return _record_compiled_node(progress, node, problems, definition, version, _interface_with_fields(version.interface, inputs_typed_by_their_edges, ()), statics)
@@ -137,13 +138,14 @@ def compile_one_node(node: GraphNode, progress: CompileProgress, registry: NodeR
         return _record_compiled_node(progress, node, problems, definition, version, interface, statics)
     if not outputs and (is_graph or version.return_shape is not None):
         problems.append(make_problem("no_outputs", node.id))
-    rows_agree, runs_per_row_of = decide_runs_per_row_of_and_receive_modes(node, inputs_read, problems, progress.row_origins, runs_under)
+    rows_agree, runs_per_row_of = decide_runs_per_row_of(node.id, inputs_read.readings, problems, runs_under)
     if not rows_agree:
         return _record_compiled_node(progress, node, problems, definition, version, interface, statics)
-    problems.extend(series_inputs_that_never_share_a_row(node.id, interface.inputs, inputs_read.receive_modes, progress))
+    received = {reading.input.name: reading.received_at_the_row(runs_per_row_of) for reading in inputs_read.readings}
+    problems.extend(series_inputs_that_never_share_a_row(node.id, interface.inputs, {name: read.receive_mode for name, read in received.items()}, progress))
     if is_graph:
         return _place_embedded_graph(node, definition, version, interface, statics, runs_per_row_of, progress, problems)
-    wiring = _wiring_of_function_node(node, interface, inputs_read, {name: statics[name] for name in inputs_given_a_list}, runs_per_row_of, progress, problems)
+    wiring = _wiring_of_function_node(node, interface, received, inputs_read.tables_taken_in, {name: statics[name] for name in inputs_given_a_list}, runs_per_row_of, progress, problems)
     _record_compiled_node(progress, node, problems, definition, version, interface, statics, wiring)
 
 
@@ -259,12 +261,12 @@ def _interface_without_wiring(
 ) -> Interface:
     """A source couldn't be read: complete the node's fields from what did arrive, so an editor can draw it."""
     try:
-        answered = _outputs_after_compute_outputs(version, inputs_read.arriving_types, statics)
+        answered = _outputs_after_compute_outputs(version, _arriving_types(inputs_read), statics)
     except ComputeHookError:
         # The broken source carries the problem; a problem about its missing
         # arrival would report the same fact twice.
         answered = ()
-    inputs_typed_by_their_edges = tuple(_with_type_from_its_edge(input_, inputs_read.given_by_edge) for input_ in inputs)
+    inputs_typed_by_their_edges = _with_types_from_their_edges(inputs, inputs_read)
     problems.extend(field_problems(node.id, answered, frozenset(input_.name for input_ in inputs_typed_by_their_edges), untyped_ok=True))
     return _interface_with_fields(version.interface, inputs_typed_by_their_edges, answered)
 
@@ -278,9 +280,15 @@ def _outputs_after_compute_outputs(version: Any, arriving_types: dict[str, Any],
     return version.interface.outputs if answered is None else answered
 
 
-def _with_type_from_its_edge(field: Input, given_by_edge: dict[str, dict[str, Any]]) -> Input:
-    """``field`` with what its edge gave it, if an edge gave anything."""
-    return field.model_copy(update=given_by_edge[field.name]) if field.name in given_by_edge else field
+def _arriving_types(inputs_read: WhatArrivesOnInputs) -> dict[str, Any]:
+    """Per connected input: the type one call sees, what ``compute_outputs`` is told."""
+    return {reading.input.name: reading.arriving_type for reading in inputs_read.readings if reading.arriving_type is not None}
+
+
+def _with_types_from_their_edges(inputs: tuple[Input, ...], inputs_read: WhatArrivesOnInputs) -> tuple[Input, ...]:
+    """``inputs``, each with what its edge gave it, if an edge gave anything."""
+    given = {reading.input.name: reading.given_by_edge for reading in inputs_read.readings if reading.given_by_edge}
+    return tuple(input_.model_copy(update=given[input_.name]) if input_.name in given else input_ for input_ in inputs)
 
 
 def _field_above(progress: CompileProgress, ref: Ref) -> CompiledField | None:
@@ -298,12 +306,12 @@ def _condition_lookup_for_sources(progress: CompileProgress) -> Any:
 
 
 def _wiring_of_function_node(
-    node: GraphNode, interface: Interface, inputs_read: WhatArrivesOnInputs, lists_set_on_inputs: Mapping[str, Sequence[Any]], runs_per_row_of: Index | None, progress: CompileProgress, problems: list[Problem],
+    node: GraphNode, interface: Interface, received: Mapping[str, ReceivedAtTheRow], tables_taken_in: tuple[CompiledField, ...], lists_set_on_inputs: Mapping[str, Sequence[Any]], runs_per_row_of: Index | None, progress: CompileProgress, problems: list[Problem],
 ) -> Wiring:
     """Every field of a node that is a function, built once its row is known."""
     outputs = interface.outputs
     names = {out.name for out in outputs}
-    taken_in = origins_taken_in(inputs_read.tables_taken_in)
+    taken_in = origins_taken_in(tables_taken_in)
     for out in outputs:
         if is_table_type(out.dtype):
             for column, _ in columns_of(out.dtype):
@@ -317,11 +325,11 @@ def _wiring_of_function_node(
     fields: dict[str, CompiledField] = {}
     node_id = node.id
     for input_ in interface.inputs:
-        field_type = inputs_read.carries[input_.name]
+        field_type = received[input_.name]
         is_list_set_on_it = input_.name in lists_set_on_inputs
         fields[input_.name] = CompiledField(
             ref=Ref._from_checked_parts(node_id, input_.name), type=field_type.dtype, binding=node.bindings.get(input_.name), _condition_with_rows=None,
-            problems=tuple(problems_by_field.get(input_.name, ())), _index=field_type.index, _receive_mode=inputs_read.receive_modes[input_.name],
+            problems=tuple(problems_by_field.get(input_.name, ())), _index=field_type.index, _receive_mode=field_type.receive_mode,
             _held_as=ListOnNode(field_type.index, list(lists_set_on_inputs[input_.name])) if is_list_set_on_it else NotHeld(),  # type: ignore[arg-type]  # a list on a node has its index
             _takes_blank=False,
             _row_origins=progress.row_origins.origins_of_rows_on(field_type.index) if is_list_set_on_it else None,
