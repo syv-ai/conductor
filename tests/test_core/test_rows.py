@@ -756,7 +756,7 @@ def test_a_skip_above_an_embedded_list_leaves_it_with_no_rows_and_the_inner_node
     restored = RunLedger.restore(compiled, live.state("complete"))
 
     assert restored.units("emb/t") == live.units("emb/t") == []
-    assert set(recorded.nodes_completed) == set(compiled.execution_order)
+    assert {event.node_id for event in recorded.node_events} == set(compiled.execution_order)
     assert restored.completed_nodes() == live.completed_nodes() == set(compiled.execution_order)
 
 

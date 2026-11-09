@@ -108,6 +108,8 @@ its stored graphs itself. What a 1.x user must change:
   from, in place of `resume`.
 - `flow_*` events are `run_start`, `node_failed`, `unit_waiting` and `run_end`, which carries the
   state. What goes wrong is always a `Problem`; a node's own exception goes to the `conductor` logger.
+- A failed unit stops anything new from starting, and the calls already running finish and are
+  kept, as far as each one's `attempt_timeout`: a leg running on from the state doesn't repeat them.
 - A changed node reuses per row. A leg going on from a state hashes what each unit of a changed node
   is about to receive, and a unit whose inputs match one its earlier units received takes that result
   at its new row and isn't called, a waiting unit or an answer included: one row added to a CSV of

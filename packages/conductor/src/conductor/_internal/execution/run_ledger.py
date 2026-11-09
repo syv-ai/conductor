@@ -14,8 +14,8 @@ The list and the table hold the rows' cells; a reader finds its cell in them by
 its position. What the values made, every index's rows, is kept per index
 (``RowsOfIndex``). From those two the ledger answers the engine's questions:
 what does this unit still need (``first_thing_unit_still_needs``), and what
-does it run with (``inputs_for``). The engine is a loop over those calls and
-nothing in here is asynchronous.
+becomes of it when its turn comes (``start_unit``). The engine is a loop over
+those calls and nothing in here is asynchronous.
 
 A skip belongs to a row. A unit that didn't run or a choice not taken writes
 ``SKIPPED``: at the unit's row, or, when the skip came from a shorter row of an
@@ -32,7 +32,7 @@ playing the finished units back through the writes that made them.
 A node that changed since that state runs its units again, and a unit whose
 inputs match one an earlier unit of the node received is not called: its
 result is written through ``record`` at this unit's row, as if the node had
-just returned it (``claim_earlier_result``). Nothing maps an old row to a new one.
+just returned it (``start_unit``). Nothing maps an old row to a new one.
 """
 
 from __future__ import annotations
@@ -53,6 +53,7 @@ from conductor._internal.errors import (
     Problem,
     make_problem,
 )
+from conductor._internal.execution.events import NodeComplete, NodeSkipped
 from conductor._internal.execution.input_hash import DigestsOfValues, hash_of_inputs
 from conductor._internal.execution.run_state import (
     EarlierUnit,
@@ -140,11 +141,45 @@ class BlankInputsStopCall:
 
 class UnitRecorded(NamedTuple):
     """What one ``record`` changed for the engine: the units ready because of it,
-    in execution order, and the nodes it finished, its own and any others that
-    have no units left to run, each once."""
+    in execution order, and the event of each node it finished, its own and any
+    others that have no units left to run, each once."""
 
     units_ready: list[Unit]
-    nodes_completed: list[str]
+    node_events: list[NodeComplete | NodeSkipped]
+
+
+class CallTheNode(NamedTuple):
+    """This unit runs: call the node on ``inputs``. ``input_hash`` is what a later leg reuses it by."""
+
+    inputs: dict[str, Any]
+    input_hash: str
+
+
+class FinishedWithoutACall(NamedTuple):
+    """This unit needed no call and is recorded: an earlier result was reused, or a blank reached an input that takes none."""
+
+    recorded: UnitRecorded
+
+
+class SkippedWithoutACall(NamedTuple):
+    """This unit needed no call and is recorded skipped; its node may never have started."""
+
+    recorded: UnitRecorded
+
+
+class WaitsOnAPersonAgain(NamedTuple):
+    """An earlier leg's question to a person, whose inputs match, is this unit's: held as waiting, already."""
+
+    waiting_unit: WaitingUnit
+
+
+class CouldNotReadInputs(NamedTuple):
+    """The unit's inputs can't be read (two edges into one input both supplied this row): the unit fails."""
+
+    problem: Problem
+
+
+UnitStart = CallTheNode | FinishedWithoutACall | SkippedWithoutACall | WaitsOnAPersonAgain | CouldNotReadInputs
 
 
 class RowsOfIndex:
@@ -243,7 +278,7 @@ class RunLedger:
         #: Units a person answered.
         self._answered: set[Unit] = set()
         #: Per changed node, what a later unit may still reuse.
-        self.earlier_units: dict[str, _EarlierUnitsOfNode] = {}
+        self._earlier_units: dict[str, _EarlierUnitsOfNode] = {}
         #: Per node, how many units this leg took from earlier work.
         self._reused_units: dict[str, int] = {}
         self._digests_of_values: DigestsOfValues = {}
@@ -298,9 +333,6 @@ class RunLedger:
             return [(node_id, ())]
         return [(node_id, row) for row in self._rows[index.id].rows_under(())]
 
-    def is_done(self, unit: Unit) -> bool:
-        return unit in self._done
-
     def node_is_complete(self, node_id: str) -> bool:
         """Every unit this node will ever have is done."""
         return self._finished_at_or_under(node_id, ())
@@ -318,9 +350,6 @@ class RunLedger:
         if index is None:
             return (node_id, ()) in self._done
         return (node_id, ()) in self._units_done_under or bool(self._rows[index.id].no_rows_under)
-
-    def node_runs_per_row(self, node_id: str) -> bool:
-        return self._runs_per_row_of[node_id] is not None
 
     def progress(self, node_id: str) -> tuple[int, int | None]:
         """``(done, total)`` rows for a node; ``total`` is ``None`` until all the
@@ -398,6 +427,31 @@ class RunLedger:
             completed.append(node_id)
         for node_on_rows in self._waiting_on_rows_made_by[node_id]:
             self._wake_if_finished(node_on_rows, row, woken, completed)
+
+    # -- a unit's turn -----------------------------------------------------------
+
+    def start_unit(self, unit: Unit) -> UnitStart:
+        """What becomes of this unit now its turn has come. The one place that knows the order:
+        its inputs, whether a skip or a blank stops it, what it hashes to, whether earlier work
+        answers it. Anything that needs no call is recorded here."""
+        node_id, row = unit
+        try:
+            inputs = self.inputs_for(unit)
+        except NodeError as failure:
+            return CouldNotReadInputs(failure._as_problem_at(node_id, row))
+        if isinstance(inputs, SkippedAtRow):
+            return SkippedWithoutACall(self.record(unit, inputs))
+        if isinstance(inputs, BlankInputsStopCall):
+            return FinishedWithoutACall(self.record(unit, inputs))
+        input_hash = hash_of_inputs(self._compiled.node(node_id)._input_hash_seed, inputs, self._digests_of_values)
+        if self._earlier_units:
+            earlier = self._claim_earlier_result(unit, input_hash)
+            if isinstance(earlier, WaitingUnit):
+                self.mark_waiting(unit, earlier)
+                return WaitsOnAPersonAgain(earlier)
+            if earlier is not None:
+                return FinishedWithoutACall(self.record(unit, earlier, input_hash))
+        return CallTheNode(inputs, input_hash)
 
     # -- what a unit receives -------------------------------------------------
 
@@ -664,10 +718,6 @@ class RunLedger:
         self._mark_done(unit, input_hash)
         return self._what_this_write_makes_ready(unit, rows_made)
 
-    def rows_not_called(self, node_id: str) -> dict[str, int]:
-        """How many rows this node wasn't called on, per input that was blank there."""
-        return self._rows_not_called.get(node_id, {})
-
     def _note_rows_made_by_write(self, field: CompiledField, row: Row, value: Any, rows_made: list[tuple[str, Row, int]]) -> None:
         """What a value written at ``row`` does to the rows: ``SKIPPED`` leaves its field's
         index with nothing there and, on a row-making output, under it; a list
@@ -723,16 +773,21 @@ class RunLedger:
             ready.sort(key=lambda ready_unit: (position_of[ready_unit[0]], ready_unit[1]))
         if len(completed) > 1:
             completed.sort(key=position_of.__getitem__)
-        return UnitRecorded(ready, completed)
+        return UnitRecorded(ready, [self._event_of_completed_node(completed_node_id) for completed_node_id in completed])
+
+    def _event_of_completed_node(self, node_id: str) -> NodeComplete | NodeSkipped:
+        """What the engine says of a node with no units left: skipped when it did nothing, else its result."""
+        result = self.result_of(node_id)
+        rows_not_called = self._rows_not_called.get(node_id, {})
+        if result is None and not rows_not_called:
+            return NodeSkipped(node_id=node_id)
+        return NodeComplete(node_id=node_id, result=result or {}, rows_not_called=rows_not_called, reused_units=self._reused_units.get(node_id, 0))
 
     # -- waiting on a person ---------------------------------------------
 
     def mark_waiting(self, unit: Unit, waiting_unit: WaitingUnit) -> None:
         """Hold this unit as waiting: its node asked a person. It and whatever reads it wait."""
         self._waiting[unit] = waiting_unit
-
-    def is_waiting(self, unit: Unit) -> bool:
-        return unit in self._waiting
 
     def mark_answered(self, unit: Unit) -> None:
         """Note that a person answered this unit: an answer is only taken over by its own row
@@ -747,17 +802,13 @@ class RunLedger:
 
     # -- work from an earlier state ----------------------------------------------------
 
-    def input_hash_of(self, seed: bytes, inputs: dict[str, Any]) -> str:
-        """The hash of what a unit of the node seeded by ``seed`` is about to receive (``execution.input_hash``)."""
-        return hash_of_inputs(seed, inputs, self._digests_of_values)
-
-    def claim_earlier_result(self, unit: Unit, input_hash: str) -> dict[str, Any] | WaitingUnit | None:
+    def _claim_earlier_result(self, unit: Unit, input_hash: str) -> dict[str, Any] | WaitingUnit | None:
         """An earlier result of this node for a unit that received ``input_hash``, taken so no
         other unit can have it: the cells to ``record`` at this unit's row, or, for
         one that was waiting on a person, that unit moved to this row, or ``None``
         when there is none and the unit must run."""
         node_id, row = unit
-        earlier = self.earlier_units.get(node_id)
+        earlier = self._earlier_units.get(node_id)
         claimed = None if earlier is None else earlier.claim(row, input_hash)
         if earlier is None or claimed is None:
             return None
@@ -790,12 +841,9 @@ class RunLedger:
             cells[out.name] = value
         return cells
 
-    def reused_units(self, node_id: str) -> int:
-        return self._reused_units.get(node_id, 0)
-
     def _earlier_units_still_unclaimed(self, node_id: str) -> list[EarlierUnit]:
         """What is left of this node's earlier work when the node isn't finished, for a leg going on from this one."""
-        earlier = self.earlier_units.get(node_id)
+        earlier = self._earlier_units.get(node_id)
         if earlier is None or not earlier.unclaimed or self.node_is_complete(node_id):
             return []
         outputs = [(out.name, Ref(node_id, out.name)) for out in self._lookups.interfaces[node_id].outputs]
@@ -864,7 +912,7 @@ class RunLedger:
                 waiting=waiting.get(node_id, ()),
                 rows_not_called=dict(sorted(self._rows_not_called[node_id].items())) if node_id in self._rows_not_called else {},
                 reused_units=self._reused_units.get(node_id, 0),
-                earlier_units=self._earlier_units_still_unclaimed(node_id) if self.earlier_units else [],
+                earlier_units=self._earlier_units_still_unclaimed(node_id) if self._earlier_units else [],
             )
         return RunState.model_construct(status=status, failure=failure, nodes=nodes)
 
@@ -895,7 +943,7 @@ class RunLedger:
             raise InvalidCallError(problems)
         for ref, by_row in values.items():
             restored._values.setdefault(ref, {}).update(by_row)
-        restored.earlier_units = _earlier_units_of_nodes(compiled, state, changed)
+        restored._earlier_units = _earlier_units_of_nodes(compiled, state, changed)
         kept = {node_id: work for node_id, work in state.nodes.items() if node_id not in changed}
         restored._waiting = {(waiting_unit.node_id, waiting_unit.row): waiting_unit for work in kept.values() for waiting_unit in work.waiting}
         restored._rows_not_called = {node_id: dict(work.rows_not_called) for node_id, work in kept.items() if work.rows_not_called}

@@ -25,9 +25,14 @@ from conductor import (
 )
 from conductor._internal.execution.run_ledger import (
     BlankInputsStopCall,
+    CallTheNode,
+    CouldNotReadInputs,
+    FinishedWithoutACall,
     RunLedger,
     SkippedAtRow,
+    SkippedWithoutACall,
     Unit,
+    WaitsOnAPersonAgain,
 )
 from conductor._internal.execution.validate_unit_outputs import validate_unit_outputs
 from conductor._internal.execution.waiting_units import waiting_unit_for
@@ -133,7 +138,7 @@ def test_a_decision_over_a_whole_column_gates_what_hangs_off_the_branch_not_take
     recorded = ledger.record(("decide", ()), {"full": ["a", "b"], "empty": SKIPPED})
 
     assert set(recorded.units_ready) == {("full", ()), ("empty", ()), ("after", ())}
-    assert "up" in recorded.nodes_completed  # a node with no rows finishes when its index gets none
+    assert "up" in [event.node_id for event in recorded.node_events]  # a node with no rows finishes when its index gets none
     assert list(ledger.inputs_for(("full", ()))["texts"]) == ["a", "b"]
     assert ledger.inputs_for(("empty", ())) == SkippedAtRow(row=())
     assert ledger.units("up") == []
@@ -214,7 +219,7 @@ def test_a_skip_above_a_maker_reaches_every_index_under_it():
     assert ledger.units("lines") == [("lines", (0, 0))]
     assert ledger.inputs_for(("j", (1,))) == SkippedAtRow(row=(1,))
     assert list(ledger.inputs_for(("j", (0,)))["texts"]) == ["L"]
-    assert sorted(recorded.nodes_completed) == ["lines", "paras", "up"]
+    assert sorted(event.node_id for event in recorded.node_events) == ["lines", "paras", "up"]
 
 
 def test_a_node_over_an_empty_list_has_no_units_and_is_not_announced():
@@ -230,7 +235,7 @@ def test_a_node_over_an_empty_list_has_no_units_and_is_not_announced():
 
     recorded = ledger.record(("docs", ()), {"texts": [], "names": []})
 
-    assert recorded.nodes_completed == ["docs"]
+    assert [event.node_id for event in recorded.node_events] == ["docs"]
     assert recorded.units_ready == [("j", ())]
     assert ledger.node_is_complete("up") and "up" not in ledger.completed_nodes()
     assert list(ledger.inputs_for(("j", ()))["texts"]) == []
@@ -417,3 +422,108 @@ def test_what_record_returns_is_exactly_what_it_released(seed):
         assert set(RunLedger.restore(compiled, ledger.state("running")).units_ready_to_start()) == in_flight
 
     _drive_graph(seed, check)
+
+
+# -- a unit's turn: every outcome of ``start_unit``, with no event loop ------------
+
+
+def _per_row_over_docs(*more):
+    return _ledger([DOCS, GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}), *more])
+
+
+def test_a_unit_with_its_inputs_is_to_be_called():
+    ledger = _per_row_over_docs()
+    ledger.units_ready_to_start()
+    ledger.record(("docs", ()), {"texts": ["a"], "names": ["x"]})
+
+    match ledger.start_unit(("up", (0,))):
+        case CallTheNode(inputs, input_hash):
+            assert inputs == {"text": "a"} and input_hash
+        case other:
+            raise AssertionError(other)
+    assert ("up", (0,)) not in ledger._done, "what is to be called isn't recorded yet"
+
+
+def test_a_unit_a_skip_reaches_is_recorded_skipped():
+    ledger = _ledger([
+        DOCS,
+        GraphNode(id="decide", type="decide", version=1, bindings={"texts": _edge(("docs", "texts"))}),
+        GraphNode(id="empty", type="join", version=1, bindings={"texts": _edge(("decide", "empty"))}),
+    ])
+    ledger.units_ready_to_start()
+    ledger.record(("docs", ()), {"texts": ["a"], "names": ["x"]})
+    ledger.record(("decide", ()), {"full": ["a"], "empty": SKIPPED})
+
+    started = ledger.start_unit(("empty", ()))
+
+    assert isinstance(started, SkippedWithoutACall)
+    assert [event.type for event in started.recorded.node_events] == ["node_skipped"]
+    assert ("empty", ()) in ledger._done
+
+
+def test_a_unit_a_blank_stops_is_recorded_without_a_call():
+    ledger = _per_row_over_docs()
+    ledger.units_ready_to_start()
+    ledger.record(("docs", ()), {"texts": [None], "names": ["x"]})
+
+    started = ledger.start_unit(("up", (0,)))
+
+    assert isinstance(started, FinishedWithoutACall)
+    assert [event.type for event in started.recorded.node_events] == ["node_complete"]
+    assert started.recorded.node_events[0].rows_not_called == {"text": 1}
+
+
+def test_a_unit_covered_twice_could_not_read_its_inputs():
+    ledger = _per_row_over_docs(
+        GraphNode(id="up2", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
+        GraphNode(id="both", type="upper", version=1, bindings={"text": _edge(("up", "result"), ("up2", "result"))}),
+    )
+    ledger.units_ready_to_start()
+    ledger.record(("docs", ()), {"texts": ["a"], "names": ["x"]})
+    ledger.record(("up", (0,)), {"result": "A"})
+    ledger.record(("up2", (0,)), {"result": "A"})
+
+    started = ledger.start_unit(("both", (0,)))
+
+    assert isinstance(started, CouldNotReadInputs) and started.problem.type == "row_covered_twice"
+    assert started.problem.loc == ("both", 0)
+
+
+@node("asks", title="Asks", description="d", category="test")
+def asks(text: Annotated[Txt, Param(title="Text")]) -> Out | AskPerson:
+    return AskPerson()
+
+
+def _lines_into(reader_type: str, text: str) -> CompiledGraph:
+    return CompiledGraph.from_graph(Graph(nodes=[
+        GraphNode(id="lines", type="lines", version=1, bindings={"text": Static(text)}),
+        GraphNode(id="reader", type=reader_type, version=1, bindings={"text": From("lines.result")}),
+    ]), _registry().extended_with([asks]))
+
+
+def _restored_with_lines_run_again(reader_type: str) -> RunLedger:
+    """A ledger over an edited ``lines`` that gives the same rows, so its reader's earlier work matches."""
+    state = _lines_into(reader_type, "a").run_sync()
+    edited = RunLedger.restore(_lines_into(reader_type, "a\n"), state)
+    edited.units_ready_to_start()
+    edited.record(("lines", ()), {"result": ["a"]})
+    return edited
+
+
+def test_a_unit_whose_inputs_match_earlier_work_is_recorded_without_a_call():
+    ledger = _restored_with_lines_run_again("upper")
+
+    started = ledger.start_unit(("reader", (0,)))
+
+    assert isinstance(started, FinishedWithoutACall)
+    assert started.recorded.node_events[0].result["result"]["values"] == ["A"]
+    assert started.recorded.node_events[0].reused_units == 1
+
+
+def test_a_unit_whose_inputs_match_an_earlier_question_waits_on_it_again():
+    ledger = _restored_with_lines_run_again("asks")
+
+    started = ledger.start_unit(("reader", (0,)))
+
+    assert isinstance(started, WaitsOnAPersonAgain)
+    assert ledger.waiting() == (started.waiting_unit,)

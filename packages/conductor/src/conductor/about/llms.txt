@@ -197,7 +197,7 @@ NodeError               code, ctx, node_id
 └── ExternalFailure         retried
 ```
 
-A failed unit ends the leg `failed`, its problem on `state.failure`; `compiled.results(state)` reads what was done and `compiled.outputs(state)` refuses (`run_not_complete`). A call that can't be acted on raises `InvalidCallError`, whose `errors()` lists a `Problem` for every fault, and nothing changes. Running a graph with fatal compile problems raises it too, listing them. A node returning the wrong type is a failed run with `invalid_output`.
+A failed unit ends the leg `failed`, its problem on `state.failure`: nothing more starts, the calls already on a thread are waited for (each as far as its `attempt_timeout`) and kept, so a later leg doesn't repeat them, and then the leg ends; `compiled.results(state)` reads what was done and `compiled.outputs(state)` refuses (`run_not_complete`). A call that can't be acted on raises `InvalidCallError`, whose `errors()` lists a `Problem` for every fault, and nothing changes. Running a graph with fatal compile problems raises it too, listing them. A node returning the wrong type is a failed run with `invalid_output`.
 
 ### Events
 

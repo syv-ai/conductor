@@ -40,7 +40,7 @@ A node returns `AskPerson` when a person must answer. The rest of the graph runs
 
 Retries live on the version's `Policy`, and each row retries on its own. Only the outside world's failure is retried: an `ExternalFailure` the node raises, or an exception whose class `retry_on` names. The delay before attempt `n` is `retry_delay * 2 ** (n - 1)`.
 
-`Policy.attempt_timeout` is how long the engine waits on one attempt. It never interrupts the thread: a timed-out attempt is final, and the thread finishes on its own. The timeout worth retrying is the client's own, set inside the function. A function that holds the GIL blocks the whole process, so where runs happen is the host's decision.
+`Policy.attempt_timeout` is how long the engine waits on one attempt. It never interrupts the thread: a timed-out attempt is final, and the thread finishes on its own. A leg that fails waits for its other calls only that long, or for as long as the call takes where no timeout is set. The timeout worth retrying is the client's own, set inside the function. A function that holds the GIL blocks the whole process, so where runs happen is the host's decision.
 
 Every failure is a `Problem` (`type`, `loc`, `msg`, `ctx`) on the event and on the state, the same record a compile reports, so a host routes it by its type.
 

@@ -139,7 +139,7 @@ print(results["how_many"]["result"])            # 2
 
 **Versions and retries.** A newer version names the one it replaces, itself a `@node` of the same id: `@node("split", replaces=split_v1, upgrade=Upgrade(renamed_inputs={"sep": "separator"}))`. Each version has its own `Policy` (`retries`, `retry_delay`, `attempt_timeout`, `concurrency`, `retry_on`, `reuse_when_inputs_match`) and hooks. `upgrade_node(graph, node_id, registry)` moves a node forward, and `Deprecation(...)` retires a version; on the newest, the node. Only an `ExternalFailure`, or an exception class named in `retry_on`, is retried.
 
-**Failures.** Every run-time failure is a `Problem` (`type`, `loc`, `msg`, `ctx`), the same record a compile reports, on the event and on `state.failure`. A node's own exception goes to `logging.getLogger("conductor")` with its traceback, and only its class name reaches `ctx`. A call that can't be acted on raises `InvalidCallError`, with every fault listed.
+**Failures.** Every run-time failure is a `Problem` (`type`, `loc`, `msg`, `ctx`), the same record a compile reports, on the event and on `state.failure`. A node's own exception goes to `logging.getLogger("conductor")` with its traceback, and only its class name reaches `ctx`. A failed unit starts nothing more; the calls already on a thread finish and are kept, so running on from the state doesn't repeat them. A call that can't be acted on raises `InvalidCallError`, with every fault listed.
 
 **Values the host supplies.** A parameter marked `FromRun[T]` is filled by type from `compiled.run_sync(from_run={T: value})`, not from an edge.
 

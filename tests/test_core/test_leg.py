@@ -1,6 +1,6 @@
 """The leg owns its work.
 
-The leg owns the threads its units run on and the tasks that wait on them:
+The leg owns the threads its units run on:
 closing the event stream stops every unit, a node's timeout counts only the
 time its thread ran, a timed-out attempt is final and its thread keeps the
 node's concurrency slot until it returns, and the leg has no deadline
@@ -344,7 +344,8 @@ def test_a_cancel_set_while_the_queue_holds_messages_ends_the_leg_at_the_next_ev
         return seen
 
     seen = asyncio.run(go())
-    after_the_cancel = [event.type for event in seen[-3:]]
+    types = [event.type for event in seen]
+    after_the_cancel = types[next(i for i, event in enumerate(seen) if event.type == "node_start" and event.node_id == "o") + 1 :]
     assert after_the_cancel[-1] == "run_end" and seen[-1].state.status == "cancelled"
     assert "node_complete" not in after_the_cancel[:-1]
 
@@ -392,7 +393,7 @@ def test_a_cancel_from_another_task_lands_within_a_moment():
     assert status == "cancelled" and took < 0.5
 
 
-def test_a_unit_waiting_for_a_slot_has_no_task():
+def test_units_waiting_for_a_slot_hold_no_tasks_and_the_leg_is_one_task():
     release = threading.Event()
     peak: list[int] = []
 
@@ -463,3 +464,302 @@ def test_a_leg_makes_no_more_threads_than_calls_in_flight():
     compiled = CompiledGraph.from_graph(Graph(nodes=nodes), NodeRegistry([source, step]))
     assert compiled.run_sync().status == "complete"
     assert len(seen) <= 21
+
+
+# -- a failed leg keeps the calls it already made --------------------------------------
+
+
+def _one_row_fails_at_once(rows: int, concurrency: int, **policy: Any) -> tuple[CompiledGraph, list[str], threading.Event]:
+    """Row 0 fails at once; every other row waits for ``release`` before it counts its call."""
+    calls: list[str] = []
+    release = threading.Event()
+
+    @node("mail", title="M", description="d", category="test", policy=Policy(concurrency=concurrency, **policy))
+    def mail(text: In = Txt("")) -> Out:
+        calls.append(str(text))
+        if text == "0":
+            raise ValueError("this row can't be sent")
+        release.wait(10)
+        return Txt(text)
+
+    return _per_row(mail, rows), calls, release
+
+
+def _run_to_the_end_releasing_on_failure(compiled: CompiledGraph, release: threading.Event, state: RunState | None = None) -> tuple[list[Any], RunState]:
+    """A leg that lets the waiting calls go only when it has reported the failure."""
+    async def go() -> list[Any]:
+        seen = []
+        async with compiled.stream(state) as events:
+            async for event in events:
+                seen.append(event)
+                if event.type == "node_failed":
+                    release.set()
+        return seen
+
+    seen = asyncio.run(go())
+    return seen, seen[-1].state
+
+
+def test_one_row_failing_at_concurrency_eight_keeps_the_seven_calls_already_running():
+    compiled, calls, release = _one_row_fails_at_once(rows=30, concurrency=8)
+
+    events, state = _run_to_the_end_releasing_on_failure(compiled, release)
+
+    assert state.status == "failed" and state.failure.type == "execution_failed"
+    assert sorted(calls, key=int) == [str(i) for i in range(8)], "no unit starts after the failure"
+    assert [row[0] for row, _ in state.nodes["slow"].finished_units] == [1, 2, 3, 4, 5, 6, 7]
+    assert compiled.results(state)["slow"]["result"]["values"] == [str(i) for i in range(1, 8)]
+    assert events[-1].type == "run_end" and "node_failed" in [event.type for event in events]
+
+
+def test_a_resume_after_a_failed_row_does_not_call_the_seven_again():
+    compiled, calls, release = _one_row_fails_at_once(rows=30, concurrency=8)
+    _, failed = _run_to_the_end_releasing_on_failure(compiled, release)
+    calls.clear()
+
+    state = compiled.run_sync(failed)
+
+    assert "0" in calls, "the failed row runs again"
+    assert not set(calls) & {str(i) for i in range(1, 8)}, "the seven kept calls are not made again"
+    assert state.status == "failed", "row 0 fails on every leg"
+    assert [row[0] for row, _ in state.nodes["slow"].finished_units][:7] == [1, 2, 3, 4, 5, 6, 7]
+
+
+def test_a_row_failing_at_concurrency_one_starts_nothing_more():
+    compiled, calls, release = _one_row_fails_at_once(rows=5, concurrency=1)
+
+    _, state = _run_to_the_end_releasing_on_failure(compiled, release)
+    time.sleep(0.2)
+
+    assert calls == ["0"]
+    assert state.status == "failed"
+    assert not state.nodes["slow"].finished_units
+
+
+def test_a_failed_leg_waits_for_a_call_no_longer_than_its_attempt_timeout():
+    release = threading.Event()
+
+    @node("hangs-or-fails", title="H", description="d", category="test", policy=Policy(concurrency=2, attempt_timeout=0.2))
+    def hangs_or_fails(text: In = Txt("")) -> Out:
+        if text == "0":
+            raise ValueError("no")
+        release.wait(10)
+        return Txt(text)
+
+    started = time.monotonic()
+    state = _per_row(hangs_or_fails, 2).run_sync()
+    took = time.monotonic() - started
+    release.set()
+
+    assert state.status == "failed" and state.failure.type == "execution_failed", "the first failure stands"
+    assert 0.15 < took < 1.0, f"the failed leg took {took:.2f}s"
+
+
+def test_an_ask_or_a_second_failure_while_a_failed_leg_drains():
+    """A person's question is kept like any finished call; a later failure is only in the log."""
+    release = threading.Event()
+
+    @node("mixed", title="M", description="d", category="test", policy=Policy(concurrency=4))
+    def mixed(text: In = Txt("")) -> Out | AskPerson:
+        if text == "0":
+            raise ValueError("first")
+        release.wait(10)
+        if text == "1":
+            return AskPerson()
+        if text == "2":
+            raise ValueError("second")
+        return Txt(text)
+
+    events, state = _run_to_the_end_releasing_on_failure(_per_row(mixed, 4), release)
+
+    assert state.status == "failed" and state.failure.loc[1] == 0, "the first failure"
+    assert [event.type for event in events].count("node_failed") == 1
+    assert [unit.row for unit in state.nodes["slow"].waiting] == [(1,)]
+    assert [row for row, _ in state.nodes["slow"].finished_units] == [(3,)]
+
+
+def test_a_retry_is_not_made_after_the_leg_has_failed():
+    release = threading.Event()
+    calls: list[str] = []
+
+    @node("flaky-beside-a-failure", title="F", description="d", category="test", policy=Policy(concurrency=2, retries=3, retry_delay=0.01))
+    def flaky(text: In = Txt("")) -> Out:
+        calls.append(str(text))
+        if text == "0":
+            raise ValueError("no")
+        release.wait(10)
+        raise ExternalFailure("try again")
+
+    events, state = _run_to_the_end_releasing_on_failure(_per_row(flaky, 2), release)
+    time.sleep(0.1)
+
+    assert state.failure.type == "execution_failed"
+    assert sorted(calls) == ["0", "1"] and "node_retry" not in [event.type for event in events]
+
+
+def test_a_cancel_while_a_failed_leg_drains_ends_it_failed_at_once():
+    cancel = asyncio.Event()
+    compiled, _, release = _one_row_fails_at_once(rows=4, concurrency=4)
+
+    async def go() -> tuple[RunState, float]:
+        cancel_at = 0.0
+        async with compiled.stream(cancel=cancel) as events:
+            async for event in events:
+                if event.type == "node_failed":
+                    cancel_at = time.monotonic()
+                    cancel.set()
+                if event.type == "run_end":
+                    return event.state, time.monotonic() - cancel_at
+        raise AssertionError("no run_end")
+
+    state, took = asyncio.run(go())
+    release.set()
+
+    assert state.status == "failed" and took < 0.2
+
+
+# -- the event loop stays the host's ------------------------------------------------
+
+
+def _leg_where_every_unit_is_reused(rows: int) -> tuple[CompiledGraph, RunState]:
+    """A graph with its source edited and the state of a first leg: every row of ``m`` is reused."""
+    @node("many", title="S", description="d", category="test")
+    def many(tag: Annotated[int, Param(title="C")] = 0) -> Parts:
+        return [Txt(str(n)) for n in range(rows)]
+
+    @node("echo", title="E", description="d", category="test")
+    def echo(text: Annotated[Txt, Param(title="T")]) -> Out:
+        return text
+
+    registry = NodeRegistry([many, echo])
+
+    def graph(tag: int) -> CompiledGraph:
+        return CompiledGraph.from_graph(Graph(nodes=[
+            GraphNode(id="s", type="many", version=1, bindings={"tag": Static(tag)}),
+            GraphNode(id="m", type="echo", version=1, bindings={"text": From("s.result")}),
+        ]), registry)
+
+    return graph(1), graph(0).run_sync()
+
+
+def test_another_coroutine_gets_turns_during_a_leg_of_thousands_of_units_that_need_no_call():
+    """A unit that needs no thread never lets the event loop go on its own. The
+    bound counts turns, not milliseconds, and a slower machine only gives more."""
+    edited, earlier = _leg_where_every_unit_is_reused(20_000)
+    turns = 0
+    running = True
+
+    async def go() -> RunState:
+        nonlocal turns, running
+
+        async def other_coroutine() -> None:
+            nonlocal turns
+            while running:
+                await asyncio.sleep(0)
+                turns += 1
+
+        beside = asyncio.create_task(other_coroutine())
+        ending = None
+        async with edited.stream(earlier) as events:
+            async for event in events:
+                if event.type == "node_start" and event.node_id == "m":
+                    turns = 0  # the source's thread is back: from here no unit needs one
+                if event.type == "run_end":
+                    ending = event.state
+        running = False
+        await beside
+        assert ending is not None
+        return ending
+
+    state = asyncio.run(go())
+
+    assert state.status == "complete"
+    assert state.nodes["m"].reused_units == 20_000
+    assert turns >= 10, turns
+
+
+def test_a_cancel_from_a_coroutine_lands_during_a_leg_that_needs_no_thread():
+    edited, earlier = _leg_where_every_unit_is_reused(20_000)
+    cancel = asyncio.Event()
+
+    async def go() -> RunState:
+        async def cancel_after_a_few_turns() -> None:
+            for _ in range(3):
+                await asyncio.sleep(0)
+            cancel.set()
+
+        beside = asyncio.create_task(cancel_after_a_few_turns())
+        state = await edited.run(earlier, cancel=cancel)
+        await beside
+        return state
+
+    state = asyncio.run(go())
+
+    assert state.status == "cancelled"
+    assert state.nodes["m"].reused_units < 20_000
+
+
+def test_a_call_returning_after_a_cancel_changes_nothing_and_no_event_follows_the_end():
+    release = threading.Event()
+
+    @node("late", title="L", description="d", category="test", policy=Policy(concurrency=2))
+    def late(text: In = Txt("")) -> Out:
+        release.wait(10)
+        return Txt(text)
+
+    compiled = _per_row(late, 2)
+    cancel = asyncio.Event()
+
+    async def go() -> list[Any]:
+        seen: list[Any] = []
+        async with compiled.stream(cancel=cancel) as events:
+            async for event in events:
+                seen.append(event)
+                if event.type == "node_start" and event.node_id == "slow":
+                    cancel.set()
+            release.set()
+            await asyncio.sleep(0.1)
+        await asyncio.sleep(0.1)
+        return seen
+
+    seen = asyncio.run(go())
+
+    assert [event.type for event in seen].count("run_end") == 1 and seen[-1].type == "run_end"
+    assert seen[-1].state.status == "cancelled"
+    assert seen[-1].state.nodes["slow"].finished_units in (None, [])
+
+
+def test_a_cancel_records_what_threads_have_already_handed_back():
+    """A call that has returned by the moment a cancel lands is kept, as any finished call is."""
+    release = threading.Event()
+    calls: list[str] = []
+
+    @node("fast-then-cancel", title="F", description="d", category="test", policy=Policy(concurrency=4))
+    def fast(text: In = Txt("")) -> Out:
+        calls.append(str(text))
+        if text == "3":
+            release.wait(10)
+        return Txt(text)
+
+    compiled = _per_row(fast, 4)
+    cancel = asyncio.Event()
+
+    async def go() -> RunState:
+        ending: RunState | None = None
+        async with compiled.stream(cancel=cancel) as events:
+            async for event in events:
+                if event.type == "node_start" and event.node_id == "slow":
+                    while len(calls) < 4:
+                        await asyncio.sleep(0.01)
+                    await asyncio.sleep(0.05)  # the three fast calls have long been handed back
+                    cancel.set()
+                if event.type == "run_end":
+                    ending = event.state
+        assert ending is not None
+        return ending
+
+    state = asyncio.run(go())
+    release.set()
+
+    assert state.status == "cancelled"
+    assert sorted(row[0] for row, _ in state.nodes["slow"].finished_units) == [0, 1, 2]
