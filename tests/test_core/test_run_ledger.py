@@ -181,7 +181,7 @@ def test_a_skip_written_on_a_longer_row_reaches_the_group_above_it():
     assert ledger.inputs_for(("j", (1,))) == SkippedAtRow(row=(1,))
     assert list(ledger.inputs_for(("j", (0,)))["texts"]) == ["ax"]
     state = ledger.state("running")
-    assert state.output_columns["p.result"].skipped == [(1,)]
+    assert state.nodes["p"].outputs["result"].skipped == [(1,)]
     assert RunLedger.restore(compiled, state).inputs_for(("j", (1,))) == SkippedAtRow(row=(1,))
 
 

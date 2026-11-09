@@ -122,7 +122,7 @@ def test_a_text_that_spells_the_old_skip_marker_is_a_text_after_a_round_trip():
     values = restored.result_of("split")["result"]["values"]
     assert values == ["__skipped__", "x"] and all(type(v) is Txt for v in values)
     assert restored.result_of("up")["result"]["values"] == ["__SKIPPED__", "X"]
-    assert state.output_columns["split.result"].skipped == []
+    assert state.nodes["split"].outputs["result"].skipped == []
 
 
 def test_a_skip_is_listed_beside_the_values():
@@ -138,10 +138,10 @@ def test_a_skip_is_listed_beside_the_values():
     ledger.record(("up", (1,)), {"result": Txt("B")})
 
     state = ledger.state("complete")
-    wire = json.loads(state.model_dump_json())["output_columns"]
+    wire = json.loads(state.model_dump_json())["nodes"]
 
-    assert wire["up.result"] == {"rows": [[1]], "values": ["B"], "skipped": [[0]]}
-    assert wire["split.result"] == {"rows": [[]], "values": [["a", "b"]], "skipped": []}
+    assert wire["up"]["outputs"]["result"] == {"rows": [[1]], "values": ["B"], "skipped": [[0]]}
+    assert wire["split"]["outputs"]["result"] == {"rows": [[]], "values": [["a", "b"]], "skipped": []}
 
 
 def test_a_value_with_no_json_form_raises_naming_the_field():

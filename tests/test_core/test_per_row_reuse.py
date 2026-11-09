@@ -7,6 +7,7 @@ one row added to a CSV of 5,000 sends one mail.
 """
 
 import asyncio
+import random
 from collections import Counter
 from typing import Annotated, Any, TypedDict
 
@@ -33,7 +34,6 @@ from conductor import (
 )
 from conductor._internal.execution.input_hash import hash_of_inputs
 from conductor._internal.execution.run_state import OutputColumn
-from conductor._internal.ref import Ref
 from conductor.events import NodeComplete, NodeProgress, NodeStart, UnitWaiting
 from helpers import answer
 
@@ -113,6 +113,22 @@ def fail_on(email: str) -> Annotated[str, Result(title="sent")]:
     return "ok:" + email
 
 
+@node("doc_table_or_fail", category="test", policy=Policy(concurrency=1))
+def doc_table_or_fail(text: str) -> Annotated[Table[Contact], Result(title="Rows")]:
+    CALLS["doc_table_or_fail"] += 1
+    if text == FAILING["address"]:
+        raise RuntimeError("the mail server is down")
+    return pl.DataFrame({"name": [text], "email": [text + "@x"]}, schema={"name": pl.String, "email": pl.String})
+
+
+@node("ask_or_fail", category="test", policy=Policy(concurrency=1))
+def ask_or_fail(email: str) -> Annotated[str, Result(title="ok")]:
+    CALLS["ask_or_fail"] += 1
+    if email == FAILING["address"]:
+        raise RuntimeError("the mail server is down")
+    return AskPerson(prompt=email)
+
+
 @node("note_dict", category="test")
 def note_dict(email: str, stuff: dict[str, Any]) -> Annotated[str, Result(title="n")]:
     CALLS["note_dict"] += 1
@@ -126,7 +142,7 @@ def parse(contacts: str = "") -> Annotated[Table[Contact], Result(title="Contact
     return csv(rows=contacts)
 
 
-registry = NodeRegistry([csv, parse, mail, ask, export, split, per, count, doc_table, rate, fail_on, note_dict])
+registry = NodeRegistry([csv, parse, mail, ask, export, split, per, count, doc_table, doc_table_or_fail, ask_or_fail, rate, fail_on, note_dict])
 
 
 def n(node_id: str, node_type: str, **bindings: Any) -> GraphNode:
@@ -139,6 +155,11 @@ def mail_graph(rows: str, body: str = "Hej") -> CompiledGraph:
 
 def through_json(state: RunState) -> RunState:
     return RunState.model_validate_json(state.model_dump_json())
+
+
+def reused(state: RunState) -> dict[str, int]:
+    """Per node, how many units this leg took from earlier work, zeros left out."""
+    return {node_id: work.reused_units for node_id, work in state.nodes.items() if work.reused_units}
 
 
 BASE = "a|a@x\nb|b@x\nc|c@x\n"
@@ -177,7 +198,7 @@ def test_a_changed_csv_sends_only_the_mails_it_has_to(edited: str, body: str, ma
 
     ending = compiled.run_sync(through_json(state))
 
-    assert CALLS["mail"] == mails and ending.reused_units.get("m", 0) == reused
+    assert CALLS["mail"] == mails and ending.nodes["m"].reused_units == reused
     assert ending.status == "complete" and compiled.results(ending)["x"]["result"] == edited.count("\n")
     # the result of a reused unit is at its new row, and all of them are
     assert [v.split(":")[1] for v in compiled.results(ending)["m"]["result"]["values"]] == [line.split("|")[1] for line in edited.splitlines()]
@@ -190,7 +211,7 @@ def test_the_common_case_with_inputs_on_a_compiled_graph() -> None:
 
     ending = compiled.with_inputs(contacts=BASE + "d|d@x\n").run_sync(state)
 
-    assert CALLS["mail"] == 1 and ending.reused_units == {"m": 3}
+    assert CALLS["mail"] == 1 and reused(ending) == {"m": 3}
 
 
 def test_identical_rows_never_share_a_result() -> None:
@@ -198,7 +219,7 @@ def test_identical_rows_never_share_a_result() -> None:
 
     ending = mail_graph("a|d@x\nb|d@x\nc|d@x\n").run_sync(through_json(state))
 
-    assert CALLS["mail"] == 1 and ending.reused_units["m"] == 2  # the third identical row gets a call of its own
+    assert CALLS["mail"] == 1 and ending.nodes["m"].reused_units == 2  # the third identical row gets a call of its own
 
 
 def test_a_duplicate_taken_out_keeps_the_other_rows_result() -> None:
@@ -206,7 +227,7 @@ def test_a_duplicate_taken_out_keeps_the_other_rows_result() -> None:
 
     ending = mail_graph("b|d@x\nc|d@x\n").run_sync(through_json(state))
 
-    assert CALLS["mail"] == 0 and ending.reused_units["m"] == 2
+    assert CALLS["mail"] == 0 and ending.nodes["m"].reused_units == 2
 
 
 def test_a_static_edit_is_seen_because_a_static_is_an_input() -> None:
@@ -214,7 +235,7 @@ def test_a_static_edit_is_seen_because_a_static_is_an_input() -> None:
 
     ending = mail_graph(BASE, body="Ny").run_sync(state)
 
-    assert CALLS["mail"] == 3 and "m" not in ending.reused_units
+    assert CALLS["mail"] == 3 and ending.nodes["m"].reused_units == 0
 
 
 def test_a_changed_node_function_is_new_work() -> None:
@@ -228,7 +249,7 @@ def test_a_changed_node_function_is_new_work() -> None:
     graph = Graph(nodes=[n("c", "csv", rows=Static(BASE)), GraphNode(id="m", type="mail", version=2, bindings={"email": From("c.result.email"), "body": Static("Hej")})])
     ending = CompiledGraph.from_graph(graph, NodeRegistry([csv, newer])).run_sync(through_json(state))
 
-    assert CALLS["mail"] == 3 and "m" not in ending.reused_units
+    assert CALLS["mail"] == 3 and ending.nodes["m"].reused_units == 0
 
 
 # -- what the key sees -------------------------------------------------------------------------------------------------
@@ -239,7 +260,7 @@ def test_a_node_nothing_changed_is_restored_with_no_hashing_and_no_reuse_count()
 
     ending = mail_graph(BASE).run_sync(through_json(state))
 
-    assert CALLS["mail"] == 0 and ending.reused_units == {}
+    assert CALLS["mail"] == 0 and reused(ending) == {}
 
 
 def test_a_series_reordered_is_new_work_and_one_unchanged_is_not() -> None:
@@ -248,12 +269,12 @@ def test_a_series_reordered_is_new_work_and_one_unchanged_is_not() -> None:
 
     state = graph(BASE).run_sync()
     CALLS.clear()
-    assert graph(BASE).run_sync(state).reused_units == {} and CALLS["count"] == 0  # unchanged: restored
+    assert reused(graph(BASE).run_sync(state)) == {} and CALLS["count"] == 0  # unchanged: restored
 
     resorted = "c|c@x\nb|b@x\na|a@x\n"
-    assert graph(resorted).run_sync(through_json(state)).reused_units == {} and CALLS["count"] == 1
+    assert reused(graph(resorted).run_sync(through_json(state))) == {} and CALLS["count"] == 1
     CALLS.clear()
-    assert graph("A|a@x\nB|b@x\nC|c@x\n").run_sync(through_json(state)).reused_units == {"cnt": 1} and CALLS["count"] == 0  # another column changed: the emails are the same series
+    assert reused(graph("A|a@x\nB|b@x\nC|c@x\n").run_sync(through_json(state))) == {"cnt": 1} and CALLS["count"] == 0  # another column changed: the emails are the same series
 
 
 def test_a_whole_table_input_is_read_with_its_row_ids() -> None:
@@ -265,9 +286,9 @@ def test_a_whole_table_input_is_read_with_its_row_ids() -> None:
 
     ending = graph("z|z@x\n" + BASE).run_sync(through_json(state))
 
-    assert CALLS["export"] == 1 and "x" not in ending.reused_units  # the row ids shifted, and it was given them
+    assert CALLS["export"] == 1 and ending.nodes["x"].reused_units == 0  # the row ids shifted, and it was given them
     CALLS.clear()
-    assert graph(BASE).run_sync(through_json(state)).reused_units == {} and CALLS["export"] == 0
+    assert reused(graph(BASE).run_sync(through_json(state))) == {} and CALLS["export"] == 0
 
 
 def test_a_table_read_back_from_json_has_the_digest_it_was_written_under() -> None:
@@ -291,7 +312,7 @@ def test_long_values_read_off_a_table_never_share_a_hash_through_their_address()
 
     ending = mail_graph(rows.replace(f"{long}0@x", f"{long}7@x")).run_sync(through_json(state))
 
-    assert CALLS["mail"] == 1 and ending.reused_units["m"] == 4
+    assert CALLS["mail"] == 1 and ending.nodes["m"].reused_units == 4
 
 
 def test_a_value_with_no_json_form_is_called_and_never_fails_the_leg() -> None:
@@ -330,7 +351,7 @@ def test_a_list_or_mapping_is_identified_by_its_content() -> None:
 
     state = graph({"a": [1, 2]}).run_sync()
     CALLS.clear()
-    assert graph({"a": [1, 2]}).run_sync(through_json(state)).reused_units == {} and CALLS["note_dict"] == 0  # unchanged
+    assert reused(graph({"a": [1, 2]}).run_sync(through_json(state))) == {} and CALLS["note_dict"] == 0  # unchanged
     assert graph({"a": [1, 3]}).run_sync(through_json(state)).status == "complete" and CALLS["note_dict"] == 3
 
 
@@ -355,7 +376,7 @@ def test_a_from_run_value_is_not_part_of_what_a_unit_received() -> None:
 
     ending = graph(BASE + "d|d@x\n").run_sync(through_json(state), from_run={Client: Client()})
 
-    assert CALLS["via_client"] == 1 and ending.reused_units == {"v": 3}
+    assert CALLS["via_client"] == 1 and reused(ending) == {"v": 3}
 
 
 def test_a_policy_says_a_result_depends_on_the_world() -> None:
@@ -367,7 +388,7 @@ def test_a_policy_says_a_result_depends_on_the_world() -> None:
 
     ending = graph(BASE + "d|d@x\n").run_sync(state)
 
-    assert CALLS["rate"] == 4 and ending.reused_units == {}
+    assert CALLS["rate"] == 4 and reused(ending) == {}
 
 
 # -- a result that moved -------------------------------------------------------------------------------------------------
@@ -386,7 +407,7 @@ def test_a_table_output_reused_at_another_row_says_where_it_now_is() -> None:
     compiled = graph(edited)
     ending = compiled.run_sync(through_json(state))
 
-    assert CALLS["doc_table"] == 1 and ending.reused_units == {"d": 3, "m": 3}
+    assert CALLS["doc_table"] == 1 and reused(ending) == {"d": 3, "m": 3}
     written = compiled.results(ending)["d"]["result"]["values"]
     assert [frame["__row"].to_list() for frame in written] == [["d.result:0.0"], ["d.result:1.0"], ["d.result:2.0"], ["d.result:3.0"]]
     assert [frame["name"].to_list() for frame in written] == [["zz"], ["a"], ["b"], ["c"]]
@@ -409,7 +430,7 @@ def test_a_row_inside_a_list_moves_with_the_row_it_is_under() -> None:
     ending = compiled.run_sync(through_json(state))
 
     assert CALLS["split"] == 1 and CALLS["per"] == 1 and CALLS["count"] == 1
-    assert ending.reused_units == {"sp": 2, "p": 5, "cn": 2}
+    assert reused(ending) == {"sp": 2, "p": 5, "cn": 2}
     assert compiled.results(ending)["p"]["result"]["values"] == ["NEW", "X", "Y", "U", "V", "W"]
     assert compiled.results(ending)["cn"]["result"]["values"] == [1, 2, 3]
 
@@ -444,7 +465,7 @@ def test_a_waiting_unit_goes_on_waiting_at_its_new_row_with_no_new_question() ->
     assert CALLS["ask"] == 1  # only the new row is asked
     assert [unit.prompt for unit in ending.waiting] == ["z@x", "a@x", "b@x", "c@x"]
     assert [unit.row for unit in ending.waiting] == [(0,), (1,), (2,), (3,)]
-    assert ending.reused_units == {"a": 3}
+    assert reused(ending) == {"a": 3}
 
 
 def test_a_waiting_unit_put_back_is_announced_on_the_stream() -> None:
@@ -472,7 +493,7 @@ def test_answers_stay_with_their_row_when_a_row_is_inserted_above() -> None:
     assert [unit.row for unit in ending.waiting] == [(0,), (3,)]
     ending = moved.run_sync(moved.answer(ending, {unit.id: {"result": "ok:" + unit.prompt} for unit in ending.waiting}))
     assert moved.results(ending)["a"]["result"]["values"] == ["ok:n@x", "A-yes", "B-no", "ok:c@x"]
-    assert ending.answered_rows == {"a": [(0,), (1,), (2,), (3,)]} and ending.reused_units == {}
+    assert ending.nodes["a"].answered_rows == [(0,), (1,), (2,), (3,)] and reused(ending) == {}
 
     with pytest.raises(InvalidCallError) as stale:
         moved.answer(ending, {waiting_c_id: {"result": "stale"}})
@@ -535,7 +556,7 @@ def test_an_answered_unit_keeps_its_answer_through_a_row_edit_elsewhere() -> Non
     edited = ask_graph("a|a@x\nb|b@x\nc|c@x\nd|d@x\n")
     ending = edited.run_sync(through_json(state))
 
-    assert CALLS["ask"] == 1 and ending.waiting[0].prompt == "d@x" and ending.reused_units["a"] == 3
+    assert CALLS["ask"] == 1 and ending.waiting[0].prompt == "d@x" and ending.nodes["a"].reused_units == 3
 
 
 # -- a leg that stops short keeps what it hasn't reached -------------------------------------------------------------------
@@ -561,7 +582,7 @@ def test_a_failed_leg_does_not_lose_what_it_has_not_reached_yet() -> None:
 
     assert ending.status == "complete"
     assert CALLS["fail_on"] == 1 and CALLS["fail_on n@x"] == 1
-    assert ending.reused_units["f"] == 4 - failed.reused_units.get("f", 0)
+    assert ending.nodes["f"].reused_units == 4 - failed.nodes["f"].reused_units
 
 
 def test_a_state_a_leg_left_short_carries_only_what_is_unclaimed() -> None:
@@ -572,12 +593,12 @@ def test_a_state_a_leg_left_short_carries_only_what_is_unclaimed() -> None:
     failed = fail_graph(edited).run_sync(through_json(state))
     FAILING["address"] = ""
 
-    assert failed.status == "failed" and failed.earlier_work is not None
-    assert sum(len(rows) for rows in failed.earlier_work.finished_rows.values()) == 3 - sum(failed.reused_units.values())
+    assert failed.status == "failed"
+    assert len(failed.nodes["f"].earlier_units) == 3 - failed.nodes["f"].reused_units
 
     # the leg that finishes the node has none to carry
     ending = fail_graph(edited).run_sync(through_json(failed))
-    assert ending.status == "complete" and ending.earlier_work is None
+    assert ending.status == "complete" and ending.nodes["f"].earlier_units == []
 
 
 def test_a_second_edit_after_a_failed_leg_still_reuses_what_the_failed_leg_had_not_reached() -> None:
@@ -608,7 +629,7 @@ def test_a_cancelled_leg_keeps_its_earlier_work() -> None:
         raise AssertionError
 
     stopped = asyncio.run(go())
-    assert stopped.status == "cancelled" and stopped.earlier_work is not None
+    assert stopped.status == "cancelled" and stopped.nodes["m"].earlier_units
     CALLS.clear()
 
     ending = mail_graph("n|n@x\n" + BASE + "d|d@x\n").run_sync(through_json(stopped))
@@ -628,7 +649,7 @@ def test_an_answer_on_a_changed_graph_keeps_the_changed_nodes_earlier_work() -> 
     edited = graph(BASE + "d|d@x\n")
     # the graph changed, and an answer changes nothing the graph runs; a leg later still sends only the new mail
     again = edited.run_sync(through_json(state))
-    assert again.status == "complete" and CALLS["mail"] == 1 and again.reused_units == {"m": 3}
+    assert again.status == "complete" and CALLS["mail"] == 1 and reused(again) == {"m": 3}
 
 
 def test_a_later_leg_keeps_reused_work_as_its_own() -> None:
@@ -638,18 +659,173 @@ def test_a_later_leg_keeps_reused_work_as_its_own() -> None:
 
     third = mail_graph("z|z@x\n" + BASE + "d|d@x\n").run_sync(through_json(second))
 
-    assert CALLS["mail"] == 1 and third.reused_units == {"m": 4}
+    assert CALLS["mail"] == 1 and reused(third) == {"m": 4}
 
 
 def test_without_nodes_forgets_earlier_work_too() -> None:
     FAILING["address"] = "n@x"
     bad = fail_graph("n|n@x\n" + BASE).run_sync(fail_graph(BASE).run_sync())
     FAILING["address"] = ""
-    assert bad.earlier_work is not None
+    assert bad.nodes["f"].earlier_units
     forgotten = bad.without_nodes("f")
-    assert forgotten.earlier_work.finished_rows == {} and "f" not in forgotten.input_hashes
+    assert "f" not in forgotten.nodes
     CALLS.clear()
     assert fail_graph("n|n@x\n" + BASE).run_sync(forgotten).status == "complete" and CALLS["fail_on"] == 4
+
+
+# -- a chain of stopped legs is one leg --------------------------------------------------------------------------------------
+
+
+def stopped_at_the_start_of(compiled: CompiledGraph, state: RunState, node_id: str) -> RunState:
+    """Run ``compiled`` on from ``state``, cancelled the moment ``node_id`` starts."""
+
+    async def go() -> RunState:
+        cancel = asyncio.Event()
+        async with compiled.stream(state, cancel=cancel) as stream:
+            async for event in stream:
+                if isinstance(event, NodeStart) and event.node_id == node_id:
+                    cancel.set()
+                if event.type == "run_end":
+                    return event.state
+        raise AssertionError
+
+    return asyncio.run(go())
+
+
+def rows_ids_of_tables(compiled: CompiledGraph, state: RunState, node_id: str) -> list[list[str]]:
+    return [frame["__row"].to_list() for frame in compiled.results(state)[node_id]["result"]["values"]]
+
+
+def contacts_for_rows(addresses: list[str]) -> str:
+    return "".join(f"{address}|{address}@x\n" for address in addresses)
+
+
+def ask_or_fail_graph(addresses: list[str]) -> CompiledGraph:
+    return CompiledGraph.from_graph(Graph(nodes=[n("c", "csv", rows=Static(contacts_for_rows(addresses))), n("a", "ask_or_fail", email=From("c.result.email"))]), registry)
+
+
+def answered_state_of(addresses: list[str]) -> RunState:
+    compiled = ask_or_fail_graph(addresses)
+    state = compiled.run_sync()
+    state = compiled.answer(state, {unit.id: {"result": f"answered {unit.row[0]}"} for unit in state.waiting})
+    assert not state.waiting
+    CALLS.clear()
+    return state
+
+
+def test_identical_answered_rows_are_reused_after_a_stopped_leg_as_on_a_direct_one() -> None:
+    answered = answered_state_of(["a", "a"])
+    edited = ask_or_fail_graph(["a", "a", "n"])
+    direct = edited.run_sync(through_json(answered))
+    assert CALLS["ask_or_fail"] == 1 and len(direct.waiting) == 1
+    CALLS.clear()
+
+    stopped = stopped_at_the_start_of(edited, through_json(answered), "c")
+    assert stopped.status == "cancelled"
+    going_on = edited.run_sync(through_json(stopped))
+
+    assert CALLS["ask_or_fail"] == 1 and [unit.prompt for unit in going_on.waiting] == ["n@x"]
+
+
+def test_two_identical_answered_rows_stay_with_their_rows_across_a_stopped_leg() -> None:
+    """Row 0 keeps its answer, the leg stops, and row 2 must not take the answer of old row 1: whose it is can't be told."""
+    answered = answered_state_of(["a", "a"])
+    edited = ask_or_fail_graph(["a", "n", "a"])
+    direct = edited.run_sync(through_json(answered))
+    assert [unit.prompt for unit in direct.waiting] == ["n@x", "a@x"] and CALLS["ask_or_fail"] == 2
+    CALLS.clear()
+
+    FAILING["address"] = "n@x"
+    stopped = edited.run_sync(through_json(answered))
+    assert stopped.status == "failed"
+    FAILING["address"] = ""
+    CALLS.clear()
+    going_on = edited.run_sync(through_json(stopped))
+
+    assert [unit.prompt for unit in going_on.waiting] == ["n@x", "a@x"] and CALLS["ask_or_fail"] == 2
+
+
+def doc_table_or_fail_graph(addresses: list[str]) -> CompiledGraph:
+    return CompiledGraph.from_graph(Graph(nodes=[n("c", "csv", rows=Static(contacts_for_rows(addresses))), n("t", "doc_table_or_fail", text=From("c.result.email"))]), registry)
+
+
+def test_a_reused_table_keeps_the_ids_of_its_row_after_a_stopped_leg() -> None:
+    state = doc_table_or_fail_graph(["a", "b", "c"]).run_sync()
+    edited = ["n", "a", "b", "c"]
+    compiled = doc_table_or_fail_graph(edited)
+    direct = compiled.run_sync(through_json(state))
+
+    FAILING["address"] = "n@x"
+    stopped = compiled.run_sync(through_json(state))
+    FAILING["address"] = ""
+    going_on = compiled.run_sync(through_json(stopped))
+
+    assert rows_ids_of_tables(compiled, going_on, "t") == rows_ids_of_tables(compiled, direct, "t")
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_a_chain_of_stopped_legs_reuses_what_one_uninterrupted_leg_does(seed: int) -> None:
+    """Reuse count and row ids, however many legs stopped short on the way, whatever the edit."""
+    rng = random.Random(seed)
+    alphabet = ["a", "b", "c", "d", "e"]
+    addresses = [rng.choice(alphabet) for _ in range(rng.randrange(1, 7))]
+    edited = [rng.choice([*alphabet, "x", "y", "z"]) for _ in range(rng.randrange(1, 9))]
+    first = doc_table_or_fail_graph(addresses).run_sync()
+    compiled = doc_table_or_fail_graph(edited)
+    direct = compiled.run_sync(through_json(first))
+    assert direct.status == "complete"
+    reused_directly = direct.nodes["t"].reused_units
+
+    state = through_json(first)
+    new = [address for address in dict.fromkeys(edited) if address not in addresses]
+    reused = 0
+    ending = None
+    for failing in rng.sample(new, k=len(new)):
+        FAILING["address"] = f"{failing}@x"
+        state = compiled.run_sync(state)
+        reused += state.nodes["t"].reused_units
+        assert state.status in ("failed", "complete")
+        state = through_json(state)
+        if state.status == "complete":
+            ending = state
+            break
+    FAILING["address"] = ""
+    if ending is None:
+        ending = compiled.run_sync(state)
+        reused += ending.nodes["t"].reused_units
+
+    assert ending.status == "complete"
+    assert reused == reused_directly
+    assert rows_ids_of_tables(compiled, ending, "t") == rows_ids_of_tables(compiled, direct, "t")
+
+
+def test_a_waiting_unit_carried_through_a_stopped_leg_goes_on_waiting_at_its_new_row() -> None:
+    compiled = ask_or_fail_graph(["a", "b"])
+    state = compiled.run_sync()
+    CALLS.clear()
+    edited = ask_or_fail_graph(["n", "a", "b"])
+
+    stopped = stopped_at_the_start_of(edited, through_json(state), "c")
+    going_on = edited.run_sync(through_json(stopped))
+
+    assert CALLS["ask_or_fail"] == 1 and [(unit.row, unit.prompt) for unit in going_on.waiting] == [((0,), "n@x"), ((1,), "a@x"), ((2,), "b@x")]
+    assert going_on.nodes["a"].reused_units == 2
+    answered = edited.answer(going_on, {unit.id: {"result": "yes"} for unit in going_on.waiting})
+    assert not answered.waiting
+
+
+def test_earlier_work_of_two_edits_can_sit_at_the_same_row() -> None:
+    """After the failed leg, row 1 holds both this leg's own result and an unclaimed one of the first state: neither hides the other."""
+    state = fail_graph("a|a@x\nb|b@x\n").run_sync()
+    FAILING["address"] = "x@x"
+    failed = fail_graph("n|n@x\na|a@x\nx|x@x\n").run_sync(through_json(state))
+    assert failed.status == "failed"
+    FAILING["address"] = ""
+    CALLS.clear()
+
+    ending = fail_graph("b|b@x\na|a@x\nx|x@x\n").run_sync(through_json(failed))
+
+    assert ending.status == "complete" and CALLS["fail_on"] == 1 and CALLS["fail_on x@x"] == 1
 
 
 # -- what is reported -------------------------------------------------------------------------------------------------------
@@ -696,7 +872,7 @@ def test_inner_units_of_an_embedded_graph_are_reused_like_any_others() -> None:
     edited = graph("z|z@x\n" + BASE)
     ending = edited.run_sync(through_json(state))
 
-    assert CALLS["mail"] == 1 and ending.reused_units == {"s/t": 3}
+    assert CALLS["mail"] == 1 and reused(ending) == {"s/t": 3}
     assert edited.results(ending)["s/t"]["result"]["values"] == ["sent:z@x:inner", "sent:a@x:inner", "sent:b@x:inner", "sent:c@x:inner"]
 
 
@@ -711,37 +887,30 @@ def test_results_leave_out_a_changed_node_until_its_leg_has_run() -> None:
 
 def test_the_state_keeps_each_units_hash_through_a_restored_leg() -> None:
     state = first_leg()
-    assert len(state.input_hashes["m"]) == 3 and all(state.input_hashes["m"])
+    assert len(state.nodes["m"].finished_units) == 3 and all(input_hash for _, input_hash in state.nodes["m"].finished_units)
 
     restored = mail_graph(BASE).run_sync(through_json(state))
 
-    assert restored.input_hashes == state.input_hashes and restored.finished_rows == state.finished_rows
-
-
-def test_an_input_hash_list_that_doesnt_line_up_is_unreadable() -> None:
-    state = first_leg()
-    broken = state.model_copy(update={"input_hashes": {**state.input_hashes, "m": ["only one"]}})
-
-    with pytest.raises(InvalidCallError) as refused:
-        mail_graph(BASE).run_sync(broken)
-    assert refused.value.errors()[0].type == "state_unreadable"
+    assert restored.nodes["m"].finished_units == state.nodes["m"].finished_units
 
 
 def test_a_column_of_a_changed_node_that_no_longer_reads_means_no_reuse() -> None:
     state = first_leg()
-    tampered = state.model_copy(update={"output_columns": {**state.output_columns, Ref("m", "result"): OutputColumn(rows=[(0,), (1,), (2,)], values=[{"not": "a string"}] * 3)}})
+    tampered_work = state.nodes["m"].model_copy(update={"outputs": {"result": OutputColumn(rows=[(0,), (1,), (2,)], values=[{"not": "a string"}] * 3)}})
+    tampered = state.model_copy(update={"nodes": {**state.nodes, "m": tampered_work}})
 
     ending = mail_graph(BASE + "d|d@x\n").run_sync(tampered)
 
-    assert ending.status == "complete" and CALLS["mail"] == 4 and "m" not in ending.reused_units
+    assert ending.status == "complete" and CALLS["mail"] == 4 and ending.nodes["m"].reused_units == 0
 
 
 def test_a_later_run_of_the_same_graph_takes_no_earlier_hashes_when_there_are_none() -> None:
     state = first_leg()
-    bare = state.model_copy(update={"input_hashes": {}})
+    bare_work = state.nodes["m"].model_copy(update={"finished_units": [(row, None) for row, _ in state.nodes["m"].finished_units]})
+    bare = state.model_copy(update={"nodes": {**state.nodes, "m": bare_work}})
     ending = mail_graph(BASE + "d|d@x\n").run_sync(bare)
 
-    assert ending.status == "complete" and CALLS["mail"] == 4 and "m" not in ending.reused_units
+    assert ending.status == "complete" and CALLS["mail"] == 4 and ending.nodes["m"].reused_units == 0
 
 
 def test_the_ids_of_waiting_units_change_with_their_inputs_and_row() -> None:

@@ -468,7 +468,7 @@ def test_a_node_gone_from_the_graph_is_named_and_dropped():
 def test_a_stored_value_that_no_longer_reads_is_refused_naming_where():
     compiled = compiled_of(n("count", "words", text=Static("a b")))
     stored = compiled.run_sync().model_dump(mode="json")
-    stored["output_columns"]["count.result"]["values"] = ["ikke et tal"]
+    stored["nodes"]["count"]["outputs"]["result"]["values"] = ["ikke et tal"]
     for verb in (compiled.run_sync, compiled.results, compiled.outputs):
         with pytest.raises(InvalidCallError) as raised:
             verb(RunState.model_validate(stored))
@@ -479,7 +479,7 @@ def test_a_stored_value_that_no_longer_reads_is_refused_naming_where():
 def test_a_value_at_a_row_its_field_cannot_have_is_refused():
     compiled = compiled_of(n("count", "words", text=Static("a b")))
     stored = compiled.run_sync().model_dump(mode="json")
-    stored["output_columns"]["count.result"]["rows"] = [[3]]
+    stored["nodes"]["count"]["outputs"]["result"]["rows"] = [[3]]
     with pytest.raises(InvalidCallError) as raised:
         compiled.run_sync(RunState.model_validate(stored))
     assert raised.value.errors()[0].loc == ("state", "count.result", 3)
@@ -488,7 +488,7 @@ def test_a_value_at_a_row_its_field_cannot_have_is_refused():
 def test_a_blank_is_a_legal_stored_value_on_any_output():
     compiled = compiled_of(n("a", "upper", text=Static("x")))
     stored = compiled.run_sync().model_dump(mode="json")
-    stored["output_columns"]["a.result"]["values"] = [None]
+    stored["nodes"]["a"]["outputs"]["result"]["values"] = [None]
     assert compiled.results(RunState.model_validate(stored)) == {"a": {"result": None}}
 
 

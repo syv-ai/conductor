@@ -234,7 +234,7 @@ def test_the_event_counts_the_rows_not_called_and_the_state_keeps_them():
     complete = next(e for e in events if isinstance(e, NodeComplete) and e.node_id == "n")
     assert complete.rows_not_called == {"email": 1}
     state = events[-1].state
-    assert state.rows_not_called == {"n": {"email": 1}}
+    assert state.nodes["n"].rows_not_called == {"email": 1}
     assert compiled.results(compiled.run_sync(state))["n"]["result"]["values"][1] is None
 
 
@@ -358,5 +358,5 @@ def test_a_blank_on_a_state_round_trips_through_its_json():
 
     restored = type(state).model_validate_json(state.model_dump_json())
 
-    assert restored.rows_not_called == {"n": {"email": 1}}
+    assert restored.nodes["n"].rows_not_called == {"email": 1}
     assert compiled.results(compiled.run_sync(restored))["n"]["result"]["values"] == ["IDA@X", None, "NINA@X"]

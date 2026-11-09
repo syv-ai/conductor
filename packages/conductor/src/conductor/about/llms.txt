@@ -170,10 +170,10 @@ state = compiled.with_inputs(contacts=edited).run_sync(state)  # one row added: 
 - The key is what the unit is about to receive, by content, statics and wired values alike (a `FromRun` value is not part of it), plus the node's type, version, input names and output types. A row's position and its id are not: insert a row at the top and the rows below keep their work. A `Table` or a merged table is read with its row ids.
 - Identical rows don't share a result: each earlier unit is taken once, so a third identical row is a new call.
 - A waiting unit goes on waiting at its new row; an answer stays with its row, unless several rows received the same and answered differently, and then the person is asked again rather than guessing. A waiting unit's `id` (`node@row#hash12`, `node#hash12` for a node that ran once) binds its row and inputs, so an answer meant for a row that has since moved or changed is refused.
-- A leg that stops short keeps the earlier work it hadn't reached (`state.earlier_work`), so running again from a failed, cancelled, checkpointed or waiting state reuses as much as the state before it would.
+- A leg that stops short keeps the earlier work it hadn't reached (`state.nodes[node_id].earlier_units`), so running again from a failed, cancelled, checkpointed or waiting state reuses as much as one uninterrupted leg would.
 - `Policy(reuse_when_inputs_match=False)` is for a node whose result depends on the world, not its inputs (today's exchange rate): a re-planned unit is always called.
 - `state.without_nodes("a")` forgets only what it names; a node reading it runs again only if what it receives changes. To run `a` and everything after it again, name them all.
-- `node_complete.reused_units` and `state.reused_units` (`{node_id: count}` for that leg) say how much was reused. `run_start` still speaks in nodes (`reused_nodes`, `changed_nodes`).
+- `node_complete.reused_units` and `state.nodes[node_id].reused_units` (the count for that leg) say how much was reused. `run_start` still speaks in nodes (`reused_nodes`, `changed_nodes`).
 - **A state goes back only to the runner it came from.** It holds results and hands them to whoever passes it; what the runner could see (`FromRun` values, the world) is not in the key, as it isn't for a resume today.
 
 ### Retries and Timeouts
@@ -243,7 +243,7 @@ Three public modules: `conductor`, `conductor.widgets` and `conductor.events`. E
 - Registry: `NodeRegistry(nodes, types=())`, immutable (`in`, `[]`, `len`, iteration, `nodes`, `types`, `accepted_as`, `describe`, `extended_with`), `RegistryDescription`, `TypeDescription`
 - Graph: `Graph`, `GraphNode`, `FieldContent`, `Binding`, `From`, `Static`, `dependencies_of`, `CompiledGraph`, `CompiledNode`, `CompiledField`, `NodeState`, `GraphDescription`, `CompiledNodeDescription`, `FieldDescription`, `InterfaceDescription`, `Problem`, `RunPlan`, `NodeRunPlan`, `ReceiveMode`, `Condition`, `BranchTaken`, `ALWAYS`, `NEVER`
 - Errors: `NodeDeclarationError`, `ComputeHookError`, `InvalidCallError`, `Problem`, `NodeError`, `ExternalFailure`, `PROBLEM_CODES`
-- A run's state: `RunStatus`, `WaitingUnit`, `Question`, `Answers`, `OutputColumn`, `RunState` (`status`, `failure`, `waiting`, `output_columns`, `finished_rows`, `node_fingerprints`, `rows_not_called`, `input_hashes`, `answered_rows`, `reused_units`, `earlier_work`, `without_nodes(...)`); dumped as JSON it is one document holding each table once, under its `tables` key by digest, and a load holds one frame per digest
+- A run's state: `RunStatus`, `WaitingUnit`, `Question`, `Answers`, `OutputColumn`, `WorkOfNode` (what one node did: `fingerprint`, `finished_units`, `answered_rows`, `outputs`, `waiting`, `rows_not_called`, `reused_units`, `earlier_units`), `EarlierUnit`, `RunState` (`status`, `failure`, `waiting`, `nodes`, `without_nodes(...)`); dumped as JSON it is one document holding each table once, under its `tables` key by digest, and a load holds one frame per digest
 - Records (`Graph`, `GraphNode`, …) also have `to_yaml()`, `from_yaml(text)`, `to_path(path)`, `from_path(path)`, plus pydantic's.
 
 ### Running

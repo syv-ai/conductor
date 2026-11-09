@@ -6,7 +6,7 @@ import json
 
 import pytest
 from conductor import Problem, RunState
-from conductor._internal.execution.run_state import OutputColumn, Question, WaitingUnit
+from conductor._internal.execution.run_state import OutputColumn, Question, WaitingUnit, WorkOfNode
 from conductor.events import Event, NodeComplete, NodeFailed, RunEnd, UnitWaiting
 from conductor_nodes.types import Json
 from helpers import stream_of
@@ -18,7 +18,7 @@ def _payload(event: Event) -> dict:
 
 def test_many_values_keep_their_rows_and_an_ending_says_only_its_status():
     lines = {"rows": [(0, 0), (1, 0)], "values": ["a", "b"]}
-    state = RunState(status="complete", output_columns={"split.result": OutputColumn(rows=[(0,)], values=["a"])}, node_fingerprints={"split": "f" * 64})
+    state = RunState(status="complete", nodes={"split": WorkOfNode(fingerprint="f" * 64, outputs={"result": OutputColumn(rows=[(0,)], values=["a"])})})
 
     payload = _payload(NodeComplete(type="node_complete", node_id="split", result={"result": lines}))
     ending = _payload(RunEnd(state=state))

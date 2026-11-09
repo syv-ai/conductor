@@ -126,7 +126,7 @@ def test_a_run_is_started_followed_late_saved_answered_on_a_new_process_and_canc
         assert seen_late == seen_early  # replay, then the rest
         assert [frame["type"] for frame in seen_late][0] == "run_start"
         assert seen_late[-1] == {"type": "run_end", "status": "waiting"}
-        assert "output_columns" not in json.dumps(seen_late)
+        assert "finished_units" not in json.dumps(seen_late)
         completed = next(frame for frame in seen_late if frame["type"] == "node_complete")
         assert completed["result"]["result"] == "NaN"
 

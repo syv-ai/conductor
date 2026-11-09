@@ -23,14 +23,13 @@ from conductor import (
     NodeRegistry,
     Param,
     Problem,
-    Ref,
     Result,
     RunState,
     Series,
     Static,
     node,
 )
-from conductor._internal.execution.run_state import OutputColumn, Question, WaitingUnit
+from conductor._internal.execution.run_state import OutputColumn, Question, WaitingUnit, WorkOfNode
 from conductor.events import (
     Event,
     NodeComplete,
@@ -189,7 +188,7 @@ def _every_event() -> list[Event]:
     values = _holding_many_values_a_frame_and_a_nan()
     question = Question(name="q", title="Q", dtype=None, json_schema={}, default=[values["nan"], values["frame"]])
     unit = WaitingUnit(id="u", node_id="n", row=(), questions=(question,), inputs=values)
-    state = RunState(status="waiting", waiting=(unit,), output_columns={Ref("n.a"): OutputColumn(rows=[()], values=[values["nan"]]), Ref("n.b"): OutputColumn(rows=[()], values=[values["frame"]]), Ref("n.c"): OutputColumn(rows=[()], values=[values["many"]["values"]])})
+    state = RunState(status="waiting", nodes={"n": WorkOfNode(waiting=(unit,), outputs={"a": OutputColumn(rows=[()], values=[values["nan"]]), "b": OutputColumn(rows=[()], values=[values["frame"]]), "c": OutputColumn(rows=[()], values=[values["many"]["values"]])})})
     return [
         RunStart(waiting=(unit,)),
         NodeStart(node_id="n"),

@@ -266,7 +266,7 @@ def test_a_table_returned_on_two_rows_has_its_own_ids_on_each_and_the_merge_has_
     )
     state = compiled.run_sync()
     assert state.status == "complete", state.failure
-    assert [v[ROW_ID_COLUMN].to_list() for v in state.output_columns[Ref("h.result")].values] == [["h.result:0.0", "h.result:0.1"], ["h.result:1.0", "h.result:1.1"]]
+    assert [v[ROW_ID_COLUMN].to_list() for v in state.nodes["h"].outputs["result"].values] == [["h.result:0.0", "h.result:0.1"], ["h.result:1.0", "h.result:1.1"]]
     assert compiled.results(state)["m"]["result"].height == 4
 
 
@@ -303,8 +303,8 @@ def test_a_float_column_keeps_nan_and_infinity_through_json():
     compiled = compiled_of(n("v", "frame", k=Static("k")))
     state = compiled.run_sync()
     back = compiled.results(through_json(state))["v"]["result"]
-    assert back.schema == state.output_columns[Ref("v.result")].values[0].schema
-    assert back.equals(state.output_columns[Ref("v.result")].values[0])
+    assert back.schema == state.nodes["v"].outputs["result"].values[0].schema
+    assert back.equals(state.nodes["v"].outputs["result"].values[0])
 
 
 def test_a_state_is_valid_json_when_a_number_is_not_finite():
@@ -321,7 +321,7 @@ def test_a_float_under_any_is_written_as_text_and_comes_back_as_the_text(value, 
     compiled = compiled_of(n("v", "anything", k=Static("k")))
     state = compiled.run_sync()
     document = json.loads(state.model_dump_json(), parse_constant=lambda bad: pytest.fail(f"{bad} is not JSON"))
-    assert document["output_columns"]["v.result"]["values"] == [[written]]
+    assert document["nodes"]["v"]["outputs"]["result"]["values"] == [[written]]
     assert compiled.results(through_json(state))["v"]["result"]["values"] == [written]
 
 
@@ -492,13 +492,13 @@ def _drop(d: dict[str, Any], key: str) -> None:
 @pytest.mark.parametrize(
     "change",
     [
-        lambda d: d["finished_rows"].update({"a": [[99]]}),
-        lambda d: d["finished_rows"].update({"a": [[-1]]}),
-        lambda d: d["output_columns"]["sp.result"]["rows"].__setitem__(0, [-1]),
-        lambda d: d["output_columns"]["s.result"].update(rows=[], values=[]),
-        lambda d: d["finished_rows"].update({"a": [[0]]}),
-        lambda d: d["waiting"][0].update(row=[5]),
-        lambda d: _drop(d["output_columns"], "s.result"),
+        lambda d: d["nodes"]["a"].update(finished_units=[[[99], None]]),
+        lambda d: d["nodes"]["a"].update(finished_units=[[[-1], None]]),
+        lambda d: d["nodes"]["sp"]["outputs"]["result"]["rows"].__setitem__(0, [-1]),
+        lambda d: d["nodes"]["s"]["outputs"]["result"].update(rows=[], values=[]),
+        lambda d: d["nodes"]["a"].update(finished_units=[[[0], None]]),
+        lambda d: d["nodes"]["a"]["waiting"][0].update(row=[5]),
+        lambda d: _drop(d["nodes"]["s"]["outputs"], "result"),
     ],
     ids=["unit-at-a-row-never-made", "unit-at-a-negative-row", "value-at-a-negative-row", "a-finished-unit-with-no-value", "a-finished-unit-its-output-missing", "waiting-at-a-row-never-made", "a-column-gone"],
 )
@@ -510,7 +510,7 @@ def test_a_damaged_state_is_refused_at_the_call(change):
 
 
 def test_an_answer_to_a_tampered_row_is_refused_at_the_next_leg():
-    compiled, state = _damage(lambda d: d["waiting"][0].update(row=[5]))
+    compiled, state = _damage(lambda d: d["nodes"]["a"]["waiting"][0].update(row=[5]))
     with pytest.raises(InvalidCallError) as raised:
         compiled.run_sync(answer(compiled, state, {"a@0": {"result": "x"}, "a@1": {"result": "y"}}))
     assert {p.type for p in raised.value.errors()} == {"state_unreadable"}
@@ -519,7 +519,7 @@ def test_an_answer_to_a_tampered_row_is_refused_at_the_next_leg():
 def test_a_stored_table_with_no_row_ids_is_unreadable():
     compiled = compiled_of(n("c", "csv", k=Static("a")))
     dumped = json.loads(compiled.run_sync().model_dump_json())
-    digest = dumped["output_columns"]["c.result"]["values"][0]["table"]
+    digest = dumped["nodes"]["c"]["outputs"]["result"]["values"][0]["table"]
     dumped["tables"][digest]["rows"] = None
     with pytest.raises(InvalidCallError) as raised:
         compiled.run_sync(RunState.model_validate(dumped))
@@ -554,7 +554,7 @@ def test_two_identical_runs_dump_identical_json():
 
 def test_finished_rows_come_out_in_row_order():
     compiled = compiled_of(n("s", "source", text=Static([str(i) for i in range(50)])), n("u", "upper", text=From("s.result")))
-    assert compiled.run_sync().finished_rows["u"] == [(i,) for i in range(50)]
+    assert [row for row, _ in compiled.run_sync().nodes["u"].finished_units] == [(i,) for i in range(50)]
 
 
 def test_waiting_units_are_in_row_order_whatever_order_they_asked_in():
@@ -709,8 +709,8 @@ def test_without_covers_the_nodes_of_an_embedded_graph():
     inner = NodeDefinition.from_compiled_graphs("inner", title="I", description="d", category="t", versions={1: compiled_of(n("check", "source", text=Static("x")))})
     outer = compiled_of(n("approve", "inner"), registry=REGISTRY.extended_with([inner]))
     done = outer.run_sync()
-    assert "approve/check" in done.finished_rows
-    assert "approve/check" not in done.without_nodes("approve").finished_rows
+    assert done.nodes["approve/check"].finished_units is not None
+    assert "approve/check" not in done.without_nodes("approve").nodes
 
 
 def test_an_alternative_taking_both_ways_of_one_decision_can_never_hold():
@@ -803,4 +803,4 @@ def test_a_reader_left_with_no_rows_by_an_answer_is_in_the_results_before_the_ne
     compiled = compiled_of(n("a", "ask_list"), n("u", "upper", text=From("a.result")), registry=REGISTRY.extended_with([ask_list]))
     answered = answer(compiled, compiled.run_sync(), {"a": {"result": []}})
     assert compiled.results(answered)["u"]["result"]["values"] == []
-    assert answered.finished_rows["u"] == []
+    assert answered.nodes["u"].finished_units == []

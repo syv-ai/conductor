@@ -55,11 +55,13 @@ from conductor._internal.errors import (
 )
 from conductor._internal.execution.input_hash import DigestsOfValues, hash_of_inputs
 from conductor._internal.execution.run_state import (
-    EarlierWork,
+    EarlierUnit,
+    FinishedUnit,
     OutputColumn,
     RunState,
     RunStatus,
     WaitingUnit,
+    WorkOfNode,
     id_of_waiting_unit,
 )
 from conductor._internal.graph.receive_modes import (
@@ -101,10 +103,9 @@ _MISSING = object()
 #: How a field's cell is held when it isn't by itself at its row.
 _AT_ITS_OWN_ROW = object()
 #: What a field nothing has been written to holds: no row.
-_NO_VALUES: Mapping[Row, Any] = MappingProxyType({})
-#: Where ``RunState.earlier_work`` starts numbering its rows: past any row a graph makes,
-#: so they stay apart from the rows of units that ran, in the same pool of a later leg.
-_ROWS_OF_EARLIER_WORK_START = 1 << 40
+_NO_VALUES: Mapping[Any, Any] = MappingProxyType({})
+#: An earlier unit of a re-planned node: the row it had and the hash of what it received.
+_EarlierUnitKey = tuple[Row, str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -763,28 +764,30 @@ class RunLedger:
         when there is none and the unit must run."""
         node_id, row = unit
         earlier = self.earlier_units.get(node_id)
-        old_row = None if earlier is None else earlier.claim(row, input_hash)
-        if earlier is None or old_row is None:
+        claimed = None if earlier is None else earlier.claim(row, input_hash)
+        if earlier is None or claimed is None:
             return None
-        waiting_unit = earlier.waiting_at_row.get(old_row)
+        old_row = claimed[0]
+        waiting_unit = earlier.waiting.get(claimed)
         if waiting_unit is not None:
             self._reused_units[node_id] = self._reused_units.get(node_id, 0) + 1
             return waiting_unit if old_row == row else waiting_unit.model_copy(update={"row": row, "id": id_of_waiting_unit(node_id, row, input_hash)})
-        cells = self._cells_of_earlier_unit(earlier, node_id, old_row, row)
+        cells = self._cells_of_earlier_unit(earlier, node_id, claimed, row)
         if cells is None:
             return None
         self._reused_units[node_id] = self._reused_units.get(node_id, 0) + 1
-        if old_row in earlier.answered_rows:
+        if claimed in earlier.answered:
             self._answered.add(unit)
         return cells
 
-    def _cells_of_earlier_unit(self, earlier: _EarlierUnitsOfNode, node_id: str, old_row: Row, row: Row) -> dict[str, Any] | None:
+    def _cells_of_earlier_unit(self, earlier: _EarlierUnitsOfNode, node_id: str, claimed: _EarlierUnitKey, row: Row) -> dict[str, Any] | None:
         """What an earlier unit wrote, one value per output as ``record`` takes it, ids its tables minted
         re-spelled at ``row``; ``None`` when the state has lost a value, and the unit runs."""
         cells: dict[str, Any] = {}
+        old_row = claimed[0]
         for out in self._lookups.interfaces[node_id].outputs:
             ref = Ref(node_id, out.name)
-            value = earlier.values.get(ref, _NO_VALUES).get(old_row, _MISSING)
+            value = earlier.cells.get(ref, _NO_VALUES).get(claimed, _MISSING)
             if value is _MISSING:
                 return None
             makes_rows = self._fields[ref]._makes_rows
@@ -796,29 +799,26 @@ class RunLedger:
     def reused_units(self, node_id: str) -> int:
         return self._reused_units.get(node_id, 0)
 
-    def _earlier_work_still_unclaimed(self) -> EarlierWork | None:
-        """What is left of the earlier work of the nodes this leg hasn't finished, for a leg going on from this one."""
-        left = {node_id: earlier for node_id, earlier in self.earlier_units.items() if earlier.hash_of_row and not self.node_is_complete(node_id)}
-        if not left:
-            return None
-        finished: dict[str, list[Row]] = {}
-        hashes: dict[str, list[str | None]] = {}
-        answered: dict[str, list[Row]] = {}
-        columns: dict[Ref, OutputColumn] = {}
-        waiting: list[WaitingUnit] = []
-        for node_id, earlier in left.items():
-            rows = sorted(row for row in earlier.hash_of_row if row not in earlier.waiting_at_row)
-            # Written apart from any row a unit will have, so a later leg's pool can hold them beside this leg's own work.
-            written_at = {row: (_ROWS_OF_EARLIER_WORK_START + position, *row[1:]) if row else row for position, row in enumerate(sorted(earlier.hash_of_row))}
-            if rows:
-                finished[node_id] = [written_at[row] for row in rows]
-                hashes[node_id] = [earlier.hash_of_row[row] for row in rows]
-                if kept := sorted(written_at[row] for row in earlier.answered_rows & set(rows)):
-                    answered[node_id] = kept
-            waiting += [unit.model_copy(update={"row": written_at[row]}) for row, unit in sorted(earlier.waiting_at_row.items()) if row in earlier.hash_of_row]
-            for ref, by_row in earlier.values.items():
-                columns[ref] = _output_column_of({written_at[row]: by_row[row] for row in rows if row in by_row}, is_many_cells=self._fields[ref]._unit_writes_many_cells)
-        return EarlierWork.model_construct(finished_rows=finished, input_hashes=hashes, answered_rows=answered, output_columns=columns, waiting=tuple(waiting))
+    def _earlier_units_still_unclaimed(self, node_id: str) -> list[EarlierUnit]:
+        """What is left of this node's earlier work when the node isn't finished, for a leg going on from this one."""
+        earlier = self.earlier_units.get(node_id)
+        if earlier is None or not earlier.unclaimed or self.node_is_complete(node_id):
+            return []
+        outputs = [(out.name, Ref(node_id, out.name)) for out in self._lookups.interfaces[node_id].outputs]
+        units: list[EarlierUnit] = []
+        for key in sorted(earlier.unclaimed):
+            row, input_hash = key
+            columns: dict[str, OutputColumn] = {}
+            for name, ref in outputs:
+                by_key = earlier.cells.get(ref, _NO_VALUES)
+                if key in by_key:
+                    columns[name] = _output_column_of({row: by_key[key]}, is_many_cells=self._fields[ref]._unit_writes_many_cells)
+            units.append(EarlierUnit.model_construct(
+                row=row, input_hash=input_hash, answered=key in earlier.answered,
+                only_its_own_row_may_claim=input_hash in earlier.hashes_only_their_own_rows_may_claim,
+                waiting=earlier.waiting.get(key), outputs=columns,
+            ))
+        return units
 
     # -- what the run produced -------------------------------------------------------
 
@@ -841,36 +841,40 @@ class RunLedger:
         Built without validation from values that already passed, and holding
         them typed: the next read costs nothing to decode, and a dump writes
         each one by its own type."""
-        columns: dict[Ref, OutputColumn] = {}
-        for ref in sorted(self._values):
-            field = self._fields[ref]
-            if field._is_list_on_node:  # the graph holds a list set on a node, never a state
-                continue
-            columns[ref] = _output_column_of(self._values[ref], is_many_cells=field._unit_writes_many_cells)
         compiled = self._compiled
-        order = compiled.execution_order
-        finished_by_node: dict[str, list[Row]] = {}
-        for node_id, row in self._done:
-            finished_by_node.setdefault(node_id, []).append(row)
-        finished_rows = {node_id: sorted(finished_by_node.get(node_id, ())) for node_id in order if node_id in finished_by_node or self.node_is_complete(node_id)}
-        input_hash_of = self._done
+        finished_units: dict[str, list[FinishedUnit]] = {}
+        for (node_id, row), input_hash in self._done.items():
+            finished_units.setdefault(node_id, []).append((row, input_hash))
         answered: dict[str, list[Row]] = {}
         for node_id, row in sorted(self._answered):
             answered.setdefault(node_id, []).append(row)
-        return RunState.model_construct(
-            status=status,
-            failure=failure,
-            waiting=self.waiting(),
-            output_columns=columns,
-            # A node complete on no rows is here with none: the state says it finished.
-            finished_rows=finished_rows,
-            input_hashes={node_id: [input_hash_of[(node_id, row)] for row in rows] for node_id, rows in finished_rows.items() if rows},
-            answered_rows=answered,
-            reused_units=dict(self._reused_units),
-            earlier_work=self._earlier_work_still_unclaimed() if self.earlier_units else None,
-            node_fingerprints={node_id: compiled.node(node_id).fingerprint for node_id in order},
-            rows_not_called={node_id: dict(sorted(self._rows_not_called[node_id].items())) for node_id in order if node_id in self._rows_not_called},
-        )
+        waiting: dict[str, list[WaitingUnit]] = {}
+        for waiting_unit in self.waiting():
+            waiting.setdefault(waiting_unit.node_id, []).append(waiting_unit)
+        interfaces = self._lookups.interfaces
+        nodes: dict[str, WorkOfNode] = {}
+        for node_id in compiled.execution_order:
+            units = finished_units.get(node_id)
+            if units is not None:
+                units.sort()  # no two units of a node share a row, so the hash is never compared
+            elif self.node_is_complete(node_id):
+                units = []  # a node complete on no rows: the state says it finished
+            outputs: dict[str, OutputColumn] = {}
+            for out in interfaces[node_id].outputs:
+                ref = Ref(node_id, out.name)
+                if ref in self._values:
+                    outputs[out.name] = _output_column_of(self._values[ref], is_many_cells=self._fields[ref]._unit_writes_many_cells)
+            nodes[node_id] = WorkOfNode.model_construct(
+                fingerprint=compiled.node(node_id).fingerprint,
+                finished_units=units,
+                answered_rows=answered.get(node_id, []),
+                outputs=outputs,
+                waiting=tuple(waiting.get(node_id, ())),
+                rows_not_called=dict(sorted(self._rows_not_called[node_id].items())) if node_id in self._rows_not_called else {},
+                reused_units=self._reused_units.get(node_id, 0),
+                earlier_units=self._earlier_units_still_unclaimed(node_id) if self.earlier_units else [],
+            )
+        return RunState.model_construct(status=status, failure=failure, nodes=nodes)
 
     @classmethod
     def restore(cls, compiled: CompiledGraph, state: RunState) -> RunLedger:
@@ -899,36 +903,29 @@ class RunLedger:
             raise InvalidCallError(problems)
         for ref, by_row in values.items():
             restored._values.setdefault(ref, {}).update(by_row)
-        restored._waiting = {(waiting_unit.node_id, waiting_unit.row): waiting_unit for waiting_unit in state.waiting if waiting_unit.node_id not in changed}
-        restored._rows_not_called = {node_id: dict(counts) for node_id, counts in state.rows_not_called.items() if node_id not in changed}
-        restored.earlier_units = _earlier_units_of_changed_nodes(compiled, state, changed)
-        finished = {node_id: rows for node_id, rows in state.finished_rows.items() if node_id not in changed}
-        problems = restored._replay_finished_units(finished, state.input_hashes)
+        restored.earlier_units = _earlier_units_of_nodes(compiled, state, changed)
+        kept = {node_id: work for node_id, work in state.nodes.items() if node_id not in changed}
+        restored._waiting = {(waiting_unit.node_id, waiting_unit.row): waiting_unit for work in kept.values() for waiting_unit in work.waiting}
+        restored._rows_not_called = {node_id: dict(work.rows_not_called) for node_id, work in kept.items() if work.rows_not_called}
+        problems = restored._replay_finished_units(kept)
         problems.extend(restored._problems_with_waiting_units())
         if problems:
             raise InvalidCallError(problems)
-        restored._answered = {(node_id, row) for node_id, rows in state.answered_rows.items() if node_id not in changed for row in rows}
+        restored._answered = {(node_id, row) for node_id, work in kept.items() for row in work.answered_rows}
         return restored
 
-    def _replay_finished_units(self, finished: Mapping[str, list[Row]], input_hashes: Mapping[str, list[str | None]]) -> list[Problem]:
+    def _replay_finished_units(self, kept: Mapping[str, WorkOfNode]) -> list[Problem]:
         """Write every finished unit, in execution order, as its record did, and
-        report one at a row that doesn't exist or with no value at its row, or a
-        node whose hashes don't line up with its rows."""
+        report one at a row that doesn't exist or with no value at its row."""
         problems: list[Problem] = []
         interfaces = self._lookups.interfaces
         for node_id in self._compiled.execution_order:
-            rows_of_node = finished.get(node_id)
-            if rows_of_node is None:
+            work = kept.get(node_id)
+            if work is None or work.finished_units is None:
                 continue
             index = self._runs_per_row_of[node_id]
-            hashes = input_hashes.get(node_id)
-            if hashes is None:
-                hashes = [None] * len(rows_of_node)
-            elif len(hashes) != len(rows_of_node):
-                problems.append(make_problem("state_unreadable", "state", node_id, reason=f"the state has {len(rows_of_node)} finished rows for {node_id!r} and {len(hashes)} input hashes"))
-                continue
             rows_seen: set[Row] = set()
-            for row, input_hash in sorted(zip(rows_of_node, hashes, strict=True), key=itemgetter(0)):
+            for row, input_hash in sorted(work.finished_units, key=itemgetter(0)):
                 if not self._row_exists_for_node(index, row):
                     problems.append(make_problem("state_unreadable", "state", node_id, *row, reason=f"the state has {node_id!r} at row {list(row)}, which {node_id!r} has no place for"))
                     continue
@@ -964,88 +961,105 @@ class RunLedger:
 
 
 class _EarlierUnitsOfNode:
-    """The units a changed node finished or had waiting in the state a leg starts from, held to be claimed.
+    """The units a re-planned node left in the state a leg starts from, held to be claimed.
 
-    Unclaimed units by row, the hash of what each received; ``claim`` hands
-    each out once. A claim takes the unit's own old row when that row received
-    the same, else the lowest unclaimed row with the hash: identical inputs
-    are a multiset, so a third identical row gets a new call and never shares
-    a result. A hash answered by a person on more than one row is taken only
-    by its own row: the inputs can't say whose answer it was, and a person's
-    answer has no second chance.
+    Each is keyed by its row and hash, so units of several legs sit side by
+    side, two of them at one row. ``claim`` hands each out once. A claim
+    takes the unit at the claimer's own row with the same hash, else the lowest
+    unclaimed row with the hash: identical inputs are a multiset, so a third
+    identical row gets a new call and never shares a result. A hash answered
+    by a person on more than one row is taken only by its own row: the inputs
+    can't say whose answer it was, and a person's answer has no second chance.
+    ``cells`` holds what each output wrote, per unit.
     """
 
-    __slots__ = ("hash_of_row", "rows_with_hash_lowest_last", "hashes_whose_answers_can_not_be_told_apart", "answered_rows", "waiting_at_row", "values")
+    __slots__ = ("unclaimed", "units_with_hash_lowest_row_last", "hashes_only_their_own_rows_may_claim", "answered", "waiting", "cells")
 
-    def __init__(self, hash_of_row: dict[Row, str], answered_rows: set[Row], waiting_at_row: dict[Row, WaitingUnit], values: dict[Ref, dict[Row, Any]]) -> None:
-        self.hash_of_row = hash_of_row
-        self.answered_rows = answered_rows
-        self.waiting_at_row = waiting_at_row
-        self.values = values
-        self.rows_with_hash_lowest_last: dict[str, list[Row]] = {}
-        for row in sorted(hash_of_row, reverse=True):
-            self.rows_with_hash_lowest_last.setdefault(hash_of_row[row], []).append(row)
-        tied = (input_hash for input_hash, rows in self.rows_with_hash_lowest_last.items() if len(rows) > 1 and not answered_rows.isdisjoint(rows))
-        self.hashes_whose_answers_can_not_be_told_apart = frozenset(tied)
+    def __init__(
+        self, unclaimed: set[_EarlierUnitKey], answered: set[_EarlierUnitKey], hashes_only_their_own_rows_may_claim: set[str],
+        waiting: dict[_EarlierUnitKey, WaitingUnit], cells: dict[Ref, dict[_EarlierUnitKey, Any]],
+    ) -> None:
+        self.unclaimed = unclaimed
+        self.answered = answered
+        self.waiting = waiting
+        self.cells = cells
+        self.units_with_hash_lowest_row_last: dict[str, list[_EarlierUnitKey]] = {}
+        for key in sorted(unclaimed, reverse=True):
+            self.units_with_hash_lowest_row_last.setdefault(key[1], []).append(key)
+        tied = (input_hash for input_hash, keys in self.units_with_hash_lowest_row_last.items() if len(keys) > 1 and not answered.isdisjoint(keys))
+        self.hashes_only_their_own_rows_may_claim = frozenset((*hashes_only_their_own_rows_may_claim, *tied))
 
-    def claim(self, row: Row, input_hash: str) -> Row | None:
+    def claim(self, row: Row, input_hash: str) -> _EarlierUnitKey | None:
         """Take the earlier unit this unit's inputs match, gone from the pool, or ``None``."""
-        if self.hash_of_row.get(row) == input_hash:
-            del self.hash_of_row[row]
-            return row
-        rows = self.rows_with_hash_lowest_last.get(input_hash)
-        if rows is None or input_hash in self.hashes_whose_answers_can_not_be_told_apart:
+        own = (row, input_hash)
+        if own in self.unclaimed:
+            self.unclaimed.remove(own)
+            return own
+        keys = self.units_with_hash_lowest_row_last.get(input_hash)
+        if keys is None or input_hash in self.hashes_only_their_own_rows_may_claim:
             return None
-        while rows:
-            candidate = rows.pop()
-            if self.hash_of_row.get(candidate) == input_hash:  # not taken yet, or by its own row
-                del self.hash_of_row[candidate]
+        while keys:
+            candidate = keys.pop()
+            if candidate in self.unclaimed:  # not taken yet, or by its own row
+                self.unclaimed.remove(candidate)
                 return candidate
         return None
 
 
-def _earlier_units_of_changed_nodes(compiled: CompiledGraph, state: RunState, changed: set[str]) -> dict[str, _EarlierUnitsOfNode]:
-    """Per node to re-plan and per node with work carried over from a leg that stopped short, what it can reuse."""
-    earlier_work = state.earlier_work
-    held_in: list[tuple[RunState | EarlierWork, set[str]]] = [(state, changed)]
-    if earlier_work is not None:
-        held_in.append((earlier_work, set(earlier_work.finished_rows) | {unit.node_id for unit in earlier_work.waiting}))
-    units: dict[str, _EarlierUnitsOfNode] = {}
-    for holder, node_ids in held_in:
-        for node_id in node_ids:
-            read = _earlier_units_in(compiled, holder, node_id)
-            if read is None:
-                continue
-            already = units.get(node_id)
-            if already is None:
-                units[node_id] = read
-            else:  # work carried over from a leg that stopped short sits at rows of its own
-                for ref, by_row in read.values.items():
-                    already.values[ref] = {**by_row, **already.values.get(ref, {})}
-                units[node_id] = _EarlierUnitsOfNode({**read.hash_of_row, **already.hash_of_row}, already.answered_rows | read.answered_rows, {**read.waiting_at_row, **already.waiting_at_row}, already.values)
-    return units
+def _earlier_units_of_nodes(compiled: CompiledGraph, state: RunState, changed: set[str]) -> dict[str, _EarlierUnitsOfNode]:
+    """Per node to re-plan and per node carrying work from a leg that stopped short, what it can reuse."""
+    pools: dict[str, _EarlierUnitsOfNode] = {}
+    for node_id, work in state.nodes.items():
+        if node_id in changed or work.earlier_units:
+            pool = _earlier_units_of_node(compiled, node_id, work, read_its_own_units=node_id in changed)
+            if pool is not None:
+                pools[node_id] = pool
+    return pools
 
 
-def _earlier_units_in(compiled: CompiledGraph, holder: RunState | EarlierWork, node_id: str) -> _EarlierUnitsOfNode | None:
-    """What ``holder`` keeps of a re-planned node's units, or ``None`` when it can't reuse any: gone from the
-    graph, a node that's a graph, opted out, nothing with a hash, or outputs that no longer read as its types."""
+def _earlier_units_of_node(compiled: CompiledGraph, node_id: str, work: WorkOfNode, read_its_own_units: bool) -> _EarlierUnitsOfNode | None:
+    """What this node can reuse: its own finished and waiting units, when it is re-planned, and those carried
+    from earlier legs; or ``None`` when it can't reuse any: gone from the graph, a node that's a graph, opted out, nothing with a hash,
+    or outputs that no longer read as its types."""
     node = compiled._nodes.get(node_id)
     if node is None or not isinstance(node.version, NodeVersion) or node.interface is None or not node.version.policy.reuse_when_inputs_match:
         return None
-    hash_of_row: dict[Row, str] = {row: input_hash for row, input_hash in zip(holder.finished_rows.get(node_id, ()), holder.input_hashes.get(node_id, ()), strict=False) if input_hash is not None}
-    waiting_at_row = {unit.row: unit for unit in holder.waiting if unit.node_id == node_id and unit.input_hash}
-    hash_of_row.update((row, unit.input_hash) for row, unit in waiting_at_row.items())
-    if not hash_of_row:
-        return None
-    values: dict[Ref, dict[Row, Any]] = {}
+    outputs = [(out.name, Ref(node_id, out.name)) for out in node.interface.outputs]
+    unclaimed: set[_EarlierUnitKey] = set()
+    answered: set[_EarlierUnitKey] = set()
+    only_their_own_rows: set[str] = set()
+    waiting: dict[_EarlierUnitKey, WaitingUnit] = {}
+    cells: dict[Ref, dict[_EarlierUnitKey, Any]] = {}
     problems: list[Problem] = []
-    for out in node.interface.outputs:
-        ref = Ref(node_id, out.name)
-        column = holder.output_columns.get(ref)
-        read = None if column is None else _read_output_column(compiled, ref, column, problems)
-        if read is not None:
-            values[ref] = read
-    return None if problems else _EarlierUnitsOfNode(hash_of_row, set(holder.answered_rows.get(node_id, ())), waiting_at_row, values)
+    if read_its_own_units:
+        hash_of_row = {row: input_hash for row, input_hash in work.finished_units or () if input_hash is not None}
+        waiting.update(((unit.row, unit.input_hash), unit) for unit in work.waiting if unit.input_hash)
+        unclaimed.update(hash_of_row.items(), waiting)
+        answered.update((row, hash_of_row[row]) for row in work.answered_rows if row in hash_of_row)
+        for name, ref in outputs:
+            column = work.outputs.get(name)
+            read = None if column is None else _read_output_column(compiled, ref, column, problems)
+            if read is not None:
+                cells[ref] = {(row, input_hash): read[row] for row, input_hash in hash_of_row.items() if row in read}
+    for unit in work.earlier_units:
+        key = (unit.row, unit.input_hash)
+        if key in unclaimed:  # a unit of this very leg at that row with that hash has the newer result
+            continue
+        unclaimed.add(key)
+        if unit.answered:
+            answered.add(key)
+        if unit.only_its_own_row_may_claim:
+            only_their_own_rows.add(unit.input_hash)
+        if unit.waiting is not None:
+            waiting[key] = unit.waiting
+        for name, ref in outputs:
+            column = unit.outputs.get(name)
+            read = None if column is None else _read_output_column(compiled, ref, column, problems)
+            if read is not None and unit.row in read:
+                cells.setdefault(ref, {})[key] = read[unit.row]
+    if problems or not unclaimed:
+        return None
+    return _EarlierUnitsOfNode(unclaimed, answered, only_their_own_rows, waiting, cells)
 
 
 def _stored_value_of_unit(by_row: Mapping[Row, Any], row: Row) -> tuple[Any, Row]:
@@ -1100,16 +1114,18 @@ def read_output_columns(compiled: CompiledGraph, state: RunState, dropped: set[s
     """What ``state`` holds on every output of the graph, by row, each value
     read through its output's check, and every problem found.
 
-    The one reader of ``state.output_columns``: a leg restores from it and
+    The one reader of a state's output columns: a leg restores from it and
     ``compiled.results`` reads from it. ``dropped`` (``_nodes_changed_since``)
     is left out."""
     values: dict[Ref, dict[Row, Any]] = {}
     problems: list[Problem] = []
-    for ref, column in state.output_columns.items():
-        if ref.node_id not in dropped:
-            read = _read_output_column(compiled, ref, column, problems)
-            if read is not None:
-                values[ref] = read
+    for node_id, work in state.nodes.items():
+        if node_id not in dropped:
+            for name, column in work.outputs.items():
+                ref = Ref(node_id, name)
+                read = _read_output_column(compiled, ref, column, problems)
+                if read is not None:
+                    values[ref] = read
     return values, problems
 
 

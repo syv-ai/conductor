@@ -21,11 +21,13 @@ from conductor._internal.errors import (
 )
 from conductor._internal.execution.run_state import (
     Answers,
+    EarlierUnit,
     OutputColumn,
     Question,
     RunState,
     RunStatus,
     WaitingUnit,
+    WorkOfNode,
 )
 from conductor._internal.field_records import Input, Output, Param, Result
 from conductor._internal.graph.binding import Binding, From, Static
@@ -108,7 +110,9 @@ __all__ = [
     "NodeState",
     "NodeVersion",
     "Output",
+    "EarlierUnit",
     "OutputColumn",
+    "WorkOfNode",
     "Param",
     "Policy",
     "Problem",

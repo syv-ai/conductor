@@ -527,7 +527,7 @@ def test_a_float_output_that_is_not_finite_survives_json_as_the_float(value, spe
     state = compiled.run_sync()
 
     assert state.status == "complete"
-    assert state.model_dump(mode="json")["output_columns"]["n.result"]["values"] == [spelled]
+    assert state.model_dump(mode="json")["nodes"]["n"]["outputs"]["result"]["values"] == [spelled]
     back = _through_json(state)
     assert _same_float(compiled.results(back)["n"]["result"], value)
     assert _same_float(compiled.results(compiled.run_sync(back.without_nodes("p")))["p"]["result"], value)

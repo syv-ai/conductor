@@ -300,12 +300,11 @@ def _refusal_of(compiled: CompiledGraph, data: dict[str, Any]) -> set[str]:
 
 def test_a_null_in_place_of_a_table_is_an_unreadable_state():
     compiled, data = _finished_table_state()
-    data["output_columns"]["t.result"]["values"][0] = None
+    data["nodes"]["t"]["outputs"]["result"]["values"][0] = None
     assert _refusal_of(compiled, data) == {"state_unreadable"}
 
 
 def test_a_row_listed_twice_as_finished_is_an_unreadable_state():
     compiled, data = _finished_table_state()
-    data["finished_rows"]["m"] = [[], []]
-    data["input_hashes"]["m"] = data["input_hashes"]["m"] * 2
+    data["nodes"]["m"]["finished_units"] = data["nodes"]["m"]["finished_units"] * 2
     assert _refusal_of(compiled, data) == {"state_unreadable"}

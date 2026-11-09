@@ -417,7 +417,8 @@ class CompiledGraph:
             raise InvalidCallError(problems)
         produced: dict[str, dict[str, Any]] = {}
         for node_id in self._execution_order:
-            if node_id in state.finished_rows and node_id not in dropped:
+            work = state.nodes.get(node_id)
+            if work is not None and work.finished_units is not None and node_id not in dropped:
                 result = node_result(self._engine_lookups, node_id, values)
                 if result is not None:
                     produced[node_id] = result
@@ -467,11 +468,10 @@ class CompiledGraph:
         not empty.
         """
         self._raise_unless_runnable()
-        fingerprints = state.node_fingerprints
-        changed = {node_id for node_id in self._execution_order if fingerprints.get(node_id) != self._nodes[node_id].fingerprint}
+        work_of_node = state.nodes
+        changed = {node_id for node_id in self._execution_order if (work := work_of_node.get(node_id)) is None or work.fingerprint != self._nodes[node_id].fingerprint}
         stale = changed | self._readers_of(changed)
-        named = {*fingerprints, *state.finished_rows, *(ref.node_id for ref in state.output_columns), *(unit.node_id for unit in state.waiting)}
-        return [node_id for node_id in self._execution_order if node_id in stale] + sorted(named - set(self._execution_order))
+        return [node_id for node_id in self._execution_order if node_id in stale] + sorted(work_of_node.keys() - set(self._execution_order))
 
     def _readers_of(self, node_ids: Iterable[str]) -> set[str]:
         """Every node that reads a field of one of ``node_ids``, directly or

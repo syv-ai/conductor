@@ -36,6 +36,10 @@ calls: dict[str, int] = {}
 release = threading.Event()
 
 
+def _finished_rows(state: RunState, node_id: str) -> list[tuple[int, ...]]:
+    return [row for row, _ in state.nodes[node_id].finished_units or ()]
+
+
 def called(what: str) -> None:
     calls[what] = calls.get(what, 0) + 1
 
@@ -103,7 +107,7 @@ def events_until(graph: CompiledGraph, stop: Any, **kwargs: Any) -> list[Event]:
 
 
 def all_but_hold_finished(event: Event) -> bool:
-    return isinstance(event, RunCheckpoint) and sum(len(rows) for graph_node, rows in event.state.finished_rows.items() if graph_node == "work") == 3
+    return isinstance(event, RunCheckpoint) and len(_finished_rows(event.state, "work")) == 3
 
 
 def test_a_stream_gives_no_checkpoint_unless_asked():
@@ -116,7 +120,7 @@ def test_every_unit_finishing_gives_a_checkpoint_at_zero_and_a_long_interval_giv
     every_unit = events_until(compiled(), lambda e: False, checkpoint_every=0)
     states = [e.state for e in every_unit if isinstance(e, RunCheckpoint)]
     assert states and all(state.status == "running" and state.failure is None for state in states)
-    assert [len(state.finished_rows.get("work", ())) for state in states] == sorted(len(state.finished_rows.get("work", ())) for state in states)
+    assert [len(_finished_rows(state, "work")) for state in states] == sorted(len(_finished_rows(state, "work")) for state in states)
 
     rarely = events_until(compiled(), lambda e: False, checkpoint_every=3600)
     assert not [e for e in rarely if isinstance(e, RunCheckpoint)]
@@ -132,17 +136,17 @@ def test_a_checkpoint_does_not_change_when_the_run_goes_on():
     release.set()
     seen = events_until(compiled(), lambda e: False, checkpoint_every=0)
     first = next(e.state for e in seen if isinstance(e, RunCheckpoint))
-    finished = {graph_node: list(rows) for graph_node, rows in first.finished_rows.items()}
+    finished = {node_id: list(work.finished_units or ()) for node_id, work in first.nodes.items()}
 
     assert isinstance(seen[-1], RunEnd)
-    assert first.finished_rows == finished and first.status == "running"
+    assert {node_id: list(work.finished_units or ()) for node_id, work in first.nodes.items()} == finished and first.status == "running"
 
 
 def test_a_checkpoint_taken_mid_fan_out_restored_from_json_finishes_the_run():
     graph = compiled()
     seen = events_until(graph, all_but_hold_finished, checkpoint_every=0)
     state = RunState.model_validate_json(seen[-1].state.model_dump_json())  # type: ignore[union-attr]
-    assert state.status == "running" and len(state.finished_rows["work"]) == 3
+    assert state.status == "running" and len(_finished_rows(state, "work")) == 3
     assert calls["hold"] == 1
 
     release.set()
@@ -172,7 +176,7 @@ def test_a_checkpoint_carries_who_is_waiting_and_an_answer_goes_into_it(monkeypa
     graph = compiled()
 
     def asked_and_b_done(event: Event) -> bool:
-        return isinstance(event, RunCheckpoint) and bool(event.state.waiting) and len(event.state.finished_rows.get("work", ())) == 1
+        return isinstance(event, RunCheckpoint) and bool(event.state.waiting) and len(_finished_rows(event.state, "work")) == 1
 
     seen = events_until(graph, asked_and_b_done, checkpoint_every=0)
     assert any(isinstance(e, UnitWaiting) for e in seen)

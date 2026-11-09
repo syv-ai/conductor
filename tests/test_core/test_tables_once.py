@@ -12,14 +12,13 @@ from conductor import (
     Graph,
     GraphNode,
     NodeRegistry,
-    Ref,
     RunState,
     Series,
     Static,
     Table,
     node,
 )
-from conductor._internal.execution.run_state import OutputColumn
+from conductor._internal.execution.run_state import OutputColumn, WorkOfNode
 from conductor.events import RunEnd, UnitWaiting
 from helpers import answer
 from pydantic import ValidationError
@@ -92,10 +91,10 @@ def test_a_chain_and_many_waiting_units_cost_one_table_and_read_back_equal() -> 
         for name, value in outputs.items():
             read = compiled.results(loaded)[node_id][name]
             assert read.equals(value) if isinstance(value, pl.DataFrame) else read == value
-    frames = {id(column.values[0]) for ref, column in loaded.output_columns.items() if ref.node_id != "g" and ref != Ref("q.result")}
+    frames = {id(column.values[0]) for node_id, work in loaded.nodes.items() for name, column in work.outputs.items() if node_id != "g" and (node_id, name) != ("q", "result")}
     frames |= {id(unit.inputs["table"]) for unit in loaded.waiting}
     assert len(frames) == 1
-    assert isinstance(loaded.output_columns[Ref("s.result")].values[0], pl.DataFrame)
+    assert isinstance(loaded.nodes["s"].outputs["result"].values[0], pl.DataFrame)
 
 
 def test_a_document_has_one_entry_per_table_and_references_everywhere() -> None:
@@ -104,8 +103,8 @@ def test_a_document_has_one_entry_per_table_and_references_everywhere() -> None:
     assert len(document["tables"]) == 1
     (digest,) = document["tables"]
     assert document["tables"][digest]["data"]["name"] == ["name-0", "name-1", "name-2"]
-    assert document["output_columns"]["p0.result"]["values"] == [{"table": digest}]
-    assert [unit["inputs"]["table"] for unit in document["waiting"]] == [{"table": digest}, {"table": digest}]
+    assert document["nodes"]["p0"]["outputs"]["result"]["values"] == [{"table": digest}]
+    assert [unit["inputs"]["table"] for unit in document["nodes"]["q"]["waiting"]] == [{"table": digest}, {"table": digest}]
 
 
 def test_a_plain_dump_stands_alone_and_a_python_dump_holds_frames() -> None:
@@ -113,7 +112,7 @@ def test_a_plain_dump_stands_alone_and_a_python_dump_holds_frames() -> None:
     assert RunState.model_validate_json(state.model_dump_json()).waiting[0].inputs["table"].height == 3
     assert RunState.model_validate(state.model_dump(mode="json")).waiting[0].inputs["table"].height == 3
     assert state.model_dump()["tables"] == {} and state.tables == {}
-    assert isinstance(state.model_dump()["output_columns"][Ref("s.result")]["values"][0], pl.DataFrame)
+    assert isinstance(state.model_dump()["nodes"]["s"]["outputs"]["result"]["values"][0], pl.DataFrame)
 
 
 def test_two_frames_with_equal_contents_share_an_entry_and_a_different_one_does_not() -> None:
@@ -123,8 +122,8 @@ def test_two_frames_with_equal_contents_share_an_entry_and_a_different_one_does_
 
 def test_a_table_on_a_table_input_reaches_the_node_as_the_frame_the_state_holds() -> None:
     _, state = _chain_and_waiting_units(3, 2)
-    source = state.output_columns[Ref("s.result")].values[0]
-    assert state.output_columns[Ref("p4.result")].values[0] is source and state.waiting[0].inputs["table"] is source
+    source = state.nodes["s"].outputs["result"].values[0]
+    assert state.nodes["p4"].outputs["result"].values[0] is source and state.waiting[0].inputs["table"] is source
 
 
 def test_tables_of_different_nodes_read_back_each_as_itself() -> None:
@@ -136,7 +135,7 @@ def test_tables_of_different_nodes_read_back_each_as_itself() -> None:
 
 
 def _state_holding(value: Any) -> RunState:
-    return RunState(status="complete", output_columns={Ref("v.result"): OutputColumn(rows=[()], values=[value])})
+    return RunState(status="complete", nodes={"v": WorkOfNode(outputs={"result": OutputColumn(rows=[()], values=[value])})})
 
 
 def test_a_table_is_found_inside_a_list_or_a_record_in_a_slot_typed_any() -> None:
@@ -144,8 +143,8 @@ def test_a_table_is_found_inside_a_list_or_a_record_in_a_slot_typed_any() -> Non
     state = _state_holding({"nested": ["label", 1, frame, {"deeper": frame}]})
     document = state.model_dump_json()
     parsed = json.loads(document)
-    assert len(parsed["tables"]) == 1 and '"columns"' not in json.dumps(parsed["output_columns"])
-    (value,) = RunState.model_validate_json(document).output_columns[Ref("v.result")].values
+    assert len(parsed["tables"]) == 1 and '"columns"' not in json.dumps(parsed["nodes"])
+    (value,) = RunState.model_validate_json(document).nodes["v"].outputs["result"].values
     assert value["nested"][2] is value["nested"][3]["deeper"] and value["nested"][2].equals(frame)
 
 
@@ -156,7 +155,7 @@ def test_a_table_default_is_a_reference_and_answers_like_any_default() -> None:
     assert isinstance(state.waiting[0].questions[0].default, pl.DataFrame)
     assert "DataFrame" in repr(state.waiting[0].questions[0]) or "shape" in repr(state.waiting[0].questions[0])
     document = json.loads(state.model_dump_json())
-    assert set(document["waiting"][0]["questions"][0]["default"]) == {"table"}
+    assert set(document["nodes"]["ask"]["waiting"][0]["questions"][0]["default"]) == {"table"}
     loaded = RunState.model_validate_json(state.model_dump_json())
     assert compiled.results(answer(compiled, loaded, {"ask": {}}))["ask"]["result"].height == 1
 
@@ -188,7 +187,7 @@ def test_a_loaded_state_dumps_the_same_digests_with_no_hashing(monkeypatch: pyte
 def test_a_value_shaped_like_a_reference_to_no_table_stays_a_value() -> None:
     state = _state_holding({"table": "not-a-digest-of-anything"})
     loaded = RunState.model_validate_json(state.model_dump_json())
-    assert loaded.output_columns[Ref("v.result")].values == [{"table": "not-a-digest-of-anything"}]
+    assert loaded.nodes["v"].outputs["result"].values == [{"table": "not-a-digest-of-anything"}]
 
 
 def test_a_malformed_table_refuses_the_load() -> None:
@@ -215,7 +214,7 @@ def test_an_event_stands_alone_and_a_state_has_its_own_tables() -> None:
     assert RunEnd(state=state).model_dump(mode="json") == {"type": "run_end", "status": "waiting"}
     kept = state.model_dump(mode="json")
     assert len(kept["tables"]) == 1
-    assert set(kept["waiting"][0]["inputs"]["table"]) == {"table"}
+    assert set(kept["nodes"]["q"]["waiting"][0]["inputs"]["table"]) == {"table"}
 
 
 def test_the_published_schema_has_the_tables_of_a_document() -> None:

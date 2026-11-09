@@ -3,19 +3,16 @@
 A *leg* is one call of ``CompiledGraph.run``; a run takes several when a node
 waits on a person. The state is what a leg ends on, what a checkpoint during
 one hands over, and what the next one starts from. A unit in flight is in no
-state: going on from one calls it again, so a unit runs at least once. It says how the last leg ended (``status``, ``failure``), who is
-waiting and what they were asked (``waiting``), what every output holds
-(``output_columns``), which units finished (``finished_rows``), what each of them
-received (``input_hashes``), a hash of how the graph used each node
-(``node_fingerprints``), and how much this leg took from earlier work
-(``reused_units``). Everything else a run knows — which rows each index has,
-which indexes will gain no more — follows from these and is worked out again
-when a leg starts.
+state: going on from one calls it again, so a unit runs at least once. It says
+how the last leg ended (``status``, ``failure``) and, in ``nodes``, what each
+node did: one ``WorkOfNode``. Everything else a run knows — which rows each
+index has, which indexes will gain no more — follows from these and is worked
+out again when a leg starts.
 
 A state is the only source of reuse: a later leg re-planning a node reuses the
 finished units in the state it is given, nothing else, so a state belongs to the
-runner it came from. ``earlier_work`` keeps what a leg that stopped short had not
-yet re-planned, so stopping doesn't lose it.
+runner it came from. A leg that stops short hands on, in ``earlier_units``, what
+it had not yet re-planned, so stopping doesn't lose it.
 
 The module knows nothing of graphs, so a state loads with no registry in
 sight and everything a form needs is on it. Its values are read through a
@@ -31,7 +28,7 @@ when a state is loaded, so a loaded state holds one frame per digest.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from itertools import chain, islice
 from typing import Any, Literal, Self
 
@@ -89,16 +86,20 @@ class OutputColumn(ConductorModel):
             raise ValueError(f"{len(self.rows)} rows for {len(self.values)} values")
         return self
 
+    @field_serializer("values", when_used="json")
+    def _values_as_wire(self, values: list[Any]) -> list[Any]:
+        return _column_values_to_wire(values)
 
-def _output_columns_to_wire(columns: dict[Ref, OutputColumn]) -> dict[str, Any]:
-    """Each column's values written by their own types, naming the output whose value has no JSON form."""
+
+def _output_columns_to_wire(node_id: str, columns: Mapping[str, OutputColumn]) -> dict[str, Any]:
+    """Each column of this node written by its own types, naming the output whose value has no JSON form."""
     written: dict[str, Any] = {}
-    for ref, column in columns.items():
+    for name, column in columns.items():
         try:
             values = _column_values_to_wire(column.values)
         except Exception as unwritable:
-            raise TypeError(f"{ref}: a value has no JSON form ({unwritable})") from unwritable
-        written[ref] = {"rows": column.rows, "values": values, "skipped": column.skipped}
+            raise TypeError(f"{Ref(node_id, name)}: a value has no JSON form ({unwritable})") from unwritable
+        written[name] = {"rows": column.rows, "values": values, "skipped": column.skipped}
     return written
 
 
@@ -159,37 +160,73 @@ class WaitingUnit(ConductorModel):
     inputs: dict[str, TypedValue] = Field(default_factory=dict)
 
 
-class EarlierWork(ConductorModel):
-    """What a re-planned node's earlier units still hold, for a later leg to reuse: nodes
-    a leg has not finished, the finished and waiting units none of its units claimed yet.
+#: A finished unit: its row and the hash of what it received, ``None`` for one that wasn't called.
+FinishedUnit = tuple[Row, str | None]
 
-    The same shape as the same fields of a state, at the rows those units had."""
 
-    finished_rows: dict[str, list[Row]] = Field(default_factory=dict)
-    input_hashes: dict[str, list[str | None]] = Field(default_factory=dict)
-    answered_rows: dict[str, list[Row]] = Field(default_factory=dict)
-    output_columns: dict[Ref, OutputColumn] = Field(default_factory=dict)
-    waiting: tuple[WaitingUnit, ...] = ()
+class EarlierUnit(ConductorModel):
+    """A unit of a re-planned node a later leg can still reuse, at the row it really had.
 
-    @field_serializer("output_columns", when_used="json")
-    def _output_columns_as_wire(self, columns: dict[Ref, OutputColumn]) -> dict[str, Any]:
-        return _output_columns_to_wire(columns)
+    What a finished or waiting unit left behind, one record each, so units of
+    several legs can sit in one list, two of them at the same row. ``outputs``
+    holds one value per output at this row, read and written as a state's
+    columns are; empty on a waiting unit."""
 
-    def without_nodes(self, is_dropped: Callable[[str], bool]) -> EarlierWork:
-        """This work without the nodes ``is_dropped`` names."""
-        return self.model_copy(update={
-            "finished_rows": {node_id: rows for node_id, rows in self.finished_rows.items() if not is_dropped(node_id)},
-            "input_hashes": {node_id: hashes for node_id, hashes in self.input_hashes.items() if not is_dropped(node_id)},
-            "answered_rows": {node_id: rows for node_id, rows in self.answered_rows.items() if not is_dropped(node_id)},
-            "output_columns": {ref: column for ref, column in self.output_columns.items() if not is_dropped(ref.node_id)},
-            "waiting": tuple(unit for unit in self.waiting if not is_dropped(unit.node_id)),
-        })
+    row: Row
+    input_hash: str
+    answered: bool = False
+    #: Inputs alone can't say which of several rows' answers this was, so only
+    #: its own row may take it: a person's answer has no second chance.
+    only_its_own_row_may_claim: bool = False
+    waiting: WaitingUnit | None = None
+    outputs: dict[str, OutputColumn] = Field(default_factory=dict)
 
 
 def id_of_waiting_unit(node_id: str, row: Row, input_hash: str) -> str:
     """The ``WaitingUnit.id`` of this unit: the one place it is spelled."""
     at_row = f"@{','.join(str(n) for n in row)}" if row else ""
     return f"{node_id}{at_row}#{input_hash[:12]}"
+
+
+class WorkOfNode(ConductorModel):
+    """What one node did in a run: everything a state knows about it, so a stale
+    node is one key.
+
+    ``finished_units`` is ``None`` while nothing of the node has finished, and
+    ``[]`` for a node complete on no rows; a node that ran once has the one row ``()``."""
+
+    #: ``CompiledNode.fingerprint`` when it last ran: what tells a later leg
+    #: over an edited graph that the node changed.
+    fingerprint: str | None = None
+    #: Each finished unit's row and hash, in row order.
+    finished_units: list[FinishedUnit] | None = None
+    #: The finished rows a person answered.
+    answered_rows: list[Row] = Field(default_factory=list)
+    #: What each output holds, by output name.
+    outputs: dict[str, OutputColumn] = Field(default_factory=dict)
+    #: Units of this node waiting on a person, in row order.
+    waiting: tuple[WaitingUnit, ...] = ()
+    #: How many rows it wasn't called on, per input that was blank there.
+    rows_not_called: dict[str, int] = Field(default_factory=dict)
+    #: How many of its units this leg took from earlier work.
+    reused_units: int = 0
+    #: What a later leg may still reuse of the units this leg has not re-planned yet.
+    #: A leg that stopped short (failed, cancelled, a checkpoint, waiting on a
+    #: person) hands them on, so going on from it reuses what going on from
+    #: the state before would.
+    earlier_units: list[EarlierUnit] = Field(default_factory=list)
+
+    def _with_values_as_wire(self, node_id: str) -> dict[str, Any]:
+        """This record with the fields that hold values written, leaving the bookkeeping for the JSON writer."""
+        return {
+            **{name: getattr(self, name) for name in type(self).model_fields},
+            "outputs": _output_columns_to_wire(node_id, self.outputs),
+            "waiting": [unit.model_dump(mode="json") for unit in self.waiting],
+            "earlier_units": [{**unit.model_dump(mode="json", exclude={"outputs"}), "outputs": _output_columns_to_wire(node_id, unit.outputs)} for unit in self.earlier_units],
+        }
+
+    def _with_tables_read(self, frames: Mapping[str, Any]) -> WorkOfNode:
+        return self.model_copy(update={name: with_table_references_read(getattr(self, name), frames) for name in ("outputs", "waiting", "earlier_units")})
 
 
 class RunState(ConductorModel):
@@ -214,31 +251,13 @@ class RunState(ConductorModel):
     #: Why the leg stopped short: the failed node's cause, or a host's stop.
     #: ``None`` when the leg went quiet by itself (``complete``, ``waiting``).
     failure: Problem | None = None
-    waiting: tuple[WaitingUnit, ...] = ()
-    output_columns: dict[Ref, OutputColumn] = Field(default_factory=dict)
-    #: Per node, the rows that finished; ``()`` for a node that ran once.
-    finished_rows: dict[str, list[Row]] = Field(default_factory=dict)
-    #: Per node, ``CompiledNode.fingerprint`` when it last ran: what tells a
-    #: later leg over an edited graph which nodes changed.
-    node_fingerprints: dict[str, str] = Field(default_factory=dict)
-    #: Per node, how many rows it wasn't called on, per input that was blank there.
-    rows_not_called: dict[str, dict[str, int]] = Field(default_factory=dict)
-    #: Per node, the hash of what each finished unit received, in the order of
-    #: ``finished_rows``; ``None`` for a unit that wasn't called (skip or blank).
-    input_hashes: dict[str, list[str | None]] = Field(default_factory=dict)
-    #: Per node, the finished rows a person answered.
-    answered_rows: dict[str, list[Row]] = Field(default_factory=dict)
-    #: Per node, how many of its units this leg took from earlier work, zeros left out.
-    reused_units: dict[str, int] = Field(default_factory=dict)
-    #: What a later leg may still reuse of the work this leg has not re-planned
-    #: yet, kept while a re-planned node isn't finished: a leg that stopped
-    #: short (failed, cancelled, a checkpoint, waiting on a person) hands it on, so
-    #: going on from it reuses as much as going on from the state before would.
-    earlier_work: EarlierWork | None = None
+    #: What each node did, by node id, in execution order.
+    nodes: dict[str, WorkOfNode] = Field(default_factory=dict)
 
-    @field_serializer("output_columns", when_used="json")
-    def _output_columns_as_wire(self, columns: dict[Ref, OutputColumn]) -> dict[str, Any]:
-        return _output_columns_to_wire(columns)
+    @property
+    def waiting(self) -> tuple[WaitingUnit, ...]:
+        """Every unit waiting on a person, in execution order and row order within a node."""
+        return tuple(chain.from_iterable(work.waiting for work in self.nodes.values()))
 
     @model_serializer(mode="wrap")
     def _each_table_once(self, write_fields: SerializerFunctionWrapHandler, info: SerializationInfo):  # type: ignore[no-untyped-def]  # a return type here would become the record's published schema
@@ -255,9 +274,7 @@ class RunState(ConductorModel):
         The bookkeeping fields stay as they are for the JSON writer, which is what keeps a dump of a state with no table as fast as one field at a time."""
         return {
             **{name: getattr(self, name) for name in type(self).model_fields},
-            "waiting": [unit.model_dump(mode="json") for unit in self.waiting],
-            "output_columns": _output_columns_to_wire(self.output_columns),
-            "earlier_work": None if self.earlier_work is None else self.earlier_work.model_dump(mode="json"),
+            "nodes": {node_id: work._with_values_as_wire(node_id) for node_id, work in self.nodes.items()},
         }
 
     @model_validator(mode="after")
@@ -266,31 +283,20 @@ class RunState(ConductorModel):
         if self.tables:
             frames = tables_read_once(self.tables)
             object.__setattr__(self, "tables", {})
-            for name in type(self).model_fields:
-                object.__setattr__(self, name, with_table_references_read(getattr(self, name), frames))
+            object.__setattr__(self, "nodes", {node_id: work._with_tables_read(frames) for node_id, work in self.nodes.items()})
         return self
 
     def without_nodes(self, *node_ids: str) -> RunState:
         """This state as if these nodes had never run: a host's "run from here".
 
-        Their values, finished rows, waiting units, hashes and fingerprints go,
-        which is what makes the next leg run them again. A node reading one of
-        them is re-planned, and reused where what it receives came out the same:
-        to run a node and everything after it again, name them all. A node id
-        also covers the nodes of a graph embedded under it (``approve`` covers
-        ``approve/check``).
+        What they hold goes, which is what makes the next leg run them again. A
+        node reading one of them is re-planned, and reused where what it receives
+        came out the same: to run a node and everything after it again, name
+        them all. A node id also covers the nodes of a graph embedded under it
+        (``approve`` covers ``approve/check``).
         """
 
         def is_dropped(node_id: str) -> bool:
             return any(node_id == dropped or node_id.startswith(f"{dropped}/") for dropped in node_ids)
 
-        return self.model_copy(update={
-            "waiting": tuple(unit for unit in self.waiting if not is_dropped(unit.node_id)),
-            "output_columns": {ref: column for ref, column in self.output_columns.items() if not is_dropped(ref.node_id)},
-            "finished_rows": {node_id: rows for node_id, rows in self.finished_rows.items() if not is_dropped(node_id)},
-            "node_fingerprints": {node_id: fingerprint for node_id, fingerprint in self.node_fingerprints.items() if not is_dropped(node_id)},
-            "rows_not_called": {node_id: counts for node_id, counts in self.rows_not_called.items() if not is_dropped(node_id)},
-            "input_hashes": {node_id: hashes for node_id, hashes in self.input_hashes.items() if not is_dropped(node_id)},
-            "answered_rows": {node_id: rows for node_id, rows in self.answered_rows.items() if not is_dropped(node_id)},
-            "earlier_work": None if self.earlier_work is None else self.earlier_work.without_nodes(is_dropped),
-        })
+        return self.model_copy(update={"nodes": {node_id: work for node_id, work in self.nodes.items() if not is_dropped(node_id)}})

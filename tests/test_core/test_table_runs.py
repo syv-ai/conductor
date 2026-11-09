@@ -21,7 +21,6 @@ from conductor import (
     GraphNode,
     NodeRegistry,
     Param,
-    Ref,
     Result,
     Series,
     Static,
@@ -147,7 +146,7 @@ def test_a_table_nobody_reads_a_column_of_makes_no_rows_and_is_stored_once():
     compiled = _compiled(CSV)
     ending = compiled.run_sync()
 
-    assert list(ending.output_columns) == [Ref("csv", "result")]
+    assert [(node_id, list(work.outputs)) for node_id, work in ending.nodes.items()] == [("csv", ["result"])]
 
 
 def test_invoices_per_document_get_their_check_and_a_skipped_check_is_a_gap_on_its_own_row():

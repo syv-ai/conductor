@@ -142,9 +142,9 @@ def test_the_state_carries_a_fingerprint_per_node():
 
     state = _leg(compiled)[-1].state
 
-    assert set(state.node_fingerprints) == {"a", "b"}
-    assert state.node_fingerprints["a"] == compiled.node("a").fingerprint
-    assert all(len(fp) == 64 for fp in state.node_fingerprints.values())
+    assert set(state.nodes) == {"a", "b"}
+    assert state.nodes["a"].fingerprint == compiled.node("a").fingerprint
+    assert all(len(work.fingerprint) == 64 for work in state.nodes.values())
 
 
 # -- a changed node runs again -------------------------------------------------------
@@ -228,8 +228,8 @@ def test_without_nodes_forgets_only_the_nodes_it_names():
     assert ending.status == "complete"
     assert compiled.results(ending)["w"]["result"]["values"] == ["[A]", "[B]"]
     assert sorted(calls) == ["upper:a", "upper:b"]  # it forgets what it names: ``wrap`` receives the same and is reused
-    assert ending.reused_units == {"w": 2}
-    assert "up" not in state.without_nodes("up").node_fingerprints and "split" in state.without_nodes("up").node_fingerprints
+    assert ending.nodes["w"].reused_units == 2
+    assert "up" not in state.without_nodes("up").nodes and "split" in state.without_nodes("up").nodes
 
 
 # -- what a node returns and what a person answers are checked ------------------------
@@ -260,7 +260,7 @@ def test_a_return_of_the_wrong_type_fails_the_returning_node_with_invalid_output
     assert error.cause.type == "invalid_output"
     assert error.cause.msg == "The node returned a value that is not what it declared."
     assert "result" in error.cause.ctx["reason"] and "42" not in error.cause.ctx["reason"]
-    assert events[-1].state.status == "failed" and "w.result" not in events[-1].state.output_columns
+    assert events[-1].state.status == "failed" and "result" not in events[-1].state.nodes["w"].outputs
     assert calls == []
 
 
@@ -271,7 +271,7 @@ def test_a_state_value_that_does_not_read_back_as_its_type_is_refused():
     compiled = _compiled([GraphNode(id="e", type="echo", version=1, bindings={"text": Static("x")})])
     state = _leg(compiled)[-1].state
     dumped = state.model_dump(mode="json")
-    dumped["output_columns"]["e.result"]["values"] = [{"not": "text"}]
+    dumped["nodes"]["e"]["outputs"]["result"]["values"] = [{"not": "text"}]
 
     with pytest.raises(InvalidCallError, match=r"e\.result"):
         _leg(compiled, state=RunState.model_validate(dumped))
@@ -282,7 +282,7 @@ def test_a_node_that_runs_once_is_at_the_empty_row_on_the_wire():
     alike; a state read back from that JSON runs nothing again."""
     compiled = _compiled([GraphNode(id="e", type="echo", version=1, bindings={"text": Static("x")})])
     wire = _leg(compiled)[-1].state.model_dump(mode="json")
-    assert wire["output_columns"]["e.result"]["rows"] == [[]] and wire["finished_rows"] == {"e": [[]]}
+    assert wire["nodes"]["e"]["outputs"]["result"]["rows"] == [[]] and wire["nodes"]["e"]["finished_units"][0][0] == []
 
     calls.clear()
     assert _leg(compiled, state=RunState.model_validate(wire))[-1].state.status == "complete"
@@ -295,9 +295,9 @@ def _once_state() -> dict:
 
 
 @pytest.mark.parametrize(("edit", "refusal"), [
-    (lambda d: d["output_columns"]["e.result"].update(rows=[[0]]), r"e\.result is at row \[0\]"),
-    (lambda d: d["finished_rows"].update(e=[[0]]), r"'e' at row \[0\]"),
-    (lambda d: d["output_columns"].update({"e.reslt": d["output_columns"].pop("e.result")}), r"e\.reslt, which the graph does not have"),
+    (lambda d: d["nodes"]["e"]["outputs"]["result"].update(rows=[[0]]), r"e\.result is at row \[0\]"),
+    (lambda d: d["nodes"]["e"].update(finished_units=[[[0], None]]), r"'e' at row \[0\]"),
+    (lambda d: d["nodes"]["e"]["outputs"].update({"reslt": d["nodes"]["e"]["outputs"].pop("result")}), r"e\.reslt, which the graph does not have"),
 ])
 def test_a_state_entry_a_node_that_runs_once_has_no_place_for_is_refused(edit, refusal):
     from conductor import InvalidCallError
@@ -318,12 +318,7 @@ def test_a_state_entry_a_node_that_runs_once_has_no_place_for_is_refused(edit, r
 ])
 def test_a_column_that_does_not_line_up_is_refused_where_it_arrives(column):
     with pytest.raises(ValidationError):
-        RunState.model_validate({"status": "complete", "output_columns": {"e.result": column}})
-
-
-def test_a_state_whose_key_is_not_an_address_is_refused_where_it_arrives():
-    with pytest.raises(ValidationError):
-        RunState.model_validate({"status": "complete", "output_columns": {"e": {"rows": [], "values": []}}})
+        RunState.model_validate({"status": "complete", "nodes": {"e": {"outputs": {"result": column}}}})
 
 
 def test_an_answer_reads_through_the_outputs_type():
@@ -359,7 +354,7 @@ def test_a_unit_whose_second_output_is_invalid_writes_nothing():
     state = compiled.run_sync()
 
     assert state.status == "failed" and state.failure.type == "invalid_output"
-    assert state.output_columns == {} and state.finished_rows == {}
+    assert all(not work.outputs and work.finished_units is None for work in state.nodes.values())
 
 
 # -- edits between legs, and a state read after the ledger moved on ----------------------

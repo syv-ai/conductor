@@ -113,16 +113,16 @@ its stored graphs itself. What a 1.x user must change:
   minted moved with it gets its ids re-spelled at the new row. `WaitingUnit.id` is `node@row#hash12`
   (`node#hash12` for a node that ran once), and a form opened before a row moved is refused
   (`not_waiting`). `Policy(reuse_when_inputs_match=False)` opts a node out. `NodeComplete.reused_units`
-  and `RunState.reused_units` report it; `RunState` gains `input_hashes`, `answered_rows` and
-  `earlier_work` (what a leg that stopped short hadn't reached yet). `RunState.without_nodes` forgets
+  and `WorkOfNode.reused_units` report it; `WorkOfNode` holds what a unit received (`finished_units`),
+  `answered_rows` and `earlier_units` (what a leg that stopped short hadn't reached yet). `RunState.without_nodes` forgets
   only the nodes it names. A state goes back only to the runner it came from.
 - A dumped `RunState` holds each table once, under `tables` by digest, with `{"table": digest}` in
-  `output_columns` values, `WaitingUnit.inputs` and question defaults. A plain `model_dump_json()`
+  `WorkOfNode.outputs` values, `WaitingUnit.inputs` and question defaults. A plain `model_dump_json()`
   is one document, and a load holds one frame per digest. An event writes its tables whole.
 
 - A node's output that makes rows is one value in a `RunState`: `OutputColumn.rows` holds the row it
   was written at and `values` the list of its cells, a cell skipped alone a `None` there and a row
-  in `skipped`. A skip that left an index with no rows leaves nothing of its own in `finished_rows`
+  in `skipped`. A skip that left an index with no rows leaves nothing of its own in `finished_units`
   or `skipped`; the nodes running on it complete through the state.
 - An event writes itself as JSON: `event.model_dump(mode="json")`, `model_dump_json()` and
   `TypeAdapter(Event).dump_json`, tables whole. `to_jsonable(value)` replaces `to_wire(value, dtype)`

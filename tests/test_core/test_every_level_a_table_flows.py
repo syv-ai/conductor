@@ -297,7 +297,7 @@ def test_flow_8a_answers_sit_beside_their_questions() -> None:
     assert sorted(frame["question"].to_list()) == sorted(questions * 3)
     assert frame.filter(pl.col("question") == "who")["Answer"].to_list() == [f"text of {file} / who" for file in files]
     # Nothing of the typed-in list travels in the state.
-    assert "q.question" not in state.output_columns
+    assert "question" not in state.nodes["q"].outputs
     restored = RunState.model_validate_json(state.model_dump_json())
     assert compiled.results(restored)["x"]["result"].drop(ROW_ID_COLUMN).equals(frame)
 
