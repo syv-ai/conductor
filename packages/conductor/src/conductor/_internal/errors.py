@@ -77,8 +77,8 @@ _PROBLEM_MESSAGES: Mapping[str, tuple[str, bool]] = {
         "Only one list can be set directly on a node that runs per row; '{a}' and '{b}' are both lists.", True,
     ),
     "no_rows_in_common": (
-        "'{source}' shares no rows with what else is wired into '{field}', so its cells will be blank beside them; "
-        "to join unrelated tables, match them on a key.", False,
+        "'{source}' shares no rows with what else is wired into '{field}'. Unrelated tables have nothing to match on: "
+        "use a node that joins them on a key column.", True,
     ),
     "table_column_missing": ("'{field}' needs the column '{column}', which the table it received doesn't have.", True),
     "series_of_tables": (

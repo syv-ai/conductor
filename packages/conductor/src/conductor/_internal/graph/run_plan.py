@@ -39,7 +39,7 @@ class NodeRunPlan(ConductorModel):
 
     def _as_text_line(self, width: int) -> str:
         where = "once" if self.runs_per_row_of is None else f"per row of {self.runs_per_row_of}"
-        shown = [f"{name}: {plan}" for name, plan in self.inputs.items() if plan.kind != "fixed"]
+        shown = [f"{name}: {' + '.join(plan.sources) if self.runs_per_row_of is None and plan.kind == 'cell' else plan}" for name, plan in self.inputs.items() if plan.kind != "fixed"]
         return f"{self.node_id:<{width}}  {where:<28}  {shown[0] if shown else ''}".rstrip() + "".join(
             f"\n{'':<{width}}  {'':<28}  {more}" for more in shown[1:]
         )

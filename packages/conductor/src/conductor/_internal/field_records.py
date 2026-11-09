@@ -93,6 +93,9 @@ _BOUNDS_ADAPTER: Final = TypeAdapter(ValueBounds)
 
 def _checked_bounds(bounds: Mapping[str, Any]) -> dict[str, Any]:
     """``bounds``, or the mistake in them where the input is written."""
+    unknown = sorted(bounds.keys() - ValueBounds.__annotations__.keys())
+    if unknown:
+        raise NodeDeclarationError(f"an input has no argument {unknown[0]!r}; it takes title, description, widget, connectable and the limits {sorted(ValueBounds.__annotations__)}", code="bound_invalid")
     try:
         return dict(_BOUNDS_ADAPTER.validate_python(bounds))
     except ValidationError as invalid:

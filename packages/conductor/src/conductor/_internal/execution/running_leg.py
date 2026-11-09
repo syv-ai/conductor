@@ -176,7 +176,7 @@ class RunningLeg:
         if state is not None and not isinstance(state, RunState):
             raise InvalidCallError([make_problem("state_unreadable", "state", reason=f"A state is a RunState, not a {type(state).__name__}.")])
         self.ledger = RunLedger(compiled) if state is None else RunLedger.restore(compiled, state)
-        self.changed_nodes = [] if state is None else compiled._nodes_changed_since(state)
+        self.changed_nodes = [] if state is None else compiled._nodes_a_leg_runs_again(state)
         self.free_slots: dict[str, int] = {}
         problems = [make_problem("from_run_not_a_type", "from_run", repr(key), key=repr(key)) for key in from_run if not isinstance(key, type)]
         for node_id in compiled.execution_order:

@@ -61,7 +61,7 @@ from conductor._internal.dtype import (
 )
 from conductor._internal.errors import NodeDeclarationError
 from conductor._internal.field_records import Input, Output, humanised
-from conductor._internal.graph.binding import From, Static
+from conductor._internal.graph.binding import OPEN, From, Static
 from conductor._internal.graph.graph_records import GraphNode
 from conductor._internal.node_signature import (
     Interface,
@@ -133,8 +133,10 @@ class Policy(ConductorModel):
     concurrency: int = Field(default=8, ge=1)
 
     #: ``False`` for a node whose result depends on the world, not on its
-    #: inputs (today's exchange rate): a re-planned unit is always called, even
-    #: when an earlier unit received the same inputs.
+    #: inputs (a file read by its path, today's exchange rate): a new leg from a
+    #: ``complete`` state calls it again, and an earlier unit that received the
+    #: same inputs never stands in for it. A leg going on from a waiting, failed
+    #: or cancelled state keeps what it read.
     reuse_when_inputs_match: bool = True
 
     #: Exception classes from the node's own client that mean the outside
@@ -355,19 +357,23 @@ class NodeDefinition(Generic[_P, _R]):
 
             upper.graph_node("b", text=From("a.result"), times=2)
 
-        A value becomes a static; ``From`` is an edge. An input left open, or one the
-        run supplies with ``FromRun``, is written with ``GraphNode(...)``, the stored form this returns.
+        A value becomes a static; ``From`` is an edge. ``OPEN`` leaves an input with
+        nothing on it, for the caller to fill or a ``FromRun`` to supply.
         """
         body = self.versions[self.current_version].body
         if callable(body):
-            bound = inspect.signature(body).bind_partial(*args, **kwargs).arguments
+            try:
+                bound = inspect.signature(body).bind_partial(*args, **kwargs).arguments
+            except TypeError as wrong:
+                inputs = ", ".join(input_.name for input_ in self.versions[self.current_version].interface.inputs)
+                raise TypeError(f"{self.id!r} placed as {id!r}: {wrong}; its inputs are {inputs or 'none'}") from wrong
             spread = next((name for name, parameter in inspect.signature(body).parameters.items() if parameter.kind is inspect.Parameter.VAR_KEYWORD), None)
             values = {**{name: value for name, value in bound.items() if name != spread}, **bound.get(spread, {})}
         elif args:
             raise TypeError(f"{self.id!r} is a graph; its inputs are given by name")
         else:
             values = kwargs
-        bindings = {name: value if isinstance(value, (From, Static)) else Static(value) for name, value in values.items()}
+        bindings = {name: value if isinstance(value, (From, Static)) else Static(value) for name, value in values.items() if value is not OPEN}
         return GraphNode(id=id, type=self.id, version=self.current_version, bindings=bindings)
 
     def __repr__(self) -> str:

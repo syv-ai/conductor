@@ -20,10 +20,10 @@ def test_many_values_keep_their_rows_and_an_ending_says_only_its_status():
     lines = {"rows": [(0, 0), (1, 0)], "values": ["a", "b"]}
     state = RunState(status="complete", nodes={"split": WorkOfNode(fingerprint="f" * 64, outputs={"result": OutputColumn(rows=[(0,)], values=["a"])})})
 
-    payload = _payload(NodeComplete(type="node_complete", node_id="split", result={"result": lines}))
+    payload = _payload(NodeComplete(type="node_complete", node_id="split", outputs={"result": lines}))
     ending = _payload(RunEnd(state=state))
 
-    assert payload["result"]["result"] == {
+    assert payload["outputs"]["result"] == {
         "rows": [[0, 0], [1, 0]],
         "values": ["a", "b"],
     }
@@ -45,10 +45,10 @@ def test_a_pending_units_questions_and_a_failures_cause_are_records():
 def test_a_typed_value_dumps_through_its_own_type_and_one_with_no_form_raises():
     parsed = {"rows": [(0,), (1,)], "values": [Json({"a": 1}), Json([2])]}
 
-    assert _payload(NodeComplete(type="node_complete", node_id="parse", result={"result": parsed}))["result"]["result"]["values"] == [{"a": 1}, [2]]
-    assert _payload(NodeComplete(type="node_complete", node_id="n", result={"n": float("nan")}))["result"] == {"n": "NaN"}
+    assert _payload(NodeComplete(type="node_complete", node_id="parse", outputs={"result": parsed}))["outputs"]["result"]["values"] == [{"a": 1}, [2]]
+    assert _payload(NodeComplete(type="node_complete", node_id="n", outputs={"n": float("nan")}))["outputs"] == {"n": "NaN"}
     with pytest.raises(Exception, match="object"):
-        NodeComplete(type="node_complete", node_id="n", result={"x": object()}).model_dump_json()
+        NodeComplete(type="node_complete", node_id="n", outputs={"x": object()}).model_dump_json()
 
 
 def test_a_branch_nodes_completion_streams_with_only_the_branch_taken():
@@ -67,4 +67,4 @@ def test_a_branch_nodes_completion_streams_with_only_the_branch_taken():
 
     (completed,) = [_payload(event) for event in asyncio.run(events()) if event.type == "node_complete"]
 
-    assert completed["result"] == {"not_empty": "x"}
+    assert completed["outputs"] == {"not_empty": "x"}

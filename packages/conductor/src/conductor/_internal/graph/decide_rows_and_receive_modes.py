@@ -17,9 +17,12 @@ above. One column on a root is received whole, once. Anything else feeding it
 collected onto an index of the input's own.
 
 A ``Table`` input merges everything wired in, matched on row ids; it never
-makes the node run per row by itself, except a table arriving per row. What
-it carries is the merged table's type, each column named as the merge will
-name it, or what the input declares when it names columns.
+makes the node run per row by itself, except a table arriving per row. Tables
+that are alternatives (one ``exclusive_group``, or two branches of a decision)
+are one place in the merge: the branch that ran is the table, and when they are
+all there is, there is nothing to merge. What it carries is the merged table's
+type, each column named as the merge will name it, or what the input declares
+when it names columns.
 
 A ``**inputs: AsItArrives`` input takes what its edge carries and never makes
 the node run per row. A parameter typed ``Any`` takes the type of its first
@@ -63,11 +66,16 @@ from conductor._internal.dtype import (
     type_name_for_sentence,
 )
 from conductor._internal.errors import Problem, make_problem
-from conductor._internal.execution.values_of_run import holds_values
+from conductor._internal.execution.values_of_run import (
+    holds_part_of_a_table,
+    holds_values,
+    names_in_a_merge,
+)
 from conductor._internal.field_records import Input
 from conductor._internal.graph.binding import From
 from conductor._internal.graph.embedding import parent_graph_of_node_id
 from conductor._internal.graph.graph_records import GraphNode
+from conductor._internal.graph.output_conditions import can_never_both_hold
 from conductor._internal.graph.receive_modes import (
     Cell,
     FixedValue,
@@ -111,6 +119,10 @@ class SourcesReadAtTheRow(NamedTuple):
     collected_onto: Index | None
 
 
+#: One place in a merge: a source, or tables of which only one is ever at a row.
+SourcesThatAreAlternatives = list[tuple[Ref, "CompiledField"]]
+
+
 @dataclass
 class WhatArrivesOnInputs:
     """What one node's inputs receive, gathered as its edges are read."""
@@ -130,8 +142,8 @@ class WhatArrivesOnInputs:
     sources_read_at_the_row: tuple[SourcesReadAtTheRow, ...] = ()
     #: The inputs holding a list set on the node.
     lists_on_node: tuple[Input, ...] = ()
-    #: The ``Table`` inputs with the table type each carries and its sources.
-    table_inputs_and_sources: tuple[tuple[Input, Any, list[tuple[Ref, CompiledField]]], ...] = ()
+    #: The ``Table`` inputs with the table type each carries and its sources, one group of alternatives per place in the merge.
+    table_inputs_and_sources: tuple[tuple[Input, Any, list[SourcesThatAreAlternatives]], ...] = ()
     #: Every table and merged column taken in whole: a table the node returns may carry their ids.
     tables_taken_in: tuple[CompiledField, ...] = ()
     #: A source couldn't be read; the walk stopped at that input.
@@ -191,11 +203,12 @@ def read_what_arrives_on_inputs(
             pairs = list(zip(binding.refs, sources, strict=True))
             problems_found = [problem for source_ref, source in pairs for problem in _type_mismatch_unless_table_or_column(target, node.id, name, source_ref, source)]
             problems.extend(problems_found)
-            merged = None if problems_found else _merged_columns(pairs)
+            places = _sources_grouped_into_alternatives(pairs, progress)
+            merged = None if problems_found else _merged_columns(places)
             found.rows_required_by_inputs += tuple((source._index, name) for source in sources if is_table_type(source.type) and source._index is not None)
             carried = _table_a_call_receives(target, merged)
             _check_columns(node.id, name, target, merged, problems)
-            found.table_inputs_and_sources += ((input_, carried, pairs),)
+            found.table_inputs_and_sources += ((input_, carried, places),)
             found.arriving_types[name] = carried
             continue
         if is_untyped(target):
@@ -321,11 +334,11 @@ def _receive_mode_read_at_the_row(read: SourcesReadAtTheRow, runs_per_row_of: In
     return Gather(source_reads, Ref(read.collected_onto.id))
 
 
-def _receive_mode_of_table_input(sources: list[tuple[Ref, CompiledField]], runs_per_row_of: Index | None) -> Cell | Merge:
-    """How a ``Table`` input receives what is wired into it: one table on its own has nothing to match with."""
-    if len(sources) == 1 and is_table_type(sources[0][1].type):
-        return cell_at_the_row((sources[0][0],), sources[0][1]._index)
-    return Merge(tuple(_read_of_merge_source(ref, source, runs_per_row_of) for ref, source in sources), tuple(_copied_down(sources)))
+def _receive_mode_of_table_input(places: list[SourcesThatAreAlternatives], runs_per_row_of: Index | None) -> Cell | Merge:
+    """How a ``Table`` input receives what is wired into it: one table on its own, or the one of several alternatives that ran, has nothing to match with."""
+    if len(places) == 1 and is_table_type(places[0][0][1].type):
+        return cell_at_the_row(tuple(ref for ref, _ in places[0]), places[0][0][1]._index)
+    return Merge(tuple(_read_of_merge_place(place, runs_per_row_of) for place in places), tuple(_copied_down([pair for place in places for pair in place])), tuple(tuple(sorted(carried)) for carried in _columns_carried_on(places)))
 
 
 def _copied_down(sources: list[tuple[Ref, CompiledField]]) -> list[Ref]:
@@ -334,19 +347,75 @@ def _copied_down(sources: list[tuple[Ref, CompiledField]]) -> list[Ref]:
     return [ref for ref, index in rows if index is not None and any(index != other and index in other.lineage for _, other in rows if other is not None)]
 
 
-def _merged_columns(sources: list[tuple[Ref, CompiledField]]) -> tuple[Column, ...] | None:
-    """The columns the merged table of ``sources`` has, named as the merge names them; ``None`` when a table among them names none."""
+def _sources_grouped_into_alternatives(pairs: list[tuple[Ref, CompiledField]], progress: CompileProgress) -> list[SourcesThatAreAlternatives]:
+    """The sources of a ``Table`` input, tables that are never at one row together in one place: the branch that ran is the table, with no merge."""
+    places: list[SourcesThatAreAlternatives] = []
+    for pair in pairs:
+        place = next((place for place in places if all(_are_alternatives(pair[1], source, progress) for _, source in place)), None)
+        if place is None:
+            places.append([pair])
+        else:
+            place.append(pair)
+    return places
+
+
+def _are_alternatives(left: CompiledField, right: CompiledField, progress: CompileProgress) -> bool:
+    """Two tables on one row where only one ever has a value: two outputs of one ``exclusive_group``, or what hangs off two branches of one decision."""
+    if not (is_table_type(left.type) and is_table_type(right.type)) or left._index != right._index:
+        return False
+    return _share_an_exclusive_group(left, right, progress) or can_never_both_hold(left.condition, right.condition)  # type: ignore[arg-type]  # an output has a condition
+
+
+def _share_an_exclusive_group(left: CompiledField, right: CompiledField, progress: CompileProgress) -> bool:
+    if left.ref.node_id != right.ref.node_id:
+        return False
+    interface = progress.compiled[left.ref.node_id].interface
+    assert interface is not None  # the node is wired
+    group_of = {out.name: out.exclusive_group for out in interface.outputs}
+    return group_of[left.ref.field] is not None and group_of[left.ref.field] == group_of[right.ref.field]
+
+
+def _columns_carried_on(places: list[SourcesThatAreAlternatives]) -> list[frozenset[int]]:
+    """Per place of a merge, the other places whose table its own table was made from: their columns of the same name are one column."""
+    made_from: list[frozenset[int]] = []
+    for position, place in enumerate(places):
+        origins = frozenset[str]().union(*(source._row_origins or frozenset() for _, source in place))
+        made_from.append(frozenset(
+            other for other, other_place in enumerate(places)
+            if other != position and all(holds_part_of_a_table(source) for _, source in (*place, *other_place))
+            and any((source._held_as.rows_made or source._index).id in origins for _, source in other_place)  # type: ignore[union-attr]  # what is part of a table has rows
+        ))
+    return made_from
+
+
+def _merged_columns(places: list[SourcesThatAreAlternatives]) -> tuple[Column, ...] | None:
+    """The columns the merged table of ``places`` has, named as the merge names them; ``None`` when a table among them names none."""
     columns_each: list[tuple[str, tuple[Column, ...]]] = []
-    for source_ref, source in sources:
-        if is_table_type(source.type):
-            columns = columns_of(source.type)
-            if not columns:
+    for place in places:
+        first = place[0][1]
+        column_name, output_name = names_in_a_merge(first)
+        if is_table_type(first.type):
+            columns = _columns_of_alternatives(place)
+            if columns is None:
                 return None
         else:
-            columns = ((source._title, source.type),)
-        columns_each.append((source_ref.node_id, columns))
-    renames = renames_in_merge((node_id, (name for name, _ in columns)) for node_id, columns in columns_each)
-    return tuple((renamed.get(name, name), dtype) for (_, columns), renamed in zip(columns_each, renames, strict=True) for name, dtype in columns)
+            columns = ((column_name, first.type),)
+        columns_each.append((output_name, columns))
+    carries = _columns_carried_on(places)
+    renames = renames_in_merge((output_name, (name for name, _ in columns), carried) for (output_name, columns), carried in zip(columns_each, carries, strict=True))
+    merged: dict[str, tuple[Any, int]] = {}
+    for position, ((_, columns), renamed) in enumerate(zip(columns_each, renames, strict=True)):
+        for name, dtype in columns:
+            final = renamed.get(name, name)
+            if final not in merged or len(carries[position]) > len(carries[merged[final][1]]):
+                merged[final] = (dtype, position)
+    return tuple((name, dtype) for name, (dtype, _) in merged.items())
+
+
+def _columns_of_alternatives(place: SourcesThatAreAlternatives) -> tuple[Column, ...] | None:
+    """The columns every table of ``place`` holds alike, what a call can count on whichever ran; ``None`` when none is known to."""
+    each = [columns_of(source.type) for _, source in place]
+    return tuple(column for column in each[0] if all(column in other for other in each[1:])) or None
 
 
 def _table_a_call_receives(target: Any, merged: tuple[Column, ...] | None) -> Any:
@@ -404,11 +473,12 @@ def _read_of_source_at_the_row(ref: Ref, source: CompiledField, runs_per_row_of:
     return rows_under_the_row((ref,), index, _depth_shared_with_row(index, runs_per_row_of) or 0)
 
 
-def _read_of_merge_source(ref: Ref, source: CompiledField, runs_per_row_of: Index | None) -> Cell | RowsUnder:
-    """How a call reads one source of a ``Table`` input: a table is the one at its row, or the one there is; a column is read as any source."""
+def _read_of_merge_place(place: SourcesThatAreAlternatives, runs_per_row_of: Index | None) -> Cell | RowsUnder:
+    """How a call reads one place of a ``Table`` input: a table is the one at its row, or the one there is, of the alternatives that ran; a column is read as any source."""
+    ref, source = place[0]
     if is_table_type(source.type):
         assert source._index is None or (runs_per_row_of is not None and source._index in runs_per_row_of.lineage)  # a table arriving per row put the node on its row, or was misaligned
-        return cell_at_the_row((ref,), source._index)
+        return cell_at_the_row(tuple(ref for ref, _ in place), source._index)
     return _read_of_source_at_the_row(ref, source, runs_per_row_of)
 
 

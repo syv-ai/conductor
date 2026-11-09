@@ -23,7 +23,7 @@ from conductor._internal.execution.values_of_run import (
     OneValue,
     TableAtRow,
 )
-from conductor._internal.field_records import Input, Output, was_titled_by_its_author
+from conductor._internal.field_records import Input, Output
 from conductor._internal.graph.binding import Binding, From
 from conductor._internal.graph.compiled_node import CompiledField, CompiledNode, Wiring
 from conductor._internal.graph.decide_rows_and_receive_modes import (
@@ -320,7 +320,7 @@ def _wiring_of_function_node(
             ref=Ref._from_checked_parts(node_id, input_.name), type=field_type.dtype, binding=node.bindings.get(input_.name), condition=None,
             problems=tuple(problems_by_field.get(input_.name, ())), _index=field_type.index, _receive_mode=inputs_read.receive_modes[input_.name],
             _held_as=ListOnNode(field_type.index, list(lists_set_on_inputs[input_.name])) if is_list_set_on_it else NotHeld(),  # type: ignore[arg-type]  # a list on a node has its index
-            _takes_blank=False, _title=input_.title if was_titled_by_its_author(input_) else input_.name,
+            _takes_blank=False,
             _row_origins=progress.row_origins.origins_of_rows_on(field_type.index) if is_list_set_on_it else None,
         )
     node_condition = condition_node_runs_under(node.bindings, _condition_lookup_for_sources(progress))
@@ -335,7 +335,7 @@ def _wiring_of_function_node(
             origins = progress.row_origins.record_table(table_rows_index, taken_in)
             fields[out.name] = CompiledField(
                 ref=ref, type=dtype, binding=None, condition=condition, problems=field_problems_here,
-                _index=runs_per_row_of, _receive_mode=None, _held_as=TableAtRow(table_rows_index), _takes_blank=takes_blank, _title=out.title if was_titled_by_its_author(out) else out.name, _row_origins=origins,
+                _index=runs_per_row_of, _receive_mode=None, _held_as=TableAtRow(table_rows_index), _takes_blank=takes_blank, _row_origins=origins,
             )
             for column, column_dtype in columns_of(dtype):
                 name = f"{out.name}.{column}"
@@ -343,13 +343,13 @@ def _wiring_of_function_node(
                     continue
                 fields[name] = CompiledField(
                     ref=Ref._from_checked_parts(node_id, name), type=column_dtype, binding=None, condition=condition, problems=(),
-                    _index=table_rows_index, _receive_mode=None, _held_as=ColumnOfTable(ref, column), _takes_blank=True, _title=column, _row_origins=origins,
+                    _index=table_rows_index, _receive_mode=None, _held_as=ColumnOfTable(ref, column), _takes_blank=True, _row_origins=origins,
                 )
             continue
         index = Index(str(ref), parent=runs_per_row_of) if out.many else runs_per_row_of
         fields[out.name] = CompiledField(
             ref=ref, type=dtype, binding=None, condition=condition, problems=field_problems_here,
-            _index=index, _receive_mode=None, _held_as=CellsInAList(index) if out.many else OneValue(), _takes_blank=takes_blank, _title=out.title if was_titled_by_its_author(out) else out.name,
+            _index=index, _receive_mode=None, _held_as=CellsInAList(index) if out.many else OneValue(), _takes_blank=takes_blank,
             _row_origins=progress.row_origins.origins_of_rows_on(index),
         )
     return Wiring(fields, runs_per_row_of)

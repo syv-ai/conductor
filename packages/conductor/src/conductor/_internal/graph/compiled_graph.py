@@ -92,6 +92,16 @@ if TYPE_CHECKING:
     from conductor._internal.registry import NodeRegistry
 
 
+def where_it_failed(failure: Problem) -> str:
+    """A failure in a sentence: the node, the row and the kind of exception it was, for an error read beside no state."""
+    if not failure.loc:
+        return failure.msg
+    node_id, *row = failure.loc
+    where = f"It stopped at node {node_id!r}" + (f", row {'.'.join(map(str, row))}" if row else "")
+    kind = failure.ctx.get("exception")
+    return f"{where}{f' ({kind})' if kind else ''}: {failure.msg} See state.failure and the 'conductor' log."
+
+
 def _place_of_offered_field(handle: Ref, graph: CompiledGraph) -> Ref:
     """Where the field ``handle`` names on a node that is ``graph`` is in the run: inside, at the node's path."""
     inside = graph._embeddable.inputs.get(handle.field) or graph._embeddable.outputs.get(handle.field)
@@ -220,7 +230,8 @@ class CompiledGraph:
         ``InvalidCallError``, code ``not_offered``, every such name at once.
         Each value becomes a ``Static`` on its input in a copy of the graph,
         which compiles against the same registry: a list on an input for one
-        value runs the graph once per item. A value its input's type can't
+        value runs the graph once per item. Only what the interface offers: a
+        caller's body can go here, and ``Graph.with_values`` is an author's. A value its input's type can't
         read is an ``invalid_static``, raised with any names it doesn't offer.
         The copy offers every input as this one does. Not a run.
         """
@@ -234,11 +245,7 @@ class CompiledGraph:
             if ref is not None:
                 statics_to_set.setdefault(ref.node_id, {})[ref.field] = Static(value)
                 written_as[ref.node_id, ref.field] = name
-        graph = self.graph.model_copy(update={"nodes": tuple(
-            node.model_copy(update={"bindings": {**node.bindings, **statics_to_set.get(node.id, {})}})
-            for node in self.graph.nodes
-        )})
-        refilled = CompiledGraph.from_graph(graph, self._registry)
+        refilled = CompiledGraph.from_graph(self.graph._with_statics(statics_to_set), self._registry)
         problems += [
             problem.model_copy(update={"loc": ("inputs", written_as[problem.loc])})  # type: ignore[index]
             for problem in refilled.problems if problem.type in ("invalid_static", "table_column_missing") and problem.loc in written_as
@@ -439,7 +446,7 @@ class CompiledGraph:
             failure = state.failure
             raise InvalidCallError([make_problem(
                 "run_not_complete", "state", "status", status=state.status,
-                reason="" if failure is None else failure.msg,
+                reason="" if failure is None else where_it_failed(failure),
                 failure=None if failure is None else failure.model_dump(mode="json"),
             )])
         where = self._where_each_output_is_in_the_run
@@ -470,8 +477,24 @@ class CompiledGraph:
         self._raise_unless_runnable()
         work_of_node = state.nodes
         changed = {node_id for node_id in self._execution_order if (work := work_of_node.get(node_id)) is None or work.fingerprint != self._nodes[node_id].fingerprint}
-        stale = changed | self._readers_of(changed)
-        return [node_id for node_id in self._execution_order if node_id in stale] + sorted(work_of_node.keys() - set(self._execution_order))
+        return self._with_their_readers(changed, state)
+
+    def _nodes_a_leg_runs_again(self, state: RunState, /) -> list[str]:
+        """What a leg starting from ``state`` runs again: every node changed since, and from a ``complete`` state
+        every node that reads the world (``Policy(reuse_when_inputs_match=False)``), each with what reads it.
+
+        A ``complete`` state is finished, so a leg from it is a new one. A leg from any other state
+        goes on with the same run, so a person's answer doesn't read a file again."""
+        changed = self._nodes_changed_since(state)
+        if state.status != "complete":
+            return changed
+        reading_the_world = {node_id for node_id in self._execution_order if not self._nodes[node_id].version.policy.reuse_when_inputs_match}  # type: ignore[union-attr]  # a node that runs is a function
+        return self._with_their_readers(set(changed) | reading_the_world, state)
+
+    def _with_their_readers(self, node_ids: set[str], state: RunState) -> list[str]:
+        """``node_ids`` and whatever reads them, in execution order, then the nodes ``state`` names that the graph doesn't have."""
+        stale = node_ids | self._readers_of(node_ids & set(self._execution_order))
+        return [node_id for node_id in self._execution_order if node_id in stale] + sorted(state.nodes.keys() - set(self._execution_order))
 
     def _readers_of(self, node_ids: Iterable[str]) -> set[str]:
         """Every node that reads a field of one of ``node_ids``, directly or

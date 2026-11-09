@@ -60,7 +60,7 @@ class Contact(TypedDict):
 Contacts = Table[Contact]
 In = Annotated[Txt, Param(title="In", widget=Textarea())]
 Wire = Annotated[Txt, Param(title="In")]
-Out = Annotated[Txt, Result(title="Out")]
+Out = Annotated[Txt, Result(title="result")]
 Parts = Annotated[Series[Txt], Result(title="Parts")]
 TableOut = Annotated[Contacts, Result(title="Table")]
 CALLS: list[Any] = []
@@ -438,11 +438,11 @@ def test_a_fresh_id_never_takes_one_a_later_row_holds():
     assert len(set(ids)) == 2 and ids[1] == "v.result:0"
 
 
-def test_a_merged_column_clashing_more_than_once_takes_the_next_free_name():
+def test_a_table_and_columns_of_it_wired_beside_it_are_one_table():
     compiled = compiled_of(n("c", "csv", k=Static("a,b")), n("m", "merged", table=From("c.result.name", "c.result", "c.result.name")))
     state = compiled.run_sync()
     assert state.status == "complete", state.failure
-    assert len(set(compiled.results(state)["m"]["result"].columns)) == 5
+    assert compiled.results(state)["m"]["result"].columns == ["__row", "name", "email"]
 
 
 # -- lists set on a node over no rows --------------------------------------------------
@@ -744,7 +744,7 @@ def test_a_table_passed_through_per_row_merges_row_by_row_under_each_parent():
     assert state.status == "complete", state.failure
     frame = compiled.results(state)["m"]["result"]
     assert frame.height == 4
-    assert frame.select("name", "Out").rows() == [("a", "A"), ("b", "B"), ("a", "A"), ("b", "B")]
+    assert frame.select("name", "result").rows() == [("a", "A"), ("b", "B"), ("a", "A"), ("b", "B")]
 
 
 def test_a_lookup_repeating_a_reference_row_under_two_parents_still_joins_the_reference_on_its_id():
@@ -755,7 +755,7 @@ def test_a_lookup_repeating_a_reference_row_under_two_parents_still_joins_the_re
     )
     state = compiled.run_sync()
     assert state.status == "complete", state.failure
-    rows = compiled.results(state)["m"]["result"].select("name", "email", "Out").rows()
+    rows = compiled.results(state)["m"]["result"].select("name", "email", "result").rows()
     assert sorted(rows, key=str) == sorted([("a", "x", "A"), ("a", "x", "A"), ("b", "y", None)], key=str)
 
 
@@ -772,7 +772,7 @@ def test_which_parent_a_repeated_id_lands_on_does_not_depend_on_which_finished_f
         n("m", "merged", table=From("h.result.name", "u.result")), registry=registry,
     )
     state = compiled.run_sync()
-    assert compiled.results(state)["m"]["result"].select("name", "Out").rows() == [("a", "A"), ("b", "B"), ("a", "A"), ("b", "B")]
+    assert compiled.results(state)["m"]["result"].select("name", "result").rows() == [("a", "A"), ("b", "B"), ("a", "A"), ("b", "B")]
 
 
 # -- an answer that keeps a table's ids; results straight after an answer -----------------

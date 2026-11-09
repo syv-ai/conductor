@@ -1,9 +1,9 @@
-"""Which rows can share ids: what a merge may expect, and what it may warn about, read off the edges.
+"""Which rows can share ids: what a merge may expect, and what it refuses, read off the edges.
 
 A row keeps its id as it passes through a node, so a table's rows can trace
 back to the tables wired into the node that returned it. That one fact gives
 two answers while compile walks forward: a merge of sources that can never
-share an id is the warning ``no_rows_in_common``, and a merge against a table
+share an id is the fatal ``no_rows_in_common``, and a merge against a table
 a source was built from makes that source's table ``row_ids_must_survive``:
 at run time, a return where no row kept its id is ``row_ids_lost``.
 
@@ -52,15 +52,18 @@ class RowOriginsSeen:
         self.origins_by_table_index[table_rows_index.id] = known
         return known
 
-    def check_merge(self, node_id: str, field_name: str, sources: list[tuple[Ref, CompiledField]]) -> list[Problem]:
-        """A merge of ``sources``: mark the tables it needs to keep their ids, and say if a source can never match."""
+    def check_merge(self, node_id: str, field_name: str, places: list[list[tuple[Ref, CompiledField]]]) -> list[Problem]:
+        """A merge of these sources, one place per set of alternatives: mark the tables it needs to keep their ids, and refuse a source that can never match. One place is no merge."""
+        if len(places) < 2:
+            return []
+        sources = [pair for place in places for pair in place]
         origins_each = [source._row_origins for _, source in sources]
         known = [origins for origins in origins_each if origins is not None]
         for origin in frozenset[str]().union(*known):
             built_from = (self.origins_by_table_index.get(origin) or frozenset()) - {origin}
             if any(built_from & other and origin not in other for other in known):
                 self.must_survive.add(Ref(origin))
-        if len(sources) < 2 or len(known) < len(origins_each):
+        if len(known) < len(origins_each):
             return []
         source_indexes = [source._held_as.rows_made or source._index for _, source in sources]
         parent_index_ids = [frozenset() if index is None else frozenset(step.id for step in index.lineage[:-1]) for index in source_indexes]

@@ -326,7 +326,7 @@ def test_a_reused_table_that_took_a_table_carries_the_ids_a_fresh_run_would() ->
 
 def test_a_reused_table_that_moved_lines_up_in_a_merge_with_what_was_called_afresh() -> None:
     @node("upper_text", category="test")
-    def upper_text(text: str) -> Annotated[str, Result(title="up")]:
+    def upper_text(text: str) -> Annotated[str, Result(name="up")]:
         return text.upper()
 
     reg = NodeRegistry([invoices, lines_of, keep_ends_2, upper_text, merge_all])
@@ -337,7 +337,7 @@ def test_a_reused_table_that_moved_lines_up_in_a_merge_with_what_was_called_afre
             n("l", "lines_of", amount=From("i.result.amount")),
             n("k", "keep_ends_2", lines=From("l.result")),
             n("u", "upper_text", text=From("k.result.text")),
-            n("m", "merge_all", t=From("k.result", "u.result")),
+            n("m", "merge_all", t=From("k.result", "u.up")),
         ]), reg)
 
     state = graph("A|a\nB|b\n").run_sync()
@@ -363,11 +363,11 @@ def test_equal_tables_are_the_same_work_whatever_was_filtered_away_to_make_them(
 
 def test_a_table_passed_through_per_row_merges_row_by_row_without_multiplying() -> None:
     @node("up_who", category="test")
-    def up_who(who: str) -> Annotated[str, Result(title="up")]:
+    def up_who(who: str) -> Annotated[str, Result(name="up")]:
         return who.upper()
 
     @node("low_who", category="test")
-    def low_who(who: str) -> Annotated[str, Result(title="low")]:
+    def low_who(who: str) -> Annotated[str, Result(name="low")]:
         return who.lower()
 
     reg = NodeRegistry([invoices, pass_table, same_again, up_who, low_who, merge_all])
@@ -379,7 +379,7 @@ def test_a_table_passed_through_per_row_merges_row_by_row_without_multiplying() 
         n("s", "same_again", t=From("p.result")),
         n("u", "up_who", who=From("p.result.who")),
         n("l", "low_who", who=From("s.result.who")),
-        n("m", "merge_all", t=From("u.result", "l.result")),
+        n("m", "merge_all", t=From("u.up", "l.low")),
     ]), reg)
 
     merged = compiled.results(compiled.run_sync())["m"]["result"]

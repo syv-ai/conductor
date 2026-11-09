@@ -7,11 +7,11 @@ can send one over the network as it is. ``RunStart`` is always first and
 ``RunEnd`` always last; ``RunEnd.state`` says how the leg ended. A leg asked for
 checkpoints also emits ``RunCheckpoint`` along the way.
 
-In Python, a value in ``NodeComplete.result`` is a typed value (``{"rows": [...], "values": [...]}``
+In Python, a value in ``NodeComplete.outputs`` is a typed value (``{"rows": [...], "values": [...]}``
 for an output holding many, ``ValuesOnRows``). ``model_dump(mode="json")``, ``model_dump_json()`` and
 ``TypeAdapter(Event).dump_json`` write any event as JSON, each value by its own
 type (see ``conductor.to_jsonable``), so a host sends one as it is.
-An event stands alone on the stream, so a table in one (in ``NodeComplete.result``, a
+An event stands alone on the stream, so a table in one (in ``NodeComplete.outputs``, a
 waiting unit's ``inputs``) is written whole. ``RunCheckpoint.state`` is a state, with its
 own ``tables``. ``RunEnd.state`` is the host's to keep and stays out of what the event
 writes, so a stream sends each value once and no state reaches a browser by default.
@@ -68,7 +68,7 @@ class NodeProgress(_EventBase):
 
 
 class NodeComplete(_EventBase):
-    """A node finished; ``result`` is its outputs by name: a value, or
+    """A node finished; ``outputs`` is its outputs by name: a value, or
     ``{"rows": [...], "values": [...]}`` for an output holding many. ``rows_not_called`` counts, per
     input, the rows the node wasn't called on because that input was blank.
     ``reused_units`` counts the units this leg took from an earlier finished
@@ -76,7 +76,7 @@ class NodeComplete(_EventBase):
 
     type: Literal["node_complete"] = "node_complete"
     node_id: str
-    result: dict[str, TypedValue]
+    outputs: dict[str, TypedValue]
     rows_not_called: dict[str, int] = Field(default_factory=dict)
     reused_units: int = 0
 

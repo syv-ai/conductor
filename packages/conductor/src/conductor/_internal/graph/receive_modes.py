@@ -71,7 +71,7 @@ class Cell:
     @property
     def _what_is_read(self) -> str:
         if self.rows_of is not None:
-            return f"the value at my row ({self.rows_of})"
+            return f"the value at my row ({' + '.join(self.sources)})"
         return f"the same value every row ({' + '.join(self.sources)})"
 
     def __str__(self) -> str:
@@ -104,8 +104,8 @@ class RowsUnder:
         if self.rows_of is None:
             return f"all of {' + '.join(self.sources)}"
         if self.grouped_under == self.rows_of:
-            return f"the value at my row ({self.rows_of})"
-        return f"all rows of {self.rows_of} under my row (grouped under {self.grouped_under})"
+            return f"the value at my row ({' + '.join(self.sources)})"
+        return f"all rows of {' + '.join(self.sources)} under my row (grouped under {self.grouped_under})"
 
     def __str__(self) -> str:
         if self.rows_of is None or self.grouped_under == self.rows_of:
@@ -178,19 +178,22 @@ class Merge:
     rows' ids: the rows are the deepest sources', a parent's value copied down
     onto each of them, and a parent row nothing sits under is not in the table.
     A ``Table`` input never makes its node run per row by itself, and its sources
-    never have to line up: rows that match nothing are blanks. A table wired in
-    alone is received as a ``Cell``.
+    never have to line up: rows that match nothing are blanks. Tables that are
+    alternatives, only one of them ever at a row, are one read of several
+    sources; a table wired in alone, or one set of alternatives, is a ``Cell``.
     """
 
     #: One read per source, in wiring order.
     source_reads: tuple[ReadOfSource, ...]
     #: The sources whose rows sit above another source's: copied down onto those rows.
     copied_down: tuple[Ref, ...]
+    #: Per source, the positions of the other sources whose columns its table was made from: a column of the same name is one column.
+    carries_columns_of: tuple[tuple[int, ...], ...]
     receive_mode: Literal["merged"] = "merged"
     kind: Literal["merge"] = "merge"
 
     def __str__(self) -> str:
-        return "merged: " + " + ".join(f"{read.sources[0]}{' [copied down]' if read.sources[0] in self.copied_down else ''}" for read in self.source_reads)
+        return "merged: " + " + ".join(f"{' or '.join(read.sources)}{' [copied down]' if read.sources[0] in self.copied_down else ''}" for read in self.source_reads)
 
 
 ReceiveMode = Annotated[Cell | RowsUnder | FixedValue | Gather | Merge, Field(discriminator="kind")]

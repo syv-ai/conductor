@@ -128,7 +128,7 @@ def test_a_run_is_started_followed_late_saved_answered_on_a_new_process_and_canc
         assert seen_late[-1] == {"type": "run_end", "status": "waiting"}
         assert "finished_units" not in json.dumps(seen_late)
         completed = next(frame for frame in seen_late if frame["type"] == "node_complete")
-        assert completed["result"]["result"] == "NaN"
+        assert completed["outputs"]["result"] == "NaN"
 
         read = (await first.client.get(f"/runs/{run_id}")).json()
         assert read["status"] == "waiting" and "state" not in read and "graph" not in read

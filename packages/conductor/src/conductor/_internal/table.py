@@ -25,7 +25,7 @@ built on — ``str`` a string column, ``float``, ``int``, ``bool``,
 itself (``DType.polars_column_type``) only where that base would be wrong, as a flag
 built on ``int`` does.
 
-Rows keep who they are. A table the engine stores carries a hidden column,
+Rows keep who they are. Every table the engine stores carries a column,
 ``__row``, holding each row's global id: the index it was made on and its
 row there (``contacts:0``, ``structured.invoices:0.1``). Polars keeps the
 column through a filter, a sort and a join, so a node that only narrows or
@@ -46,7 +46,7 @@ import datetime
 import hashlib
 import io
 import sys
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -58,19 +58,20 @@ from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, get_type_hint
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from pydantic_core import PydanticCustomError, PydanticSerializationError, core_schema
 
-from conductor._internal.dtype import DType, dtype_of
+from conductor._internal.dtype import DType, dtype_of, split_off_none
 from conductor._internal.errors import NodeDeclarationError
 from conductor._internal.index import Index, Row
-from conductor._internal.ref import NODE_PATH_SEPARATOR
 
 if TYPE_CHECKING:
     import polars as pl
     from pydantic import GetCoreSchemaHandler
 
-#: The hidden column of global row ids every stored table carries.
+#: The column of global row ids every stored table carries.
 ROW_ID_COLUMN = "__row"
 #: While a merge runs, the row above each row of a source whose index repeats an id.
 _GROUP_ROW_COLUMN = "__under_row"
+#: While a merge runs, what a column several related sources hold is kept as, per source, and that source's mark on each row it has.
+_CARRIED_COLUMN_PREFIX = "__carried_"
 #: The one key of what stands in a document for a table held under its digest.
 _TABLE_REFERENCE_KEY = "table"
 #: What a walk over a document's values passes by without looking inside.
@@ -218,13 +219,15 @@ class MergeSource:
     """One source of a merge, as a unit reads it: a frame with ``__row``, the
     index its rows are on, and each frame row's path on that index."""
 
-    #: The node it comes from, which a clashing column takes on (``name_crm``).
-    node_id: str
+    #: The output it comes from, which a clashing column takes on (``name_contacts``).
+    output_name: str
     frame: pl.DataFrame
     index: Index
     rows: Sequence[Row]
     #: Its rows sit above another source's, so it brings no rows and its values are copied down onto those.
     copied_down: bool
+    #: The positions of the other sources this one's table was made from: a column of the same name is one column.
+    carries_columns_of: Collection[int] = ()
 
 
 def one_column_frame_with_row_ids(name: str, dtype: type[DType], ids: list[str], values: list[Any]) -> pl.DataFrame:
@@ -260,7 +263,9 @@ def merge_tables_on_row_ids(sources: Sequence[MergeSource]) -> pl.DataFrame:
     joined in full, so a row only one of them has is kept with blanks beside
     it: sources on one index first, matching id and parent row, then the
     indexes in wiring order, on the id alone. A column a source shares with
-    what is already there keeps its name with the source's added (``name_crm``).
+    what is already there takes the name of its output (``name_contacts``),
+    unless one of the two tables was made from the other: then it is one
+    column, read from the most derived source that has the row.
     """
     import polars as pl
 
@@ -272,9 +277,10 @@ def merge_tables_on_row_ids(sources: Sequence[MergeSource]) -> pl.DataFrame:
 
     frames_with_unique_columns = [
         source.frame.rename(renames)
-        for source, renames in zip(sources, renames_in_merge((source.node_id, source.frame.columns) for source in sources), strict=True)
+        for source, renames in zip(sources, renames_in_merge((source.output_name, source.frame.columns, source.carries_columns_of) for source in sources), strict=True)
     ]
-    columns = [name for frame in frames_with_unique_columns for name in frame.columns if name != ROW_ID_COLUMN]
+    columns = list(dict.fromkeys(name for frame in frames_with_unique_columns for name in frame.columns if name != ROW_ID_COLUMN))
+    frames_with_unique_columns, read_one_column = _with_carried_columns_set_aside(frames_with_unique_columns, sources)
 
     repeating_ids = {source.index for source in sources if source.frame[ROW_ID_COLUMN].n_unique() < source.frame.height}
     with_own_rows: dict[Index, list[pl.DataFrame]] = {}
@@ -314,27 +320,66 @@ def merge_tables_on_row_ids(sources: Sequence[MergeSource]) -> pl.DataFrame:
     for index, frame in copied_down:
         key = _parent_row_id_column(index)
         merged = merged.join(frame.rename({ROW_ID_COLUMN: key}), on=key, how="left", maintain_order="left")
-    return merged.select(ROW_ID_COLUMN, *columns)
+    return merged.with_columns(*read_one_column.values()).select(ROW_ID_COLUMN, *columns)
 
 
-def renames_in_merge(sources: Iterable[tuple[str, Iterable[str]]]) -> list[dict[str, str]]:
+def _with_carried_columns_set_aside(frames: list[pl.DataFrame], sources: Sequence[MergeSource]) -> tuple[list[pl.DataFrame], dict[str, Any]]:
+    """Every column several related sources hold under one name, set aside so they can be joined, and the expression that reads it once.
+
+    The most derived source that has a row decides the row's cell, a blank included."""
+    import polars as pl
+
+    holders: dict[str, list[int]] = {}
+    for position, frame in enumerate(frames):
+        for name in frame.columns:
+            if name != ROW_ID_COLUMN:
+                holders.setdefault(name, []).append(position)
+    read_one_column: dict[str, Any] = {}
+    set_aside: dict[int, dict[str, str]] = {}
+    for name, positions in holders.items():
+        if len(positions) == 1:
+            continue
+        most_derived_first = sorted(positions, key=lambda position: -len(sources[position].carries_columns_of))
+        cell: Any = None
+        target = frames[most_derived_first[0]].schema[name]
+        for position in most_derived_first:
+            kept_as = f"{_CARRIED_COLUMN_PREFIX}{position}_{name}"
+            set_aside.setdefault(position, {})[name] = kept_as
+            value = pl.col(kept_as) if frames[position].schema[name] == target else pl.col(kept_as).cast(target, strict=False)
+            has_the_row = pl.col(f"{_CARRIED_COLUMN_PREFIX}{position}")
+            cell = pl.when(has_the_row).then(value) if cell is None else cell.when(has_the_row).then(value)
+        read_one_column[name] = cell.alias(name)
+    if not read_one_column:
+        return frames, {}
+    return [
+        frame.rename(set_aside[position]).with_columns(pl.lit(True).alias(f"{_CARRIED_COLUMN_PREFIX}{position}")) if position in set_aside else frame
+        for position, frame in enumerate(frames)
+    ], read_one_column
+
+
+def renames_in_merge(sources: Iterable[tuple[str, Iterable[str], Collection[int]]]) -> list[dict[str, str]]:
     """Per source, in wiring order, what each column that clashes is called in the
     merged table: the columns a run's frames hold, or what compile reads off the sources' types.
 
-    ``sources`` is each one's node id and column names. A column another
-    source already holds takes its node's own id, without the path of any graph
-    around it (``name_crm``, for ``crm`` or ``orders/crm``); every other keeps its
-    name. The one rule, so compile and the run can't call a column two things."""
-    taken: set[str] = set()
+    ``sources`` is each one's output name, column names and the positions of the sources its
+    table was made from. A column of a name another source holds is one column
+    when one of the two tables was made from the other, and takes its output's
+    name otherwise (``name_contacts``, or ``result_2`` for a column that is its output);
+    every other keeps its name. The one rule, so compile and the run can't call a column two things."""
+    sources = list(sources)
+    held_by: dict[str, list[int]] = {}
     renames: list[dict[str, str]] = []
-    for node_id, columns in sources:
+    for position, (output_name, columns, carried) in enumerate(sources):
         renamed: dict[str, str] = {}
         for name in columns:
             if name == ROW_ID_COLUMN:
                 continue
-            if name in taken:
-                renamed[name] = _first_free_name(f"{name}_{node_id.rpartition(NODE_PATH_SEPARATOR)[2]}", taken)
-            taken.add(renamed.get(name, name))
+            if name in held_by:
+                if any(holder in carried or position in sources[holder][2] for holder in held_by[name]):
+                    held_by[name].append(position)
+                    continue
+                renamed[name] = _first_free_name(name if name == output_name else f"{name}_{output_name}", held_by)
+            held_by.setdefault(renamed.get(name, name), []).append(position)
         renames.append(renamed)
     return renames
 
@@ -377,7 +422,7 @@ def _schema_as_read(table_type: type[Table]) -> dict[str, pl.DataType]:
     return {ROW_ID_COLUMN: pl.String(), **{name: polars_type_of(dtype) for name, dtype in table_type.columns}}
 
 
-def _first_free_name(wanted: str, taken: set[str]) -> str:
+def _first_free_name(wanted: str, taken: Collection[str]) -> str:
     """``wanted``, or ``wanted_2``, ``wanted_3`` and on when an earlier column holds it."""
     name, n = wanted, 1
     while name in taken:
@@ -399,7 +444,7 @@ RowsOf = TypeVar("RowsOf")
 
 
 class Table(DType, Generic[RowsOf]):
-    """The type of a whole table in a signature: its value is a Polars ``DataFrame``, its hidden ``__row`` column the ids of its rows.
+    """The type of a whole table in a signature: its value is a Polars ``DataFrame``, its ``__row`` column the ids of its rows.
 
     Has no instances. A value is read as it enters a run: a ``DataFrame``, a
     list of records or a table's JSON form; a table type with columns reads
@@ -519,7 +564,7 @@ def table_with_columns(columns: Mapping[str, Any], *, base: type[Table[Any]] | N
     cls = Table if base is None else base
     declared: list[Column] = []
     for name, written in columns.items():
-        dtype = dtype_of(written)
+        dtype = dtype_of(split_off_none(written)[0])
         if not isinstance(name, str) or dtype is None:
             raise NodeDeclarationError(f"a column is a name and a scalar type, got {name!r}: {written!r}", code="table_column_invalid")
         if name == ROW_ID_COLUMN:

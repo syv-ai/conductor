@@ -7,20 +7,35 @@ from dataclasses import dataclass
 from typing import Annotated, Any, TypedDict
 
 import polars as pl
+import pytest
 from conductor import (
+    OPEN,
     SKIPPED,
+    AskPerson,
     CompiledGraph,
     From,
+    FromRun,
     Graph,
     GraphNode,
+    InvalidCallError,
+    NodeDeclarationError,
     NodeRegistry,
     Param,
+    Policy,
+    Result,
     RunState,
     Series,
+    Static,
     Table,
     node,
+    table_with_columns,
 )
 from pydantic import BaseModel
+
+
+@dataclass(frozen=True)
+class _RunBy:
+    name: str
 
 
 def _compiled(*placed: GraphNode, nodes: list[Any]) -> CompiledGraph:
@@ -175,3 +190,270 @@ def test_an_open_series_input_keeps_every_edge_in_step() -> None:
     placed = GraphNode(id="z", type="zip-open", version=1, bindings={"a": From("up.result"), "b": From("low.result")})
     compiled = _two_columns_with_skips(placed)
     assert compiled.results(compiled.run_sync())["z"]["result"] == "IDA/ida,None/bo,NINA/None"
+
+
+# -- a node that reads the world ----------------------------------------------
+
+
+_FILE: dict[str, str] = {}
+_CALLS: dict[str, int] = {}
+_SEEN_ROWS: list[str] = []
+
+
+@node("read-file", policy=Policy(reuse_when_inputs_match=False))
+def _read_file(path: str) -> Series[str]:
+    _CALLS["read"] = _CALLS.get("read", 0) + 1
+    return _FILE[path].splitlines()
+
+
+@node("mail-line")
+def _mail_line(line: str) -> str:
+    _SEEN_ROWS.append(line)
+    return f"sent {line}"
+
+
+@node("ask-line")
+def _ask_line(line: str) -> str | AskPerson:
+    return AskPerson()
+
+
+def _file_flow(*extra: GraphNode, nodes: tuple[Any, ...] = ()) -> CompiledGraph:
+    _CALLS.clear()
+    _SEEN_ROWS.clear()
+    return _compiled(_read_file.graph_node("read", path="a.csv"), _mail_line.graph_node("mail", line=From("read.result")), *extra, nodes=[_read_file, _mail_line, *nodes])
+
+
+def test_a_node_that_reads_the_world_is_called_again_on_a_new_leg_from_a_complete_state() -> None:
+    _FILE["a.csv"] = "ida\nbo\n"
+    compiled = _file_flow()
+    state = compiled.run_sync()
+    _FILE["a.csv"] = "ida\nbo\nnina\n"
+    _SEEN_ROWS.clear()
+
+    again = compiled.run_sync(RunState.model_validate_json(state.model_dump_json()))
+
+    assert again.status == "complete" and _CALLS["read"] == 2
+    assert compiled.results(again)["mail"]["result"]["values"] == ["sent ida", "sent bo", "sent nina"]
+    assert _SEEN_ROWS == ["nina"]  # below it rows still reuse
+
+
+def test_a_node_that_reads_the_world_is_not_read_again_when_a_run_goes_on_from_waiting() -> None:
+    _FILE["a.csv"] = "ida\n"
+    compiled = _file_flow(_ask_line.graph_node("ask", line=From("read.result")), nodes=(_ask_line,))
+    paused = compiled.run_sync()
+    assert paused.status == "waiting"
+    _FILE["a.csv"] = "changed\n"
+
+    done = compiled.run_sync(compiled.answer(paused, {paused.waiting[0].id: {"result": "ok"}}))
+
+    assert done.status == "complete" and _CALLS["read"] == 1
+
+
+def test_outputs_of_a_complete_state_are_still_read_for_a_node_that_reads_the_world() -> None:
+    _FILE["a.csv"] = "ida\n"
+    compiled = _file_flow()
+    assert compiled.outputs(compiled.run_sync()) == {"mail.result": {"rows": [(0,)], "values": ["sent ida"]}}
+
+
+# -- outputs that are alternatives ------------------------------------------------
+
+
+class _Named(TypedDict):
+    name: str
+
+
+class _Route(TypedDict):
+    route: str
+
+
+@dataclass(frozen=True)
+class _Routes:
+    yes: Annotated[Table[_Named], Result(exclusive_group="r")]
+    no: Annotated[Table[_Named], Result(exclusive_group="r")]
+
+
+@node("route-once")
+def _route_once(go: bool) -> _Routes:
+    frame = pl.DataFrame({"name": ["taken"]})
+    return _Routes(frame, SKIPPED) if go else _Routes(SKIPPED, frame)  # type: ignore[arg-type]
+
+
+@node("flags")
+def _flags() -> Series[bool]:
+    return [True, False]
+
+
+@node("show-table")
+def _show_table(table: Table) -> str:
+    return ",".join(table["name"].to_list()) + "|" + ",".join(name for name in table.columns if not name.startswith("__"))
+
+
+@node("copy-table")
+def _copy_table(table: Table[_Named]) -> Table[_Named]:
+    return table
+
+
+def test_alternative_tables_into_one_table_input_are_the_branch_that_ran() -> None:
+    for go in (True, False):
+        compiled = _compiled(_route_once.graph_node("r", go=go), _show_table.graph_node("s", table=From("r.yes", "r.no")), nodes=[_route_once, _show_table])
+        assert compiled.run_plan.nodes["s"].inputs["table"].kind == "cell"
+        assert compiled.results(compiled.run_sync())["s"]["result"] == "taken|name"
+
+
+def test_alternatives_per_row_take_the_branch_each_row_took() -> None:
+    compiled = _compiled(_flags.graph_node("f"), _route_once.graph_node("r", go=From("f.result")), _show_table.graph_node("s", table=From("r.yes", "r.no")), nodes=[_flags, _route_once, _show_table])
+    assert compiled.results(compiled.run_sync())["s"]["result"]["values"] == ["taken|name", "taken|name"]
+
+
+def test_what_hangs_off_two_branches_is_also_the_branch_that_ran() -> None:
+    compiled = _compiled(
+        _route_once.graph_node("r", go=False), _copy_table.graph_node("a", table=From("r.yes")), _copy_table.graph_node("b", table=From("r.no")),
+        _show_table.graph_node("s", table=From("a.result", "b.result")), nodes=[_route_once, _copy_table, _show_table],
+    )
+    assert compiled.is_runnable, compiled.problems
+    assert compiled.results(compiled.run_sync())["s"]["result"] == "taken|name"
+
+
+# -- what a merged column is called -----------------------------------------------
+
+
+class _Contact(TypedDict):
+    name: str
+    email: str
+
+
+@node("contacts")
+def _contacts() -> Table[_Contact]:
+    return pl.DataFrame({"name": ["Ida", "Bo", "Nina"], "email": ["i", "b", "n"]})
+
+
+@node("first-two")
+def _first_two(contacts: Table[_Contact]) -> Table[_Contact]:
+    """Keeps two rows, and writes one blank and one new value into a column it carries on."""
+    return contacts.head(2).with_columns(pl.Series("email", [None, "B"]))
+
+
+@node("sent-to")
+def _sent_to(email: str) -> Annotated[str, Result(title="Sendt")]:
+    return f"to {email}"
+
+
+@node("shout")
+def _shout(name: str) -> str:
+    return name.upper()
+
+
+@node("sheet-of")
+def _sheet_of(table: Table) -> Table:
+    return table
+
+
+def _sheet_from(*placed: GraphNode, wired: tuple[str, ...]) -> tuple[CompiledGraph, pl.DataFrame]:
+    compiled = _compiled(*placed, _sheet_of.graph_node("sheet", table=From(*wired)), nodes=[_contacts, _first_two, _sent_to, _shout, _sheet_of])
+    return compiled, compiled.results(compiled.run_sync())["sheet"]["result"].drop("__row")
+
+
+def test_a_column_a_derived_table_carries_is_one_column_beside_its_source() -> None:
+    compiled, sheet = _sheet_from(_contacts.graph_node("c"), _first_two.graph_node("p", contacts=From("c.result")), wired=("c.result", "p.result"))
+    assert sheet.columns == ["name", "email"] == [name for name, _ in compiled.field("sheet.table").type.columns]
+    assert sheet.to_dicts() == [{"name": "Ida", "email": None}, {"name": "Bo", "email": "B"}, {"name": "Nina", "email": "n"}]
+
+
+def test_a_column_named_after_its_output_never_its_title() -> None:
+    _, sheet = _sheet_from(_contacts.graph_node("c"), _sent_to.graph_node("m", email=From("c.result.email")), wired=("c.result", "m.result"))
+    assert sheet.columns == ["name", "email", "result"]
+
+
+def test_a_real_clash_takes_the_outputs_name_in_wiring_order() -> None:
+    _, sheet = _sheet_from(
+        _contacts.graph_node("c"), _sent_to.graph_node("m", email=From("c.result.email")), _shout.graph_node("loud", name=From("c.result.name")),
+        wired=("c.result", "m.result", "loud.result"),
+    )
+    assert sheet.columns == ["name", "email", "result", "result_2"]
+
+
+# -- placing a node, in the checker's eye ---------------------------------------------
+
+
+@node("open-text")
+def _open_text(text: str, suffix: str) -> str:
+    return text + suffix
+
+
+@node("who-runs")
+def _who_runs(greeting: str, who: FromRun[_RunBy]) -> str:
+    return f"{greeting} {who.name}"
+
+
+def test_open_leaves_an_input_with_nothing_on_it_and_the_placed_node_has_no_binding() -> None:
+    placed = _open_text.graph_node("t", text=OPEN, suffix="!")
+    assert set(placed.bindings) == {"suffix"}
+    compiled = _compiled(placed, nodes=[_open_text])
+    ready = compiled.with_inputs(text="hi")
+    assert ready.outputs(ready.run_sync()) == {"t.result": "hi!"}
+
+
+def test_open_is_how_a_from_run_input_is_placed() -> None:
+    compiled = _compiled(_who_runs.graph_node("h", greeting="hej", who=OPEN), nodes=[_who_runs])
+    assert compiled.outputs(compiled.run_sync(from_run={_RunBy: _RunBy("Ida")})) == {"h.result": "hej Ida"}
+
+
+def test_with_values_types_a_value_in_anywhere_and_refuses_an_address_it_cant_set() -> None:
+    graph = Graph(nodes=[_open_text.graph_node("a", text="x", suffix="!"), _open_text.graph_node("b", text=From("a.result"), suffix="?")])
+    assert graph.with_values({"b.suffix": "!!"}).nodes[1].bindings["suffix"] == Static("!!")
+    with pytest.raises(InvalidCallError) as refused:
+        graph.with_values({"nope.text": 1, "b.text": 2, "bad": 3})
+    assert [problem.type for problem in refused.value.errors()] == ["not_offered"] * 3
+
+
+def test_a_compiled_graph_does_not_offer_a_value_with_inputs_doesnt_take() -> None:
+    graph = Graph(nodes=[_open_text.graph_node("a", text="x", suffix="!"), _open_text.graph_node("b", text=From("a.result"), suffix=OPEN)])
+    compiled = CompiledGraph.from_graph(graph, NodeRegistry([_open_text]))
+    with pytest.raises(InvalidCallError, match="not_offered"):
+        compiled.with_inputs(**{"a.suffix": "!!", "a.nope": 1})
+
+
+def test_a_table_typed_dict_may_say_a_column_can_be_blank() -> None:
+    class Person(TypedDict):
+        age: int | None
+
+    assert Table[Person] is table_with_columns({"age": int})
+
+
+# -- what an error says -------------------------------------------------------------
+
+
+@node("three-letters")
+def _three_letters() -> Series[str]:
+    return ["a", "b", "c"]
+
+
+@node("boom-at-one")
+def _boom_at_one(n: str) -> str:
+    if n == "b":
+        raise ValueError("no")
+    return n
+
+
+def test_a_failed_runs_outputs_error_names_the_node_and_the_row() -> None:
+    compiled = _compiled(_three_letters.graph_node("p"), _boom_at_one.graph_node("r", n=From("p.result")), nodes=[_three_letters, _boom_at_one])
+    state = compiled.run_sync()
+    with pytest.raises(InvalidCallError, match=r"node 'r', row 1 \(ValueError\)"):
+        compiled.outputs(state)
+
+
+def test_a_typo_in_graph_node_names_the_node_and_its_inputs() -> None:
+    with pytest.raises(TypeError, match="'open-text' placed as 'x'.*text, suffix"):
+        _open_text.graph_node("x", txt="y")  # type: ignore[call-arg]
+
+
+def test_an_unknown_param_argument_is_called_unknown() -> None:
+    with pytest.raises(NodeDeclarationError, match="no argument 'titel'"):
+        Param(titel="Text")  # type: ignore[call-arg]
+
+
+def test_a_plan_reads_like_what_a_node_was_wired_to() -> None:
+    compiled = _compiled(_contacts.graph_node("c"), _shout.graph_node("loud", name=From("c.result.name")), nodes=[_contacts, _shout])
+    assert "c.result.name" in str(compiled.run_plan)
+    once = _compiled(_open_text.graph_node("a", text="x", suffix="y"), _open_text.graph_node("b", text=From("a.result"), suffix="!"), nodes=[_open_text])
+    assert "text: a.result" in str(once.run_plan)

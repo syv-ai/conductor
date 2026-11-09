@@ -71,7 +71,7 @@ def _compiled(text: str) -> CompiledGraph:
 
 #: Every event's fields and required fields, by its ``type``.
 SHAPES = {
-    "node_complete": (["node_id", "result", "reused_units", "rows_not_called", "type"], ["node_id", "result", "reused_units", "rows_not_called", "type"]),
+    "node_complete": (["node_id", "outputs", "reused_units", "rows_not_called", "type"], ["node_id", "outputs", "reused_units", "rows_not_called", "type"]),
     "node_failed": (["cause", "node_id", "type"], ["cause", "node_id", "type"]),
     "node_progress": (["done", "node_id", "total", "type"], ["done", "node_id", "total", "type"]),
     "node_retry": (
@@ -142,7 +142,7 @@ def test_the_union_reads_an_event_back_by_its_type():
 def test_a_frame_is_the_json_the_dict_was():
     """An event's JSON is the dict's JSON; a series keeps its index and rows."""
     event = NodeComplete(
-        type="node_complete", node_id="s", result={"result": {"rows": [(0,)], "values": [Txt("a")]}}
+        type="node_complete", node_id="s", outputs={"result": {"rows": [(0,)], "values": [Txt("a")]}}
     )
 
     assert json.loads(event.model_dump_json()) == {
@@ -150,7 +150,7 @@ def test_a_frame_is_the_json_the_dict_was():
         "rows_not_called": {},
         "reused_units": 0,
         "node_id": "s",
-        "result": {"result": {"rows": [[0]], "values": ["a"]}},
+        "outputs": {"result": {"rows": [[0]], "values": ["a"]}},
     }
 
 
@@ -193,7 +193,7 @@ def _every_event() -> list[Event]:
         RunStart(waiting=(unit,)),
         NodeStart(node_id="n"),
         NodeProgress(node_id="n", done=1, total=None),
-        NodeComplete(node_id="n", result=values),
+        NodeComplete(node_id="n", outputs=values),
         NodeSkipped(node_id="n"),
         NodeFailed(node_id="n", cause=Problem(type="boom", msg="Boom.", loc=("n",), ctx={"seen": float("nan")})),
         NodeRetry(node_id="n", row=(), attempt=1, retries=2, error="e", delay=0.5),
@@ -211,9 +211,9 @@ def test_every_event_writes_itself_as_json_and_a_strict_parser_reads_it(event):
 
 
 def test_a_frame_of_values_is_written_whole_with_one_rule_for_a_float_that_is_not_finite():
-    event = NodeComplete(node_id="n", result=_holding_many_values_a_frame_and_a_nan())
+    event = NodeComplete(node_id="n", outputs=_holding_many_values_a_frame_and_a_nan())
 
-    written = _strict(event.model_dump_json())["result"]
+    written = _strict(event.model_dump_json())["outputs"]
 
     assert written["nan"] == "NaN"
     assert written["many"] == {"rows": [[0], [1]], "values": ["NaN", 1.5]}

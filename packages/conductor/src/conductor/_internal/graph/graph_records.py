@@ -24,7 +24,9 @@ from typing import Any
 from pydantic import Field, field_validator
 
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.graph.binding import Binding
+from conductor._internal.errors import InvalidCallError, Problem, make_problem
+from conductor._internal.graph.binding import Binding, From, Static
+from conductor._internal.ref import Ref
 
 
 class FieldContent(ConductorModel):
@@ -100,3 +102,39 @@ class Graph(ConductorModel):
     @classmethod
     def _nodes_as_tuple(cls, nodes: Sequence[GraphNode]) -> tuple[GraphNode, ...]:
         return tuple(nodes)
+
+    def with_values(self, values: Mapping[str, Any], /) -> Graph:
+        """A copy with these values typed in, each on the input at its address, anywhere in the graph::
+
+            graph = graph.with_values({"mail.greeting": "hello"})
+
+        An author's tool: ``CompiledGraph.with_inputs`` is what fills what a graph offers
+        a caller. An address on no node, or on an input an edge feeds, raises
+        ``InvalidCallError``, code ``not_offered``, every such address at once; a value its
+        input can't read is what compile says of it."""
+        nodes = {node.id: node for node in self.nodes}
+        statics: dict[str, dict[str, Static]] = {}
+        problems: list[Problem] = []
+        for address, value in values.items():
+            try:
+                ref = Ref(address)
+            except ValueError:
+                problems.append(make_problem("not_offered", "values", address, reason=f"{address!r} is not an address; one reads 'node.field'", offered=[]))
+                continue
+            node = nodes.get(ref.node_id)
+            if node is None:
+                problems.append(make_problem("not_offered", "values", address, reason=f"{ref.node_id!r} is not a node of this graph", offered=sorted(nodes)))
+            elif isinstance(node.bindings.get(ref.field), From):
+                problems.append(make_problem("not_offered", "values", address, reason=f"{address!r} is fed by an edge; a value goes on an input nothing feeds", offered=[]))
+            else:
+                statics.setdefault(ref.node_id, {})[ref.field] = Static(value)
+        if problems:
+            raise InvalidCallError(problems)
+        return self._with_statics(statics)
+
+    def _with_statics(self, statics: Mapping[str, Mapping[str, Static]]) -> Graph:
+        """A copy with these bindings set, by node id and input: the one way a value gets written onto a graph."""
+        return self.model_copy(update={"nodes": tuple(
+            node.model_copy(update={"bindings": {**node.bindings, **statics.get(node.id, {})}})
+            for node in self.nodes
+        )})

@@ -103,6 +103,11 @@ def _all_of(left: Condition, right: Condition) -> Condition:
     )
 
 
+def can_never_both_hold(left: Condition, right: Condition) -> bool:
+    """Is every way ``left`` can hold a way ``right`` can't? Then at most one of the two ever has a value."""
+    return bool(left) and bool(right) and not any(no_decision_goes_two_ways(left_alternative | right_alternative) for left_alternative in left for right_alternative in right)
+
+
 def no_decision_goes_two_ways(alternative: frozenset[BranchTaken]) -> bool:
     """No decision named twice with two different outputs."""
     taken: dict[tuple[str, str], str] = {}

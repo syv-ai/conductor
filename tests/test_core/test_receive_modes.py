@@ -1,6 +1,8 @@
 """The record compile hands the run for each input: read against a small ledger, written out and read back, and a table on its own passed through."""
 
 
+from typing import TypedDict
+
 import polars as pl
 from conductor import (
     CompiledGraph,
@@ -50,6 +52,15 @@ def records(n: int = 2) -> Table:
 seen: list[pl.DataFrame] = []
 
 
+class _Record(TypedDict):
+    a: str
+
+
+@node("typed_records")
+def typed_records(n: int = 2) -> Table[_Record]:
+    return pl.DataFrame({"a": [str(i) for i in range(n)]})
+
+
 @node("hold")
 def hold(table: Table) -> Table:
     seen.append(table)
@@ -61,7 +72,7 @@ def join_two_tables(left: Series[str], right: str = "x") -> str:
     return right + "+".join(left)
 
 
-REGISTRY = NodeRegistry([words, upper, join, records, hold, join_two_tables])
+REGISTRY = NodeRegistry([words, upper, join, records, typed_records, hold, join_two_tables])
 
 
 def _gn(node_id, node_type, **bindings):
@@ -134,10 +145,10 @@ def test_gather_collects_under_the_row_it_was_given():
 
 
 def test_a_merge_reads_each_source_as_its_own_record():
-    frame = pl.DataFrame({"__row": ["r.result:0"], "a": [1]})
-    compiled = _compiled(_gn("w", "words"), _gn("r", "records"), _gn("h", "hold", table=From("r.result", "w.result")))
+    frame = pl.DataFrame({"__row": ["r.result:0"], "a": ["1"]})
+    compiled = _compiled(_gn("r", "typed_records"), _gn("up", "upper", text=From("r.result.a")), _gn("h", "hold", table=From("r.result", "up.result")))
     mode = compiled.field("h.table")._receive_mode
-    ledger = _ledger_after(compiled, (("r", ()), {"result": frame}), (("w", ()), {"result": ["x"]}))
+    ledger = _ledger_after(compiled, (("r", ()), {"result": frame}), (("up", (0,)), {"result": "x"}))
 
     assert isinstance(mode, Merge) and [part.kind for part in mode.source_reads] == ["cell", "rows_under"]
     assert ledger.read_input(mode, ("h", ())).columns == ["__row", "a", "result"]

@@ -80,6 +80,7 @@ from conductor._internal.execution.values_of_run import (
     TableAtRow,
     ValuesOfRun,
     blank_of,
+    names_in_a_merge,
     output_column_of,
     read_output_column,
     value_for_another_row,
@@ -141,7 +142,7 @@ class BlankInputsStopCall:
     """This unit does not run: a blank reached these inputs, which take none.
 
     A blank is a value: ``None`` in a table's cell or written by a node. Its
-    outputs are blank at that row, a ``choice`` output is skipped (no branch
+    outputs are blank at that row, an ``exclusive_group`` output is skipped (no branch
     was chosen), and an output that makes rows has no rows there. A
     ``Series[X]`` input leaves blanks out row by row. A unit is checked in
     this order: not ready, skip, blank.
@@ -455,27 +456,28 @@ class RunLedger:
         """The one table this unit receives from every source of a ``Table`` input, or
         ``None`` when every source is skipped there. Reads each source by its own record;
         ``conductor._internal.table.merge_tables_on_row_ids`` matches them. A skipped source
-        has no rows and still counts as a source."""
+        has no rows and still counts as a source, and of tables that are alternatives the one that ran is read."""
         row = unit[1]
         sources: list[MergeSource] = []
         skipped = 0
-        for read in receive_mode.source_reads:
-            (source,) = read.sources
-            field = self._fields[source]
+        for read, carried in zip(receive_mode.source_reads, receive_mode.carries_columns_of, strict=True):
             group_row = row[: read.depth]
+            source = next((ref for ref in read.sources if self._value_or_skip_at(ref, group_row)[0] is not SKIPPED), read.sources[0])
+            field = self._fields[source]
+            output_name = names_in_a_merge(self._fields[read.sources[0]])[1]
             copied_down = source in receive_mode.copied_down
             stored, _ = self._value_or_skip_at(source, group_row)
             is_skip = stored is SKIPPED
             skipped += is_skip
             if read.__class__ is Cell:  # a table: its rows are the ones it holds
                 frame = blank_of(field) if is_skip else stored
-                sources.append(MergeSource(source.node_id, frame, field._held_as.rows_made, [(*group_row, position) for position in range(frame.height)], copied_down))  # type: ignore[arg-type]
+                sources.append(MergeSource(output_name, frame, field._held_as.rows_made, [(*group_row, position) for position in range(frame.height)], copied_down, carried))  # type: ignore[arg-type]
                 continue
             index: Index = field._index  # type: ignore[assignment]
             rows, values = self._rows_and_values_on(unit[0], read.sources, group_row)
             row_id_at = self._values.row_id
-            frame = one_column_frame_with_row_ids(field._title, field.type, [row_id_at(index, row) for row in rows], values)
-            sources.append(MergeSource(source.node_id, frame, index, rows, copied_down))
+            frame = one_column_frame_with_row_ids(names_in_a_merge(field)[0], field.type, [row_id_at(index, row) for row in rows], values)
+            sources.append(MergeSource(output_name, frame, index, rows, copied_down, carried))
         return None if skipped == len(sources) else merge_tables_on_row_ids(sources)
 
     def _values_covering_row(self, node_id: str, refs: tuple[Ref, ...], row: Row) -> tuple[list[Any], list[Row]]:
@@ -642,7 +644,7 @@ class RunLedger:
         rows_not_called = self._rows_not_called.get(node_id, {})
         if result is None and not rows_not_called:
             return NodeSkipped(node_id=node_id)
-        return NodeComplete(node_id=node_id, result=result or {}, rows_not_called=rows_not_called, reused_units=self._reused_units.get(node_id, 0))
+        return NodeComplete(node_id=node_id, outputs=result or {}, rows_not_called=rows_not_called, reused_units=self._reused_units.get(node_id, 0))
 
     # -- waiting on a person ---------------------------------------------
 
@@ -837,7 +839,7 @@ class RunLedger:
     def restore(cls, compiled: CompiledGraph, state: RunState) -> RunLedger:
         """A ledger holding what an earlier leg recorded, over the graph being run.
 
-        Every node ``compiled._nodes_changed_since(state)`` names is re-planned:
+        Every node ``compiled._nodes_a_leg_runs_again(state)`` names is re-planned:
         its units run again, each one reusing an earlier result whose inputs
         matched, what the state holds of them read here; a node gone from the
         graph drops with them. The rest is restored, each value through its
@@ -854,7 +856,7 @@ class RunLedger:
         blank is a legal value in a state.
         """
         restored = cls(compiled)
-        changed = set(compiled._nodes_changed_since(state))
+        changed = set(compiled._nodes_a_leg_runs_again(state))
         problems = restored._values.read_state(compiled, state, changed)
         if problems:
             raise InvalidCallError(problems)

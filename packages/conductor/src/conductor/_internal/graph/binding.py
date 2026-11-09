@@ -120,3 +120,15 @@ def static_values(bindings: Mapping[str, Binding]) -> dict[str, Any]:
         for name, binding in bindings.items()
         if isinstance(binding, Static)
     }
+
+
+class _OpenInput:
+    """The value ``OPEN`` stands for: an input a graph node is placed with nothing on it."""
+
+    def __repr__(self) -> str:
+        return "OPEN"
+
+
+#: Written for an input at ``node.graph_node(id, text=OPEN)``: nothing is set on it, for the caller
+#: to fill or the run to supply (``FromRun``). The argument a type checker reads; the placed node has no binding.
+OPEN: Any = _OpenInput()

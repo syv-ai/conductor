@@ -30,7 +30,7 @@ from conductor._internal.execution.run_state import (
     WorkOfNode,
 )
 from conductor._internal.field_records import Input, Output, Param, Result
-from conductor._internal.graph.binding import Binding, From, Static
+from conductor._internal.graph.binding import OPEN, Binding, From, Static
 from conductor._internal.graph.compiled_graph import CompiledGraph
 from conductor._internal.graph.compiled_node import CompiledField, CompiledNode, NodeState
 from conductor._internal.graph.graph_description import (
@@ -72,6 +72,7 @@ else:
 __all__ = [
     "ALWAYS",
     "NEVER",
+    "OPEN",
     "PROBLEM_CODES",
     "ROW_ID_COLUMN",
     "SKIPPED",

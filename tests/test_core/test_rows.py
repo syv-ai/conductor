@@ -507,7 +507,7 @@ def test_node_complete_carries_the_series():
     events = _events([_docs("a,b"), GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))})])
 
     (done,) = [e for e in events if e.type == "node_complete" and e.node_id == "up"]
-    assert done.result["result"]["values"] == ["A", "B"]
+    assert done.outputs["result"]["values"] == ["A", "B"]
     assert events[-1].state.status == "complete"
 
 

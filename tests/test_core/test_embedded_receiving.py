@@ -249,7 +249,7 @@ def test_run_plan_says_how_each_gathered_source_is_read():
     assert [(read.receive_mode, read.rows_of, read.depth) for read in gather.source_reads] == [
         ("all_rows_under_row", "a.result", 1), ("all_rows_under_row", "s.text", 1), ("entire_value", None, 0),
     ]
-    assert str(gather) == "collected into one list: all rows of a.result under my row (grouped under s.text) + the value at my row (s.text) + all of o.result"
+    assert str(gather) == "collected into one list: all rows of a.result under my row (grouped under s.text) + the value at my row (s.result) + all of o.result"
 
 
 def test_a_merge_cannot_hold_a_per_row_table_on_rows_the_node_does_not_sit_on():
@@ -361,15 +361,15 @@ def test_resuming_when_the_rows_above_a_static_only_inner_node_change(values):
 
 
 def _merge_inside() -> list[GraphNode]:
-    return [n("m", "people"), n("i1", "people", text=Static("o")), n("t", "merged_columns", table=From("m.result", "i1.result"))]
+    return [n("m", "people"), n("i1", "upper", text=From("m.result.name")), n("t", "merged_columns", table=From("m.result", "i1.result"))]
 
 
-def test_a_merges_renamed_column_is_named_as_in_the_graph_alone():
+def test_a_merges_columns_are_named_as_in_the_graph_alone():
     alone = CompiledGraph.from_graph(Graph(nodes=_merge_inside()), REGISTRY)
-    assert alone.results(alone.run_sync())["t"]["result"] == "name,name_i1"
+    assert alone.results(alone.run_sync())["t"]["result"] == "name,result"
 
-    compiled = embedded_per_row(_merge_inside(), ["p"], **{"m.text": From("s.result")})
-    assert by_row(compiled.results(compiled.run_sync())["e/t"]["result"]) == {(0,): "name,name_i1"}
+    compiled = embedded_per_row(_merge_inside(), ["p"], text=From("s.result"))
+    assert by_row(compiled.results(compiled.run_sync())["e/t"]["result"]) == {(0,): "name,result"}
 
 
 # -- a state changed by hand -----------------------------------------------------

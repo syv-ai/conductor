@@ -69,9 +69,9 @@ def test_send_mail_per_contact_then_excel_has_name_email_and_sent():
     ]
     assert compiled.problems == ()
     assert _sheet(compiled).to_dicts() == [
-        {"name": "Ida", "email": "ida@x", "Sent": "sent to ida@x"},
-        {"name": "Bo", "email": None, "Sent": "no address"},
-        {"name": "Nina", "email": "nina@x", "Sent": "sent to nina@x"},
+        {"name": "Ida", "email": "ida@x", "result": "sent to ida@x"},
+        {"name": "Bo", "email": None, "result": "no address"},
+        {"name": "Nina", "email": "nina@x", "result": "sent to nina@x"},
     ]
 
 
@@ -84,7 +84,7 @@ def test_a_filtered_table_merged_with_its_source_leaves_the_filtered_rows_blank(
     )
 
     assert compiled.problems == ()
-    assert _sheet(compiled)["Sent"].to_list() == ["sent to ida@x", None, "sent to nina@x"]
+    assert _sheet(compiled)["result"].to_list() == ["sent to ida@x", None, "sent to nina@x"]
 
 
 def test_an_embedded_graph_given_the_whole_table_lands_its_result_on_the_contacts():
@@ -102,28 +102,26 @@ def test_an_embedded_graph_given_the_whole_table_lands_its_result_on_the_contact
     )
 
     assert _sheet(compiled).to_dicts() == [
-        {"name": "Ida", "email": "ida@x", "Sent": "sent to ida@x"},
-        {"name": "Bo", "email": None, "Sent": None},
-        {"name": "Nina", "email": "nina@x", "Sent": "sent to nina@x"},
+        {"name": "Ida", "email": "ida@x", "result": "sent to ida@x"},
+        {"name": "Bo", "email": None, "result": None},
+        {"name": "Nina", "email": "nina@x", "result": "sent to nina@x"},
     ]
 
 
-def test_two_unrelated_tables_merge_into_blanks_and_the_author_is_told_while_drawing():
+def test_two_unrelated_tables_are_refused_when_checked_and_told_to_join_on_a_key():
     other = GraphNode(id="other", type="csv", version=1, bindings={"text": Static("Ole,ole@x")})
     compiled = _compiled(CSV, other, GraphNode(id="excel", type="export", version=1, bindings={"table": From("csv.result", "other.result")}))
 
     (told,) = compiled.problems
-    assert (told.type, told.fatal, told.loc[1], told.ctx) == ("no_rows_in_common", False, "table", {"source": "csv.result"})
-    sheet = _sheet(compiled)
-    assert sheet.height == 4
-    assert sheet["name"].to_list() == ["Ida", "Bo", "Nina", None]
-    assert sheet["name_other"].to_list() == [None, None, None, "Ole"]
+    assert (told.type, told.fatal, told.loc[1], told.ctx) == ("no_rows_in_common", True, "table", {"source": "csv.result"})
+    assert "joins them on a key column" in told.msg
+    assert not compiled.is_runnable
 
 
 def test_one_column_is_a_table_of_one_column_named_after_it():
     compiled = _compiled(CSV, SEND, GraphNode(id="excel", type="export", version=1, bindings={"table": From("send.result")}))
 
-    assert _sheet(compiled).to_dicts() == [{"Sent": "sent to ida@x"}, {"Sent": "no address"}, {"Sent": "sent to nina@x"}]
+    assert _sheet(compiled).to_dicts() == [{"result": "sent to ida@x"}, {"result": "no address"}, {"result": "sent to nina@x"}]
 
 
 def test_a_parent_value_is_copied_down_onto_each_row_under_it():
@@ -134,10 +132,10 @@ def test_a_parent_value_is_copied_down_onto_each_row_under_it():
     )
 
     assert compiled.problems == ()
-    assert _sheet(compiled).select("vendor", "Documents").to_dicts() == [
-        {"vendor": "acme", "Documents": "acme:10,beta:5"},
-        {"vendor": "beta", "Documents": "acme:10,beta:5"},
-        {"vendor": "gamma", "Documents": "gamma:7"},
+    assert _sheet(compiled).select("vendor", "result").to_dicts() == [
+        {"vendor": "acme", "result": "acme:10,beta:5"},
+        {"vendor": "beta", "result": "acme:10,beta:5"},
+        {"vendor": "gamma", "result": "gamma:7"},
     ]
 
 
@@ -154,8 +152,8 @@ def test_a_table_input_on_a_node_running_per_document_gets_that_documents_rows()
     assert (check.sources[0], check.receive_mode, check.rows_of, check.grouped_under) == ("check.result", "all_rows_under_row", "read.result", "docs.result")
     sheets = compiled.results(compiled.run_sync())["excel"]["result"]["values"]
     assert [sheet.drop(ROW_ID_COLUMN).to_dicts() for sheet in sheets] == [
-        [{"vendor": "acme", "amount": 10.0, "Approved": "acme ok"}, {"vendor": "beta", "amount": 5.0, "Approved": "beta ok"}],
-        [{"vendor": "gamma", "amount": 7.0, "Approved": "gamma ok"}],
+        [{"vendor": "acme", "amount": 10.0, "result": "acme ok"}, {"vendor": "beta", "amount": 5.0, "result": "beta ok"}],
+        [{"vendor": "gamma", "amount": 7.0, "result": "gamma ok"}],
     ]
 
 
@@ -232,7 +230,7 @@ def test_a_table_input_inside_an_embedded_graph_merges_its_inner_sources():
     ), registry, "Sheet maker")
     compiled = _compiled(GraphNode(id="emb", type="sheet-maker", version=1), registry=registry.extended_with([inner]))
 
-    assert _sheet(compiled, "emb/excel")["Sent"].to_list() == ["sent to ida@x", "no address"]
+    assert _sheet(compiled, "emb/excel")["result"].to_list() == ["sent to ida@x", "no address"]
 
 
 def test_a_parent_is_copied_down_onto_the_rows_of_every_child_and_has_no_row_of_its_own():
@@ -245,21 +243,21 @@ def test_a_parent_is_copied_down_onto_the_rows_of_every_child_and_has_no_row_of_
     )
     sheet = _sheet(compiled)
 
-    assert sheet.columns == ["Documents", "vendor", "Words"]
+    assert sheet.columns == ["result", "vendor", "result_2"]
     assert sheet.to_dicts() == [
-        {"Documents": "acme:10", "vendor": "acme", "Words": None},
-        {"Documents": "acme:10", "vendor": None, "Words": "acme:10"},
+        {"result": "acme:10", "vendor": "acme", "result_2": None},
+        {"result": "acme:10", "vendor": None, "result_2": "acme:10"},
     ]
 
 
-def test_a_clashing_column_takes_its_nodes_name():
+def test_a_clashing_column_takes_the_name_of_its_output():
     compiled = _compiled(
         CSV, SEND,
         GraphNode(id="mail", type="send", version=1, bindings={"email": From("csv.result.name")}),
         GraphNode(id="excel", type="export", version=1, bindings={"table": From("send.result", "mail.result")}),
     )
 
-    assert _sheet(compiled).columns == ["Sent", "Sent_mail"]
+    assert _sheet(compiled).columns == ["result", "result_2"]
 
 
 def test_an_embedded_graphs_table_rows_carry_ids_in_so_nothing_is_told():
@@ -274,7 +272,7 @@ def test_an_embedded_graphs_table_rows_carry_ids_in_so_nothing_is_told():
     )
 
     assert compiled.problems == ()
-    assert _sheet(compiled)["Sent"].to_list() == ["sent to ida@x", None, "sent to nina@x"]
+    assert _sheet(compiled)["result"].to_list() == ["sent to ida@x", None, "sent to nina@x"]
 
 
 def test_two_tables_made_per_document_share_no_rows_and_the_author_is_told():
@@ -377,7 +375,7 @@ def test_a_merge_three_levels_deep_copies_every_level_down_and_a_paragraph_with_
     )
     sheet = _sheet(compiled)
 
-    assert sheet.columns == ["Documents", "Paragraphs", "Words"]
+    assert sheet.columns == ["result", "result_2", "result_3"]
     assert sheet.rows() == [
         ("a,b;;c", "a,b", "a"),
         ("a,b;;c", "a,b", "b"),
@@ -394,7 +392,7 @@ def test_parents_with_nothing_under_them_give_a_table_of_no_rows_with_every_colu
     )
     sheet = _sheet(compiled)
 
-    assert (sheet.height, sheet.columns) == (0, ["Documents", "vendor", "amount"])
+    assert (sheet.height, sheet.columns) == (0, ["result", "vendor", "amount"])
 
 
 def test_a_parent_column_beside_a_table_made_per_row_of_it_is_copied_down():
@@ -402,8 +400,8 @@ def test_a_parent_column_beside_a_table_made_per_row_of_it_is_copied_down():
     sheets = compiled.results(compiled.run_sync())["excel"]["result"]["values"]
 
     assert [sheet.drop(ROW_ID_COLUMN).to_dicts() for sheet in sheets] == [
-        [{"Documents": "acme:10,beta:5", "vendor": "acme", "amount": 10.0}, {"Documents": "acme:10,beta:5", "vendor": "beta", "amount": 5.0}],
-        [{"Documents": "gamma:7", "vendor": "gamma", "amount": 7.0}],
+        [{"result": "acme:10,beta:5", "vendor": "acme", "amount": 10.0}, {"result": "acme:10,beta:5", "vendor": "beta", "amount": 5.0}],
+        [{"result": "gamma:7", "vendor": "gamma", "amount": 7.0}],
     ]
 
 
@@ -417,7 +415,7 @@ def test_a_child_table_a_branch_skipped_gives_no_rows_and_the_sheet_keeps_its_co
     sheets = compiled.results(compiled.run_sync())["excel"]["result"]["values"]
 
     assert [sheet.height for sheet in sheets] == [1, 0]
-    assert sheets[1].columns == [ROW_ID_COLUMN, "Documents", "vendor", "amount"]
+    assert sheets[1].columns == [ROW_ID_COLUMN, "result", "vendor", "amount"]
 
 
 def test_a_series_two_levels_down_with_nothing_else_runs_per_row_of_the_level_above_it():
@@ -510,17 +508,17 @@ def test_a_table_that_lost_every_rows_id_fails_when_merged_with_the_table_it_was
 def test_a_table_built_from_another_used_on_its_own_gets_fresh_ids():
     compiled = _compiled(CSV, *_rebuilt(), GraphNode(id="excel", type="export", version=1, bindings={"table": From("keep.result", "mail.result")}), registry=_registry_with(picks))
 
-    assert _sheet(compiled)["Sent"].to_list() == ["sent to ida@x", "no address", "sent to nina@x"]
+    assert _sheet(compiled)["result"].to_list() == ["sent to ida@x", "no address", "sent to nina@x"]
 
 
-def test_a_table_with_no_ids_merged_with_an_unrelated_table_is_not_stopped():
+def test_a_table_made_from_another_table_is_unrelated_to_a_third():
     other = GraphNode(id="other", type="csv", version=1, bindings={"text": Static("Ole,ole@x")})
     compiled = _compiled(
         CSV, other, GraphNode(id="keep", type="picks", version=1, bindings={"contacts": From("other.result")}),
         GraphNode(id="excel", type="export", version=1, bindings={"table": From("csv.result", "keep.result")}), registry=_registry_with(picks),
     )
 
-    assert _sheet(compiled).height == 4
+    assert [problem.type for problem in compiled.problems] == ["no_rows_in_common"]
 
 
 def test_a_table_of_no_rows_has_lost_no_ids():

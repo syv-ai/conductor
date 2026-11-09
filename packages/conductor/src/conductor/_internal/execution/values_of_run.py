@@ -116,6 +116,17 @@ def is_held_at_its_own_row(field: CompiledField) -> bool:
     return field._held_as.__class__ in (OneValue, TableAtRow)
 
 
+def names_in_a_merge(field: CompiledField) -> tuple[str, str]:
+    """What this field is called in a merged table, and the name of the output it comes from: the column it is, or its own name for both."""
+    held_as = field._held_as
+    return (held_as.column, held_as.table.field) if held_as.__class__ is ColumnOfTable else (field.ref.field, field.ref.field)  # type: ignore[union-attr]
+
+
+def holds_part_of_a_table(field: CompiledField) -> bool:
+    """A table output, or one column of one: what can carry a column on from the table it was made from."""
+    return field._held_as.__class__ in (TableAtRow, ColumnOfTable)
+
+
 def is_list_on_node(field: CompiledField) -> bool:
     return field._held_as.__class__ is ListOnNode
 

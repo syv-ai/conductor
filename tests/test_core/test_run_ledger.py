@@ -516,7 +516,7 @@ def test_a_unit_whose_inputs_match_earlier_work_is_recorded_without_a_call():
     started = ledger.start_unit(("reader", (0,)))
 
     assert isinstance(started, FinishedWithoutACall)
-    assert started.recorded.node_events[0].result["result"]["values"] == ["A"]
+    assert started.recorded.node_events[0].outputs["result"]["values"] == ["A"]
     assert started.recorded.node_events[0].reused_units == 1
 
 

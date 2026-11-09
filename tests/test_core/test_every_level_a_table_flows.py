@@ -47,7 +47,7 @@ def csv() -> Annotated[Contacts, Result(title="Contacts")]:
 
 
 @node("send", category="t")
-def send(email: str) -> Annotated[str, Result(title="sent")]:
+def send(email: str) -> Annotated[str, Result(title="result")]:
     return f"sent:{email}"
 
 
@@ -110,7 +110,7 @@ def test_a_table_rebuilt_inside_an_embedded_graph_fails_as_it_would_drawn_flat(i
     assert (state.status, flat.status) == ("complete", "complete")
     sheet = compiled.results(state)["x"]["result"].drop(ROW_ID_COLUMN)
     assert sheet.height == 3
-    assert sheet["sent"].to_list() == ["sent:ida@x", None, "sent:nina@x"]
+    assert sheet["result"].to_list() == ["sent:ida@x", None, "sent:nina@x"]
 
 
 def test_rebuilt_table_nested_two_embeddings_deep_still_fails() -> None:
@@ -178,8 +178,8 @@ def test_scenario_6_a_filter_is_followed_by_a_per_row_node_on_its_columns() -> N
     )
     sheet = _sheet(compiled)
     assert sheet.to_dicts() == [
-        {"name": "Ida", "email": "ida@x", "sent": "sent:ida@x"},
-        {"name": "Nina", "email": "nina@x", "sent": "sent:nina@x"},
+        {"name": "Ida", "email": "ida@x", "result": "sent:ida@x"},
+        {"name": "Nina", "email": "nina@x", "result": "sent:nina@x"},
     ]
 
 
@@ -199,12 +199,12 @@ def test_arriving_merged_table_names_every_column_as_the_run_does() -> None:
         registry=_catalogue(filter_rows),
     )
     declared = [name for name, _ in compiled.field(Ref("x", "result")).type.columns]
-    assert declared == ["name", "email", "sent", "sent_s2"]
+    assert declared == ["name", "email", "result", "result_2"]
     state = compiled.run_sync()
     assert state.status == "complete", state.failure
     frame = compiled.results(state)["x"]["result"].drop(ROW_ID_COLUMN)
     assert frame.columns == declared
-    assert frame["sent"].to_list() == ["sent:ida@x", "sent:nina@x"]
+    assert frame["result"].to_list() == ["sent:ida@x", "sent:nina@x"]
 
 
 def test_a_table_arriving_on_an_input_with_columns_is_the_declared_type_the_call_receives() -> None:
@@ -235,8 +235,7 @@ def test_a_bare_table_source_arrives_bare() -> None:
     def arrives(table: Table) -> Mapping[str, Any]:
         return {"result": table}
 
-    compiled = _compiled(_node("b", "bare"), _node("c", "csv"), _node("x", "arrives", table=From("b.result", "c.result")), registry=_catalogue(bare, arrives))
-    assert compiled.is_runnable
+    _compiled(_node("b", "bare"), _node("c", "csv"), _node("x", "arrives", table=From("b.result", "c.result")), registry=_catalogue(bare, arrives))
     assert seen == [Table]
 
 
@@ -256,11 +255,11 @@ def test_a_typed_in_frame_arrives_with_the_columns_it_holds() -> None:
     assert compiled.is_runnable, compiled.problems
 
 
-def test_flow_2_merged_column_takes_the_output_title_a_clash_the_node_id() -> None:
+def test_flow_2_merged_column_takes_the_output_name_a_clash_the_next_free_number() -> None:
     compiled = _compiled(
         _node("c", "csv"), _node("m", "send", email=From("c.result.email")), _node("x", "export", table=From("c.result", "m.result")),
     )
-    assert _sheet(compiled).columns == ["name", "email", "sent"]
+    assert _sheet(compiled).columns == ["name", "email", "result"]
 
 
 # -- Flow 8a: a typed-in list is a column ----------------------------------------------
@@ -292,10 +291,10 @@ def test_flow_8a_answers_sit_beside_their_questions() -> None:
     state = compiled.run_sync()
     assert state.status == "complete", state.failure
     frame = compiled.results(state)["x"]["result"].drop(ROW_ID_COLUMN)
-    assert frame.columns == ["question", "Answer"]
+    assert frame.columns == ["question", "result"]
     assert frame.height == 6
     assert sorted(frame["question"].to_list()) == sorted(questions * 3)
-    assert frame.filter(pl.col("question") == "who")["Answer"].to_list() == [f"text of {file} / who" for file in files]
+    assert frame.filter(pl.col("question") == "who")["result"].to_list() == [f"text of {file} / who" for file in files]
     # Nothing of the typed-in list travels in the state.
     assert "question" not in state.nodes["q"].outputs
     restored = RunState.model_validate_json(state.model_dump_json())
@@ -334,7 +333,7 @@ def test_a_typed_in_list_read_by_a_run_that_restores() -> None:
     assert waiting.status == "waiting"
     done = answer(compiled, RunState.model_validate_json(waiting.model_dump_json()), {unit.id: {"result": f"answer {unit.row[0]}"} for unit in waiting.waiting})
     finished = compiled.run_sync(done)
-    assert compiled.results(finished)["x"]["result"].drop(ROW_ID_COLUMN).to_dicts() == [{"question": "a", "A": "answer 0"}, {"question": "b", "A": "answer 1"}]
+    assert compiled.results(finished)["x"]["result"].drop(ROW_ID_COLUMN).to_dicts() == [{"question": "a", "result": "answer 0"}, {"question": "b", "result": "answer 1"}]
 
 
 # -- a table read from outside ---------------------------------------------------------
