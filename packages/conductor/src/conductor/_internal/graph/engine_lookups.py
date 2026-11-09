@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any
 
+from conductor._internal.execution.values_of_run import is_held_at_its_own_row, is_list_on_node
 from conductor._internal.graph.compiled_node import CompiledField, CompiledNode
 from conductor._internal.graph.receive_modes import ReceiveMode, reads_of_input
 from conductor._internal.index import Index
@@ -40,10 +40,6 @@ class EngineLookups:
     lists_on_nodes_under_index: dict[str, tuple[Ref, ...]]
     #: The field that makes each index's rows, by index id.
     field_making_rows_of_index: dict[str, CompiledField]
-    #: Every column of a table output offered as a field: the table output and the column.
-    table_column_fields: dict[Ref, tuple[Ref, str]]
-    #: Per index whose rows are those of a table: the table output, whose stored table holds their ids.
-    table_holding_row_ids_of_index: dict[str, Ref]
     #: The table outputs a merge matches against a table they were built from: a
     #: return where no row kept its id can never match (``row_ids_lost``).
     row_ids_must_survive: frozenset[Ref]
@@ -62,13 +58,10 @@ class EngineLookups:
     node_making_rows_of_index: dict[str, str | None]
     #: Per index id: the indexes hanging under it.
     indexes_under_index: dict[str, tuple[str, ...]]
-    #: Per field whose cell doesn't sit at its own row: where it is. ``None`` for a list
-    #: of cells at the row above, a column name for a column of the table at the row above.
-    cell_is_held_in: dict[Ref, str | None]
-    #: Per list set on a node: its values.
-    cells_of_list_on_node: dict[Ref, list[Any]]
-    #: Per field, the depth of its own rows: ``0`` for a field with no index.
-    depth_of_field: dict[Ref, int]
+    #: The lists set on nodes whose rows hang under no other row: written when a run starts.
+    lists_on_nodes_at_the_top: tuple[Ref, ...]
+    #: The fields a read finds at its own row: the one test on the path of every read.
+    fields_held_at_their_own_row: frozenset[Ref]
 
 
 def build_engine_lookups(nodes: Iterable[CompiledNode], row_ids_must_survive: frozenset[Ref]) -> EngineLookups:
@@ -84,8 +77,7 @@ def build_engine_lookups(nodes: Iterable[CompiledNode], row_ids_must_survive: fr
     outputs_on_index: dict[str, list[Ref]] = {}
     lists_on_nodes_under_index: dict[str, list[Ref]] = {}
     field_making_rows_of_index: dict[str, CompiledField] = {}
-    table_column_fields: dict[Ref, tuple[Ref, str]] = {}
-    cells_of_list_on_node: dict[Ref, list[Any]] = {}
+    lists_on_nodes_at_the_top: list[Ref] = []
 
     def register_index_owner(index_id: str, field: CompiledField) -> None:
         field_making_rows_of_index[index_id] = field
@@ -114,18 +106,18 @@ def build_engine_lookups(nodes: Iterable[CompiledNode], row_ids_must_survive: fr
                     if source != ref:  # a list set on this input is read off the input itself: there is nothing to wait for
                         read_by.setdefault(source, []).append(ref)
                         node_reads.append((source, depth))
-                if field._is_list_on_node and field._index is not None:
-                    register_index_owner(field._index.id, field)
-                    outputs_on_index[field._index.id].append(ref)
-                    values = node.statics[ref.field]
-                    cells_of_list_on_node[ref] = list(values)
-                    if field._index.parent is not None:
-                        lists_on_nodes_under_index.setdefault(field._index.parent.id, []).append(ref)
+                if is_list_on_node(field):
+                    index = field._held_as.rows_made
+                    assert index is not None  # a list on a node has its rows
+                    register_index_owner(index.id, field)
+                    outputs_on_index[index.id].append(ref)
+                    if index.parent is None:
+                        lists_on_nodes_at_the_top.append(ref)
+                    else:
+                        lists_on_nodes_under_index.setdefault(index.parent.id, []).append(ref)
                 continue
-            if field._column_of_table is not None:
-                table_column_fields[ref] = field._column_of_table
-            if field._makes_rows is not None:
-                register_index_owner(field._makes_rows.id, field)
+            if (rows_made := field._held_as.rows_made) is not None:
+                register_index_owner(rows_made.id, field)
             if (index := field._index) is not None:
                 outputs_on_index.setdefault(index.id, []).append(ref)
     for by_index_id in (nodes_running_per_row_of_index, outputs_on_index, lists_on_nodes_under_index):
@@ -133,18 +125,15 @@ def build_engine_lookups(nodes: Iterable[CompiledNode], row_ids_must_survive: fr
             raise RuntimeError(f"compile planned index {index_id!r}, which no field owns")
     index_ids_by_parent: dict[str, list[str]] = {index_id: [] for index_id in field_making_rows_of_index}
     node_making_rows_of_index: dict[str, str | None] = {}
-    depth_of_field: dict[Ref, int] = {}
     for index_id, field in field_making_rows_of_index.items():
-        index = field._makes_rows or field._index
+        index = field._held_as.rows_made
         assert index is not None  # the field owns it
         if index.parent is not None:
             index_ids_by_parent.setdefault(index.parent.id, []).append(index_id)
         maker: CompiledField | None = field
-        while maker is not None and maker._is_list_on_node and maker._index.parent is not None:  # type: ignore[union-attr]
+        while maker is not None and is_list_on_node(maker) and maker._index.parent is not None:  # type: ignore[union-attr]
             maker = field_making_rows_of_index.get(maker._index.parent.id)  # type: ignore[union-attr]
-        node_making_rows_of_index[index_id] = None if maker is None or maker._is_list_on_node else maker.ref.node_id
-    for ref, field in fields.items():
-        depth_of_field[ref] = 0 if field._index is None else field._index.depth
+        node_making_rows_of_index[index_id] = None if maker is None or is_list_on_node(maker) else maker.ref.node_id
     what_each_read_waits_for: dict[str, list[tuple[str, int]]] = {}
     depths_counted: dict[str, set[int]] = {node_id: {0} for node_id, index in runs_per_row_of.items() if index is not None}
 
@@ -162,7 +151,7 @@ def build_engine_lookups(nodes: Iterable[CompiledNode], row_ids_must_survive: fr
         waits: list[tuple[str, int]] = []
         for source, depth_read in node_reads_of_it:
             field = fields[source]
-            writer = source.node_id if not field._is_list_on_node else node_making_rows_of_index[field._index.id]  # type: ignore[union-attr]
+            writer = source.node_id if not is_list_on_node(field) else node_making_rows_of_index[field._index.id]  # type: ignore[union-attr]
             if writer is None:
                 continue
             waits.append((writer, depth_read))
@@ -181,23 +170,16 @@ def build_engine_lookups(nodes: Iterable[CompiledNode], row_ids_must_survive: fr
         nodes_finished_when_rows_made_by[node_id] = tuple(
             on_rows
             for out in interfaces[node_id].outputs
-            if (index := fields[Ref(node_id, out.name)]._makes_rows) is not None
+            if (index := fields[Ref(node_id, out.name)]._held_as.rows_made) is not None
             for on_rows in nodes_on_rows_and_lists_under(index.id)
         )
-    table_holding_row_ids_of_index = {
-        index_id: maker.ref for index_id, maker in field_making_rows_of_index.items() if maker._makes_rows is not None and not maker._unit_writes_many_cells
-    }
-    cell_is_held_in: dict[Ref, str | None] = {
-        ref: None if field._column_of_table is None else field._column_of_table[1]
-        for ref, field in fields.items()
-        if field._column_of_table is not None or field._is_list_on_node or field._unit_writes_many_cells
-    }
     return EngineLookups(
         fields, runs_per_row_of, interfaces, _lists_as_tuples(receive_modes_of_node), _lists_as_tuples(read_by), _lists_as_tuples(nodes_running_per_row_of_index), _lists_as_tuples(outputs_on_index), _lists_as_tuples(lists_on_nodes_under_index),
-        field_making_rows_of_index, table_column_fields, table_holding_row_ids_of_index, row_ids_must_survive,
+        field_making_rows_of_index, row_ids_must_survive,
         _lists_as_tuples(what_each_read_waits_for),
         {node_id: tuple(sorted(depths)) for node_id, depths in depths_counted.items()},
-        nodes_finished_when_rows_made_by, node_making_rows_of_index, _lists_as_tuples(index_ids_by_parent), cell_is_held_in, cells_of_list_on_node, depth_of_field,
+        nodes_finished_when_rows_made_by, node_making_rows_of_index, _lists_as_tuples(index_ids_by_parent), tuple(lists_on_nodes_at_the_top),
+        frozenset(ref for ref, field in fields.items() if is_held_at_its_own_row(field)),
     )
 
 

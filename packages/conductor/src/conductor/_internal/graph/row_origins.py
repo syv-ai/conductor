@@ -62,7 +62,7 @@ class RowOriginsSeen:
                 self.must_survive.add(Ref(origin))
         if len(sources) < 2 or len(known) < len(origins_each):
             return []
-        source_indexes = [source._makes_rows or source._index for _, source in sources]
+        source_indexes = [source._held_as.rows_made or source._index for _, source in sources]
         parent_index_ids = [frozenset() if index is None else frozenset(step.id for step in index.lineage[:-1]) for index in source_indexes]
 
         def can_share_rows(left: int, right: int) -> bool:

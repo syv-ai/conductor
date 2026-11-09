@@ -63,6 +63,7 @@ from conductor._internal.dtype import (
     type_name_for_sentence,
 )
 from conductor._internal.errors import Problem, make_problem
+from conductor._internal.execution.values_of_run import holds_values
 from conductor._internal.field_records import Input
 from conductor._internal.graph.binding import From
 from conductor._internal.graph.embedding import parent_graph_of_node_id
@@ -250,7 +251,7 @@ def _source_output(ref: Ref, reader_id: str, progress: CompileProgress) -> Compi
     if node is None or node._wiring is None or (source_id in progress.invalid_node_ids and NODE_PATH_SEPARATOR not in reader_id):
         return None
     found = node._wiring.fields.get(ref.field)
-    return found if found is not None and (found._is_output or found._is_list_on_node) else None
+    return found if found is not None and holds_values(found) else None
 
 
 def _outputs_offered_by(node_id: str, progress: CompileProgress) -> str:
@@ -259,7 +260,7 @@ def _outputs_offered_by(node_id: str, progress: CompileProgress) -> str:
     if node.embedded_graph is not None:
         names = sorted(node.embedded_graph._embeddable.outputs)
     else:
-        names = sorted(name for name, field in node._wiring.fields.items() if field._is_output or field._is_list_on_node)  # type: ignore[union-attr]
+        names = sorted(name for name, field in node._wiring.fields.items() if holds_values(field))  # type: ignore[union-attr]
     return ", ".join(names) or "none"
 
 
@@ -334,7 +335,7 @@ def _receive_mode_of_table_input(sources: list[tuple[Ref, CompiledField]], runs_
 
 def _copied_down(sources: list[tuple[Ref, CompiledField]]) -> list[Ref]:
     """The sources whose rows sit above another source's: their values are copied down onto those rows."""
-    rows = [(ref, source._makes_rows or source._index) for ref, source in sources]
+    rows = [(ref, source._held_as.rows_made or source._index) for ref, source in sources]
     return [ref for ref, index in rows if index is not None and any(index != other and index in other.lineage for _, other in rows if other is not None)]
 
 

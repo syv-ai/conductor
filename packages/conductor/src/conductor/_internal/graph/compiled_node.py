@@ -27,10 +27,10 @@ from conductor._internal.field_records import was_titled_by_its_author
 from conductor._internal.graph.run_plan import NodeRunPlan, plan_of_node
 from conductor._internal.node_definition import NodeVersion
 from conductor._internal.node_signature import build_call_validator
-from conductor._internal.table import is_table_type
 
 if TYPE_CHECKING:
     from conductor._internal.errors import Problem
+    from conductor._internal.execution.values_of_run import HeldAs
     from conductor._internal.field_records import Input
     from conductor._internal.graph.binding import Binding
     from conductor._internal.graph.compiled_graph import CompiledGraph
@@ -242,14 +242,8 @@ class CompiledField:
     _index: Index | None = field(repr=False)
     #: How a unit of its node receives it; ``None`` exactly on an output.
     _receive_mode: ReceiveMode | None = field(repr=False)
-    #: An input the author set a list on, so its node runs once per
-    #: value; an edge may read the values as a column of those rows.
-    _is_list_on_node: bool = field(repr=False)
-    #: The rows this output makes: a series output or a table output. ``None`` on any other field.
-    _makes_rows: Index | None = field(repr=False)
-    #: For a column of a table output offered as a field: the table output and
-    #: the column. Its values are read from the table, never stored one by one.
-    _column_of_table: tuple[Ref, str] | None = field(repr=False)
+    #: How a run holds this field's values (``conductor._internal.execution.values_of_run``).
+    _held_as: HeldAs = field(repr=False)
     #: For an output: ``None`` is a value it may be given.
     _takes_blank: bool = field(repr=False)
     #: What a person reads it as, and the name it comes into a merged table under:
@@ -261,13 +255,13 @@ class CompiledField:
 
     def __init__(
         self, ref: Ref, type: Any, binding: Binding | None, condition: Condition | None, problems: tuple[Problem, ...], *,
-        _index: Index | None, _receive_mode: ReceiveMode | None, _is_list_on_node: bool, _makes_rows: Index | None, _column_of_table: tuple[Ref, str] | None,
+        _index: Index | None, _receive_mode: ReceiveMode | None, _held_as: HeldAs,
         _takes_blank: bool, _title: str, _row_origins: frozenset[str] | None,
     ) -> None:
         """Compile builds one per field of a graph, so this sets them in one step, not one at a time."""
         self.__dict__.update(
             ref=ref, type=type, binding=binding, condition=condition, problems=problems, _index=_index, _receive_mode=_receive_mode,
-            _is_list_on_node=_is_list_on_node, _makes_rows=_makes_rows, _column_of_table=_column_of_table, _takes_blank=_takes_blank, _title=_title, _row_origins=_row_origins,
+            _held_as=_held_as, _takes_blank=_takes_blank, _title=_title, _row_origins=_row_origins,
         )
 
     @property
@@ -287,8 +281,3 @@ class CompiledField:
         output's type says ``| None``."""
         read = cell_validator_for(self.type)
         return (lambda value: None if value is None else read(value)) if self._takes_blank else read
-
-    @cached_property
-    def _unit_writes_many_cells(self) -> bool:
-        """One unit writes many cells here, one per row it makes: a series output, not a table."""
-        return self._makes_rows is not None and not is_table_type(self.type)

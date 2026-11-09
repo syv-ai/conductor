@@ -13,15 +13,15 @@ rows' ids written on, and reports every output that does not fit, not only the f
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
 from conductor._internal.errors import Problem
+from conductor._internal.execution.values_of_run import held_form_of_return, output_problem
 from conductor._internal.index import Row
 from conductor._internal.skip_and_ask import SKIPPED
-from conductor._internal.table import frame_with_no_rows, no_row_kept_its_id, with_row_ids
 
 if TYPE_CHECKING:
     from conductor._internal.graph.compiled_node import CompiledField, CompiledNode
@@ -43,7 +43,7 @@ def validate_unit_outputs(node: CompiledNode, row: Row, value_by_output: Mapping
     for out in node.interface.outputs:
         name = out.name
         if name not in value_by_output:
-            problems.append(_output_problem(name, f"no value for the output '{name}'"))
+            problems.append(output_problem(name, f"no value for the output '{name}'"))
             continue
         value = value_by_output[name]
         if value is SKIPPED:
@@ -51,9 +51,9 @@ def validate_unit_outputs(node: CompiledNode, row: Row, value_by_output: Mapping
             continue
         field = node._wiring.fields[name]
         try:
-            cell = _cells_of_many_valued_output(field, name, value) if field._unit_writes_many_cells else _cell_of_output(field, name, row, value, row_ids_must_survive)
+            cell = held_form_of_return(field, name, row, value, row_ids_must_survive)
         except ValidationError as invalid:
-            problems.append(_output_problem(
+            problems.append(output_problem(
                 name, f"'{name}' must be {_type_name_for_error(field)}, not a {type(value).__name__}",
                 errors=tuple(invalid.errors(include_url=False, include_input=False, include_context=False)),
             ))
@@ -64,33 +64,8 @@ def validate_unit_outputs(node: CompiledNode, row: Row, value_by_output: Mapping
                 cells[name] = cell
     for name in value_by_output:
         if name not in node._wiring.fields or not node._wiring.fields[name]._is_output:
-            problems.append(_output_problem(name, f"'{name}' is not one of this node's outputs"))
+            problems.append(output_problem(name, f"'{name}' is not one of this node's outputs"))
     return cells, problems
-
-
-def _output_problem(output: str, message: str, *, errors: tuple[dict[str, Any], ...] = (), code: str = "invalid_output") -> Problem:
-    """One output that does not fit: which, a sentence that never quotes the value, and pydantic's own errors when its check said why."""
-    return Problem(type=code, loc=(output,), msg=message, ctx={"errors": errors})
-
-
-def _cells_of_many_valued_output(field: CompiledField, name: str, value: Any) -> list[Any] | Problem:
-    if value is None and field._takes_blank:
-        return []  # row-making outputs have no blank form: no rows
-    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
-        return _output_problem(name, f"'{name}' is many values and must be a sequence, not a {type(value).__name__}")
-    read = field._validate_cell
-    return [item if item is SKIPPED else read(item) for item in value]
-
-
-def _cell_of_output(field: CompiledField, name: str, row: Row, value: Any, row_ids_must_survive: frozenset[Ref]) -> Any:
-    cell = field._validate_cell(value)
-    if field._makes_rows is None:
-        return cell
-    if cell is None:  # row-making outputs have no blank form: no rows
-        return frame_with_no_rows(field.type)
-    if field.ref in row_ids_must_survive and no_row_kept_its_id(cell):
-        return _output_problem(name, f"'{name}' lost the ids of its rows, so they can't be matched to the table it was built from", code="row_ids_lost")
-    return with_row_ids(cell, field._makes_rows, row)
 
 
 def _type_name_for_error(field: CompiledField) -> str:

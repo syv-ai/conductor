@@ -68,5 +68,5 @@ def plan_of_node(node: CompiledNode) -> NodeRunPlan:
         node_id=node.id,
         runs_per_row_of=_index_as_address(node._wiring._runs_per_row_of),
         inputs={input_.name: fields[input_.name]._receive_mode for input_ in node.interface.inputs},
-        makes_rows=tuple(field.ref for field in fields.values() if field._makes_rows is not None),
+        makes_rows=tuple(field.ref for field in fields.values() if field._is_output and field._held_as.rows_made is not None),
     )

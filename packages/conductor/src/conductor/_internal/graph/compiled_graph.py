@@ -68,9 +68,9 @@ from typing import TYPE_CHECKING, Any
 
 from conductor._internal.errors import InvalidCallError, Problem, make_problem
 from conductor._internal.execution.events import Event, RunEnd
-from conductor._internal.execution.run_ledger import node_result, read_output_columns
 from conductor._internal.execution.run_state import Answers, RunState
 from conductor._internal.execution.run_until_idle import RunningLeg
+from conductor._internal.execution.values_of_run import ValuesOfRun
 from conductor._internal.execution.waiting_units import apply_answers
 from conductor._internal.graph.binding import Static
 from conductor._internal.graph.compile_graph import compile_graph
@@ -412,14 +412,15 @@ class CompiledGraph:
         reads it, is left out.
         """
         dropped = set(self._nodes_changed_since(state))
-        values, problems = read_output_columns(self, state, dropped)
+        values = ValuesOfRun(self._engine_lookups)
+        problems = values.read_state(self, state, dropped)
         if problems:
             raise InvalidCallError(problems)
         produced: dict[str, dict[str, Any]] = {}
         for node_id in self._execution_order:
             work = state.nodes.get(node_id)
             if work is not None and work.finished_units is not None and node_id not in dropped:
-                result = node_result(self._engine_lookups, node_id, values)
+                result = values.result_of(node_id)
                 if result is not None:
                     produced[node_id] = result
         return produced
@@ -493,7 +494,7 @@ class CompiledGraph:
             for compiled_field in self._nodes[frontier.pop()]._wiring.fields.values():
                 for reader in lookups.read_by[compiled_field.ref]:
                     add(reader.node_id)
-                rows_made = compiled_field._makes_rows or (compiled_field._index if compiled_field._is_list_on_node else None)
+                rows_made = compiled_field._held_as.rows_made
                 if rows_made is not None:
                     for runs_on_them in lookups.nodes_running_per_row_of_index[rows_made.id]:
                         add(runs_on_them)

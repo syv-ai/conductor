@@ -8,11 +8,9 @@ made under ``(i,)``, so a unit deep in the tree finds its row on a parent
 index by cutting its path short. Rows are made when the unit producing them
 writes; until then nobody knows how many there will be.
 
-The ledger keeps one value per output and unit, written at the unit's own row:
-a cell, ``SKIPPED``, a list of cells on an output that makes rows, or a table.
-The list and the table hold the rows' cells; a reader finds its cell in them by
-its position. What the values made, every index's rows, is kept per index
-(``RowsOfIndex``). From those two the ledger answers the engine's questions:
+The ledger keeps what each output holds through ``ValuesOfRun``, the module
+that knows how a field's values are held; every index's rows are kept there
+beside them (``RowsOfIndex``). From those two the ledger answers the engine's questions:
 what does this unit still need (``first_thing_unit_still_needs``), and what
 becomes of it when its turn comes (``start_unit``). The engine is a loop over
 those calls and nothing in here is asynchronous.
@@ -39,12 +37,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from itertools import chain, groupby
+from itertools import groupby
 from operator import attrgetter, itemgetter
-from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, NamedTuple
-
-from pydantic import ValidationError
 
 from conductor._internal.errors import (
     PROBLEM_CATALOGUE,
@@ -65,6 +60,15 @@ from conductor._internal.execution.run_state import (
     WorkOfNode,
     id_of_waiting_unit,
 )
+from conductor._internal.execution.values_of_run import (
+    MISSING,
+    NO_VALUES,
+    ValuesOfRun,
+    blank_of,
+    output_column_of,
+    read_output_column,
+    value_for_another_row,
+)
 from conductor._internal.graph.receive_modes import (
     Cell,
     FixedValue,
@@ -73,37 +77,24 @@ from conductor._internal.graph.receive_modes import (
     ReceiveMode,
     RowsUnder,
 )
-from conductor._internal.index import Index, Row, ValuesOnRows
+from conductor._internal.index import Index, Row
 from conductor._internal.node_definition import NodeVersion
 from conductor._internal.ref import Ref
 from conductor._internal.skip_and_ask import SKIPPED
 from conductor._internal.table import (
-    ROW_ID_COLUMN,
     MergeSource,
-    frame_with_no_rows,
-    global_row_id,
-    is_frame,
     merge_tables_on_row_ids,
     one_column_frame_with_row_ids,
-    with_ids_spelled_at_row,
 )
 
 if TYPE_CHECKING:
     import polars as pl
 
-    from conductor._internal.field_records import Output
     from conductor._internal.graph.compiled_graph import CompiledGraph
-    from conductor._internal.graph.compiled_node import CompiledField
-    from conductor._internal.graph.engine_lookups import EngineLookups
 
 #: One run of one node: the node id and the row it runs on, ``()`` for a node that runs once.
 Unit = tuple[str, Row]
 
-_MISSING = object()
-#: How a field's cell is held when it isn't by itself at its row.
-_AT_ITS_OWN_ROW = object()
-#: What a field nothing has been written to holds: no row.
-_NO_VALUES: Mapping[Any, Any] = MappingProxyType({})
 #: An earlier unit of a re-planned node: the row it had and the hash of what it received.
 _EarlierUnitKey = tuple[Row, str]
 
@@ -182,53 +173,6 @@ class CouldNotReadInputs(NamedTuple):
 UnitStart = CallTheNode | FinishedWithoutACall | SkippedWithoutACall | WaitsOnAPersonAgain | CouldNotReadInputs
 
 
-class RowsOfIndex:
-    """One index's rows: how many under each row, and where it has none because of a skip.
-
-    A row's position is the next one under its parent, so ``count_under`` says
-    everything about which rows exist. ``count_under[()]`` is the whole index.
-    Where a skip leaves the index with no rows, ``no_rows_under`` holds that
-    row, and the same row for every index beneath this one. Holds no values
-    and decides nothing: the ledger asks.
-    """
-
-    __slots__ = ("depth", "parent", "count_under", "no_rows_under", "child_indexes")
-
-    def __init__(self, depth: int) -> None:
-        self.depth = depth
-        self.parent: RowsOfIndex | None = None
-        self.count_under: dict[Row, int] = {}
-        self.no_rows_under: set[Row] = set()
-        self.child_indexes: list[RowsOfIndex] = []
-
-    def make_rows_under(self, parent_row: Row, count: int) -> None:
-        """Make the rows ``parent_row + (0..count)``, all at once: a unit's whole list."""
-        for depth in range(len(parent_row) + 1):
-            row_on_path = parent_row[:depth]
-            self.count_under[row_on_path] = self.count_under.get(row_on_path, 0) + count
-
-    def mark_no_rows_under(self, row: Row) -> None:
-        """Record that this index and those under it have no rows beneath ``row``. Idempotent."""
-        if row not in self.no_rows_under:
-            self.no_rows_under.add(row)
-            for child in self.child_indexes:
-                child.mark_no_rows_under(row)
-
-    def has_row(self, row: Row) -> bool:
-        return 0 <= row[-1] < self.count_under.get(row[:-1], 0)
-
-    def rows_under(self, group_row: Row) -> list[Row]:
-        """The rows of this index whose path starts with ``group_row``, in order;
-        the row itself when ``group_row`` is one."""
-        if len(group_row) >= self.depth:
-            row = group_row[: self.depth]
-            return [row] if self.has_row(row) else []
-        if len(group_row) == self.depth - 1:
-            return [(*group_row, position) for position in range(self.count_under.get(group_row, 0))]
-        assert self.parent is not None  # an index shallower than the group row always has parents
-        return [row for parent_row in self.parent.rows_under(group_row) for row in self.rows_under(parent_row)]
-
-
 class RunLedger:
     """The record of one run over one compiled graph, and what it makes ready.
 
@@ -248,22 +192,10 @@ class RunLedger:
         self._counted_depths = lookups.depths_finished_units_are_counted_at
         self._waiting_on_rows_made_by = lookups.nodes_finished_when_rows_made_by
         self._maker_node_of_index = lookups.node_making_rows_of_index
-        self._table_holding_row_ids = lookups.table_holding_row_ids_of_index
-        self._values: dict[Ref, dict[Row, Any]] = {}
-        #: The fields that may hold ``SKIPPED`` at a row, or sit on an index with
-        #: no rows beneath some row. Only these can have a skip above a value,
-        #: so a read of any other field is one lookup at its own row.
-        self._fields_with_a_skip: set[Ref] = set()
-        #: Per index id, its rows so far.
-        self._rows: dict[str, RowsOfIndex] = {}
-        for index_id, field in lookups.field_making_rows_of_index.items():
-            index = field._makes_rows or field._index
-            assert index is not None  # a field owns an index
-            self._rows[index_id] = RowsOfIndex(index.depth)
-        for index_id, rows in self._rows.items():
-            rows.child_indexes = [self._rows[child] for child in lookups.indexes_under_index[index_id]]
-            for child in rows.child_indexes:
-                child.parent = rows
+        #: What every field holds, by row, and the rows of every index.
+        values = self._values = ValuesOfRun(lookups)
+        self._value_or_skip_at = values.value_or_skip_at
+        self._rows = values.rows
         #: The hash of what each finished unit received, ``None`` for one not called.
         #: Kept in the order units finished, which ``state`` then has little to sort.
         self._done: dict[Unit, str | None] = {}
@@ -282,47 +214,8 @@ class RunLedger:
         #: Per node, how many units this leg took from earlier work.
         self._reused_units: dict[str, int] = {}
         self._digests_of_values: DigestsOfValues = {}
-        #: Where a field's cell lives when it isn't at its own row: in the list at the row above (``None``), or the column of the table there.
-        self._cell_is_held_in = lookups.cell_is_held_in
-        self._list_cells = lookups.cells_of_list_on_node
-        self._depth_of_field = lookups.depth_of_field
         order = compiled.execution_order
         self._execution_position = {node_id: position for position, node_id in enumerate(order)}
-        for ref in self._list_cells:
-            index = self._fields[ref]._index
-            assert index is not None
-            if index.parent is None:
-                self._write_list_on_node_under(ref, (), [])
-
-    # -- what the graph holds and how a field's cell is found -------------------
-
-    def _write_list_on_node_under(self, ref: Ref, parent_row: Row, rows_made: list[tuple[str, Row, int]]) -> None:
-        """Make, under ``parent_row``, the rows of the list set on a node at ``ref``, and write it there."""
-        index = self._fields[ref]._index
-        assert index is not None
-        cells = self._list_cells[ref]
-        self._values.setdefault(ref, {})[parent_row] = cells
-        self._make_rows_under(index.id, parent_row, len(cells), rows_made)
-
-    def _make_rows_under(self, index_id: str, parent_row: Row, count: int, rows_made: list[tuple[str, Row, int]]) -> None:
-        """Make these rows, and under each the rows of every list on a node whose index is this one's child."""
-        self._rows[index_id].make_rows_under(parent_row, count)
-        rows_made.append((index_id, parent_row, count))
-        for ref in self._lookups.lists_on_nodes_under_index[index_id]:
-            for position in range(count):
-                self._write_list_on_node_under(ref, (*parent_row, position), rows_made)
-
-    def _mark_no_rows_under(self, index_id: str, row: Row) -> None:
-        """A skip above left this index no rows under ``row``. Everything on or under the index holds nothing there."""
-        rows = self._rows[index_id]
-        if not rows.no_rows_under:
-            self._note_fields_with_a_skip_on(index_id)
-        rows.mark_no_rows_under(row)
-
-    def _note_fields_with_a_skip_on(self, index_id: str) -> None:
-        self._fields_with_a_skip.update(self._lookups.outputs_on_index[index_id])
-        for child in self._lookups.indexes_under_index[index_id]:
-            self._note_fields_with_a_skip_on(child)
 
     # -- units ---------------------------------------------------------------
 
@@ -487,7 +380,7 @@ class RunLedger:
             case Cell(sources=sources, depth=depth):
                 if len(sources) == 1:
                     value, value_row = self._value_or_skip_at(sources[0], row[:depth])
-                    if value is _MISSING:
+                    if value is MISSING:
                         raise KeyError(f"{sources[0]} has no value at {value_row} — the unit was not ready")
                     return SkippedAtRow(row=value_row) if value is SKIPPED else value
                 covering, skips = self._values_covering_row(node_id, sources, row[:depth])
@@ -537,24 +430,15 @@ class RunLedger:
             is_skip = stored is SKIPPED
             skipped += is_skip
             if read.__class__ is Cell:  # a table: its rows are the ones it holds
-                frame = frame_with_no_rows(field.type) if is_skip else stored
-                sources.append(MergeSource(source.node_id, frame, field._makes_rows, [(*group_row, position) for position in range(frame.height)], copied_down))  # type: ignore[arg-type]
+                frame = blank_of(field) if is_skip else stored
+                sources.append(MergeSource(source.node_id, frame, field._held_as.rows_made, [(*group_row, position) for position in range(frame.height)], copied_down))  # type: ignore[arg-type]
                 continue
             index: Index = field._index  # type: ignore[assignment]
             rows, values = self._rows_and_values_on(unit[0], read.sources, group_row)
-            frame = one_column_frame_with_row_ids(field._title, field.type, [self._row_id(index, row) for row in rows], values)
+            row_id_at = self._values.row_id
+            frame = one_column_frame_with_row_ids(field._title, field.type, [row_id_at(index, row) for row in rows], values)
             sources.append(MergeSource(source.node_id, frame, index, rows, copied_down))
         return None if skipped == len(sources) else merge_tables_on_row_ids(sources)
-
-    def _row_id(self, index: Index, row: Row) -> str:
-        """The id of the row at ``row`` on ``index``: on a table's rows, the id
-        its stored table carries, which may have come in with the table; on
-        any other index, the id spelled from the index and the row."""
-        table = self._table_holding_row_ids.get(index.id)
-        if table is None:
-            return global_row_id(index, row)
-        stored, _ = self._value_or_skip_at(table, row[:-1])
-        return stored[ROW_ID_COLUMN][row[-1]]
 
     def _values_covering_row(self, node_id: str, refs: tuple[Ref, ...], row: Row) -> tuple[list[Any], list[Row]]:
         """Of several refs read at one row: the values that cover it, and the
@@ -565,7 +449,7 @@ class RunLedger:
         skips: list[Row] = []
         for ref in refs:
             value, value_row = self._value_or_skip_at(ref, row)
-            if value is _MISSING:
+            if value is MISSING:
                 raise KeyError(f"{ref} has no value at {value_row} — the unit was not ready")
             if value is SKIPPED:
                 skips.append(value_row)
@@ -574,59 +458,6 @@ class RunLedger:
         if len(covering) > 1:
             raise NodeError(PROBLEM_CATALOGUE["row_covered_twice"].message, node_id=node_id, code="row_covered_twice", ctx={"edges": len(covering), "row": list(row)})
         return covering, skips
-
-    def _value_or_skip_at(self, ref: Ref, row: Row) -> tuple[Any, Row]:
-        """``(value, row)`` for the value at ``(ref, row)``: ``SKIPPED`` at the
-        shortest prefix of ``row`` the field is skipped at or has no rows under,
-        else what is at ``row`` (``_MISSING`` when nothing is): a cell held inside a
-        list or a table at the row above is read off it by position."""
-        if ref in self._fields_with_a_skip:
-            skip_row = self._row_a_skip_reaches(ref, row)
-            if skip_row is not None:
-                return SKIPPED, skip_row
-        where = self._cell_is_held_in.get(ref, _AT_ITS_OWN_ROW)
-        if where is _AT_ITS_OWN_ROW:
-            return self._values.get(ref, _NO_VALUES).get(row, _MISSING), row
-        if where is None:
-            return self._list_cell(ref, row)
-        return self._table_column_cell(ref, where, row)
-
-    def _row_a_skip_reaches(self, ref: Ref, row: Row) -> Row | None:
-        """The shortest prefix of ``row`` where this field holds nothing because of a skip, if any."""
-        by_row = self._values.get(ref, _NO_VALUES)
-        index = self._fields[ref]._index
-        no_rows_under = self._rows[index.id].no_rows_under if index is not None else ()
-        for depth in range(len(row) + 1):
-            row_on_path = row[:depth]
-            if by_row.get(row_on_path) is SKIPPED or row_on_path in no_rows_under:
-                return row_on_path
-        return None
-
-    def _list_cell(self, ref: Ref, row: Row) -> tuple[Any, Row]:
-        """The value at ``row`` of a row-making output or a list on a node: by position in the list at the row above."""
-        if len(row) < self._depth_of_field[ref]:
-            return _MISSING, row
-        cells = self._values.get(ref, _NO_VALUES).get(row[:-1], _MISSING)
-        if cells is _MISSING or row[-1] >= len(cells):
-            return _MISSING, row
-        return cells[row[-1]], row
-
-    def _table_column_cell(self, ref: Ref, column: str, row: Row) -> tuple[Any, Row]:
-        """The value of a table's column at ``row``: the cell in row ``row[-1]``
-        of the table stored at ``row[:-1]``, as its column's type, a blank
-        cell ``None``."""
-        if len(row) < self._depth_of_field[ref]:
-            return _MISSING, row
-        table = self._fields[ref]._column_of_table
-        assert table is not None
-        stored = self._values.get(table[0], _NO_VALUES).get(row[:-1], _MISSING)
-        if stored is _MISSING:
-            return _MISSING, row
-        cells = stored[column]
-        if row[-1] >= len(cells):
-            return _MISSING, row
-        cell = cells[row[-1]]
-        return (None if cell is None else self._fields[ref].type(cell)), row
 
     def _rows_and_values_on(self, node_id: str, refs: tuple[Ref, ...], under: Row) -> tuple[list[Row], list[Any]]:
         """The rows of ``refs``' index under ``under`` that hold a value and those values,
@@ -676,7 +507,7 @@ class RunLedger:
         ``outputs`` are cells that passed their outputs' checks, per output: one
         cell, ``SKIPPED``, a list of cells on an output that makes rows, or a
         table; or a ``SkippedAtRow`` or a ``BlankInputsStopCall`` when the unit didn't run,
-        its outputs ``SKIPPED`` at that row or blank (``_blank_of``). An output that makes
+        its outputs ``SKIPPED`` at that row or blank (``values_of_run.blank_of``). An output that makes
         rows makes them under the unit's row, one per list item or table
         row, each child of ``row``; a skipped one leaves its index with no rows
         under the row, an empty one leaves an empty group, so a reduction over
@@ -695,6 +526,7 @@ class RunLedger:
         node = self._compiled.node(node_id)
         assert node._wiring is not None  # the engine runs only a runnable graph
         fields = node._wiring.fields
+        write = self._values.write
         rows_made: list[tuple[str, Row, int]] = []
         skip_row = outputs.row if isinstance(outputs, SkippedAtRow) else None
         not_called = outputs if isinstance(outputs, BlankInputsStopCall) else None
@@ -707,28 +539,14 @@ class RunLedger:
             if skip_row is not None:
                 value = SKIPPED
             elif not_called is not None:
-                value = _blank_of(field, out)
+                value = SKIPPED if out.exclusive_group is not None else blank_of(field)  # no branch was chosen
             else:
                 value = outputs[out.name]  # type: ignore[index]
-            write_row = row if skip_row is None else skip_row
-            self._values.setdefault(field.ref, {})[write_row] = value
-            self._note_rows_made_by_write(field, write_row, value, rows_made)
+            write(field, row if skip_row is None else skip_row, value, rows_made)
         if self._waiting:
             self._waiting.pop(unit, None)
         self._mark_done(unit, input_hash)
         return self._what_this_write_makes_ready(unit, rows_made)
-
-    def _note_rows_made_by_write(self, field: CompiledField, row: Row, value: Any, rows_made: list[tuple[str, Row, int]]) -> None:
-        """What a value written at ``row`` does to the rows: ``SKIPPED`` leaves its field's
-        index with nothing there and, on a row-making output, under it; a list
-        or a table makes one row per item."""
-        index = field._makes_rows
-        if value is SKIPPED:
-            self._fields_with_a_skip.add(field.ref)
-            if index is not None:
-                self._mark_no_rows_under(index.id, row)
-        elif index is not None:
-            self._make_rows_under(index.id, row, len(value), rows_made)
 
     def _mark_done(self, unit: Unit, input_hash: str | None) -> None:
         """Mark the unit done, and count it under each shorter row its node has readers at."""
@@ -832,13 +650,10 @@ class RunLedger:
         old_row = claimed[0]
         for out in self._lookups.interfaces[node_id].outputs:
             ref = Ref(node_id, out.name)
-            value = earlier.cells.get(ref, _NO_VALUES).get(claimed, _MISSING)
-            if value is _MISSING:
+            value = earlier.cells.get(ref, NO_VALUES).get(claimed, MISSING)
+            if value is MISSING:
                 return None
-            makes_rows = self._fields[ref]._makes_rows
-            if makes_rows is not None and old_row != row and is_frame(value):
-                value = with_ids_spelled_at_row(value, makes_rows, old_row, row)
-            cells[out.name] = value
+            cells[out.name] = value_for_another_row(self._fields[ref], value, old_row, row)
         return cells
 
     def _earlier_units_still_unclaimed(self, node_id: str) -> list[EarlierUnit]:
@@ -852,9 +667,9 @@ class RunLedger:
             row, input_hash = key
             columns: dict[str, OutputColumn] = {}
             for name, ref in outputs:
-                by_key = earlier.cells.get(ref, _NO_VALUES)
+                by_key = earlier.cells.get(ref, NO_VALUES)
                 if key in by_key:
-                    columns[name] = _output_column_of({row: by_key[key]}, is_many_cells=self._fields[ref]._unit_writes_many_cells)
+                    columns[name] = output_column_of({row: by_key[key]}, self._fields[ref])
             units.append(EarlierUnit.model_construct(
                 row=row, input_hash=input_hash, answered=key in earlier.answered,
                 only_its_own_row_may_claim=input_hash in earlier.hashes_only_their_own_rows_may_claim,
@@ -873,7 +688,7 @@ class RunLedger:
         output of a node that ran once is its value; anything on an index is
         ``ValuesOnRows``, without the rows that were skipped.
         """
-        return node_result(self._lookups, node_id, self._values)
+        return self._values.result_of(node_id)
 
     # -- the state ----------------------------------------------------------------
 
@@ -891,7 +706,6 @@ class RunLedger:
         for node_id, row in sorted(self._answered):
             answered.setdefault(node_id, []).append(row)
         waiting = {node_id: tuple(units) for node_id, units in groupby(self.waiting(), key=attrgetter("node_id"))}
-        interfaces = self._lookups.interfaces
         nodes: dict[str, WorkOfNode] = {}
         for node_id in compiled.execution_order:
             units = finished_units.get(node_id)
@@ -899,16 +713,11 @@ class RunLedger:
                 units.sort()  # no two units of a node share a row, so the hash is never compared
             elif self.node_is_complete(node_id):
                 units = []  # a node complete on no rows: the state says it finished
-            outputs: dict[str, OutputColumn] = {}
-            for out in interfaces[node_id].outputs:
-                ref = Ref._from_checked_parts(node_id, out.name)
-                if ref in self._values:
-                    outputs[out.name] = _output_column_of(self._values[ref], is_many_cells=self._fields[ref]._unit_writes_many_cells)
             nodes[node_id] = WorkOfNode._built_from_checked_fields(
                 fingerprint=compiled.node(node_id).fingerprint,
                 finished_units=units,
                 answered_rows=answered.get(node_id, []),
-                outputs=outputs,
+                outputs=self._values.output_columns_of(node_id),
                 waiting=waiting.get(node_id, ()),
                 rows_not_called=dict(sorted(self._rows_not_called[node_id].items())) if node_id in self._rows_not_called else {},
                 reused_units=self._reused_units.get(node_id, 0),
@@ -938,11 +747,9 @@ class RunLedger:
         """
         restored = cls(compiled)
         changed = set(compiled._nodes_changed_since(state))
-        values, problems = read_output_columns(compiled, state, changed)
+        problems = restored._values.read_state(compiled, state, changed)
         if problems:
             raise InvalidCallError(problems)
-        for ref, by_row in values.items():
-            restored._values.setdefault(ref, {}).update(by_row)
         restored._earlier_units = _earlier_units_of_nodes(compiled, state, changed)
         kept = {node_id: work for node_id, work in state.nodes.items() if node_id not in changed}
         restored._waiting = {(waiting_unit.node_id, waiting_unit.row): waiting_unit for work in kept.values() for waiting_unit in work.waiting}
@@ -975,14 +782,8 @@ class RunLedger:
                 rows_seen.add(row)
                 for out in interfaces[node_id].outputs:
                     field = self._fields[Ref(node_id, out.name)]
-                    value, write_row = _stored_value_of_unit(self._values.get(field.ref, _NO_VALUES), row)
-                    if value is _MISSING:
+                    if not self._values.make_rows_again_from_stored_output(field, row):
                         problems.append(make_problem("state_unreadable", "state", field.ref, *row, reason=f"the state has {node_id!r} finished at row {list(row)}, with no value for {field.ref}"))
-                        continue
-                    if value is None and field._makes_rows is not None:
-                        problems.append(make_problem("state_unreadable", "state", field.ref, *row, reason=f"the state holds null for {field.ref} at row {list(row)}, where rows are made"))
-                        continue
-                    self._note_rows_made_by_write(field, write_row, value, [])
                 self._mark_done((node_id, row), input_hash)
         return problems
 
@@ -1078,7 +879,7 @@ def _earlier_units_of_node(compiled: CompiledGraph, node_id: str, work: WorkOfNo
         answered.update((row, hash_of_row[row]) for row in work.answered_rows if row in hash_of_row)
         for name, ref in outputs:
             column = work.outputs.get(name)
-            read = None if column is None else _read_output_column(compiled, ref, column, problems)
+            read = None if column is None else read_output_column(compiled, ref, column, problems)
             if read is not None:
                 cells[ref] = {(row, input_hash): read[row] for row, input_hash in hash_of_row.items() if row in read}
     for unit in work.earlier_units:
@@ -1094,197 +895,9 @@ def _earlier_units_of_node(compiled: CompiledGraph, node_id: str, work: WorkOfNo
             waiting[key] = unit.waiting
         for name, ref in outputs:
             column = unit.outputs.get(name)
-            read = None if column is None else _read_output_column(compiled, ref, column, problems)
+            read = None if column is None else read_output_column(compiled, ref, column, problems)
             if read is not None and unit.row in read:
                 cells.setdefault(ref, {})[key] = read[unit.row]
     if problems or not unclaimed:
         return None
     return _EarlierUnitsOfNode(unclaimed, answered, only_their_own_rows, waiting, cells)
-
-
-def _stored_value_of_unit(by_row: Mapping[Row, Any], row: Row) -> tuple[Any, Row]:
-    """What a finished unit at ``row`` wrote: the value at its row, or a skip at a shorter one, else missing."""
-    value = by_row.get(row, _MISSING)
-    if value is not _MISSING:
-        return value, row
-    for depth in range(len(row)):
-        if by_row.get(row[:depth]) is SKIPPED:
-            return SKIPPED, row[:depth]
-    return _MISSING, row
-
-
-def _blank_of(field: CompiledField, out: Output) -> Any:
-    """What a node that was not called writes on an output: a ``choice`` output
-    is skipped, since no branch was chosen; an output that makes rows has none
-    there; any other is blank."""
-    if out.exclusive_group is not None:
-        return SKIPPED
-    if field._unit_writes_many_cells:
-        return []
-    if field._makes_rows is not None:
-        return frame_with_no_rows(field.type)
-    return None
-
-
-
-def _output_column_of(by_row: Mapping[Row, Any], is_many_cells: bool) -> OutputColumn:
-    """One output as a state writes it. On an output that makes rows, a row's
-    value is the list of cells under it; a cell skipped alone is listed in ``skipped`` and a ``None`` stands in its place."""
-    rows: list[Row] = []
-    values: list[Any] = []
-    skipped: list[Row] = []
-    for row, value in sorted(by_row.items(), key=itemgetter(0)):
-        if value is SKIPPED:
-            skipped.append(row)
-            continue
-        rows.append(row)
-        if is_many_cells:
-            holes = [position for position, cell in enumerate(value) if cell is SKIPPED]
-            if holes:
-                value = list(value)
-                for position in holes:
-                    value[position] = None
-                    skipped.append((*row, position))
-        values.append(value)
-    skipped.sort()
-    return OutputColumn._built_from_checked_fields(rows=rows, values=values, skipped=skipped)
-
-
-def read_output_columns(compiled: CompiledGraph, state: RunState, dropped: set[str]) -> tuple[dict[Ref, dict[Row, Any]], list[Problem]]:
-    """What ``state`` holds on every output of the graph, by row, each value
-    read through its output's check, and every problem found.
-
-    The one reader of a state's output columns: a leg restores from it and
-    ``compiled.results`` reads from it. ``dropped`` (``_nodes_changed_since``)
-    is left out."""
-    values: dict[Ref, dict[Row, Any]] = {}
-    problems: list[Problem] = []
-    for node_id, work in state.nodes.items():
-        if node_id not in dropped:
-            for name, column in work.outputs.items():
-                ref = Ref(node_id, name)
-                read = _read_output_column(compiled, ref, column, problems)
-                if read is not None:
-                    values[ref] = read
-    return values, problems
-
-
-def _read_output_column(compiled: CompiledGraph, ref: Ref, column: OutputColumn, problems: list[Problem]) -> dict[Row, Any] | None:
-    """One output's stored rows and cells, or ``None`` and the problems that stop them."""
-    try:
-        field = compiled.field(ref)
-    except KeyError:
-        problems.append(make_problem("state_unreadable", "state", ref, reason=f"the state has a value for {ref}, which the graph does not have"))
-        return None
-    depth = 0 if field._index is None else field._index.depth
-    many_cells = field._unit_writes_many_cells
-    depth_of_written_row = depth - 1 if many_cells else depth
-    stored_rows = (*column.rows, *column.skipped)
-    misplaced: list[Row] = []
-    if max(map(len, column.rows), default=0) > depth_of_written_row or max(map(len, column.skipped), default=0) > depth or min(chain.from_iterable(stored_rows), default=0) < 0:
-        misplaced = [row for row in column.rows if len(row) > depth_of_written_row or min(row, default=0) < 0]
-        misplaced += [row for row in column.skipped if len(row) > depth or min(row, default=0) < 0]
-    for row in misplaced:
-        problems.append(make_problem("state_unreadable", "state", ref, *row, reason=f"the state's value for {ref} is at row {list(row)}, which {ref} has no place for"))
-    if misplaced:
-        return None
-    by_row: dict[Row, Any] = {}
-    read = field._validate_cell
-    cell_type = field.type
-    for row, stored in zip(column.rows, column.values, strict=True):
-        try:
-            by_row[row] = _restored_list_of_cells(field, stored, read) if many_cells else stored if stored is None or type(stored) is cell_type else _restored_cell(field, stored, read)
-        except (TypeError, ValueError) as unreadable:
-            problems.append(make_problem("state_unreadable", "state", ref, *row, reason=f"the state's value for {ref} at row {list(row)} does not read back: {_read_failure_message(unreadable)}"))
-    for row in column.skipped:
-        if many_cells and len(row) == depth:
-            cells = by_row.get(row[:-1])
-            if not isinstance(cells, list) or row[-1] >= len(cells):
-                problems.append(make_problem("state_unreadable", "state", ref, *row, reason=f"the state's skip for {ref} at row {list(row)} has no list to be in"))
-                continue
-            cells[row[-1]] = SKIPPED
-        else:
-            by_row[row] = SKIPPED
-    return by_row
-
-
-def _restored_list_of_cells(field: CompiledField, stored: Any, read: Any) -> list[Any]:
-    """The cells a many-valued output wrote at one row, each read as its output's cell."""
-    if not isinstance(stored, list):
-        raise TypeError(f"a list of values, not a {type(stored).__name__}")
-    cell_type = field.type
-    return [cell if cell is None or type(cell) is cell_type else _restored_cell(field, cell, read) for cell in stored]
-
-
-def _restored_cell(field: CompiledField, stored: Any, read: Any) -> Any:
-    """A stored value not already of its type as its cell, through the output's check:
-    one of its type came from a leg in this process, and a ``None`` is a blank, so
-    the caller keeps those as they are. A table has to have kept its row ids."""
-    cell = read(stored)
-    if field._makes_rows is not None and not field._unit_writes_many_cells and ROW_ID_COLUMN not in cell.columns:
-        raise ValueError("a stored table has lost the ids of its rows")
-    return cell
-
-
-def node_result(lookups: EngineLookups, node_id: str, values: Mapping[Ref, Mapping[Row, Any]]) -> dict[str, Any] | None:
-    """A node's outputs by name, read off what each holds, or ``None`` when
-    the node did not run (every output is skipped at the top).
-
-    A result holds only what the node produced: an output the node skipped
-    (the branch not taken) is absent, never ``SKIPPED``. A scalar output of a
-    node that ran once is its value; anything on an index is ``ValuesOnRows``,
-    the rows written so far and a value each, without the rows that were skipped."""
-    outputs = lookups.interfaces[node_id].outputs
-    by_output = {out.name: values.get(Ref(node_id, out.name), _NO_VALUES) for out in outputs}
-    skipped_at_top = {name: _skipped_at_the_top(lookups, Ref(node_id, name), values) for name in by_output}
-    if outputs and all(skipped_at_top.values()):
-        return None
-    result: dict[str, Any] = {}
-    for name, by_row in by_output.items():
-        if skipped_at_top[name]:
-            continue
-        field = lookups.fields[Ref(node_id, name)]
-        if field._index is not None:
-            rows, cells = _rows_and_cells_with_a_value(by_row, field._unit_writes_many_cells)
-            result[name] = ValuesOnRows(rows=rows, values=cells)
-        elif (at_top := by_row.get((), _MISSING)) is not _MISSING:
-            result[name] = at_top
-    return result
-
-
-def _skipped_at_the_top(lookups: EngineLookups, ref: Ref, values: Mapping[Ref, Mapping[Row, Any]]) -> bool:
-    """``SKIPPED`` at ``()`` on this output, or an index above it that got no rows at all from a skip."""
-    if values.get(ref, _NO_VALUES).get(()) is SKIPPED:
-        return True
-    index = lookups.fields[ref]._index
-    while index is not None:
-        maker = lookups.field_making_rows_of_index[index.id]
-        if not maker._is_list_on_node and values.get(maker.ref, _NO_VALUES).get(()) is SKIPPED:
-            return True
-        index = index.parent
-    return False
-
-
-def _rows_and_cells_with_a_value(by_row: Mapping[Row, Any], is_many_cells: bool) -> tuple[list[Row], list[Any]]:
-    """A field's rows and cells in order, leaving out skipped rows and those under a skip."""
-    rows = sorted(by_row)
-    skips = {row for row, value in by_row.items() if value is SKIPPED}
-    if skips:
-        rows = [row for row in rows if row not in skips and not any(row[:depth] in skips for depth in range(len(row)))]
-    if not is_many_cells:
-        return rows, [by_row[row] for row in rows]
-    cell_rows: list[Row] = []
-    cells: list[Any] = []
-    for row in rows:
-        for position, cell in enumerate(by_row[row]):
-            if cell is not SKIPPED:
-                cell_rows.append((*row, position))
-                cells.append(cell)
-    return cell_rows, cells
-
-
-def _read_failure_message(unreadable: Exception) -> str:
-    """Why a value did not read: pydantic's first message when pydantic said, never the value."""
-    if isinstance(unreadable, ValidationError):
-        return unreadable.errors(include_url=False, include_input=False, include_context=False)[0]["msg"]
-    return str(unreadable)
