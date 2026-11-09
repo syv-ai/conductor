@@ -35,7 +35,7 @@ from conductor import (
 from conductor._internal.execution.input_hash import hash_of_inputs
 from conductor._internal.execution.run_state import OutputColumn
 from conductor.events import NodeComplete, NodeProgress, NodeStart, UnitWaiting
-from helpers import answer
+from helpers import answer, events_of
 
 from test_core.embedded import embedded_graph_node
 
@@ -831,11 +831,7 @@ def test_earlier_work_of_two_edits_can_sit_at_the_same_row() -> None:
 def test_a_node_entirely_reused_starts_and_completes_and_says_how_much() -> None:
     state = first_leg()
 
-    async def events() -> list[Any]:
-        async with mail_graph("c|c@x\nb|b@x\na|a@x\n").stream(through_json(state)) as stream:
-            return [event async for event in stream]
-
-    seen = asyncio.run(events())
+    seen = events_of(mail_graph("c|c@x\nb|b@x\na|a@x\n"), state=through_json(state))
     assert any(isinstance(event, NodeStart) and event.node_id == "m" for event in seen)
     done = next(event for event in seen if isinstance(event, NodeComplete) and event.node_id == "m")
     assert done.reused_units == 3
@@ -844,11 +840,7 @@ def test_a_node_entirely_reused_starts_and_completes_and_says_how_much() -> None
 
 
 def test_a_nothing_reused_leg_reports_no_reuse() -> None:
-    async def events() -> list[Any]:
-        async with mail_graph(BASE).stream() as stream:
-            return [event async for event in stream]
-
-    done = next(event for event in asyncio.run(events()) if isinstance(event, NodeComplete) and event.node_id == "m")
+    done = next(event for event in events_of(mail_graph(BASE)) if isinstance(event, NodeComplete) and event.node_id == "m")
     assert done.reused_units == 0
 
 

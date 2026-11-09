@@ -10,8 +10,7 @@ fill. ``AskPerson()`` with no questions asks for the node's declared outputs,
 and a per-row node's answer may be a plain list.
 """
 
-import asyncio
-from typing import Annotated, Any
+from typing import Annotated
 
 import pytest
 from conductor import (
@@ -32,7 +31,7 @@ from conductor import (
 )
 from conductor._internal.node_signature import read_signature
 from conductor.widgets import NumberWidget, Textarea
-from helpers import stream_of
+from helpers import events_of
 
 
 class Txt(DType, str):
@@ -145,13 +144,6 @@ def _registry() -> NodeRegistry:
     return reg
 
 
-def _leg(compiled: CompiledGraph, **kw: Any) -> list[dict]:
-    async def run() -> list[dict]:
-        return [event async for event in stream_of(compiled, **kw)]
-
-    return asyncio.run(run())
-
-
 def _asking_once() -> CompiledGraph:
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[GraphNode(id="ask", type="ask-each", version=1, bindings={"proposal": Static("hi")})]),
@@ -174,7 +166,7 @@ def _asking_per_row(text: str) -> CompiledGraph:
 
 
 def test_a_node_that_asks_is_asked_its_declared_outputs():
-    ending = _leg(_asking_once())[-1].state
+    ending = events_of(_asking_once())[-1].state
 
     assert ending.status == "waiting"
     (pending,) = ending.waiting
@@ -185,10 +177,10 @@ def test_a_node_that_asks_is_asked_its_declared_outputs():
 
 def test_each_row_of_a_per_row_node_is_answered_by_its_own_id():
     compiled = _asking_per_row("a,b,c")
-    first = _leg(compiled)[-1].state
+    first = events_of(compiled)[-1].state
     assert [w.row for w in first.waiting] == [(0,), (1,), (2,)]
 
-    second = _leg(compiled, state=first, answers={"ask@0": {"result": "x"}, "ask@1": {"result": "y"}, "ask@2": {"result": "z"}})
+    second = events_of(compiled, state=first, answers={"ask@0": {"result": "x"}, "ask@1": {"result": "y"}, "ask@2": {"result": "z"}})
 
     assert second[-1].state.status == "complete"
     assert compiled.results(second[-1].state)["ask"]["result"]["values"] == ["x", "y", "z"]
@@ -206,10 +198,10 @@ def test_a_row_skipped_upstream_never_asks():
         _registry(),
     )
     assert compiled.is_runnable, compiled.problems
-    first = _leg(compiled)[-1].state
+    first = events_of(compiled)[-1].state
     assert [w.row for w in first.waiting] == [(0,), (2,)]
 
-    second = _leg(compiled, state=first, answers={"ask@0": {"result": "x"}, "ask@2": {"result": "z"}})
+    second = events_of(compiled, state=first, answers={"ask@0": {"result": "x"}, "ask@2": {"result": "z"}})
 
     assert second[-1].state.status == "complete"
     answered = compiled.results(second[-1].state)["ask"]["result"]

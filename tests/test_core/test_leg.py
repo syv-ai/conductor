@@ -33,7 +33,7 @@ from conductor import (
     node,
 )
 from conductor.widgets import Textarea
-from helpers import stream_of
+from helpers import events_of, stream_of
 
 
 class Txt(DType, str):
@@ -72,13 +72,6 @@ def _single(cls: type[NodeDefinition]) -> CompiledGraph:
     return CompiledGraph.from_graph(
         Graph(nodes=[GraphNode(id="n1", type=cls.id, version=1, bindings={"text": Static("x")})]), reg
     )
-
-
-def _events(compiled: CompiledGraph, **kw) -> list[dict]:
-    async def run() -> list[dict]:
-        return [event async for event in stream_of(compiled, **kw)]
-
-    return asyncio.run(run())
 
 
 # -- closing the stream -------------------------------------------------------------
@@ -169,7 +162,7 @@ def test_an_instant_node_beside_forty_slow_rows_does_not_time_out():
         GraphNode(id="instant", type="instant", version=1, bindings={"texts": From("split.result")}),
     ]), reg)
 
-    events = _events(compiled)
+    events = events_of(compiled)
 
     assert events[-1].state.status == "complete", events[-1]
     assert compiled.results(events[-1].state)["instant"]["result"] == "now"
@@ -204,7 +197,7 @@ def test_concurrency_one_with_a_timeout_never_has_two_calls_in_flight():
     compiled = _per_row(slow, 3)
 
     start = time.monotonic()
-    events = _events(compiled)
+    events = events_of(compiled)
     elapsed = time.monotonic() - start
     time.sleep(0.6)  # let the abandoned thread finish before reading the counters
 
@@ -224,7 +217,7 @@ def test_a_timed_out_attempt_is_final_and_its_cause_is_timeout():
         time.sleep(0.3)
         return Txt("late")
 
-    events = _events(_single(slow))
+    events = events_of(_single(slow))
     time.sleep(0.4)
 
     assert len(calls) == 1
@@ -257,7 +250,7 @@ def test_a_leg_deadline_ends_the_leg_at_once_timed_out():
         return Txt("done")
 
     start = time.monotonic()
-    events = _events(_single(slow), timeout=0.2)
+    events = events_of(_single(slow), timeout=0.2)
     elapsed = time.monotonic() - start
 
     assert events[-1].state.status == "timed_out"
@@ -311,14 +304,6 @@ def test_anything_a_node_raises_fails_its_unit_and_the_leg_ends(raised):
     assert (state.status, state.failure.type, state.failure.loc[0]) == ("failed", "execution_failed", "r")
 
 
-def _events_of(compiled: CompiledGraph) -> list[Any]:
-    async def go() -> list[Any]:
-        async with compiled.stream() as events:
-            return [event async for event in events]
-
-    return asyncio.run(go())
-
-
 def _wide_graph(rows: int, **definition: Any) -> CompiledGraph:
     @node("source", title="S", description="d", category="test")
     def source(text: In = Txt("")) -> Parts:
@@ -353,7 +338,7 @@ def test_a_cancel_set_while_the_queue_holds_messages_ends_the_leg_at_the_next_ev
 
 def test_a_fast_node_over_many_rows_reports_a_few_times_and_ends_on_its_last_count():
     started = time.monotonic()
-    events = _events_of(_wide_graph(20_000))
+    events = events_of(_wide_graph(20_000))
     took = time.monotonic() - started
 
     progress = [event for event in events if event.type == "node_progress"]
@@ -372,7 +357,7 @@ def test_a_leg_that_goes_quiet_reports_the_last_count_of_a_node_still_waiting():
         return AskPerson() if text == "ask" else text
 
     nodes = [GraphNode(id="s", type="source", version=1), GraphNode(id="m", type="maybe", version=1, bindings={"text": From("s.result")})]
-    events = _events_of(CompiledGraph.from_graph(Graph(nodes=nodes), NodeRegistry([source, maybe])))
+    events = events_of(CompiledGraph.from_graph(Graph(nodes=nodes), NodeRegistry([source, maybe])))
 
     last = [event for event in events if event.type == "node_progress"][-1]
     assert (last.done, last.total) == (2, 3)
@@ -440,10 +425,7 @@ def test_the_retry_delay_doubles_each_time_and_a_retry_holds_no_slot_while_it_wa
     nodes = [GraphNode(id="s", type="source", version=1), GraphNode(id="f", type="flaky", version=1, bindings={"text": From("s.result")})]
     compiled = CompiledGraph.from_graph(Graph(nodes=nodes), NodeRegistry([source, flaky]))
 
-    async def go() -> list[Any]:
-        return [event async for event in stream_of(compiled)]
-
-    events = asyncio.run(go())
+    events = events_of(compiled)
     assert [event.delay for event in events if event.type == "node_retry"] == [0.02, 0.04, 0.08]
     assert finished == ["steady", "flaky"]
 

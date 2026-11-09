@@ -1,5 +1,6 @@
 """What several test modules need to read a stream."""
 
+import asyncio
 from collections.abc import AsyncIterator, Mapping
 from typing import Any
 
@@ -26,6 +27,14 @@ async def stream_of(compiled: CompiledGraph, state: RunState | None = None, answ
     async with compiled.stream(state, **kwargs) as events:
         async for event in events:
             yield event
+
+
+def events_of(compiled: CompiledGraph, **kwargs: Any) -> list[Event]:
+    """Every event of one leg as a list, for a test that is not async itself."""
+    async def collect() -> list[Event]:
+        return [event async for event in stream_of(compiled, **kwargs)]
+
+    return asyncio.run(collect())
 
 
 def read_table(table_type: Any, value: Any) -> Any:

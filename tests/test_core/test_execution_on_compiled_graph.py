@@ -3,7 +3,6 @@ produced and runs it — here, graphs whose nodes each run once. Rows are
 ``test_rows.py``'s.
 """
 
-import asyncio
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Annotated
@@ -26,7 +25,7 @@ from conductor import (
     node,
 )
 from conductor.widgets import Textarea
-from helpers import stream_of
+from helpers import events_of
 
 
 class Txt(DType, str):
@@ -138,8 +137,5 @@ def test_events_carry_the_placement_title():
         _registry(),
     )
 
-    async def gathered():
-        return [e async for e in stream_of(compiled)]
-
-    events = asyncio.run(gathered())
+    events = events_of(compiled)
     assert [e.type for e in events] == ["run_start", "node_start", "node_complete", "run_end"]

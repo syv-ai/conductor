@@ -8,7 +8,6 @@ the node wrote one for people; a foreign exception's text goes to the
 log and never reaches an event.
 """
 
-import asyncio
 import json
 from typing import Annotated
 
@@ -32,7 +31,7 @@ from conductor import (
 )
 from conductor._internal.execution.call_node import CallFailed, call_node
 from conductor.widgets import Textarea
-from helpers import stream_of
+from helpers import events_of
 
 
 class Txt(DType, str):
@@ -52,13 +51,6 @@ def _compiled(node_cls: type[NodeDefinition], *more: type[NodeDefinition]) -> Co
     )
 
 
-def _events(compiled: CompiledGraph) -> list[dict]:
-    async def run() -> list[dict]:
-        return [event async for event in stream_of(compiled)]
-
-    return asyncio.run(run())
-
-
 def _error(events: list[dict]) -> dict:
     return next(e for e in events if e.type == "node_failed")
 
@@ -76,7 +68,7 @@ def test_a_foreign_exception_runs_once_and_is_execution_failed():
         calls.append(1)
         return {}["missing"]
 
-    events = _events(_compiled(buggy))
+    events = events_of(_compiled(buggy))
 
     assert len(calls) == 1
     assert [e.type for e in events if e.type == "node_retry"] == []
@@ -97,7 +89,7 @@ def test_a_foreign_exception_named_in_retry_on_is_external_and_retries():
         return Txt("ok")
 
     compiled = _compiled(flaky)
-    events = _events(compiled)
+    events = events_of(compiled)
 
     assert len(calls) == 3
     retries = [e for e in events if e.type == "node_retry"]
@@ -116,7 +108,7 @@ def test_an_exhausted_external_failure_is_external_failed():
         raise ConnectionError("socket closed")
 
     compiled = _compiled(down)
-    events = _events(compiled)
+    events = events_of(compiled)
 
     assert len(calls) == 3
     error = _error(events)
@@ -136,7 +128,7 @@ def test_an_external_failure_the_node_raised_retries_and_keeps_its_message():
         calls.append(1)
         raise ExternalFailure("Nationalbanken svarede ikke.")
 
-    error = _error(_events(_compiled(bank)))
+    error = _error(events_of(_compiled(bank)))
 
     assert len(calls) == 2
     assert error.cause.type == "external_failed"
@@ -155,7 +147,7 @@ def test_a_node_error_the_node_raised_runs_once_and_keeps_its_message():
             "unreadable", code="unreadable"
         )
 
-    error = _error(_events(_compiled(reader)))
+    error = _error(events_of(_compiled(reader)))
 
     assert len(calls) == 1
     assert (error.cause.type, error.cause.msg) == ("failed", "Dokumentet kunne ikke læses.")
@@ -168,7 +160,7 @@ def test_a_nodes_own_cause_streams_as_written():
             "unreadable", code="unreadable"
         )
 
-    error = _error(_events(_compiled(reader)))
+    error = _error(events_of(_compiled(reader)))
 
     assert (error.cause.type, error.cause.msg) == ("unreadable", "unreadable")
 

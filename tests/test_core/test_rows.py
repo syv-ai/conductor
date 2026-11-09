@@ -31,7 +31,7 @@ from conductor import (
     node,
 )
 from conductor.widgets import Textarea
-from helpers import stream_of
+from helpers import events_of
 
 from test_core.embedded import embedded_graph_node
 
@@ -154,12 +154,7 @@ def _run(nodes):
 
 
 def _events(nodes):
-    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), _registry())
-
-    async def gathered():
-        return [e async for e in stream_of(compiled)]
-
-    return asyncio.run(gathered())
+    return events_of(CompiledGraph.from_graph(Graph(nodes=nodes), _registry()))
 
 
 # --- what no run reaches by another way ---------------------------------------------------
@@ -406,10 +401,7 @@ def test_a_defect_in_the_engine_fails_the_leg_instead_of_hanging_it(monkeypatch)
     monkeypatch.setattr(RunLedger, "inputs_for", broken)
     compiled = CompiledGraph.from_graph(Graph(nodes=[_docs("a,b")]), _registry())
 
-    async def gathered():
-        return [e async for e in stream_of(compiled, timeout=5)]
-
-    events = asyncio.run(gathered())
+    events = events_of(compiled, timeout=5)
 
     assert events[-1].state.status == "failed"
     assert events[-1].state.failure.type == "engine_error"
@@ -523,13 +515,10 @@ def test_a_cancelled_leg_carries_its_state():
     stop = asyncio.Event()
     stop.set()
 
-    async def leg(**kwargs):
-        return [e async for e in stream_of(compiled, **kwargs)]
-
-    (ending,) = [e.state for e in asyncio.run(leg(cancel=stop)) if e.type == "run_end"]
+    (ending,) = [e.state for e in events_of(compiled, cancel=stop) if e.type == "run_end"]
     assert ending.status == "cancelled" and compiled.results(ending) == {}
 
-    seeded = asyncio.run(leg(state=ending))
+    seeded = events_of(compiled, state=ending)
     assert seeded[-1].state.status == "complete"
     assert compiled.results(seeded[-1].state)["b"]["result"] == "B"
 
@@ -555,13 +544,6 @@ def _registry_with_asks(*extra):
     return _registry().extended_with([ask_node, *extra])
 
 
-def _leg(compiled, **kwargs):
-    async def collect_all():
-        return [e async for e in stream_of(compiled, **kwargs)]
-
-    return asyncio.run(collect_all())
-
-
 def test_a_node_that_asks_ends_the_leg_pending_with_its_question_named_by_address():
     """The leg runs to quiescence — the independent node completes in
     the same leg — and ends pending with the question, not paused at it."""
@@ -573,7 +555,7 @@ def test_a_node_that_asks_ends_the_leg_pending_with_its_question_named_by_addres
         ]),
         _registry_with_asks(),
     )
-    events = _leg(compiled)
+    events = events_of(compiled)
 
     assert events[-1].state.status == "waiting"
     (waiting,) = events[-1].state.waiting
@@ -596,9 +578,9 @@ def test_answering_is_the_next_leg_from_the_state_and_the_cache():
         ]),
         _registry_with_asks(),
     )
-    first = _leg(compiled)[-1].state
+    first = events_of(compiled)[-1].state
 
-    second = _leg(compiled, state=first, answers={"ask": {"result": Txt("yes")}})
+    second = events_of(compiled, state=first, answers={"ask": {"result": Txt("yes")}})
 
     assert second[-1].state.status == "complete"
     assert compiled.results(second[-1].state)["up"]["result"] == "YES"
@@ -617,13 +599,13 @@ def test_an_iterating_asking_node_pends_once_per_row_and_is_answered_as_a_series
         ]),
         _registry_with_asks(),
     )
-    first = _leg(compiled)[-1].state
+    first = events_of(compiled)[-1].state
 
     assert first.status == "waiting"
     assert [(w.node_id, w.row) for w in first.waiting] == [("ask", (0,)), ("ask", (1,))]
     assert [w.questions[0].default for w in first.waiting] == ["a", "b"]
 
-    second = _leg(compiled, state=first, answers={"ask@0": {"result": Txt("x")}, "ask@1": {"result": Txt("y")}})
+    second = events_of(compiled, state=first, answers={"ask@0": {"result": Txt("x")}, "ask@1": {"result": Txt("y")}})
 
     assert compiled.results(second[-1].state)["up"]["result"]["values"] == ["X", "Y"]
 
@@ -651,10 +633,10 @@ def test_an_answer_fills_the_rows_it_names_and_the_rows_already_done_stay():
     """Rows 0 and 2 ran in the first leg; only row 1 asked. The answer
     names row 1, and rows 0 and 2 keep what they produced."""
     compiled = _asks_if_long("a,long,b")
-    first = _leg(compiled)[-1].state
+    first = events_of(compiled)[-1].state
     assert [(w.node_id, w.row) for w in first.waiting] == [("ask", (1,))]
 
-    second = _leg(compiled, state=first, answers={"ask@1": {"result": Txt("yes")}})
+    second = events_of(compiled, state=first, answers={"ask@1": {"result": Txt("yes")}})
 
     assert second[-1].state.status == "complete"
     assert compiled.results(second[-1].state)["ask"]["result"]["values"] == ["a", "yes", "b"]
@@ -665,9 +647,9 @@ def test_an_answer_fills_the_rows_it_names_and_the_rows_already_done_stay():
 
 def test_a_row_left_unanswered_goes_on_waiting_with_its_question_frozen():
     compiled = _asks_if_long("long,longer")
-    first = _leg(compiled)[-1].state
+    first = events_of(compiled)[-1].state
 
-    second = _leg(compiled, state=first, answers={"ask@0": {"result": Txt("yes")}})
+    second = events_of(compiled, state=first, answers={"ask@0": {"result": Txt("yes")}})
 
     assert second[-1].state.status == "waiting"
     assert [(w.node_id, w.row) for w in second[-1].state.waiting] == [("ask", (1,))]
@@ -683,7 +665,7 @@ def test_two_asking_nodes_in_parallel_are_one_pending_set():
         ]),
         _registry_with_asks(),
     )
-    (ending,) = [e.state for e in _leg(compiled) if e.type == "run_end"]
+    (ending,) = [e.state for e in events_of(compiled) if e.type == "run_end"]
 
     assert sorted(w.node_id for w in ending.waiting) == ["a", "b"]
 
@@ -698,7 +680,7 @@ def test_run_sync_returns_the_pending_ending():
     assert pending.status == "waiting"
     assert [w.node_id for w in pending.waiting] == ["ask"]
 
-    answered = _leg(compiled, state=pending, answers={"ask": {"result": Txt("yes")}})
+    answered = events_of(compiled, state=pending, answers={"ask": {"result": Txt("yes")}})
     assert answered[-1].state.status == "complete"
     assert compiled.results(answered[-1].state)["ask"]["result"] == "yes"
 

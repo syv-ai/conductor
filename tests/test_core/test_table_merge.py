@@ -24,10 +24,11 @@ from conductor import (
 from conductor._internal.index import Index
 from conductor._internal.table import MergeSource, merge_tables_on_row_ids
 from conductor.widgets import Textarea
+from helpers import events_of
 
 from test_core.embedded import embedded_graph_node
 from test_core.test_table import Num, Txt
-from test_core.test_table_runs import CSV, Contacts, Invoices, _leg, _registry
+from test_core.test_table_runs import CSV, Contacts, Invoices, _registry
 
 
 @node("export", title="Export", description="d", category="test")
@@ -293,7 +294,7 @@ def test_a_merged_table_that_wont_read_as_the_input_fails_that_node():
     compiled = _compiled(CSV, GraphNode(id="s", type="scores", version=1, bindings={"table": From("csv.result")}), registry=_registry_with(scores))
     assert compiled.is_runnable, compiled.problems
 
-    events = list(_events(compiled))
+    events = list(events_of(compiled))
     (failed,) = [event for event in events if event.type == "node_failed"]
     assert (failed.node_id, failed.cause.type) == ("s", "invalid_input")
 
@@ -308,10 +309,6 @@ def test_a_column_two_levels_down_is_received_under_the_nodes_row():
 
     from_words = next(part for part in compiled.run_plan.nodes["excel"].inputs["table"].source_reads if part.sources == (Ref("words", "result"),))
     assert (from_words.receive_mode, from_words.rows_of, from_words.grouped_under) == ("all_rows_under_row", "words.result", "docs.result")
-
-
-def _events(compiled: CompiledGraph):
-    return _leg(compiled)
 
 
 @node("paragraphs", title="Paragraphs", description="d", category="test")

@@ -8,7 +8,6 @@ value by its own type, and the schema a host generates its
 client from names the same fields, with ``type`` required on every event.
 """
 
-import asyncio
 import json
 from typing import Annotated
 
@@ -44,6 +43,7 @@ from conductor.events import (
     UnitWaiting,
 )
 from conductor.widgets import Textarea
+from helpers import events_of
 from pydantic import TypeAdapter, ValidationError
 
 
@@ -102,11 +102,7 @@ def test_every_event_names_its_fields_and_requires_its_type_in_the_schema():
 def test_the_last_event_is_matched_by_class():
     compiled = _compiled("a,b")
 
-    async def last():
-        async with compiled.stream() as events:
-            return [event async for event in events][-1]
-
-    match asyncio.run(last()):
+    match events_of(compiled)[-1]:
         case RunEnd(state=state):
             assert compiled.results(state)["s"]["result"]["values"] == ["a", "b"]
         case other:

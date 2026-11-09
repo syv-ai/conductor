@@ -6,7 +6,6 @@ node once per row of the table; wiring it into a ``Series[X]`` input gives
 every row under the node's row. Results land on the table's rows.
 """
 
-import asyncio
 from dataclasses import dataclass
 from typing import Annotated, Any
 
@@ -28,7 +27,7 @@ from conductor import (
     table_with_columns,
 )
 from conductor.widgets import Textarea
-from helpers import stream_of
+from helpers import events_of
 
 from test_core.embedded import embedded_graph_node
 from test_core.test_table import Num, Txt
@@ -116,13 +115,6 @@ def _results(compiled: CompiledGraph) -> dict[str, dict[str, Any]]:
     return compiled.results(compiled.run_sync())
 
 
-def _leg(compiled: CompiledGraph, **kw: Any) -> list[Any]:
-    async def run() -> list[Any]:
-        return [event async for event in stream_of(compiled, **kw)]
-
-    return asyncio.run(run())
-
-
 CSV = GraphNode(id="csv", type="csv", version=1, bindings={"text": Static("Ida,ida@x;Bo,;Nina,nina@x")})
 
 
@@ -199,12 +191,12 @@ def test_a_person_approves_each_invoice_and_the_document_totals_once_its_invoice
         GraphNode(id="approve", type="approve", version=1, bindings={"vendor": From("read.result.vendor")}),
         GraphNode(id="all", type="join", version=1, bindings={"texts": From("approve.result")}),
     )
-    first = _leg(compiled)[-1].state
+    first = events_of(compiled)[-1].state
     assert first.status == "waiting"
     assert [unit.row for unit in first.waiting] == [(0, 0), (0, 1), (1, 0)]
 
     # A paused run resumes on the same rows: the stored tables make them again.
-    second = _leg(compiled, state=first, answers={"approve@0,0": {"result": "Ida"}, "approve@0,1": {"result": "Bo"}, "approve@1,0": {"result": "Nina"}})[-1].state
+    second = events_of(compiled, state=first, answers={"approve@0,0": {"result": "Ida"}, "approve@0,1": {"result": "Bo"}, "approve@1,0": {"result": "Nina"}})[-1].state
 
     assert second.status == "complete"
     results = compiled.results(second)

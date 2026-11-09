@@ -28,7 +28,7 @@ from conductor import (
 )
 from conductor.events import RunEnd, RunStart, UnitWaiting
 from conductor.widgets import Textarea
-from helpers import answer, read_table, waiting_id
+from helpers import answer, events_of, read_table, waiting_id
 
 
 class Txt(DType, str):
@@ -226,11 +226,7 @@ def test_results_reads_what_a_stopped_run_did_produce():
 def test_stream_starts_with_run_start_ends_with_run_end():
     compiled = compiled_of(n("ask", "approve", text=Static("a")))
 
-    async def events():
-        async with compiled.stream() as stream:
-            return [event async for event in stream]
-
-    seen = asyncio.run(events())
+    seen = events_of(compiled)
     assert isinstance(seen[0], RunStart) and isinstance(seen[-1], RunEnd)
     waiting = [event for event in seen if isinstance(event, UnitWaiting)]
     assert [event.unit.id.split("#")[0] for event in waiting] == ["ask"] and seen[-1].state.status == "waiting"

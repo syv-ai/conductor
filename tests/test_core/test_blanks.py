@@ -28,7 +28,7 @@ from conductor import (
 from conductor._internal.node_signature import read_signature
 from conductor.events import NodeComplete, NodeSkipped
 from conductor.widgets import Textarea
-from helpers import answer
+from helpers import answer, events_of
 
 
 class Txt(DType, str):
@@ -225,12 +225,7 @@ def test_a_default_is_for_an_input_nothing_is_wired_to_not_for_a_blank():
 def test_the_event_counts_the_rows_not_called_and_the_state_keeps_them():
     compiled = CompiledGraph.from_graph(Graph(nodes=[CSV, _per_row("plain")]), _registry())
 
-    async def collect():
-        async with compiled.stream() as events:
-            return [event async for event in events]
-
-    import asyncio
-    events = asyncio.run(collect())
+    events = events_of(compiled)
     complete = next(e for e in events if isinstance(e, NodeComplete) and e.node_id == "n")
     assert complete.rows_not_called == {"email": 1}
     state = events[-1].state
@@ -248,12 +243,7 @@ def test_a_node_all_blank_completes_it_is_never_skipped():
         GraphNode(id="n", type="plain", version=1, bindings={"email": From("s.result")}),
     ]), _registry(nothing))
 
-    async def collect():
-        async with compiled.stream() as events:
-            return [event async for event in events]
-
-    import asyncio
-    events = asyncio.run(collect())
+    events = events_of(compiled)
     assert not [e for e in events if isinstance(e, NodeSkipped) and e.node_id == "n"]
     assert next(e for e in events if isinstance(e, NodeComplete) and e.node_id == "n").rows_not_called == {"email": 1}
 

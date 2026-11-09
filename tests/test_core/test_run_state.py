@@ -9,7 +9,6 @@ units run again; a node the graph no longer has is dropped the same way,
 and ``without_nodes`` drops one on purpose (a host's "run from here").
 """
 
-import asyncio
 import json
 from typing import Annotated
 
@@ -31,7 +30,7 @@ from conductor import (
     node,
 )
 from conductor.widgets import Textarea
-from helpers import stream_of
+from helpers import events_of
 from pydantic import ValidationError
 
 
@@ -90,13 +89,6 @@ def _compiled(nodes: list[GraphNode]) -> CompiledGraph:
     return compiled
 
 
-def _leg(compiled: CompiledGraph, **kw) -> list[dict]:
-    async def run() -> list[dict]:
-        return [event async for event in stream_of(compiled, **kw)]
-
-    return asyncio.run(run())
-
-
 def _edge(graph_node: str, field: str = "result") -> From:
     return From(f"{graph_node}.{field}")
 
@@ -116,13 +108,13 @@ def test_a_paused_legs_state_survives_json_and_the_next_leg_returns_typed_result
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge("ask")}),
     ])
 
-    first = _leg(compiled)
+    first = events_of(compiled)
     assert first[-1].state.status == "waiting"
     state = first[-1].state
     assert isinstance(state, RunState)
 
     restored = _through_json(state)
-    second = _leg(compiled, state=restored, answers={"ask@0": {"result": Txt("x")}, "ask@1": {"result": Txt("y")}})
+    second = events_of(compiled, state=restored, answers={"ask@0": {"result": Txt("x")}, "ask@1": {"result": Txt("y")}})
 
     assert second[-1].state.status == "complete"
     parts = compiled.results(second[-1].state)["split"]["result"]
@@ -137,7 +129,7 @@ def test_the_state_carries_a_fingerprint_per_node():
         GraphNode(id="b", type="upper", version=1, bindings={"text": _edge("a")}),
     ])
 
-    state = _leg(compiled)[-1].state
+    state = events_of(compiled)[-1].state
 
     assert set(state.nodes) == {"a", "b"}
     assert state.nodes["a"].fingerprint == compiled.node("a").fingerprint
@@ -155,11 +147,11 @@ def test_a_static_edited_between_legs_reruns_that_node_and_its_readers_and_nothi
         GraphNode(id="c", type="wrap", version=1, bindings={"text": _edge("b")}),
         GraphNode(id="d", type="echo", version=1, bindings={"text": Static("alone")}),
     ]
-    state = _leg(_compiled(nodes))[-1].state
+    state = events_of(_compiled(nodes))[-1].state
     calls.clear()
 
     edited = _compiled([GraphNode(id="a", type="echo", version=1, bindings={"text": Static("y")}), *nodes[1:]])
-    ending = _leg(edited, state=_through_json(state))[-1].state
+    ending = events_of(edited, state=_through_json(state))[-1].state
 
     assert ending.status == "complete"
     assert edited.results(ending)["c"]["result"] == "[Y]"
@@ -169,7 +161,7 @@ def test_a_static_edited_between_legs_reruns_that_node_and_its_readers_and_nothi
 
 def test_a_node_removed_between_legs_is_dropped_with_its_readers():
     calls.clear()
-    state = _leg(_compiled([
+    state = events_of(_compiled([
         GraphNode(id="a", type="echo", version=1, bindings={"text": Static("x")}),
         GraphNode(id="b", type="upper", version=1, bindings={"text": _edge("a")}),
         GraphNode(id="c", type="echo", version=1, bindings={"text": Static("c")}),
@@ -183,7 +175,7 @@ def test_a_node_removed_between_legs_is_dropped_with_its_readers():
         GraphNode(id="b", type="upper", version=1, bindings={"text": _edge("a")}),
         GraphNode(id="d", type="wrap", version=1, bindings={"text": _edge("a")}),
     ])
-    ending = _leg(smaller, state=_through_json(state))[-1].state
+    ending = events_of(smaller, state=_through_json(state))[-1].state
 
     assert ending.status == "complete"
     assert set(smaller.results(ending)) == {"a", "b", "d"}
@@ -197,11 +189,11 @@ def test_a_nodes_shape_changed_between_legs_reruns_it():
         GraphNode(id="a", type="echo", version=1, bindings={"text": Static("x")}),
         GraphNode(id="w", type="wrap", version=1, bindings={"text": _edge("a")}),
     ]
-    state = _leg(_compiled(nodes))[-1].state
+    state = events_of(_compiled(nodes))[-1].state
     calls.clear()
 
     bumped = _compiled([nodes[0], GraphNode(id="w", type="wrap", version=2, bindings={"text": _edge("a")})])
-    ending = _leg(bumped, state=_through_json(state))[-1].state
+    ending = events_of(bumped, state=_through_json(state))[-1].state
 
     assert bumped.results(ending)["w"]["result"] == "<x>"
     assert calls == ["wrap2:x"]
@@ -217,10 +209,10 @@ def test_without_nodes_forgets_only_the_nodes_it_names():
         GraphNode(id="w", type="wrap", version=1, bindings={"text": _edge("up")}),
         GraphNode(id="d", type="echo", version=1, bindings={"text": Static("alone")}),
     ])
-    state = _leg(compiled)[-1].state
+    state = events_of(compiled)[-1].state
     calls.clear()
 
-    ending = _leg(compiled, state=_through_json(state.without_nodes("up")))[-1].state
+    ending = events_of(compiled, state=_through_json(state.without_nodes("up")))[-1].state
 
     assert ending.status == "complete"
     assert compiled.results(ending)["w"]["result"]["values"] == ["[A]", "[B]"]
@@ -248,7 +240,7 @@ def test_a_return_of_the_wrong_type_fails_the_returning_node_with_invalid_output
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge("w")}),
     ]), reg)
 
-    events = _leg(compiled)
+    events = events_of(compiled)
 
     error = next(e for e in events if e.type == "node_failed")
     assert error.node_id == "w"
@@ -264,29 +256,29 @@ def test_a_state_value_that_does_not_read_back_as_its_type_is_refused():
     from conductor import InvalidCallError
 
     compiled = _compiled([GraphNode(id="e", type="echo", version=1, bindings={"text": Static("x")})])
-    state = _leg(compiled)[-1].state
+    state = events_of(compiled)[-1].state
     dumped = state.model_dump(mode="json")
     dumped["nodes"]["e"]["outputs"]["result"]["values"] = [{"not": "text"}]
 
     with pytest.raises(InvalidCallError, match=r"e\.result"):
-        _leg(compiled, state=RunState.model_validate(dumped))
+        events_of(compiled, state=RunState.model_validate(dumped))
 
 
 def test_a_node_that_runs_once_is_at_the_empty_row_on_the_wire():
     """The top is the empty row, ``[]`` in JSON, for a value and a done unit
     alike; a state read back from that JSON runs nothing again."""
     compiled = _compiled([GraphNode(id="e", type="echo", version=1, bindings={"text": Static("x")})])
-    wire = _leg(compiled)[-1].state.model_dump(mode="json")
+    wire = events_of(compiled)[-1].state.model_dump(mode="json")
     assert wire["nodes"]["e"]["outputs"]["result"]["rows"] == [[]] and wire["nodes"]["e"]["finished_units"][0][0] == []
 
     calls.clear()
-    assert _leg(compiled, state=RunState.model_validate(wire))[-1].state.status == "complete"
+    assert events_of(compiled, state=RunState.model_validate(wire))[-1].state.status == "complete"
     assert calls == []
 
 
 def _once_state() -> dict:
     compiled = _compiled([GraphNode(id="e", type="echo", version=1, bindings={"text": Static("x")})])
-    return _leg(compiled)[-1].state.model_dump(mode="json")
+    return events_of(compiled)[-1].state.model_dump(mode="json")
 
 
 @pytest.mark.parametrize(("edit", "refusal"), [
@@ -298,11 +290,11 @@ def test_a_state_entry_a_node_that_runs_once_has_no_place_for_is_refused(edit, r
     from conductor import InvalidCallError
 
     compiled = _compiled([GraphNode(id="e", type="echo", version=1, bindings={"text": Static("x")})])
-    dumped = _leg(compiled)[-1].state.model_dump(mode="json")
+    dumped = events_of(compiled)[-1].state.model_dump(mode="json")
     edit(dumped)
 
     with pytest.raises(InvalidCallError, match=refusal):
-        _leg(compiled, state=RunState.model_validate(dumped))
+        events_of(compiled, state=RunState.model_validate(dumped))
 
 
 @pytest.mark.parametrize("column", [
@@ -323,8 +315,8 @@ def test_an_answer_reads_through_the_outputs_type():
         GraphNode(id="ask", type="ask", version=1, bindings={"text": Static("q")}),
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge("ask")}),
     ])
-    first = _leg(once)[-1].state
-    ending = _leg(once, state=first, answers={"ask": {"result": "typed in"}})[-1].state
+    first = events_of(once)[-1].state
+    ending = events_of(once, state=first, answers={"ask": {"result": "typed in"}})[-1].state
     assert ending.status == "complete" and once.results(ending)["up"]["result"] == "TYPED IN"
     assert type(once.results(ending)["ask"]["result"]) is Txt
 
@@ -359,20 +351,20 @@ def test_a_list_set_on_a_node_edited_between_legs_reruns_on_the_new_rows():
     """The rows of a list set on a node are the graph's, never the state's: grown,
     shrunk or added between legs, the node runs on what the author typed now."""
     calls.clear()
-    state = _leg(_compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a", "b"])})]))[-1].state
+    state = events_of(_compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a", "b"])})]))[-1].state
     calls.clear()
 
     longer = _compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a", "b", "c"])})])
-    grown = _leg(longer, state=_through_json(state))[-1].state
+    grown = events_of(longer, state=_through_json(state))[-1].state
     assert grown.status == "complete" and longer.results(grown)["e"]["result"]["values"] == ["A", "B", "C"]
     shorter = _compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a"])})])
-    shrunk = _leg(shorter, state=_through_json(state))[-1].state
+    shrunk = events_of(shorter, state=_through_json(state))[-1].state
     assert shrunk.status == "complete" and shorter.results(shrunk)["e"]["result"]["values"] == ["A"]
     wider = _compiled([
         GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a", "b"])}),
         GraphNode(id="f", type="upper", version=1, bindings={"text": Static(["x", "y"])}),
     ])
-    added = _leg(wider, state=_through_json(state))[-1].state
+    added = events_of(wider, state=_through_json(state))[-1].state
     assert added.status == "complete" and wider.results(added)["f"]["result"]["values"] == ["X", "Y"]
     assert "upper:a" not in calls[-2:]  # ``e`` was kept on the last leg
 
@@ -409,7 +401,7 @@ def test_series_outputs_of_two_lengths_both_land_each_on_its_own_index():
     reg = NodeRegistry([uneven])
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="u", type="uneven", version=1, bindings={"text": Static("x")})]), reg)
 
-    ending = list(_leg(compiled))[-1].state
+    ending = list(events_of(compiled))[-1].state
     result = compiled.results(ending)["u"]
 
     assert ending.status == "complete"
@@ -423,7 +415,7 @@ def test_the_state_an_ending_carries_reads_as_a_stored_one_does():
         GraphNode(id="s", type="split", version=1, bindings={"text": Static("a,b")}),
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge("s")}),
     ])
-    state = _leg(compiled)[-1].state
+    state = events_of(compiled)[-1].state
     live, stored = compiled.results(state), compiled.results(_through_json(state))
 
     assert live["up"]["result"]["values"] == stored["up"]["result"]["values"] == ["A", "B"]
@@ -433,7 +425,7 @@ def test_the_state_an_ending_carries_reads_as_a_stored_one_does():
 def test_a_live_state_read_over_an_edited_graph_leaves_out_what_changed():
     """Over an edited graph, the edited node is left out of what a state reads as."""
     nodes = [GraphNode(id="a", type="echo", version=1, bindings={"text": Static("x")})]
-    state = _leg(_compiled(nodes))[-1].state
+    state = events_of(_compiled(nodes))[-1].state
     edited = _compiled([GraphNode(id="a", type="echo", version=1, bindings={"text": Static("y")})])
 
     assert "a" not in edited.results(state)
