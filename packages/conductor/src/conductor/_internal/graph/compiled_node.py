@@ -63,7 +63,7 @@ NodeState = Literal["ready", "wiring_failed", "resolution_failed"]
 
 
 
-@dataclass(frozen=True, eq=False, init=False)
+@dataclass(frozen=True, eq=False)
 class CompiledNode:
     """What compile worked out about one node in a graph.
 
@@ -99,16 +99,6 @@ class CompiledNode:
     _fields: Mapping[str, CompiledField] | None = field(repr=False)
     #: The rows the node runs once per row of, ``None`` when it runs once or isn't ready. A host reads ``CompiledGraph.run_plan``.
     _runs_per_row_of: Index | None = field(repr=False)
-
-    def __init__(
-        self, id: str, graph_node: GraphNode, embedded_in: str | None, problems: tuple[Problem, ...], cause: Problem | None,
-        definition: NodeDefinition[..., Any] | None, version: NodeVersion | None, interface: Interface | None,
-        statics: Mapping[str, Any], fields: Mapping[str, CompiledField] | None, runs_per_row_of: Index | None,
-    ) -> None:
-        self.__dict__.update(
-            id=id, graph_node=graph_node, embedded_in=embedded_in, problems=problems, cause=cause, definition=definition,
-            version=version, interface=interface, statics=statics, _fields=fields, _runs_per_row_of=runs_per_row_of,
-        )
 
     @property
     def state(self) -> NodeState:

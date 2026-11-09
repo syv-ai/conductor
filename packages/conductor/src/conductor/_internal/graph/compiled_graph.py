@@ -184,7 +184,7 @@ class CompiledGraph:
         in execution order: the shape compile decided, for a host to show and
         compare (``conductor._internal.graph.run_plan``). ``str(compiled.run_plan)`` is
         that as text. A node that isn't ready is absent."""
-        return RunPlan.model_construct(nodes={
+        return RunPlan._built_from_checked_fields(nodes={
             node_id: node._run_plan for node_id in self.execution_order if (node := self._nodes[node_id])._fields is not None
         })
 

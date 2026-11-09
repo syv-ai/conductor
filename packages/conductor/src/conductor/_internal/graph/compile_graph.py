@@ -62,7 +62,7 @@ def _node_compile_could_not_resolve(node: GraphNode, problem: Problem) -> Compil
     """A node compile can't resolve at all: the id or the wiring around it says why."""
     return CompiledNode(
         id=node.id, graph_node=node, embedded_in=None, problems=(problem,), cause=problem,
-        definition=None, version=None, interface=None, statics={}, fields=None, runs_per_row_of=None,
+        definition=None, version=None, interface=None, statics={}, _fields=None, _runs_per_row_of=None,
     )
 
 

@@ -60,7 +60,7 @@ def plan_of_node(node: CompiledNode) -> NodeRunPlan:
     assert node._fields is not None and node.interface is not None
     fields = node._fields
     index = node._runs_per_row_of
-    return NodeRunPlan.model_construct(
+    return NodeRunPlan._built_from_checked_fields(
         node_id=node.id,
         runs_per_row_of=None if index is None else Ref(index.id),
         inputs={input_.name: fields[input_.name]._receive_mode for input_ in node.interface.inputs},

@@ -160,7 +160,7 @@ def _record_compiled_node(
     progress.compiled[node.id] = CompiledNode(
         id=node.id, graph_node=node, embedded_in=parent_graph_of_node_id(node.id), problems=tuple(problems),
         cause=None if fields is not None else _why_node_is_unwired(node, problems, progress),
-        definition=definition, version=version, interface=interface, statics=statics or {}, fields=fields, runs_per_row_of=runs_per_row_of,
+        definition=definition, version=version, interface=interface, statics=statics or {}, _fields=fields, _runs_per_row_of=runs_per_row_of,
     )
     progress.problems.extend(problems)
 

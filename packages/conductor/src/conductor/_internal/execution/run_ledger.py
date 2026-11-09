@@ -188,10 +188,10 @@ class RunLedger:
         self._fields = lookups.fields
         self._runs_per_row_of = lookups.runs_per_row_of
         #: Per unit a node reads, ``(the writer, the depth of the row it waits at)``, in reading order.
-        self._reads_wait_for = lookups.what_each_read_waits_for
-        self._counted_depths = lookups.depths_finished_units_are_counted_at
-        self._waiting_on_rows_made_by = lookups.nodes_finished_when_rows_made_by
-        self._maker_node_of_index = lookups.node_making_rows_of_index
+        self._what_each_read_waits_for = lookups.what_each_read_waits_for
+        self._depths_finished_units_are_counted_at = lookups.depths_finished_units_are_counted_at
+        self._nodes_finished_when_rows_made_by = lookups.nodes_finished_when_rows_made_by
+        self._node_making_rows_of_index = lookups.node_making_rows_of_index
         #: What every field holds, by row, and the rows of every index.
         values = self._values = ValuesOfRun(lookups)
         self._value_or_skip_at = values.value_or_skip_at
@@ -256,7 +256,7 @@ class RunLedger:
         index = self._runs_per_row_of[node_id]
         if index is None:
             return int((node_id, ()) in self._done), 1
-        maker = self._maker_node_of_index[index.id]
+        maker = self._node_making_rows_of_index[index.id]
         total = self._rows[index.id].count_under.get((), 0) if maker is None or self._finished_at_or_under(maker, ()) else None
         return self._units_done_under.get((node_id, ()), 0), total
 
@@ -285,7 +285,7 @@ class RunLedger:
         rule of what makes a unit ready: nothing about a unit's readiness is decided anywhere else."""
         node_id, row = unit
         done = self._done
-        for writer, depth in self._reads_wait_for[node_id]:
+        for writer, depth in self._what_each_read_waits_for[node_id]:
             needed = (writer, row[:depth])
             if needed not in done and not self._finished_at_or_under(writer, needed[1]):
                 self._parked.setdefault(needed, []).append(unit)
@@ -304,7 +304,7 @@ class RunLedger:
             return (node_id, row[: rows.depth]) in self._done
         if self._units_done_under.get((node_id, row), 0) != rows.count_under.get(row, 0):
             return False
-        maker = self._maker_node_of_index[index.id]
+        maker = self._node_making_rows_of_index[index.id]
         return maker is None or self._finished_at_or_under(maker, row)
 
     def _wake_if_finished(self, node_id: str, row: Row, woken: list[Unit], completed: list[str]) -> None:
@@ -317,7 +317,7 @@ class RunLedger:
             woken.extend(parked)
         if not row and self._has_run_or_skipped(node_id):
             completed.append(node_id)
-        for node_on_rows in self._waiting_on_rows_made_by[node_id]:
+        for node_on_rows in self._nodes_finished_when_rows_made_by[node_id]:
             self._wake_if_finished(node_on_rows, row, woken, completed)
 
     # -- a unit's turn -----------------------------------------------------------
@@ -570,7 +570,7 @@ class RunLedger:
         if self._runs_per_row_of[node_id] is None:
             return
         counts = self._units_done_under
-        for depth in self._counted_depths[node_id]:
+        for depth in self._depths_finished_units_are_counted_at[node_id]:
             key = (node_id, row[:depth])
             counts[key] = counts.get(key, 0) + 1
 
@@ -579,14 +579,14 @@ class RunLedger:
         node_id, row = unit
         woken = list(self._parked.pop(unit, ()))
         completed: list[str] = []
-        for node_on_rows in self._waiting_on_rows_made_by[node_id]:
+        for node_on_rows in self._nodes_finished_when_rows_made_by[node_id]:
             self._wake_if_finished(node_on_rows, row, woken, completed)
         index = self._runs_per_row_of[node_id]
         if index is None:
             completed.append(node_id)
         else:
             counts, rows = self._units_done_under, self._rows[index.id]
-            for depth in self._counted_depths[node_id]:
+            for depth in self._depths_finished_units_are_counted_at[node_id]:
                 group_row = row[:depth]
                 if counts[(node_id, group_row)] == rows.count_under.get(group_row, 0):
                     self._wake_if_finished(node_id, group_row, woken, completed)
@@ -724,7 +724,7 @@ class RunLedger:
         if earlier is None or self.node_is_complete(node_id):
             return []
         return [
-            EarlierUnit.model_construct(
+            EarlierUnit._built_from_checked_fields(
                 row=unit.row, reuse_key=unit.reuse_key, waiting=unit.waiting, tables_received=unit.tables_received,
                 outputs={name: output_column_of({unit.row: cell}, self._fields[Ref(node_id, name)]) for name, cell in unit.cells.items()},
             )
@@ -733,7 +733,7 @@ class RunLedger:
 
     # -- the state ----------------------------------------------------------------
 
-    def state(self, status: RunStatus, failure: Problem | None = None) -> RunState:
+    def state(self, status: RunStatus, cause: Problem | None = None) -> RunState:
         """Everything this leg has produced, as the ``RunState`` a host stores.
 
         Built without validation from values that already passed, and holding
@@ -765,7 +765,7 @@ class RunLedger:
                 reused_units=self._reused_units.get(node_id, 0),
                 earlier_units=self._earlier_units_still_unclaimed(node_id) if self._earlier_units else [],
             )
-        return RunState.model_construct(status=status, cause=failure, nodes=nodes)
+        return RunState._built_from_checked_fields(tables={}, status=status, cause=cause, nodes=nodes)
 
     @classmethod
     def restore(cls, compiled: CompiledGraph, state: RunState) -> RunLedger:
