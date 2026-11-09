@@ -65,6 +65,7 @@ from conductor._internal.conductor_model import ConductorModel
 _PROBLEM_MESSAGES: Mapping[str, tuple[str, bool]] = {
     # -- what compile finds in a graph -----------------------------------------
     "cycle": ("The node is part of a cycle, so the graph cannot run.", True),
+    "compute_hook_failed": ("The node could not work out its fields from what it was given.", True),
     "duplicate_field_name": ("The node has two fields named '{field}'.", True),
     "duplicate_node_id": ("Two nodes have the id '{node_id}'.", True),
     "embedded_graph_broken": ("The graph '{graph}' has {problems} problem(s) to fix before it can be used here.", True),
@@ -111,14 +112,14 @@ _PROBLEM_MESSAGES: Mapping[str, tuple[str, bool]] = {
     "from_run_missing": ("'{node}' needs a {needs} for '{parameter}', and the call did not give one in from_run.", True),
     "from_run_not_a_type": ("from_run is keyed by type; {key} is not one.", True),
     "choice_unanswered": ("Answer exactly one of {alternatives}; {answered} answered.", True),
-    "invalid_value": ("{reason}", True),
+    "invalid_value": ("That is not a valid answer: {reason}", True),
     "missing": ("'{name}' was not answered.", True),
     "node_not_in_graph": ("'{node}' is not a node of this graph; it has {nodes}.", True),
     "not_asked": ("'{name}' was not asked.", True),
-    "not_offered": ("{reason}", True),
+    "not_offered": ("This graph does not offer that input: {reason}", True),
     "not_waiting": ("Nothing is waiting on an answer as {waiting_id!r}.", True),
     "run_not_complete": ("The run is {status}, so it has no outputs yet. {reason}", True),
-    "state_unreadable": ("{reason}", True),
+    "state_unreadable": ("The saved state does not fit this graph: {reason}", True),
     # -- why a node or a run failed --------------------------------------------
     "engine_error": ("An error in the engine stopped the run.", True),
     "execution_failed": ("The node failed.", True),
@@ -225,7 +226,22 @@ def make_problem(code: str, /, *loc: str | int | None, **ctx: Any) -> Problem:
 
 
 class ConductorError(Exception):
-    """Base for every engine error."""
+    """Base for every error conductor raises. One way to write one, whichever an author raises::
+
+        raise ComputeHookError("The schema has no columns.", code="schema_empty", ctx={"schema": name}, field="schema")
+
+    ``message`` is for a person. ``code`` is the stable word a host keys on
+    and ``ctx`` the values its own sentence is filled from. ``field`` names
+    the input it is about, where that means something. ``node_id`` is filled in by the library.
+    """
+
+    def __init__(self, message: str, *, code: str | None = None, ctx: Mapping[str, Any] | None = None, field: str | None = None, node_id: str | None = None) -> None:
+        self.message = message
+        self.code = code
+        self.ctx = ctx or {}
+        self.field = field
+        self.node_id = node_id
+        super().__init__(message)
 
 
 class NodeDeclarationError(ConductorError, TypeError):
@@ -234,42 +250,34 @@ class NodeDeclarationError(ConductorError, TypeError):
     Raised by ``NodeDefinition``, a ``DType`` subclass, the signature a node
     declares and ``NodeRegistry``. Fixed in code, never by whoever draws
     a graph, so there is no ``Problem`` for it and the text stays English.
-    ``code`` is stable, as pydantic's ``PydanticUserError`` has one; ``node_id``
-    is the node's id when one is known.
+    ``code`` is stable, as pydantic's ``PydanticUserError`` has one.
     """
-
-    def __init__(self, message: str, *, code: str, node_id: str | None = None) -> None:
-        self.code = code
-        self.node_id = node_id
-        super().__init__(message)
 
 
 class ComputeHookError(ConductorError):
     """A node's hook cannot answer for what it was given, and says why.
 
-    Raised by ``compute_inputs`` and ``compute_outputs`` when the values or
+    Raised by ``compute_added_inputs`` and ``compute_outputs`` when the values or
     what arrives do not fit. Compile records it as a fatal ``Problem`` on
-    the node, or on ``field`` when one is named, with ``code`` and
-    ``message`` as the hook wrote them. Anything else a hook raises is a bug
-    in the hook, not a problem in the graph, and leaves compile as it is.
+    the node, or on ``field`` when one is named, with the message, code
+    (``compute_hook_failed`` unless given) and ``ctx`` as the hook wrote them. Anything
+    else a hook raises is a bug in the hook, not a problem in the graph, and
+    leaves compile as it is.
 
     A code may be one conductor uses too, but not one the catalogue says is
     non-fatal: the node has no answer, so the graph must not run. Raising
     one is a ``ValueError``, from the hook.
     """
 
-    def __init__(self, code: str, message: str, *, field: str | None = None) -> None:
-        entry = PROBLEM_CATALOGUE.get(code)
+    def __init__(self, message: str, *, code: str | None = None, ctx: Mapping[str, Any] | None = None, field: str | None = None, node_id: str | None = None) -> None:
+        entry = PROBLEM_CATALOGUE.get(code) if code is not None else None
         if entry is not None and not entry.fatal:
             raise ValueError(f"{code!r} is a code for a graph that can still run; a hook's problem always stops it")
-        self.code = code
-        self.message = message
-        self.field = field
-        super().__init__(message)
+        super().__init__(message, code=code, ctx=ctx, field=field, node_id=node_id)
 
     def as_problem_on_node(self, node_id: str) -> Problem:
         """The ``Problem`` this is on ``node_id``."""
-        return Problem(type=self.code, msg=self.message, loc=(node_id,) if self.field is None else (node_id, self.field))
+        return Problem(type=self.code or "compute_hook_failed", msg=self.message, ctx=self.ctx, loc=(node_id,) if self.field is None else (node_id, self.field))
 
 
 class InvalidCallError(ConductorError, ValueError):
@@ -299,19 +307,6 @@ class NodeError(ConductorError):
     The engine adds the node and the row. It never retries a ``NodeError``;
     a failure the outside world caused is an ``ExternalFailure``.
     """
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        code: str | None = None,
-        ctx: Mapping[str, Any] | None = None,
-        node_id: str | None = None,
-    ) -> None:
-        self.code = code
-        self.ctx = ctx or {}
-        self.node_id = node_id
-        super().__init__(message)
 
     def _as_problem_at(self, node_id: str, row: tuple[int, ...]) -> Problem:
         """The ``Problem`` this is on the unit at ``row``; with no code of its own, the one for its family."""

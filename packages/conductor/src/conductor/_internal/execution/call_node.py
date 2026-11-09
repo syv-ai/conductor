@@ -50,7 +50,7 @@ def call_node(
     """Call ``node`` on ``inputs`` at ``row``: the cells it wrote, what it asked a person, or why it failed.
 
     The inputs are checked against the node's interface rather than its
-    declaration, so what a ``compute_inputs`` hook added is checked like the
+    declaration, so what a ``compute_added_inputs`` hook added is checked like the
     rest. A ``NodeError`` keeps the message the node chose. Anything else
     raised, ``SystemExit`` and a stray ``CancelledError`` included, is the
     unit's failure: ``external_failed`` when the policy's ``retry_on`` names
@@ -66,7 +66,7 @@ def call_node(
         except ValidationError as invalid:
             return CallFailed(_problem_of_invalid_inputs(node, row, invalid))
         kwargs.update({name: from_run[needed] for name, needed in version.from_run.items()})
-        returned = version.run(**kwargs)
+        returned = version.body(**kwargs)
     except NodeError as raised:
         return CallFailed(raised._as_problem_at(node.id, row), retryable=isinstance(raised, ExternalFailure))
     except version.policy.retry_on as raised:

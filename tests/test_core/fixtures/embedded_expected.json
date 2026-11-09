@@ -6,7 +6,7 @@
      "result": {
       "condition": [
        [
-        "BranchTaken(node_id='emb/gate', choice='branches', output='if_true')"
+        "BranchTaken(node_id='emb/gate', exclusive_group='branches', output='if_true')"
        ]
       ],
       "type": "Txt",
@@ -42,7 +42,7 @@
      "if_false": {
       "condition": [
        [
-        "BranchTaken(node_id='emb/gate', choice='branches', output='if_false')"
+        "BranchTaken(node_id='emb/gate', exclusive_group='branches', output='if_false')"
        ]
       ],
       "type": "Txt",
@@ -51,7 +51,7 @@
      "if_true": {
       "condition": [
        [
-        "BranchTaken(node_id='emb/gate', choice='branches', output='if_true')"
+        "BranchTaken(node_id='emb/gate', exclusive_group='branches', output='if_true')"
        ]
       ],
       "type": "Txt",
@@ -126,10 +126,10 @@
      "result": {
       "condition": [
        [
-        "BranchTaken(node_id='emb/gate', choice='branches', output='if_false')"
+        "BranchTaken(node_id='emb/gate', exclusive_group='branches', output='if_false')"
        ],
        [
-        "BranchTaken(node_id='emb/gate', choice='branches', output='if_true')"
+        "BranchTaken(node_id='emb/gate', exclusive_group='branches', output='if_true')"
        ]
       ],
       "type": "Txt",
@@ -166,7 +166,7 @@
      "result": {
       "condition": [
        [
-        "BranchTaken(node_id='emb/gate', choice='branches', output='if_true')"
+        "BranchTaken(node_id='emb/gate', exclusive_group='branches', output='if_true')"
        ]
       ],
       "type": "Txt",
@@ -445,7 +445,7 @@
      "result": {
       "condition": [
        [
-        "BranchTaken(node_id='og', choice='branches', output='if_true')"
+        "BranchTaken(node_id='og', exclusive_group='branches', output='if_true')"
        ]
       ],
       "type": "Txt",
@@ -510,7 +510,7 @@
      "if_false": {
       "condition": [
        [
-        "BranchTaken(node_id='emb/g', choice='branches', output='if_false')"
+        "BranchTaken(node_id='emb/g', exclusive_group='branches', output='if_false')"
        ]
       ],
       "type": "Txt",
@@ -519,7 +519,7 @@
      "if_true": {
       "condition": [
        [
-        "BranchTaken(node_id='emb/g', choice='branches', output='if_true')"
+        "BranchTaken(node_id='emb/g', exclusive_group='branches', output='if_true')"
        ]
       ],
       "type": "Txt",
@@ -565,10 +565,10 @@
      "result": {
       "condition": [
        [
-        "BranchTaken(node_id='emb/g', choice='branches', output='if_true')"
+        "BranchTaken(node_id='emb/g', exclusive_group='branches', output='if_true')"
        ],
        [
-        "BranchTaken(node_id='og', choice='branches', output='if_true')"
+        "BranchTaken(node_id='og', exclusive_group='branches', output='if_true')"
        ]
       ],
       "type": "Txt",
@@ -634,7 +634,7 @@
      "if_false": {
       "condition": [
        [
-        "BranchTaken(node_id='og', choice='branches', output='if_false')"
+        "BranchTaken(node_id='og', exclusive_group='branches', output='if_false')"
        ]
       ],
       "type": "Txt",
@@ -643,7 +643,7 @@
      "if_true": {
       "condition": [
        [
-        "BranchTaken(node_id='og', choice='branches', output='if_true')"
+        "BranchTaken(node_id='og', exclusive_group='branches', output='if_true')"
        ]
       ],
       "type": "Txt",
@@ -701,11 +701,11 @@
      "result": {
       "condition": [
        [
-        "BranchTaken(node_id='top/b/gate', choice='branches', output='if_true')",
-        "BranchTaken(node_id='top/g', choice='branches', output='if_true')"
+        "BranchTaken(node_id='top/b/gate', exclusive_group='branches', output='if_true')",
+        "BranchTaken(node_id='top/g', exclusive_group='branches', output='if_true')"
        ],
        [
-        "BranchTaken(node_id='top/g', choice='branches', output='if_false')"
+        "BranchTaken(node_id='top/g', exclusive_group='branches', output='if_false')"
        ]
       ],
       "type": "Txt",
@@ -741,8 +741,8 @@
      "if_false": {
       "condition": [
        [
-        "BranchTaken(node_id='top/b/gate', choice='branches', output='if_false')",
-        "BranchTaken(node_id='top/g', choice='branches', output='if_true')"
+        "BranchTaken(node_id='top/b/gate', exclusive_group='branches', output='if_false')",
+        "BranchTaken(node_id='top/g', exclusive_group='branches', output='if_true')"
        ]
       ],
       "type": "Txt",
@@ -751,8 +751,8 @@
      "if_true": {
       "condition": [
        [
-        "BranchTaken(node_id='top/b/gate', choice='branches', output='if_true')",
-        "BranchTaken(node_id='top/g', choice='branches', output='if_true')"
+        "BranchTaken(node_id='top/b/gate', exclusive_group='branches', output='if_true')",
+        "BranchTaken(node_id='top/g', exclusive_group='branches', output='if_true')"
        ]
       ],
       "type": "Txt",
@@ -798,7 +798,7 @@
      "result": {
       "condition": [
        [
-        "BranchTaken(node_id='top/g', choice='branches', output='if_true')"
+        "BranchTaken(node_id='top/g', exclusive_group='branches', output='if_true')"
        ]
       ],
       "type": "Txt",
@@ -834,12 +834,12 @@
      "result": {
       "condition": [
        [
-        "BranchTaken(node_id='top/b/gate', choice='branches', output='if_false')",
-        "BranchTaken(node_id='top/g', choice='branches', output='if_true')"
+        "BranchTaken(node_id='top/b/gate', exclusive_group='branches', output='if_false')",
+        "BranchTaken(node_id='top/g', exclusive_group='branches', output='if_true')"
        ],
        [
-        "BranchTaken(node_id='top/b/gate', choice='branches', output='if_true')",
-        "BranchTaken(node_id='top/g', choice='branches', output='if_true')"
+        "BranchTaken(node_id='top/b/gate', exclusive_group='branches', output='if_true')",
+        "BranchTaken(node_id='top/g', exclusive_group='branches', output='if_true')"
        ]
       ],
       "type": "Txt",
@@ -876,8 +876,8 @@
      "result": {
       "condition": [
        [
-        "BranchTaken(node_id='top/b/gate', choice='branches', output='if_true')",
-        "BranchTaken(node_id='top/g', choice='branches', output='if_true')"
+        "BranchTaken(node_id='top/b/gate', exclusive_group='branches', output='if_true')",
+        "BranchTaken(node_id='top/g', exclusive_group='branches', output='if_true')"
        ]
       ],
       "type": "Txt",
@@ -913,7 +913,7 @@
      "if_false": {
       "condition": [
        [
-        "BranchTaken(node_id='top/g', choice='branches', output='if_false')"
+        "BranchTaken(node_id='top/g', exclusive_group='branches', output='if_false')"
        ]
       ],
       "type": "Txt",
@@ -922,7 +922,7 @@
      "if_true": {
       "condition": [
        [
-        "BranchTaken(node_id='top/g', choice='branches', output='if_true')"
+        "BranchTaken(node_id='top/g', exclusive_group='branches', output='if_true')"
        ]
       ],
       "type": "Txt",
@@ -997,11 +997,11 @@
      "result": {
       "condition": [
        [
-        "BranchTaken(node_id='top/b/gate', choice='branches', output='if_true')",
-        "BranchTaken(node_id='top/g', choice='branches', output='if_true')"
+        "BranchTaken(node_id='top/b/gate', exclusive_group='branches', output='if_true')",
+        "BranchTaken(node_id='top/g', exclusive_group='branches', output='if_true')"
        ],
        [
-        "BranchTaken(node_id='top/g', choice='branches', output='if_false')"
+        "BranchTaken(node_id='top/g', exclusive_group='branches', output='if_false')"
        ]
       ],
       "type": "Txt",
@@ -1407,12 +1407,12 @@
      "result": {
       "condition": [
        [
-        "BranchTaken(node_id='emb/gate', choice='branches', output='if_false')",
-        "BranchTaken(node_id='og', choice='branches', output='if_false')"
+        "BranchTaken(node_id='emb/gate', exclusive_group='branches', output='if_false')",
+        "BranchTaken(node_id='og', exclusive_group='branches', output='if_false')"
        ],
        [
-        "BranchTaken(node_id='emb/gate', choice='branches', output='if_true')",
-        "BranchTaken(node_id='og', choice='branches', output='if_false')"
+        "BranchTaken(node_id='emb/gate', exclusive_group='branches', output='if_true')",
+        "BranchTaken(node_id='og', exclusive_group='branches', output='if_false')"
        ]
       ],
       "type": "Txt",
@@ -1448,8 +1448,8 @@
      "if_false": {
       "condition": [
        [
-        "BranchTaken(node_id='emb/gate', choice='branches', output='if_false')",
-        "BranchTaken(node_id='og', choice='branches', output='if_false')"
+        "BranchTaken(node_id='emb/gate', exclusive_group='branches', output='if_false')",
+        "BranchTaken(node_id='og', exclusive_group='branches', output='if_false')"
        ]
       ],
       "type": "Txt",
@@ -1458,8 +1458,8 @@
      "if_true": {
       "condition": [
        [
-        "BranchTaken(node_id='emb/gate', choice='branches', output='if_true')",
-        "BranchTaken(node_id='og', choice='branches', output='if_false')"
+        "BranchTaken(node_id='emb/gate', exclusive_group='branches', output='if_true')",
+        "BranchTaken(node_id='og', exclusive_group='branches', output='if_false')"
        ]
       ],
       "type": "Txt",
@@ -1505,7 +1505,7 @@
      "result": {
       "condition": [
        [
-        "BranchTaken(node_id='og', choice='branches', output='if_false')"
+        "BranchTaken(node_id='og', exclusive_group='branches', output='if_false')"
        ]
       ],
       "type": "Txt",
@@ -1541,12 +1541,12 @@
      "result": {
       "condition": [
        [
-        "BranchTaken(node_id='emb/gate', choice='branches', output='if_false')",
-        "BranchTaken(node_id='og', choice='branches', output='if_false')"
+        "BranchTaken(node_id='emb/gate', exclusive_group='branches', output='if_false')",
+        "BranchTaken(node_id='og', exclusive_group='branches', output='if_false')"
        ],
        [
-        "BranchTaken(node_id='emb/gate', choice='branches', output='if_true')",
-        "BranchTaken(node_id='og', choice='branches', output='if_false')"
+        "BranchTaken(node_id='emb/gate', exclusive_group='branches', output='if_true')",
+        "BranchTaken(node_id='og', exclusive_group='branches', output='if_false')"
        ]
       ],
       "type": "Txt",
@@ -1583,8 +1583,8 @@
      "result": {
       "condition": [
        [
-        "BranchTaken(node_id='emb/gate', choice='branches', output='if_true')",
-        "BranchTaken(node_id='og', choice='branches', output='if_false')"
+        "BranchTaken(node_id='emb/gate', exclusive_group='branches', output='if_true')",
+        "BranchTaken(node_id='og', exclusive_group='branches', output='if_false')"
        ]
       ],
       "type": "Txt",
@@ -1649,7 +1649,7 @@
      "if_false": {
       "condition": [
        [
-        "BranchTaken(node_id='og', choice='branches', output='if_false')"
+        "BranchTaken(node_id='og', exclusive_group='branches', output='if_false')"
        ]
       ],
       "type": "Txt",
@@ -1658,7 +1658,7 @@
      "if_true": {
       "condition": [
        [
-        "BranchTaken(node_id='og', choice='branches', output='if_true')"
+        "BranchTaken(node_id='og', exclusive_group='branches', output='if_true')"
        ]
       ],
       "type": "Txt",

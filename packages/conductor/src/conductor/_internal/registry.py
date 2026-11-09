@@ -25,7 +25,7 @@ from typing import Any
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.dtype import DType, _PlainPythonType, _UntypedValue, dtype_of
 from conductor._internal.errors import NodeDeclarationError
-from conductor._internal.node_definition import NodeDefinition, NodeDescription, NodeVersion
+from conductor._internal.node_definition import NodeDefinition, NodeDescription
 
 
 class TypeDescription(ConductorModel):
@@ -95,8 +95,7 @@ class NodeRegistry:
             self._nodes[definition.id] = definition
             self._types.update(self._types_checked_for_id_clash(_types_declared_by(definition)))
         for definition in definitions:
-            notices = [definition.deprecation] + [version.deprecation for version in definition.versions.values() if isinstance(version, NodeVersion)]
-            for notice in notices:
+            for notice in (version.deprecation for version in definition.versions.values()):
                 if notice is not None and notice.alternative is not None and notice.alternative not in self._nodes:
                     raise NodeDeclarationError(
                         f"{definition.id!r} names {notice.alternative!r} as its alternative, which is not here",

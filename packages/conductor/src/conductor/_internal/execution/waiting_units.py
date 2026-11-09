@@ -78,7 +78,7 @@ def _with_defaults_and_widgets(node: CompiledNode, row: Row, ask_person: AskPers
     return tuple(
         question.model_copy(update={
             "default": defaults.get(question.name),
-            "optional": question.choice is None and (question.name in defaults or question.optional),
+            "optional": question.exclusive_group is None and (question.name in defaults or question.optional),
             "widget": None if question.name not in ask_person.widgets else ask_person.widgets[question.name].model_dump(mode="json"),
         })
         for question in node._questions
@@ -135,8 +135,8 @@ def _answered_cells(node: CompiledNode, waiting_unit: WaitingUnit, answer: Mappi
             problems.append(make_problem("not_asked", *problem_location, name, name=name))
     groups: dict[str, list[str]] = {}
     for question in waiting_unit.questions:
-        if question.choice is not None:
-            groups.setdefault(question.choice, []).append(question.name)
+        if question.exclusive_group is not None:
+            groups.setdefault(question.exclusive_group, []).append(question.name)
     values = _with_choices_and_defaults(questions, groups, answer, problem_location, problems)
     cells, output_problems = validate_unit_outputs(node, waiting_unit.row, {name: value for name, value in values.items() if name in questions})
     for output_problem in output_problems:

@@ -12,13 +12,19 @@ parameter or a return with neither is titled by its name::
         ...
 
 The node ends up with an ``Input`` per parameter and an ``Output`` per
-declared result. A ``compute_inputs`` or ``compute_outputs`` hook builds
+declared result. A ``compute_added_inputs`` or ``compute_outputs`` hook builds
 more of them, written the way a signature is: ``Input("amount", Number)``.
 
 A ``Param`` with a widget is edited in place and reachable by an edge; a
 ``Param`` with no widget is filled by an edge only; ``connectable=False``
 closes the input to edges. A parameter of a type no edge can carry
-(``list[Branch]``) is closed by itself.
+(``list[Branch]``) is closed by itself. Its limits are pydantic's and FastAPI's
+words, and every value the input receives is held to them::
+
+    temperature: Annotated[float, Param(ge=0, le=2, widget=Range())] = 1.0
+
+A field nobody titled reads as its name in everyday words: ``case_sensitive``
+is "Case sensitive".
 
 These records are their own schema: ``dtype`` is a ``DTypeField``, so a
 dump gives the type's ``describe()``, and what an editor offers is these records
@@ -29,7 +35,12 @@ the signature.
 
 from __future__ import annotations
 
-from typing import Any, Final
+from collections.abc import Mapping
+from datetime import date
+from functools import cache
+from typing import Annotated, Any, Final, TypedDict, Unpack
+
+from pydantic import ConfigDict, Field, SerializeAsAny, TypeAdapter, ValidationError, with_config
 
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.dtype import (
@@ -41,7 +52,7 @@ from conductor._internal.dtype import (
     read_field_annotation,
 )
 from conductor._internal.errors import NodeDeclarationError
-from conductor.widgets import AnyWidget
+from conductor.widgets import Widget
 
 
 class _NoDefault:
@@ -54,18 +65,66 @@ class _NoDefault:
 _NO_DEFAULT: Final = _NoDefault()
 
 
+@with_config(ConfigDict(extra="forbid"))
+class ValueBounds(TypedDict, total=False):
+    """The limits an input's value must keep to, named as pydantic and FastAPI name them."""
+
+    ge: float | date
+    gt: float | date
+    le: float | date
+    lt: float | date
+    min_length: int
+    max_length: int
+    pattern: str
+
+
+_BOUNDS_ADAPTER: Final = TypeAdapter(ValueBounds)
+
+
+def _checked_bounds(bounds: Mapping[str, Any]) -> dict[str, Any]:
+    """``bounds``, or the mistake in them where the input is written."""
+    try:
+        return dict(_BOUNDS_ADAPTER.validate_python(bounds))
+    except ValidationError as invalid:
+        raise NodeDeclarationError(f"an input's limits are {sorted(ValueBounds.__annotations__)}; {invalid.errors()[0]['msg']} at {invalid.errors()[0]['loc']}", code="bound_invalid") from invalid
+
+
+def type_with_bounds(dtype: Any, bounds: Mapping[str, Any]) -> Any:
+    """The type a value of an input is validated as: ``dtype``, held to ``bounds``."""
+    return Annotated[dtype, Field(**bounds)] if bounds else dtype
+
+
+@cache
+def humanised(name: str) -> str:
+    """A field or node name in everyday words: ``case_sensitive`` is ``Case sensitive``."""
+    return name.replace("-", " ").replace("_", " ").strip().capitalize()
+
+
+def was_titled_by_its_author(field: Input | Output) -> bool:
+    """Did someone write this field's title, rather than it being its name in everyday words?"""
+    return field.title != humanised(field.name)
+
+
 class Param(ConductorModel):
     """What the author says about an input, inside ``Annotated`` on a parameter.
 
-    ``title`` falls back to the parameter's name. ``widget`` is the control a
-    person edits it with, or ``None`` for an input only an edge fills.
-    ``connectable`` is whether an edge can reach the input.
+    ``title`` falls back to the parameter's name in everyday words. ``widget`` is
+    the control a person edits it with, or ``None`` for an input only an edge
+    fills. ``connectable`` is whether an edge can reach the input. The rest are
+    the limits a value must keep to (``ge``, ``le``, ``max_length``, ...).
     """
 
     title: str | None = None
     description: str | None = None
-    widget: AnyWidget | None = None
+    widget: SerializeAsAny[Widget] | None = None
     connectable: bool = True
+    bounds: Mapping[str, Any] = Field(default_factory=dict)
+
+    def __init__(
+        self, *, title: str | None = None, description: str | None = None, widget: Widget | None = None, connectable: bool = True, **bounds: Unpack[ValueBounds],
+    ) -> None:
+        fields: dict[str, Any] = {"title": title, "description": description, "widget": widget, "connectable": connectable, "bounds": _checked_bounds(bounds)}
+        super().__init__(**fields)
 
 
 class Result(ConductorModel):
@@ -73,18 +132,18 @@ class Result(ConductorModel):
 
     ``name`` is what other nodes edge to, for a one-output return; it
     defaults to ``"result"``, and a record's field is named by the field.
-    ``title`` falls back to the name. Outputs of one node that share a
-    ``choice`` are exclusive alternatives, exactly one of them produced per
-    run, as with the two branches of an if/else node::
+    ``title`` falls back to the name in everyday words. Outputs of one node that
+    share an ``exclusive_group`` are alternatives, exactly one of them produced
+    per run, as with the two branches of an if/else node::
 
-        if_true: Annotated[Text, Result(title="If true", choice="branches")]
-        if_false: Annotated[Text, Result(title="If false", choice="branches")]
+        if_true: Annotated[Text, Result(exclusive_group="branches")]
+        if_false: Annotated[Text, Result(exclusive_group="branches")]
     """
 
     name: str | None = None
     title: str | None = None
     description: str | None = None
-    choice: str | None = None
+    exclusive_group: str | None = None
 
 
 class Input(ConductorModel):
@@ -94,7 +153,7 @@ class Input(ConductorModel):
     ``Ref``). ``dtype`` is always a ``DType``, whatever was written
     (``dtype_of``), and a type no edge can carry (a schema, a list of
     branches) closes the input. A signature gives one per parameter; a
-    ``compute_inputs`` hook builds more::
+    ``compute_added_inputs`` hook builds more::
 
         Input("amount", Number, title="Amount", widget=TextWidget())
 
@@ -102,15 +161,17 @@ class Input(ConductorModel):
     the type said: ``Text | None``, or a type of no value of its own (``Any``).
     A blank reaching an input that doesn't take one means the node isn't
     called for that row. ``many`` is ``True`` for ``Series[X]``: ``dtype`` is
-    ``X``, and a call receives a plain list of them.
+    ``X``, and a call receives a plain list of them. ``bounds`` holds the limits that are set, under
+    the words ``Param`` takes them by.
     """
 
     name: str
     dtype: DTypeField
     title: str
     description: str | None = None
-    widget: AnyWidget | None = None
+    widget: SerializeAsAny[Widget] | None = None
     connectable: bool = True
+    bounds: Mapping[str, Any] = Field(default_factory=dict)
     #: What the value is when nothing binds the input; ``None`` on a required one.
     default: Any = None
     required: bool = True
@@ -125,9 +186,10 @@ class Input(ConductorModel):
         *,
         title: str | None = None,
         description: str | None = None,
-        widget: AnyWidget | None = None,
+        widget: Widget | None = None,
         connectable: bool = True,
         default: Any = _NO_DEFAULT,
+        **bounds: Unpack[ValueBounds],
     ) -> None:
         one_value, many, says_blank = read_field_annotation(dtype)
         dtype = dtype_of(one_value)
@@ -135,12 +197,14 @@ class Input(ConductorModel):
             # Nothing can travel here, so a static is read as the plain type.
             dtype, connectable = plain_python_dtype(one_value), False
         takes_blank = says_blank or one_value is Any or is_untyped(dtype)
+        if many and bounds.keys() - {"min_length", "max_length"}:
+            raise NodeDeclarationError(f"input {name!r} takes many values, so it is held to min_length and max_length only; a limit on each value goes on its own node", code="bound_invalid")
         required = default is _NO_DEFAULT
         if default is None and not takes_blank:
             raise NodeDeclarationError(f"input {name!r} defaults to None, which is a blank; write its type with | None", code="none_default_needs_blank")
         super().__init__(
-            name=name, dtype=dtype, title=title or name, description=description, widget=widget,
-            connectable=connectable, default=None if required else default, required=required, takes_blank=takes_blank, many=many,
+            name=name, dtype=dtype, title=title or humanised(name), description=description, widget=widget,
+            connectable=connectable, bounds=_checked_bounds(bounds), default=None if required else default, required=required, takes_blank=takes_blank, many=many,
         )
 
 
@@ -154,7 +218,7 @@ class Output(ConductorModel):
     result. ``takes_blank`` is ``True`` when the type says ``| None``: a
     return of ``None`` is valid there and nowhere else. ``many`` is ``True``
     for ``Series[X]``: ``dtype`` is ``X``, and the node returns a sequence of
-    them, each a row. ``choice`` is read by the compiler and the editor, never by the
+    them, each a row. ``exclusive_group`` is read by the compiler and the editor, never by the
     engine, which only propagates the skip.
     """
 
@@ -162,7 +226,7 @@ class Output(ConductorModel):
     dtype: DTypeField
     title: str
     description: str | None = None
-    choice: str | None = None
+    exclusive_group: str | None = None
     takes_blank: bool = False
     many: bool = False
 
@@ -174,7 +238,7 @@ class Output(ConductorModel):
         *,
         title: str | None = None,
         description: str | None = None,
-        choice: str | None = None,
+        exclusive_group: str | None = None,
     ) -> None:
         one_value, many, says_blank = read_field_annotation(dtype)
-        super().__init__(name=name, dtype=one_value, title=title or name, description=description, choice=choice, takes_blank=says_blank, many=many)
+        super().__init__(name=name, dtype=one_value, title=title or humanised(name), description=description, exclusive_group=exclusive_group, takes_blank=says_blank, many=many)

@@ -267,7 +267,7 @@ class CompiledGraph:
     @property
     def decisions(self) -> dict[str, dict[str, tuple[str, ...]]]:
         """Every decision a caller could observe: for each node that runs
-        once and declares a ``choice`` group, the group's alternatives in
+        once and declares an ``exclusive_group`` group, the group's alternatives in
         field order, keyed by node id. A node that runs per row is
         left out: its decision picks rows and holds back nothing downstream. So
         is a node that is not ready: whether it runs per row is not
@@ -279,8 +279,8 @@ class CompiledGraph:
                 continue
             groups: dict[str, list[str]] = {}
             for out in node.interface.outputs:
-                if out.choice is not None:
-                    groups.setdefault(out.choice, []).append(out.name)
+                if out.exclusive_group is not None:
+                    groups.setdefault(out.exclusive_group, []).append(out.name)
             if groups:
                 groups_by_node[node_id] = {choice: tuple(names) for choice, names in groups.items()}
         return groups_by_node

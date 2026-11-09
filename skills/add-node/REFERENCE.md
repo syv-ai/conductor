@@ -7,14 +7,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Annotated, Any
 
-from conductor import AskPerson, Arriving, Deprecation, ExternalFailure, FromRun, Input, OlderVersion, Upgrade, node, Output, Param, Policy, ComputeHookError, Result, Series, SKIPPED
+from conductor import AskPerson, ArrivingType, Deprecation, ExternalFailure, FromRun, Input, Upgrade, node, Output, Param, Policy, ComputeHookError, Result, Series, SKIPPED
 from conductor.widgets import Switch, Textarea, TextWidget
 
 
 @dataclass(frozen=True)
 class Branches:                       # one output per field; a shared choice makes them a branch
-    yes: Annotated[str, Result(title="If yes", choice="answer")]
-    no: Annotated[str, Result(title="If no", choice="answer")]
+    yes: Annotated[str, Result(title="If yes", exclusive_group="answer")]
+    no: Annotated[str, Result(title="If no", exclusive_group="answer")]
 
 
 @node("route", title="Route", description="Sends the text one way or the other.", category="logic")
@@ -40,7 +40,7 @@ def approve(proposal: Annotated[str, Param(title="Proposal", widget=Textarea())]
 
 def fetch_v1(url: Annotated[str, Param(title="URL", widget=TextWidget())]) -> Annotated[str, Result(title="Body")]: ...
 
-@node("fetch", title="Fetch", description="Fetches a page.", category="http", policy=Policy(retries=3, delay=0.5, timeout=10.0, concurrency=4, retry_on=(TimeoutError,)), older_versions=[OlderVersion(fetch_v1, upgrade=Upgrade(renamed_inputs={"url": "address"}), deprecation=Deprecation(header="Use version 2"))])
+@node("fetch", title="Fetch", description="Fetches a page.", category="http", policy=Policy(retries=3, retry_delay=0.5, attempt_timeout=10.0, concurrency=4, retry_on=(TimeoutError,)), replaces=node("fetch", deprecation=Deprecation(header="Use version 2"))(fetch_v1), upgrade=Upgrade(renamed_inputs={"url": "address"}))
 def fetch(address: Annotated[str, Param(title="Address", widget=TextWidget())]) -> Annotated[str, Result(title="Body")]:
     if not address:
         raise ExternalFailure("no address")          # retried, like any retry_on class
@@ -49,7 +49,7 @@ def fetch(address: Annotated[str, Param(title="Address", widget=TextWidget())]) 
 
 def columns_outputs(names):
     if not names:
-        raise ComputeHookError("no_columns", "Type at least one column name.")   # a compile Problem on the node
+        raise ComputeHookError("Type at least one column name.", code="no_columns")   # a compile Problem on the node
     return tuple(Output(name, str) for name in names.split(","))
 
 @node("columns", title="Columns", description="One output per column name typed in.", category="table", compute_outputs=columns_outputs)
@@ -61,4 +61,4 @@ assert approve.versions[1].interface.needs == {Caller}
 ```
 
 - A pydantic model a node returns is one value, not one output per field.
-- Only `ExternalFailure` and `retry_on` classes retry; attempt `n` waits `delay * 2 ** (n - 1)`. A timed-out attempt is final.
+- Only `ExternalFailure` and `retry_on` classes retry; attempt `n` waits `retry_delay * 2 ** (n - 1)`. A timed-out attempt is final.

@@ -93,8 +93,8 @@ def whatever_arrives(**thing: AsItArrives) -> Out:
 
 @dataclass(frozen=True)
 class YesNo:
-    yes: Annotated[Txt, Result(title="Y", choice="c")]
-    no: Annotated[Txt, Result(title="N", choice="c")]
+    yes: Annotated[Txt, Result(title="Y", exclusive_group="c")]
+    no: Annotated[Txt, Result(title="N", exclusive_group="c")]
 
 
 @node("always_yes", title="s", description="d", category="t")

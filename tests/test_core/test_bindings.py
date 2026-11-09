@@ -483,8 +483,8 @@ def test_a_branch_not_taken_is_skipped_downstream():
 
     @dataclass(frozen=True)
     class Answer:
-        yes: Annotated[Txt, Result(title="Yes", choice="answer")]
-        no: Annotated[Txt, Result(title="No", choice="answer")]
+        yes: Annotated[Txt, Result(title="Yes", exclusive_group="answer")]
+        no: Annotated[Txt, Result(title="No", exclusive_group="answer")]
 
     @node("gate", title="Gate", description="d", category="test")
     def gate(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")

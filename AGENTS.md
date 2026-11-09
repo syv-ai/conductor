@@ -28,12 +28,12 @@ CI runs ruff and pytest on every PR. Tests marked `slow` time the wall clock and
 - **Conductor stands alone.** No host's words ("flow", "app", an access model), no host's imports, and no concrete type declared by the core. The library's word is graph.
 - **One node contract.** A node is a function under `@node`, its typed signature its interface, and `@node` returns a frozen `NodeDefinition` that registers nothing. A plain Python type travels on edges as it is; a type no edge can carry (`list[X]`, a `Literal`) closes its input by itself.
 - **Behaviour is a value, not a flag.** A branch not taken returns `SKIPPED`; a node that needs a person returns `AskPerson`. There is no role or marker on a class that tells the engine what to do.
-- **Placement shape lives in the hooks.** `compute_inputs` and `compute_outputs` are plain functions, given per version, whose parameters name the inputs they read; `Arriving` gives the type on an edge. They are the only home for fields that depend on configuration.
+- **Placement shape lives in the hooks.** `compute_added_inputs` and `compute_outputs` are plain functions, given per version, whose parameters name the inputs they read; `ArrivingType` gives the type on an edge. They are the only home for fields that depend on configuration.
 - **Compile reports, it does not raise.** A fault in a graph is a `Problem` with a stable `type`, anchored on a node. Only running a graph that is not runnable raises (`InvalidCallError`).
 - **Retries belong to the version's `Policy`.** Only an `ExternalFailure`, or an exception class named in `retry_on`, is retried. Every run-time failure carries a `Problem`; a node's own exception goes to the `conductor` logger, and only its class name reaches an event.
 - **Streaming is the only execution path.** `compiled.stream` is the leg; `run` and `run_sync` drain it.
 - **Records are pydantic models** on `ConductorModel` and save themselves (`to_yaml`, `to_path`). What compile and the engine build per call stays a frozen dataclass.
-- **The widget set is closed.** `AnyWidget` is built from the subclasses in `widgets.py`. A new control is a class there, a test, and a component the host's frontend owes.
+- **The widget set is open.** Conductor ships the common controls; a host subclasses `Widget` for its own. Compile and the engine never read a widget. What a value must satisfy goes on `Param` (`ge`, `le`, `max_length`, ...), where it is enforced.
 - **Two definitions under one id raise** when a registry is built; so does one type id from two classes.
 - **Fail loud.** No defensive `None` checks or silent defaults where the state means a bug.
 - **Imports.** Code outside the core library imports only from the three doors: `conductor`, `conductor.widgets` and `conductor.events`. Inside the core, import a name from the module that defines it. Only the doors and `conductor.about` declare `__all__`.

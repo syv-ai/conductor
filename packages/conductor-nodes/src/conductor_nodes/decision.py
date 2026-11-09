@@ -22,7 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Annotated, Any
 
-from conductor import SKIPPED, Arriving, Output, Param, Result
+from conductor import SKIPPED, ArrivingType, Output, Param, Result
 from conductor.widgets import Switch
 
 from conductor_nodes.types import stdlib_node
@@ -32,23 +32,23 @@ from conductor_nodes.types import stdlib_node
 class Branches:
     """What ``Decision.run`` returns: one field per output.
 
-    Both fields share ``choice="when"``, so the interface records that
+    Both fields share ``exclusive_group="when"``, so the interface records that
     exactly one of them is produced; the other holds ``SKIPPED``.
     """
 
-    if_true: Annotated[Any, Result(title="If true", choice="when")]
-    if_false: Annotated[Any, Result(title="If false", choice="when")]
+    if_true: Annotated[Any, Result(title="If true", exclusive_group="when")]
+    if_false: Annotated[Any, Result(title="If false", exclusive_group="when")]
 
 
-def decision_outputs(value: Arriving) -> tuple[Output, Output]:
+def decision_outputs(value: ArrivingType) -> tuple[Output, Output]:
     """Give both outputs the type that arrives on ``value`` (``Any`` until connected)."""
-    return Output("if_true", value | None, title="If true", choice="when"), Output("if_false", value | None, title="If false", choice="when")
+    return Output("if_true", value | None, title="If true", exclusive_group="when"), Output("if_false", value | None, title="If false", exclusive_group="when")
 
 
 @stdlib_node("decision", title="Decision", description="Routes a value to one of two branches according to `when`.", category="control", compute_outputs=decision_outputs)
 def decision(
-    value: Annotated[Any, Param(title="Value")],
-    when: Annotated[bool, Param(title="When", widget=Switch())] = True,
+    value: Annotated[Any, Param()],
+    when: Annotated[bool, Param(widget=Switch())] = True,
 ) -> Branches:
     if when:
         return Branches(if_true=value, if_false=SKIPPED)

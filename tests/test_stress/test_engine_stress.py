@@ -93,7 +93,7 @@ def test_500_node_linear_chain_compile_and_execute() -> None:
 
 @pytest.mark.slow
 async def test_cancellation_honored_during_retry_sleep() -> None:
-    """A node that always fails, with ``Policy(retries=5, delay=2.0)`` so
+    """A node that always fails, with ``Policy(retries=5, retry_delay=2.0)`` so
     the engine spends most of its time in ``await asyncio.sleep(delay)``
     between attempts. Once a ``node_retry`` event has been observed, the
     ``cancel`` event handed to ``execute`` is set. The engine's main loop polls cancellation
@@ -102,7 +102,7 @@ async def test_cancellation_honored_during_retry_sleep() -> None:
     """
     call_count = 0
 
-    @node("always-flaky", title="Always Flaky", description="Always fails (would succeed only after >5 tries)", category="test", policy=Policy(retries=5, delay=2.0))
+    @node("always-flaky", title="Always Flaky", description="Always fails (would succeed only after >5 tries)", category="test", policy=Policy(retries=5, retry_delay=2.0))
     def always_flaky(text: Annotated[str, Param(title="In", widget=Textarea())] = "") -> Out:
         nonlocal call_count
         call_count += 1

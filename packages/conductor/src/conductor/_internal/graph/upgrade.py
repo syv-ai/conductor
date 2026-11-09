@@ -14,7 +14,7 @@ from typing import Any
 from conductor._internal.errors import InvalidCallError, make_problem
 from conductor._internal.graph.binding import From, Static, static_values
 from conductor._internal.graph.graph_records import Graph, GraphNode
-from conductor._internal.node_definition import NodeVersion, Upgrade
+from conductor._internal.node_definition import Upgrade
 from conductor._internal.ref import Ref
 from conductor._internal.registry import NodeRegistry
 
@@ -48,8 +48,8 @@ def upgrade_node(graph: Graph, node_id: str, registry: NodeRegistry, *, to: int 
         )])
     steps = [
         step
-        for number in range(node.version, target)
-        if isinstance(version := definition.versions.get(number), NodeVersion) and (step := version.upgrade_to_next) is not None
+        for number in range(node.version + 1, target + 1)
+        if number in definition.versions and (step := definition.versions[number].upgrade_from_previous) is not None
     ]
     bindings, locked, fields = dict(node.bindings), node.locked, dict(node.fields)
     for step in steps:

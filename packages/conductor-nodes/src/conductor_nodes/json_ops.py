@@ -19,11 +19,11 @@ def parse(text: Annotated[str, Param(title="JSON text", widget=Textarea())]
 
 @stdlib_node("json-stringify", title="JSON Stringify", description="Serializes a value to a JSON string", category="json")
 def stringify(
-    value: Annotated[Json, Param(title="Value", widget=Textarea())],
+    value: Annotated[Json, Param(widget=Textarea())],
     indent: Annotated[
-        float, Param(title="Indent", widget=Range(min_val=0, max_val=8, step=1))
+        float, Param(ge=0, le=8, widget=Range(step=1))
     ] = 0.0,
-    sort_keys: Annotated[bool, Param(title="Sort keys", widget=Switch())] = False,
+    sort_keys: Annotated[bool, Param(widget=Switch())] = False,
 ) -> Annotated[str, Result(title="JSON")]:
     return json.dumps(value.value, indent=int(indent) or None, sort_keys=bool(sort_keys))
 
@@ -48,8 +48,8 @@ def _get_path(value: Any, path: str) -> Any:
 
 @stdlib_node("json-get", title="JSON Get", description="Reads a dotted path from a JSON value (e.g. 'user.name', 'items.0.id')", category="json")
 def get_path(
-    value: Annotated[Json, Param(title="Value", widget=Textarea())],
-    path: Annotated[str, Param(title="Path", widget=TextWidget())],
+    value: Annotated[Json, Param(widget=Textarea())],
+    path: Annotated[str, Param(widget=TextWidget())],
 ) -> Annotated[Json, Result(title="Extracted")]:
     return Json(_get_path(value.value, path))
 

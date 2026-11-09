@@ -1063,7 +1063,7 @@ def _blank_of(field: CompiledField, out: Output) -> Any:
     """What a node that was not called writes on an output: a ``choice`` output
     is skipped, since no branch was chosen; an output that makes rows has none
     there; any other is blank."""
-    if out.choice is not None:
+    if out.exclusive_group is not None:
         return SKIPPED
     if field._unit_writes_many_cells:
         return []

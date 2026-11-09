@@ -85,6 +85,7 @@ from conductor._internal.table import (
     is_table_type,
     polars_type_of,
     renames_in_merge,
+    table_with_columns,
 )
 
 if TYPE_CHECKING:
@@ -366,10 +367,10 @@ def _merged_columns(sources: list[tuple[Ref, CompiledField]]) -> tuple[Column, .
 
 
 def _table_a_call_receives(target: Any, merged: tuple[Column, ...] | None) -> Any:
-    """The table type a ``Table`` input carries, what a hook's ``Arriving`` is told: the merged table's, or what the input declares when it names columns, since those are what a call gets."""
+    """The table type a ``Table`` input carries, what a hook's ``ArrivingType`` is told: the merged table's, or what the input declares when it names columns, since those are what a call gets."""
     if columns_of(target) or merged is None:
         return target
-    return target.with_columns(dict(merged))
+    return table_with_columns(dict(merged), base=target)
 
 
 def _check_columns(node_id: str, name: str, target: Any, merged: tuple[Column, ...] | None, problems: list[Problem]) -> None:

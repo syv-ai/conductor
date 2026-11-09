@@ -21,7 +21,7 @@ What it understands:
 * a type no edge can carry (``list[Branch]``), which closes the input;
 * ``FromRun[Clock]``: not an input, a value the run supplies by type;
 * ``**x: T``: every edge an input declared ``T``, unless a
-  ``compute_inputs`` hook says which inputs land there. ``AsItArrives``
+  ``compute_added_inputs`` hook says which inputs land there. ``AsItArrives``
   never runs the node per row, ``Series[Any]`` reduces, ``Any`` or a type
   runs it per row;
 * on the return: a type (one output), a frozen dataclass (one output
@@ -50,7 +50,7 @@ from conductor._internal.dtype import (
     split_off_none,
 )
 from conductor._internal.errors import NodeDeclarationError, Problem
-from conductor._internal.field_records import Input, Output, Param, Result
+from conductor._internal.field_records import Input, Output, Param, Result, type_with_bounds
 from conductor._internal.skip_and_ask import AskPerson
 from conductor.widgets import Widget
 
@@ -182,7 +182,7 @@ def _input_from_parameter(name: str, declared: Any, extras: tuple[Any, ...], par
     has_default = parameter.default is not inspect.Parameter.empty
     return Input(
         name, declared, title=param.title, description=param.description, widget=param.widget, connectable=param.connectable,
-        **({"default": parameter.default} if has_default else {}),
+        **param.bounds, **({"default": parameter.default} if has_default else {}),
     )
 
 
@@ -227,7 +227,7 @@ def _outputs_of_returned_dataclass(record: type) -> tuple[Output, ...]:
 
 
 def _output_from_result(default_name: str, dtype: Any, result: Result) -> Output:
-    return Output(result.name or default_name, dtype, title=result.title, description=result.description, choice=result.choice)
+    return Output(result.name or default_name, dtype, title=result.title, description=result.description, exclusive_group=result.exclusive_group)
 
 
 def _result_annotation_in(extras: tuple[Any, ...]) -> Result:
@@ -282,11 +282,12 @@ def _wrong_shape(message: str) -> list[Problem]:
 
 
 def _type_a_call_reads(input_: Input) -> Any:
-    """The type a call's value of ``input_`` is checked against: one value or a list of them, each ``None`` where the input takes a blank."""
-    one_value = input_.dtype | None if input_.takes_blank else input_.dtype
+    """The type a call's value of ``input_`` is checked against: one value or a list of them, each ``None`` where the input takes a blank, and held to its bounds; a blank is held to none."""
     if not input_.many:
-        return one_value
-    return list[one_value] | None if input_.takes_blank and not input_.required and input_.default is None else list[one_value]
+        bounded = type_with_bounds(input_.dtype, input_.bounds)
+        return bounded | None if input_.takes_blank else bounded
+    many = type_with_bounds(list[input_.dtype | None if input_.takes_blank else input_.dtype], input_.bounds)
+    return many | None if input_.takes_blank and not input_.required and input_.default is None else many
 
 
 def build_call_validator(inputs: tuple[Input, ...]) -> Callable[[Mapping[str, Any]], dict[str, Any]]:

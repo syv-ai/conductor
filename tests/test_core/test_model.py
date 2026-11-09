@@ -26,7 +26,7 @@ from conductor._internal.execution.run_ledger import SkippedAtRow
 from conductor._internal.graph.compiled_node import CompiledField, CompiledNode
 from conductor._internal.index import Index
 from conductor._internal.node_definition import NodeVersion, VersionDescription
-from conductor.widgets import Choice, Dropdown, OperatorChoice, SchemaBuilder, Textarea, Widget
+from conductor.widgets import Choice, Dropdown, Textarea, Widget
 from pydantic import ValidationError
 
 
@@ -105,24 +105,14 @@ def test_an_index_is_its_id_whatever_its_parent():
     assert Index("lines", parent=docs).model_dump() == {"id": "lines", "parent": {"id": "docs", "parent": None}}
 
 
-def test_a_schema_builder_keeps_its_schema_key_on_the_wire():
-    """``schema`` is also a pydantic method name, so the attribute is ``schema_`` and the wire and keyword say ``schema``."""
-    builder = SchemaBuilder(schema={"type": "object"})
-
-    assert builder.schema_ == {"type": "object"}
-    assert builder.model_dump()["schema"] == {"type": "object"}
-    assert SchemaBuilder.model_validate({"schema": {"a": 1}}).schema_ == {"a": 1}
-
-
 READ_BACK = (
     FieldContent(title="X", description="x"),
     From("a.result", "b.result"),
     Static({"rows": [1, 2]}),
     Problem(type="cycle", msg="m", loc=("a", "x"), ctx={"path": ["a", "b"]}),
     Deprecation(header="Gone", alternative="echo"),
-    Policy(retries=2, delay=0.5, timeout=3.0, concurrency=1),
-    Choice(id="en", title="English", element={"id": "text"}),
-    OperatorChoice(id="contains", title="indeholder", category="text", arity=2),
+    Policy(retries=2, retry_delay=0.5, attempt_timeout=3.0, concurrency=1),
+    Choice(id="en", title="English"),
     Index("lines", parent=Index("docs")),
     Textarea(rows=2),
 )
@@ -152,7 +142,7 @@ def test_a_description_does_not_read_back_as_a_type():
 SAVED = (
     Graph, GraphNode, FieldContent, From, Static, Problem,
     Deprecation, Policy, VersionDescription, NodeDescription,
-    Param, Result, Input, Output, Widget, Textarea, Dropdown, Choice, OperatorChoice, Index,
+    Param, Result, Input, Output, Widget, Textarea, Dropdown, Choice, Index,
 )
 BUILT_PER_CALL = (CompiledGraph, CompiledNode, CompiledField, NodeVersion, Interface, SkippedAtRow)
 

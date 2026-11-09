@@ -52,15 +52,15 @@ Out = Annotated[Txt, Result(title="Answer")]
 
 
 def test_a_param_with_a_widget_describes_with_one_title():
-    def run(a: Annotated[Num, Param(title="A", description="The first", widget=NumberWidget(min_val=0))]) -> Out: ...
+    def run(a: Annotated[Num, Param(title="A", description="The first", widget=NumberWidget(step=2.0))]) -> Out: ...
 
     (a,) = read_signature(run).interface.inputs
     dumped = a.model_dump(mode="json")
 
     assert (a.title, a.description, a.connectable) == ("A", "The first", True)
-    assert a.widget == NumberWidget(min_val=0)
+    assert a.widget == NumberWidget(step=2.0)
     assert dumped["title"] == "A"
-    assert dumped["widget"] == {"kind": "number", "min_val": 0.0, "max_val": None, "step": None, "integer_only": False}
+    assert dumped["widget"] == {"kind": "number", "step": 2.0, "integer_only": False}
     assert "title" not in dumped["widget"]
 
 
@@ -98,7 +98,7 @@ def test_a_parameter_without_a_param_is_titled_by_its_name():
     def run(texts: Series[Txt]) -> Out: ...
 
     (texts,) = read_signature(run).interface.inputs
-    assert (texts.title, texts.widget, texts.connectable) == ("texts", None, True)
+    assert (texts.title, texts.widget, texts.connectable) == ("Texts", None, True)
 
 
 def test_connectable_false_closes_the_input_and_admits_a_static_type():

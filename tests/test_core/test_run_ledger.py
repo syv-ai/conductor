@@ -152,8 +152,8 @@ def test_a_skip_written_on_a_longer_row_reaches_the_group_above_it():
 
     @dataclass(frozen=True)
     class Gate:
-        open: Annotated[Txt, Result(title="Open", choice="c")]
-        shut: Annotated[Txt, Result(title="Shut", choice="c")]
+        open: Annotated[Txt, Result(title="Open", exclusive_group="c")]
+        shut: Annotated[Txt, Result(title="Shut", exclusive_group="c")]
 
     @node("gate", title="Gate", description="d", category="test")
     def gate_row(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Gate:
@@ -269,8 +269,8 @@ def test_a_group_reduction_is_asked_a_handful_of_times_however_long_the_group():
 
 @dataclass(frozen=True)
 class _Gated:
-    open: Annotated[Txt, Result(title="Open", choice="c")]
-    shut: Annotated[Txt, Result(title="Shut", choice="c")]
+    open: Annotated[Txt, Result(title="Open", exclusive_group="c")]
+    shut: Annotated[Txt, Result(title="Shut", exclusive_group="c")]
 
 
 @node("per-row-gate", title="Gate", description="d", category="test")
@@ -348,7 +348,7 @@ def _unit_outputs(ledger: RunLedger, compiled: CompiledGraph, unit: Unit, inputs
     """What this unit returns, really: the node called and its return read as the engine does."""
     node_id, row = unit
     compiled_node = compiled.node(node_id)
-    value = compiled_node.version.run(**compiled_node._validate_call_inputs(inputs))
+    value = compiled_node.version.body(**compiled_node._validate_call_inputs(inputs))
     if isinstance(value, AskPerson):
         return value
     by_output = split_return_into_outputs(compiled_node.version.return_shape, value, compiled_node.interface.outputs, compiled_node.version.interface.outputs)

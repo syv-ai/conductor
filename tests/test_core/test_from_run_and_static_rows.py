@@ -56,7 +56,7 @@ def _registry():
 
 
 def test_a_from_run_parameter_is_a_need_not_an_input():
-    iface = read_signature(greet.versions[1].run).interface
+    iface = read_signature(greet.versions[1].body).interface
     assert [i.name for i in iface.inputs] == ["text"]
     assert iface.needs == {Who}
 

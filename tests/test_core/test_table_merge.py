@@ -19,6 +19,7 @@ from conductor import (
     Static,
     Table,
     node,
+    table_with_columns,
 )
 from conductor._internal.index import Index
 from conductor._internal.table import MergeSource, merge_tables_on_row_ids
@@ -202,8 +203,8 @@ def words(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")
     return [Txt(word) for word in text.split(",") if word]
 
 
-NamesSent = Table.with_columns({"name": Txt, "sent": Txt})
-NamesAsNumbers = Table.with_columns({"name": Num})
+NamesSent = table_with_columns({"name": Txt, "sent": Txt})
+NamesAsNumbers = table_with_columns({"name": Num})
 
 
 @node("sheet", title="Sheet", description="d", category="test")

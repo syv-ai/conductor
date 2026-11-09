@@ -46,13 +46,13 @@ results["join"]["result"]          # "A+B+C": Series[str] received the whole ser
 
 ### The Node Contract
 
-`@node("id", title=, description=, category=, tags=, docs=, policy=, deprecation=, compute_inputs=, compute_outputs=, older_versions=)` wraps a plain function and returns a frozen, callable `NodeDefinition`; it registers nothing. Only the id is required: the title defaults to the function's name, the description to its docstring.
+`@node("id", title=, description=, category=, tags=, docs=, policy=, deprecation=, compute_added_inputs=, compute_outputs=, replaces=, upgrade=)` wraps a plain function and returns a frozen, callable `NodeDefinition`; it registers nothing. Only the id is required: the title defaults to the function's name, the description to its docstring.
 
 - Input: `text: str`, or `Annotated[str, Param(title=, description=, widget=, connectable=)]` beside it. Without a widget an editor shows no control for it: an edge fills it, or a value set in code. A default makes it optional. A type no edge can carry (`list[X]`, a `Literal`) closes the input by itself; `connectable=False` closes one that could.
-- Output: `-> str` is one output named `result`, `Result(name=, title=, description=, choice=)` beside it says more; a frozen dataclass is one output per field; `-> Mapping[str, Any]` returns the computed outputs by name and needs `compute_outputs`; `-> None` declares no outputs.
+- Output: `-> str` is one output named `result`, `Result(name=, title=, description=, exclusive_group=)` beside it says more; a frozen dataclass is one output per field; `-> Mapping[str, Any]` returns the computed outputs by name and needs `compute_outputs`; `-> None` declares no outputs.
 - `Any` is a value routed unread; an `Any` output needs `compute_outputs` to type it.
 - A value can be blank. If an input's type doesn't say `| None` (`email: str | None`), the node isn't called for that row: its outputs are blank there, a `choice` output is skipped, and an output that makes rows has none. `Series[X]` leaves blanks out, row by row across the series inputs on one index; `Series[X | None]` keeps them. `Any`, `Series[Any]` and `AsItArrives` take blanks. `| None` on a return lets the node return `None`, and a question may be left blank. A default is for an input nothing is wired to, never for a blank. `node_complete.rows_not_called` and `RunState.rows_not_called` count, per input, the rows skipped this way.
-- `**x: T` makes every edge an input declared `T` when no `compute_inputs` owns the parameter: `Any` or a type runs the node per row, `Series[Any]` reduces each edge, `AsItArrives` hands each as it arrives (a column as a column) and never runs per row.
+- `**x: T` makes every edge an input declared `T` when no `compute_added_inputs` owns the parameter: `Any` or a type runs the node per row, `Series[Any]` reduces each edge, `AsItArrives` hands each as it arrives (a column as a column) and never runs per row.
 - The function returns `SKIPPED` on a branch not taken and `AskPerson` when a person must answer (`-> ... | AskPerson`).
 - What the run supplies arrives through `FromRun[T]` parameters.
 - `@node` checks the function: a bare widget in `Annotated`, an extra conductor does not read, `async def`, an `Any` or `Mapping` return with no hook, and a field name gone from the next version with no `Upgrade` raise `NodeDeclarationError`.
@@ -68,17 +68,14 @@ def _split_name(values: dict) -> dict:
     first, _, last = values.pop("name").partition(" ")
     return {**values, "first": first, "last": last}
 
-@node(
-    "greet", policy=Policy(retries=2, delay=0.5, timeout=10, concurrency=4),
-    older_versions=[OlderVersion(greet_v1, upgrade=Upgrade(rewrite=_split_name), deprecation=Deprecation(header="Use version 2"))],
-)
+@node("greet", policy=Policy(retries=2, retry_delay=0.5, attempt_timeout=10, concurrency=4), replaces=greet_v1, upgrade=Upgrade(rewrite=_split_name))
 def greet(first: str, last: str) -> str: ...
 ```
 
-- `Policy(retries=0, delay=1.0, timeout=None, concurrency=8, retry_on=())`; `concurrency` bounds rows in flight, each in a worker thread.
-- `OlderVersion(run, upgrade=, policy=, deprecation=, compute_inputs=, compute_outputs=)` is one earlier version, with its own policy and hooks. `Upgrade(renamed_inputs={old: new}, renamed_outputs={old: new}, rewrite=fn)` sits on the version it leaves; renames carry lock and content; it is required only when a field name is gone from the next version.
+- `Policy(retries=0, retry_delay=1.0, attempt_timeout=None, concurrency=8, retry_on=())`; `concurrency` bounds rows in flight, each in a worker thread.
+- `replaces=` names the `@node` of the same id this version follows; a version's number is its place in that chain, each version keeps its own policy, hooks and `deprecation=`, and only the newest goes in a registry. `Upgrade(renamed_inputs={old: new}, renamed_outputs={old: new}, rewrite=fn)` goes beside `replaces=`; renames carry lock and content; it is required only when a field name of the replaced version is gone.
 - `upgrade_node(graph, node_id, registry, to=None)` moves one node to a version and rewrites edges on renamed outputs, returning a `Graph`; what it can't do is `InvalidCallError`. Compile never upgrades.
-- `Deprecation(header=, description=, alternative=, migration=)` retires a node (`deprecation=` on `@node`) or a version; `NodeRegistry` checks an `alternative` exists.
+- `Deprecation(header=, description=, alternative=, migration=)` retires one version (`deprecation=` on its `@node`); the newest version's notice is the node's; `NodeRegistry` checks an `alternative` exists.
 - `NodeDefinition.from_compiled_graphs(id, versions={3: compiled}, title=, description=, category=)` makes a node whose versions are graphs: a host compiles each stored graph version once. The title defaults to the id. Outside it, its fields go by the names it offers: bare where unique, the address on a clash (`text`, `t.text`). Bindings and `From` use them, and inner addresses only read a run. Compile walks the graph node as one node with the graph's `interface`, then puts the graph's nodes in its place under the graph node's id (`approve/check`), under the row the graph node runs on; the run reads exactly as if they had been drawn there. Only the inputs and outputs the graph offers are reachable from outside: an edge or value on any other inner field is `unknown_ref_output` or `stale_binding`. An offered input needs a type: one typed `Any` or `Series[Any]` leaves its node not ready. A graph with anything fatal in it but an input it offers left empty is refused where it is embedded with one fatal `embedded_graph_broken` (`graph`, `problems` in its details); it stays one node with nothing inside, and its own problems stay on it, `compiled.node(id).version.problems`. A value typed on an embedded graph's input, or an edge into an input its author filled, lands on the inner field as if typed or connected there; a value typed there that a hook inside refuses is the hook's own problem on that field of the graph node. Refusing a graph that embeds itself is the host's job.
 
 ### Field Hooks
@@ -88,15 +85,15 @@ def operand_inputs(count: int) -> list[Input]:                  # what to ADD to
     return [Input(f"value_{i}", float) for i in range(count)]
 
 
-def branch_outputs(names: str, value: Arriving) -> list[Output]:  # all the outputs
-    return [Output(name, value, choice="branches") for name in names.split(",")]
+def branch_outputs(names: str, value: ArrivingType) -> list[Output]:  # all the outputs
+    return [Output(name, value, exclusive_group="branches") for name in names.split(",")]
 ```
 
-Each is a plain function, given per version (`compute_inputs=` and `compute_outputs=` on `@node` or `OlderVersion`). A parameter names an input and receives its typed value, the declared default included; a parameter marked `Arriving` receives the type one call gets there (the edge's, or the typed-in value's with no edge; `Any` until something is), and `**x: Arriving` receives all connected ones. If a value parameter has neither a typed-in value nor a default the hook is not called and the node keeps what it declares. A hook adds inputs only onto a `**x` parameter, and builds records the way a signature reads: `Input("amount", float, widget=...)`, `Output(name, value, choice="branches")`. A plain Python type closes an `Input`. Compile keeps the answer on `compiled.node(node_id).interface`. `ComputeHookError(code, message, field=None)` becomes a `Problem` on the node.
+Each is a plain function, given per version (`compute_added_inputs=` and `compute_outputs=` on `@node`). A parameter names an input and receives its typed value, the declared default included; a parameter marked `ArrivingType` receives the type one call gets there (the edge's, or the typed-in value's with no edge; `Any` until something is), and `**x: ArrivingType` receives all connected ones. If a value parameter has neither a typed-in value nor a default the hook is not called and the node keeps what it declares. A hook adds inputs only onto a `**x` parameter, and builds records the way a signature reads: `Input("amount", float, widget=...)`, `Output(name, value, exclusive_group="branches")`. A plain Python type closes an `Input`. Compile keeps the answer on `compiled.node(node_id).interface`. `ComputeHookError(message, code=None, ctx=None, field=None)`, the one shape every author error has, becomes a `Problem` on the node.
 
 ### Types
 
-`str`, `int`, `float`, `bool`, `date`, `datetime` and a pydantic model travel on edges as they are; compile reads each as a `DType`, so nothing past it knows the difference. `class Text(DType, str)` with an `id`, `display_title` defaulting to the class name, is for a type of your own: one that restricts its edges, a word for a palette, one that formats itself; a subtype lands on its parent, so a `Text` lands on `str`. It never converts or picks a widget. `Input.dtype` and `Output.dtype` are always a `DType`: `Any` is held as a private type whose `id` is `any`, a type no edge can carry as one whose `id` is `setting`. `Series[X]` reads as `Sequence[X]` to a type checker, so a node returns a list; `Table[...]` takes a `TypedDict` naming the columns, and `Table.with_columns({"name": Text})` is the same type for a hook.
+`str`, `int`, `float`, `bool`, `date`, `datetime` and a pydantic model travel on edges as they are; compile reads each as a `DType`, so nothing past it knows the difference. `class Text(DType, str)` with an `id`, `display_title` defaulting to the class name, is for a type of your own: one that restricts its edges, a word for a palette, one that formats itself; a subtype lands on its parent, so a `Text` lands on `str`. It never converts or picks a widget. `Input.dtype` and `Output.dtype` are always a `DType`: `Any` is held as a private type whose `id` is `any`, a type no edge can carry as one whose `id` is `setting`. `Series[X]` reads as `Sequence[X]` to a type checker, so a node returns a list; `Table[...]` takes a `TypedDict` naming the columns, and `table_with_columns({"name": Text})` is the same type for a hook.
 
 - `target.accepts(source)`: may an edge land, asked about one value of each side (default `issubclass`). `as_text` formats, `describe()` is its record.
 - `registry.types`: node types plus `NodeRegistry(..., types=[...])`; `registry.accepted_as(T)`: ids `T` lands on.
@@ -140,7 +137,7 @@ Every level is a table.
 - Several tables or columns wired into one `Table` input are merged on `__row` as the graph runs, never stopped at compile. A source with another wired source's rows under it is only copied down, so the rows are those of the deepest source and a parent with nothing under it has no row in that table. Sources on the same level keep all their rows, with blanks where one has nothing. A child table a branch skipped gives no rows; a `Table` input fed only skipped sources skips its node.
 - A source whose rows can't share an origin with the others (two CSVs read separately) is the non-fatal `no_rows_in_common` at compile, and its cells are blank beside the others'.
 - A table a node rebuilt without `__row` and that is merged with a table it came from fails the node with `row_ids_lost`. Keep the column, or use the table alone.
-- A merged column is named after its source output's title, or its name when untitled; a column a source clashes on takes the node's id (`name_crm`), the same at compile and at run. A `Table` input's `Arriving` is that merged table's type, or what the input declares when it names columns; a frame typed in, the columns it holds.
+- A merged column is named after its source output's title, or its name when untitled; a column a source clashes on takes the node's id (`name_crm`), the same at compile and at run. A `Table` input's `ArrivingType` is that merged table's type, or what the input declares when it names columns; a frame typed in, the columns it holds.
 - A `Table` value is read from a list of records, a Polars frame or the JSON form. `[]` is a table of no rows. A value a column's Polars type can't read goes through its `DType`'s own parsing (a Danish `1,5`). A missing column is `table_column_missing`, naming it in `ctx["column"]`, on a typed-in value and at a call alike.
 
 ### Legs and Asking
@@ -183,8 +180,8 @@ state = compiled.with_inputs(contacts=edited).run_sync(state)  # one row added: 
 Retries live on the version's `Policy`, per unit.
 
 - Only `ExternalFailure` retries: raised by the node, or wrapped from a class in `Policy.retry_on` (`external_failed`). Anything else is the code `execution_failed`, run once.
-- Attempt `n` waits `delay * 2 ** (n - 1)` and emits `node_retry`.
-- `Policy.timeout` bounds one attempt: the unit fails with the code `timeout`, final; the thread is not interrupted.
+- Attempt `n` waits `retry_delay * 2 ** (n - 1)` and emits `node_retry`.
+- `Policy.attempt_timeout` bounds one attempt: the unit fails with the code `timeout`, final; the thread is not interrupted.
 - `compiled.run(timeout=60)` ends the leg `timed_out`; setting `compiled.run(cancel=asyncio.Event())` ends it `cancelled`. Leaving `async with compiled.stream() as events:` stops every unit.
 
 ### Errors
@@ -239,7 +236,7 @@ Three public modules: `conductor`, `conductor.widgets` and `conductor.events`. E
 
 ### conductor
 
-- Nodes: `node`, `NodeDefinition`, `OlderVersion`, `Upgrade`, `upgrade_node`, `Policy`, `Deprecation`, `NodeDescription`, `Interface`, `Arriving`, `FromRun`, `Input`, `Output`, `Param`, `Result`
+- Nodes: `node`, `NodeDefinition`, `Upgrade`, `upgrade_node`, `Policy`, `Deprecation`, `NodeDescription`, `Interface`, `ArrivingType`, `FromRun`, `Input`, `Output`, `Param`, `Result`
 - Returns: `SKIPPED`, `AskPerson`
 - Types: `DType`, `AsItArrives`, `Series`, `Table`, `Ref`, `to_wire(value, dtype)`, `ROW_ID_COLUMN` (the name of a table's hidden row-id column), `ValuesOnRows`
 - Registry: `NodeRegistry(nodes, types=())`, immutable (`in`, `[]`, `len`, iteration, `nodes`, `types`, `accepted_as`, `describe`, `extended_with`), `TypeDescription`
@@ -265,26 +262,19 @@ A `Problem`'s `type` comes from one table, each code with its English and whethe
 
 ### conductor.widgets
 
-Frozen models with a `kind`; `AnyWidget` is their union. `title`, `description` and `connectable` belong to the `Param`. No type has a default widget.
+Frozen models with a `kind`, and a host subclasses `Widget` for a control of its own; compile and the engine never read one. `title`, `description`, `connectable` and the limits of a value (`ge`, `gt`, `le`, `lt`, `min_length`, `max_length`, `pattern`) belong to the `Param`, and a value outside its limits is refused. An untitled field reads as its name in everyday words. No type has a default widget.
 
 | Widget | Options |
 |---|---|
-| `TextWidget` | `min_length`, `max_length`, `pattern` |
-| `Textarea` | `rows`, `min_length`, `max_length` |
-| `TemplateTextarea` | `rows` |
-| `CodeEditor` | `language`, `min_length`, `max_length` |
-| `Dropdown` | `choices` (`Choice(id, title, element)`) |
-| `EntityDropdown` | `entity_kind`, `multiple` |
-| `NumberWidget` | `min_val`, `max_val`, `step`, `integer_only` |
-| `Range` | `min_val`, `max_val`, `step` |
+| `TextWidget` | none |
+| `Textarea` | `rows` |
+| `Dropdown` | `choices` (`Choice(id, title)`) |
+| `NumberWidget` | `step`, `integer_only` |
+| `Range` | `step` |
 | `Switch` | none |
-| `DatePicker` | `min_date`, `max_date`, `seed` |
+| `DatePicker` | `seed` |
 | `FileUpload` | `accept`, `max_size_mb`, `multiple` |
-| `ListWidget` | `min_items`, `max_items` |
-| `Tags` | none |
-| `TableInput` | `min_rows`, `min_columns`, `column_types` |
-| `SchemaBuilder` | `schema`, `allow_additional`, `field_types` |
-| `IfElseBuilder` | `operators` (`OperatorChoice(id, title, category, arity)`) |
+| `ListWidget` | none |
 
 ### conductor.events
 

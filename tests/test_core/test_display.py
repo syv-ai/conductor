@@ -12,7 +12,6 @@ from conductor import (
     DType,
     Input,
     NodeRegistry,
-    OlderVersion,
     Param,
     Policy,
     Problem,
@@ -37,7 +36,7 @@ def greet(name: Annotated[Txt, Param(title="Name", widget=TextWidget())]) -> Ann
 def truncate_v1(text: Annotated[Txt, Param(title="Text", widget=Textarea())]) -> Annotated[Txt, Result(title="Short")]:
     return text
 
-@node("truncate", title="Truncate", description="Cuts a text short", category="text", policy=Policy(retries=2), older_versions=[OlderVersion(truncate_v1, upgrade=Upgrade())])
+@node("truncate", title="Truncate", description="Cuts a text short", category="text", policy=Policy(retries=2), replaces=node("truncate")(truncate_v1), upgrade=Upgrade())
 def truncate(text: Annotated[Txt, Param(title="Text", widget=Textarea())], limit: Annotated[Txt, Param(title="Limit", widget=TextWidget())] = Txt("10")
 ) -> Annotated[Txt, Result(title="Short")]:
     return text
@@ -52,14 +51,13 @@ def test_a_node_prints_what_it_declares():
     assert repr(truncate) == "NodeDefinition(id='truncate', title='Truncate', category='text', versions=(1, 2))"
 
 
-def test_a_node_prints_its_deprecation_and_tags_only_when_it_has_them():
+def test_a_node_prints_its_tags_only_when_it_has_them():
     @node("old", title="Old", description="d", category="text", tags=("legacy",), deprecation=Deprecation(header="Gone"))
     def old(name: Annotated[Txt, Param(title="Name", widget=TextWidget())]) -> Annotated[Txt, Result(title="R")]:
         return name
 
     assert repr(old) == (
-        "NodeDefinition(id='old', title='Old', category='text', tags=('legacy',), versions=(1,), "
-        "deprecation=Deprecation(header='Gone'))"
+        "NodeDefinition(id='old', title='Old', category='text', tags=('legacy',), versions=(1,))"
     )
 
 

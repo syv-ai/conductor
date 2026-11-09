@@ -75,12 +75,12 @@ def test_a_none_place_is_left_out_of_loc():
 def test_every_code_a_site_writes_is_in_the_catalogue_and_every_row_is_written():
     """``PROBLEM_CODES`` is what a host translating by code covers, so it
     equals the codes written at the sites: a ``make_problem(...)`` and a ``code=``
-    in the engine and compile. ``failed`` is the engine's name for a
-    ``NodeError`` the node raised with no code."""
+    in the engine and compile. ``failed`` and ``compute_hook_failed`` are the names
+    for a ``NodeError`` and a ``ComputeHookError`` raised with no code."""
     import conductor._internal.execution
     import conductor._internal.graph
 
-    written: set[str] = {"failed"}
+    written: set[str] = {"failed", "compute_hook_failed"}
 
     def literals(expression: ast.expr) -> set[str]:
         return {graph_node.value for graph_node in ast.walk(expression) if isinstance(graph_node, ast.Constant) and isinstance(graph_node.value, str)}
@@ -136,7 +136,7 @@ def _hooked(raised: Exception) -> Any:
     def hooked_inputs():
         raise raised
 
-    @node("hooked", title="H", description="d", category="c", compute_inputs=hooked_inputs)
+    @node("hooked", title="H", description="d", category="c", compute_added_inputs=hooked_inputs)
     def hooked(text: Annotated[Txt, Param()], **more: Any) -> Annotated[Txt, Result(title="R")]:
         return text
 
@@ -144,7 +144,7 @@ def _hooked(raised: Exception) -> Any:
 
 
 def test_a_compile_problem_from_a_hook_lands_on_the_field_it_names():
-    registry = _registry(_hooked(ComputeHookError("wrong_mode", "Not that mode.", field="text")))
+    registry = _registry(_hooked(ComputeHookError("Not that mode.", code="wrong_mode", field="text")))
     graph = Graph(nodes=[GraphNode(id="h", type="hooked", version=1)])
 
     (told,) = CompiledGraph.from_graph(graph, registry).problems
@@ -154,7 +154,7 @@ def test_a_compile_problem_from_a_hook_lands_on_the_field_it_names():
 
 def test_a_hook_may_not_raise_a_code_the_catalogue_says_can_still_run():
     with pytest.raises(ValueError, match="no_outputs"):
-        ComputeHookError("no_outputs", "m")
+        ComputeHookError("m", code="no_outputs")
 
 
 def test_a_hook_that_raises_anything_else_is_a_bug_and_leaves_compile():
@@ -173,7 +173,7 @@ def test_a_binding_on_a_field_a_hook_took_away_is_unused_and_a_typo_is_fatal():
     def comes_inputs():
         return ()
 
-    @node("comes", title="Comes", description="d", category="c", compute_inputs=comes_inputs)
+    @node("comes", title="Comes", description="d", category="c", compute_added_inputs=comes_inputs)
     def comes(text: Annotated[Txt, Param()], **more: Any) -> Annotated[Txt, Result(title="R")]:
         return text
 

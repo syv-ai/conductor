@@ -119,7 +119,7 @@ class Question(ConductorModel):
     ``json_schema`` is the shape of one answer, for a client to check before
     sending. ``default`` fills the question when ``optional`` and left out; a
     state holds it as its cells are held, and writes it as JSON the same way.
-    Questions sharing a ``choice`` are alternatives: the person answers exactly one.
+    Questions sharing an ``exclusive_group`` are alternatives: the person answers exactly one.
     """
 
     name: str
@@ -132,7 +132,7 @@ class Question(ConductorModel):
     widget: dict[str, Any] | None = None
     default: Any = None
     optional: bool = False
-    choice: str | None = None
+    exclusive_group: str | None = None
 
     @field_serializer("default", when_used="json")
     def _default_as_wire(self, default: Any) -> Any:

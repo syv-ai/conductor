@@ -18,7 +18,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from conductor._internal.dtype import type_name_for_sentence
 from conductor._internal.errors import Problem, make_problem
-from conductor._internal.field_records import Input
+from conductor._internal.field_records import Input, type_with_bounds
 from conductor._internal.graph.binding import static_values
 from conductor._internal.graph.graph_records import GraphNode
 from conductor._internal.table import is_table_type, missing_column_in
@@ -57,14 +57,18 @@ def _read_value_or_list(input_: Input, value: Any) -> tuple[Any, bool]:
     if input_.many:
         if not _is_sequence(value):
             raise TypeError("a Series input takes a sequence")
-        return [None if item is None and input_.takes_blank else _adapter(input_.dtype).validate_python(item) for item in value], False
+        values = [None if item is None and input_.takes_blank else _adapter(input_.dtype).validate_python(item) for item in value]
+        if input_.bounds:
+            _adapter(list[Any], tuple(input_.bounds.items())).validate_python(values)
+        return values, False
     if value is None and input_.takes_blank:
         return None, False
+    adapter = _adapter(input_.dtype, tuple(input_.bounds.items()))
     try:
-        return _adapter(input_.dtype).validate_python(value), False
+        return adapter.validate_python(value), False
     except ValidationError:
         if _is_sequence(value) and not is_table_type(input_.dtype):  # records are one table, not many
-            return [_adapter(input_.dtype).validate_python(item) for item in value], True
+            return [adapter.validate_python(item) for item in value], True
         raise
 
 
@@ -80,8 +84,8 @@ def _is_sequence(value: Any) -> bool:
 
 
 @cache
-def _adapter(dtype: type) -> TypeAdapter[Any]:
-    return TypeAdapter(dtype)
+def _adapter(dtype: type, bounds: tuple[tuple[str, Any], ...] = ()) -> TypeAdapter[Any]:
+    return TypeAdapter(type_with_bounds(dtype, dict(bounds)))
 
 
 def _message_from_type_constructor(unreadable: Exception) -> str:

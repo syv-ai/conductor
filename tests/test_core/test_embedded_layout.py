@@ -392,9 +392,9 @@ def test_a_broken_graph_inside_a_graph_breaks_the_graph_around_it():
 
     assert [(p.type, p.loc[0]) for p in compiled.problems] == [("embedded_graph_broken", "top")]
     top = compiled.node("top")
-    assert [(p.type, p.loc[0]) for p in top.version.problems] == [("embedded_graph_broken", "mid")]
-    assert [(p.type, p.loc[0]) for p in top.version.node("mid").version.problems] == [("unknown_node_type", "x")]
-    for graph_node in (top, top.version.node("mid")):
+    assert [(p.type, p.loc[0]) for p in top.embedded_graph.problems] == [("embedded_graph_broken", "mid")]
+    assert [(p.type, p.loc[0]) for p in top.embedded_graph.node("mid").embedded_graph.problems] == [("unknown_node_type", "x")]
+    for graph_node in (top, top.embedded_graph.node("mid")):
         assert (graph_node.state, graph_node.embedded_graph is not None) == ("wiring_failed", True)
         assert graph_node.interface is not None  # the box and its handles still draw
         assert graph_node.wiring is None
@@ -447,7 +447,7 @@ def test_an_authored_id_holding_a_slash_is_refused_and_stays_the_authors():
     assert [(p.type, p.loc) for p in compiled.problems] == [
         ("invalid_node_id", ("e/holder",)), ("embedded_graph_broken", ("e",)),
     ]
-    assert [(p.type, p.loc[0]) for p in compiled.node("e").version.problems] == [("unknown_node_type", "holder")]
+    assert [(p.type, p.loc[0]) for p in compiled.node("e").embedded_graph.problems] == [("unknown_node_type", "holder")]
     assert compiled.node("e").state == "wiring_failed"
     raised = compiled.node("e/holder")
     assert (raised.state, raised.embedded_in, raised.cause.type) == ("resolution_failed", None, "invalid_node_id")

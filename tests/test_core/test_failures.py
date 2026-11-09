@@ -73,7 +73,7 @@ def test_a_foreign_exception_runs_once_and_is_execution_failed():
     call, no retry, and the event says only that the node failed."""
     calls: list[int] = []
 
-    @node("buggy", title="Buggy", description="d", category="test", policy=Policy(retries=3, delay=0.01))
+    @node("buggy", title="Buggy", description="d", category="test", policy=Policy(retries=3, retry_delay=0.01))
     def buggy(text: In = Txt("")) -> Out:
         calls.append(1)
         return {}["missing"]
@@ -91,7 +91,7 @@ def test_a_foreign_exception_runs_once_and_is_execution_failed():
 def test_a_foreign_exception_named_in_retry_on_is_external_and_retries():
     calls: list[int] = []
 
-    @node("flaky", title="Flaky", description="d", category="test", policy=Policy(retries=2, delay=0.01, retry_on=(ConnectionError,)))
+    @node("flaky", title="Flaky", description="d", category="test", policy=Policy(retries=2, retry_delay=0.01, retry_on=(ConnectionError,)))
     def flaky(text: In = Txt("")) -> Out:
         calls.append(1)
         if len(calls) < 3:
@@ -112,7 +112,7 @@ def test_a_foreign_exception_named_in_retry_on_is_external_and_retries():
 def test_an_exhausted_external_failure_is_external_failed():
     calls: list[int] = []
 
-    @node("down", title="Down", description="d", category="test", policy=Policy(retries=2, delay=0.01, retry_on=(ConnectionError,)))
+    @node("down", title="Down", description="d", category="test", policy=Policy(retries=2, retry_delay=0.01, retry_on=(ConnectionError,)))
     def down(text: In = Txt("")) -> Out:
         calls.append(1)
         raise ConnectionError("socket closed")
@@ -133,7 +133,7 @@ def test_an_external_failure_the_node_raised_retries_and_keeps_its_message():
     the message it wrote is what people read, and the code is the family's."""
     calls: list[int] = []
 
-    @node("bank", title="Bank", description="d", category="test", policy=Policy(retries=1, delay=0.01))
+    @node("bank", title="Bank", description="d", category="test", policy=Policy(retries=1, retry_delay=0.01))
     def bank(text: In = Txt("")) -> Out:
         calls.append(1)
         raise ExternalFailure("Nationalbanken svarede ikke.")
@@ -148,7 +148,7 @@ def test_an_external_failure_the_node_raised_retries_and_keeps_its_message():
 def test_a_node_error_the_node_raised_runs_once_and_keeps_its_message():
     calls: list[int] = []
 
-    @node("reader", title="Reader", description="d", category="test", policy=Policy(retries=3, delay=0.01))
+    @node("reader", title="Reader", description="d", category="test", policy=Policy(retries=3, retry_delay=0.01))
     def reader(text: In = Txt("")) -> Out:
         calls.append(1)
         if len(calls) == 1:
@@ -178,7 +178,7 @@ def test_a_nodes_own_cause_streams_as_written():
 def test_a_validation_error_the_node_raised_is_never_retried():
     calls: list[int] = []
 
-    @node("picky", title="Picky", description="d", category="test", policy=Policy(retries=3, delay=0.01))
+    @node("picky", title="Picky", description="d", category="test", policy=Policy(retries=3, retry_delay=0.01))
     def picky(text: In = Txt("")) -> Out:
         calls.append(1)
         raise NodeError("intentionally invalid input", code="invalid_input")
@@ -227,7 +227,7 @@ def test_a_policy_keeps_retry_on_out_of_what_a_palette_reads():
     policy = Policy(retries=2, retry_on=(ConnectionError, TimeoutError))
 
     assert policy.retry_on == (ConnectionError, TimeoutError)
-    assert policy.model_dump(mode="json") == {"retries": 2, "delay": 1.0, "timeout": None, "concurrency": 8, "reuse_when_inputs_match": True}
+    assert policy.model_dump(mode="json") == {"retries": 2, "retry_delay": 1.0, "attempt_timeout": None, "concurrency": 8, "reuse_when_inputs_match": True}
     assert "retry_on" not in Policy.model_json_schema()["properties"]
 
 
@@ -243,7 +243,7 @@ def test_a_failed_row_is_retried_alone():
     def split_node(text: In = Txt("")) -> Annotated[Series[Txt], Result(title="Parts")]:
         return [Txt(part) for part in text.split(",")]
 
-    @node("flaky-on-b", title="Flaky on b", description="d", category="test", policy=Policy(retries=2, delay=0.01))
+    @node("flaky-on-b", title="Flaky on b", description="d", category="test", policy=Policy(retries=2, retry_delay=0.01))
     def flaky_on_b(text: In = Txt("")) -> Out:
         calls.append(str(text))
         if text == "b" and calls.count("b") == 1:
@@ -268,7 +268,7 @@ def test_a_failed_row_is_retried_alone():
 def test_a_flaky_node_in_one_branch_retries_while_the_other_branch_completes():
     calls = {"a": 0, "b": 0}
 
-    @node("flaky-a", title="Flaky A", description="d", category="test", policy=Policy(retries=2, delay=0.01))
+    @node("flaky-a", title="Flaky A", description="d", category="test", policy=Policy(retries=2, retry_delay=0.01))
     def flaky_a(text: In = Txt("")) -> Out:
         calls["a"] += 1
         if calls["a"] == 1:

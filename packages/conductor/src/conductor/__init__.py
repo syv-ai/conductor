@@ -31,11 +31,10 @@ from conductor._internal.graph.topology import dependencies_of
 from conductor._internal.graph.upgrade import upgrade_node
 from conductor._internal.index import ValuesOnRows
 from conductor._internal.node_definition import (
-    Arriving,
+    ArrivingType,
     Deprecation,
     NodeDefinition,
     NodeDescription,
-    OlderVersion,
     Policy,
     Upgrade,
     node,
@@ -44,7 +43,7 @@ from conductor._internal.node_signature import FromRun, Interface
 from conductor._internal.ref import Ref
 from conductor._internal.registry import NodeRegistry, TypeDescription
 from conductor._internal.skip_and_ask import SKIPPED, AskPerson
-from conductor._internal.table import ROW_ID_COLUMN
+from conductor._internal.table import ROW_ID_COLUMN, table_with_columns
 
 if TYPE_CHECKING:
     # A node takes and returns frames; a type checker reads ``Table[R]`` as one.
@@ -58,7 +57,7 @@ __all__ = [
     "PROBLEM_CODES",
     "ROW_ID_COLUMN",
     "SKIPPED",
-    "Arriving",
+    "ArrivingType",
     "AsItArrives",
     "AskPerson",
     "BranchTaken",
@@ -80,7 +79,6 @@ __all__ = [
     "NodeDescription",
     "NodeError",
     "NodeRegistry",
-    "OlderVersion",
     "Output",
     "Param",
     "Policy",
@@ -98,6 +96,7 @@ __all__ = [
     "ValuesOnRows",
     "dependencies_of",
     "node",
+    "table_with_columns",
     "to_wire",
     "upgrade_node",
 ]

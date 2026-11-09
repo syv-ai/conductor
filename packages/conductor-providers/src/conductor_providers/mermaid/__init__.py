@@ -70,7 +70,7 @@ def _node_lines(
     if found.wiring is None or found.embedded_graph is None:
         return [f"{indent}{name}[{title}]{fault}"]  # a graph that couldn't be embedded has nothing inside
     lines = [f"{indent}subgraph {name} [{title}]"]
-    for inner in found.version.graph.nodes:
+    for inner in found.embedded_graph.graph.nodes:
         lines += _node_lines(compiled, inner, f"{node_id}/{inner.id}", faulty, names, depth=depth + 1)
     lines.append(f"{indent}end")
     if fault:

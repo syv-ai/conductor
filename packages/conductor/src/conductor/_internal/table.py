@@ -16,7 +16,7 @@ A table type names its columns, each with a scalar type::
     def keep(contacts: Table[Contact]) -> Table[Contact]:
         return contacts.sort("name")
 
-    Table.with_columns({"name": str, "email": str})  # the same type, for a hook
+    table_with_columns({"name": str, "email": str})  # the same type, for a hook
 
 Bare ``Table`` is a table whose columns are known only when it arrives (a
 CSV nobody described). A column's Polars type comes from what its type is
@@ -307,7 +307,7 @@ def type_of_frame(frame: pl.DataFrame) -> type[Table]:
         if plain is None:
             return Table
         columns[name] = plain
-    return Table.with_columns(columns) if columns else Table
+    return table_with_columns(columns) if columns else Table
 
 
 def _plain_type_of_column(dtype: pl.DataType) -> type | None:
@@ -380,35 +380,10 @@ class Table(DType, Generic[RowsOf]):
             return cls
         if not is_typeddict(item):
             raise NodeDeclarationError(
-                f"Table[...] takes a TypedDict naming the columns, got {item!r}; for columns known only to a hook, Table.with_columns({{name: type}})",
+                f"Table[...] takes a TypedDict naming the columns, got {item!r}; for columns known only to a hook, table_with_columns({{name: type}})",
                 code="table_columns_not_a_typeddict",
             )
-        return cls.with_columns(get_type_hints(item))
-
-    @classmethod
-    def with_columns(cls, columns: Mapping[str, Any]) -> type[Table[Any]]:
-        """The table type with these columns, built once per set; ``Table[Contact]`` with the same columns is this type."""
-        declared: list[Column] = []
-        for name, written in columns.items():
-            dtype = dtype_of(written)
-            if not isinstance(name, str) or dtype is None:
-                raise NodeDeclarationError(f"a column is a name and a scalar type, got {name!r}: {written!r}", code="table_column_invalid")
-            if name == ROW_ID_COLUMN:
-                raise NodeDeclarationError(f"'{ROW_ID_COLUMN}' is the column of row ids every table carries; no column may be named it", code="table_column_reserved")
-            if polars_type_of(dtype) is None:
-                raise NodeDeclarationError(
-                    f"{dtype.__name__} can't be a table column: it is built on no builtin a column holds "
-                    "and states no column type of its own (DType.polars_column_type)",
-                code="table_column_no_storage",
-                )
-            declared.append((name, dtype))
-        key = tuple(declared)
-        made = _TABLE_TYPE_BY_COLUMNS.get((cls, key))
-        if made is None:
-            label = ", ".join(f"{name}: {dtype.__name__}" for name, dtype in key)
-            made = type(f"Table[{label}]", (cls,), {"columns": key, "__slots__": ()}, _generic_base=Table)
-            _TABLE_TYPE_BY_COLUMNS[cls, key] = made
-        return made
+        return table_with_columns(get_type_hints(item), base=cls)
 
     # -- reading a value --------------------------------------------------------
 
@@ -497,6 +472,32 @@ class Table(DType, Generic[RowsOf]):
 
 
 #: The tables of the document being written, by digest; ``None`` outside one, where a table is written whole.
+def table_with_columns(columns: Mapping[str, Any], *, base: type[Table[Any]] | None = None) -> type[Table[Any]]:
+    """The table type with these columns, for a hook that only knows them once it runs. Built once per set of columns; ``Table[Contact]`` with the same columns is this type. ``base`` is a host's own ``Table``."""
+    cls = Table if base is None else base
+    declared: list[Column] = []
+    for name, written in columns.items():
+        dtype = dtype_of(written)
+        if not isinstance(name, str) or dtype is None:
+            raise NodeDeclarationError(f"a column is a name and a scalar type, got {name!r}: {written!r}", code="table_column_invalid")
+        if name == ROW_ID_COLUMN:
+            raise NodeDeclarationError(f"'{ROW_ID_COLUMN}' is the column of row ids every table carries; no column may be named it", code="table_column_reserved")
+        if polars_type_of(dtype) is None:
+            raise NodeDeclarationError(
+                f"{dtype.__name__} can't be a table column: it is built on no builtin a column holds "
+                "and states no column type of its own (DType.polars_column_type)",
+            code="table_column_no_storage",
+            )
+        declared.append((name, dtype))
+    key = tuple(declared)
+    made = _TABLE_TYPE_BY_COLUMNS.get((cls, key))
+    if made is None:
+        label = ", ".join(f"{name}: {dtype.__name__}" for name, dtype in key)
+        made = type(f"Table[{label}]", (cls,), {"columns": key, "__slots__": ()}, _generic_base=Table)
+        _TABLE_TYPE_BY_COLUMNS[cls, key] = made
+    return made
+
+
 _tables_of_document_being_written: ContextVar[dict[str, Any] | None] = ContextVar("tables_of_document_being_written", default=None)
 
 

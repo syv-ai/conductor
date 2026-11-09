@@ -7,7 +7,7 @@ import polars as pl
 import pytest
 from conductor import (
     ROW_ID_COLUMN,
-    Arriving,
+    ArrivingType,
     AskPerson,
     CompiledGraph,
     DType,
@@ -26,6 +26,7 @@ from conductor import (
     Static,
     Table,
     node,
+    table_with_columns,
 )
 from conductor.widgets import TextWidget
 from helpers import answer
@@ -147,7 +148,7 @@ def test_a_table_rebuilt_from_no_rows_inside_an_embedded_graph_loses_nothing() -
 
 # -- what a Table input carries -----------------------------------------------------
 
-def _table_then(table: Arriving) -> list[Output]:
+def _table_then(table: ArrivingType) -> list[Output]:
     return [Output("result", table)]
 
 
@@ -161,8 +162,8 @@ def sort_rows(table: Table) -> Mapping[str, Any]:
     return {"result": table.sort("name", descending=True)}
 
 
-def _chosen(table: Arriving, keep: str) -> list[Output]:
-    return [Output("result", Table.with_columns({name: dtype for name, dtype in table.columns if name in keep.split(",")}))]
+def _chosen(table: ArrivingType, keep: str) -> list[Output]:
+    return [Output("result", table_with_columns({name: dtype for name, dtype in table.columns if name in keep.split(",")}))]
 
 
 @node("choose", category="t", compute_outputs=_chosen)
@@ -207,7 +208,7 @@ def test_arriving_merged_table_names_every_column_as_the_run_does() -> None:
 
 
 def test_a_table_arriving_on_an_input_with_columns_is_the_declared_type_the_call_receives() -> None:
-    def outputs(table: Arriving) -> list[Output]:
+    def outputs(table: ArrivingType) -> list[Output]:
         assert [name for name, _ in table.columns] == ["name", "email"]
         return [Output("result", table)]
 
@@ -226,7 +227,7 @@ def test_a_bare_table_source_arrives_bare() -> None:
 
     seen: list[Any] = []
 
-    def outputs(table: Arriving) -> list[Output]:
+    def outputs(table: ArrivingType) -> list[Output]:
         seen.append(table)
         return [Output("result", table)]
 
@@ -242,7 +243,7 @@ def test_a_bare_table_source_arrives_bare() -> None:
 def test_a_typed_in_frame_arrives_with_the_columns_it_holds() -> None:
     seen: list[Any] = []
 
-    def outputs(value: Arriving) -> list[Output]:
+    def outputs(value: ArrivingType) -> list[Output]:
         seen.append(value)
         return [Output("result", value)]
 

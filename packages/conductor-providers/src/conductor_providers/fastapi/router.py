@@ -57,7 +57,7 @@ def conductor_router(
             the values the run supplies by type, ``run(from_run=...)``: a
             parameter annotated ``FromRun[X]`` receives
             the value keyed by ``X``.
-        entity_resolver: Optional hook backing the ``EntityDropdown`` widget.
+        entity_resolver: Optional hook backing a host's entity dropdown widget.
             Receives the entity kind (e.g. ``"document"``) and the FastAPI
             ``Request``; returns a list of ``{"id": ..., "label": ...}``
             dicts the frontend renders as choices. ``GET {prefix}/entities/{kind}``
@@ -124,7 +124,7 @@ def conductor_router(
         def list_entities(kind: str, request: Request) -> list[dict[str, Any]]:
             """Return candidate entities of ``kind`` for the current request.
 
-            Backs the ``EntityDropdown`` widget in conductor-aware frontends.
+            Backs an entity dropdown widget in a host's frontend.
             The exact shape of each entry is host-defined, but the frontend
             convention is ``{"id": "...", "label": "..."}``.
             """

@@ -21,7 +21,6 @@ from conductor import (
     GraphNode,
     InvalidCallError,
     NodeRegistry,
-    OlderVersion,
     Param,
     Policy,
     Result,
@@ -225,7 +224,7 @@ def test_a_changed_node_function_is_new_work() -> None:
         CALLS["mail"] += 1
         return "v2"
 
-    newer = node("mail", category="test", older_versions=[OlderVersion(mail.versions[1].run, upgrade=Upgrade(renamed_outputs={"result": "result"}))])(mail_v2)
+    newer = node("mail", category="test", replaces=node("mail")(mail.versions[1].body), upgrade=Upgrade(renamed_outputs={"result": "result"}))(mail_v2)
     graph = Graph(nodes=[n("c", "csv", rows=Static(BASE)), GraphNode(id="m", type="mail", version=2, bindings={"email": From("c.result.email"), "body": Static("Hej")})])
     ending = CompiledGraph.from_graph(graph, NodeRegistry([csv, newer])).run_sync(through_json(state))
 

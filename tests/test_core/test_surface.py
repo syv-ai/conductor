@@ -44,7 +44,7 @@ def scale(
 def shaped_inputs():
     return ()
 
-@node("shaped", title="Shaped", description="d", category="test", compute_inputs=shaped_inputs)
+@node("shaped", title="Shaped", description="d", category="test", compute_added_inputs=shaped_inputs)
 def shaped(mode: Annotated[Txt, Param(title="Mode", widget=Textarea())] = Txt("a"), **more: Txt) -> Out:
     """Its inputs depend on a mode, so a binding can outlive its field."""
     return mode
@@ -78,7 +78,7 @@ def test_the_dead_binding_names_the_inputs_the_node_has():
 
 
 def test_a_node_whose_inputs_come_and_go_keeps_the_binding_as_a_note():
-    """A node with ``compute_inputs`` really can lose a field when its mode
+    """A node with ``compute_added_inputs`` really can lose a field when its mode
     changes, so the binding it held is left over, not a typo."""
     compiled = _compiled(GraphNode(id="h", type="shaped", version=1, bindings={"gone": Static("x")}))
 
@@ -122,7 +122,7 @@ def test_an_index_prints_as_its_constructor():
 
 
 def test_a_node_version_prints_its_run_by_name():
-    assert repr(scale.versions[1]).startswith("NodeVersion(run=scale, ")
+    assert repr(scale.versions[1]).startswith("NodeVersion(body=scale, ")
 
 
 def test_a_compiled_graph_prints_a_one_line_summary():

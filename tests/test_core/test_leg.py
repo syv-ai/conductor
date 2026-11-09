@@ -154,7 +154,7 @@ def test_an_instant_node_beside_forty_slow_rows_does_not_time_out():
     at once, so its clock never counts time spent waiting for a worker."""
     calls: list[str] = []
 
-    @node("instant", title="Instant", description="d", category="test", policy=Policy(timeout=0.1))
+    @node("instant", title="Instant", description="d", category="test", policy=Policy(attempt_timeout=0.1))
     def instant(texts: Annotated[Series[Txt], Param(title="In", widget=Textarea())]) -> Out:
         return Txt("now")
 
@@ -186,7 +186,7 @@ def test_concurrency_one_with_a_timeout_never_has_two_calls_in_flight():
     most = 0
     lock = threading.Lock()
 
-    @node("slow-rows", title="Slow", description="d", category="test", policy=Policy(concurrency=1, timeout=0.2, retries=2, delay=0.01))
+    @node("slow-rows", title="Slow", description="d", category="test", policy=Policy(concurrency=1, attempt_timeout=0.2, retries=2, retry_delay=0.01))
     def slow(text: In = Txt("")) -> Out:
         nonlocal in_flight, most
         with lock:
@@ -216,7 +216,7 @@ def test_concurrency_one_with_a_timeout_never_has_two_calls_in_flight():
 def test_a_timed_out_attempt_is_final_and_its_cause_is_timeout():
     calls: list[str] = []
 
-    @node("slow-once", title="Slow", description="d", category="test", policy=Policy(timeout=0.1, retries=3, delay=0.01))
+    @node("slow-once", title="Slow", description="d", category="test", policy=Policy(attempt_timeout=0.1, retries=3, retry_delay=0.01))
     def slow(text: In = Txt("")) -> Out:
         calls.append(str(text))
         time.sleep(0.3)
@@ -387,7 +387,7 @@ def test_the_retry_delay_doubles_each_time_and_a_retry_holds_no_slot_while_it_wa
     def source(text: In = Txt("")) -> Parts:
         return [Txt("flaky"), Txt("steady")]
 
-    @node("flaky", title="F", description="d", category="test", policy=Policy(concurrency=1, retries=3, delay=0.02))
+    @node("flaky", title="F", description="d", category="test", policy=Policy(concurrency=1, retries=3, retry_delay=0.02))
     def flaky(text: Annotated[Txt, Param(title="T")]) -> Out:
         tries[text] = tries.get(text, 0) + 1
         if text == "flaky" and tries[text] <= 3:

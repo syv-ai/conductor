@@ -17,7 +17,6 @@ from conductor import (
     Input,
     Interface,
     NodeRegistry,
-    OlderVersion,
     Output,
     Param,
     Policy,
@@ -67,7 +66,7 @@ def modes_inputs(mode):
         return ()
     return (Input("extra", Txt, title="Extra", widget=Textarea(), default=Txt("")),)
 
-@node("modes", title="Modes", description="d", category="test", compute_inputs=modes_inputs)
+@node("modes", title="Modes", description="d", category="test", compute_added_inputs=modes_inputs)
 def modes(
     mode: Annotated[Txt, Param(title="State", widget=Dropdown(choices=(Choice(id="a", title="A"), Choice(id="b", title="B"))))] = Txt("a"),
     **more: Txt,
@@ -92,7 +91,7 @@ def open_sheet(header: Annotated[Txt, Param(title="Header", widget=Textarea())] 
 def renamed_v1(old: Annotated[Txt, Param(title="Old", widget=Textarea())] = Txt("")) -> Out:
     return old
 
-@node("renamed", title="Renamed", description="d", category="test", policy=Policy(retries=2), older_versions=[OlderVersion(renamed_v1, upgrade=Upgrade(renamed_inputs={"old": "new"}))])
+@node("renamed", title="Renamed", description="d", category="test", policy=Policy(retries=2), replaces=node("renamed")(renamed_v1), upgrade=Upgrade(renamed_inputs={"old": "new"}))
 def renamed(new: Annotated[Txt, Param(title="New", widget=Textarea())] = Txt("")) -> Out:
     return new
 
@@ -119,7 +118,7 @@ def open_inputs(**inputs: AsItArrives) -> Out:
 def adds_hidden_inputs():
     return (Input("_x", Txt, title="X", connectable=False, default=Txt("")),)
 
-@node("hidden", title="Hidden", description="d", category="test", compute_inputs=adds_hidden_inputs)
+@node("hidden", title="Hidden", description="d", category="test", compute_added_inputs=adds_hidden_inputs)
 def adds_hidden(value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt(""), **more: Any) -> Out:
     """Its hook adds a closed input the author cannot see."""
     return value
@@ -313,7 +312,7 @@ def test_an_empty_typed_input_is_a_value_that_arrives_later():
 
 def headed_outputs(header=None):
     if header is None:
-        raise ComputeHookError("header_missing", "Type a header first.")
+        raise ComputeHookError("Type a header first.", code="header_missing")
     return (Output("result", Txt, title="R"),)
 
 @node("headed", title="Headed", description="d", category="test", compute_outputs=headed_outputs)
@@ -457,7 +456,7 @@ def test_a_node_reads_the_version_it_pins():
 
     assert [i.name for i in compiled.node("old").interface.inputs] == ["old"]
     assert compiled.node("old").version.policy == Policy()
-    assert compiled.node("old").version.run.__name__ == "renamed_v1"
+    assert compiled.node("old").version.body.__name__ == "renamed_v1"
 
 
 def test_a_node_type_the_registry_lacks_is_a_fatal_problem():
@@ -602,7 +601,7 @@ def test_the_engine_asks_for_a_placement_its_version_and_its_runner():
 
     assert compiled.node("old").graph_node.type == "renamed"
     assert compiled.node("old").version.interface.inputs[0].name == "old"
-    assert compiled.node("old").version.run(old=Txt("hej")) == "hej"
+    assert compiled.node("old").version.body(old=Txt("hej")) == "hej"
 
 
 # --- the artifact is a value ------------------------------------------------

@@ -23,6 +23,7 @@ from conductor import (
     Static,
     Table,
     node,
+    table_with_columns,
 )
 from conductor._internal.node_signature import read_signature
 from conductor.events import NodeComplete, NodeSkipped
@@ -46,9 +47,9 @@ def rows() -> Table:
     return (pl.DataFrame({"name": ["Ida", "Bo", "Nina"], "email": ["ida@x", None, "nina@x"]}))
 
 
-@node("rows2", compute_outputs=lambda: [Output("result", Table.with_columns({"name": Txt, "email": Txt}))])
+@node("rows2", compute_outputs=lambda: [Output("result", table_with_columns({"name": Txt, "email": Txt}))])
 def rows2() -> Mapping[str, Any]:
-    return {"result": rows.versions[1].run()}
+    return {"result": rows.versions[1].body()}
 
 
 @node("plain")
@@ -64,8 +65,8 @@ def takes(email: Txt | None) -> Txt:
 
 @dataclass(frozen=True)
 class Branched:
-    known: Annotated[Txt, Result(choice="b")]
-    unknown: Annotated[Txt, Result(choice="b")]
+    known: Annotated[Txt, Result(exclusive_group="b")]
+    unknown: Annotated[Txt, Result(exclusive_group="b")]
 
 
 @node("branched")

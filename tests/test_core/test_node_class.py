@@ -4,7 +4,7 @@ from typing import Annotated, Any, ClassVar
 
 import pytest
 from conductor import (
-    Arriving,
+    ArrivingType,
     AsItArrives,
     CompiledGraph,
     Deprecation,
@@ -16,7 +16,6 @@ from conductor import (
     NodeDefinition,
     NodeDescription,
     NodeRegistry,
-    OlderVersion,
     Output,
     Param,
     Policy,
@@ -104,8 +103,8 @@ def test_a_node_may_be_deprecated_and_the_notice_is_content():
     def live(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
         return x
 
-    assert old_node.deprecation == Deprecation(header="Retired", alternative="greeter", migration="Use Greeter instead.")
-    assert live.deprecation is None
+    assert old_node.versions[1].deprecation == Deprecation(header="Retired", alternative="greeter", migration="Use Greeter instead.")
+    assert live.versions[1].deprecation is None
     assert not hasattr(old_node, "deprecated"), "no boolean beside the record"
 
 
@@ -114,7 +113,7 @@ def test_a_bare_deprecated_means_going_away_with_no_details_yet():
     def old_node(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
         return x
 
-    assert old_node.deprecation == Deprecation()
+    assert old_node.versions[1].deprecation == Deprecation()
 
 
 
@@ -133,13 +132,13 @@ def test_policy_is_declared_per_version():
     def fetch_v1(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
         return x
 
-    @node("fetch", title="Fetch", description="d", category="test", policy=Policy(timeout=30.0, concurrency=1), older_versions=[OlderVersion(fetch_v1, upgrade=Upgrade(), policy=Policy(retries=3, delay=1.0))])
+    @node("fetch", title="Fetch", description="d", category="test", policy=Policy(attempt_timeout=30.0, concurrency=1), replaces=node("fetch", policy=Policy(retries=3, retry_delay=1.0))(fetch_v1), upgrade=Upgrade())
     def fetch(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
         return x
 
     assert fetch.versions[1].policy.retries == 3
     assert fetch.versions[2].policy.retries == 0
-    assert fetch.versions[2].policy.timeout == 30.0
+    assert fetch.versions[2].policy.attempt_timeout == 30.0
     assert fetch.versions[2].policy.concurrency == 1
 
 
@@ -179,7 +178,7 @@ def test_every_declared_version_is_registered():
     def two_v1(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
         return x
 
-    @node("two-reg", title="Two", description="d", category="test", older_versions=[OlderVersion(two_v1, upgrade=Upgrade())])
+    @node("two-reg", title="Two", description="d", category="test", replaces=node("two-reg")(two_v1), upgrade=Upgrade())
     def two(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
         return x
 
@@ -216,7 +215,7 @@ def test_a_hook_that_cannot_answer_raises_refuses():
     from conductor import ComputeHookError
     from conductor._internal.errors import ConductorError
 
-    refusal = ComputeHookError("wrong_shape", "What arrives does not fit.")
+    refusal = ComputeHookError("What arrives does not fit.", code="wrong_shape")
     assert (refusal.code, refusal.message) == ("wrong_shape", "What arrives does not fit.")
     assert isinstance(refusal, ConductorError)
 
@@ -238,7 +237,7 @@ def test_describe_is_the_class_as_a_record():
     def translate_v1(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
         return text
 
-    @node("describe-translate", title="Translation", description="Translates", category="test", tags=("Language model",), policy=Policy(retries=2), older_versions=[OlderVersion(translate_v1, upgrade=Upgrade())])
+    @node("describe-translate", title="Translation", description="Translates", category="test", tags=("Language model",), policy=Policy(retries=2), replaces=node("describe-translate")(translate_v1), upgrade=Upgrade())
     def translate(
         text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt(""),
         language: Annotated[Txt, Param(title="Language", widget=Dropdown(choices=(Choice(id="da", title="Danish"), Choice(id="en", title="English"))))] = Txt("da"),
@@ -257,24 +256,23 @@ def test_describe_is_the_class_as_a_record():
     assert not hasattr(d, "role")
 
 
-def test_describe_carries_both_notices():
+def test_describe_carries_each_versions_notice():
     """Two scopes, two true things. The palette renders both when both
     exist, node first — a precedence rule would show strictly less."""
 
     def old_node_v1(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
         return x
 
-    @node("describe-old", title="Old", description="d", category="test", deprecation=Deprecation(header="Node retired"), older_versions=[OlderVersion(old_node_v1, upgrade=Upgrade(), deprecation=Deprecation(header="v1 retired", migration="Use v2."))])
+    @node("describe-old", title="Old", description="d", category="test", deprecation=Deprecation(header="Node retired"), replaces=node("describe-old", deprecation=Deprecation(header="v1 retired", migration="Use v2."))(old_node_v1), upgrade=Upgrade())
     def old_node(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
         return x
 
     d = old_node.describe()
 
-    assert d.deprecation == Deprecation(header="Node retired")
     assert d.versions[1].deprecation == Deprecation(header="v1 retired", migration="Use v2.")
-    assert d.versions[2].deprecation is None
+    assert d.versions[2].deprecation == Deprecation(header="Node retired")
     data = TypeAdapter(NodeDescription).dump_python(d, mode="json")
-    assert data["deprecation"] == {"header": "Node retired", "description": None, "alternative": None, "migration": None}
+    assert "deprecation" not in data, "one level: the newest version's notice is the node's"
     assert "deprecated" not in data
 
 
@@ -288,7 +286,7 @@ def test_describe_dumps_as_the_palette_payload():
     assert data["id"] == "describe-echo"
     assert data["category"] == "test"
     assert data["versions"]["1"]["inputs"][0]["widget"] == {
-        "kind": "textarea", "min_length": None, "max_length": None, "rows": 2,
+        "kind": "textarea", "rows": 2,
     }
     assert data["versions"]["1"]["inputs"][0]["dtype"] == {"id": "node-class-test-txt"}
     assert data["versions"]["1"]["outputs"][0]["dtype"] == {"id": "node-class-test-txt"}
@@ -302,8 +300,6 @@ def test_describe_publishes_a_json_schema():
     assert "Input" in schema["$defs"]
     assert "Output" in schema["$defs"]
     assert "Policy" in schema["$defs"]
-    (widget,) = [member for member in schema["$defs"]["Input"]["properties"]["widget"]["anyOf"] if "discriminator" in member]
-    assert widget["discriminator"]["propertyName"] == "kind"
 
 
 def test_describe_is_computed_not_stored():
@@ -364,7 +360,7 @@ def test_two_versions_of_one_class_execute_independently():
     def suffix_v1(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
         return text
 
-    @node("suffix", title="Suffix", description="d", category="test", older_versions=[OlderVersion(suffix_v1, upgrade=Upgrade())])
+    @node("suffix", title="Suffix", description="d", category="test", replaces=node("suffix")(suffix_v1), upgrade=Upgrade())
     def suffix(
         text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt(""),
         mark: Annotated[Txt, Param(title="Mark", widget=Textarea())] = Txt("?"),
@@ -413,8 +409,8 @@ def test_a_node_is_called_like_its_function():
     assert (upper.id, upper.title, upper.description, upper.category, upper.current_version) == ("upper", "Upper", "Upper-cases a text.", "", 1)
     (input_,) = upper.versions[1].interface.inputs
     (out,) = upper.versions[1].interface.outputs
-    assert (input_.name, input_.dtype, input_.title, input_.required) == ("text", Txt, "text", True)
-    assert (out.name, out.dtype, out.title) == ("result", Txt, "result")
+    assert (input_.name, input_.dtype, input_.title, input_.required) == ("text", Txt, "Text", True)
+    assert (out.name, out.dtype, out.title) == ("result", Txt, "Result")
 
 
 def test_a_title_defaults_to_the_function_name_read_as_words():
@@ -448,17 +444,17 @@ def test_a_result_can_name_the_output():
 
 
 def test_a_version_number_is_its_place_and_each_keeps_its_policy():
-    @node("two", older_versions=[OlderVersion(_x, policy=Policy(retries=2)), OlderVersion(_x)], policy=Policy(retries=5))
+    @node("two", replaces=node("two", replaces=node("two", policy=Policy(retries=2))(_x))(_x), policy=Policy(retries=5))
     def two(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
         return Txt(x + "!")
 
     assert set(two.versions) == {1, 2, 3} and two.current_version == 3
     assert [two.versions[n].policy.retries for n in (1, 2, 3)] == [2, 0, 5]
-    assert two.versions[1].run is _x and two(Txt("a")) == "a!"
+    assert two.versions[1].body is _x and two(Txt("a")) == "a!"
 
 
 def test_an_older_version_carries_its_own_notice():
-    @node("two", older_versions=[OlderVersion(_x, deprecation=Deprecation(header="Old"))], deprecation=None)
+    @node("two", replaces=node("two", deprecation=Deprecation(header="Old"))(_x), deprecation=None)
     def two(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
         return x
 
@@ -547,11 +543,11 @@ def test_a_hook_is_not_called_when_a_value_it_needs_has_none():
     assert [o.name for o in compiled.node("n").interface.outputs] == ["result"]
 
 
-def test_compute_inputs_adds_to_what_the_node_declares():
+def test_compute_added_inputs_adds_to_what_the_node_declares():
     def more_inputs(mode: Txt) -> list[Input]:
         return [] if mode == "a" else [Input("extra", Txt, widget=Textarea(), default=Txt(""))]
 
-    @node("n", compute_inputs=more_inputs)
+    @node("n", compute_added_inputs=more_inputs)
     def modes(mode: Txt = Txt("a"), **more: Txt) -> Txt:
         return mode
 
@@ -573,7 +569,7 @@ def test_each_version_has_its_own_hooks():
     def older_run(x: Txt) -> Mapping[str, Any]:
         return {"one": x}
 
-    @node("n", compute_outputs=v2_outputs, older_versions=[OlderVersion(older_run, compute_outputs=v1_outputs, upgrade=Upgrade(renamed_outputs={"one": "two"}))])
+    @node("n", compute_outputs=v2_outputs, replaces=node("n", compute_outputs=v1_outputs)(older_run), upgrade=Upgrade(renamed_outputs={"one": "two"}))
     def newer(x: Txt) -> Mapping[str, Any]:
         return {"two": x}
 
@@ -613,19 +609,19 @@ def test_a_mapping_or_an_any_output_needs_a_hook():
     assert raised.value.code == "any_output_without_hook"
 
 
-def test_compute_inputs_needs_somewhere_for_its_inputs_to_land():
+def test_compute_added_inputs_needs_somewhere_for_its_inputs_to_land():
     with pytest.raises(NodeDeclarationError) as raised:
-        node("n", compute_inputs=lambda: [])(_x)
-    assert raised.value.code == "compute_inputs_without_var_keyword"
+        node("n", compute_added_inputs=lambda: [])(_x)
+    assert raised.value.code == "compute_added_inputs_without_var_keyword"
 
 
-def test_as_it_arrives_beside_compute_inputs_is_refused():
+def test_as_it_arrives_beside_compute_added_inputs_is_refused():
     def run(**inputs: AsItArrives) -> Txt:
         return Txt("")
 
     with pytest.raises(NodeDeclarationError) as raised:
-        node("n", compute_inputs=lambda: [])(run)
-    assert raised.value.code == "as_it_arrives_beside_compute_inputs"
+        node("n", compute_added_inputs=lambda: [])(run)
+    assert raised.value.code == "as_it_arrives_beside_compute_added_inputs"
 
 
 def test_an_unknown_annotation_extra_is_refused():
@@ -646,7 +642,7 @@ def test_a_definition_may_hold_graphs_by_number_with_holes():
     wrapped = NodeDefinition.from_compiled_graphs("wrapped", title="Embedded", description="d", versions={3: inner})
 
     assert set(wrapped.versions) == {3} and wrapped.current_version == 3
-    assert [i.name for i in wrapped.versions[3].interface.inputs] == ["inner.text"]
+    assert [i.name for i in wrapped.versions[3].interface.inputs] == ["text"]
     described = wrapped.describe().versions[3]
     assert [i.name for i in described.inputs] == ["text"]
     assert described.policy is None and described.deprecation is None
@@ -658,7 +654,7 @@ def test_a_definition_may_hold_graphs_by_number_with_holes():
 def test_the_contract_is_importable_from_the_package_root():
     import conductor
 
-    for name in ("node", "NodeDefinition", "OlderVersion", "Upgrade", "Policy", "Deprecation", "NodeRegistry", "upgrade_node", "Arriving", "AsItArrives", "FromRun"):
+    for name in ("node", "NodeDefinition", "Upgrade", "Policy", "Deprecation", "NodeRegistry", "upgrade_node", "ArrivingType", "AsItArrives", "FromRun"):
         assert hasattr(conductor, name)
 
 
@@ -666,7 +662,7 @@ def test_arriving_is_the_edges_type_or_the_typed_in_values():
     class Num(DType, float):
         id = "node-class-num"
 
-    def echoed_outputs(x: Arriving) -> list[Output]:
+    def echoed_outputs(x: ArrivingType) -> list[Output]:
         return [Output("result", x)]
 
     @node("echoed", compute_outputs=echoed_outputs)

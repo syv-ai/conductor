@@ -4,7 +4,7 @@ from typing import Annotated
 
 import pytest
 from conductor import (
-    Arriving,
+    ArrivingType,
     CompiledGraph,
     DType,
     From,
@@ -285,7 +285,7 @@ def test_an_any_input_with_no_edge_is_unbound_required():
     an untyped field."""
     from typing import Any
 
-    def route_outputs(value: Arriving):
+    def route_outputs(value: ArrivingType):
         dtype = value
         return (Output("result", dtype, title="R"),)
 

@@ -106,8 +106,8 @@ def lister(text: Wire, tag: Wire) -> Out:
 
 @dataclass(frozen=True)
 class Branch:
-    yes: Annotated[Txt, Result(title="Yes", choice="c")]
-    no: Annotated[Txt, Result(title="No", choice="c")]
+    yes: Annotated[Txt, Result(title="Yes", exclusive_group="c")]
+    no: Annotated[Txt, Result(title="No", exclusive_group="c")]
 
 
 @node("route", title="s", description="d", category="t")
@@ -669,8 +669,8 @@ def test_a_decision_over_a_whole_column_gates_what_hangs_off_the_branch_not_take
 
     @dataclass(frozen=True)
     class Decided:
-        full: Annotated[Series[Txt], Result(title="Full", choice="d")]
-        empty: Annotated[Series[Txt], Result(title="Empty", choice="d")]
+        full: Annotated[Series[Txt], Result(title="Full", exclusive_group="d")]
+        empty: Annotated[Series[Txt], Result(title="Empty", exclusive_group="d")]
 
     @node("decide", title="s", description="d", category="t")
     def decide(texts: Annotated[Series[Txt], Param(title="T")]) -> Decided:

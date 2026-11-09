@@ -214,8 +214,8 @@ class TestTimeout:
 class Branches:
     """Two exclusive outputs: the one not taken holds ``SKIPPED``."""
 
-    taken: Annotated[Txt, Result(title="Taken", choice="branch")]
-    not_taken: Annotated[Txt, Result(title="Not taken", choice="branch")]
+    taken: Annotated[Txt, Result(title="Taken", exclusive_group="branch")]
+    not_taken: Annotated[Txt, Result(title="Not taken", exclusive_group="branch")]
 
 
 class TestSkipPropagation:

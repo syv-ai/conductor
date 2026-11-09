@@ -45,7 +45,7 @@ def test_the_record_is_the_schema():
         "dtype": {"id": "returns-test-text"},
         "title": "R",
         "description": None,
-        "choice": None,
+        "exclusive_group": None,
         "takes_blank": False,
         "many": True,
     }
@@ -97,12 +97,12 @@ def test_a_record_field_declares_its_choice():
 
     @dataclasses.dataclass(frozen=True)
     class Branches:
-        if_true: Annotated[Text, Result(title="If true", choice="branches")]
-        if_false: Annotated[Text, Result(title="If false", choice="branches")]
+        if_true: Annotated[Text, Result(title="If true", exclusive_group="branches")]
+        if_false: Annotated[Text, Result(title="If false", exclusive_group="branches")]
 
     _, outputs = _read_return_hint(Branches)
 
-    assert [(o.name, o.choice) for o in outputs] == [("if_true", "branches"), ("if_false", "branches")]
+    assert [(o.name, o.exclusive_group) for o in outputs] == [("if_true", "branches"), ("if_false", "branches")]
 
 
 def test_a_pass_through_return_declares_any():

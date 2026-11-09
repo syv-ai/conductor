@@ -1,18 +1,16 @@
 """The interface is derived from the signature, once, and not restated."""
 
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, Literal
 
 import pytest
 from conductor import AsItArrives, DType, Param, Result, Series
 from conductor._internal.node_signature import build_call_validator, read_signature
 from conductor.widgets import (
-    AnyWidget,
     Choice,
     DatePicker,
     Dropdown,
     ListWidget,
-    SchemaBuilder,
     Textarea,
     Widget,
 )
@@ -147,7 +145,7 @@ def test_a_record_field_is_titled_by_its_name_without_a_result():
     def bare(value: Annotated[Text, Param(title="V", widget=Textarea())]) -> Bare:
         return Bare(a=value)
 
-    assert [(o.name, o.title) for o in read_signature(bare).interface.outputs] == [("a", "a")]
+    assert [(o.name, o.title) for o in read_signature(bare).interface.outputs] == [("a", "A")]
 
 
 def test_each_of_several_outputs_carries_its_own_dtype():
@@ -197,7 +195,7 @@ def test_a_closed_param_may_declare_a_static_type():
         fields: tuple[str, ...] = ()
 
     def structured(
-        schema: Annotated[Schema, Param(title="Schema", connectable=False, widget=SchemaBuilder())] = Schema(),
+        schema: Annotated[Schema, Param(title="Schema", connectable=False, widget=Textarea())] = Schema(),
     ) -> Annotated[Text, Result(title="R")]:
         return Text("")
 
@@ -296,11 +294,11 @@ def test_the_input_record_dumps_as_the_wire():
 
     assert set(data) == {
         "name", "dtype", "title", "description",
-        "widget", "connectable", "default", "required", "takes_blank", "many",
+        "widget", "connectable", "bounds", "default", "required", "takes_blank", "many",
     }
     assert data["dtype"] == {"id": "interface-test-text"}
     assert data["widget"]["kind"] == "dropdown"
-    assert data["widget"]["choices"] == [{"id": "da", "title": "Danish", "element": None}, {"id": "en", "title": "English", "element": None}]
+    assert data["widget"]["choices"] == [{"id": "da", "title": "Danish"}, {"id": "en", "title": "English"}]
 
 
 def test_the_wire_carries_presentation_on_the_field_not_inside_the_widget():
@@ -315,17 +313,6 @@ def test_the_wire_carries_presentation_on_the_field_not_inside_the_widget():
     assert data["connectable"] is True
     for lifted in ("title", "description", "connectable"):
         assert lifted not in data["widget"]
-
-
-def test_the_input_record_publishes_a_json_schema_per_widget():
-    from conductor import Input
-
-    schema = TypeAdapter(Input).json_schema(mode="serialization")
-    (widget,) = [member for member in schema["properties"]["widget"]["anyOf"] if "discriminator" in member]
-
-    assert widget["discriminator"]["propertyName"] == "kind"
-    assert "dropdown" in widget["discriminator"]["mapping"]
-    assert "textarea" in widget["discriminator"]["mapping"]
 
 
 def test_a_from_run_parameter_is_a_need_not_an_input():
@@ -385,9 +372,9 @@ def test_a_widget_names_its_kind_once():
 
 
 def test_a_widget_dumps_its_own_config_and_nothing_the_field_owns():
-    data = TypeAdapter(AnyWidget).dump_python(Dropdown(choices=(Choice(id="da", title="Danish"),)), mode="json")
+    data = Dropdown(choices=(Choice(id="da", title="Danish"),)).model_dump(mode="json")
 
-    assert data == {"kind": "dropdown", "choices": [{"id": "da", "title": "Danish", "element": None}]}
+    assert data == {"kind": "dropdown", "choices": [{"id": "da", "title": "Danish"}]}
 
 
 def test_a_widget_takes_a_cable_by_default():
@@ -402,7 +389,6 @@ def test_a_control_does_not_close_its_own_handle():
     """
     assert Param(title="Choice", widget=Dropdown(choices=(Choice(id="a", title="A"),))).connectable is True
     assert Param(title="Date", widget=DatePicker()).connectable is True
-    assert Param(title="Schema", widget=SchemaBuilder()).connectable is True
 
 
 def test_no_widget_decides_wireability():
@@ -436,24 +422,30 @@ def test_a_list_widget_declares_no_per_item_control():
     """The element type is the input's dtype, and the host derives the
     per-item control from it — a control inside a control would be the
     same answer declared twice."""
-    data = TypeAdapter(AnyWidget).dump_python(ListWidget(min_items=1), mode="json")
-
-    assert data == {"kind": "list", "min_items": 1, "max_items": None}
+    assert ListWidget().model_dump(mode="json") == {"kind": "list"}
     assert "item_widget" not in ListWidget.model_fields
 
 
-def test_every_widget_is_in_the_union():
-    from typing import get_args
+def test_a_host_declares_a_control_of_its_own_and_an_input_dumps_all_of_it():
+    """Compile and the engine never read a widget, so the set is the host's to extend."""
 
-    import conductor.widgets as w
+    class EntityDropdown(Widget):
+        kind: Literal["entity-dropdown"] = "entity-dropdown"
+        entity_kind: str = ""
 
-    declared = {
-        cls for cls in vars(w).values()
-        if isinstance(cls, type) and issubclass(cls, w.Widget) and cls is not w.Widget
-    }
-    in_union = set(get_args(get_args(AnyWidget)[0]))
+    def pick(document: Annotated[Text, Param(widget=EntityDropdown(entity_kind="document"))]) -> Annotated[Text, Result(title="R")]:
+        return document
 
-    assert declared == in_union
+    (input_,) = read_signature(pick).interface.inputs
+    assert input_.model_dump(mode="json")["widget"] == {"kind": "entity-dropdown", "entity_kind": "document"}
+
+
+def test_an_untitled_field_reads_as_its_name_in_everyday_words():
+    def run(case_sensitive: bool = True) -> Annotated[Text, Result(name="out_text")]: ...
+
+    interface = read_signature(run).interface
+    assert interface.inputs[0].title == "Case sensitive"
+    assert interface.outputs[0].title == "Out text"
 
 
 # --- there is no string type check ---------------------------------------------

@@ -13,7 +13,6 @@ from conductor import (
     DType,
     NodeDeclarationError,
     NodeRegistry,
-    OlderVersion,
     Param,
     Result,
     Upgrade,
@@ -33,7 +32,7 @@ Out = Annotated[Txt, Result(title="Output")]
 def echo_v1(text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
     return text
 
-@node("echo", title="Echo", description="Returns input unchanged", category="test", older_versions=[OlderVersion(echo_v1, upgrade=Upgrade())])
+@node("echo", title="Echo", description="Returns input unchanged", category="test", replaces=node("echo")(echo_v1), upgrade=Upgrade())
 def echo(
     text: Annotated[Txt, Param(title="Input", widget=Textarea())],
     prefix: Annotated[Txt, Param(title="Prefix", widget=Textarea())] = Txt(""),
@@ -103,7 +102,7 @@ def test_default_values_captured(populated_registry):
 
 
 def test_var_keyword_is_not_an_input():
-    """``**values`` is where the inputs a ``compute_inputs`` hook adds arrive;
+    """``**values`` is where the inputs a ``compute_added_inputs`` hook adds arrive;
     the hook declares them, so the signature walk skips the parameter."""
 
     @node("varkw", title="VarKw", description="Dynamic", category="test")

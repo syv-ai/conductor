@@ -23,6 +23,7 @@ from pydantic_core import to_jsonable_python
 
 from conductor._internal.codec import cell_validator_for, json_schema_of, to_wire
 from conductor._internal.execution.run_state import Question
+from conductor._internal.field_records import was_titled_by_its_author
 from conductor._internal.graph.run_plan import NodeRunPlan, plan_of_node
 from conductor._internal.node_definition import NodeVersion
 from conductor._internal.node_signature import build_call_validator
@@ -53,7 +54,7 @@ if TYPE_CHECKING:
 #:
 #: ``resolution_failed``: compile doesn't know what fields it has: its type or
 #: version is unknown, it sits on a cycle, its id can't name a node or its
-#: ``compute_inputs`` raised on the statics set on it. An editor draws a bare
+#: ``compute_added_inputs`` raised on the statics set on it. An editor draws a bare
 #: box with its problem.
 NodeState = Literal["ready", "wiring_failed", "resolution_failed"]
 
@@ -100,7 +101,7 @@ class CompiledNode:
     cause: Problem | None = field(repr=False)
     #: The definition its type resolved to, and the version of it it uses; ``None`` when neither could be found.
     definition: NodeDefinition[..., Any] | None = field(repr=False)
-    version: NodeVersion | CompiledGraph | None = field(repr=False)
+    version: NodeVersion | None = field(repr=False)
     #: The inputs and outputs this node actually has, with the types its
     #: edges gave them; ``None`` when compile doesn't know them.
     interface: Interface | None = field(repr=False)
@@ -113,7 +114,7 @@ class CompiledNode:
 
     def __init__(
         self, id: str, graph_node: GraphNode, embedded_in: str | None, problems: tuple[Problem, ...], cause: Problem | None,
-        definition: NodeDefinition[..., Any] | None, version: NodeVersion | CompiledGraph | None, interface: Interface | None,
+        definition: NodeDefinition[..., Any] | None, version: NodeVersion | None, interface: Interface | None,
         statics: Mapping[str, Any], wiring: Wiring | None,
     ) -> None:
         self.__dict__.update(
@@ -131,7 +132,7 @@ class CompiledNode:
     @property
     def embedded_graph(self) -> CompiledGraph | None:
         """The compiled graph this node stands for, ``None`` on a node that is a function."""
-        return None if self.version is None or isinstance(self.version, NodeVersion) else self.version
+        return None if self.version is None else self.version.embedded_graph
 
     @property
     def _inputs(self) -> tuple[Input, ...]:
@@ -198,14 +199,14 @@ class CompiledNode:
         return tuple(
             Question(
                 name=out.name, title=self._title_of_a_question(out), description=out.description, dtype=out.dtype.describe(), many=out.many,
-                json_schema=json_schema_of(out.dtype, out.many), optional=out.takes_blank and out.choice is None, choice=out.choice,
+                json_schema=json_schema_of(out.dtype, out.many), optional=out.takes_blank and out.exclusive_group is None, exclusive_group=out.exclusive_group,
             )
             for out in self.interface.outputs
         )
 
     def _title_of_a_question(self, out: Any) -> str:
         """An output nobody titled, on a node with one output, reads as the node's own title rather than ``result``."""
-        untitled = out.title == out.name and len(self.interface.outputs) == 1  # type: ignore[union-attr]
+        untitled = not was_titled_by_its_author(out) and len(self.interface.outputs) == 1  # type: ignore[union-attr]
         return (self.graph_node.title or self.definition.title) if untitled and self.definition is not None else out.title
 
     @cached_property

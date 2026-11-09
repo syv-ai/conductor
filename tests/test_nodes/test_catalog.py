@@ -121,8 +121,8 @@ def test_branches_are_one_choice(registry):
     for node_cls in registry.nodes:
         by_choice = defaultdict(list)
         for out in _current(node_cls).outputs:
-            if out.choice is not None:
-                by_choice[out.choice].append(out.name)
+            if out.exclusive_group is not None:
+                by_choice[out.exclusive_group].append(out.name)
         if by_choice:
             groups[node_cls.id] = dict(by_choice)
     assert groups == {
@@ -142,7 +142,7 @@ def test_no_stdlib_node_overrides_a_shaping_hook(registry):
     """
     for node_cls in registry.nodes:
         version = node_cls.versions[node_cls.current_version]
-        assert version.compute_inputs is None, f"{node_cls.id} has compute_inputs — record why it must"
+        assert version.compute_added_inputs is None, f"{node_cls.id} has compute_added_inputs — record why it must"
         if node_cls.id != "decision":
             assert version.compute_outputs is None, f"{node_cls.id} has compute_outputs — record why it must"
         assert not hasattr(node_cls, "validate"), f"{node_cls.id} has a validate hook; there is none"

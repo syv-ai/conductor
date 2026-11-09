@@ -23,12 +23,11 @@ ROOT = Path(__file__).resolve().parents[2]
 
 DOORS: dict[str, list[str]] = {
     "conductor": [
-        "ALWAYS", "Arriving", "AsItArrives", "AskPerson", "BranchTaken", "CompiledGraph", "ComputeHookError", "DType", "Deprecation", "ExternalFailure", "FieldContent", "From", "FromRun", "Graph", "GraphNode", "Input", "Interface", "InvalidCallError", "NEVER", "NodeDeclarationError", "NodeDefinition", "NodeDescription", "NodeError", "NodeRegistry", "OlderVersion", "Output", "PROBLEM_CODES", "Param", "Policy", "Problem", "ROW_ID_COLUMN", "ReceiveMode", "Ref", "Result", "RunPlan", "RunState", "SKIPPED", "Series", "Static", "Table", "TypeDescription", "Upgrade", "ValuesOnRows", "dependencies_of", "node", "to_wire", "upgrade_node",
+        "ALWAYS", "ArrivingType", "AsItArrives", "AskPerson", "BranchTaken", "CompiledGraph", "ComputeHookError", "DType", "Deprecation", "ExternalFailure", "FieldContent", "From", "FromRun", "Graph", "GraphNode", "Input", "Interface", "InvalidCallError", "NEVER", "NodeDeclarationError", "NodeDefinition", "NodeDescription", "NodeError", "NodeRegistry", "Output", "PROBLEM_CODES", "Param", "Policy", "Problem", "ROW_ID_COLUMN", "ReceiveMode", "Ref", "Result", "RunPlan", "RunState", "SKIPPED", "Series", "Static", "Table", "TypeDescription", "Upgrade", "ValuesOnRows", "dependencies_of", "node", "table_with_columns", "to_wire", "upgrade_node",
     ],
     "conductor.widgets": [
-        "AnyWidget", "Choice", "CodeEditor", "DatePicker", "Dropdown", "EntityDropdown", "FileUpload",
-        "IfElseBuilder", "ListWidget", "NumberWidget", "OperatorChoice", "Range", "SchemaBuilder", "Switch",
-        "TableInput", "Tags", "TemplateTextarea", "TextWidget", "Textarea",
+        "Choice", "DatePicker", "Dropdown", "FileUpload", "ListWidget", "NumberWidget", "Range", "Switch",
+        "TextWidget", "Textarea", "Widget",
     ],
     "conductor.events": [
         "Event", "NodeComplete", "NodeFailed", "NodeProgress", "NodeRetry", "NodeSkipped", "NodeStart",

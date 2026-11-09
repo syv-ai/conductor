@@ -401,18 +401,18 @@ class RunningLeg:
         call = self._call_on_a_thread(unit, node, inputs, input_hash)
         try:
             # With no timeout the wait is on the call itself: only the leg's end cancels it.
-            outcome = await (call if policy.timeout is None else asyncio.wait_for(asyncio.shield(call), timeout=policy.timeout))
+            outcome = await (call if policy.attempt_timeout is None else asyncio.wait_for(asyncio.shield(call), timeout=policy.attempt_timeout))
         except TimeoutError:
             # Final: the thread runs on, and a retry beside it would be a
             # second call of the same unit.
-            self._fail_unit(unit, make_problem("timeout", node_id, *row, seconds=policy.timeout))
+            self._fail_unit(unit, make_problem("timeout", node_id, *row, seconds=policy.attempt_timeout))
             return
         if outcome.__class__ is dict:
             self._report_recorded(unit, ledger.record(unit, outcome, input_hash))
         elif isinstance(outcome, WaitingUnit):
             self._report_waiting(unit, outcome)
         elif outcome.retryable and attempt < policy.retries:
-            delay = policy.delay * (2 ** attempt)
+            delay = policy.retry_delay * (2 ** attempt)
             queue.put_nowait(NodeRetry(
                 node_id=node_id, row=row,
                 attempt=attempt + 1, retries=policy.retries, error=outcome.problem.msg, delay=delay,

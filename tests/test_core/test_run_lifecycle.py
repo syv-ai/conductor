@@ -23,8 +23,8 @@ from conductor import (
     RunState,
     Series,
     Static,
-    Table,
     node,
+    table_with_columns,
 )
 from conductor.events import RunEnd, RunStart, UnitWaiting
 from conductor.widgets import Textarea
@@ -41,7 +41,7 @@ class Whole(DType, int):
     display_title = "Tal"
 
 
-Contacts = Table.with_columns({"name": Txt, "email": Txt})
+Contacts = table_with_columns({"name": Txt, "email": Txt})
 Out = Annotated[Txt, Result(title="Svar")]
 calls: dict[str, int] = {}
 
@@ -85,8 +85,8 @@ def approve(text: Annotated[Txt, Param(title="T", widget=Textarea())] = Txt(""))
 
 @dataclass(frozen=True)
 class Verdict:
-    yes: Annotated[Txt, Result(title="Ja", choice="verdict")]
-    no: Annotated[Txt, Result(title="Nej", choice="verdict")]
+    yes: Annotated[Txt, Result(title="Ja", exclusive_group="verdict")]
+    no: Annotated[Txt, Result(title="Nej", exclusive_group="verdict")]
     note: Annotated[Txt, Result(title="Note")]
 
 

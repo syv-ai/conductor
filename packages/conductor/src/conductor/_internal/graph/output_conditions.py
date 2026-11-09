@@ -1,14 +1,14 @@
 """Under which condition does an output appear?
 
-Outputs of one node that share a ``choice`` are exclusive alternatives:
+Outputs of one node that share an ``exclusive_group`` are exclusive alternatives:
 exactly one is produced per run and the others carry ``SKIPPED``. The
 engine does not need to know why a value was skipped; it only passes the
 skip on. A caller reading a graph's outputs does need to know, and this
-module is where it gets the answer, derived from the ``choice`` groups
+module is where it gets the answer, derived from the ``exclusive_group`` groups
 in the nodes' interfaces and the edges — nothing else.
 
 A ``Condition`` is a set of alternatives, each a set of decisions that
-must all hold; an ``BranchTaken`` is one decision ("the ``choice`` group on node
+must all hold; an ``BranchTaken`` is one decision ("the ``exclusive_group`` group on node
 N went to output O"). The output appears when any alternative holds::
 
     ALWAYS = frozenset({frozenset()})   # one empty alternative: always
@@ -39,16 +39,16 @@ from conductor._internal.ref import Ref
 
 @dataclass(frozen=True, slots=True)
 class BranchTaken:
-    """One way one decision went: output ``output`` of the ``choice`` group on ``node_id``.
+    """One way one decision went: output ``output`` of the ``exclusive_group`` group on ``node_id``.
 
-    Made by ``output_condition`` for every output with a ``choice`` on a node
+    Made by ``output_condition`` for every output with an ``exclusive_group`` on a node
     that runs once, and only ever used inside a ``Condition``. The
     engine never sees one: it propagates ``SKIPPED`` without knowing which
     decision caused it.
     """
 
     node_id: str
-    choice: str
+    exclusive_group: str
     output: str
 
 
@@ -70,11 +70,11 @@ def condition_node_runs_under(bindings: Mapping[str, Any], condition_of: Callabl
 
 
 def output_condition(node_id: str, out: Output, node_condition: Condition, runs_once: bool) -> Condition:
-    """The condition of one output: its node's, and for a ``choice`` output on
+    """The condition of one output: its node's, and for an ``exclusive_group`` output on
     a node that runs once, that decision going this way."""
-    if out.choice is None or not runs_once:
+    if out.exclusive_group is None or not runs_once:
         return node_condition
-    return _all_of(node_condition, frozenset({frozenset({BranchTaken(node_id, out.choice, out.name)})}))
+    return _all_of(node_condition, frozenset({frozenset({BranchTaken(node_id, out.exclusive_group, out.name)})}))
 
 
 def _any_of(conditions: Iterable[Condition]) -> Condition:
@@ -107,6 +107,6 @@ def no_decision_goes_two_ways(alternative: frozenset[BranchTaken]) -> bool:
     """No decision named twice with two different outputs."""
     taken: dict[tuple[str, str], str] = {}
     for branch_taken in alternative:
-        if taken.setdefault((branch_taken.node_id, branch_taken.choice), branch_taken.output) != branch_taken.output:
+        if taken.setdefault((branch_taken.node_id, branch_taken.exclusive_group), branch_taken.output) != branch_taken.output:
             return False
     return True

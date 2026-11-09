@@ -61,7 +61,7 @@ def join_node(texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
 flaky_state = SimpleNamespace(active=0, peak=0, seen=[], calls=0)
 
 
-@node("flaky", title="Flaky", description="d", category="test", policy=Policy(retries=2, delay=0.0))
+@node("flaky", title="Flaky", description="d", category="test", policy=Policy(retries=2, retry_delay=0.0))
 def flaky(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
     flaky_state.calls += 1
     if flaky_state.calls < 3:

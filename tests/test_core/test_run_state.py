@@ -22,7 +22,6 @@ from conductor import (
     Graph,
     GraphNode,
     NodeRegistry,
-    OlderVersion,
     Param,
     Result,
     RunState,
@@ -63,7 +62,7 @@ def wrap_v1(text: In = Txt("")) -> Out:
     calls.append(f"wrap:{text}")
     return Txt(f"[{text}]")
 
-@node("wrap", title="Wrap", description="d", category="test", older_versions=[OlderVersion(wrap_v1, upgrade=Upgrade())])
+@node("wrap", title="Wrap", description="d", category="test", replaces=node("wrap")(wrap_v1), upgrade=Upgrade())
 def wrap(text: In = Txt("")) -> Out:
     calls.append(f"wrap2:{text}")
     return Txt(f"<{text}>")

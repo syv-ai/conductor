@@ -6,7 +6,7 @@ import sys
 
 import polars as pl
 import pytest
-from conductor import ROW_ID_COLUMN, DType, Table, node, to_wire
+from conductor import ROW_ID_COLUMN, DType, Table, node, table_with_columns, to_wire
 from conductor._internal.index import Index
 from conductor._internal.table import global_row_id, polars_type_of, with_row_ids
 from helpers import read_table
@@ -43,7 +43,7 @@ class Blob(DType):
     display_title = "Blob"
 
 
-Contacts = Table.with_columns({"name": Txt, "score": Num})
+Contacts = table_with_columns({"name": Txt, "score": Num})
 
 
 def test_a_column_type_is_read_off_what_the_type_is_built_on():
@@ -56,11 +56,11 @@ def test_a_type_whose_base_would_be_wrong_says_its_column_itself():
 
 def test_a_type_with_no_column_cant_be_a_table_column_and_says_which():
     with pytest.raises(TypeError, match="Blob can't be a table column"):
-        Table.with_columns({"file": Blob})
+        table_with_columns({"file": Blob})
 
 
 def test_a_table_type_is_built_once_per_set_of_columns():
-    assert Table.with_columns({"name": Txt, "score": Num}) is Contacts
+    assert table_with_columns({"name": Txt, "score": Num}) is Contacts
     assert Contacts.id == "table"
     assert repr(Contacts) == "Table[name: Txt, score: Num]"
 
@@ -80,7 +80,7 @@ def test_a_value_that_wont_read_as_its_column_is_refused_naming_the_column():
 
 
 def test_a_date_column_reads_dates_written_as_text():
-    Visits = Table.with_columns({"day": Day})
+    Visits = table_with_columns({"day": Day})
     assert read_table(Visits, [{"day": "2024-01-02"}])["day"].to_list() == [datetime.date(2024, 1, 2)]
     with pytest.raises(ValueError, match="not a Date"):
         read_table(Visits, [{"day": "someday"}])
@@ -129,7 +129,7 @@ def test_a_row_without_an_id_or_with_one_an_earlier_row_holds_is_a_new_row():
 
 
 def test_a_table_input_takes_a_table_with_at_least_its_columns():
-    Names = Table.with_columns({"name": Txt})
+    Names = table_with_columns({"name": Txt})
 
     assert Names.accepts(Contacts) and Table.accepts(Contacts) and Names.accepts(Table)
     assert not Contacts.accepts(Names)

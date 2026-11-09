@@ -5,7 +5,7 @@ from typing import Annotated, Any
 
 import pytest
 from conductor import (
-    Arriving,
+    ArrivingType,
     AsItArrives,
     CompiledGraph,
     DType,
@@ -87,7 +87,7 @@ def rebuild_keeping_ids(**inputs: AsItArrives) -> Table:
     return inputs["t"]
 
 
-def _table_out(t: Arriving) -> list[Output]:
+def _table_out(t: ArrivingType) -> list[Output]:
     return [Output("result", Table)]
 
 
@@ -97,7 +97,7 @@ def from_any(t: Any) -> Mapping[str, Any]:
     return {"result": pl.DataFrame({"y": [1, 2]})}
 
 
-@node("hooked", compute_inputs=lambda: [Input("extra", Txt)])
+@node("hooked", compute_added_inputs=lambda: [Input("extra", Txt)])
 def hooked(**more: Any) -> Txt:
     return Txt("x")
 
@@ -255,7 +255,7 @@ def test_from_compiled_graphs_takes_one_graph_as_version_one():
 
     definition = NodeDefinition.from_compiled_graphs("flow", title="F", description="", versions=compiled)
 
-    assert definition.versions == {1: compiled} and definition.current_version == 1
+    assert definition.versions[1].body is compiled and definition.current_version == 1
 
 
 def test_with_inputs_takes_an_address_as_a_mapping_beside_keywords():
@@ -321,9 +321,9 @@ def test_a_hook_refusing_leaves_a_node_that_is_only_known_by_its_problem():
     from conductor import ComputeHookError
 
     def refuse():
-        raise ComputeHookError("nope", "Nej.", field=None)
+        raise ComputeHookError("Nej.", code="nope")
 
-    @node("raised", compute_inputs=refuse)
+    @node("raised", compute_added_inputs=refuse)
     def raised(**more: Any) -> Txt:
         return Txt("")
 

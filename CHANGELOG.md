@@ -18,6 +18,14 @@ its stored graphs itself. What a 1.x user must change:
 
 ### Nodes
 
+- A widget is open: conductor ships text, textarea, dropdown, number, range, switch, date, file and
+  list, and a host subclasses `Widget` for its own. The limits of a value are on the `Param`, in
+  pydantic's words (`ge`, `le`, `min_length`, `max_length`, `pattern`), and are enforced at compile
+  and on every call; they are gone from the widgets.
+- `ComputeHookError(message, code=, ctx=, field=)` is written as every author error is.
+  `Result(exclusive_group=)` replaces `choice=`. A field nobody titled reads as its name in everyday
+  words. `Table.with_columns` is `table_with_columns(columns)`, which a type checker accepts.
+- A notice lives on a version only; the newest version's notice is the node's.
 - `@registry.node("id", version=1, name=...)` and `BaseNode` are `@node("id")` above a plain
   function, which returns a frozen, callable `NodeDefinition` and registers nothing. Build the
   registry whole: `NodeRegistry([upper, join])`. `NodeCategory` and auto-discovery are gone.
@@ -28,13 +36,13 @@ its stored graphs itself. What a 1.x user must change:
   `Multiselect`, `DependentDropdown`, `HumanReview`, `TableSource`, `ConditionBuilder` and
   `ColumnSelect` are gone.
 - `InputMetadata` / `OutputMetadata` are `Input` / `Output`. Fields that depend on configuration come
-  from `compute_inputs=` and `compute_outputs=`, plain functions whose parameters name the inputs
-  they read; `Arriving` gives the type on an edge; `ComputeHookError` reports what's wrong.
-- Older versions are `older_versions=[OlderVersion(fn, upgrade=Upgrade(...))]`, oldest first, each
+  from `compute_added_inputs=` and `compute_outputs=`, plain functions whose parameters name the inputs
+  they read; `ArrivingType` gives the type on an edge; `ComputeHookError` reports what's wrong.
+- A newer version names the one it replaces, `@node("id", replaces=older, upgrade=Upgrade(...))`, the older being a `@node` of the same id, each
   with its own `Policy` and hooks. `upgrade_node(graph, node_id, registry)` moves a placed node on.
 - `FlowStore` / `store_data` are a parameter typed `FromRun[T]`, filled from
   `compiled.run(from_run={T: value})`.
-- `max_retries`, `retry_delay` and `RetryConfig` are `Policy(retries=, delay=, timeout=,
+- `max_retries`, `retry_delay` and `RetryConfig` are `Policy(retries=, retry_delay=, attempt_timeout=,
   concurrency=, retry_on=)`. Only an `ExternalFailure`, or an exception named in `retry_on`, is retried.
 
 ### Types, rows and tables
@@ -131,7 +139,7 @@ its stored graphs itself. What a 1.x user must change:
 
 ## [1.12.0]
 
-- `compute_inputs` hook, `CompiledGraph.node_inputs` and `has_dynamic_inputs` in the palette.
+- `compute_added_inputs` hook, `CompiledGraph.node_inputs` and `has_dynamic_inputs` in the palette.
 
 ## [1.11.0]
 

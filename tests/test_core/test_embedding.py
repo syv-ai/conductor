@@ -29,7 +29,7 @@ from typing import Annotated, Any
 import pytest
 from conductor import (
     SKIPPED,
-    Arriving,
+    ArrivingType,
     AsItArrives,
     CompiledGraph,
     ComputeHookError,
@@ -117,10 +117,10 @@ def both(
 
 def picky_inputs(mode):
     if mode == "bad":
-        raise ComputeHookError("picky_refuses", "Not that mode.")
+        raise ComputeHookError("Not that mode.", code="picky_refuses")
     return ()
 
-@node("picky", title="Picky", description="d", category="test", compute_inputs=picky_inputs)
+@node("picky", title="Picky", description="d", category="test", compute_added_inputs=picky_inputs)
 def picky(mode: Annotated[Txt, Param(title="Mode", widget=Textarea())] = Txt("ok"), **more: Txt) -> Out:
     """CompileProblem the mode ``bad`` in its hook."""
     return mode
@@ -128,13 +128,13 @@ def picky(mode: Annotated[Txt, Param(title="Mode", widget=Textarea())] = Txt("ok
 
 @dataclass(frozen=True)
 class Branches:
-    if_true: Annotated[Any, Result(title="If true", choice="branches")]
-    if_false: Annotated[Any, Result(title="If false", choice="branches")]
+    if_true: Annotated[Any, Result(title="If true", exclusive_group="branches")]
+    if_false: Annotated[Any, Result(title="If false", exclusive_group="branches")]
 
 
-def gate_outputs(value: Arriving):
+def gate_outputs(value: ArrivingType):
     dtype = value
-    return (Output("if_true", dtype, title="If true", choice="branches"), Output("if_false", dtype, title="If false", choice="branches"))
+    return (Output("if_true", dtype, title="If true", exclusive_group="branches"), Output("if_false", dtype, title="If false", exclusive_group="branches"))
 
 @node("gate", title="If/else", description="d", category="test", compute_outputs=gate_outputs)
 def gate(
@@ -144,7 +144,7 @@ def gate(
     return Branches(if_true=value, if_false=SKIPPED) if when else Branches(if_true=SKIPPED, if_false=value)
 
 
-def single_outputs(**arriving: Arriving):
+def single_outputs(**arriving: ArrivingType):
     series = arriving.get("values")
     dtype = series if series is not None else Any
     return (Output("result", dtype, title="The value"),)
@@ -516,7 +516,7 @@ def test_the_placed_node_is_a_graph_whose_version_is_the_compiled_graph():
     graph_node = compiled.node("emb")
 
     assert (graph_node.state, graph_node.embedded_graph is not None) == ("ready", True)
-    assert isinstance(graph_node.version, CompiledGraph)
+    assert isinstance(graph_node.embedded_graph, CompiledGraph)
     assert compiled.node("emb/join").embedded_in == "emb"
     assert compiled.field(Ref("emb/join", "result")) is compiled.field(Ref("emb/join", "result"))
 
@@ -551,8 +551,8 @@ def test_a_broken_graph_is_one_problem_on_the_graph_node():
     assert found.ctx == {"graph": "Graph broken", "problems": 1}
     assert compiled.node("emb").state == "wiring_failed"
     assert compiled.node("after").state == "wiring_failed"
-    assert compiled.node("emb").version is broken
-    assert [p.type for p in compiled.node("emb").version.problems] == ["unknown_ref_output"]
+    assert compiled.node("emb").embedded_graph is broken
+    assert [p.type for p in compiled.node("emb").embedded_graph.problems] == ["unknown_ref_output"]
 
 
 def test_an_outer_edge_may_only_read_what_the_graph_offers():
@@ -643,7 +643,7 @@ def test_an_input_filled_inside_is_offered_as_not_required():
     assert [(input_.name, input_.required) for input_ in empty._embeddable.interface.inputs] == [("text", True)]
 
 
-def _pass_on_what_arrives(**arriving: Arriving):
+def _pass_on_what_arrives(**arriving: ArrivingType):
     return (Output("result", arriving["thing"], title="Thing"),)
 
 
@@ -702,7 +702,7 @@ def test_a_graph_the_walk_leaves_out_is_one_node_with_nothing_inside():
         assert (graph_node.state, graph_node.embedded_graph is not None, graph_node.cause.type) == ("wiring_failed", True, cause)
         with pytest.raises(KeyError):
             compiled.node("emb/holder" if compiled is upstream_broken else "emb/a")
-    assert unembeddable.node("emb").version.node("a").state == "ready"
+    assert unembeddable.node("emb").embedded_graph.node("a").state == "ready"
 
 
 def test_a_value_on_a_field_the_graph_does_not_offer_is_a_stale_binding():

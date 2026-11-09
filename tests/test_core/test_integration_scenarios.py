@@ -73,8 +73,8 @@ def tally(
 class Branches:
     """What ``Decide.run`` returns: the value on one output, ``SKIPPED`` on the other."""
 
-    high: Annotated[Num, Result(title="High", choice="branch")]
-    low: Annotated[Num, Result(title="Low", choice="branch")]
+    high: Annotated[Num, Result(title="High", exclusive_group="branch")]
+    low: Annotated[Num, Result(title="Low", exclusive_group="branch")]
 
 
 @node("decide", title="Decide", description="Routes a number to `high` or `low` around a threshold", category="test")
@@ -146,7 +146,7 @@ class TestRetry:
         """A node that fails once and succeeds on retry succeeds overall."""
         calls = 0
 
-        @node("flaky", title="Flaky", description="Fails once, then succeeds", category="test", policy=Policy(retries=3, delay=0.01))
+        @node("flaky", title="Flaky", description="Fails once, then succeeds", category="test", policy=Policy(retries=3, retry_delay=0.01))
         def flaky() -> Out:
             nonlocal calls
             calls += 1
@@ -171,8 +171,8 @@ class TestRetry:
 
 @dataclass(frozen=True)
 class Match:
-    match: Annotated[Txt, Result(title="Match", choice="equality")]
-    other: Annotated[Txt, Result(title="Other", choice="equality")]
+    match: Annotated[Txt, Result(title="Match", exclusive_group="equality")]
+    other: Annotated[Txt, Result(title="Other", exclusive_group="equality")]
 
 @node("route", title="Route", description="Routes a text by whether it equals `expect`", category="test")
 def route(

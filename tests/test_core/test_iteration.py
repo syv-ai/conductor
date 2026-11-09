@@ -5,7 +5,7 @@ from typing import Annotated, Any
 
 import pytest
 from conductor import (
-    Arriving,
+    ArrivingType,
     AsItArrives,
     CompiledGraph,
     DType,
@@ -89,7 +89,7 @@ def count(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")
     return Num(len(text))
 
 
-def route_outputs(value: Arriving):
+def route_outputs(value: ArrivingType):
     dtype = value
     return (Output("result", dtype, title="Pass on"),)
 
@@ -100,7 +100,7 @@ def route(value: Annotated[Any, Param(title="Value")]) -> Annotated[Any, Result(
     return value
 
 
-def only_outputs(**arriving: Arriving):
+def only_outputs(**arriving: ArrivingType):
     series = arriving.get("values")
     dtype = series if series is not None else Any
     return (Output("result", dtype, title="The value"),)
@@ -385,7 +385,7 @@ def test_a_node_with_no_outputs_yet_is_the_ordinary_mid_edit_state():
 def test_compute_outputs_sees_the_dtype_each_connected_input_receives():
     """An opener's columns come from what arrives, per unit — the element of a series."""
 
-    def opener_outputs(value: Arriving):
+    def opener_outputs(value: ArrivingType):
         if value.id == "any":
             return (Output("result", Txt, title="R"),)
         return (Output(f"from_{value.id}", Txt, title="Opened"),)
@@ -416,7 +416,7 @@ def test_a_hook_that_cannot_answer_refuses_and_the_refusal_is_the_nodes_problem(
     from conductor import ComputeHookError
 
     def fussy_outputs():
-        raise ComputeHookError("wrong_shape", "What arrives does not fit.")
+        raise ComputeHookError("What arrives does not fit.", code="wrong_shape")
 
     @node("fussy", title="Fussy", description="d", category="test", compute_outputs=fussy_outputs)
     def fussy(value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
@@ -436,15 +436,15 @@ def test_a_hook_that_cannot_answer_refuses_and_the_refusal_is_the_nodes_problem(
 
 
 def test_an_inputs_hook_that_cannot_answer_refuses_and_compile_does_not_raise():
-    """`CompileProblem` from `compute_inputs` is the node's one fatal `Problem`
+    """`CompileProblem` from `compute_added_inputs` is the node's one fatal `Problem`
     too, asked before any edge is walked: compile never raises for a fault
     in the graph, and a node reading the refused one carries no echo."""
     from conductor import ComputeHookError
 
     def fussy_inputs():
-        raise ComputeHookError("wrong_mode", "That mode is not one this node has.")
+        raise ComputeHookError("That mode is not one this node has.", code="wrong_mode")
 
-    @node("fussy-inputs", title="Fussy", description="d", category="test", compute_inputs=fussy_inputs)
+    @node("fussy-inputs", title="Fussy", description="d", category="test", compute_added_inputs=fussy_inputs)
     def fussy(value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt(""), **more: Any) -> Out:
         return value
 
@@ -699,7 +699,7 @@ def test_a_hook_that_adds_an_input_of_a_type_no_edge_can_carry_closes_it():
     def adds_inputs():
         return (Input("raw", list[int], title="Raw"),)
 
-    @node("adds", title="Adds", description="d", category="test", compute_inputs=adds_inputs)
+    @node("adds", title="Adds", description="d", category="test", compute_added_inputs=adds_inputs)
     def adds(value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt(""), **more: Any) -> Out:
         return value
 
@@ -742,7 +742,7 @@ def test_a_refusal_from_a_node_whose_source_is_broken_is_dropped_for_the_sources
     from conductor import ComputeHookError
 
     def fussy_outputs():
-        raise ComputeHookError("wrong_shape", "What arrives does not fit.")
+        raise ComputeHookError("What arrives does not fit.", code="wrong_shape")
 
     @node("fussy", title="Fussy", description="d", category="test", compute_outputs=fussy_outputs)
     def fussy(value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:

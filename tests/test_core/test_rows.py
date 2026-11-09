@@ -480,7 +480,7 @@ def test_computed_inputs_reach_the_node_as_keywords():
         names = re.findall(r"\{(\w+)\}", str(template))
         return tuple(Input(n, Txt, widget=TextWidget()) for n in dict.fromkeys(names))
 
-    @node("template", title="Template", description="d", category="test", compute_inputs=template_node_inputs)
+    @node("template", title="Template", description="d", category="test", compute_added_inputs=template_node_inputs)
     def template_node(template: Annotated[Txt, Param(title="Template", connectable=False, widget=Textarea())] = Txt(""), **values: Txt) -> Out:
         return Txt(re.sub(r"\{(\w+)\}", lambda m: str(values[m.group(1)]), template))
 

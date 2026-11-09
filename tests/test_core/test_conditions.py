@@ -6,7 +6,7 @@ from typing import Annotated, Any
 from conductor import (
     ALWAYS,
     SKIPPED,
-    Arriving,
+    ArrivingType,
     BranchTaken,
     CompiledGraph,
     DType,
@@ -40,13 +40,13 @@ Out = Annotated[Txt, Result(title="Result")]
 
 @dataclass(frozen=True)
 class Branches:
-    if_true: Annotated[Any, Result(title="If true", choice="branches")]
-    if_false: Annotated[Any, Result(title="If false", choice="branches")]
+    if_true: Annotated[Any, Result(title="If true", exclusive_group="branches")]
+    if_false: Annotated[Any, Result(title="If false", exclusive_group="branches")]
 
 
-def gate_outputs(value: Arriving):
+def gate_outputs(value: ArrivingType):
     dtype = value
-    return (Output("if_true", dtype, title="If true", choice="branches"), Output("if_false", dtype, title="If false", choice="branches"))
+    return (Output("if_true", dtype, title="If true", exclusive_group="branches"), Output("if_false", dtype, title="If false", exclusive_group="branches"))
 
 @node("gate", title="If/else", description="d", category="test", compute_outputs=gate_outputs)
 def gate(
@@ -66,7 +66,7 @@ def upper_node(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Tx
     return Txt(text.upper())
 
 
-def single_outputs(**arriving: Arriving):
+def single_outputs(**arriving: ArrivingType):
     series = arriving.get("values")
     dtype = series if series is not None else Any
     return (Output("result", dtype, title="The value"),)
