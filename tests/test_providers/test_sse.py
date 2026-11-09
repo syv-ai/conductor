@@ -1,4 +1,4 @@
-"""A frame is an event as JSON-ready data: records through pydantic, a typed value through the codec by its own type."""
+"""A frame is an event as pydantic writes it: every value by its own type, a float that isn't finite as text."""
 
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ def test_a_typed_value_dumps_through_its_own_type_and_one_with_no_form_raises():
     parsed = {"rows": [(0,), (1,)], "values": [Json({"a": 1}), Json([2])]}
 
     assert _payload(NodeComplete(type="node_complete", node_id="parse", result={"result": parsed}))["result"]["result"]["values"] == [{"a": 1}, [2]]
-    assert _payload(NodeComplete(type="node_complete", node_id="n", result={"n": float("nan")}))["result"] == {"n": None}
+    assert _payload(NodeComplete(type="node_complete", node_id="n", result={"n": float("nan")}))["result"] == {"n": "NaN"}
     with pytest.raises(Exception, match="object"):
         sse_frame(NodeComplete(type="node_complete", node_id="n", result={"x": object()}))
 

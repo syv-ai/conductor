@@ -200,12 +200,12 @@ A failed unit ends the leg `failed`, its problem on `state.failure`; `compiled.r
 
 ### Events
 
-`async with compiled.stream(state) as events:` yields frozen models from `conductor.events`, the union `Event` on `type`; checks are made at the call. `run_start` is always first and `run_end` always last. Events carry records, not JSON.
+`async with compiled.stream(state) as events:` yields frozen models from `conductor.events`, the union `Event` on `type`; checks are made at the call. `run_start` is always first and `run_end` always last. An event is a record, and it writes itself as JSON: `event.model_dump(mode="json")`, `event.model_dump_json()` and a TypeAdapter of `Event` write each value by its own type, a table whole. `to_jsonable(value)` writes a value the same way, as `to_jsonable(compiled.results(state))`. A float that isn't finite is the text `"NaN"`, `"Infinity"` or `"-Infinity"` wherever it stands: a `float` output reads it back; a value typed `Any` comes back as that text, as it comes back as the JSON form of everything else it held. A value with no JSON form raises.
 
 | Event | Carries |
 |---|---|
 | `node_start`, `node_skipped` | `node_id` |
-| `node_progress` | `node_id`, `done`, `total` (`None` until every row exists) |
+| `node_progress` | `node_id`, `done`, `total` (`None` until every row exists); at most four a second per node, and always its last count |
 | `node_complete` | `node_id`, `result`, `rows_not_called`, `reused_units` |
 | `node_retry` | `node_id`, `row`, `attempt`, `retries`, `error`, `delay` |
 | `node_failed` | `node_id`, `cause` (a `Problem`) |
@@ -238,7 +238,7 @@ Three public modules: `conductor`, `conductor.widgets` and `conductor.events`. E
 
 - Nodes: `node`, `NodeDefinition`, `Upgrade`, `upgrade_node`, `Policy`, `Deprecation`, `NodeDescription`, `Interface`, `ArrivingType`, `FromRun`, `Input`, `Output`, `Param`, `Result`
 - Returns: `SKIPPED`, `AskPerson`
-- Types: `DType`, `AsItArrives`, `Series`, `Table`, `Ref`, `to_wire(value, dtype)`, `ROW_ID_COLUMN` (the name of a table's hidden row-id column), `ValuesOnRows`
+- Types: `DType`, `AsItArrives`, `Series`, `Table`, `Ref`, `to_jsonable(value)`, `ROW_ID_COLUMN` (the name of a table's hidden row-id column), `ValuesOnRows`
 - Registry: `NodeRegistry(nodes, types=())`, immutable (`in`, `[]`, `len`, iteration, `nodes`, `types`, `accepted_as`, `describe`, `extended_with`), `TypeDescription`
 - Graph: `Graph`, `GraphNode`, `FieldContent`, `From`, `Static`, `dependencies_of`, `CompiledGraph`, `Problem`, `RunPlan`, `ReceiveMode`, `BranchTaken`, `ALWAYS`, `NEVER`
 - Errors: `NodeDeclarationError`, `ComputeHookError`, `InvalidCallError`, `Problem`, `NodeError`, `ExternalFailure`, `PROBLEM_CODES`
@@ -301,7 +301,7 @@ Standard nodes declare `str`, `float` and `bool`; `conductor_nodes.types` has `J
 
 - `conductor_providers.react`: `graph_to_react(graph)` to ReactFlow JSON, `react_to_graph(wire)` back.
 - `conductor_providers.mermaid`: `flowchart(compiled)`, a Mermaid flowchart labelling how each edge is received.
-- `conductor_providers.fastapi`: `conductor_router(registry, *, prefix, tags, dependencies, from_run, entity_resolver)` mounts `GET /nodes`, `POST /compile`, `POST /run`, `POST /run-stream` and `GET /entities/{kind}`. An `InvalidCallError` is a 422 with its `errors()` as the `detail`. The body is `RunRequest` (`graph`, `inputs`, `state`, `answers`, the answers as `compiled.answer` takes them). `/run` answers `{"state": ..., "results": ...}`; the stream's `run_end` also carries `results`. `sse_frame(event)` serialises one event.
+- `conductor_providers.fastapi`: `conductor_router(registry, *, prefix, tags, dependencies, from_run, entity_resolver)` mounts `GET /nodes`, `POST /compile`, `POST /run`, `POST /run-stream` and `GET /entities/{kind}`. An `InvalidCallError` is a 422 with its `errors()` as the `detail`. The body is `RunRequest` (`graph`, `inputs`, `state`, `answers`, the answers as `compiled.answer` takes them). `/run` answers `{"state": ..., "results": ...}`; on the stream a value goes out in its `node_complete`. `sse_frame(event)` frames one event.
 
 ## Project Structure
 

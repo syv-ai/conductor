@@ -62,7 +62,6 @@ the second reaches a registry, never at class definition.
 from __future__ import annotations
 
 import datetime
-import math
 from abc import ABC, ABCMeta
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -77,17 +76,6 @@ from conductor._internal.errors import NodeDeclarationError
 
 if TYPE_CHECKING:
     from pydantic import GetCoreSchemaHandler
-
-def _float_as_json(value: float) -> float | str:
-    """A float as JSON: a finite one as it is, the others as pydantic spells them when
-    told to keep them. JSON has no literal for them, and a float's validator reads the text back."""
-    if math.isfinite(value):
-        return value
-    return "NaN" if math.isnan(value) else ("Infinity" if value > 0 else "-Infinity")
-
-
-_FLOAT_AS_JSON = core_schema.plain_serializer_function_ser_schema(_float_as_json, when_used="json")
-
 
 class _DTypeMeta(ABCMeta):
     """A type prints as its name, ``Text``, the way an author writes it."""
@@ -192,13 +180,15 @@ class DType(ABC, metaclass=_DTypeMeta):
         on and wraps the result in the subclass. A type built on no builtin
         is validated by ``isinstance``.
         """
+        from conductor._internal.codec import float_as_json
+
         builtin = cls._builtin_base()
         if builtin is None:
             return core_schema.is_instance_schema(cls)
         return core_schema.no_info_after_validator_function(
             lambda value: value if isinstance(value, cls) else cls(value),
             handler.generate_schema(builtin),
-            serialization=_FLOAT_AS_JSON if issubclass(builtin, float) else None,
+            serialization=core_schema.plain_serializer_function_ser_schema(float_as_json, when_used="json") if issubclass(builtin, float) else None,
         )
 
     # -- internals -----------------------------------------------------------
@@ -224,16 +214,6 @@ class DType(ABC, metaclass=_DTypeMeta):
                 continue
             return base
         return None
-
-
-class _FloatThatIsNotFinite(DType, float):
-    """A NaN or an infinity on an output declared ``float``, as it is held in a run.
-
-    A plain ``float`` in a state says nothing of what declared it, and JSON has
-    no literal for these, so one that an output's ``float`` will read back is
-    held as this: still a ``float``, and written the way a type built on ``float`` is."""
-
-    id = "float_not_finite"
 
 
 class _UntypedValue(DType):

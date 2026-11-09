@@ -61,7 +61,8 @@ def test_the_hook_supplies_each_request_on_both_endpoints():
 
     assert ran.json()["results"]["g"]["result"] == "hi Ida"
     assert events[-1]["state"]["status"] == "complete"
-    assert events[-1]["results"]["g"]["result"] == "hi Bo"
+    assert [event["result"]["result"] for event in events if event["type"] == "node_complete"] == ["hi Bo"]
+    assert "results" not in events[-1]
 
 
 def test_a_run_missing_what_it_needs_fails_the_request_on_both_endpoints():

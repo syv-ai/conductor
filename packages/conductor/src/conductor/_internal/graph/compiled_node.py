@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic_core import to_jsonable_python
 
-from conductor._internal.codec import cell_validator_for, json_schema_of, to_wire
+from conductor._internal.codec import cell_validator_for, json_schema_of, to_jsonable
 from conductor._internal.execution.run_state import Question
 from conductor._internal.field_records import was_titled_by_its_author
 from conductor._internal.graph.run_plan import NodeRunPlan, plan_of_node
@@ -59,11 +59,6 @@ if TYPE_CHECKING:
 NodeState = Literal["ready", "wiring_failed", "resolution_failed"]
 
 
-def _static_as_json(value: Any, dtype: Any, many: bool) -> Any:
-    """A static as its field's type writes it, for ``CompiledNode.fingerprint``."""
-    if value is None:
-        return None
-    return [to_wire(item, dtype) for item in value] if many else to_wire(value, dtype)
 
 
 @dataclass(frozen=True, eq=False, slots=True)
@@ -156,14 +151,13 @@ class CompiledNode:
             return None
         node, interface = self.graph_node, self.interface
         assert interface is not None
-        fields = self.wiring.fields
         bindings: dict[str, Any] = {}
         for name, binding in node.bindings.items():
             if name in self.statics:
                 # The value as its type writes it, never as the author spelled
                 # it: ``2`` and ``2.0`` on a number are one value, and a graph
                 # built in Python hashes like the stored graph with its JSON.
-                bindings[name] = {"static": _static_as_json(self.statics[name], fields[name].type, fields[name].many)}
+                bindings[name] = {"static": to_jsonable(self.statics[name])}
             else:
                 bindings[name] = binding.model_dump()
         used = {

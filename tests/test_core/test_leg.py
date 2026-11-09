@@ -15,6 +15,7 @@ from typing import Annotated, Any
 
 import pytest
 from conductor import (
+    AskPerson,
     CompiledGraph,
     DType,
     ExternalFailure,
@@ -309,6 +310,14 @@ def test_anything_a_node_raises_fails_its_unit_and_the_leg_ends(raised):
     assert (state.status, state.failure.type, state.failure.loc[0]) == ("failed", "execution_failed", "r")
 
 
+def _events_of(compiled: CompiledGraph) -> list[Any]:
+    async def go() -> list[Any]:
+        async with compiled.stream() as events:
+            return [event async for event in events]
+
+    return asyncio.run(go())
+
+
 def _wide_graph(rows: int, **definition: Any) -> CompiledGraph:
     @node("source", title="S", description="d", category="test")
     def source(text: In = Txt("")) -> Parts:
@@ -330,12 +339,42 @@ def test_a_cancel_set_while_the_queue_holds_messages_ends_the_leg_at_the_next_ev
         async with _wide_graph(2000).stream(cancel=cancel) as events:
             async for event in events:
                 seen.append(event)
-                if len(seen) == 20:
+                if event.type == "node_start" and event.node_id == "o":
                     cancel.set()
         return seen
 
     seen = asyncio.run(go())
-    assert len(seen) == 21 and seen[-1].state.status == "cancelled"
+    after_the_cancel = [event.type for event in seen[-3:]]
+    assert after_the_cancel[-1] == "run_end" and seen[-1].state.status == "cancelled"
+    assert "node_complete" not in after_the_cancel[:-1]
+
+
+def test_a_fast_node_over_many_rows_reports_a_few_times_and_ends_on_its_last_count():
+    started = time.monotonic()
+    events = _events_of(_wide_graph(20_000))
+    took = time.monotonic() - started
+
+    progress = [event for event in events if event.type == "node_progress"]
+    assert len(progress) <= took / 0.25 + 2
+    assert (progress[-1].done, progress[-1].total) == (20_000, 20_000)
+    assert [event.type for event in events].index("node_complete", [event.type for event in events].index("node_progress")) > events.index(progress[-1])
+
+
+def test_a_leg_that_goes_quiet_reports_the_last_count_of_a_node_still_waiting():
+    @node("source", title="S", description="d", category="test")
+    def source() -> Parts:
+        return [Txt("ask"), Txt("b"), Txt("c")]
+
+    @node("maybe", title="M", description="d", category="test")
+    def maybe(text: Annotated[Txt, Param(title="T")]) -> Out | AskPerson:
+        return AskPerson() if text == "ask" else text
+
+    nodes = [GraphNode(id="s", type="source", version=1), GraphNode(id="m", type="maybe", version=1, bindings={"text": From("s.result")})]
+    events = _events_of(CompiledGraph.from_graph(Graph(nodes=nodes), NodeRegistry([source, maybe])))
+
+    last = [event for event in events if event.type == "node_progress"][-1]
+    assert (last.done, last.total) == (2, 3)
+    assert events[-1].state.status == "waiting"
 
 
 def test_a_cancel_from_another_task_lands_within_a_moment():

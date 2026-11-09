@@ -34,6 +34,10 @@ state, so no timer is needed. Building the state runs on the event loop and
 costs a pass over every value so far; the clock restarts once the consumer
 comes back for the next event, so a slow save cannot crowd out the leg.
 
+**Progress is paced.** A node running per row reports at most every quarter
+second, whatever its rows cost, and its count is reported once more when the
+node completes or the leg ends, so a reader always has the last one.
+
 **Every leg ends the same way:** one ``RunEnd`` carrying the state. A failed
 unit fails the leg: the other units are stopped and the cause, with the row,
 is on ``state.failure``.
@@ -74,6 +78,9 @@ from conductor._internal.execution.run_ledger import (
     UnitRecorded,
 )
 from conductor._internal.execution.run_state import RunState, WaitingUnit
+
+#: The least time between two ``NodeProgress`` of one node. A person can't read faster, and a host may write each to a database.
+_SECONDS_BETWEEN_PROGRESS = 0.25
 
 logger = logging.getLogger("conductor")
 
@@ -186,6 +193,9 @@ class RunningLeg:
         self.queue: asyncio.Queue[Event | _UnitDone | _Cancelled | _TimedOut] = asyncio.Queue()
         self.in_flight: dict[Unit, asyncio.Task[None] | None] = {}
         self.timed_out: _TimedOut | None = None
+        #: When the last ``NodeProgress`` of each node went out, and the nodes with finished rows that none has counted yet.
+        self.progress_sent_at: dict[str, float] = {}
+        self.nodes_with_unsent_progress: set[str] = set()
 
     def __aiter__(self) -> None:
         raise TypeError("a stream is read with: async with compiled.stream() as events: async for event in events: ...")
@@ -245,27 +255,30 @@ class RunningLeg:
         while self.in_flight:
             message = await self._next_message()
             if isinstance(message, _Cancelled):
-                yield RunEnd(state=ledger.state("cancelled", make_problem("run_cancelled")))
-                return
+                ending = ledger.state("cancelled", make_problem("run_cancelled"))
+                break
             if isinstance(message, _TimedOut):
                 elapsed = time.monotonic() - self.started_at
                 failure = make_problem("run_timed_out", elapsed_seconds=elapsed, timeout_seconds=message.seconds)
-                yield RunEnd(state=ledger.state("timed_out", failure))
-                return
+                ending = ledger.state("timed_out", failure)
+                break
             if not isinstance(message, _UnitDone):
                 yield message
                 continue
             self.in_flight.pop(message.unit, None)
             if message.error is not None:
                 yield message.error
-                yield RunEnd(state=ledger.state("failed", message.error.cause))
-                return
+                ending = ledger.state("failed", message.error.cause)
+                break
             self._start_units(message.units_made_ready)
             if self.checkpoint_every is not None and self.in_flight and time.monotonic() - self.last_checkpoint_at >= self.checkpoint_every:
                 yield RunCheckpoint(state=ledger.state("running"))
                 self.last_checkpoint_at = time.monotonic()
-
-        yield RunEnd(state=ledger.state("waiting" if ledger.waiting() else "complete"))
+        else:
+            ending = ledger.state("waiting" if ledger.waiting() else "complete")
+        for node_id in sorted(self.nodes_with_unsent_progress):
+            yield self._progress_of(node_id)
+        yield RunEnd(state=ending)
 
     async def _next_message(self) -> Event | _UnitDone | _Cancelled | _TimedOut:
         """The next thing the loop acts on: a message from a unit, or the reason to stop.
@@ -437,9 +450,10 @@ class RunningLeg:
         node_id, _ = unit
         ledger = self.ledger
         if ledger.node_runs_per_row(node_id):
-            done, total = ledger.progress(node_id)
-            self.queue.put_nowait(NodeProgress(node_id=node_id, done=done, total=total))
+            self._report_progress_when_due(node_id)
         for completed_node_id in recorded.nodes_completed:
+            if completed_node_id in self.nodes_with_unsent_progress:
+                self.queue.put_nowait(self._progress_of(completed_node_id))
             result = ledger.result_of(completed_node_id)
             rows_not_called = ledger.rows_not_called(completed_node_id)
             if result is None and not rows_not_called:
@@ -447,6 +461,22 @@ class RunningLeg:
             else:
                 self.queue.put_nowait(NodeComplete(node_id=completed_node_id, result=result or {}, rows_not_called=rows_not_called, reused_units=ledger.reused_units(completed_node_id)))
         self.queue.put_nowait(_UnitDone(unit, recorded.units_ready))
+
+    def _report_progress_when_due(self, node_id: str) -> None:
+        """One more row of this node finished: say so unless the node reported in the last quarter second.
+
+        Most rows of a fast node stop at the clock, before anything is counted or built."""
+        now = time.monotonic()
+        if now - self.progress_sent_at.get(node_id, -_SECONDS_BETWEEN_PROGRESS) < _SECONDS_BETWEEN_PROGRESS:
+            self.nodes_with_unsent_progress.add(node_id)
+            return
+        self.progress_sent_at[node_id] = now
+        self.queue.put_nowait(self._progress_of(node_id))
+
+    def _progress_of(self, node_id: str) -> NodeProgress:
+        self.nodes_with_unsent_progress.discard(node_id)
+        done, total = self.ledger.progress(node_id)
+        return NodeProgress(node_id=node_id, done=done, total=total)
 
 
 def _engine_error(unit: Unit, raised: BaseException) -> Problem:

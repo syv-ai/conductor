@@ -11,13 +11,13 @@ from conductor import (
     NodeDescription,
     NodeRegistry,
     RunState,
+    to_jsonable,
 )
-from conductor.events import Event, RunEnd
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from conductor_providers.fastapi.models import CompileResult, RunRequest, RunResult
-from conductor_providers.fastapi.sse import as_data, sse_frame
+from conductor_providers.fastapi.sse import sse_frame
 
 
 def conductor_router(
@@ -96,7 +96,7 @@ def conductor_router(
             state = await compiled.run(state, from_run=from_run(request) if from_run else None)
         except InvalidCallError as invalid_call:
             raise _unprocessable(invalid_call) from invalid_call
-        return RunResult(state=state, results=as_data(compiled.results(state)))
+        return RunResult(state=state, results=to_jsonable(compiled.results(state)))
 
     @router.post("/run-stream")
     async def run_graph_stream(req: RunRequest, request: Request) -> StreamingResponse:
@@ -114,7 +114,7 @@ def conductor_router(
         async def event_stream() -> Any:
             async with leg as events:
                 async for event in events:
-                    yield sse_frame(_answered(compiled, event))
+                    yield sse_frame(event)
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -148,13 +148,3 @@ def conductor_router(
 
 def _unprocessable(invalid_call: InvalidCallError) -> HTTPException:
     return HTTPException(status_code=422, detail=[fault.model_dump(mode="json") for fault in invalid_call.errors()])
-
-
-def _answered(compiled: CompiledGraph, event: Event) -> dict[str, Any]:
-    """An event as this provider's JSON: a ``RunEnd`` also carries ``results``,
-    every node's values read from its state, since a client over HTTP has
-    no compiled graph to ask."""
-    data = as_data(event)
-    if isinstance(event, RunEnd):
-        data["results"] = as_data(compiled.results(event.state))
-    return data

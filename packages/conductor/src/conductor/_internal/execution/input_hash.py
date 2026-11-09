@@ -18,7 +18,7 @@ import secrets
 from hashlib import blake2b
 from typing import Any
 
-from conductor._internal.codec import to_wire
+from conductor._internal.codec import to_jsonable
 from conductor._internal.table import digest_of_table, is_frame
 
 #: Digests of the values that aren't plain data, by ``id``; each kept with the value, so an id can't be reused while it is here.
@@ -80,4 +80,4 @@ def _digest_of_value(value: Any, digests_of_values: DigestsOfValues) -> bytes:
 
 
 def _json_form(value: Any) -> bytes:
-    return json.dumps(to_wire(value, type(value)), sort_keys=True, ensure_ascii=False).encode("utf-8", "surrogatepass")
+    return json.dumps(to_jsonable(value), sort_keys=True, ensure_ascii=False).encode("utf-8", "surrogatepass")

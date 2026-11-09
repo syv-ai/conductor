@@ -44,7 +44,7 @@ from pydantic import (
     model_validator,
 )
 
-from conductor._internal.codec import to_wire, values_to_wire
+from conductor._internal.codec import TypedValue, each_to_jsonable
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import Problem
 from conductor._internal.index import Row
@@ -106,8 +106,8 @@ def _column_values_to_wire(values: list[Any]) -> list[Any]:
     """A column's values, each written by its own type: a list holds a row's cells and is
     written cell by cell, all of them in one pass."""
     if not values or not all(type(value) is list for value in values):
-        return values_to_wire(values)
-    written = iter(values_to_wire(list(chain.from_iterable(values))))
+        return each_to_jsonable(values)
+    written = iter(each_to_jsonable(list(chain.from_iterable(values))))
     return [list(islice(written, len(value))) for value in values]
 
 
@@ -130,14 +130,9 @@ class Question(ConductorModel):
     many: bool = False
     json_schema: dict[str, Any]
     widget: dict[str, Any] | None = None
-    default: Any = None
+    default: TypedValue = None
     optional: bool = False
     exclusive_group: str | None = None
-
-    @field_serializer("default", when_used="json")
-    def _default_as_wire(self, default: Any) -> Any:
-        """The default written by its own type, each value of a list by its own."""
-        return [to_wire(item, type(item)) for item in default] if isinstance(default, list) else to_wire(default, type(default))
 
 
 class WaitingUnit(ConductorModel):
@@ -161,12 +156,7 @@ class WaitingUnit(ConductorModel):
     input_hash: str = ""
     #: What this unit received, by input name, so a form can show the row it is about: exactly the
     #: values its call would have got, no more; many values as a list.
-    inputs: dict[str, Any] = Field(default_factory=dict)
-
-    @field_serializer("inputs", when_used="json")
-    def _inputs_as_wire(self, inputs: dict[str, Any]) -> dict[str, Any]:
-        """Each input written by its own type; held typed until a dump, as a state's values are."""
-        return dict(zip(inputs, values_to_wire(list(inputs.values())), strict=True))
+    inputs: dict[str, TypedValue] = Field(default_factory=dict)
 
 
 class EarlierWork(ConductorModel):

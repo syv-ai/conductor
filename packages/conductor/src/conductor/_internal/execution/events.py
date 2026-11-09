@@ -7,8 +7,10 @@ can send one over the network as it is. ``RunStart`` is always first and
 ``RunEnd`` always last; ``RunEnd.state`` says how the leg ended. A leg asked for
 checkpoints also emits ``RunCheckpoint`` along the way.
 
-A value in ``NodeComplete.result`` is a typed value (``{"rows": [...], "values": [...]}``
-for an output holding many, ``ValuesOnRows``), and a host that sends the event on serialises it at that edge.
+In Python, a value in ``NodeComplete.result`` is a typed value (``{"rows": [...], "values": [...]}``
+for an output holding many, ``ValuesOnRows``). ``model_dump(mode="json")``, ``model_dump_json()`` and
+``TypeAdapter(Event).dump_json`` write any event as JSON, each value by its own
+type (see ``conductor.to_jsonable``), so a host sends one as it is.
 An event stands alone on the stream, so a table in one (in ``NodeComplete.result``, a
 waiting unit's ``inputs``) is written whole; ``RunEnd.state`` and ``RunCheckpoint.state``
 are states, each with its own ``tables``.
@@ -16,10 +18,11 @@ are states, each with its own ``tables``.
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 from pydantic import ConfigDict, Field
 
+from conductor._internal.codec import TypedValue
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import Problem
 from conductor._internal.execution.run_state import RunState, WaitingUnit
@@ -53,7 +56,8 @@ class NodeStart(_EventBase):
 
 
 class NodeProgress(_EventBase):
-    """A node running once per row finished one more row. ``total`` is
+    """How far a node running once per row has got. At most four a second per
+    node, and always its last count: ``done`` of ``total`` rows, ``total``
     ``None`` until the number of rows it will run over is known."""
 
     type: Literal["node_progress"] = "node_progress"
@@ -71,7 +75,7 @@ class NodeComplete(_EventBase):
 
     type: Literal["node_complete"] = "node_complete"
     node_id: str
-    result: dict[str, Any]
+    result: dict[str, TypedValue]
     rows_not_called: dict[str, int] = Field(default_factory=dict)
     reused_units: int = 0
 

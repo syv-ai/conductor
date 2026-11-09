@@ -6,7 +6,7 @@ import sys
 
 import polars as pl
 import pytest
-from conductor import ROW_ID_COLUMN, DType, Table, node, table_with_columns, to_wire
+from conductor import ROW_ID_COLUMN, DType, Table, node, table_with_columns, to_jsonable
 from conductor._internal.index import Index
 from conductor._internal.table import global_row_id, polars_type_of, with_row_ids
 from helpers import read_table
@@ -88,7 +88,7 @@ def test_a_date_column_reads_dates_written_as_text():
 
 def test_the_wire_form_round_trips_with_blanks_and_row_ids():
     table = read_table(Contacts, pl.DataFrame({ROW_ID_COLUMN: ["contacts:0", "contacts:1"], "name": ["Ida", None], "score": [4.5, None]}))
-    wire = to_wire(table, Contacts)
+    wire = to_jsonable(table)
 
     assert wire == {
         "columns": [{"name": "name", "dtype": "String"}, {"name": "score", "dtype": "Float64"}],
@@ -100,7 +100,7 @@ def test_the_wire_form_round_trips_with_blanks_and_row_ids():
 
 def test_a_bare_table_keeps_every_column_and_round_trips_a_date():
     table = read_table(Table, pl.DataFrame({"day": [datetime.date(2024, 1, 2)], "n": [3]}))
-    wire = to_wire(table, Table)
+    wire = to_jsonable(table)
 
     assert wire["rows"] is None
     assert TypeAdapter(Table).validate_python(wire).equals(table)
@@ -174,4 +174,4 @@ def test_a_bare_table_with_nested_and_time_columns_round_trips():
         "at": [datetime.time(9, 30), None],
     }))
 
-    assert TypeAdapter(Table).validate_python(to_wire(table, Table)).equals(table)
+    assert TypeAdapter(Table).validate_python(to_jsonable(table)).equals(table)

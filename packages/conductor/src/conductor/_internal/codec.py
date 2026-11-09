@@ -4,31 +4,38 @@ A value lives in memory as its type — a ``Text`` is a ``str`` subclass, a
 table a Polars frame, a host's file a name and bytes. Whenever such a value crosses into JSON and back — the state of
 a run, an answer a host hands in, a result a host stores
 — this module is the one place that happens, and the declared type decides the
-form: ``to_wire(value, dtype)`` writes it, ``cell_validator_for(dtype)`` reads it
+form: ``to_jsonable(value)`` writes it, ``cell_validator_for(dtype)`` reads it
 back as the same type. Nothing else in the library turns a
-value into JSON, so every such value agrees.
+value into JSON, so every such value agrees, and ``TypedValue`` is how a
+record's field says it holds one.
 
 The form is the type's own pydantic schema, which every ``DType`` has: a
 type built on ``str`` or ``float`` is its plain value, a type with a
 schema of its own (a file, a table) is whatever that schema writes, and
-``Any`` is the value as JSON-ready data, a typed value inside it written
-through its own type.
+a plain container is the value as JSON-ready data, a typed value inside it
+written through its own type.
+
+A float that isn't finite is the text ``"NaN"``, ``"Infinity"`` or
+``"-Infinity"`` wherever it stands, since JSON has no literal for one and a
+``jsonb`` column refuses the bare token. A float's validator reads the text
+back; a value typed ``Any`` comes back as this text, as it comes back as the
+JSON form of everything else it held. A pydantic record a host declared keeps
+the rule of its own config.
 
 A skip has no type to cross by, so a run's state lists the skipped rows beside the values.
 """
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
-from functools import cache, partial
-from math import isfinite
+from functools import cache
+from math import isfinite, isnan
 from types import NoneType
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import ConfigDict, PydanticUserError, TypeAdapter
+from pydantic import ConfigDict, PlainSerializer, PydanticUserError, TypeAdapter
+from pydantic_core import from_json
 
-from conductor._internal.dtype import _FloatThatIsNotFinite
 from conductor._internal.table import Table, is_frame_type, is_table_type
 
 #: Runtime types whose JSON form can hold no float a dump would have to look for.
@@ -36,13 +43,17 @@ from conductor._internal.table import Table, is_frame_type, is_table_type
 _NEVER_HOLDS_A_FLOAT = (str, int, NoneType)
 
 
-def to_wire(value: Any, dtype: Any) -> Any:
-    """``value``, declared as ``dtype``, as JSON-ready data.
+def to_jsonable(value: Any) -> Any:
+    """``value`` as JSON-ready data, every value in it written by its own type.
 
-    ``dtype`` is one value's type: a ``DType`` class or ``Any``. A value pydantic cannot write raises its own error; the
-    caller, who knows which field the value sits on, names it.
-    """
-    return cached_type_adapter(dtype).dump_python(value, mode="json", fallback=_dump_by_runtime_type)
+    ``value`` is a typed value (a table, a ``Text``) or plain data holding some,
+    as ``compiled.results(state)`` is. What comes back goes through ``json.dumps``
+    as it is. A value with no JSON form raises."""
+    return each_to_jsonable([value])[0]
+
+
+#: A field that holds a typed value: as JSON it is what ``to_jsonable`` writes, in Python the value as it is.
+TypedValue = Annotated[Any, PlainSerializer(to_jsonable, return_type=Any, when_used="json")]
 
 
 def cell_validator_for(dtype: Any) -> Callable[[Any], Any]:
@@ -61,8 +72,6 @@ def cell_validator_for(dtype: Any) -> Callable[[Any], Any]:
     if is_table_type(dtype):  # a frame says nothing about its columns, so every one is read
         return validate
     instance_type = dtype._instance_type()
-    if instance_type is float:
-        return partial(_read_float, validate)
 
     def validate_cell(value: Any) -> Any:
         if type(value) is instance_type:
@@ -75,35 +84,22 @@ def cell_validator_for(dtype: Any) -> Callable[[Any], Any]:
     return validate_cell
 
 
-def _read_float(validate: Callable[[Any], float], value: Any) -> float:
-    """One value of an output declared ``float``; one that isn't finite is held so that a state can write it."""
-    validated = value if type(value) is float else validate(value)
-    return validated if isfinite(validated) else _FloatThatIsNotFinite(validated)
-
-
 def _return_as_is(value: Any) -> Any:
     return value
 
 
-def values_to_wire(values: list[Any]) -> list[Any]:
-    """Each value as JSON-ready data, written by its own type. Values all of
-    one type, the usual case, are written through one adapter in one call.
-
-    A float that isn't finite comes out as JSON can hold it where its type
-    reads it back (a type built on ``float``, an output declared ``float``, a
-    table's column). Anywhere else, a plain ``float`` in a field typed ``Any`` or
-    one inside a record, nothing would, and this raises rather than let it come
-    back as something else.
-    """
+def each_to_jsonable(values: list[Any]) -> list[Any]:
+    """Each value as ``to_jsonable`` writes it. Values all of one type, the usual
+    case, are written through one adapter in one call."""
     runtime_types = {type(value) for value in values}
-    if len(runtime_types) == 1:
-        (runtime_type,) = runtime_types
-        written: list[Any] = cached_type_adapter(list[_written_as(runtime_type)]).dump_python(values, mode="json", fallback=_dump_by_runtime_type)  # type: ignore[misc]
-    else:
-        written = [to_wire(value, type(value)) for value in values]
-    if not all(issubclass(runtime_type, _NEVER_HOLDS_A_FLOAT) or is_frame_type(runtime_type) for runtime_type in runtime_types):
-        json.dumps(written, allow_nan=False)
-    return written
+    if len(runtime_types) != 1:
+        return [to_jsonable(value) for value in values]
+    (runtime_type,) = runtime_types
+    adapter = cached_type_adapter(list[_written_as(runtime_type)])  # type: ignore[misc]
+    if issubclass(runtime_type, _NEVER_HOLDS_A_FLOAT) or is_frame_type(runtime_type):
+        written: list[Any] = adapter.dump_python(values, mode="json", fallback=_dump_by_runtime_type)
+        return written
+    return from_json(adapter.dump_json(values, fallback=_dump_by_runtime_type), allow_inf_nan=False)  # type: ignore[no-any-return]
 
 
 def json_schema_of(dtype: Any, many: bool = False) -> dict[str, Any]:
@@ -118,8 +114,7 @@ def json_schema_of(dtype: Any, many: bool = False) -> dict[str, Any]:
 
 
 def _dump_by_runtime_type(value: Any) -> Any:
-    """A typed value where the declared type says nothing about it — a slot
-    typed ``Any`` — written through its
+    """A typed value inside plain data, written through its
     own type. A value its own type cannot write raises."""
 
     def dump_nested(nested_value: Any) -> Any:
@@ -133,11 +128,11 @@ def _dump_by_runtime_type(value: Any) -> Any:
 @cache
 def cached_type_adapter(dtype: Any) -> TypeAdapter[Any]:
     """One adapter per declared type: building one reads the type's schema, which is the
-    slow part. It leaves a float that isn't finite as it is, for ``values_to_wire`` to see;
-    pydantic's default would write it as ``null``. A type with a config of its own keeps that."""
+    slow part. Its ``dump_json`` spells a float that isn't finite the way ``float_as_json`` does.
+    A type with a config of its own keeps that."""
     dtype = _written_as(dtype)
     try:
-        return TypeAdapter(dtype, config=ConfigDict(ser_json_inf_nan="constants"))
+        return TypeAdapter(dtype, config=ConfigDict(ser_json_inf_nan="strings"))
     except PydanticUserError:
         return TypeAdapter(dtype)
 
@@ -145,3 +140,11 @@ def cached_type_adapter(dtype: Any) -> TypeAdapter[Any]:
 def _written_as(runtime_type: Any) -> Any:
     """The type a runtime type writes through: a frame has no schema of its own, so a table's."""
     return Table if isinstance(runtime_type, type) and is_frame_type(runtime_type) else runtime_type
+
+
+def float_as_json(value: float) -> float | str:
+    """A float as JSON: a finite one as it is, the others as the module docstring says.
+    What a ``DType`` built on ``float`` writes wherever a pydantic record holds one."""
+    if isfinite(value):
+        return value
+    return "NaN" if isnan(value) else ("Infinity" if value > 0 else "-Infinity")

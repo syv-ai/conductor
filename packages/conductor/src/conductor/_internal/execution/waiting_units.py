@@ -15,7 +15,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
-from conductor._internal.codec import to_wire
+from conductor._internal.codec import to_jsonable
 from conductor._internal.errors import InvalidCallError, Problem, make_problem
 from conductor._internal.execution.run_ledger import RunLedger, SkippedAtRow
 from conductor._internal.execution.run_state import (
@@ -88,8 +88,7 @@ def _with_defaults_and_widgets(node: CompiledNode, row: Row, ask_person: AskPers
 def _why_default_has_no_json_form(cell: Any) -> Exception | None:
     """What a dump of the state would fail on for ``cell``, held typed as a state's values are; ``None`` when it has a form."""
     try:
-        for item in cell if isinstance(cell, list) else (cell,):
-            to_wire(item, type(item))
+        to_jsonable(cell)
     except Exception as unwritable:
         return unwritable
     return None

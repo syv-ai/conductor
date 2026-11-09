@@ -667,7 +667,7 @@ def test_a_node_entirely_reused_starts_and_completes_and_says_how_much() -> None
     done = next(event for event in seen if isinstance(event, NodeComplete) and event.node_id == "m")
     assert done.reused_units == 3
     progress = [event for event in seen if isinstance(event, NodeProgress) and event.node_id == "m"]
-    assert [event.done for event in progress] == [1, 2, 3]
+    assert (progress[0].done, progress[-1].done) == (1, 3)
 
 
 def test_a_nothing_reused_leg_reports_no_reuse() -> None:

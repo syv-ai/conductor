@@ -314,13 +314,15 @@ def test_a_state_is_valid_json_when_a_number_is_not_finite():
     json.loads(compiled.run_sync().model_dump_json(), parse_constant=lambda bad: pytest.fail(f"{bad} is not JSON"))
 
 
-@pytest.mark.parametrize("value", [float("nan"), float("inf"), {"deep": [float("nan")]}])
-def test_a_float_with_no_type_to_read_it_back_is_refused_at_the_dump_naming_its_output(value):
+@pytest.mark.parametrize(("value", "written"), [(float("nan"), "NaN"), (float("inf"), "Infinity"), ({"deep": [float("nan")]}, {"deep": ["NaN"]})])
+def test_a_float_under_any_is_written_as_text_and_comes_back_as_the_text(value, written):
+    """A value typed ``Any`` comes back as its JSON form, whatever it held, so this rule is that one."""
     CANNED["k"] = value
-    state = compiled_of(n("v", "anything", k=Static("k"))).run_sync()
-    assert state.status == "complete"
-    with pytest.raises(Exception, match=r"v\.result: a value has no JSON form"):
-        state.model_dump_json()
+    compiled = compiled_of(n("v", "anything", k=Static("k")))
+    state = compiled.run_sync()
+    document = json.loads(state.model_dump_json(), parse_constant=lambda bad: pytest.fail(f"{bad} is not JSON"))
+    assert document["output_columns"]["v.result"]["values"] == [[written]]
+    assert compiled.results(through_json(state))["v"]["result"]["values"] == [written]
 
 
 # -- a table's JSON form --------------------------------------------------------------

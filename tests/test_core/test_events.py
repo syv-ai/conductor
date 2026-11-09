@@ -3,8 +3,8 @@
 Every event a stream yields is a frozen model, one of a union
 discriminated on ``type``: a caller can ``match`` on the class. ``RunEnd``
 carries the run's state; the values in it are read through the compiled
-graph, ``compiled.results(state)``. The JSON a host
-sends is a plain dict, and the schema a host generates its
+graph, ``compiled.results(state)``. An event writes itself as JSON, each
+value by its own type, and the schema a host generates its
 client from names the same fields, with ``type`` required on every event.
 """
 
@@ -12,6 +12,7 @@ import asyncio
 import json
 from typing import Annotated
 
+import polars as pl
 import pytest
 from conductor import (
     AskPerson,
@@ -21,13 +22,28 @@ from conductor import (
     GraphNode,
     NodeRegistry,
     Param,
+    Problem,
+    Ref,
     Result,
     RunState,
     Series,
     Static,
     node,
 )
-from conductor.events import Event, NodeComplete, NodeProgress, NodeStart, RunEnd
+from conductor._internal.execution.run_state import OutputColumn, Question, WaitingUnit
+from conductor.events import (
+    Event,
+    NodeComplete,
+    NodeFailed,
+    NodeProgress,
+    NodeRetry,
+    NodeSkipped,
+    NodeStart,
+    RunCheckpoint,
+    RunEnd,
+    RunStart,
+    UnitWaiting,
+)
 from conductor.widgets import Textarea
 from pydantic import TypeAdapter, ValidationError
 
@@ -153,3 +169,56 @@ def test_a_pending_unit_is_a_record_too():
     (unit,) = ending.waiting
     assert (unit.node_id, unit.row) == ("q", ())
     assert unit.questions[0].name == "result"
+
+
+def _strict(document: str | bytes) -> object:
+    def refuse(token: str) -> None:
+        raise AssertionError(f"{token} is not JSON")
+
+    return json.loads(document, parse_constant=refuse)
+
+
+def _holding_many_values_a_frame_and_a_nan() -> dict[str, object]:
+    return {
+        "many": {"rows": [(0,), (1,)], "values": [float("nan"), 1.5]},
+        "frame": pl.DataFrame({"a": [float("nan"), 1.0], "b": ["x", None]}),
+        "nan": float("nan"),
+        "deep": {"list": [float("inf"), {"more": float("-inf")}]},
+    }
+
+
+def _every_event() -> list[Event]:
+    values = _holding_many_values_a_frame_and_a_nan()
+    question = Question(name="q", title="Q", dtype=None, json_schema={}, default=[values["nan"], values["frame"]])
+    unit = WaitingUnit(id="u", node_id="n", row=(), questions=(question,), inputs=values)
+    state = RunState(status="waiting", waiting=(unit,), output_columns={Ref("n.a"): OutputColumn(rows=[()], values=[values["nan"]]), Ref("n.b"): OutputColumn(rows=[()], values=[values["frame"]]), Ref("n.c"): OutputColumn(rows=[()], values=[values["many"]["values"]])})
+    return [
+        RunStart(waiting=(unit,)),
+        NodeStart(node_id="n"),
+        NodeProgress(node_id="n", done=1, total=None),
+        NodeComplete(node_id="n", result=values),
+        NodeSkipped(node_id="n"),
+        NodeFailed(node_id="n", cause=Problem(type="boom", msg="Boom.", loc=("n",), ctx={"seen": float("nan")})),
+        NodeRetry(node_id="n", row=(), attempt=1, retries=2, error="e", delay=0.5),
+        UnitWaiting(unit=unit),
+        RunCheckpoint(state=state.model_copy(update={"status": "running"})),
+        RunEnd(state=state),
+    ]
+
+
+@pytest.mark.parametrize("event", _every_event(), ids=lambda event: event.type)
+def test_every_event_writes_itself_as_json_and_a_strict_parser_reads_it(event):
+    document = _strict(event.model_dump_json())
+    assert document == _strict(TypeAdapter(Event).dump_json(event))
+    assert document == _strict(json.dumps(event.model_dump(mode="json"), allow_nan=False))
+
+
+def test_a_frame_of_values_is_written_whole_with_one_rule_for_a_float_that_is_not_finite():
+    event = NodeComplete(node_id="n", result=_holding_many_values_a_frame_and_a_nan())
+
+    written = _strict(event.model_dump_json())["result"]
+
+    assert written["nan"] == "NaN"
+    assert written["many"] == {"rows": [[0], [1]], "values": ["NaN", 1.5]}
+    assert written["frame"]["data"] == {"a": ["NaN", 1.0], "b": ["x", None]}
+    assert written["deep"] == {"list": ["Infinity", {"more": "-Infinity"}]}

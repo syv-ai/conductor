@@ -111,7 +111,7 @@ print(results["how_many"]["result"])            # 2
 
 ## Watching a run
 
-`async with compiled.stream() as events:` yields `run_start`, `node_start`, `node_progress`, `node_complete`, `node_skipped`, `node_retry`, `node_failed` and `unit_waiting`, and ends with `run_end`, which carries the run's `state`. Leaving the block stops every unit.
+`async with compiled.stream() as events:` yields `run_start`, `node_start`, `node_progress`, `node_complete`, `node_skipped`, `node_retry`, `node_failed` and `unit_waiting`, and ends with `run_end`, which carries the run's `state`. Leaving the block stops every unit. An event writes itself as JSON: `event.model_dump(mode="json")` or `model_dump_json()`, tables whole, and `conductor.to_jsonable(compiled.results(state))` does the same for results. `node_progress` arrives at most four times a second per node, its last count always among them.
 
 `compiled.stream(checkpoint_every=5.0)` also yields `run_checkpoint`, a state with status `running` you can save as the run goes. After a crash, `compiled.run(state)` skips the finished units and calls the ones that were in flight again, so a unit runs at least once. A saved state can't tell whether its run is still alive, so a host that resumes one holds a lease of its own.
 

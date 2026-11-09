@@ -43,7 +43,11 @@ def client(calls: list[str]) -> TestClient:
         calls.append("approve")
         return AskPerson(widgets={"result": Switch()})
 
-    registry = NodeRegistry([words, approve])
+    @node("mean", title="Mean", description="the mean of nothing", category="test")
+    def mean() -> float:
+        return float("nan")
+
+    registry = NodeRegistry([words, approve, mean])
     app = FastAPI()
     app.include_router(conductor_router(registry))
     return TestClient(app)
@@ -118,8 +122,20 @@ def test_the_stream_takes_the_state_and_the_answers_too(client, calls):
     second = _stream(client, {"graph": PER_ROW, "state": first[-1]["state"], "answers": answers})
 
     assert second[-1]["state"]["status"] == "complete"
-    assert second[-1]["results"]["ok"]["result"]["values"] == [True, True]
+    assert second[-1]["state"]["output_columns"]["ok.result"]["values"] == [1, 1]
     assert calls.count("words") == 1
+
+
+def test_a_float_that_is_not_finite_is_the_same_text_in_results_state_and_stream(client):
+    body = {"graph": {"nodes": [{"id": "m", "type": "mean", "version": 1}]}}
+
+    ran = client.post("/run", json=body).json()
+    frames = _stream(client, body)
+
+    assert ran["results"]["m"]["result"] == "NaN"
+    assert ran["state"]["output_columns"]["m.result"]["values"] == ["NaN"]
+    assert [frame["result"]["result"] for frame in frames if frame["type"] == "node_complete"] == ["NaN"]
+    assert "results" not in frames[-1]
 
 
 def test_a_wrong_answer_is_a_422_listing_every_fault(client):

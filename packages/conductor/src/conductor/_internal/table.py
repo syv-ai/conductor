@@ -43,7 +43,6 @@ from __future__ import annotations
 import datetime
 import hashlib
 import io
-import json
 import sys
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
@@ -55,7 +54,7 @@ from types import NoneType
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, get_type_hints, is_typeddict
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
-from pydantic_core import PydanticCustomError, PydanticSerializationError, core_schema, to_json
+from pydantic_core import PydanticCustomError, PydanticSerializationError, core_schema
 
 from conductor._internal.dtype import DType, dtype_of
 from conductor._internal.errors import NodeDeclarationError
@@ -603,15 +602,16 @@ def _frame_from_wire(value: Mapping[str, Any]) -> pl.DataFrame:
 def _column_to_wire(column: pl.Series) -> list[Any]:
     """A column's values as JSON: a type JSON holds exactly as it is; any other as JSON
     spells it, and only if reading that back gives this very column, so the form never
-    changes a type or a value. A ``Duration`` travels as its count of the column's unit,
-    and a float that isn't finite as ``"NaN"``, ``"Infinity"`` or ``"-Infinity"``."""
+    changes a type or a value. A ``Duration`` travels as its count of the column's unit."""
     import polars as pl
+
+    from conductor._internal.codec import to_jsonable
 
     dtype = column.dtype
     if dtype in (pl.String, pl.Boolean) or dtype.is_integer() or (dtype.is_float() and column.is_finite().all()):
         return column.to_list()
     try:
-        written = json.loads(to_json((column.to_physical() if dtype == pl.Duration else column).to_list(), inf_nan_mode="strings"))
+        written = to_jsonable((column.to_physical() if dtype == pl.Duration else column).to_list())
         kept = _column_from_wire(column.name, written, dtype).equals(column, check_dtypes=True)
     except (ValueError, TypeError, PydanticSerializationError, pl.exceptions.PolarsError):
         kept = False

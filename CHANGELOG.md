@@ -117,6 +117,11 @@ its stored graphs itself. What a 1.x user must change:
   was written at and `values` the list of its cells, a cell skipped alone a `None` there and a row
   in `skipped`. A skip that left an index with no rows leaves nothing of its own in `finished_rows`
   or `skipped`; the nodes running on it complete through the state.
+- An event writes itself as JSON: `event.model_dump(mode="json")`, `model_dump_json()` and
+  `TypeAdapter(Event).dump_json`, tables whole. `to_jsonable(value)` replaces `to_wire(value, dtype)`
+  on the door. A float that isn't finite is the text `"NaN"`, `"Infinity"` or `"-Infinity"` in
+  every writer, and under `Any` a state no longer refuses to dump because of one.
+- `node_progress` is paced: at most four a second per node, its last count always sent.
 
 - `NodeValidationError`, `NodeExecutionError` and `NodeTimeoutError` are gone; a node raises `NodeError(message, code=..., ctx=...)`, or `ExternalFailure` for what the outside world caused. A problem's `type` is still the code it always was.
 
@@ -128,6 +133,8 @@ its stored graphs itself. What a 1.x user must change:
   `{graph, inputs, state, answers}`. `/run` answers `{state, results}`. `context_factory` is
   `from_run`, `extension_resolver` and `palette_from_registry` are gone (the palette is
   `registry.describe()`).
+- `run_end` on `/run-stream` carries no `results`; a value goes out in its `node_complete`. `/run`
+  keeps `results`. `sse_frame` writes the event as pydantic writes it.
 
 ## [1.12.2]
 

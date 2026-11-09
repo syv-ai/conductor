@@ -21,7 +21,6 @@ from conductor import (
 )
 from conductor._internal.execution.run_state import OutputColumn
 from conductor.events import RunEnd, UnitWaiting
-from conductor_providers.fastapi.sse import as_data
 from helpers import answer
 from pydantic import ValidationError
 
@@ -211,9 +210,9 @@ def test_a_table_nothing_holds_any_more_is_not_written() -> None:
 def test_an_event_stands_alone_and_a_state_in_an_event_has_its_tables() -> None:
     compiled, state = _chain_and_waiting_units(2, 1)
     (unit,) = state.waiting
-    alone = as_data(UnitWaiting(unit=unit))
+    alone = UnitWaiting(unit=unit).model_dump(mode="json")
     assert alone["unit"]["inputs"]["table"]["data"]["name"] == ["name-0", "name-1"]
-    ended = as_data(RunEnd(state=state))
+    ended = RunEnd(state=state).model_dump(mode="json")
     assert len(ended["state"]["tables"]) == 1
     assert set(ended["state"]["waiting"][0]["inputs"]["table"]) == {"table"}
 

@@ -8,7 +8,7 @@ Everything in ``conductor._internal`` is the library's own and may move.
 
 from typing import TYPE_CHECKING
 
-from conductor._internal.codec import to_wire
+from conductor._internal.codec import to_jsonable
 from conductor._internal.dtype import AsItArrives, DType, Series
 from conductor._internal.errors import (
     PROBLEM_CODES,
@@ -97,6 +97,6 @@ __all__ = [
     "dependencies_of",
     "node",
     "table_with_columns",
-    "to_wire",
+    "to_jsonable",
     "upgrade_node",
 ]
