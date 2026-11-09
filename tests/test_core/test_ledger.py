@@ -26,6 +26,11 @@ from conductor._internal.series import Index
 from conductor.widgets import Textarea
 
 
+def _results_of(ledger: LiveRunValues) -> dict:
+    """What a host reads off the state this ledger would write now."""
+    return ledger._compiled.results(ledger.state("running"))
+
+
 class Txt(DType, str):
     id = "ledger-test-txt"
     title = "Tekst"
@@ -197,7 +202,7 @@ def test_a_unit_running_per_row_returning_a_series_makes_rows_under_its_row():
     ledger.record(("lines", (0,)), {"result": ["a", "b"]})
 
     assert ledger.complete("lines")
-    lines = ledger.results()["lines"]["result"]
+    lines = _results_of(ledger)["lines"]["result"]
     assert lines.index == Index("lines.result", parent=Index("docs.texts"))
     assert lines.rows == ((0, 0), (0, 1), (1, 0))
     assert list(lines) == ["a", "b", "c"]
@@ -331,7 +336,7 @@ def test_a_skipped_row_leaves_the_series_sparse():
     ledger.record(("up", (1,)), Skip(at=(1,)))
     ledger.record(("up", (2,)), {"result": "C"})
 
-    up = ledger.results()["up"]["result"]
+    up = _results_of(ledger)["up"]["result"]
     assert up.rows == ((0,), (2,))
     assert list(up) == ["A", "C"]
     assert ledger.inputs_for(("n", (1,))) == Skip(at=(1,))
@@ -359,8 +364,8 @@ def test_an_iterating_node_with_every_row_skipped_is_an_empty_series_not_skipped
     ledger.record(("docs", ()), {"texts": ["a"], "names": ["x"]})
     ledger.record(("up", (0,)), Skip(at=(0,)))
 
-    assert "up" in ledger.results()
-    assert list(ledger.results()["up"]["result"]) == []
+    assert "up" in _results_of(ledger)
+    assert list(_results_of(ledger)["up"]["result"]) == []
 
 
 def test_a_decision_over_a_whole_column_gates_what_hangs_off_the_branch_not_taken():
@@ -388,7 +393,7 @@ def test_a_decision_over_a_whole_column_gates_what_hangs_off_the_branch_not_take
     assert ledger.inputs_for(("after", ())) == Skip(at=())
     ledger.record(("empty", ()), Skip(at=()))
     ledger.record(("after", ()), Skip(at=()))
-    results = ledger.results()
+    results = _results_of(ledger)
     assert "empty" not in results and "up" not in results and "after" not in results
     assert "empty" not in ledger.result_of("decide")  # the branch not taken is absent, never SKIPPED
 
@@ -417,10 +422,10 @@ def test_a_gate_at_a_parent_row_reaches_only_the_rows_under_it():
     ledger.record(("j", (0,)), {"result": "A+B"})
     ledger.record(("j", (1,)), Skip(at=(1,)))
 
-    joined = ledger.results()["j"]["result"]
+    joined = _results_of(ledger)["j"]["result"]
     assert joined.rows == ((0,),)
     assert list(joined) == ["A+B"]
-    assert ledger.results()["up"]["result"].rows == ((0, 0), (0, 1))
+    assert _results_of(ledger)["up"]["result"].rows == ((0, 0), (0, 1))
 
 
 def test_a_mask_and_a_gate_differ_only_in_depth():
@@ -456,7 +461,7 @@ def test_results_hold_scalars_and_series_on_their_indexes():
     ledger.record(("up", (0,)), {"result": "A"})
     ledger.record(("j", ()), {"result": "A+B"})
 
-    results = ledger.results()
+    results = _results_of(ledger)
     assert results["j"] == {"result": "A+B"}
     assert results["up"]["result"].index == Index("docs.texts")
     assert list(results["up"]["result"]) == ["A", "B"]
@@ -522,7 +527,7 @@ def test_a_skipped_node_is_absent_from_the_results():
     ledger = _ledger([GraphNode(id="a", type="upper", version=1, bindings={"text": Static("a")})])
     ledger.record(("a", ()), Skip(at=()))
 
-    assert ledger.results() == {}
+    assert _results_of(ledger) == {}
 
 
 def test_progress_counts_rows_and_knows_the_total_once_sealed():
@@ -564,7 +569,7 @@ def test_the_ledger_restores_from_its_state():
     assert restored.units("up") == ledger.units("up")
     assert restored.is_done(("up", (0,))) and not restored.is_done(("up", (1,)))
     assert restored.inputs_for(("up", (1,))) == {"text": "b"}
-    assert restored.results()["docs"]["texts"].rows == ((0,), (1,))
+    assert _results_of(restored)["docs"]["texts"].rows == ((0,), (1,))
 
 
 def _restores_as_it_was(ledger):

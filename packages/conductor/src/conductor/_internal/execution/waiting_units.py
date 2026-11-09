@@ -5,9 +5,9 @@ of ``RunState.waiting``. ``apply_answers`` is the other half, and the verb
 ``CompiledGraph.answer``: it checks every answer against what its unit asked,
 refuses the call listing every fault, and otherwise writes the answered units
 into a new state as finished, with the same cells a node's return would have
-written. No node runs and nothing else in the state is read, so the cost
-follows the answers. Whether the rest of the graph can then run is the next
-leg's business.
+written. No node runs. Each call passes over every waiting unit and copies the
+columns it writes to, so answering many units costs least as one call. Whether
+the rest of the graph can then run is the next leg's business.
 """
 
 from __future__ import annotations
@@ -15,8 +15,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
-from conductor._internal.codec import json_schema_of, to_wire
-from conductor._internal.dtype import description_of
+from conductor._internal.codec import to_wire
 from conductor._internal.errors import InvalidCallError, Problem, problem
 from conductor._internal.execution.run_state import (
     Answers,
@@ -26,11 +25,11 @@ from conductor._internal.execution.run_state import (
     WaitingUnit,
 )
 from conductor._internal.execution.validate_unit_outputs import validate_unit_outputs
-from conductor._internal.field_records import Output
 from conductor._internal.ref import Ref
 from conductor._internal.series import Row
 from conductor._internal.skip_and_ask import SKIPPED, AskPerson
 from conductor._internal.table import Table
+from conductor.widgets import Widget
 
 if TYPE_CHECKING:
     from conductor._internal.graph.compiled import CompiledGraph
@@ -42,45 +41,46 @@ def waiting_unit_for(node: CompiledNode, row: Row, asked: AskPerson) -> WaitingU
     ``asked`` names an output the node does not have or proposes a default that
     is not its output's type: the node's own fault, not the person's."""
     assert node.interface is not None and node.wiring is not None  # the engine runs only a runnable graph
-    outputs = {out.name: out for out in node.interface.outputs}
-    for name in (*asked.defaults, *asked.widgets):
-        if name not in outputs:
-            raise ValueError(f"AskPerson names '{name}', which is not one of this node's outputs")
-    defaults: dict[str, Any] = {}
-    if asked.defaults:
-        checked = {name: asked.defaults.get(name, SKIPPED) for name in outputs}
-        cells, faults = validate_unit_outputs(node, row, checked, frozenset())
-        if faults:
-            raise ValueError("; ".join(fault.message for fault in faults))
-        defaults = {name: _default_as_wire(cells[name], outputs[name]) for name in asked.defaults}
+    questions = node._questions
+    if asked.defaults or asked.widgets:
+        questions = _with_defaults_and_widgets(node, row, asked)
     return WaitingUnit(
         id=node.id if row == () else f"{node.id}@{','.join(str(n) for n in row)}",
         node_id=node.id,
         row=row,
         prompt=asked.prompt,
-        questions=tuple(_question(out, defaults, asked) for out in outputs.values()),
+        questions=questions,
     )
 
 
-def _default_as_wire(cell: Any, out: Output) -> Any:
-    if isinstance(cell, list):
-        return [to_wire(item, type(item)) for item in cell]
-    return to_wire(cell, type(cell))
-
-
-def _question(out: Output, defaults: Mapping[str, Any], asked: AskPerson) -> Question:
-    widget = asked.widgets.get(out.name)
-    return Question(
-        name=out.name,
-        title=out.title,
-        description=out.description,
-        dtype=description_of(out.dtype),
-        json_schema=json_schema_of(out.dtype),
-        widget=None if widget is None else widget.model_dump(mode="json"),
-        default=defaults.get(out.name),
-        optional=out.name in defaults or out.takes_blank,
-        choice=out.choice,
+def _with_defaults_and_widgets(node: CompiledNode, row: Row, asked: AskPerson) -> tuple[Question, ...]:
+    """The node's questions with what this ``AskPerson`` adds, each a copy. A ``ValueError`` when it isn't sound."""
+    names = {question.name for question in node._questions}
+    for name in (*asked.defaults, *asked.widgets):
+        if name not in names:
+            raise ValueError(f"AskPerson names '{name}', which is not one of this node's outputs")
+    for name, widget in asked.widgets.items():
+        if not isinstance(widget, Widget):
+            raise ValueError(f"AskPerson's widget for '{name}' is a {type(widget).__name__}, not a widget")
+    cells, faults = validate_unit_outputs(node, row, {name: asked.defaults.get(name, SKIPPED) for name in names})
+    if faults:
+        raise ValueError("; ".join(fault.message for fault in faults))
+    defaults = {name: _default_as_wire(cells[name], name) for name in asked.defaults}
+    return tuple(
+        question.model_copy(update={
+            "default": defaults.get(question.name),
+            "optional": question.choice is None and (question.name in defaults or question.optional),
+            "widget": None if question.name not in asked.widgets else asked.widgets[question.name].model_dump(mode="json"),
+        })
+        for question in node._questions
     )
+
+
+def _default_as_wire(cell: Any, name: str) -> Any:
+    try:
+        return [to_wire(item, type(item)) for item in cell] if isinstance(cell, list) else to_wire(cell, type(cell))
+    except Exception as unwritable:
+        raise ValueError(f"AskPerson's default for '{name}' has no JSON form: {unwritable}") from unwritable
 
 
 def apply_answers(compiled: CompiledGraph, state: RunState, answers: Answers) -> RunState:
@@ -94,7 +94,7 @@ def apply_answers(compiled: CompiledGraph, state: RunState, answers: Answers) ->
         if asked is None or asked.node_id in changed:
             faults.append(problem("not_waiting", "answers", waiting_id, waiting_id=waiting_id))
             continue
-        cells = _answered_cells(compiled.node(asked.node_id), asked, given, faults, compiled._row_ids_must_survive)
+        cells = _answered_cells(compiled.node(asked.node_id), asked, given, faults)
         if cells is not ...:
             finished.append((asked, cells))
     if faults:
@@ -102,7 +102,7 @@ def apply_answers(compiled: CompiledGraph, state: RunState, answers: Answers) ->
     return _with_units_finished(compiled, state, finished)
 
 
-def _answered_cells(node: CompiledNode, asked: WaitingUnit, given: Mapping[str, Any] | None, faults: list[Problem], row_ids_must_survive: frozenset[Ref]) -> Any:
+def _answered_cells(node: CompiledNode, asked: WaitingUnit, given: Mapping[str, Any] | None, faults: list[Problem]) -> Any:
     """One unit's answer as the cells it finishes with, ``None`` for a unit
     with no value on its row. Adds its faults and returns ``...`` when it has any."""
     if given is None:
@@ -121,7 +121,7 @@ def _answered_cells(node: CompiledNode, asked: WaitingUnit, given: Mapping[str, 
         if question.choice is not None:
             groups.setdefault(question.choice, []).append(question.name)
     values = _with_choices_and_defaults(questions, groups, given, where, faults)
-    cells, output_faults = validate_unit_outputs(node, asked.row, {name: value for name, value in values.items() if name in questions}, row_ids_must_survive)
+    cells, output_faults = validate_unit_outputs(node, asked.row, {name: value for name, value in values.items() if name in questions})
     for fault in output_faults:
         faults.append(problem("invalid_value", *where, fault.output, reason=fault.message, errors=list(fault.errors)))
     return ... if len(faults) > before else cells

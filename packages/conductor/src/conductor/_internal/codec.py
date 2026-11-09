@@ -25,13 +25,20 @@ state lists the rows skipped beside the values, instead of a value.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Mapping, Sequence
 from functools import cache
+from types import NoneType
 from typing import Any
 
-from pydantic import PydanticUserError, TypeAdapter
+from pydantic import ConfigDict, PydanticUserError, TypeAdapter
 
 from conductor._internal.series import Index, Series
+from conductor._internal.table import Table
+
+#: Runtime types whose JSON form can hold no float a dump would have to look for.
+#: A table writes its own columns and refuses what it can't keep.
+_NEVER_HOLDS_A_FLOAT = (str, int, NoneType, Table)
 
 
 def to_wire(value: Any, dtype: Any) -> Any:
@@ -75,11 +82,22 @@ def _unchanged(value: Any) -> Any:
 
 def values_to_wire(values: list[Any]) -> list[Any]:
     """Each value as JSON-ready data, written by its own type. Values all of
-    one type, the usual case, are written through one adapter in one call."""
+    one type, the usual case, are written through one adapter in one call.
+
+    A float that isn't finite comes out as JSON can hold it where its type
+    reads it back (a type built on ``float``, a table's column). Anywhere else,
+    a plain ``float`` in a field typed ``Any`` or one inside a record, nothing
+    would, and this raises rather than let it come back as something else.
+    """
     kinds = {type(value) for value in values}
     if len(kinds) == 1:
-        return _adapter(list[kinds.pop()]).dump_python(values, mode="json", fallback=_by_own_type)  # type: ignore[misc]
-    return [to_wire(value, type(value)) for value in values]
+        (kind,) = kinds
+        written: list[Any] = _adapter(list[kind]).dump_python(values, mode="json", fallback=_by_own_type)  # type: ignore[valid-type]
+    else:
+        written = [to_wire(value, type(value)) for value in values]
+    if not all(issubclass(kind, _NEVER_HOLDS_A_FLOAT) for kind in kinds):
+        json.dumps(written, allow_nan=False)
+    return written
 
 
 def json_schema_of(dtype: Any) -> dict[str, Any]:
@@ -109,8 +127,13 @@ def _by_own_type(value: Any) -> Any:
 
 @cache
 def _adapter(dtype: Any) -> TypeAdapter[Any]:
-    """One adapter per declared type: building one reads the type's schema, which is the slow part."""
-    return TypeAdapter(dtype)
+    """One adapter per declared type: building one reads the type's schema, which is the
+    slow part. It leaves a float that isn't finite as it is, for ``values_to_wire`` to see;
+    pydantic's default would write it as ``null``. A type with a config of its own keeps that."""
+    try:
+        return TypeAdapter(dtype, config=ConfigDict(ser_json_inf_nan="constants"))
+    except PydanticUserError:
+        return TypeAdapter(dtype)
 
 
 # -- a series ----------------------------------------------------------------------------

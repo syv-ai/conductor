@@ -61,6 +61,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from itertools import chain
+from operator import itemgetter
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Iterator
 
@@ -95,7 +97,6 @@ from conductor._internal.table import (
     holds_tables,
     merge,
     row_id,
-    with_row_ids,
 )
 
 if TYPE_CHECKING:
@@ -104,6 +105,7 @@ if TYPE_CHECKING:
     from conductor._internal.field_records import Output
     from conductor._internal.graph.compiled import CompiledGraph
     from conductor._internal.graph.compiled_node import CompiledField
+    from conductor._internal.graph.engine_read_plan import EngineReadPlan
 
 #: One run of one node: the node id and the row it runs on — ``()`` for
 #: a node that runs once; a row shorter than the index the node runs per row of, for the one
@@ -134,13 +136,6 @@ class NotCalled:
     """This unit does not run: a blank reached these inputs, which take none."""
 
     blank_inputs: tuple[str, ...]
-
-
-def _fits(row: Row, index: Index | None) -> bool:
-    """Whether a stored row is one a field or node on ``index`` can hold: a
-    row no deeper than ``index``, where ``()`` is the top (a node that runs
-    once, or a skip from above standing in)."""
-    return len(row) <= (0 if index is None else index.depth)
 
 
 def _prefixes(key: Row) -> Iterator[Row]:
@@ -196,7 +191,8 @@ class LiveRunValues:
         #: Per index, the rows beneath which it has no rows at all, because
         #: something above them was skipped.
         self._no_rows_under: dict[str, set[Row]] = {}
-        self._done: set[Unit] = set()
+        #: Kept in the order units finished, which ``state`` then has little to sort.
+        self._done: dict[Unit, None] = {}
         #: Per node that runs once per row, how many of its units are done:
         #: at a row of its index, and standing in at a shorter row.
         self._done_rows: dict[str, int] = {}
@@ -239,11 +235,13 @@ class LiveRunValues:
         of every list whose index is its child, and seal them. Then seal the
         index of every node that makes rows per row of a list complete from
         the start."""
+        next_up: list[str] = []
         for index_id in roots:
             for row in sorted(self._rows.get(index_id, ())):
                 self._made_lists(index_id, row)
-            self._seal_listed(index_id, [])
-        self._seal([made for index_id in roots for made in self._making_rows_on(index_id)])
+            next_up.extend(self._making_rows_on(index_id))
+            next_up.extend(self._seal_listed(index_id, []))
+        self._seal(next_up)
 
     # -- the read plan, as compile stored it -----------------------------------
 
@@ -791,7 +789,7 @@ class LiveRunValues:
         """Mark the unit done, and count it toward its node's rows."""
         if unit in self._done:
             return
-        self._done.add(unit)
+        self._done[unit] = None
         node_id, _ = unit
         if self._plan.runs_per_row_of[node_id] is not None:
             counts = self._done_rows if self.on_a_row(unit) else self._done_standing_in
@@ -908,36 +906,7 @@ class LiveRunValues:
         a ``Series``, sparse where rows were skipped — a node whose every row
         was skipped away gives an empty series.
         """
-        outputs = self._plan.interfaces[node_id].outputs
-        if outputs and all(self._lookup(Ref(node_id, out.name), ())[0] is SKIPPED for out in outputs):
-            return None
-        result: dict[str, Any] = {}
-        for out in outputs:
-            ref = Ref(node_id, out.name)
-            index = self._fields[ref]._index
-            value, _ = self._lookup(ref, ())
-            if value is SKIPPED:
-                continue
-            if index is None:
-                result[out.name] = value
-            else:
-                written = [row for row in self._rows_under(index.id, ()) if self._present(ref, row)]
-                result[out.name] = self._series(node_id, (ref,), index, written)
-        return result
-
-    def results(self) -> dict[str, dict[str, Any]]:
-        """Every node's outputs so far, by node id: a node with a finished
-        unit or none to run, its per-row outputs holding the rows written so far.
-        A node that did not run is absent."""
-        started = {node_id for node_id, _ in self._done}
-        produced: dict[str, dict[str, Any]] = {}
-        for node_id in self._compiled.execution_order:
-            if node_id not in started and not self.complete(node_id):
-                continue
-            result = self.result_of(node_id)
-            if result is not None:
-                produced[node_id] = result
-        return produced
+        return node_result(self._plan, node_id, self._values)
 
     # -- the state ----------------------------------------------------------------
 
@@ -948,29 +917,32 @@ class LiveRunValues:
         them typed: the next read costs nothing to decode, and a dump writes
         each one by its own type."""
         columns: dict[Ref, OutputColumn] = {}
-        for ref, by_row in self._values.items():
+        for ref in sorted(self._values):
+            by_row = self._values[ref]
             rows: list[Row] = []
             values: list[Any] = []
             skipped: list[Row] = []
-            for row, value in by_row.items():
+            for row, value in sorted(by_row.items(), key=itemgetter(0)):
                 if value is SKIPPED:
                     skipped.append(row)
                 else:
                     rows.append(row)
                     values.append(value)
             columns[ref] = OutputColumn.model_construct(rows=rows, values=values, skipped=skipped)
-        finished: dict[str, list[Row]] = {}
-        for node_id, row in self._done:
-            finished.setdefault(node_id, []).append(row)
         compiled = self._compiled
+        order = compiled.execution_order
+        finished_by_node: dict[str, list[Row]] = {}
+        for node_id, row in self._done:
+            finished_by_node.setdefault(node_id, []).append(row)
         return RunState.model_construct(
             status=status,
             failure=failure,
             waiting=self.waiting(),
             output_columns=columns,
-            finished_rows=finished,
-            node_fingerprints={node_id: compiled.node(node_id).fingerprint for node_id in compiled.execution_order},
-            rows_not_called={node_id: dict(counts) for node_id, counts in self._rows_not_called.items()},
+            # A node complete on no rows is here with none: the state says it finished.
+            finished_rows={node_id: sorted(finished_by_node.get(node_id, ())) for node_id in order if node_id in finished_by_node or self.complete(node_id)},
+            node_fingerprints={node_id: compiled.node(node_id).fingerprint for node_id in order},
+            rows_not_called={node_id: dict(sorted(self._rows_not_called[node_id].items())) for node_id in order if node_id in self._rows_not_called},
         )
 
     @classmethod
@@ -988,29 +960,24 @@ class LiveRunValues:
         A stored value that does not read as its output's type, a value or a
         unit at a row its field or node has no place for, and a value for a
         field the graph does not have are all reported at once, as
-        ``InvalidCallError`` with the code ``state_unreadable``. A ``None``
-        passes on any output: a blank is a legal value in a state.
+        ``InvalidCallError`` with the code ``state_unreadable``, the columns'
+        faults first and then the units'. A ``None`` passes on any output: a
+        blank is a legal value in a state.
         """
         restored = cls(compiled)
         dropped = set(compiled.nodes_changed_since(state))
-        faults: list[Problem] = []
-        for ref, column in state.output_columns.items():
-            if ref.node_id not in dropped:
-                restored._restore_column(ref, column, faults)
-        done: list[Unit] = []
-        for node_id, rows in state.finished_rows.items():
-            if node_id in dropped:
-                continue
-            for row in rows:
-                if restored._fits_node(node_id, row, faults, ("state", node_id, *row)):
-                    done.append((node_id, row))
-        for asked in state.waiting:
-            if asked.node_id not in dropped and restored._fits_node(asked.node_id, asked.row, faults, ("state", asked.id)):
-                restored._waiting[(asked.node_id, asked.row)] = asked
+        restored._values, faults = read_output_columns(compiled, state, dropped)
         if faults:
             raise InvalidCallError(faults)
+        restored._skipped_on = {ref for ref in restored._values if state.output_columns[ref].skipped}
+        finished = {node_id: rows for node_id, rows in state.finished_rows.items() if node_id not in dropped}
+        done = [(node_id, row) for node_id, rows in finished.items() for row in rows]
+        restored._waiting = {(asked.node_id, asked.row): asked for asked in state.waiting if asked.node_id not in dropped}
         restored._remake_rows(done)
         restored._rows_not_called = {node_id: dict(counts) for node_id, counts in state.rows_not_called.items() if node_id not in dropped}
+        faults = restored._faults_in_units(finished)
+        if faults:
+            raise InvalidCallError(faults)
         for unit in done:
             restored._finish(unit)
         restored._seal([
@@ -1019,39 +986,33 @@ class LiveRunValues:
         ])
         return restored
 
-    def _restore_column(self, ref: Ref, column: OutputColumn, faults: list[Problem]) -> None:
-        """One output's stored rows and cells written in, or the faults that stop them."""
-        try:
-            field = self._compiled.field(ref)
-        except KeyError:
-            faults.append(problem("state_unreadable", "state", ref, reason=f"the state has a value for {ref}, which the graph does not have"))
-            return
-        depth = 0 if field._index is None else field._index.depth
-        misplaced = [row for row in (*column.rows, *column.skipped) if len(row) > depth]
-        for row in misplaced:
-            faults.append(problem("state_unreadable", "state", ref, *row, reason=f"the state's value for {ref} is at row {list(row)}, which {ref} has no place for"))
-        if misplaced:
-            return
-        by_row = self._values.setdefault(ref, {})
-        read = field._read_cell
-        for row, stored in zip(column.rows, column.values, strict=True):
-            try:
-                by_row[row] = _restored_cell(field, row, stored, read)
-            except (TypeError, ValueError) as unreadable:
-                faults.append(problem("state_unreadable", "state", ref, *row, reason=f"the state's value for {ref} at row {list(row)} does not read back: {_reason(unreadable)}"))
-        if column.skipped:
-            self._skipped_on.add(ref)
-            for row in column.skipped:
-                by_row[row] = SKIPPED
-
-    def _fits_node(self, node_id: str, row: Row, faults: list[Problem], loc: tuple[str | int, ...]) -> bool:
-        """Whether a stored unit sits at a row its node can have; the fault that says it does not, if not."""
-        if node_id not in self._compiled._nodes:
-            return False
-        if _fits(row, self._plan.runs_per_row_of[node_id]):
-            return True
-        faults.append(problem("state_unreadable", *loc, reason=f"the state has {node_id!r} at row {list(row)}, which {node_id!r} has no place for"))
-        return False
+    def _faults_in_units(self, finished: Mapping[str, list[Row]]) -> list[Problem]:
+        """What is wrong with the stored units once the rows are made again: a
+        unit, finished or waiting, on a row that was never made or kept empty, or
+        a finished unit one of whose one-value outputs holds nothing at its row."""
+        faults: list[Problem] = []
+        by_node = {node_id: set(rows) for node_id, rows in finished.items()}
+        stored = {node_id: set(rows) for node_id, rows in by_node.items()}
+        for node_id, row in self._waiting:
+            stored.setdefault(node_id, set()).add(row)
+        for node_id, rows in stored.items():
+            index = self._plan.runs_per_row_of[node_id]
+            stray = rows - {()} if index is None else rows.difference(self._rows.get(index.id, ()), self._no_rows_under.get(index.id, ()))
+            faults.extend(
+                problem("state_unreadable", "state", node_id, *row, reason=f"the state has {node_id!r} at row {list(row)}, which {node_id!r} has no place for")
+                for row in sorted(stray)
+            )
+        for node_id, rows in by_node.items():
+            for out in self._plan.interfaces[node_id].outputs:
+                ref = Ref(node_id, out.name)
+                if self._fields[ref]._holds_many:
+                    continue
+                faults.extend(
+                    problem("state_unreadable", "state", ref, *row, reason=f"the state has {node_id!r} finished at row {list(row)}, with no value for {ref}")
+                    for row in sorted(rows - self._values.get(ref, _NO_VALUES).keys())
+                    if self._lookup(ref, row)[0] is _MISSING
+                )
+        return faults
 
     def _remake_rows(self, done: list[Unit]) -> None:
         """Make again the rows the done units' writes made, and mark again
@@ -1067,6 +1028,7 @@ class LiveRunValues:
         ``record`` does.
         """
         made: dict[str, set[Row]] = {}
+        rows_under_parent: dict[Ref, dict[Row, list[Row]]] = {}
         for node_id, row in done:
             for out in self._plan.interfaces[node_id].outputs:
                 ref = Ref(node_id, out.name)
@@ -1085,7 +1047,9 @@ class LiveRunValues:
                     if self._columns_read(index.id):
                         made.setdefault(index.id, set()).update((*row, j) for j in range(stored.frame.height))
                 else:
-                    made.setdefault(index.id, set()).update(key for key in by_row if len(key) == len(row) + 1 and key[:-1] == row)
+                    if ref not in rows_under_parent:
+                        rows_under_parent[ref] = _rows_by_parent(by_row)
+                    made.setdefault(index.id, set()).update(rows_under_parent[ref].get(row, ()))
                 self._groups.add((index.id, row))
         for node_id in self._compiled.execution_order:
             for index_id in self._indexes_made_by(node_id):
@@ -1124,17 +1088,103 @@ def _leave_out_blank_rows(values: dict[str, Any], names: tuple[str, ...]) -> Non
             values[name] = Series(value.index, [cell for _, cell in kept], rows=[row for row, _ in kept])
 
 
-def _restored_cell(field: CompiledField, row: Row, stored: Any, read: Any) -> Any:
+def _rows_by_parent(by_row: Mapping[Row, Any]) -> dict[Row, list[Row]]:
+    """A column's rows grouped under the row one level above each."""
+    grouped: dict[Row, list[Row]] = {}
+    for row in by_row:
+        if row:
+            grouped.setdefault(row[:-1], []).append(row)
+    return grouped
+
+
+def read_output_columns(compiled: CompiledGraph, state: RunState, dropped: set[str]) -> tuple[dict[Ref, dict[Row, Any]], list[Problem]]:
+    """What ``state`` holds on every output of the graph, by row, each value
+    read through its output's check, and every fault found.
+
+    The one reader of ``state.output_columns``: a leg restores from it and
+    ``compiled.results`` reads from it. ``dropped`` (``nodes_changed_since``)
+    is left out."""
+    values: dict[Ref, dict[Row, Any]] = {}
+    faults: list[Problem] = []
+    for ref, column in state.output_columns.items():
+        if ref.node_id not in dropped:
+            read = _read_output_column(compiled, ref, column, faults)
+            if read is not None:
+                values[ref] = read
+    return values, faults
+
+
+def _read_output_column(compiled: CompiledGraph, ref: Ref, column: OutputColumn, faults: list[Problem]) -> dict[Row, Any] | None:
+    """One output's stored rows and cells, or ``None`` and the faults that stop them."""
+    try:
+        field = compiled.field(ref)
+    except KeyError:
+        faults.append(problem("state_unreadable", "state", ref, reason=f"the state has a value for {ref}, which the graph does not have"))
+        return None
+    depth = 0 if field._index is None else field._index.depth
+    stored_rows = (*column.rows, *column.skipped)
+    misplaced: list[Row] = []
+    if max(map(len, stored_rows), default=0) > depth or min(chain.from_iterable(stored_rows), default=0) < 0:
+        misplaced = [row for row in stored_rows if len(row) > depth or min(row, default=0) < 0]
+    for row in misplaced:
+        faults.append(problem("state_unreadable", "state", ref, *row, reason=f"the state's value for {ref} is at row {list(row)}, which {ref} has no place for"))
+    if misplaced:
+        return None
+    by_row: dict[Row, Any] = {}
+    read = field._read_cell
+    for row, stored in zip(column.rows, column.values, strict=True):
+        try:
+            by_row[row] = _restored_cell(field, stored, read)
+        except (TypeError, ValueError) as unreadable:
+            faults.append(problem("state_unreadable", "state", ref, *row, reason=f"the state's value for {ref} at row {list(row)} does not read back: {_reason(unreadable)}"))
+    for row in column.skipped:
+        by_row[row] = SKIPPED
+    return by_row
+
+
+def _restored_cell(field: CompiledField, stored: Any, read: Any) -> Any:
     """A stored value as its cell. A value already of its type came from a
     leg in this process and is as that leg left it; a ``None`` is a blank. Any
-    other goes through the output's check, and a table from JSON gets the ids
-    it may lack, as a returned one does."""
+    other goes through the output's check, and a table has to have kept its row ids."""
     if stored is None or type(stored) is field._cell_type:
         return stored
     cell = read(stored)
-    if field._makes_rows is not None and isinstance(cell, Table):
-        return type(cell)._holding(with_row_ids(cell.frame, field._makes_rows, row))
+    if field._makes_rows is not None and isinstance(cell, Table) and ROW_ID not in cell.frame.columns:
+        raise ValueError("a stored table has lost the ids of its rows")
     return cell
+
+
+def node_result(plan: EngineReadPlan, node_id: str, values: Mapping[Ref, Mapping[Row, Any]]) -> dict[str, Any] | None:
+    """A node's outputs by name, read off what each holds, or ``None`` when
+    the node did not run (every output is ``SKIPPED`` at the top).
+
+    A result holds only what the node produced: an output the node skipped
+    (the branch not taken) is absent, never ``SKIPPED``. A scalar output of a
+    node that ran once is its value; anything on an index is a ``Series`` of
+    the rows written so far, sparse where rows were skipped."""
+    outputs = plan.interfaces[node_id].outputs
+    by_output = {out.name: values.get(Ref(node_id, out.name), _NO_VALUES) for out in outputs}
+    if outputs and all(by_row.get(()) is SKIPPED for by_row in by_output.values()):
+        return None
+    result: dict[str, Any] = {}
+    for name, by_row in by_output.items():
+        at_top = by_row.get((), _MISSING)
+        if at_top is SKIPPED:
+            continue
+        index = plan.fields[Ref(node_id, name)]._index
+        if index is not None:
+            rows = _rows_with_a_value(by_row)
+            result[name] = Series(index, [by_row[row] for row in rows], rows=rows)
+        elif at_top is not _MISSING:
+            result[name] = at_top
+    return result
+
+
+def _rows_with_a_value(by_row: Mapping[Row, Any]) -> list[Row]:
+    """A field's rows in order, leaving out the skipped ones and those under a skip."""
+    skipped = {row for row, value in by_row.items() if value is SKIPPED}
+    rows = sorted(by_row)
+    return [row for row in rows if not any(prefix in skipped for prefix in _prefixes(row))] if skipped else rows
 
 
 def _reason(unreadable: Exception) -> str:

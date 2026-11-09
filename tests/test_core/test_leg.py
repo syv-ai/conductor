@@ -11,11 +11,13 @@ import asyncio
 import inspect
 import threading
 import time
-from typing import Annotated
+from typing import Annotated, Any
 
+import pytest
 from conductor import (
     CompiledGraph,
     DType,
+    ExternalFailure,
     From,
     Graph,
     GraphNode,
@@ -24,6 +26,7 @@ from conductor import (
     Param,
     Policy,
     Result,
+    RunState,
     Series,
     Static,
     node,
@@ -308,3 +311,142 @@ def test_a_ready_unit_nobody_started_stops_the_leg_loudly(monkeypatch):
     ])
     with pytest.raises(RuntimeError, match="missed wake"):
         CompiledGraph.from_graph(graph, NodeRegistry((echo,))).run_sync()
+
+
+# -- what a node may raise, and how a unit gets its turn -------------------------------
+
+
+@pytest.mark.parametrize(
+    "raised",
+    [asyncio.CancelledError(), GeneratorExit(), BaseException("b"), SystemExit(3), KeyboardInterrupt(), StopIteration()],
+    ids=lambda raised: type(raised).__name__,
+)
+def test_anything_a_node_raises_fails_its_unit_and_the_leg_ends(raised):
+    @node("raises", title="R", description="d", category="test")
+    def raises(text: In = Txt("")) -> Out:
+        raise raised
+
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="r", type="raises", version=1)]), NodeRegistry([raises]))
+
+    async def bounded() -> RunState:
+        return await asyncio.wait_for(compiled.run(), 3)
+
+    state = asyncio.run(bounded())
+    assert (state.status, state.failure.type, state.failure.loc[0]) == ("failed", "execution_failed", "r")
+
+
+def _wide_graph(rows: int, **definition: Any) -> CompiledGraph:
+    @node("source", title="S", description="d", category="test")
+    def source(text: In = Txt("")) -> Parts:
+        return [Txt(str(n)) for n in range(rows)]
+
+    @node("one", title="O", description="d", category="test", **definition)
+    def one(text: Annotated[Txt, Param(title="T")]) -> Out:
+        return text
+
+    nodes = [GraphNode(id="s", type="source", version=1), GraphNode(id="o", type="one", version=1, bindings={"text": From("s.result")})]
+    return CompiledGraph.from_graph(Graph(nodes=nodes), NodeRegistry([source, one]))
+
+
+def test_a_cancel_set_while_the_queue_holds_messages_ends_the_leg_at_the_next_event():
+    cancel = asyncio.Event()
+
+    async def go() -> list[Any]:
+        seen = []
+        async with _wide_graph(2000).stream(cancel=cancel) as events:
+            async for event in events:
+                seen.append(event)
+                if len(seen) == 20:
+                    cancel.set()
+        return seen
+
+    seen = asyncio.run(go())
+    assert len(seen) == 21 and seen[-1].state.status == "cancelled"
+
+
+def test_a_cancel_from_another_task_lands_within_a_moment():
+    cancel = asyncio.Event()
+
+    async def go() -> tuple[str, float]:
+        running = asyncio.create_task(_wide_graph(20000).run(cancel=cancel))
+        await asyncio.sleep(0.05)
+        asked = time.monotonic()
+        cancel.set()
+        state = await running
+        return state.status, time.monotonic() - asked
+
+    status, took = asyncio.run(go())
+    assert status == "cancelled" and took < 0.5
+
+
+def test_a_unit_waiting_for_a_slot_has_no_task():
+    release = threading.Event()
+    peak: list[int] = []
+
+    @node("source", title="S", description="d", category="test")
+    def source(text: In = Txt("")) -> Parts:
+        return [Txt(str(n)) for n in range(500)]
+
+    @node("held", title="H", description="d", category="test", policy=Policy(concurrency=2))
+    def held(text: Annotated[Txt, Param(title="T")]) -> Out:
+        release.wait(5)
+        return text
+
+    nodes = [GraphNode(id="s", type="source", version=1), GraphNode(id="h", type="held", version=1, bindings={"text": From("s.result")})]
+    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), NodeRegistry([source, held]))
+
+    async def go() -> RunState:
+        running = asyncio.create_task(compiled.run())
+        await asyncio.sleep(0.2)
+        peak.append(len(asyncio.all_tasks()))
+        release.set()
+        return await running
+
+    assert asyncio.run(go()).status == "complete"
+    assert peak[0] < 10
+
+
+def test_the_retry_delay_doubles_each_time_and_a_retry_holds_no_slot_while_it_waits():
+    tries: dict[str, int] = {}
+
+    @node("source", title="S", description="d", category="test")
+    def source(text: In = Txt("")) -> Parts:
+        return [Txt("flaky"), Txt("steady")]
+
+    @node("flaky", title="F", description="d", category="test", policy=Policy(concurrency=1, retries=3, delay=0.02))
+    def flaky(text: Annotated[Txt, Param(title="T")]) -> Out:
+        tries[text] = tries.get(text, 0) + 1
+        if text == "flaky" and tries[text] <= 3:
+            raise ExternalFailure("try again")
+        finished.append(str(text))
+        return text
+
+    finished: list[str] = []
+    nodes = [GraphNode(id="s", type="source", version=1), GraphNode(id="f", type="flaky", version=1, bindings={"text": From("s.result")})]
+    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), NodeRegistry([source, flaky]))
+
+    async def go() -> list[Any]:
+        return [event async for event in stream_of(compiled)]
+
+    events = asyncio.run(go())
+    assert [event.delay for event in events if event.type == "node_retry"] == [0.02, 0.04, 0.08]
+    assert finished == ["steady", "flaky"]
+
+
+def test_a_leg_makes_no_more_threads_than_calls_in_flight():
+    seen: set[int] = set()
+
+    @node("source", title="S", description="d", category="test")
+    def source(text: In = Txt("")) -> Parts:
+        return [Txt(str(n)) for n in range(20)]
+
+    @node("step", title="T", description="d", category="test")
+    def step(text: Annotated[Txt, Param(title="T")]) -> Out:
+        seen.add(threading.get_ident())
+        return text
+
+    nodes = [GraphNode(id="s", type="source", version=1), GraphNode(id="n0", type="step", version=1, bindings={"text": From("s.result")})]
+    nodes += [GraphNode(id=f"n{i}", type="step", version=1, bindings={"text": From(f"n{i - 1}.result")}) for i in range(1, 100)]
+    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), NodeRegistry([source, step]))
+    assert compiled.run_sync().status == "complete"
+    assert len(seen) <= 21

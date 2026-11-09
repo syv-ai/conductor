@@ -66,7 +66,7 @@ def compile_graph(graph: Graph, registry: NodeRegistry) -> CompiledRecords:
     walk = WalkSoFar()
     authored: dict[str, GraphNode] = {}
     for node in graph.nodes:
-        if SEPARATOR in node.id or "." in node.id:
+        if SEPARATOR in node.id or "." in node.id or "@" in node.id:
             found = problem("invalid_node_id", node.id)
             walk.refused[node.id] = found
             walk.compiled[node.id] = _bare_node(node, found)

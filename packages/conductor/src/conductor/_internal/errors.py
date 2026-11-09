@@ -72,7 +72,7 @@ CATALOGUE: Mapping[str, tuple[str, bool]] = {
     "embedded_graph_broken": ("The graph '{graph}' has {problems} problem(s) to fix before it can be used here.", True),
     "edge_into_unconnectable_input": ("Nothing can be connected to the field '{field}'.", True),
     "output_has_no_type": ("The output '{field}' has no type that can travel on an edge.", True),
-    "invalid_node_id": ("'{node_id}' cannot be a node id: '/' names the nodes of an embedded graph.", True),
+    "invalid_node_id": ("'{node_id}' cannot be a node id: '/', '.' and '@' each mean something in an address.", True),
     "invalid_static": ("The value in '{field}' cannot be read as the field's type. {reason}", True),
     "lists_on_a_per_row_node": (
         "Only one list can be set directly on a node that runs per row; '{a}' and '{b}' are both lists.", True,

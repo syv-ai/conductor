@@ -37,6 +37,7 @@ Polars is imported the first time a table is built, never at
 from __future__ import annotations
 
 import datetime
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from functools import cache
@@ -44,7 +45,7 @@ from itertools import count
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, get_type_hints, is_typeddict
 
 from pydantic import TypeAdapter
-from pydantic_core import core_schema, to_jsonable_python
+from pydantic_core import PydanticSerializationError, core_schema, to_json
 
 from conductor._internal.dtype import DType
 from conductor._internal.errors import NodeDeclarationError
@@ -105,11 +106,8 @@ def with_row_ids(frame: pl.DataFrame, index: Index, parent: Row) -> pl.DataFrame
     person added it, or a node copied one. It gets the first id spelled
     from ``parent + (n,)`` on ``index`` that no row holds, so a row added
     to a table leaves every other row's id where it was."""
-    import polars as pl
-
     if ROW_ID not in frame.columns:
-        spelled = [row_id(index, (*parent, n)) for n in range(frame.height)]
-        return frame.insert_column(0, pl.Series(ROW_ID, spelled, dtype=pl.String))
+        return _with_ids([row_id(index, (*parent, n)) for n in range(frame.height)], frame)
     ids = frame[ROW_ID]
     if ids.null_count() == 0 and ids.n_unique() == frame.height:
         return frame
@@ -118,7 +116,14 @@ def with_row_ids(frame: pl.DataFrame, index: Index, parent: Row) -> pl.DataFrame
     seen: set[str] = set()
     spare = (spelled for spelled in (row_id(index, (*parent, n)) for n in count()) if spelled not in taken)
     fresh = [next(spare) if value is None or value in seen or seen.add(value) else value for value in written]  # type: ignore[func-returns-value]
-    return frame.drop(ROW_ID).insert_column(0, pl.Series(ROW_ID, fresh, dtype=pl.String))
+    return _with_ids(fresh, frame.drop(ROW_ID))
+
+
+def _with_ids(ids: list[str], frame: pl.DataFrame) -> pl.DataFrame:
+    """A new frame with ``ids`` as its first column: the frame given may be a node's own, or shared, and stays as it was."""
+    import polars as pl
+
+    return pl.DataFrame([pl.Series(ROW_ID, ids, dtype=pl.String), *frame.get_columns()])
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,7 +188,7 @@ def merge(sources: Sequence[MergeSource]) -> pl.DataFrame:
             if name == ROW_ID:
                 continue
             if name in taken:
-                renames[name] = f"{name}_{source.node_id}"
+                renames[name] = _first_free_name(f"{name}_{source.node_id}", taken)
             taken.add(renames.get(name, name))
         named.append(source.frame.rename(renames))
     columns = [name for frame in named for name in frame.columns if name != ROW_ID]
@@ -208,6 +213,15 @@ def merge(sources: Sequence[MergeSource]) -> pl.DataFrame:
         key = _parent_key(index)
         merged = merged.join(frame.rename({ROW_ID: key}), on=key, how="left", maintain_order="left")
     return merged.select(ROW_ID, *columns)
+
+
+def _first_free_name(wanted: str, taken: set[str]) -> str:
+    """``wanted``, or ``wanted_2``, ``wanted_3`` and on when an earlier column holds it."""
+    name, n = wanted, 1
+    while name in taken:
+        n += 1
+        name = f"{wanted}_{n}"
+    return name
 
 
 def _parent_key(index: Index) -> str:
@@ -301,8 +315,12 @@ class Table(DType, Generic[RowsOf]):
                 raise ValueError(f"a list of records could not be read as a table: {unreadable}") from unreadable
         else:
             raise ValueError(f"a table is a DataFrame, a list of records or a table's JSON form, not a {type(value).__name__}")
+        if ROW_ID in frame.columns and frame.schema[ROW_ID] != pl.String:
+            frame = frame.with_columns(pl.col(ROW_ID).cast(pl.String))
         if not cls.columns:
             return frame
+        if not frame.columns:
+            return frame_with_no_rows(cls)
         read = []
         for name, dtype in cls.columns:
             if name not in frame.columns:
@@ -364,7 +382,9 @@ class Table(DType, Generic[RowsOf]):
         """In: a table, a frame, records or the JSON form, read as this type. Out, as JSON:
         ``{"columns": [{"name", "dtype"}], "data": {name: [...]}, "rows": [...]}``, where
         ``rows`` holds the ``__row`` ids (``null`` on a table that has none), ``columns``
-        never lists ``__row``, and a blank cell is ``null``."""
+        never lists ``__row``, ``dtype`` is the column's Polars type (a name, or an object
+        with its parameters) and a blank cell is ``null``. A column that can't be written
+        without changing it raises here."""
 
         def read(value: Any) -> Table:
             return value if type(value) is cls else cls(value)
@@ -378,8 +398,8 @@ def _to_wire(table: Table) -> dict[str, Any]:
     frame = table.frame
     names = [name for name in frame.columns if name != ROW_ID]
     return {
-        "columns": [{"name": name, "dtype": str(frame[name].dtype)} for name in names],
-        "data": {name: to_jsonable_python(frame[name].to_list()) for name in names},
+        "columns": [{"name": name, "dtype": _dtype_to_wire(frame[name].dtype)} for name in names],
+        "data": {name: _column_to_wire(frame[name]) for name in names},
         "rows": frame[ROW_ID].to_list() if ROW_ID in frame.columns else None,
     }
 
@@ -389,7 +409,7 @@ def _from_wire(value: Mapping[str, Any]) -> pl.DataFrame:
 
     try:
         columns = [
-            _cast(pl.Series(column["name"], value["data"][column["name"]], strict=False), _dtype_named(column["dtype"]), column["dtype"])
+            _column_from_wire(column["name"], value["data"][column["name"]], _dtype_from_wire(column["dtype"]))
             for column in value["columns"]
         ]
         if value.get("rows") is not None:
@@ -399,33 +419,98 @@ def _from_wire(value: Mapping[str, Any]) -> pl.DataFrame:
         raise ValueError(f"a table's JSON form does not line up: {malformed}") from malformed
 
 
-def _dtype_named(name: str) -> pl.DataType | None:
-    """The Polars type its name (``str(dtype)``) spells, a time-like one
-    (``Datetime(...)``) with its defaults; ``None`` for a nested one (a list,
-    a struct), whose type Polars reads back off the values themselves."""
+def _column_to_wire(column: pl.Series) -> list[Any]:
+    """A column's values as JSON: a type JSON holds exactly as it is; any other as JSON
+    spells it, and only if reading that back gives this very column, so the form never
+    changes a type or a value. A ``Duration`` travels as its count of the column's unit,
+    and a float that isn't finite as ``"NaN"``, ``"Infinity"`` or ``"-Infinity"``."""
     import polars as pl
 
-    base = name.split("(", 1)[0]
-    if base in ("List", "Array", "Struct"):
-        return None
-    return getattr(pl, base)()
+    dtype = column.dtype
+    if dtype in (pl.String, pl.Boolean) or dtype.is_integer() or (dtype.is_float() and column.is_finite().all()):
+        return column.to_list()
+    try:
+        written = json.loads(to_json((column.to_physical() if dtype == pl.Duration else column).to_list(), inf_nan_mode="strings"))
+        kept = _column_from_wire(column.name, written, dtype).equals(column, check_dtypes=True)
+    except (ValueError, TypeError, PydanticSerializationError, pl.exceptions.PolarsError):
+        kept = False
+    if not kept:
+        raise ValueError(f"column '{column.name}' of type {dtype} can't be written as JSON without changing it")
+    return written
 
 
-def _cast(column: pl.Series, target: pl.DataType | None, said: str) -> pl.Series:
+def _column_from_wire(name: str, values: list[Any], dtype: pl.DataType) -> pl.Series:
+    """One column read back as the type its JSON form names."""
+    import polars as pl
+
+    if dtype.is_nested():
+        return pl.Series(name, values, dtype=dtype, strict=False)
+    return _cast(pl.Series(name, values, strict=False), dtype, str(dtype))
+
+
+#: A column type's parameters, by the name of the type; one with none isn't here.
+_DTYPE_PARAMETERS: dict[str, tuple[str, ...]] = {
+    "Decimal": ("precision", "scale"),
+    "Datetime": ("time_unit", "time_zone"),
+    "Duration": ("time_unit",),
+    "Enum": ("categories",),
+    "List": ("inner",),
+    "Array": ("inner", "shape"),
+    "Struct": ("fields",),
+}
+
+
+def _dtype_to_wire(dtype: pl.DataType) -> str | dict[str, Any]:
+    """A column type as JSON: its name, or ``{"type": name, ...its parameters}``."""
+    name = type(dtype).__name__
+    if name not in _DTYPE_PARAMETERS:
+        return name
+    described: dict[str, Any] = {"type": name}
+    for parameter in _DTYPE_PARAMETERS[name]:
+        value = getattr(dtype, parameter)
+        if parameter == "inner":
+            value = _dtype_to_wire(value)
+        elif parameter == "fields":
+            value = {field.name: _dtype_to_wire(field.dtype) for field in value}
+        elif parameter == "categories":
+            value = value.to_list()
+        described[parameter] = value
+    return described
+
+
+def _dtype_from_wire(described: str | Mapping[str, Any]) -> pl.DataType:
+    """The column type ``_dtype_to_wire`` wrote. A name that is no Polars column type is a ``TypeError``."""
+    import polars as pl
+
+    name, parameters = (described, {}) if isinstance(described, str) else (described["type"], {k: v for k, v in described.items() if k != "type"})
+    made = getattr(pl, name, None)
+    if not (isinstance(made, type) and issubclass(made, pl.DataType)):
+        raise TypeError(f"{name!r} is not a column type")
+    if "inner" in parameters:
+        parameters["inner"] = _dtype_from_wire(parameters["inner"])
+    if "fields" in parameters:
+        parameters["fields"] = {field: _dtype_from_wire(inner) for field, inner in parameters["fields"].items()}
+    return made(**parameters)
+
+
+def _cast(column: pl.Series, target: pl.DataType, said: str) -> pl.Series:
     """``column`` as ``target``, a value that won't read refused, naming the column and the type it isn't.
 
+    A column already of ``target``'s kind stays as it is, its parameters
+    with it: a ``DType`` naming ``"Decimal"`` says nothing of the scale.
     Text is parsed into a date, a time or a moment, since they travel as
-    text in JSON and in most files; everything else is Polars' own cast. A
-    ``None`` target leaves the column as Polars read it (a nested column)."""
+    text in JSON and in most files; everything else is Polars' own cast."""
     import polars as pl
 
-    if target is None or column.dtype == target:
+    if column.dtype == type(target):
         return column
     try:
-        if column.dtype == pl.String and target.is_temporal():
-            parsers: dict[type, Any] = {pl.Date: column.str.to_date, pl.Time: column.str.to_time}
-            parse = parsers.get(type(target), column.str.to_datetime)
-            cast = parse(strict=False)
+        if column.dtype == pl.String and isinstance(target, pl.Date):
+            cast = column.str.to_date(strict=False)
+        elif column.dtype == pl.String and isinstance(target, pl.Time):
+            cast = column.str.to_time(strict=False)
+        elif column.dtype == pl.String and isinstance(target, pl.Datetime):
+            cast = column.str.to_datetime(time_unit=target.time_unit, time_zone=target.time_zone, strict=False)
         else:
             cast = column.cast(target, strict=False)
     except (pl.exceptions.InvalidOperationError, pl.exceptions.ComputeError):

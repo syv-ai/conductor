@@ -21,8 +21,9 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic_core import to_jsonable_python
 
-from conductor._internal.codec import reader_of, to_wire
+from conductor._internal.codec import json_schema_of, reader_of, to_wire
 from conductor._internal.dtype import description_of
+from conductor._internal.execution.run_state import Question
 from conductor._internal.graph.run_plan import NodeRunPlan, plan_of_node
 from conductor._internal.interface import build_call_validator
 from conductor._internal.node_decorator import NodeVersion
@@ -182,6 +183,19 @@ class CompiledNode:
             "outputs": {out.name: description_of(out.dtype) for out in interface.outputs},
         }
         return hashlib.sha256(json.dumps(to_jsonable_python(used), sort_keys=True).encode("utf-8")).hexdigest()
+
+    @cached_property
+    def _questions(self) -> tuple[Question, ...]:
+        """What a person is asked when this node asks, one record per output:
+        built once, shared by every unit, and never written to."""
+        assert self.interface is not None
+        return tuple(
+            Question(
+                name=out.name, title=out.title, description=out.description, dtype=description_of(out.dtype),
+                json_schema=json_schema_of(out.dtype), optional=out.takes_blank and out.choice is None, choice=out.choice,
+            )
+            for out in self.interface.outputs
+        )
 
     @cached_property
     def _check(self) -> Callable[[Mapping[str, Any]], dict[str, Any]]:

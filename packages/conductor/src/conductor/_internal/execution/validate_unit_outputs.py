@@ -40,12 +40,14 @@ class OutputFault:
     code: str = "invalid_output"
 
 
-def validate_unit_outputs(node: CompiledNode, row: Row, named: Mapping[str, Any], row_ids_must_survive: frozenset[Ref]) -> tuple[dict[str, Any], list[OutputFault]]:
+def validate_unit_outputs(node: CompiledNode, row: Row, named: Mapping[str, Any], row_ids_must_survive: frozenset[Ref] = frozenset()) -> tuple[dict[str, Any], list[OutputFault]]:
     """``named`` as the cells the state holds, and every output that did not fit.
 
     ``row`` is the unit's own: a table's new rows are named after it. ``SKIPPED``
     passes on any output and on any element of a many-valued one. Only outputs
     that fit are in the cells; a caller with faults writes none of them.
+    ``row_ids_must_survive`` holds the outputs that had an id to keep: a unit given
+    no rows, or a person's answer whose form has no place for one, passes none.
     """
     assert node.interface is not None and node.wiring is not None  # the engine runs only a runnable graph
     cells: dict[str, Any] = {}
@@ -98,6 +100,11 @@ def _read_one(field: CompiledField, row: Row, value: Any, row_ids_must_survive: 
             raise _RowIdsLost
         return type(cell)._holding(with_row_ids(cell.frame, field._makes_rows, row))
     return cell
+
+
+def took_a_row_in(inputs: Mapping[str, Any]) -> bool:
+    """Did these inputs carry a row a returned table could keep the id of?"""
+    return any((isinstance(value, Table) and value.frame.height > 0) or (isinstance(value, Series) and len(value) > 0) for value in inputs.values())
 
 
 def _named(field: CompiledField) -> str:

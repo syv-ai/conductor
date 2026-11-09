@@ -54,6 +54,7 @@ the second reaches a registry, never at class definition.
 
 from __future__ import annotations
 
+import math
 from abc import ABC, ABCMeta
 from dataclasses import dataclass
 from functools import cache
@@ -67,6 +68,17 @@ from conductor._internal.errors import NodeDeclarationError
 
 if TYPE_CHECKING:
     from pydantic import GetCoreSchemaHandler
+
+def _float_as_json(value: float) -> float | str:
+    """A float as JSON: a finite one as it is, the others as pydantic spells them when
+    told to keep them. JSON has no literal for them, and a float's validator reads the text back."""
+    if math.isfinite(value):
+        return value
+    return "NaN" if math.isnan(value) else ("Infinity" if value > 0 else "-Infinity")
+
+
+_FLOAT_AS_JSON = core_schema.plain_serializer_function_ser_schema(_float_as_json, when_used="json")
+
 
 class _DTypeMeta(ABCMeta):
     """A type prints as its name, ``Text`` or ``Series[Text]``, the way an author writes it."""
@@ -187,6 +199,7 @@ class DType(ABC, metaclass=_DTypeMeta):
         return core_schema.no_info_after_validator_function(
             lambda value: value if isinstance(value, cls) else cls(value),
             handler.generate_schema(builtin),
+            serialization=_FLOAT_AS_JSON if issubclass(builtin, float) else None,
         )
 
     # -- internals -----------------------------------------------------------

@@ -71,7 +71,7 @@ from typing import TYPE_CHECKING, Any
 
 from conductor._internal.errors import InvalidCallError, Problem, problem
 from conductor._internal.execution.events import Event, RunEnd
-from conductor._internal.execution.live_run_values import LiveRunValues
+from conductor._internal.execution.live_run_values import node_result, read_output_columns
 from conductor._internal.execution.run_state import Answers, RunState
 from conductor._internal.execution.run_until_idle import Leg
 from conductor._internal.execution.waiting_units import apply_answers
@@ -322,8 +322,10 @@ class CompiledGraph:
         setting ``cancel`` ends it ``cancelled`` at once.
 
         ``checkpoint_every`` asks for a ``RunCheckpoint`` at most this many
-        seconds apart, taken when a unit finishes (``0``: every time one does),
-        so a crash loses only the units since the last one saved. ``None``, the
+        seconds apart, taken when a unit finishes, so a crash loses only the units
+        since the last one saved. ``0`` saves at every finished unit, a pass over
+        every value so far each time, so its cost is the square of the units:
+        for a test, not for a large run. ``None``, the
         default, costs nothing. A checkpoint is a state with status ``running``:
         ``run`` and ``answer`` go on from it, a finished unit is not called again
         and one in flight is, so a unit runs at least once and a node with side
@@ -394,16 +396,28 @@ class CompiledGraph:
         in as people answer. A node the graph has changed since, and whatever
         reads it, is left out.
         """
-        return LiveRunValues.restore(self, state).results()
+        dropped = set(self.nodes_changed_since(state))
+        values, faults = read_output_columns(self, state, dropped)
+        if faults:
+            raise InvalidCallError(faults)
+        produced: dict[str, dict[str, Any]] = {}
+        for node_id in self._order:
+            if node_id in state.finished_rows and node_id not in dropped:
+                result = node_result(self._read_plan, node_id, values)
+                if result is not None:
+                    produced[node_id] = result
+        return produced
 
     def outputs(self, state: RunState, /) -> dict[str, Any]:
         """What the graph returned: each output of ``interface.outputs`` by its address.
 
-        Only a ``complete`` state has any: on another, a call asking for the
-        result raises ``InvalidCallError`` with the code ``run_not_complete``,
-        its ``ctx`` holding the status and the failure's cause, rather than a
-        ``KeyError`` far from the cause. An output whose node skipped it is
-        absent. ``results`` reads what a stopped run did produce.
+        Only a ``complete`` state of this graph has any. On another state, or
+        one where this graph has changed an output's node since, the call
+        raises ``InvalidCallError`` with the code ``run_not_complete``, its
+        ``ctx`` holding the status (``stale`` for the changed graph) and the
+        failure's cause, so a host never reads an empty answer for a run that
+        was not this one. An output whose node skipped it is absent. ``results``
+        reads what a stopped run did produce.
         """
         if state.status != "complete":
             failure = state.failure
@@ -411,6 +425,12 @@ class CompiledGraph:
                 "run_not_complete", "state", "status", status=state.status,
                 reason="" if failure is None else failure.msg,
                 failure=None if failure is None else failure.model_dump(mode="json"),
+            )])
+        changed = set(self.nodes_changed_since(state)).intersection(out.name.node_id for out in self.interface.outputs)
+        if changed:
+            raise InvalidCallError([problem(
+                "run_not_complete", "state", "status", status="stale",
+                reason=f"These have changed since it ran: {', '.join(sorted(changed))}.", failure=None,
             )])
         results = self.results(state)
         returned: dict[str, Any] = {}
