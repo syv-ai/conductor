@@ -340,7 +340,7 @@ def test_a_unit_whose_second_output_is_invalid_writes_nothing():
 
     state = compiled.run_sync()
 
-    assert state.status == "failed" and state.failure.type == "invalid_output"
+    assert state.status == "failed" and state.cause.type == "invalid_output"
     assert all(not work.outputs and work.finished_units is None for work in state.nodes.values())
 
 

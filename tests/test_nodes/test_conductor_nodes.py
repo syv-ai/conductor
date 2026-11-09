@@ -277,7 +277,7 @@ def test_a_pattern_that_times_out_fails_its_node_with_a_sentence_for_people(monk
     ending = CompiledGraph.from_graph(graph, conductor_nodes.registry()).run_sync()
 
     assert ending.status == "failed"
-    assert (ending.failure.type, ending.failure.msg) == ("pattern_timeout", "The pattern took too long.")
+    assert (ending.cause.type, ending.cause.msg) == ("pattern_timeout", "The pattern took too long.")
 
 
 def test_a_grouped_extract_that_times_out_fails_with_the_same_code(monkeypatch):
@@ -290,7 +290,7 @@ def test_a_grouped_extract_that_times_out_fails_with_the_same_code(monkeypatch):
     ending = CompiledGraph.from_graph(graph, conductor_nodes.registry()).run_sync()
 
     assert ending.status == "failed"
-    assert ending.failure.type == "pattern_timeout"
+    assert ending.cause.type == "pattern_timeout"
 
 
 def test_categories_filter_on_each_nodes_own_category():

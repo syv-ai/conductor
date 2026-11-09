@@ -55,7 +55,7 @@ def test_a_fraction_in_an_int_column_fails_the_node_rather_than_being_cut_off() 
     compiled = _compiled(_whole_amount.graph_node("a"), nodes=[_whole_amount])
     state = compiled.run_sync()
     assert state.status == "failed"
-    assert state.failure is not None and state.failure.type == "invalid_output"
+    assert state.cause is not None and state.cause.type == "invalid_output"
 
 
 @node("whole-number")

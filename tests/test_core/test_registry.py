@@ -52,7 +52,7 @@ def populated_registry() -> NodeRegistry:
 
 
 def test_register_files_the_class_under_its_id(registry):
-    registry = registry.extended_with([echo])
+    registry = registry.with_nodes([echo])
 
     assert registry["echo"] is echo
     assert registry["echo"].title == "Echo"
@@ -140,10 +140,10 @@ def _node(node_id):
 def test_extending_leaves_the_original_alone():
     """A per-run registry must not mutate the process-wide catalog."""
     base = NodeRegistry()
-    base = base.extended_with([_node("static")])
+    base = base.with_nodes([_node("static")])
     loaded = _node("loaded")
 
-    extended = base.extended_with([loaded])
+    extended = base.with_nodes([loaded])
 
     assert "loaded" in extended
     assert "static" in extended
@@ -155,23 +155,23 @@ def test_a_registered_type_cannot_be_shadowed():
     static = _node("shared-id")
     base = NodeRegistry([static])
 
-    extended = base.extended_with([_node("other")])
+    extended = base.with_nodes([_node("other")])
 
     assert extended["shared-id"] is static
 
 
 def test_extending_with_nothing_is_the_same_registry_contents():
     base = NodeRegistry()
-    base = base.extended_with([_node("only")])
+    base = base.with_nodes([_node("only")])
 
-    assert base.extended_with([])["only"] is base["only"]
+    assert base.with_nodes([])["only"] is base["only"]
 
 
 def test_a_registry_lists_its_nodes_as_the_classes_in_registration_order():
     registry = NodeRegistry()
     greet, truncate = _node("greet"), _node("truncate")
-    registry = registry.extended_with([greet])
-    registry = registry.extended_with([truncate])
+    registry = registry.with_nodes([greet])
+    registry = registry.with_nodes([truncate])
 
     assert registry.nodes == (greet, truncate)
     assert [cls.id for cls in registry.nodes] == ["greet", "truncate"]

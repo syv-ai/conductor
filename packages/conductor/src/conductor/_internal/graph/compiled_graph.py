@@ -99,7 +99,7 @@ def where_it_failed(failure: Problem) -> str:
     node_id, *row = failure.loc
     where = f"It stopped at node {node_id!r}" + (f", row {'.'.join(map(str, row))}" if row else "")
     kind = failure.ctx.get("exception")
-    return f"{where}{f' ({kind})' if kind else ''}: {failure.msg} See state.failure and the 'conductor' log."
+    return f"{where}{f' ({kind})' if kind else ''}: {failure.msg} See state.cause and the 'conductor' log."
 
 
 def _place_of_offered_field(handle: Ref, graph: CompiledGraph) -> Ref:
@@ -427,23 +427,23 @@ class CompiledGraph:
         one where this graph has changed an output's node since, the call
         raises ``InvalidCallError`` with the code ``run_not_complete``, its
         ``ctx`` holding the status (``stale`` for the changed graph) and the
-        failure's cause, so a host never reads an empty answer for a run that
+        ``cause``, so a host never reads an empty answer for a run that
         was not this one. An output whose node skipped it is absent. ``results``
         reads what a stopped run did produce.
         """
         if state.status != "complete":
-            failure = state.failure
+            cause = state.cause
             raise InvalidCallError([make_problem(
                 "run_not_complete", "state", "status", status=state.status,
-                reason="" if failure is None else where_it_failed(failure),
-                failure=None if failure is None else failure.model_dump(mode="json"),
+                reason="" if cause is None else where_it_failed(cause),
+                cause=None if cause is None else cause.model_dump(mode="json"),
             )])
         where = self._embeddable.place_of_output
         changed = set(self._nodes_changed_since(state)).intersection(output_address.node_id for output_address in where.values())
         if changed:
             raise InvalidCallError([make_problem(
                 "run_not_complete", "state", "status", status="stale",
-                reason=f"These have changed since it ran: {', '.join(sorted(changed))}.", failure=None,
+                reason=f"These have changed since it ran: {', '.join(sorted(changed))}.", cause=None,
             )])
         results = self.results(state)
         returned: dict[str, Any] = {}

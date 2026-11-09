@@ -161,7 +161,7 @@ LINES = (n("split", text=Static("one two\nthree")), n("count", "words", text=Fro
 def test_run_returns_the_state_and_outputs_read_it():
     compiled = compiled_of(*LINES)
     state = compiled.run_sync()
-    assert (state.status, state.failure, state.waiting) == ("complete", None, ())
+    assert (state.status, state.cause, state.waiting) == ("complete", None, ())
     counts = compiled.outputs(state)["count.result"]
     assert counts == {"rows": [(0,), (1,)], "values": [2, 1]}
     assert isinstance(counts["values"][0], Whole)
@@ -190,7 +190,7 @@ def test_a_failed_node_is_a_status_with_its_cause():
     compiled = compiled_of(n("boom"))
     state = compiled.run_sync()
     assert state.status == "failed"
-    assert (state.failure.type, state.failure.msg, state.failure.loc[0], state.failure.loc[1:]) == ("failed", "det gik galt", "boom", ())
+    assert (state.cause.type, state.cause.msg, state.cause.loc[0], state.cause.loc[1:]) == ("failed", "det gik galt", "boom", ())
 
 
 def test_outputs_of_a_state_that_is_not_complete_raises_with_the_cause():
@@ -200,18 +200,18 @@ def test_outputs_of_a_state_that_is_not_complete_raises_with_the_cause():
         compiled.outputs(state)
     (fault,) = raised.value.errors()
     assert fault.type == "run_not_complete"
-    assert fault.ctx["status"] == "failed" and fault.ctx["failure"]["type"] == "failed"
+    assert fault.ctx["status"] == "failed" and fault.ctx["cause"]["type"] == "failed"
 
 
 def test_a_node_returning_the_wrong_type_ends_the_run_failed_not_refused():
     state = compiled_of(n("wrong-type")).run_sync()
-    assert state.status == "failed" and state.failure.type == "invalid_output"
-    assert "42" not in str(state.failure.ctx["reason"])
+    assert state.status == "failed" and state.cause.type == "invalid_output"
+    assert "42" not in str(state.cause.ctx["reason"])
 
 
 def test_asking_about_an_output_the_node_does_not_have_fails_the_run():
     state = compiled_of(n("ask-stray")).run_sync()
-    assert state.status == "failed" and state.failure.type == "invalid_output"
+    assert state.status == "failed" and state.cause.type == "invalid_output"
 
 
 def test_results_reads_what_a_stopped_run_did_produce():
@@ -255,8 +255,8 @@ def test_leaving_the_block_stops_the_units_and_writes_no_state():
 def test_cancel_and_timeout_end_the_leg_with_a_state():
     compiled = compiled_of(n("slow"))
     state = compiled.run_sync(timeout=0.05)
-    assert state.status == "timed_out" and state.failure.type == "run_timed_out"
-    assert state.failure.ctx["timeout_seconds"] == 0.05
+    assert state.status == "timed_out" and state.cause.type == "run_timed_out"
+    assert state.cause.ctx["timeout_seconds"] == 0.05
 
     async def cancelled():
         cancel = asyncio.Event()
@@ -264,7 +264,7 @@ def test_cancel_and_timeout_end_the_leg_with_a_state():
         return await compiled.run(cancel=cancel)
 
     state = asyncio.run(cancelled())
-    assert state.status == "cancelled" and state.failure.type == "run_cancelled"
+    assert state.status == "cancelled" and state.cause.type == "run_cancelled"
 
 
 # -- scenario 3: a run stops for a person; another process goes on -----------------------
@@ -281,7 +281,7 @@ def test_the_waiting_units_are_in_the_state_with_their_questions_and_load_with_n
     (question,) = state.waiting[0].questions
     assert question.name == "result" and question.dtype == {"id": "lifecycle-txt"} and question.title == "Svar"
     assert question.json_schema == {"type": "string"}
-    assert (question.default, question.optional) == ("a", True)
+    assert (question.default, question.required) == ("a", False)
 
 
 def test_an_answer_finishes_its_unit_and_a_node_that_asked_is_not_called_again():
@@ -493,7 +493,7 @@ def test_a_node_returning_none_on_a_typed_output_still_fails():
 
     registry = NodeRegistry([returns_none])
     compiled = CompiledGraph.from_graph(Graph(nodes=(GraphNode(id="r", type="returns-none", version=1),)), registry)
-    assert compiled.run_sync().failure.type == "invalid_output"
+    assert compiled.run_sync().cause.type == "invalid_output"
 
 
 def test_a_dump_of_a_value_with_no_json_form_names_the_output():
@@ -541,7 +541,7 @@ def extract(text: Annotated[Txt, Param(title="T", widget=Textarea())] = Txt(""))
     return read_table(Contacts, [{"name": text, "email": "a@x"}])
 
 
-REGISTRY = REGISTRY.extended_with([extract])
+REGISTRY = REGISTRY.with_nodes([extract])
 
 
 def test_a_change_above_a_column_reader_drops_its_answer_and_it_asks_again():
@@ -602,8 +602,8 @@ def test_an_input_that_starts_taking_a_blank_changes_the_fingerprint_and_is_call
         return Whole(0 if x is None else x)
 
     nodes = [GraphNode(id="n", type="nothing", version=1), GraphNode(id="c", type="counted", version=1, bindings={"x": From("n.result")})]
-    before = CompiledGraph.from_graph(Graph(nodes=nodes), NodeRegistry().extended_with([nothing, refuses_a_blank]))
-    after = CompiledGraph.from_graph(Graph(nodes=nodes), NodeRegistry().extended_with([nothing, takes_a_blank]))
+    before = CompiledGraph.from_graph(Graph(nodes=nodes), NodeRegistry().with_nodes([nothing, refuses_a_blank]))
+    after = CompiledGraph.from_graph(Graph(nodes=nodes), NodeRegistry().with_nodes([nothing, takes_a_blank]))
     state = before.run_sync()
     assert calls == {}
 

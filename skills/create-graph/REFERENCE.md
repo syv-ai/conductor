@@ -26,7 +26,7 @@ def approve(proposal: Annotated[str, Param(title="Proposal", widget=Textarea())]
     return AskPerson(defaults={"result": proposal}, widgets={"result": Textarea()})
 
 
-registry = registry.extended_with([approve])
+registry = registry.with_nodes([approve])
 asking = CompiledGraph.from_graph(
     Graph(nodes=[
         GraphNode(id="drafts", type="text-split", version=1, bindings={"text": Static("first,second")}),

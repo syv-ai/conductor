@@ -94,7 +94,7 @@ def test_a_foreign_exception_named_in_retry_on_is_external_and_retries():
     assert len(calls) == 3
     retries = [e for e in events if e.type == "node_retry"]
     assert [(e.attempt, e.retries, e.node_id) for e in retries] == [(1, 2, "n1"), (2, 2, "n1")]
-    assert retries[0].error == "An outside service did not answer."
+    assert retries[0].cause.msg == "An outside service did not answer."
     assert events[-1].state.status == "complete"
     assert compiled.results(events[-1].state)["n1"]["result"] == "ok"
 
@@ -328,6 +328,6 @@ def test_a_type_whose_validator_does_not_return_the_type_fails_loud():
 
     ending = compiled.run_sync()
 
-    assert ending.status == "failed" and ending.failure.loc[0] == "d"
-    assert ending.failure.type == "engine_error" and ending.failure.ctx == {"exception": "TypeError"}
+    assert ending.status == "failed" and ending.cause.loc[0] == "d"
+    assert ending.cause.type == "engine_error" and ending.cause.ctx == {"exception": "TypeError"}
     assert compiled.results(ending) == {}

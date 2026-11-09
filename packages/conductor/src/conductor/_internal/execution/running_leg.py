@@ -54,7 +54,7 @@ node completes or the leg ends, so a reader always has the last one.
 unit fails the leg: nothing more starts, the calls already on a thread are
 waited for and recorded, as far as each one's attempt timeout allows, since
 they have had their effect and a later leg must not repeat them; then the leg
-ends, with the cause and its row on ``state.failure``. A node with no timeout
+ends, with the cause and its row on ``state.cause``. A node with no timeout
 that never returns holds a failed leg open as it holds any other. A cancel or
 the leg's deadline ends the leg at once: what threads have already handed back
 is recorded, and a call still on a thread is not.
@@ -202,7 +202,7 @@ class RunningLeg:
         self.out: deque[Event] = deque()
         #: Cleared by the first failure, a cancel or the deadline: nothing starts after that.
         self.units_may_start = True
-        self.failure: Problem | None = None
+        self.cause: Problem | None = None
         self.timed_out_after: float | None = None
         #: A unit finished since the last ``RunCheckpoint``; only that changes the state.
         self.a_unit_finished = False
@@ -302,8 +302,8 @@ class RunningLeg:
     def _ending_state(self, stopped_early: bool) -> RunState:
         """The state the leg ends with: the first failure stands; a stop says which it was, a cancel over a deadline."""
         ledger = self.ledger
-        if self.failure is not None:
-            return ledger.state("failed", self.failure)
+        if self.cause is not None:
+            return ledger.state("failed", self.cause)
         if not stopped_early:
             return ledger.state("waiting" if ledger.waiting() else "complete")
         if self.cancel.is_set():
@@ -445,7 +445,7 @@ class RunningLeg:
             self._fail_unit(unit, failed.problem)
             return
         delay = policy.retry_delay * (2 ** attempt)
-        self.out.append(NodeRetry(node_id=node_id, row=row, attempt=attempt + 1, retries=policy.retries, error=failed.problem.msg, delay=delay))
+        self.out.append(NodeRetry(node_id=node_id, row=row, attempt=attempt + 1, retries=policy.retries, cause=failed.problem, delay=delay))
         self.retries_waiting[unit] = self._loop.call_later(delay, self._post, self._retry_due, unit, attempt + 1)
 
     def _retry_due(self, unit: Unit, attempt: int) -> None:
@@ -461,8 +461,8 @@ class RunningLeg:
 
     def _fail_unit(self, unit: Unit, problem: Problem) -> None:
         """The first failure fails the leg; anything failing after it is only in the log."""
-        if self.failure is None:
-            self.failure = problem
+        if self.cause is None:
+            self.cause = problem
             self.out.append(NodeFailed(node_id=unit[0], cause=problem))
             self._stop_starting_units()
 

@@ -204,7 +204,7 @@ def test_concurrency_one_with_a_timeout_never_has_two_calls_in_flight():
     assert most == 1
     assert [e.type for e in events if e.type == "node_retry"] == []
     assert events[-1].state.status == "failed"
-    assert events[-1].state.failure.type == "timeout"
+    assert events[-1].state.cause.type == "timeout"
     assert elapsed < 0.45, f"the leg waited {elapsed:.2f}s for an abandoned thread"
 
 
@@ -254,8 +254,8 @@ def test_a_leg_deadline_ends_the_leg_at_once_timed_out():
     elapsed = time.monotonic() - start
 
     assert events[-1].state.status == "timed_out"
-    assert events[-1].state.failure.ctx["timeout_seconds"] == 0.2
-    assert 0.2 <= events[-1].state.failure.ctx["elapsed_seconds"] < 0.5
+    assert events[-1].state.cause.ctx["timeout_seconds"] == 0.2
+    assert 0.2 <= events[-1].state.cause.ctx["elapsed_seconds"] < 0.5
     assert elapsed < 0.5
 
 
@@ -301,7 +301,7 @@ def test_anything_a_node_raises_fails_its_unit_and_the_leg_ends(raised):
         return await asyncio.wait_for(compiled.run(), 3)
 
     state = asyncio.run(bounded())
-    assert (state.status, state.failure.type, state.failure.loc[0]) == ("failed", "execution_failed", "r")
+    assert (state.status, state.cause.type, state.cause.loc[0]) == ("failed", "execution_failed", "r")
 
 
 def _wide_graph(rows: int, **definition: Any) -> CompiledGraph:
@@ -488,7 +488,7 @@ def test_one_row_failing_at_concurrency_eight_keeps_the_seven_calls_already_runn
 
     events, state = _run_to_the_end_releasing_on_failure(compiled, release)
 
-    assert state.status == "failed" and state.failure.type == "execution_failed"
+    assert state.status == "failed" and state.cause.type == "execution_failed"
     assert sorted(calls, key=int) == [str(i) for i in range(8)], "no unit starts after the failure"
     assert [row[0] for row, _ in state.nodes["slow"].finished_units] == [1, 2, 3, 4, 5, 6, 7]
     assert compiled.results(state)["slow"]["result"]["values"] == [str(i) for i in range(1, 8)]
@@ -534,7 +534,7 @@ def test_a_failed_leg_waits_for_a_call_no_longer_than_its_attempt_timeout():
     took = time.monotonic() - started
     release.set()
 
-    assert state.status == "failed" and state.failure.type == "execution_failed", "the first failure stands"
+    assert state.status == "failed" and state.cause.type == "execution_failed", "the first failure stands"
     assert 0.15 < took < 1.0, f"the failed leg took {took:.2f}s"
 
 
@@ -555,7 +555,7 @@ def test_an_ask_or_a_second_failure_while_a_failed_leg_drains():
 
     events, state = _run_to_the_end_releasing_on_failure(_per_row(mixed, 4), release)
 
-    assert state.status == "failed" and state.failure.loc[1] == 0, "the first failure"
+    assert state.status == "failed" and state.cause.loc[1] == 0, "the first failure"
     assert [event.type for event in events].count("node_failed") == 1
     assert [unit.row for unit in state.nodes["slow"].waiting] == [(1,)]
     assert [row for row, _ in state.nodes["slow"].finished_units] == [(3,)]
@@ -576,7 +576,7 @@ def test_a_retry_is_not_made_after_the_leg_has_failed():
     events, state = _run_to_the_end_releasing_on_failure(_per_row(flaky, 2), release)
     time.sleep(0.1)
 
-    assert state.failure.type == "execution_failed"
+    assert state.cause.type == "execution_failed"
     assert sorted(calls) == ["0", "1"] and "node_retry" not in [event.type for event in events]
 
 

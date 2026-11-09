@@ -112,7 +112,7 @@ Each is a plain function, given per version (`compute_added_inputs=` and `comput
 
 ### Compilation
 
-`CompiledGraph.from_graph(graph, registry)` is pure and never raises for a fault in the graph: each is a `Problem` (`type`, `loc`, `msg`, `ctx`, and `fatal`, read off the code). A hook that raises anything but `ComputeHookError` is a bug in the hook and leaves `from_graph` as it is. A required input with a type and nothing bound is a fatal `unbound_required`, but its node stays `ready`: compile types it from its declaration, so the node and everything after it are worked out. Definitions loaded at run time go in `registry.extended_with([cls])`.
+`CompiledGraph.from_graph(graph, registry)` is pure and never raises for a fault in the graph: each is a `Problem` (`type`, `loc`, `msg`, `ctx`, and `fatal`, read off the code). A hook that raises anything but `ComputeHookError` is a bug in the hook and leaves `from_graph` as it is. A required input with a type and nothing bound is a fatal `unbound_required`, but its node stays `ready`: compile types it from its declaration, so the node and everything after it are worked out. Definitions loaded at run time go in `registry.with_nodes([cls])`.
 
 - Graph: `problems`, `is_runnable`, `interface` (open inputs, unread outputs), `graph`, `execution_order`, `decisions`. An address is `node.field`; `interface` and `outputs` name an embedded graph's fields the same way, by what it offers (`emb.amount`). Reading a run, `results` uses the path (`Ref("emb/check", "amount")`), and `compiled.field` takes either address.
 - `compiled.node(node_id)` answers for every node compile met: `id`, `graph_node`, `embedded_in`, `problems`, `state` (`ready`, `wiring_failed`, `resolution_failed`), `cause` (the one `Problem` behind a node that isn't `ready`), `definition`, `version`, `interface`, `statics`, `embedded_graph` and `fingerprint`. What compile doesn't know is `None`, never an error: `interface` when it can't tell the node's fields, `fingerprint` on a node that doesn't run as one unit. `compiled.field(ref)` hands back one record per field (`ref`, `type`, `binding`, `condition`, `problems`); a node that isn't `ready` or an unknown field is a `KeyError`.
@@ -161,7 +161,7 @@ state = compiled.run_sync(answered)
 
 - Each entry of `state.waiting` holds its `prompt` (from `AskPerson(prompt=...)`), the `inputs` it received by name so a form can show the row, many values as a list and a table as its JSON form, exactly what the call got and no more, and the questions it asks.
 - Answers are `{waiting.id: {output: value}}`, for a node that ran once, each row, an embedded node or a `Table` output; `None` for a unit means no value on its row. A question left blank takes its default; an `exclusive_group` output left out is the branch not taken. A unit not answered goes on waiting, and a node that asked is not called again unless it or something above it changed.
-- A question has `name`, `title`, `description`, `dtype`, `many`, `json_schema`, `widget`, `default`, `optional`, `exclusive_group`: enough for a form with no graph loaded.
+- A question has `name`, `title`, `description`, `dtype`, `many`, `json_schema`, `widget`, `default`, `required`, `exclusive_group`: enough for a form with no graph loaded.
 - A state is plain JSON: `RunState.model_validate_json(saved)`. On the next leg every value passes its output's check, a value that doesn't read fails with `state_unreadable`, and a node whose fingerprint differs runs again with what reads it, reusing a row's earlier result where what it receives is the same (see "Running again"). `run_start`'s `changed_nodes` lists them. `state.without_nodes(node_id)` forces a rerun.
 - A parameter typed `FromRun[T]` receives the value of `T` from `compiled.run(from_run={T: value})`; `Interface.needs` is the set of those types. A missing one is `from_run_missing`, at the call.
 
@@ -203,7 +203,7 @@ Retries live on the version's `Policy`, per unit.
 
 ### Errors
 
-The classes are exported from `conductor`. What is wrong is always one record, `Problem(type, loc, msg, ctx)`: on `compiled.problems`, on `node_failed` and `state.failure`, and in `InvalidCallError.errors()`. Its `type` is a stable code (see "Problem and error codes"); a node failure's `loc` is `(node_id, *row)`, a compile problem's `(node_id, field)`.
+The classes are exported from `conductor`. What is wrong is always one record, `Problem(type, loc, msg, ctx)`: on `compiled.problems`, on `node_failed` and `state.cause`, and in `InvalidCallError.errors()`. Its `type` is a stable code (see "Problem and error codes"); a node failure's `loc` is `(node_id, *row)`, a compile problem's `(node_id, field)`.
 
 ```
 NodeDeclarationError    a node or type declared wrong, at import; a TypeError, with code and node_id
@@ -213,7 +213,7 @@ NodeError               code, ctx, node_id
 └── ExternalFailure         retried
 ```
 
-A failed unit ends the leg `failed`, its problem on `state.failure`: nothing more starts, the calls already on a thread are waited for (each as far as its `attempt_timeout`) and kept, so a later leg doesn't repeat them, and then the leg ends; `compiled.results(state)` reads what was done and `compiled.outputs(state)` refuses (`run_not_complete`). A call that can't be acted on raises `InvalidCallError`, whose `errors()` lists a `Problem` for every fault, and nothing changes. Running a graph with fatal compile problems raises it too, listing them. A node returning the wrong type is a failed run with `invalid_output`. A failure never quotes a value the run handled: `ctx["errors"]` holds pydantic's `type`, the field in `loc`, and `msg` only where it speaks of the type alone (a sentence a validator wrote is replaced), because a host streams failures to a browser.
+A failed unit ends the leg `failed`, its problem on `state.cause`: nothing more starts, the calls already on a thread are waited for (each as far as its `attempt_timeout`) and kept, so a later leg doesn't repeat them, and then the leg ends; `compiled.results(state)` reads what was done and `compiled.outputs(state)` refuses (`run_not_complete`). A call that can't be acted on raises `InvalidCallError`, whose `errors()` lists a `Problem` for every fault, and nothing changes. Running a graph with fatal compile problems raises it too, listing them. A node returning the wrong type is a failed run with `invalid_output`. A failure never quotes a value the run handled: `ctx["errors"]` holds pydantic's `type`, the field in `loc`, and `msg` only where it speaks of the type alone (a sentence a validator wrote is replaced), because a host streams failures to a browser.
 
 ### Events
 
@@ -224,7 +224,7 @@ A failed unit ends the leg `failed`, its problem on `state.failure`: nothing mor
 | `node_start`, `node_skipped` | `node_id` |
 | `node_progress` | `node_id`, `done`, `total` (`None` until every row exists); at most four a second per node, and always its last count |
 | `node_complete` | `node_id`, `outputs`, `rows_not_called`, `reused_units` |
-| `node_retry` | `node_id`, `row`, `attempt`, `retries`, `error`, `delay` |
+| `node_retry` | `node_id`, `row`, `attempt`, `retries`, `cause`, `delay` |
 | `node_failed` | `node_id`, `cause` (a `Problem`) |
 | `unit_waiting` | `unit` |
 | `run_start` | `reused_nodes`, `changed_nodes`, `waiting` |
@@ -256,7 +256,7 @@ Three public modules: `conductor`, `conductor.widgets` and `conductor.events`. E
 - Nodes: `node`, `NodeDefinition`, `NodeVersion`, `Upgrade`, `upgrade_node`, `Policy`, `Deprecation`, `NodeDescription`, `VersionDescription`, `Interface`, `ArrivingType`, `FromRun`, `Input`, `Output`, `Param`, `Result`
 - Returns: `SKIPPED`, `AskPerson`
 - Types: `DType`, `AsItArrives`, `Series`, `Table`, `Ref`, `to_jsonable(value)`, `ROW_ID_COLUMN` (the name of a table's hidden row-id column), `ValuesOnRows`
-- Registry: `NodeRegistry(nodes, types=())`, immutable (`in`, `[]`, `len`, iteration, `nodes`, `types`, `accepted_as`, `describe`, `extended_with`), `RegistryDescription`, `TypeDescription`
+- Registry: `NodeRegistry(nodes, types=())`, immutable (`in`, `[]`, `len`, iteration, `nodes`, `types`, `accepted_as`, `describe`, `with_nodes`), `RegistryDescription`, `TypeDescription`
 - Graph: `Graph`, `GraphNode`, `FieldContent`, `Binding`, `From`, `Static`, `dependencies_of`, `CompiledGraph`, `CompiledNode`, `CompiledField`, `NodeState`, `GraphDescription`, `CompiledNodeDescription`, `FieldDescription`, `Problem`, `RunPlan`, `NodeRunPlan`, `ReceiveMode`, `Condition`, `BranchTaken`, `ALWAYS`, `NEVER`
 - Errors: `NodeDeclarationError`, `ComputeHookError`, `InvalidCallError`, `Problem`, `NodeError`, `ExternalFailure`, `PROBLEM_CODES`
 - A run's state: `RunStatus`, `WaitingUnit`, `Question`, `Answers`, `OutputColumn`, `WorkOfNode` (what one node did: `fingerprint`, `finished_units`, `answered_rows`, `tables_received`, `outputs`, `waiting`, `rows_not_called`, `reused_units`, `earlier_units`), `EarlierUnit`, `RunState` (`status`, `failure`, `waiting`, `nodes`, `without_nodes(...)`); dumped as JSON it is one document holding each table once, under its `tables` key by digest, and a load holds one frame per digest

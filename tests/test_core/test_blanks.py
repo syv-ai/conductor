@@ -117,7 +117,7 @@ def _results(*nodes, registry=None):
     compiled = CompiledGraph.from_graph(Graph(nodes=list(nodes)), registry or _registry())
     assert compiled.is_runnable, compiled.problems
     state = compiled.run_sync()
-    assert state.status == "complete", state.failure
+    assert state.status == "complete", state.cause
     return compiled, state, compiled.results(state)
 
 
@@ -309,7 +309,7 @@ def test_returning_none_needs_the_hint():
     failed = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n", type="bad", version=1, bindings={"x": Static("a")})]), registry).run_sync()
     fine = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n", type="good", version=1, bindings={"x": Static("a")})]), registry).run_sync()
 
-    assert failed.status == "failed" and failed.failure.type == "invalid_output"
+    assert failed.status == "failed" and failed.cause.type == "invalid_output"
     assert fine.status == "complete"
 
 
@@ -321,7 +321,7 @@ def test_a_question_with_a_blank_hint_may_be_left_out():
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n", type="ask", version=1, bindings={"x": Static("a")})]), _registry(ask))
     waiting = compiled.run_sync()
     unit = waiting.waiting[0]
-    assert unit.questions[0].optional
+    assert not unit.questions[0].required
     answered = answer(compiled, waiting, {unit.id: {}})
     assert compiled.results(compiled.run_sync(answered))["n"]["result"] is None
 

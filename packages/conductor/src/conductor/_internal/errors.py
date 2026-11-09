@@ -3,7 +3,7 @@
 Everything wrong that a person has to hear about is a ``Problem``: what a
 compile found (``CompiledGraph.problems``), what a rejected call lists
 (``InvalidCallError.errors()``), and why a node or a run failed
-(``NodeFailed.cause``, ``RunState.failure``). So a host has one type to
+(``NodeFailed.cause``, ``RunState.cause``). So a host has one type to
 translate, and one table to translate it with: ``PROBLEM_CODES`` is every
 code conductor itself writes. Who meets what:
 
@@ -11,7 +11,7 @@ code conductor itself writes. Who meets what:
     a developer, importing  NodeDeclarationError     a node or type is declared wrong
     an author, editing      Problem on the graph     compile; never raised
     a caller                InvalidCallError         run, answer, with_inputs, ...
-    whoever reads a run     RunState.failure         a leg that ended in error
+    whoever reads a run     RunState.cause         a leg that ended in error
 
 A graph that says something impossible is data, so an editor can show it
 mid-edit; a caller asking for what cannot be done raises, from the call

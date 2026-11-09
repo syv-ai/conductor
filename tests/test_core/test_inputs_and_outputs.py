@@ -71,7 +71,7 @@ def gives() -> _AnOutputNamedText:
 
 def _compiled(*nodes: GraphNode) -> CompiledGraph:
     registry = NodeRegistry([upper_node, needs, fails, skips, gives])
-    registry = registry.extended_with([embedded_graph_node("shout", (GraphNode(id="up", type="upper", version=1),), registry, "Shout")])
+    registry = registry.with_nodes([embedded_graph_node("shout", (GraphNode(id="up", type="upper", version=1),), registry, "Shout")])
     return CompiledGraph.from_graph(Graph(nodes=nodes), registry)
 
 

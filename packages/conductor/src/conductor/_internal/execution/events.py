@@ -99,14 +99,14 @@ class NodeFailed(_EventBase):
 
 class NodeRetry(_EventBase):
     """An attempt failed on the outside world and is being tried again: try
-    ``attempt`` of ``retries``, on ``row``, after ``delay`` seconds. ``error`` is what failed."""
+    ``attempt`` of ``retries``, on ``row``, after ``delay`` seconds. ``cause`` is what failed."""
 
     type: Literal["node_retry"] = "node_retry"
     node_id: str
     row: Row
     attempt: int
     retries: int
-    error: str
+    cause: Problem
     delay: float
 
 

@@ -77,7 +77,7 @@ def _failed_run(returned, return_type):
     compiled = CompiledGraph.from_graph(Graph(nodes=[made.graph_node("g")]), NodeRegistry([made]))
     state = compiled.run_sync()
     assert state.status == "failed"
-    return state.failure
+    return state.cause
 
 
 @pytest.mark.parametrize(("returned", "return_type"), [
@@ -112,9 +112,9 @@ def test_what_a_node_received_is_not_in_the_failure_of_its_input():
     made_source, made_sink = node("source")(source), node("sink")(sink)
     compiled = CompiledGraph.from_graph(Graph(nodes=[made_source.graph_node("a"), made_sink.graph_node("b", identifier=From("a.result"))]), NodeRegistry([made_source, made_sink]))
     state = compiled.run_sync()
-    assert (state.status, state.failure.type) == ("failed", "invalid_input")
-    assert SECRET not in state.failure.model_dump_json()
-    assert "Identifier" in state.failure.msg
+    assert (state.status, state.cause.type) == ("failed", "invalid_input")
+    assert SECRET not in state.cause.model_dump_json()
+    assert "Identifier" in state.cause.msg
 
 
 def test_a_stored_value_is_not_in_the_refusal_to_read_a_state_back():

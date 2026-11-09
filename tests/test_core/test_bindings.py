@@ -361,7 +361,7 @@ def test_a_field_with_no_handle_is_never_an_input():
     ) -> Annotated[Txt, Result(title="Result")]:
         return code
 
-    reg = _registry().extended_with([script])
+    reg = _registry().with_nodes([script])
     graph = Graph(
         nodes=[GraphNode(id="s", type="script", version=1, title="Python",
                          fields={"code": FieldContent(title="Kode"), "result": FieldContent(title="Result")})],
@@ -490,7 +490,7 @@ def test_a_branch_not_taken_is_skipped_downstream():
     ) -> Answer:
         return Answer(yes=x, no=SKIPPED) if x else Answer(yes=SKIPPED, no=x)
 
-    registry = _echo_registry().extended_with([gate])
+    registry = _echo_registry().with_nodes([gate])
     graph = Graph(
         nodes=[
             GraphNode(id="g", type="gate", version=1, bindings={"x": Static("hi")}),

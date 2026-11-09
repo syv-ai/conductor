@@ -765,7 +765,7 @@ class RunLedger:
                 reused_units=self._reused_units.get(node_id, 0),
                 earlier_units=self._earlier_units_still_unclaimed(node_id) if self._earlier_units else [],
             )
-        return RunState.model_construct(status=status, failure=failure, nodes=nodes)
+        return RunState.model_construct(status=status, cause=failure, nodes=nodes)
 
     @classmethod
     def restore(cls, compiled: CompiledGraph, state: RunState) -> RunLedger:

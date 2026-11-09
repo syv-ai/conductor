@@ -276,7 +276,7 @@ def test_a_table_rebuilt_in_an_open_input_node_and_merged_with_its_source_loses_
 
     assert Ref("py.result") in compiled._row_ids_must_survive
     state = compiled.run_sync()
-    assert state.status == "failed" and state.failure.type == "row_ids_lost" and state.failure.loc[0] == "py"
+    assert state.status == "failed" and state.cause.type == "row_ids_lost" and state.cause.loc[0] == "py"
 
 
 def test_a_table_rebuilt_with_its_ids_kept_passes():
@@ -287,7 +287,7 @@ def test_a_table_rebuilt_with_its_ids_kept_passes():
     )
 
     state = compiled.run_sync()
-    assert state.status == "complete", state.failure
+    assert state.status == "complete", state.cause
 
 
 def test_a_table_reaching_a_typed_any_input_counts_too():
@@ -308,7 +308,7 @@ def test_an_untyped_input_left_empty_inside_a_graph_cant_be_embedded():
     registry = NodeRegistry([any_in, split, upload])
     inner = _compiled(_node("x", "any-in"), registry=registry)
     emb = NodeDefinition.from_compiled_graphs("emb", title="e", description="", versions=inner)
-    extended = registry.extended_with([emb])
+    extended = registry.with_nodes([emb])
 
     compiled = _compiled(_node("s", "split", text=Static("t")), _node("e", "emb", **{"value": From("s.result")}), registry=extended)
 

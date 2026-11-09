@@ -170,7 +170,7 @@ def test_a_row_two_edges_both_supply_fails_the_node_with_the_row():
     state = compiled.run_sync()
 
     assert state.status == "failed"
-    assert (state.failure.type, state.failure.ctx["row"]) == ("row_covered_twice", [0])
+    assert (state.cause.type, state.cause.ctx["row"]) == ("row_covered_twice", [0])
 
 
 # --- a computed interface, by name -----------------------------------------------------
@@ -380,8 +380,8 @@ def test_run_sync_returns_the_error_ending_with_its_cause():
 
     ending = compiled.run_sync()
     assert ending.status == "failed"
-    assert ending.failure.loc[0] == "f"
-    assert ending.failure.loc[1:] == (0,)
+    assert ending.cause.loc[0] == "f"
+    assert ending.cause.loc[1:] == (0,)
 
 
 def test_a_defect_in_the_engine_fails_the_leg_instead_of_hanging_it(monkeypatch):
@@ -399,9 +399,9 @@ def test_a_defect_in_the_engine_fails_the_leg_instead_of_hanging_it(monkeypatch)
     events = events_of(compiled, timeout=5)
 
     assert events[-1].state.status == "failed"
-    assert events[-1].state.failure.type == "engine_error"
-    assert events[-1].state.failure.ctx == {"exception": "RuntimeError"}
-    assert "the ledger lost a value" not in str(events[-1].state.failure)
+    assert events[-1].state.cause.type == "engine_error"
+    assert events[-1].state.cause.ctx == {"exception": "RuntimeError"}
+    assert "the ledger lost a value" not in str(events[-1].state.cause)
 
 
 def test_a_graph_compile_rejected_is_refused_with_its_problems():
@@ -468,7 +468,7 @@ def test_computed_inputs_reach_the_node_as_keywords():
     def template_node(template: Annotated[Txt, Param(title="Template", connectable=False, widget=Textarea())] = Txt(""), **values: Txt) -> Out:
         return Txt(re.sub(r"\{(\w+)\}", lambda m: str(values[m.group(1)]), template))
 
-    registry = _registry().extended_with([template_node])
+    registry = _registry().with_nodes([template_node])
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             _docs("Ida,Bo"),
@@ -536,7 +536,7 @@ def test_a_run_that_may_ask_says_so_and_still_declares_its_outputs():
 
 
 def _registry_with_asks(*extra):
-    return _registry().extended_with([ask_node, *extra])
+    return _registry().with_nodes([ask_node, *extra])
 
 
 def test_a_node_that_asks_ends_the_leg_pending_with_its_question_named_by_address():

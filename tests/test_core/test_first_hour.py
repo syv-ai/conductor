@@ -51,7 +51,7 @@ def test_a_nodes_exception_reaches_the_log_with_its_traceback_and_stays_off_the_
     (logged,) = [record for record in caplog.records if record.name == "conductor"]
     assert logged.exc_info is not None and logged.exc_info[0] is ValueError
     assert "'a'" in logged.getMessage()
-    assert state.failure.ctx == {"exception": "ValueError"}
+    assert state.cause.ctx == {"exception": "ValueError"}
     assert "kaboom" not in json.dumps(state.model_dump(mode="json"))
 
 
@@ -262,7 +262,7 @@ def _clean() -> tuple[NodeRegistry, NodeDefinition]:
         Graph(nodes=[GraphNode(id="t", type="trim", version=1), GraphNode(id="u", type="up", version=1, bindings={"text": From("t.result")})]), base,
     )
     clean = NodeDefinition.from_compiled_graphs("clean-text", versions=inner)
-    return base.extended_with([clean]), clean
+    return base.with_nodes([clean]), clean
 
 
 def test_an_embedded_graph_is_wired_by_its_own_names_and_titled_like_a_node():
@@ -287,7 +287,7 @@ def test_renaming_a_node_inside_breaks_no_caller():
         inner = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id=inner_id, type="trim", version=1)]), base)
         wrapped = NodeDefinition.from_compiled_graphs("wrapped", versions=inner)
         return CompiledGraph.from_graph(
-            Graph(nodes=[GraphNode(id="w", type="wrapped", version=1, bindings={"text": Static(" x ")})]), base.extended_with([wrapped]),
+            Graph(nodes=[GraphNode(id="w", type="wrapped", version=1, bindings={"text": Static(" x ")})]), base.with_nodes([wrapped]),
         )
 
     assert graph_with_inner_id("before").is_runnable and graph_with_inner_id("after-rename").is_runnable
@@ -562,4 +562,4 @@ def test_a_not_finite_float_is_refused_on_an_int_output_so_none_reaches_a_float_
     assert compiled.is_runnable, compiled.problems
     state = compiled.run_sync()
 
-    assert state.status == "failed" and state.failure.type == "invalid_output"
+    assert state.status == "failed" and state.cause.type == "invalid_output"

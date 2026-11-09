@@ -77,7 +77,7 @@ def _with_defaults_and_widgets(node: CompiledNode, row: Row, ask_person: AskPers
     return tuple(
         question.model_copy(update={
             "default": defaults.get(question.name),
-            "optional": question.exclusive_group is None and (question.name in defaults or question.optional),
+            "required": question.exclusive_group is not None or (question.name not in defaults and question.required),
             "widget": None if question.name not in ask_person.widgets else ask_person.widgets[question.name].model_dump(mode="json"),
         })
         for question in node._questions
@@ -104,7 +104,7 @@ def apply_answers(compiled: CompiledGraph, state: RunState, answers: Answers) ->
     ledger = RunLedger.restore(compiled, state)
     for waiting_unit, cells in finished:
         ledger.record((waiting_unit.node_id, waiting_unit.row), cells)
-    return ledger.state(state.status, state.failure)
+    return ledger.state(state.status, state.cause)
 
 
 def _answered_cells(node: CompiledNode, waiting_unit: WaitingUnit, answer: Mapping[str, Any] | None) -> tuple[dict[str, Any], list[Problem]]:
@@ -147,7 +147,7 @@ def _with_choices_and_defaults(
     for name, question in questions.items():
         if name in values:
             continue
-        if question.optional:
+        if not question.required:
             values[name] = question.default
         else:
             values[name] = SKIPPED  # the problem below stops the call; a value in its place keeps the other questions checked

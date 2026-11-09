@@ -160,7 +160,7 @@ def test_a_skip_written_on_a_longer_row_reaches_the_group_above_it():
         GraphNode(id="line", type="lines", version=1, bindings={"text": From("docs.texts")}),
         GraphNode(id="p", type="pair", version=1, bindings={"a": From("line.result"), "b": From("g.open")}),
         GraphNode(id="j", type="join", version=1, bindings={"texts": From("p.result")}),
-    ]), _registry().extended_with([gate_row]))
+    ]), _registry().with_nodes([gate_row]))
     assert compiled.is_runnable, compiled.problems
     ledger = RunLedger(compiled)
     ledger.record(("docs", ()), {"texts": ["x", "y"], "names": ["n", "m"]})
@@ -191,7 +191,7 @@ def test_a_skip_above_a_maker_reaches_every_index_under_it():
         GraphNode(id="lines", type="lines", version=1, bindings={"text": From("paras.result")}),
         GraphNode(id="up", type="upper", version=1, bindings={"text": From("lines.result")}),
         GraphNode(id="j", type="join-per-text", version=1, bindings={"text": From("docs.texts"), "texts": From("up.result")}),
-    ]), _registry().extended_with([per_row_gate]))
+    ]), _registry().with_nodes([per_row_gate]))
     assert compiled.is_runnable, compiled.problems
     ledger = RunLedger(compiled)
     ledger.units_ready_to_start()
@@ -354,7 +354,7 @@ def _unit_outputs(ledger: RunLedger, compiled: CompiledGraph, unit: Unit, inputs
 
 def _drive_graph(seed: int, check_after_each_record) -> None:
     rng = random.Random(seed)
-    registry = _registry().extended_with([split_table, branch_if, chars, ask_per_row])
+    registry = _registry().with_nodes([split_table, branch_if, chars, ask_per_row])
     compiled = _random_graph(rng, registry)
     ledger = RunLedger(compiled)
     in_flight = set(ledger.units_ready_to_start())
@@ -499,7 +499,7 @@ def _lines_into(reader_type: str, text: str) -> CompiledGraph:
     return CompiledGraph.from_graph(Graph(nodes=[
         GraphNode(id="lines", type="lines", version=1, bindings={"text": Static(text)}),
         GraphNode(id="reader", type=reader_type, version=1, bindings={"text": From("lines.result")}),
-    ]), _registry().extended_with([asks]))
+    ]), _registry().with_nodes([asks]))
 
 
 def _restored_with_lines_run_again(reader_type: str) -> RunLedger:

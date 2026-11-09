@@ -117,7 +117,7 @@ def test_every_unit_finishing_gives_a_checkpoint_at_zero_and_a_long_interval_giv
     release.set()
     every_unit = events_until(compiled(), lambda e: False, checkpoint_every=0)
     states = [e.state for e in every_unit if isinstance(e, RunCheckpoint)]
-    assert states and all(state.status == "running" and state.failure is None for state in states)
+    assert states and all(state.status == "running" and state.cause is None for state in states)
     assert [len(_finished_rows(state, "work")) for state in states] == sorted(len(_finished_rows(state, "work")) for state in states)
 
     rarely = events_until(compiled(), lambda e: False, checkpoint_every=3600)

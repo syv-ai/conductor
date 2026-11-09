@@ -55,7 +55,7 @@ An input holds one binding: `From("node.output")` over an edge, `Static(value)` 
 | Rebuilding the `Graph` to change a value per run | `compiled.with_inputs(...)`; store `ready.graph` as what ran |
 | A loop node, or a `for` around `run` | bind a column; the engine runs the node once per row |
 | A join node to put columns side by side | wire them all into one `Table` input; they merge on `__row` |
-| `except` around `run_sync` for a pause, error or timeout | they are statuses: read `state.status`, `state.failure` |
+| `except` around `run_sync` for a pause, error or timeout | they are statuses: read `state.status`, `state.cause` |
 | `run_sync` in a notebook or server | `await compiled.run()` |
 
 To debug, read `problems`, then print every event of `compiled.stream()`. A failure is a `Problem`: `type`, `msg`, `ctx`, and `loc` is the node and the row. `print(compiled.run_plan)` says where each node runs and what each input receives.

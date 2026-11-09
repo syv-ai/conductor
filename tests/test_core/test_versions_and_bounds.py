@@ -116,7 +116,7 @@ def test_a_value_on_an_edge_outside_its_bounds_fails_the_node_for_that_row():
 
     state = compiled.run_sync()
 
-    assert state.status == "failed" and state.failure.type == "invalid_input"
+    assert state.status == "failed" and state.cause.type == "invalid_input"
 
 
 def test_a_blank_on_an_input_that_takes_one_is_held_to_no_bound():
@@ -199,4 +199,4 @@ def test_many_values_on_an_edge_arrive_as_a_list_held_to_its_length(rows, status
     state = CompiledGraph.from_graph(graph, NodeRegistry([many, first_two])).run_sync()
 
     assert state.status == status
-    assert state.failure is None or state.failure.type == "invalid_input"
+    assert state.cause is None or state.cause.type == "invalid_input"

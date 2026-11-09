@@ -135,7 +135,7 @@ def test_a_collision_through_register_names_both_classes_and_files_nothing():
 
     registry = NodeRegistry([shout])
     with pytest.raises(NodeDeclarationError) as raised:
-        registry = registry.extended_with([whisper])
+        registry = registry.with_nodes([whisper])
 
     assert f"{Text.__module__}.Text" in str(raised.value)
     assert f"{AnotherText.__module__}.AnotherText" in str(raised.value)
@@ -153,17 +153,17 @@ def test_a_series_is_not_a_word():
         NodeRegistry(types=[DType])
     registry = NodeRegistry()
 
-    registry = registry.extended_with([shout])
+    registry = registry.with_nodes([shout])
     assert Series not in registry.types.values()
 
 
-def test_the_vocabulary_is_read_only_and_kept_by_extended_with():
+def test_the_vocabulary_is_read_only_and_kept_by_with_nodes():
     registry = NodeRegistry([shout])
 
     with pytest.raises(TypeError):
         registry.types["score"] = Score  # type: ignore[index]
 
-    assert registry.extended_with([]).types == registry.types
+    assert registry.with_nodes([]).types == registry.types
 
 
 # --- accepted_as -------------------------------------------------------------

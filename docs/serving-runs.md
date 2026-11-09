@@ -179,7 +179,7 @@ async def run_published(name: str, inputs: dict[str, Any], caller: CallerDep) ->
 
 **What a node receives.** A `FromRun[Caller]` parameter gets the `Caller` from `from_run`. A resource that has to live as long as the leg, such as a database session, opens in a `with` around `async with stream` in `run_leg`.
 
-**A registry per request.** `compiled` is built by your route, so a graph that embeds other saved graphs is one more line first: `registry.extended_with(definitions)`.
+**A registry per request.** `compiled` is built by your route, so a graph that embeds other saved graphs is one more line first: `registry.with_nodes(definitions)`.
 
 **One process.** The comment on `legs` is the limit that matters. A leg is an asyncio task, so `GET /runs/{id}/events` and `POST /runs/{id}/cancel` reach it only on the process running it. `GET /runs/{id}` and answering work anywhere, because they read the saved row. With more than one worker you route those two yourself, or keep a cancel flag on the row and stream from the request that started the leg.
 

@@ -65,7 +65,7 @@ base = NodeRegistry([trim, upper])
 inner = CompiledGraph.from_graph(Graph(nodes=[trim.graph_node("t", text=""), upper.graph_node("u", text=From("t.result"))]), base)
 clean = NodeDefinition.from_compiled_graphs("clean", versions=inner)
 outer = Graph(nodes=[clean.graph_node("c", text="  hi  "), upper.graph_node("v", text=From("c.result"))])
-compiled = CompiledGraph.from_graph(outer, base.extended_with([clean]))
+compiled = CompiledGraph.from_graph(outer, base.with_nodes([clean]))
 assert compiled.outputs(compiled.run_sync()) == {"v.result": "HI"}
 """
 
@@ -112,6 +112,7 @@ def test_the_first_hour_programs_pass_pyright_strict(programs: list[pathlib.Path
         pytest.skip("pyright is not installed")
     directory = programs[0].parent
     (directory / "pyrightconfig.json").write_text(json.dumps({
+        "extraPaths": [str(pathlib.Path(__file__).parents[2] / "packages" / package / "src") for package in ("conductor", "conductor-nodes", "conductor-providers")],
         "typeCheckingMode": "strict",
         "venvPath": str(pathlib.Path(sys.prefix).parent),
         "venv": pathlib.Path(sys.prefix).name,

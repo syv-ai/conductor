@@ -54,7 +54,7 @@ def join_node(texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
 def _compiled(*nodes: GraphNode) -> CompiledGraph:
     registry = NodeRegistry([docs, upper_node, join_node])
     # A stored graph embedded as a node: upper-case each text, then join them.
-    registry = registry.extended_with([embedded_graph_node("shout", (
+    registry = registry.with_nodes([embedded_graph_node("shout", (
         GraphNode(id="up", type="upper", version=1),
         GraphNode(id="all", type="join", version=1, bindings={"texts": From("up.result")}),
     ), registry, "Shout")])
@@ -138,7 +138,7 @@ def test_a_graph_with_a_broken_edge_and_something_downstream_draws():
 def test_a_graph_that_cannot_be_embedded_draws_as_one_faulted_box():
     """A stored graph that names a type the catalog has lost cannot be embedded: one box, marked."""
     registry = NodeRegistry()
-    registry = registry.extended_with([embedded_graph_node("lost", (GraphNode(id="gone", type="nonesuch", version=1),), registry, "Lost")])
+    registry = registry.with_nodes([embedded_graph_node("lost", (GraphNode(id="gone", type="nonesuch", version=1),), registry, "Lost")])
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="emb", type="lost", version=1)]), registry)
 
     assert flowchart(compiled) == dedent("""\

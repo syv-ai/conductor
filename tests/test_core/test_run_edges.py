@@ -265,7 +265,7 @@ def test_a_table_returned_on_two_rows_has_its_own_ids_on_each_and_the_merge_has_
         n("m", "merged", table=From("h.result.name", "u.result")),
     )
     state = compiled.run_sync()
-    assert state.status == "complete", state.failure
+    assert state.status == "complete", state.cause
     assert [v[ROW_ID_COLUMN].to_list() for v in state.nodes["h"].outputs["result"].values] == [["h.result:0.0", "h.result:0.1"], ["h.result:1.0", "h.result:1.1"]]
     assert compiled.results(state)["m"]["result"].height == 4
 
@@ -402,7 +402,7 @@ def test_a_typed_table_of_no_records_is_a_table_with_its_columns_and_no_rows():
 def test_a_node_filtering_every_row_away_returns_zero_rows():
     compiled = compiled_of(n("c", "csv", k=Static("a,b")), n("f", "none_left", t=From("c.result")))
     state = compiled.run_sync()
-    assert state.status == "complete", state.failure
+    assert state.status == "complete", state.cause
     assert compiled.results(state)["f"]["result"].height == 0
 
 
@@ -421,14 +421,14 @@ def test_a_persons_records_in_the_published_shape_are_new_rows_not_a_lost_id():
     state = compiled.run_sync()
     assert state.waiting[0].questions[0].json_schema["type"] == "array"
     ended = compiled.run_sync(answer(compiled, state, {"r": {"result": [{"name": "a", "email": "9"}]}}))
-    assert ended.status == "complete", ended.failure
+    assert ended.status == "complete", ended.cause
     assert compiled.results(ended)["m"]["result"].height == 3
 
 
 def test_a_node_given_no_rows_has_no_id_to_lose_when_it_makes_a_row_of_its_own():
     compiled = compiled_of(n("c", "csv", k=Static("")), n("r", "rebuild", t=From("c.result")), n("m", "merged", table=From("c.result", "r.result")))
     state = compiled.run_sync()
-    assert state.status == "complete", state.failure
+    assert state.status == "complete", state.cause
 
 
 def test_a_fresh_id_never_takes_one_a_later_row_holds():
@@ -441,7 +441,7 @@ def test_a_fresh_id_never_takes_one_a_later_row_holds():
 def test_a_table_and_columns_of_it_wired_beside_it_are_one_table():
     compiled = compiled_of(n("c", "csv", k=Static("a,b")), n("m", "merged", table=From("c.result.name", "c.result", "c.result.name")))
     state = compiled.run_sync()
-    assert state.status == "complete", state.failure
+    assert state.status == "complete", state.cause
     assert compiled.results(state)["m"]["result"].columns == ["__row", "name", "email"]
 
 
@@ -577,7 +577,7 @@ def test_a_node_id_with_the_separator_of_a_unit_id_is_refused():
 def test_a_choice_is_never_optional_and_leaving_it_out_is_refused():
     compiled = compiled_of(n("a", "ask_choice_default"))
     state = compiled.run_sync()
-    assert [q.optional for q in state.waiting[0].questions] == [False, False]
+    assert [q.required for q in state.waiting[0].questions] == [True, True]
     assert state.waiting[0].questions[0].default == "x"
     with pytest.raises(InvalidCallError) as raised:
         answer(compiled, state, {"a": {}})
@@ -594,7 +594,7 @@ def test_an_answer_naming_none_of_a_choice_is_refused():
 @pytest.mark.parametrize("node_type", ["ask_default_skipped", "ask_bad_widget"])
 def test_a_node_asking_wrongly_is_its_own_invalid_output(node_type):
     state = compiled_of(n("a", node_type)).run_sync()
-    assert (state.status, state.failure.type) == ("failed", "invalid_output")
+    assert (state.status, state.cause.type) == ("failed", "invalid_output")
 
 
 def test_questions_of_one_node_share_one_record_and_a_default_gets_its_own():
@@ -621,7 +621,7 @@ def test_a_blank_row_leaves_every_series_on_its_index_so_a_zip_stays_paired():
     def zipped(a: Annotated[Series[Txt], Param(title="A")], b: Annotated[Series[Txt | None], Param(title="B")]) -> Out:
         return Txt(str(list(zip(a, b, strict=True))))
 
-    registry = REGISTRY.extended_with([blank_some, keep_all, zipped])
+    registry = REGISTRY.with_nodes([blank_some, keep_all, zipped])
     compiled = compiled_of(n("a", "blank_some", k=Static("1,_,3")), n("b", "keep_all", k=From("a.result")), n("z", "zipped", a=From("a.result"), b=From("b.result")), registry=registry)
     state = compiled.run_sync()
     assert compiled.results(state)["z"]["result"] == str([("1", "1?"), ("3", "3?")])
@@ -633,7 +633,7 @@ def test_a_skip_above_a_row_reaches_the_reader_at_that_row():
         n("t", "two", a=From("l.result"), b=From("g.no")), n("u", "upper", text=From("t.result")),
     )
     state = compiled.run_sync()
-    assert state.status == "complete", state.failure
+    assert state.status == "complete", state.cause
     assert compiled.results(state)["u"]["result"]["rows"] == [(0, 0), (0, 1)]
 
 
@@ -646,7 +646,7 @@ def test_a_reduction_waits_for_the_unit_above_the_rows_for_a_skip_above_its_grou
         CALLS.append(("held", str(text)))
         return Txt(text)
 
-    registry = REGISTRY.extended_with([held])
+    registry = REGISTRY.with_nodes([held])
     compiled = compiled_of(
         n("docs", "source", text=Static(["a", "slow-no"])), n("g", "route", text=From("docs.result")), n("l", "split", text=From("g.yes")),
         n("h", "held", text=From("l.result")), n("j", "join", texts=From("h.result")), registry=registry,
@@ -660,7 +660,7 @@ def test_a_reduction_waits_for_the_unit_above_the_rows_for_a_skip_above_its_grou
         return await running
 
     state = asyncio.run(go())
-    assert state.status == "complete", state.failure
+    assert state.status == "complete", state.cause
     assert ("join", []) not in CALLS
     assert compiled.results(state)["j"]["result"]["rows"] == [(0,)]
 
@@ -681,11 +681,11 @@ def test_a_decision_over_a_whole_column_gates_what_hangs_off_the_branch_not_take
     compiled = compiled_of(
         n("docs", "split", text=Static("a,b")), n("d", "decide", texts=From("docs.result")),
         n("full", "join", texts=From("d.full")), n("up", "upper", text=From("d.empty")), n("after", "join", texts=From("up.result")),
-        registry=REGISTRY.extended_with([decide]),
+        registry=REGISTRY.with_nodes([decide]),
     )
     state = compiled.run_sync()
     results = compiled.results(state)
-    assert state.status == "complete", state.failure
+    assert state.status == "complete", state.cause
     assert results["full"]["result"] == "a,b"
     assert "up" not in results and "after" not in results
     assert [call for call in CALLS if call[0] == "join"] == [("join", ["a", "b"])]
@@ -700,14 +700,14 @@ def test_a_skip_above_an_empty_group_hides_what_the_reduction_returned():
         n("x", "two", a=From("t.result"), b=From("m.result")), n("j", "join", texts=From("x.result")),
     )
     state = compiled.run_sync()
-    assert state.status == "complete", state.failure
+    assert state.status == "complete", state.cause
     assert compiled.results(state)["j"]["result"]["rows"] == [(0, 0)]
 
 
 def test_without_covers_the_nodes_of_an_embedded_graph():
     compiled, state = _waiting_run()
     inner = NodeDefinition.from_compiled_graphs("inner", title="I", description="d", category="t", versions={1: compiled_of(n("check", "source", text=Static("x")))})
-    outer = compiled_of(n("approve", "inner"), registry=REGISTRY.extended_with([inner]))
+    outer = compiled_of(n("approve", "inner"), registry=REGISTRY.with_nodes([inner]))
     done = outer.run_sync()
     assert done.nodes["approve/check"].finished_units is not None
     assert "approve/check" not in done.without_nodes("approve").nodes
@@ -726,7 +726,7 @@ def test_a_loaded_definition_cannot_replace_one_already_registered():
     def other(text: In = Txt("")) -> Out:
         return Txt("not the built-in")
 
-    registry = REGISTRY.extended_with([other])
+    registry = REGISTRY.with_nodes([other])
     compiled = compiled_of(n("s", "source", text=Static("x")), registry=registry)
     assert compiled.results(compiled.run_sync())["s"]["result"] == "x"
 
@@ -741,7 +741,7 @@ def test_a_table_passed_through_per_row_merges_row_by_row_under_each_parent():
         n("m", "merged", table=From("h.result.name", "u.result")),
     )
     state = compiled.run_sync()
-    assert state.status == "complete", state.failure
+    assert state.status == "complete", state.cause
     frame = compiled.results(state)["m"]["result"]
     assert frame.height == 4
     assert frame.select("name", "result").rows() == [("a", "A"), ("b", "B"), ("a", "A"), ("b", "B")]
@@ -754,7 +754,7 @@ def test_a_lookup_repeating_a_reference_row_under_two_parents_still_joins_the_re
         n("m", "merged", table=From("k.result", "h.result.name", "u.result")),
     )
     state = compiled.run_sync()
-    assert state.status == "complete", state.failure
+    assert state.status == "complete", state.cause
     rows = compiled.results(state)["m"]["result"].select("name", "email", "result").rows()
     assert sorted(rows, key=str) == sorted([("a", "x", "A"), ("a", "x", "A"), ("b", "y", None)], key=str)
 
@@ -765,7 +765,7 @@ def test_which_parent_a_repeated_id_lands_on_does_not_depend_on_which_finished_f
         time.sleep(0.05 if x == "p1" else 0)
         return t
 
-    registry = REGISTRY.extended_with([pass_slow_first])
+    registry = REGISTRY.with_nodes([pass_slow_first])
     compiled = compiled_of(
         n("s", "source", text=Static(["p1", "p2"])), n("k", "reference"),
         n("h", "pass_slow_first", x=From("s.result"), t=From("k.result")), n("u", "upper", text=From("h.result.name")),
@@ -790,7 +790,7 @@ def test_records_in_the_published_shape_that_keep_row_ids_merge_on_their_source_
     default = state.waiting[0].questions[0].default
     records = [{ROW_ID_COLUMN: global_row_id, "name": name, "email": "edited"} for global_row_id, name in zip(default[ROW_ID_COLUMN], default["name"], strict=True)]
     ended = compiled.run_sync(answer(compiled, state, {"r": {"result": records}}))
-    assert ended.status == "complete", ended.failure
+    assert ended.status == "complete", ended.cause
     assert compiled.results(ended)["m"]["result"].height == 2
 
 
@@ -800,7 +800,7 @@ def ask_list(k: In = Txt("")) -> Parts | AskPerson:
 
 
 def test_a_reader_left_with_no_rows_by_an_answer_is_in_the_results_before_the_next_leg():
-    compiled = compiled_of(n("a", "ask_list"), n("u", "upper", text=From("a.result")), registry=REGISTRY.extended_with([ask_list]))
+    compiled = compiled_of(n("a", "ask_list"), n("u", "upper", text=From("a.result")), registry=REGISTRY.with_nodes([ask_list]))
     answered = answer(compiled, compiled.run_sync(), {"a": {"result": []}})
     assert compiled.results(answered)["u"]["result"]["values"] == []
     assert answered.nodes["u"].finished_units == []

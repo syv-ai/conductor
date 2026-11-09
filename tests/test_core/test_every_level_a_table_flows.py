@@ -83,7 +83,7 @@ def _compiled(*nodes: GraphNode, registry: NodeRegistry | None = None) -> Compil
 def _sheet(compiled: CompiledGraph, node_id: str = "x") -> pl.DataFrame:
     assert compiled.is_runnable, compiled.problems
     state = compiled.run_sync()
-    assert state.status == "complete", state.failure
+    assert state.status == "complete", state.cause
     return compiled.results(state)[node_id]["result"].drop(ROW_ID_COLUMN)
 
 
@@ -98,14 +98,14 @@ def test_a_table_rebuilt_inside_an_embedded_graph_fails_as_it_would_drawn_flat(i
     """The sub-flow that, wired beside its own source, used to give 6 rows with blanks on both sides and status complete."""
     registry = _catalogue()
     sub = _embedded("rb", (_node("k", inner), _node("s", "send", email=From("k.result.email"))), registry)
-    registry = registry.extended_with([sub])
+    registry = registry.with_nodes([sub])
     compiled = _compiled(_node("c", "csv"), _node("sub", "rb", table=From("c.result")), _node("x", "export", table=From("c.result", "sub.result")), registry=registry)
     state = compiled.run_sync()
     flat = _compiled(_node("c", "csv"), _node("k", inner, table=From("c.result")), _node("s", "send", email=From("k.result.email")), _node("x", "export", table=From("c.result", "s.result")), registry=registry).run_sync()
     if inner == "rebuild":
-        assert (state.status, state.failure.type, state.failure.loc[0]) == ("failed", "row_ids_lost", "sub/k")
-        assert (flat.status, flat.failure.type) == ("failed", "row_ids_lost")
-        assert state.failure.type == flat.failure.type
+        assert (state.status, state.cause.type, state.cause.loc[0]) == ("failed", "row_ids_lost", "sub/k")
+        assert (flat.status, flat.cause.type) == ("failed", "row_ids_lost")
+        assert state.cause.type == flat.cause.type
         return
     assert (state.status, flat.status) == ("complete", "complete")
     sheet = compiled.results(state)["x"]["result"].drop(ROW_ID_COLUMN)
@@ -116,19 +116,19 @@ def test_a_table_rebuilt_inside_an_embedded_graph_fails_as_it_would_drawn_flat(i
 def test_rebuilt_table_nested_two_embeddings_deep_still_fails() -> None:
     registry = _catalogue()
     inner = _embedded("inner", (_node("k", "rebuild"),), registry)
-    registry = registry.extended_with([inner])
+    registry = registry.with_nodes([inner])
     outer = _embedded("outer", (_node("i", "inner"), _node("s", "send", email=From("i.result.email"))), registry)
-    registry = registry.extended_with([outer])
+    registry = registry.with_nodes([outer])
     compiled = _compiled(_node("c", "csv"), _node("sub", "outer", table=From("c.result")), _node("x", "export", table=From("c.result", "sub.result")), registry=registry)
     state = compiled.run_sync()
-    assert (state.status, state.failure.type) == ("failed", "row_ids_lost")
+    assert (state.status, state.cause.type) == ("failed", "row_ids_lost")
 
 
 def test_a_rebuilt_table_merged_with_a_column_made_per_row_of_it_is_fine() -> None:
     """M5's other side: the rebuilt table is merged with what was made from it, not with the table it came from."""
     registry = _catalogue()
     sub = _embedded("rb", (_node("k", "rebuild"), _node("s", "send", email=From("k.result.email")), _node("m", "export", table=From("k.result", "s.result"))), registry)
-    registry = registry.extended_with([sub])
+    registry = registry.with_nodes([sub])
     compiled = _compiled(_node("c", "csv"), _node("sub", "rb", table=From("c.result")), registry=registry)
     sheet = _sheet(compiled, "sub/m")
     assert sheet.height == 3
@@ -141,7 +141,7 @@ def test_a_table_rebuilt_from_no_rows_inside_an_embedded_graph_loses_nothing() -
 
     registry = _catalogue(no_rows)
     sub = _embedded("rb", (_node("k", "rebuild"),), registry)
-    registry = registry.extended_with([sub])
+    registry = registry.with_nodes([sub])
     compiled = _compiled(_node("c", "no-rows"), _node("sub", "rb", table=From("c.result")), _node("x", "export", table=From("c.result", "sub.result")), registry=registry)
     assert compiled.run_sync().status == "complete"
 
@@ -201,7 +201,7 @@ def test_arriving_merged_table_names_every_column_as_the_run_does() -> None:
     declared = [name for name, _ in compiled.field(Ref("x", "result")).dtype.columns]
     assert declared == ["name", "email", "result", "result_2"]
     state = compiled.run_sync()
-    assert state.status == "complete", state.failure
+    assert state.status == "complete", state.cause
     frame = compiled.results(state)["x"]["result"].drop(ROW_ID_COLUMN)
     assert frame.columns == declared
     assert frame["result"].to_list() == ["sent:ida@x", "sent:nina@x"]
@@ -289,7 +289,7 @@ def test_flow_8a_answers_sit_beside_their_questions() -> None:
     )
     assert compiled.is_runnable, compiled.problems
     state = compiled.run_sync()
-    assert state.status == "complete", state.failure
+    assert state.status == "complete", state.cause
     frame = compiled.results(state)["x"]["result"].drop(ROW_ID_COLUMN)
     assert frame.columns == ["question", "result"]
     assert frame.height == 6
@@ -319,7 +319,7 @@ def test_a_series_of_typed_in_questions_read_under_each_document() -> None:
 def test_a_typed_in_list_as_a_column_reads_by_a_per_row_node() -> None:
     compiled = _compiled(_node("q", "send", email=Static(["a", "b"])), _node("s", "send", email=From("q.email")))
     state = compiled.run_sync()
-    assert state.status == "complete", state.failure
+    assert state.status == "complete", state.cause
     assert compiled.results(state)["s"]["result"]["values"] == ["sent:a", "sent:b"]
 
 
@@ -402,7 +402,7 @@ def test_a_missing_column_at_run_time_is_named_in_a_structured_code() -> None:
 
     compiled = _compiled(_node("b", "bare-rows"), _node("n", "needs-email", contacts=From("b.result")), registry=_catalogue(bare_rows, needs_email))
     state = compiled.run_sync()
-    assert (state.status, state.failure.type, state.failure.ctx["column"]) == ("failed", "table_column_missing", "email")
+    assert (state.status, state.cause.type, state.cause.ctx["column"]) == ("failed", "table_column_missing", "email")
 
 
 def test_scenario_20_an_empty_list_is_a_table_of_no_rows() -> None:
@@ -416,7 +416,7 @@ def test_scenario_20_an_empty_list_is_a_table_of_no_rows() -> None:
     compiled = _compiled(_node("h", "count-rows"), registry=_catalogue(count_rows))
     filled = compiled.with_inputs(rows=[])
     state = filled.run_sync()
-    assert state.status == "complete", state.failure
+    assert state.status == "complete", state.cause
     assert filled.results(state)["h"]["result"] == 0
     assert calls == [0]
 
@@ -424,7 +424,7 @@ def test_scenario_20_an_empty_list_is_a_table_of_no_rows() -> None:
 def test_a_list_of_records_is_one_table_not_many() -> None:
     compiled = _compiled(_node("h", "export", table=Static([{"a": "1"}, {"a": "2"}])))
     state = compiled.run_sync()
-    assert state.status == "complete", state.failure
+    assert state.status == "complete", state.cause
     result = compiled.results(state)["h"]["result"]
     assert isinstance(result, pl.DataFrame) and result.height == 2
 

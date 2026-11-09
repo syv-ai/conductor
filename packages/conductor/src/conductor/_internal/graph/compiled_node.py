@@ -187,7 +187,7 @@ class CompiledNode:
         return tuple(
             Question(
                 name=out.name, title=self._title_of_a_question(out), description=out.description, dtype=out.dtype.describe(), many=out.many,
-                json_schema=json_schema_of(out.dtype, out.many), optional=out.takes_blank and out.exclusive_group is None, exclusive_group=out.exclusive_group,
+                json_schema=json_schema_of(out.dtype, out.many), required=not out.takes_blank or out.exclusive_group is not None, exclusive_group=out.exclusive_group,
             )
             for out in self.interface.outputs
         )

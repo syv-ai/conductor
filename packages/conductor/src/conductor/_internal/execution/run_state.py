@@ -4,7 +4,7 @@ A *leg* is one call of ``CompiledGraph.run``; a run takes several when a node
 waits on a person. The state is what a leg ends on, what a checkpoint during
 one hands over, and what the next one starts from. A unit in flight is in no
 state: going on from one calls it again, so a unit runs at least once. It says
-how the last leg ended (``status``, ``failure``) and, in ``nodes``, what each
+how the last leg ended (``status``, ``cause``) and, in ``nodes``, what each
 node did: one ``WorkOfNode``. Everything else a run knows — which rows each
 index has, which indexes will gain no more — follows from these and is worked
 out again when a leg starts.
@@ -118,7 +118,7 @@ class Question(ConductorModel):
     Plain data, so a form renders from a stored state with no graph loaded.
     ``dtype`` and ``widget`` are the dumps of the output's type and control;
     ``json_schema`` is the shape of one answer, for a client to check before
-    sending. ``default`` fills the question when ``optional`` and left out; a
+    sending. ``default`` fills the question when not ``required`` and left out; a
     state holds it as its cells are held, and writes it as JSON the same way.
     Questions sharing an ``exclusive_group`` are alternatives: the person answers exactly one.
     """
@@ -132,7 +132,7 @@ class Question(ConductorModel):
     json_schema: dict[str, Any]
     widget: dict[str, Any] | None = None
     default: TypedValue = None
-    optional: bool = False
+    required: bool = True
     exclusive_group: str | None = None
 
 
@@ -253,7 +253,7 @@ class RunState(ConductorModel):
     status: RunStatus
     #: Why the leg stopped short: the failed node's cause, or a host's stop.
     #: ``None`` when the leg went quiet by itself (``complete``, ``waiting``).
-    failure: Problem | None = None
+    cause: Problem | None = None
     #: What each node did, by node id, in execution order.
     nodes: dict[str, WorkOfNode] = Field(default_factory=dict)
 

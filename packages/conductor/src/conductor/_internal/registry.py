@@ -124,7 +124,7 @@ class NodeRegistry:
         """Every definition, in the order given."""
         return tuple(self._nodes.values())
 
-    def extended_with(self, definitions: Iterable[NodeDefinition[..., Any]]) -> NodeRegistry:
+    def with_nodes(self, definitions: Iterable[NodeDefinition[..., Any]]) -> NodeRegistry:
         """A new registry holding these definitions beside everything here.
 
         A definition whose id this registry already holds adds nothing, its

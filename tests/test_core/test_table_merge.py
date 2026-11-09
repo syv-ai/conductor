@@ -44,7 +44,7 @@ def only_with_email(contacts: Annotated[Contacts, Param(title="Contacts")]) -> A
 
 
 def _registry_with(*extra: type[NodeDefinition]) -> NodeRegistry:
-    return _registry().extended_with([export, only_with_email, *extra])
+    return _registry().with_nodes([export, only_with_email, *extra])
 
 
 def _compiled(*nodes: GraphNode, registry: NodeRegistry | None = None) -> CompiledGraph:
@@ -91,7 +91,7 @@ def test_an_embedded_graph_given_the_whole_table_lands_its_result_on_the_contact
         GraphNode(id="keep", type="with-email", version=1),
         GraphNode(id="send", type="send", version=1, bindings={"email": From("keep.result.email")}),
     ), registry, "Mailer")
-    registry = registry.extended_with([inner])
+    registry = registry.with_nodes([inner])
     compiled = _compiled(
         CSV,
         GraphNode(id="emb", type="mailer", version=1, bindings={"contacts": From("csv.result")}),
@@ -226,7 +226,7 @@ def test_a_table_input_inside_an_embedded_graph_merges_its_inner_sources():
         GraphNode(id="send", type="send", version=1, bindings={"email": From("csv.result.email")}),
         GraphNode(id="excel", type="export", version=1, bindings={"table": From("csv.result", "send.result")}),
     ), registry, "Sheet maker")
-    compiled = _compiled(GraphNode(id="emb", type="sheet-maker", version=1), registry=registry.extended_with([inner]))
+    compiled = _compiled(GraphNode(id="emb", type="sheet-maker", version=1), registry=registry.with_nodes([inner]))
 
     assert _sheet(compiled, "emb/excel")["result"].to_list() == ["sent to ida@x", "no address"]
 
@@ -266,7 +266,7 @@ def test_an_embedded_graphs_table_rows_carry_ids_in_so_nothing_is_told():
         GraphNode(id="emb", type="filter", version=1, bindings={"contacts": From("csv.result")}),
         GraphNode(id="send", type="send", version=1, bindings={"email": From("emb.result.email")}),
         GraphNode(id="excel", type="export", version=1, bindings={"table": From("csv.result", "send.result")}),
-        registry=registry.extended_with([inner]),
+        registry=registry.with_nodes([inner]),
     )
 
     assert compiled.problems == ()
@@ -495,7 +495,7 @@ def test_a_table_that_lost_every_rows_id_fails_when_merged_with_the_table_it_was
 
     assert compiled.is_runnable, compiled.problems
     state = compiled.run_sync()
-    assert (state.status, state.failure.type, state.failure.loc[0]) == ("failed", "row_ids_lost", "keep")
+    assert (state.status, state.cause.type, state.cause.loc[0]) == ("failed", "row_ids_lost", "keep")
     assert "mail" not in compiled.results(state)
 
 

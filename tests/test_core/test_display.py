@@ -65,8 +65,8 @@ def test_a_registry_prints_its_nodes():
     registry = NodeRegistry()
     assert repr(registry) == "NodeRegistry(nodes=())"
 
-    registry = registry.extended_with([greet])
-    registry = registry.extended_with([truncate])
+    registry = registry.with_nodes([greet])
+    registry = registry.with_nodes([truncate])
     assert repr(registry) == (
         "NodeRegistry(nodes=(\n"
         "    NodeDefinition(id='greet', title='Greeting', category='text', versions=(1,)),\n"
