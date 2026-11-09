@@ -13,13 +13,21 @@ import threading
 import time
 from typing import Annotated
 
-from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, node
-from conductor.dtype import DType
-from conductor.field_records import Result
-from conductor.graph.binding import From, Static
-from conductor.graph.graph_records import Graph
-from conductor.node_decorator import NodeDefinition, Policy
-from conductor.series import Series
+from conductor import (
+    CompiledGraph,
+    DType,
+    From,
+    Graph,
+    GraphNode,
+    NodeDefinition,
+    NodeRegistry,
+    Param,
+    Policy,
+    Result,
+    Series,
+    Static,
+    node,
+)
 from conductor.widgets import Textarea
 from helpers import stream_of
 
@@ -281,7 +289,7 @@ def test_a_ready_unit_nobody_started_stops_the_leg_loudly(monkeypatch):
     write reports nothing leaves units ready and unstarted, and the leg
     raises when it goes quiet rather than ending short."""
     import pytest
-    from conductor.execution.live_run_values import LiveRunValues
+    from conductor._internal.execution.live_run_values import LiveRunValues
 
     @node("echo-wake", title="Echo", description="d", category="test")
     def echo(text: In = Txt("")) -> Out:

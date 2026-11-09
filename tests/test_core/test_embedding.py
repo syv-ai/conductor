@@ -30,17 +30,25 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import pytest
-from conductor import Arriving, NodeRegistry, node
-from conductor.dtype import DType
-from conductor.errors import CompileProblem
-from conductor.field_records import Output, Param, Result
-from conductor.graph.binding import From, Static
-from conductor.graph.compiled import CompiledGraph
-from conductor.graph.graph_records import Graph, GraphNode
-from conductor.node_decorator import NodeDefinition
-from conductor.ref import Ref
-from conductor.series import Series
-from conductor.skip_and_ask import SKIPPED
+from conductor import (
+    SKIPPED,
+    Arriving,
+    CompiledGraph,
+    CompileProblem,
+    DType,
+    From,
+    Graph,
+    GraphNode,
+    NodeDefinition,
+    NodeRegistry,
+    Output,
+    Param,
+    Ref,
+    Result,
+    Series,
+    Static,
+    node,
+)
 from conductor.widgets import Switch, Textarea
 
 FIXTURE = Path(__file__).parent / "fixtures" / "embedded_expected.json"

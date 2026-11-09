@@ -10,13 +10,19 @@ reading input receives it. A node with a fatal problem carries the
 from textwrap import dedent
 from typing import Annotated
 
-from conductor import GraphNode, NodeRegistry, Param, node
-from conductor.dtype import DType
-from conductor.field_records import Result
-from conductor.graph.binding import From, Static
-from conductor.graph.compiled import CompiledGraph
-from conductor.graph.graph_records import Graph
-from conductor.series import Series
+from conductor import (
+    CompiledGraph,
+    DType,
+    From,
+    Graph,
+    GraphNode,
+    NodeRegistry,
+    Param,
+    Result,
+    Series,
+    Static,
+    node,
+)
 from conductor.widgets import Textarea
 from conductor_providers.mermaid import flowchart
 from test_core.embedded import embedded_graph_node

@@ -9,15 +9,23 @@ compile did.
 
 from typing import Annotated
 
-from conductor import NodeRegistry, node
-from conductor.dtype import AsItArrives, DType
-from conductor.field_records import Param, Result
-from conductor.graph.binding import From, Static
-from conductor.graph.compiled import CompiledGraph
-from conductor.graph.graph_records import Graph, GraphNode
-from conductor.graph.receive import Broadcast, EntireValue, Gather, PerRow, RowsUnder
-from conductor.ref import Ref
-from conductor.series import Index, Series
+from conductor import (
+    AsItArrives,
+    CompiledGraph,
+    DType,
+    From,
+    Graph,
+    GraphNode,
+    NodeRegistry,
+    Param,
+    Ref,
+    Result,
+    Series,
+    Static,
+    node,
+)
+from conductor._internal.graph.receive import Broadcast, EntireValue, Gather, PerRow, RowsUnder
+from conductor._internal.series import Index
 from conductor.widgets import Textarea
 
 from test_core.embedded import embedded_graph_node

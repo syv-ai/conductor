@@ -9,11 +9,16 @@ fields is read off ``Cls.versions[n].interface``.
 from typing import Annotated, Any
 
 import pytest
-from conductor import OlderVersion, Upgrade, node
-from conductor.dtype import DType
-from conductor.errors import NodeDeclarationError
-from conductor.field_records import Param, Result
-from conductor.registry import NodeRegistry
+from conductor import (
+    DType,
+    NodeDeclarationError,
+    NodeRegistry,
+    OlderVersion,
+    Param,
+    Result,
+    Upgrade,
+    node,
+)
 from conductor.widgets import Textarea
 
 

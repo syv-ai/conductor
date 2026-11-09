@@ -9,8 +9,7 @@ import pytest
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
-from conductor import NodeRegistry, Param, node  # noqa: E402
-from conductor.field_records import Result  # noqa: E402
+from conductor import NodeRegistry, Param, Result, node  # noqa: E402
 from conductor.widgets import Textarea  # noqa: E402
 from conductor_nodes.types import Text  # noqa: E402
 from conductor_providers.fastapi import conductor_router  # noqa: E402
@@ -85,7 +84,7 @@ def test_a_malformed_state_is_the_callers_fault(client):
 def test_an_error_that_is_not_a_refusal_stays_the_servers(client, monkeypatch):
     """Only a refused graph, answer or state is the caller's
     fault; a ``ValueError`` from anywhere else is a bug and a 500."""
-    import conductor.execution.run_until_idle as leg
+    import conductor._internal.execution.run_until_idle as leg
 
     def broken(*args, **kwargs):
         raise ValueError("a bug")

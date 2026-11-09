@@ -9,15 +9,22 @@ from types import SimpleNamespace
 from typing import Annotated
 
 import pytest
-from conductor import InvalidCallError, NodeRegistry, Param, node
-from conductor.dtype import DType
-from conductor.field_records import Result
-from conductor.graph.binding import From, Static
-from conductor.graph.compiled import CompiledGraph
-from conductor.graph.graph_records import Graph, GraphNode
-from conductor.node_decorator import Policy
-from conductor.series import Series
-from conductor.skip_and_ask import SKIPPED
+from conductor import (
+    SKIPPED,
+    CompiledGraph,
+    DType,
+    From,
+    Graph,
+    GraphNode,
+    InvalidCallError,
+    NodeRegistry,
+    Param,
+    Policy,
+    Result,
+    Series,
+    Static,
+    node,
+)
 from conductor.widgets import Textarea
 from helpers import stream_of
 
@@ -58,7 +65,7 @@ flaky_state = SimpleNamespace(active=0, peak=0, seen=[], calls=0)
 def flaky(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
     flaky_state.calls += 1
     if flaky_state.calls < 3:
-        from conductor.errors import ExternalFailure
+        from conductor import ExternalFailure
 
         raise ExternalFailure("not yet")
     return text

@@ -4,10 +4,8 @@ from dataclasses import dataclass
 from typing import Annotated
 
 import pytest
-from conductor.dtype import AsItArrives, DType
-from conductor.field_records import Param, Result
-from conductor.interface import build_call_validator, read_signature
-from conductor.series import Series
+from conductor import AsItArrives, DType, Param, Result, Series
+from conductor._internal.interface import build_call_validator, read_signature
 from conductor.widgets import (
     AnyWidget,
     Choice,
@@ -293,7 +291,7 @@ def test_a_plain_return_needs_no_result():
 def test_computed_inputs_arrive_as_keyword_arguments():
     """A node whose interface is computed takes the computed inputs as
     ``**values``. The signature declares nothing about them."""
-    from conductor.field_records import Input
+    from conductor import Input
 
     def templated(template: Annotated[Text, Param(title="Template", widget=Textarea())] = Text(""), **values: Text) -> Annotated[Text, Result(title="R")]:
         return Text(template.format(**values))
@@ -325,7 +323,7 @@ def test_the_wire_carries_presentation_on_the_field_not_inside_the_widget():
     """The contract test the field/widget split needs: what a person reads
     about the input is on the ``Input``, and the widget's dump is the
     control's configuration and nothing else."""
-    from conductor.field_records import Input
+    from conductor import Input
 
     data = TypeAdapter(Input).dump_python(read_signature(sample).interface.inputs[1], mode="json")
 
@@ -336,7 +334,7 @@ def test_the_wire_carries_presentation_on_the_field_not_inside_the_widget():
 
 
 def test_the_input_record_publishes_a_json_schema_per_widget():
-    from conductor.field_records import Input
+    from conductor import Input
 
     schema = TypeAdapter(Input).json_schema(mode="serialization")
     (widget,) = [member for member in schema["properties"]["widget"]["anyOf"] if "discriminator" in member]
@@ -349,7 +347,7 @@ def test_the_input_record_publishes_a_json_schema_per_widget():
 def test_a_from_run_parameter_is_a_need_not_an_input():
     """What the run supplies, by type: no widget, no handle, nothing in the
     interface. ``execute(from_run={Who: …})`` hands it in."""
-    from conductor.interface import FromRun
+    from conductor import FromRun
 
     class Who:
         pass
@@ -482,4 +480,4 @@ def test_the_string_type_check_is_gone():
     import importlib
 
     with pytest.raises(ModuleNotFoundError):
-        importlib.import_module("conductor.graph.type_check")
+        importlib.import_module("conductor._internal.graph.type_check")

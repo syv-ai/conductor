@@ -15,10 +15,17 @@ from importlib.resources import files
 from typing import Annotated
 
 import pytest
-from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, Result, node
-from conductor.dtype import DType
-from conductor.graph.binding import Static
-from conductor.graph.graph_records import Graph
+from conductor import (
+    CompiledGraph,
+    DType,
+    Graph,
+    GraphNode,
+    NodeRegistry,
+    Param,
+    Result,
+    Static,
+    node,
+)
 from conductor.widgets import Textarea
 
 

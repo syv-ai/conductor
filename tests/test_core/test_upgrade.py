@@ -13,20 +13,24 @@ from typing import Annotated
 
 import pytest
 from conductor import (
+    CompiledGraph,
+    DType,
+    FieldContent,
+    From,
+    Graph,
+    GraphNode,
     InvalidCallError,
     NodeDeclarationError,
+    NodeDefinition,
     NodeRegistry,
     OlderVersion,
+    Param,
+    Result,
+    Static,
     Upgrade,
     node,
     upgrade_node,
 )
-from conductor.dtype import DType
-from conductor.field_records import Param, Result
-from conductor.graph.binding import From, Static
-from conductor.graph.compiled import CompiledGraph
-from conductor.graph.graph_records import FieldContent, Graph, GraphNode
-from conductor.node_decorator import NodeDefinition
 from conductor.widgets import Textarea
 
 

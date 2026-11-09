@@ -3,15 +3,26 @@
 from typing import Annotated
 
 import polars as pl
-from conductor import SKIPPED, CompiledGraph, GraphNode, NodeRegistry, Param, Static, Table, node
-from conductor.field_records import Result
-from conductor.graph.binding import From
-from conductor.graph.graph_records import Graph
-from conductor.graph.receive import Broadcast, EntireValue, Merge, PerRow, RowsUnder
-from conductor.node_decorator import NodeDefinition
-from conductor.ref import Ref
-from conductor.series import Index, Series
-from conductor.table import ROW_ID, MergeSource, merge
+from conductor import (
+    ROW_ID,
+    SKIPPED,
+    CompiledGraph,
+    From,
+    Graph,
+    GraphNode,
+    NodeDefinition,
+    NodeRegistry,
+    Param,
+    Ref,
+    Result,
+    Series,
+    Static,
+    Table,
+    node,
+)
+from conductor._internal.graph.receive import Broadcast, EntireValue, Merge, PerRow, RowsUnder
+from conductor._internal.series import Index
+from conductor._internal.table import MergeSource, merge
 from conductor.widgets import Textarea
 
 from test_core.embedded import embedded_graph_node

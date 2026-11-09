@@ -26,8 +26,8 @@ from conductor import (
     Table,
     node,
 )
+from conductor._internal.series import Index
 from conductor.events import RunEnd, RunStart, UnitWaiting
-from conductor.series import Index
 from conductor.widgets import Textarea
 
 
@@ -574,9 +574,9 @@ def test_results_show_the_rows_answered_so_far():
 
 def test_the_state_module_imports_nothing_from_the_graph():
     """A state loads, and a form renders from it, with no graph or registry in sight."""
-    import conductor.execution.run_state as module
+    import conductor._internal.execution.run_state as module
 
-    assert "conductor.graph" not in pathlib.Path(module.__file__).read_text()
+    assert "conductor._internal.graph" not in pathlib.Path(module.__file__).read_text()
 
 
 def test_a_signature_that_moves_a_node_to_other_rows_changes_its_fingerprint():

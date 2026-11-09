@@ -3,13 +3,8 @@
 from typing import Annotated
 
 import pytest
-from conductor import node
-from conductor.dtype import DType
-from conductor.field_records import Param, Result
-from conductor.graph.binding import From, Static
-from conductor.graph.compiled import CompiledGraph
-from conductor.graph.graph_records import Graph, GraphNode
-from conductor.graph.topology import order_of
+from conductor import CompiledGraph, DType, From, Graph, GraphNode, Param, Result, Static, node
+from conductor._internal.graph.topology import order_of
 from conductor.widgets import Textarea
 from pydantic import ValidationError
 

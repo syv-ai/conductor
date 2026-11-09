@@ -2,7 +2,8 @@
 
 from typing import Any
 
-from conductor.dtype import DType, DTypeRef, description_of, setting_type
+from conductor import DType
+from conductor._internal.dtype import DTypeRef, description_of, setting_type
 from pydantic import TypeAdapter
 
 

@@ -3,14 +3,14 @@
 This package is the main public door. With ``conductor.widgets`` (the
 input controls) and ``conductor.events`` (what a run emits) it is
 everything a caller outside the library imports; ``__all__`` lists it.
-Every other module is the library's own and may move.
+Everything in ``conductor._internal`` is the library's own and may move.
 """
 
 from typing import TYPE_CHECKING
 
-from conductor.codec import to_wire
-from conductor.dtype import AsItArrives, DType
-from conductor.errors import (
+from conductor._internal.codec import to_wire
+from conductor._internal.dtype import AsItArrives, DType
+from conductor._internal.errors import (
     PROBLEM_CODES,
     CompileProblem,
     ExternalFailure,
@@ -21,17 +21,17 @@ from conductor.errors import (
     NodeValidationError,
     Problem,
 )
-from conductor.execution.run_state import RunState
-from conductor.field_records import Input, Output, Param, Result
-from conductor.graph.binding import From, Static
-from conductor.graph.compiled import CompiledGraph
-from conductor.graph.conditions import ALWAYS, NEVER, Atom
-from conductor.graph.graph_records import FieldContent, Graph, GraphNode
-from conductor.graph.run_plan import InputPlan, RunPlan
-from conductor.graph.topology import dependencies_of
-from conductor.graph.upgrade import upgrade_node
-from conductor.interface import FromRun, Interface
-from conductor.node_decorator import (
+from conductor._internal.execution.run_state import RunState
+from conductor._internal.field_records import Input, Output, Param, Result
+from conductor._internal.graph.binding import From, Static
+from conductor._internal.graph.compiled import CompiledGraph
+from conductor._internal.graph.conditions import ALWAYS, NEVER, Atom
+from conductor._internal.graph.graph_records import FieldContent, Graph, GraphNode
+from conductor._internal.graph.run_plan import InputPlan, RunPlan
+from conductor._internal.graph.topology import dependencies_of
+from conductor._internal.graph.upgrade import upgrade_node
+from conductor._internal.interface import FromRun, Interface
+from conductor._internal.node_decorator import (
     Arriving,
     Deprecation,
     NodeDefinition,
@@ -41,16 +41,16 @@ from conductor.node_decorator import (
     Upgrade,
     node,
 )
-from conductor.ref import Ref
-from conductor.registry import NodeRegistry, TypeDescription
-from conductor.skip_and_ask import SKIPPED, AskPerson
-from conductor.table import ROW_ID, Table
+from conductor._internal.ref import Ref
+from conductor._internal.registry import NodeRegistry, TypeDescription
+from conductor._internal.skip_and_ask import SKIPPED, AskPerson
+from conductor._internal.table import ROW_ID, Table
 
 if TYPE_CHECKING:
     # A node takes and returns plain sequences; a type checker reads ``Series[X]`` as one.
     from collections.abc import Sequence as Series
 else:
-    from conductor.series import Series
+    from conductor._internal.series import Series
 
 __all__ = [
     "ALWAYS",

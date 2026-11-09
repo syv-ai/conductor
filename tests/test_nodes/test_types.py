@@ -1,7 +1,7 @@
 """The four types the catalog is declared with."""
 
 import conductor_nodes
-from conductor.dtype import DType
+from conductor import DType
 from conductor_nodes.types import Flag, Json, Number, Text
 from pydantic import BaseModel
 

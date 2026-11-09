@@ -9,19 +9,28 @@ from types import SimpleNamespace
 from typing import Annotated, Any
 
 import pytest
-from conductor import InvalidCallError, NodeRegistry, node
-from conductor.dtype import DType
-from conductor.errors import (
+from conductor import (
+    SKIPPED,
+    AskPerson,
+    CompiledGraph,
+    DType,
+    From,
+    Graph,
+    GraphNode,
+    Input,
+    InvalidCallError,
     NodeExecutionError,
+    NodeRegistry,
+    Output,
+    Param,
+    Policy,
+    Ref,
+    Result,
+    Series,
+    Static,
+    node,
 )
-from conductor.field_records import Input, Output, Param, Result
-from conductor.graph.binding import From, Static
-from conductor.graph.compiled import CompiledGraph
-from conductor.graph.graph_records import Graph, GraphNode
-from conductor.node_decorator import Policy
-from conductor.ref import Ref
-from conductor.series import Index, Series
-from conductor.skip_and_ask import SKIPPED, AskPerson
+from conductor._internal.series import Index
 from conductor.widgets import Textarea
 from helpers import stream_of
 
@@ -377,7 +386,7 @@ def test_a_defect_in_the_engine_fails_the_leg_instead_of_hanging_it(monkeypatch)
     """An exception the engine did not expect, raised while running a unit,
     ends the leg as a failure of that unit. A task that died silently would
     leave the loop waiting for a unit that never reports."""
-    from conductor.execution.live_run_values import LiveRunValues
+    from conductor._internal.execution.live_run_values import LiveRunValues
 
     def broken(self, unit):
         raise RuntimeError("the ledger lost a value")
@@ -721,7 +730,7 @@ def test_a_restore_leaves_a_list_set_on_a_node_under_a_skipped_outer_row_complet
     """A skip above the embedded graph leaves its list set on a node with no rows
     under the outer row, and a restore works that out again, so the inner
     node that stood in is still complete on the next leg."""
-    from conductor.execution.live_run_values import LiveRunValues, Skip
+    from conductor._internal.execution.live_run_values import LiveRunValues, Skip
 
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[_docs("a,b"), GraphNode(id="emb", type="typed-inside", version=1, bindings={"h.text": _edge(("docs", "texts"))})]),

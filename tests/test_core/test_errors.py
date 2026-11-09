@@ -9,7 +9,14 @@ from conductor import (
     PROBLEM_CODES,
     AsItArrives,
     CompiledGraph,
+    CompileProblem,
+    DType,
+    Graph,
     GraphNode,
+    InvalidCallError,
+    NodeDeclarationError,
+    NodeError,
+    NodeExecutionError,
     NodeRegistry,
     Param,
     Problem,
@@ -17,17 +24,7 @@ from conductor import (
     Static,
     node,
 )
-from conductor.dtype import DType
-from conductor.errors import (
-    CompileProblem,
-    ConductorError,
-    InvalidCallError,
-    NodeDeclarationError,
-    NodeError,
-    NodeExecutionError,
-    problem,
-)
-from conductor.graph.graph_records import Graph
+from conductor._internal.errors import ConductorError, problem
 
 
 class Txt(DType, str):
@@ -81,15 +78,15 @@ def test_every_code_a_site_writes_is_in_the_catalogue_and_every_row_is_written()
     equals the codes written at the sites: a ``problem(...)`` and a ``code=``
     in the engine and compile. ``failed`` is the engine's name for a
     ``NodeError`` the node raised with no code."""
-    import conductor.execution
-    import conductor.graph
+    import conductor._internal.execution
+    import conductor._internal.graph
 
     written: set[str] = {"failed"}
 
     def literals(expression: ast.expr) -> set[str]:
         return {graph_node.value for graph_node in ast.walk(expression) if isinstance(graph_node, ast.Constant) and isinstance(graph_node.value, str)}
 
-    for package in (conductor.execution, conductor.graph):
+    for package in (conductor._internal.execution, conductor._internal.graph):
         for path in Path(package.__file__).parent.glob("*.py"):
             for graph_node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
                 if not isinstance(graph_node, ast.Call):

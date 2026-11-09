@@ -3,15 +3,23 @@
 from typing import Annotated
 
 import pytest
-from conductor import Arriving, NodeRegistry, node
-from conductor.dtype import DType
-from conductor.errors import Problem
-from conductor.field_records import Output, Param, Result
-from conductor.graph.binding import From, Static
-from conductor.graph.compiled import CompiledGraph
-from conductor.graph.graph_records import Graph, GraphNode
-from conductor.ref import Ref
-from conductor.series import Series
+from conductor import (
+    Arriving,
+    CompiledGraph,
+    DType,
+    From,
+    Graph,
+    GraphNode,
+    NodeRegistry,
+    Output,
+    Param,
+    Problem,
+    Ref,
+    Result,
+    Series,
+    Static,
+    node,
+)
 from conductor.widgets import Textarea
 from pydantic import ValidationError
 
@@ -345,7 +353,8 @@ def test_every_code_is_declared_once_in_the_catalogue():
     """``PROBLEM_CODES`` is what a host translating by code has to cover: the keys of
     the one table every emitting site reads. A site naming a code the table
     lacks raises where it is written, so nothing can be emitted undeclared."""
-    from conductor.errors import CATALOGUE, PROBLEM_CODES, problem
+    from conductor import PROBLEM_CODES
+    from conductor._internal.errors import CATALOGUE, problem
 
     assert PROBLEM_CODES == frozenset(CATALOGUE)
     with pytest.raises(KeyError):
@@ -355,7 +364,7 @@ def test_every_code_is_declared_once_in_the_catalogue():
 def test_a_slot_the_details_do_not_fill_raises_unless_it_is_optional():
     """A template typo or a forgotten keyword is a programming error, caught
     where the problem is built; only the type's own sentence may be absent."""
-    from conductor.errors import problem
+    from conductor._internal.errors import problem
 
     with pytest.raises(KeyError):
         problem("unknown_ref_node", "b", "text")  # no source_node
@@ -363,7 +372,7 @@ def test_a_slot_the_details_do_not_fill_raises_unless_it_is_optional():
 
 
 def test_a_problem_is_formatted_from_its_details_and_keeps_them():
-    from conductor.errors import problem
+    from conductor._internal.errors import problem
 
     p = problem("unknown_ref_node", "b", "text", source_node="a")
     assert p.msg == "Field 'text' is connected to 'a', which is not in the graph."

@@ -7,6 +7,8 @@ All notable changes to the three workspace packages (`syv-conductor`, `syv-condu
 
 ## [Unreleased]
 
+- The library's own modules live in `conductor._internal`; the package holds the three doors, `about/` and `_internal/`. Import from `conductor`, `conductor.widgets` and `conductor.events`. `conductor` lists 48 names: gone are `Answers`, `Binding`, `CompiledField`, `CompiledNode`, `Condition`, `ConductorError`, `NodeRunPlan`, `NodeTimeoutError`, `NodeVersion`, `OutputColumn`, `Question`, `RegistryDescription`, `RunStatus`, `VersionDescription`, `WaitingUnit`, `from_wire`, `is_skipped` (`is SKIPPED`) and `model_of`; `ROW_ID` is new. The run plan's arrival `whole` is `entire_value`.
+
 - Compile is one forward walk: each node is compiled from the nodes above it, and stops at the first stage it can't go on from. What compile doesn't know is `None` on the node: `interface`, `wiring`, `version`, `definition`, with `cause` naming why, and `state` read off them. `NodeReadError`, `kind`, `runner` and `validate` are gone; `compiled.field` on a node that isn't wired is a `KeyError` naming the cause, and `embedded_graph` says a node stands for a graph.
 - `compiled.run_plan` says where every ready node runs and what each of its inputs receives, as records and, through `str()`, as text. `Wiring.runs_per_row_of`, `CompiledField.index` and `receives` are no longer public, and `Index` has left the door. A node's fingerprint hashes its run plan. `/compile` in the FastAPI provider answers `{problems, run_plan}`.
 - `row_ids_lost` follows every input that receives a whole table, so a table rebuilt in a node with `**inputs: AsItArrives` or `x: Any` and merged with its source fails; keeping `__row` passes.

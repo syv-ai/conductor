@@ -1,7 +1,8 @@
 """A type carries what it is and what it admits."""
 
 import pytest
-from conductor.dtype import DType, dtype_of
+from conductor import DType
+from conductor._internal.dtype import dtype_of
 from pydantic import BaseModel
 
 
@@ -179,7 +180,7 @@ def test_conductor_declares_no_domain_types_of_its_own():
     not domain: it means the same thing in every host — and it is not a
     word either (``test_standalone.py`` checks every module of the library).
     """
-    from conductor.registry import NodeRegistry
+    from conductor import NodeRegistry
 
     assert NodeRegistry().types == {}
 

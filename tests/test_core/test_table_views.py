@@ -3,13 +3,21 @@
 from dataclasses import dataclass
 from typing import Annotated
 
-from conductor import CompiledGraph, GraphNode, Static, Table, node
-from conductor.field_records import Output, Result
-from conductor.graph.binding import From
-from conductor.graph.graph_records import Graph
-from conductor.node_decorator import NodeDefinition
-from conductor.ref import Ref
-from conductor.series import Index, Series
+from conductor import (
+    CompiledGraph,
+    From,
+    Graph,
+    GraphNode,
+    NodeDefinition,
+    Output,
+    Ref,
+    Result,
+    Series,
+    Static,
+    Table,
+    node,
+)
+from conductor._internal.series import Index
 
 from test_core.test_table import Num, Txt
 from test_core.test_table_runs import CSV, Contacts, Text, _registry

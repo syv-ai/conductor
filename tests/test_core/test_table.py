@@ -6,11 +6,9 @@ import sys
 
 import polars as pl
 import pytest
-from conductor import Table, node
-from conductor.codec import to_wire
-from conductor.dtype import DType
-from conductor.series import Index
-from conductor.table import ROW_ID, column_type, row_id, with_row_ids
+from conductor import ROW_ID, DType, Table, node, to_wire
+from conductor._internal.series import Index
+from conductor._internal.table import column_type, row_id, with_row_ids
 from pydantic import TypeAdapter
 
 
@@ -154,9 +152,7 @@ def test_importing_conductor_does_not_import_polars():
 def test_a_node_returns_a_frame_and_its_output_holds_the_table_type():
     from typing import Annotated
 
-    from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, Static
-    from conductor.field_records import Result
-    from conductor.graph.graph_records import Graph
+    from conductor import CompiledGraph, Graph, GraphNode, NodeRegistry, Param, Result, Static
     from conductor.widgets import Textarea
 
     @node("read", title="Read", description="d", category="test")

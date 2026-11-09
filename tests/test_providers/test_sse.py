@@ -8,16 +8,10 @@ import pytest
 
 pytest.importorskip("fastapi")
 
-from conductor.errors import Problem  # noqa: E402
-from conductor.execution.events import (  # noqa: E402
-    Event,
-    NodeComplete,
-    NodeFailed,
-    RunEnd,
-    UnitWaiting,
-)
-from conductor.execution.run_state import OutputColumn, Question, RunState, WaitingUnit  # noqa: E402
-from conductor.series import Index, Series  # noqa: E402
+from conductor import Problem, RunState, Series
+from conductor._internal.execution.run_state import OutputColumn, Question, WaitingUnit
+from conductor._internal.series import Index
+from conductor.events import Event, NodeComplete, NodeFailed, RunEnd, UnitWaiting
 from conductor_nodes.types import Json, Text  # noqa: E402
 from conductor_providers.fastapi.sse import sse_frame  # noqa: E402
 from helpers import stream_of
@@ -69,9 +63,7 @@ def test_a_branch_nodes_completion_streams_with_only_the_branch_taken():
     import asyncio
 
     import conductor_nodes
-    from conductor import CompiledGraph, GraphNode
-    from conductor.graph.binding import Static
-    from conductor.graph.graph_records import Graph
+    from conductor import CompiledGraph, Graph, GraphNode, Static
 
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[GraphNode(id="d", type="logic-if-empty", version=1, bindings={"text": Static("x")})]),

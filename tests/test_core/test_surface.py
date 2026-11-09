@@ -10,12 +10,18 @@ from collections.abc import Mapping
 from typing import Annotated, Any, NewType
 
 import pytest
-from conductor import NodeRegistry, node
-from conductor.dtype import DType
-from conductor.field_records import Input, Param, Result
-from conductor.graph.binding import Static
-from conductor.graph.compiled import CompiledGraph
-from conductor.graph.graph_records import Graph, GraphNode
+from conductor import (
+    CompiledGraph,
+    DType,
+    Graph,
+    GraphNode,
+    Input,
+    NodeRegistry,
+    Param,
+    Result,
+    Static,
+    node,
+)
 from conductor.widgets import Textarea
 
 
@@ -110,7 +116,8 @@ def test_display_is_the_canvas_own_and_takes_any_key():
 
 
 def test_a_series_prints_as_its_constructor():
-    from conductor.series import Index, Series
+    from conductor import Series
+    from conductor._internal.series import Index
 
     assert repr(Series[Txt](Index("lines"), [Txt("a")])) == "Series[Txt](Index('lines'), ['a'])"
     sparse = Series[Txt](Index("lines"), [Txt("b")], rows=[(1,)])
@@ -170,7 +177,7 @@ def _run(annotations: dict, **kinds):
 def test_a_bare_series_parameter_is_a_series_of_anything():
     from typing import Any
 
-    from conductor.series import Series
+    from conductor import Series
 
     declared = _declare(run=_run({"rows": Annotated[Series, Param(title="Rows")]}))
     assert declared.versions[1].interface.inputs[0].dtype is Series[Any]
@@ -237,7 +244,8 @@ def test_a_graphs_nodes_are_a_tuple():
 
 def test_compile_problem_is_a_conductor_error_at_the_root():
     import conductor
-    from conductor.errors import CompileProblem, ConductorError
+    from conductor import CompileProblem
+    from conductor._internal.errors import ConductorError
 
     assert conductor.CompileProblem is CompileProblem and issubclass(CompileProblem, ConductorError)
 
@@ -249,7 +257,7 @@ def test_compile_problem_is_a_conductor_error_at_the_root():
 def test_a_field_refuses_a_dtype_that_is_not_a_type(bogus):
     """A value is not a type: ``Output(dtype=42)`` would dump ``dtype: null``,
     and a dumped ``{"id": ...}`` read back would set the dtype to a dict."""
-    from conductor.field_records import Output
+    from conductor import Output
     from pydantic import ValidationError
 
     with pytest.raises(ValidationError, match="dtype"):
@@ -305,8 +313,7 @@ def test_the_order_and_the_decisions_are_properties():
 
 
 def test_from_and_static_construct_positionally_and_store_as_before():
-    from conductor.graph.binding import From
-    from conductor.ref import Ref
+    from conductor import From, Ref
 
     edge = From("a.result", Ref("b", "result"))
     assert edge.refs == (Ref("a", "result"), Ref("b", "result"))
@@ -318,7 +325,7 @@ def test_from_and_static_construct_positionally_and_store_as_before():
 
 
 def test_from_refuses_an_empty_edge():
-    from conductor.graph.binding import From
+    from conductor import From
     from pydantic import ValidationError
 
     with pytest.raises(ValidationError):

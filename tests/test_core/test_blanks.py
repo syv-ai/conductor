@@ -10,6 +10,7 @@ from conductor import (
     AsItArrives,
     AskPerson,
     CompiledGraph,
+    DType,
     From,
     Graph,
     GraphNode,
@@ -19,14 +20,13 @@ from conductor import (
     Output,
     Param,
     Result,
+    Series,
     Static,
     Table,
     node,
 )
-from conductor.dtype import DType
+from conductor._internal.interface import read_signature
 from conductor.events import NodeComplete, NodeSkipped
-from conductor.interface import read_signature
-from conductor.series import Series
 from conductor.widgets import Textarea
 
 

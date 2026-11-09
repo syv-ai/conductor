@@ -14,13 +14,24 @@ import asyncio
 from typing import Annotated, Any
 
 import pytest
-from conductor import SKIPPED, AskPerson, CompiledGraph, GraphNode, NodeRegistry, node
-from conductor.dtype import DType
-from conductor.field_records import Input, Param, Result
-from conductor.graph.binding import From, Static
-from conductor.graph.graph_records import Graph
-from conductor.interface import read_signature
-from conductor.series import Index, Series
+from conductor import (
+    SKIPPED,
+    AskPerson,
+    CompiledGraph,
+    DType,
+    From,
+    Graph,
+    GraphNode,
+    Input,
+    NodeRegistry,
+    Param,
+    Result,
+    Series,
+    Static,
+    node,
+)
+from conductor._internal.interface import read_signature
+from conductor._internal.series import Index
 from conductor.widgets import NumberWidget, Textarea
 from helpers import stream_of
 

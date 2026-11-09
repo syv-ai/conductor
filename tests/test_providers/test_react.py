@@ -15,9 +15,7 @@ from typing import Annotated
 
 import conductor_nodes
 import pytest
-from conductor import CompiledGraph, Graph, GraphNode, NodeRegistry, node
-from conductor.field_records import Result
-from conductor.graph.binding import From, Static
+from conductor import CompiledGraph, From, Graph, GraphNode, NodeRegistry, Result, Static, node
 from conductor_nodes.types import Text
 from conductor_providers import react
 
@@ -153,7 +151,7 @@ class TestEndToEnd:
 def test_display_survives_the_round_trip_whole():
     """Colour, collapsed state and whatever else the canvas keeps come back;
     the canvas's position is merged in; the graph's own display too."""
-    from conductor.graph.graph_records import Graph, GraphNode
+    from conductor import Graph, GraphNode
 
     graph = Graph(
         nodes=[GraphNode(id="n1", type="build-pair", version=1, display={"position": {"x": 1, "y": 2}, "color": "red", "collapsed": True})],

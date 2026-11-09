@@ -13,21 +13,22 @@ import json
 from typing import Annotated
 
 import pytest
-from conductor import AskPerson, GraphNode, NodeRegistry, Param, node
-from conductor.dtype import DType
-from conductor.execution.events import (
-    Event,
-    NodeComplete,
-    NodeProgress,
-    NodeStart,
-    RunEnd,
+from conductor import (
+    AskPerson,
+    CompiledGraph,
+    DType,
+    Graph,
+    GraphNode,
+    NodeRegistry,
+    Param,
+    Result,
+    RunState,
+    Series,
+    Static,
+    node,
 )
-from conductor.execution.run_state import RunState
-from conductor.field_records import Result
-from conductor.graph.binding import Static
-from conductor.graph.compiled import CompiledGraph
-from conductor.graph.graph_records import Graph
-from conductor.series import Index, Series
+from conductor._internal.series import Index
+from conductor.events import Event, NodeComplete, NodeProgress, NodeStart, RunEnd
 from conductor.widgets import Textarea
 from pydantic import TypeAdapter, ValidationError
 

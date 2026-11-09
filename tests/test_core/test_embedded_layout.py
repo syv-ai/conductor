@@ -4,14 +4,23 @@ from collections.abc import Mapping
 from typing import Annotated, Any
 
 import pytest
-from conductor import NodeRegistry, node
-from conductor.dtype import DType
-from conductor.field_records import Output, Param, Result
-from conductor.graph.binding import From, Static
-from conductor.graph.compiled import CompiledGraph
-from conductor.graph.graph_records import FieldContent, Graph, GraphNode
-from conductor.ref import Ref
-from conductor.series import Index, Series
+from conductor import (
+    CompiledGraph,
+    DType,
+    FieldContent,
+    From,
+    Graph,
+    GraphNode,
+    NodeRegistry,
+    Output,
+    Param,
+    Ref,
+    Result,
+    Series,
+    Static,
+    node,
+)
+from conductor._internal.series import Index
 from conductor.widgets import Textarea
 
 from test_core.embedded import embedded_graph_node

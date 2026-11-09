@@ -1,7 +1,7 @@
 
 import pytest
-from conductor.dtype import DType
-from conductor.series import Index, Series
+from conductor import DType, Series
+from conductor._internal.series import Index
 from pydantic import BaseModel
 
 
@@ -113,7 +113,7 @@ def test_a_series_of_any_is_a_reduction_typed_later():
     form says so, and it is not in the vocabulary."""
     from typing import Any
 
-    from conductor.registry import NodeRegistry
+    from conductor import NodeRegistry
 
     assert Series[Any].element.id == "any"
     assert Series[Any].describe() == {"id": "series", "of": {"id": "any"}}
@@ -257,7 +257,7 @@ def test_a_series_of_wire_formed_values_dumps_each_through_its_own_schema():
 
 
 def test_a_series_and_a_list_are_unequal_both_ways():
-    from conductor.series import Index
+    from conductor._internal.series import Index
 
     s = Series[Text](Index("a"), [Text("x")])
     assert s != [Text("x")] and [Text("x")] != s
@@ -265,13 +265,13 @@ def test_a_series_and_a_list_are_unequal_both_ways():
 
 
 def test_two_series_differing_only_in_rows_are_unequal():
-    from conductor.series import Index
+    from conductor._internal.series import Index
 
     assert Series[Text](Index("a"), [Text("x")], rows=[(0,)]) != Series[Text](Index("a"), [Text("x")], rows=[(5,)])
 
 
 def test_a_series_is_hashable_by_what_it_equals_on():
-    from conductor.series import Index
+    from conductor._internal.series import Index
 
     one, same = Series[Text](Index("a"), [Text("x")]), Series[Text](Index("a"), [Text("x")])
     assert hash(one) == hash(same) and len({one, same}) == 1

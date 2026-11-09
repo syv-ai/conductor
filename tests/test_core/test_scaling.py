@@ -12,14 +12,20 @@ import time
 from dataclasses import dataclass
 from typing import Annotated
 
-from conductor import NodeRegistry, Param, node
-from conductor.dtype import DType
-from conductor.field_records import Result
-from conductor.graph.binding import From, Static
-from conductor.graph.compiled import CompiledGraph
-from conductor.graph.graph_records import Graph, GraphNode
-from conductor.series import Series
-from conductor.skip_and_ask import SKIPPED
+from conductor import (
+    SKIPPED,
+    CompiledGraph,
+    DType,
+    From,
+    Graph,
+    GraphNode,
+    NodeRegistry,
+    Param,
+    Result,
+    Series,
+    Static,
+    node,
+)
 from conductor.widgets import Textarea
 from helpers import stream_of
 

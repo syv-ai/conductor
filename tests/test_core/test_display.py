@@ -9,18 +9,19 @@ from typing import Annotated
 
 from conductor import (
     Deprecation,
+    DType,
+    Input,
     NodeRegistry,
     OlderVersion,
+    Param,
     Policy,
+    Problem,
     Result,
     Series,
     Upgrade,
     node,
 )
-from conductor.dtype import DType
-from conductor.errors import Problem
-from conductor.field_records import Input, Param
-from conductor.series import Index
+from conductor._internal.series import Index
 from conductor.widgets import Textarea, TextWidget
 
 

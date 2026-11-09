@@ -21,12 +21,19 @@ import time
 from typing import Annotated
 
 import pytest
-from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, node
-from conductor.errors import ExternalFailure
-from conductor.field_records import Result
-from conductor.graph.binding import From, Static
-from conductor.graph.graph_records import Graph
-from conductor.node_decorator import Policy
+from conductor import (
+    CompiledGraph,
+    ExternalFailure,
+    From,
+    Graph,
+    GraphNode,
+    NodeRegistry,
+    Param,
+    Policy,
+    Result,
+    Static,
+    node,
+)
 from conductor.widgets import Textarea
 from conductor_nodes.types import Text
 from helpers import stream_of

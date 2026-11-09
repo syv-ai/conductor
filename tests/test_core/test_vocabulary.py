@@ -17,11 +17,17 @@ import re
 from typing import Annotated, Any
 
 import pytest
-from conductor import NodeRegistry, Param, Result, node
-from conductor.dtype import DType
-from conductor.errors import NodeDeclarationError
-from conductor.registry import RegistryDescription, TypeDescription
-from conductor.series import Series
+from conductor import (
+    DType,
+    NodeDeclarationError,
+    NodeRegistry,
+    Param,
+    Result,
+    Series,
+    TypeDescription,
+    node,
+)
+from conductor._internal.registry import RegistryDescription
 from conductor.widgets import Textarea
 
 

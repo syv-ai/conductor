@@ -1,5 +1,5 @@
 import pytest
-from conductor.ref import Ref
+from conductor import Ref
 from pydantic import BaseModel, TypeAdapter
 
 

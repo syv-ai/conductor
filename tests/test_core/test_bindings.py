@@ -4,17 +4,27 @@ from dataclasses import dataclass
 from typing import Annotated
 
 import pytest
-from conductor import NodeRegistry, node
-from conductor.dtype import DType
-from conductor.field_records import Output, Param, Result
-from conductor.graph.binding import From, Static, static_values
-from conductor.graph.compiled import CompiledGraph
-from conductor.graph.graph_interface import derive_interface
-from conductor.graph.graph_records import FieldContent, Graph, GraphNode
-from conductor.graph.topology import dependencies_of
-from conductor.interface import FromRun, Interface
-from conductor.ref import Ref
-from conductor.skip_and_ask import SKIPPED
+from conductor import (
+    SKIPPED,
+    CompiledGraph,
+    DType,
+    FieldContent,
+    From,
+    FromRun,
+    Graph,
+    GraphNode,
+    Interface,
+    NodeRegistry,
+    Output,
+    Param,
+    Ref,
+    Result,
+    Static,
+    dependencies_of,
+    node,
+)
+from conductor._internal.graph.binding import static_values
+from conductor._internal.graph.graph_interface import derive_interface
 from conductor.widgets import Textarea
 from pydantic import TypeAdapter
 
@@ -307,7 +317,7 @@ def test_an_output_reports_the_title_its_placement_carries():
 def test_a_nodes_computed_interface_is_the_same_record_its_version_declares():
     """One record at every scale: a version declares an ``Interface``, compile
     computes one per node in the graph, and derives one for the graph."""
-    from conductor.interface import Interface
+    from conductor import Interface
 
     interfaces, _ = _resolved(_graph())
     assert all(isinstance(i, Interface) for i in interfaces.values())

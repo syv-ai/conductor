@@ -4,15 +4,26 @@ from dataclasses import dataclass
 from typing import Annotated, Any
 
 import pytest
-from conductor import Arriving, NodeRegistry, node
-from conductor.dtype import AsItArrives, DType
-from conductor.field_records import Input, Output, Param, Result
-from conductor.graph.binding import From, Static
-from conductor.graph.compiled import CompiledGraph
-from conductor.graph.graph_records import Graph, GraphNode
-from conductor.graph.receive import PerRow
-from conductor.ref import Ref
-from conductor.series import Index, Series
+from conductor import (
+    Arriving,
+    AsItArrives,
+    CompiledGraph,
+    DType,
+    From,
+    Graph,
+    GraphNode,
+    Input,
+    NodeRegistry,
+    Output,
+    Param,
+    Ref,
+    Result,
+    Series,
+    Static,
+    node,
+)
+from conductor._internal.graph.receive import PerRow
+from conductor._internal.series import Index
 from conductor.widgets import Textarea
 
 
@@ -408,7 +419,7 @@ def test_a_hook_that_cannot_answer_refuses_and_the_refusal_is_the_nodes_problem(
     arrivals — lands as the node's one fatal `Problem`: the host
     names the code and writes the sentence, compile only anchors it, and
     there is no `no_outputs` echo beside it."""
-    from conductor.errors import CompileProblem
+    from conductor import CompileProblem
 
     def fussy_outputs():
         raise CompileProblem("wrong_shape", "What arrives does not fit.")
@@ -434,7 +445,7 @@ def test_an_inputs_hook_that_cannot_answer_refuses_and_compile_does_not_raise():
     """`CompileProblem` from `compute_inputs` is the node's one fatal `Problem`
     too, asked before any edge is walked: compile never raises for a fault
     in the graph, and a node reading the refused one carries no echo."""
-    from conductor.errors import CompileProblem
+    from conductor import CompileProblem
 
     def fussy_inputs():
         raise CompileProblem("wrong_mode", "That mode is not one this node has.")
@@ -742,7 +753,7 @@ def test_a_refusal_from_a_node_whose_source_is_broken_is_dropped_for_the_sources
     """The broken edge carries the fault; the hook's refusal about the arrival
     it never got would report the same fact twice. The node still gets an
     interface an editor can draw, with no outputs."""
-    from conductor.errors import CompileProblem
+    from conductor import CompileProblem
 
     def fussy_outputs():
         raise CompileProblem("wrong_shape", "What arrives does not fit.")

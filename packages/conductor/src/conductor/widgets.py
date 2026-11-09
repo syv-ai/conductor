@@ -32,7 +32,7 @@ from typing import Annotated, Any, Literal, Union
 
 from pydantic import ConfigDict, Discriminator, Field
 
-from conductor.conductor_model import ConductorModel
+from conductor._internal.conductor_model import ConductorModel
 
 
 class Widget(ConductorModel, ABC):

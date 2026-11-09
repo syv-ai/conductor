@@ -13,21 +13,27 @@ import json
 from typing import Annotated
 
 import pytest
-from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, node
-from conductor.dtype import DType
-from conductor.errors import (
-    CATALOGUE,
+from conductor import (
+    CompiledGraph,
+    DType,
     ExternalFailure,
+    From,
+    Graph,
+    GraphNode,
+    NodeDefinition,
     NodeError,
     NodeExecutionError,
+    NodeRegistry,
     NodeValidationError,
+    Param,
+    Policy,
+    Result,
+    Series,
+    Static,
+    node,
 )
-from conductor.execution.run_until_idle import Leg
-from conductor.field_records import Result
-from conductor.graph.binding import From, Static
-from conductor.graph.graph_records import Graph
-from conductor.node_decorator import NodeDefinition, Policy
-from conductor.series import Series
+from conductor._internal.errors import CATALOGUE
+from conductor._internal.execution.run_until_idle import Leg
 from conductor.widgets import Textarea
 from helpers import stream_of
 

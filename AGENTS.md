@@ -4,7 +4,7 @@ A general-purpose Python library that compiles and runs graphs of typed nodes. I
 
 ## Layout
 
-- `packages/conductor/` (`syv-conductor`, import `conductor`): the engine. `node.py` is the node contract, `interface.py` reads a `run` signature, `dtype.py` / `series.py` / `ref.py` are the type mechanism, `widgets.py` the controls, `errors.py` the exceptions, `registry/`, `graph/` (the record, compile, `CompiledGraph`) and `execution/` (the engine, events, `RunState`).
+- `packages/conductor/` (`syv-conductor`, import `conductor`): the engine. Three doors, `__init__.py`, `widgets.py` (the controls) and `events.py`, plus `about/` and `_internal/`, which holds everything else: `node_decorator.py` is the node contract, `interface.py` reads a signature, `field_records.py` the records of a field, `dtype.py` / `series.py` / `table.py` / `ref.py` the type mechanism, `errors.py` the exceptions, `registry.py`, `graph/` (the record, compile, `CompiledGraph`) and `execution/` (the engine, events, `RunState`).
 - `packages/conductor-nodes/` (`conductor_nodes`): the standard nodes and their four types.
 - `packages/conductor-providers/` (`conductor_providers`): `react`, `fastapi` and `mermaid` adapters, one subpackage each, with no shared base class.
 - `tests/`: `test_core`, `test_nodes`, `test_providers`, `test_stress`.
@@ -44,4 +44,4 @@ CI runs ruff and pytest on every PR. Tests marked `slow` time the wall clock and
 
 ## Public API
 
-The public API is what each package's `__init__` exports plus `conductor.widgets`, `conductor.errors`, `conductor.metadata`, `conductor.model` and `conductor.execution.events`. Anything else, including `_`-prefixed names, is internal. A breaking change to the public API needs a major version.
+The public API is what the three doors list in `__all__`, plus `conductor_nodes` and `conductor_providers`. Everything in `conductor._internal`, including anything with a leading underscore, is internal. A breaking change to the public API needs a major version.

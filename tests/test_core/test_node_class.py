@@ -3,20 +3,29 @@ from dataclasses import FrozenInstanceError
 from typing import Annotated, Any, ClassVar
 
 import pytest
-from conductor import Arriving, AsItArrives, Input, NodeRegistry, OlderVersion, Upgrade, node
-from conductor.dtype import DType
-from conductor.errors import NodeDeclarationError
-from conductor.field_records import Output, Param, Result
-from conductor.graph.binding import Static
-from conductor.graph.compiled import CompiledGraph
-from conductor.graph.graph_records import Graph, GraphNode
-from conductor.node_decorator import (
+from conductor import (
+    Arriving,
+    AsItArrives,
+    CompiledGraph,
     Deprecation,
+    DType,
+    Graph,
+    GraphNode,
+    Input,
+    NodeDeclarationError,
     NodeDefinition,
     NodeDescription,
+    NodeRegistry,
+    OlderVersion,
+    Output,
+    Param,
     Policy,
+    Result,
+    Series,
+    Static,
+    Upgrade,
+    node,
 )
-from conductor.series import Series
 from conductor.widgets import Choice, Dropdown, Textarea
 from pydantic import TypeAdapter
 
@@ -195,7 +204,7 @@ def test_the_flattened_record_is_gone():
     import importlib
 
     with pytest.raises(ModuleNotFoundError):
-        importlib.import_module("conductor.registry.definition")
+        importlib.import_module("conductor._internal.registry.definition")
 
 
 
@@ -204,7 +213,8 @@ def test_a_hook_that_cannot_answer_raises_refuses():
     """`CompileProblem(code, message)` is the one refusal a field hook has: the
     host names the code and writes the sentence, and the compiler anchors both
     as the node's fatal `Problem` (the graph plans)."""
-    from conductor.errors import CompileProblem, ConductorError
+    from conductor import CompileProblem
+    from conductor._internal.errors import ConductorError
 
     refusal = CompileProblem("wrong_shape", "What arrives does not fit.")
     assert (refusal.code, refusal.message) == ("wrong_shape", "What arrives does not fit.")

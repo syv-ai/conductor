@@ -16,9 +16,7 @@ import tomllib
 from pathlib import Path
 
 import pytest
-from conductor.graph.binding import From, Static
-from conductor.graph.compiled import CompiledGraph
-from conductor.graph.graph_records import Graph, GraphNode
+from conductor import CompiledGraph, From, Graph, GraphNode, Static
 
 PACKAGES = Path(__file__).resolve().parents[2] / "packages"
 SOURCES = sorted(
@@ -183,7 +181,7 @@ def _types_declared_by(*packages: str) -> list[str]:
     """
     probe = (
         "import importlib, pkgutil\n"
-        "from conductor.dtype import DType\n"
+        "from conductor._internal.dtype import DType\n"
         "found = set()\n"
         f"for name in {packages!r}:\n"
         "    package = importlib.import_module(name)\n"

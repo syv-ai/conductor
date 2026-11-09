@@ -5,10 +5,8 @@ from collections.abc import Mapping
 from typing import Annotated, Any
 
 import pytest
-from conductor.dtype import DType
-from conductor.field_records import Output, Result
-from conductor.interface import _read_return, unpack
-from conductor.series import Series
+from conductor import DType, Output, Result, Series
+from conductor._internal.interface import _read_return, unpack
 from pydantic import TypeAdapter
 
 

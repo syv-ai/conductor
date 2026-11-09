@@ -4,18 +4,33 @@ from collections import Counter
 from typing import Annotated, Any
 
 import pytest
-from conductor import NodeRegistry, OlderVersion, Upgrade, node
-from conductor.dtype import AsItArrives, DType
-from conductor.errors import CompileProblem, Problem
-from conductor.field_records import Input, Output, Param, Result
-from conductor.graph.binding import From, Static
-from conductor.graph.compiled import CompiledGraph
-from conductor.graph.graph_records import FieldContent, Graph, GraphNode
-from conductor.graph.receive import Broadcast
-from conductor.interface import FromRun, Interface, build_call_validator
-from conductor.node_decorator import Policy
-from conductor.ref import Ref
-from conductor.series import Series
+from conductor import (
+    AsItArrives,
+    CompiledGraph,
+    CompileProblem,
+    DType,
+    FieldContent,
+    From,
+    FromRun,
+    Graph,
+    GraphNode,
+    Input,
+    Interface,
+    NodeRegistry,
+    OlderVersion,
+    Output,
+    Param,
+    Policy,
+    Problem,
+    Ref,
+    Result,
+    Series,
+    Static,
+    Upgrade,
+    node,
+)
+from conductor._internal.graph.receive import Broadcast
+from conductor._internal.interface import build_call_validator
 from conductor.widgets import Choice, Dropdown, Textarea
 from pydantic import ValidationError
 
@@ -368,8 +383,8 @@ def test_a_compiled_node_holds_the_class_it_resolved_to():
 
 def _imports_of(module) -> set[str]:
     """Every module a source file imports when it runs, and every name it
-    imports from one as ``module.name``, so ``from conductor.graph import
-    compiler`` counts as reaching ``conductor.graph.compiler``. A type named
+    imports from one as ``module.name``, so ``from conductor._internal.graph import
+    compiler`` counts as reaching ``conductor._internal.graph.compiler``. A type named
     only for the type checker (``if TYPE_CHECKING:``) is not an import."""
     import ast
     from pathlib import Path
@@ -387,11 +402,11 @@ def _imports_of(module) -> set[str]:
 
 def test_compile_does_not_know_the_compiled_graph():
     """``compiled`` imports the walk and never the other way."""
-    import conductor.graph.compile_graph as walk_module
+    import conductor._internal.graph.compile_graph as walk_module
 
     reached = _imports_of(walk_module)
 
-    assert not {name for name in reached if name == "conductor.graph.compiled" or name.startswith("conductor.graph.compiled.")}
+    assert not {name for name in reached if name == "conductor._internal.graph.compiled" or name.startswith("conductor._internal.graph.compiled.")}
     assert not {name for name in reached if name.rsplit(".", 1)[-1] == "CompiledGraph"}
 
 
@@ -399,9 +414,9 @@ def test_the_compiled_values_know_neither_the_compiler_nor_the_graph():
     """``compiled_node`` holds the answers for one node and one field;
     compile's last step fills them in. It imports neither the compiler nor
     ``compiled``, so the values stand on their own."""
-    import conductor.graph.compiled_node as compiled_node_module
+    import conductor._internal.graph.compiled_node as compiled_node_module
 
-    assert not _imports_of(compiled_node_module) & {"conductor.graph.compiler", "conductor.graph.compiled"}
+    assert not _imports_of(compiled_node_module) & {"conductor._internal.graph.compiler", "conductor._internal.graph.compiled"}
 
 
 def test_execution_order_follows_the_edges():

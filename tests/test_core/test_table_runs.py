@@ -12,22 +12,23 @@ from typing import Annotated, Any
 
 import polars as pl
 from conductor import (
+    ROW_ID,
     SKIPPED,
     AskPerson,
     CompiledGraph,
+    From,
+    Graph,
     GraphNode,
     NodeRegistry,
     Param,
+    Ref,
+    Result,
+    Series,
     Static,
     Table,
     node,
 )
-from conductor.field_records import Result
-from conductor.graph.binding import From
-from conductor.graph.graph_records import Graph
-from conductor.ref import Ref
-from conductor.series import Index, Series
-from conductor.table import ROW_ID
+from conductor._internal.series import Index
 from conductor.widgets import Textarea
 from helpers import stream_of
 

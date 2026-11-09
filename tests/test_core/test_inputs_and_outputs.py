@@ -9,14 +9,21 @@ by address. The two are the graph's interface, used from each side.
 from typing import Annotated
 
 import pytest
-from conductor import GraphNode, InvalidCallError, NodeRegistry, Param, node
-from conductor.dtype import DType
-from conductor.field_records import Result
-from conductor.graph.binding import From, Static
-from conductor.graph.compiled import CompiledGraph
-from conductor.graph.graph_records import Graph
-from conductor.series import Series
-from conductor.skip_and_ask import SKIPPED
+from conductor import (
+    SKIPPED,
+    CompiledGraph,
+    DType,
+    From,
+    Graph,
+    GraphNode,
+    InvalidCallError,
+    NodeRegistry,
+    Param,
+    Result,
+    Series,
+    Static,
+    node,
+)
 from conductor.widgets import Textarea
 
 from test_core.embedded import embedded_graph_node

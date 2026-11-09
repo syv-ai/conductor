@@ -37,6 +37,12 @@ DOORS: dict[str, list[str]] = {
 }
 
 
+def test_the_package_holds_the_doors_and_one_private_directory():
+    package = ROOT / "packages" / "conductor" / "src" / "conductor"
+    entries = {entry.name for entry in package.iterdir() if entry.name != "__pycache__"}
+    assert entries == {"__init__.py", "widgets.py", "events.py", "about", "_internal", "py.typed"}
+
+
 @pytest.mark.parametrize("door", sorted(DOORS))
 def test_a_door_exports_exactly_its_pinned_names(door):
     module = importlib.import_module(door)
@@ -69,7 +75,7 @@ def _conductor_imports(source_root: Path) -> list[tuple[str, str]]:
     """Every name the package under ``source_root`` imports from ``conductor``: (file, dotted name).
 
     ``from conductor.events import Ending`` gives ``conductor.events.Ending``
-    and ``import conductor.graph`` gives ``conductor.graph``, so a submodule
+    and ``import conductor._internal.graph`` gives ``conductor._internal.graph``, so a submodule
     reached through a door (``from conductor import graph``) is caught too.
     """
     found = []
