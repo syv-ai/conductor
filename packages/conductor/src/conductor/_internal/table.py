@@ -133,9 +133,15 @@ def with_row_ids(frame: pl.DataFrame, index: Index, group_row: Row) -> pl.DataFr
     written = ids.to_list()
     taken = {value for value in written if value is not None}
     seen: set[str] = set()
-    spare = (spelled for spelled in (global_row_id(index, (*group_row, n)) for n in count()) if spelled not in taken)
-    fresh = [next(spare) if value is None or value in seen or seen.add(value) else value for value in written]  # type: ignore[func-returns-value]
-    return _with_ids(fresh, frame.drop(ROW_ID_COLUMN))
+    spare = (spelled for spelled in (global_row_id(index, (*group_row, position)) for position in count()) if spelled not in taken)
+    new_ids: list[str] = []
+    for value in written:
+        if value is None or value in seen:
+            new_ids.append(next(spare))
+        else:
+            seen.add(value)
+            new_ids.append(value)
+    return _with_ids(new_ids, frame.drop(ROW_ID_COLUMN))
 
 
 def _with_ids(ids: list[str], frame: pl.DataFrame) -> pl.DataFrame:
@@ -189,8 +195,8 @@ def merge_tables_on_row_ids(sources: Sequence[MergeSource]) -> pl.DataFrame:
     under is not in the result. Every other source brings all its rows and is
     joined in full, so a row only one of them has is kept with blanks beside
     it: sources on one index first, matching id and parent row, then the
-    indexes in wiring order, on the id alone. A column a source shares with what is already there
-    keeps its name with the source's added (``name_crm``).
+    indexes in wiring order, on the id alone. A column a source shares with
+    what is already there keeps its name with the source's added (``name_crm``).
     """
     import polars as pl
 
@@ -245,7 +251,8 @@ def merge_tables_on_row_ids(sources: Sequence[MergeSource]) -> pl.DataFrame:
 
 
 def renames_in_merge(sources: Iterable[tuple[str, Iterable[str]]]) -> list[dict[str, str]]:
-    """Per source, in wiring order, what each column that clashes is called in the merged table: the columns a run's frames hold, or what compile reads off the sources' types.
+    """Per source, in wiring order, what each column that clashes is called in the
+    merged table: the columns a run's frames hold, or what compile reads off the sources' types.
 
     ``sources`` is each one's node id and column names. A column another
     source already holds takes its node's id (``name_crm``); every other keeps

@@ -103,7 +103,7 @@ def derive_interface(
     return Interface(inputs=tuple(inputs), outputs=tuple(outputs), needs=frozenset(needs))
 
 
-def _field_under_its_address(node: GraphNode, declared):
+def _field_under_its_address[InputOrOutput: (Input, Output)](node: GraphNode, declared: InputOrOutput) -> InputOrOutput:
     """``declared`` under its address, ``node.field``, an embedded graph's fields under the names it offers; with the title the author gave it on this node where there is one."""
     at = Ref(node.id, declared.name)
     content = node.fields.get(declared.name)

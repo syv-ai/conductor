@@ -39,7 +39,7 @@ from conductor._internal.dtype import DType, description_of, dtype_of, split_off
 from conductor._internal.errors import NodeDeclarationError
 
 #: The element type, for the ``Sequence`` protocol: ``Series[Text]`` yields ``Text``.
-ElementT = TypeVar("T")
+ElementT = TypeVar("ElementT")
 
 if TYPE_CHECKING:
     from pydantic import GetCoreSchemaHandler
@@ -59,7 +59,7 @@ class Index(ConductorModel):
         docs = Index("docs")                     # a root
         lines = Index("lines", parent=docs)      # one level down
         lines.depth                              # 2
-        Index.fresh()                            # a new root with a unique id
+        Index.new_root()                         # a new root with a unique id
 
     Two ``Index.new_root()`` results never align, which is the point: values
     made separately have no rows in common.
@@ -123,6 +123,9 @@ class Series(DType, Sequence[ElementT]):
     display_title = "Series"
 
     __slots__ = ("index", "rows", "values")
+
+    #: Where the rows come from, read where ``Sequence.index`` would be: a series has no use for that method.
+    index: Index  # type: ignore[assignment]
 
     #: One subclass per element type, built once, so ``Series[Text] is Series[Text]``.
     _subclass_by_element: ClassVar[dict[tuple[Any, bool], type["Series[Any]"]]] = {}

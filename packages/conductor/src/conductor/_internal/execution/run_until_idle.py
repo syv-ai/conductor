@@ -388,7 +388,9 @@ class RunningLeg:
             # the event carries the generic line and the class name; the log has the rest.
             node_id, row = unit
             logger.error("the engine failed on node %r", node_id, exc_info=raised)
-            failure = NodeExecutionError(PROBLEM_CATALOGUE["engine_error"].message, node_id=node_id, code="engine_error", ctx={"exception": type(raised).__name__})
+            failure = NodeExecutionError(
+                PROBLEM_CATALOGUE["engine_error"].message, node_id=node_id, code="engine_error", ctx={"exception": type(raised).__name__},
+            )
             self.queue.put_nowait(_UnitDone(unit, error=self._node_failed_event(node_id, failure, row)))
 
     async def _run_unit(self, unit: Unit, attempt: int) -> None:
@@ -452,7 +454,8 @@ class RunningLeg:
             must_survive = compiled._row_ids_must_survive
             if must_survive and not took_a_row_in(inputs):
                 must_survive = frozenset()
-            cells, problems = validate_unit_outputs(node, row, split_return_into_outputs(version.return_shape, value, node.interface.outputs, version.interface.outputs), must_survive)
+            value_by_output = split_return_into_outputs(version.return_shape, value, node.interface.outputs, version.interface.outputs)
+            cells, problems = validate_unit_outputs(node, row, value_by_output, must_survive)
         except ValueError as invalid:  # the wrong shape of return, or an ask that isn't sound
             queue.put_nowait(_UnitDone(unit, error=self._invalid_output_event(node_id, row, str(invalid), code="invalid_output")))
             return
@@ -513,7 +516,9 @@ class RunningLeg:
     @staticmethod
     def _node_failed(node_id: str, raised: BaseException) -> NodeExecutionError:
         logger.error("node %r failed", node_id, exc_info=raised)
-        return NodeExecutionError(PROBLEM_CATALOGUE["execution_failed"].message, node_id=node_id, code="execution_failed", ctx={"exception": type(raised).__name__})
+        return NodeExecutionError(
+            PROBLEM_CATALOGUE["execution_failed"].message, node_id=node_id, code="execution_failed", ctx={"exception": type(raised).__name__},
+        )
 
     def _report_progress_and_completion(self, unit: Unit) -> None:
         """Report progress, and completion when this was the node's last unit."""
