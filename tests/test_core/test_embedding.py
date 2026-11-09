@@ -459,7 +459,7 @@ def _what_compile_says(compiled: CompiledGraph) -> dict[str, Any]:
     nodes: dict[str, Any] = {}
     for node_id in compiled.execution_order:
         graph_node = compiled.node(node_id)
-        inputs = {inp.name for inp in graph_node.interface.inputs}
+        inputs = {input_.name for input_ in graph_node.interface.inputs}
         fields: dict[str, Any] = {}
         for declared in (*graph_node.interface.inputs, *graph_node.interface.outputs):
             found = compiled.field(Ref(node_id, declared.name))

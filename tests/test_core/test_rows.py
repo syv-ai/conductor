@@ -189,7 +189,7 @@ def test_a_row_two_edges_both_supply_fails_the_node_with_the_row():
 # --- a computed interface, by name -----------------------------------------------------
 
 
-def test_a_computed_roster_runs_by_name_and_edges_like_any_field():
+def test_a_computed_inputs_runs_by_name_and_edges_like_any_field():
     results = _run([
         _docs("a,b"),
         GraphNode(id="c", type="columns", version=1, bindings={"text": _edge(("docs", "texts")), "spec": Static("navn,email")}),
@@ -201,7 +201,7 @@ def test_a_computed_roster_runs_by_name_and_edges_like_any_field():
     assert list(results["up"]["result"]) == ["EMAIL:A", "EMAIL:B"]
 
 
-def test_a_computed_roster_with_no_outputs_is_compiles_problem():
+def test_a_computed_inputs_with_no_outputs_is_compiles_problem():
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="c", type="columns", version=1, bindings={"spec": Static("")})]), _registry())
 
     assert [(p.type, p.loc[0], p.fatal) for p in compiled.problems] == [("no_outputs", "c", False)]

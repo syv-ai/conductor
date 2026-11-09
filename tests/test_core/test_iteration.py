@@ -298,7 +298,7 @@ def test_a_static_on_an_any_input_is_unbound_too():
     assert [p.type for p in compiled.problems] == ["unbound_required"]
 
 
-def test_an_open_roster_takes_one_input_per_edge_received_whole():
+def test_an_open_inputs_takes_one_input_per_edge_received_whole():
     """Two edges, two parameters, each typed by what arrives — a
     series arrives whole and makes nothing iterate."""
     compiled = _compiled([
@@ -319,7 +319,7 @@ def test_an_open_roster_takes_one_input_per_edge_received_whole():
     assert compiled.run_plan.nodes["s"].inputs["tekster"].receive_mode == "entire_value"
 
 
-def test_an_open_roster_parameter_takes_one_edge():
+def test_an_open_inputs_parameter_takes_one_edge():
     compiled = _compiled([
         GraphNode(id="a", type="upper", version=1, bindings={"text": Static("a")}),
         GraphNode(id="b", type="upper", version=1, bindings={"text": Static("b")}),
@@ -329,7 +329,7 @@ def test_an_open_roster_parameter_takes_one_edge():
     assert [p.type for p in compiled.problems] == ["one_edge_per_parameter"]
 
 
-def test_an_open_roster_parameter_is_named_like_a_keyword_argument():
+def test_an_open_inputs_parameter_is_named_like_a_keyword_argument():
     """`**inputs` is Python's own spelling: a parameter's name is an
     identifier, or the node has no signature to receive it in."""
     compiled = _compiled([

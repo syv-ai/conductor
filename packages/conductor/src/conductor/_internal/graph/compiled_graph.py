@@ -220,7 +220,7 @@ class CompiledGraph:
         A graph that embeds this one wants a value its input can't read as
         a problem of the compile, so it says so with ``raise_on_unreadable_values=False``; a caller
         gets it raised."""
-        offered = [inp.name for inp in self.interface.inputs]
+        offered = [input_.name for input_ in self.interface.inputs]
         problems: list[Problem] = []
         statics_to_set: dict[str, dict[str, Static]] = {}
         written_as: dict[tuple[str, str], str] = {}

@@ -126,7 +126,7 @@ def test_several_outputs_are_the_fields_of_a_record():
     assert read_signature(branches).return_shape is Answer
 
 
-def test_a_computed_roster_declares_no_outputs_and_returns_by_name():
+def test_a_computed_inputs_declares_no_outputs_and_returns_by_name():
     """The node's interface in its graph says what the outputs are; run hands them back by name."""
     from collections.abc import Mapping
     from typing import Any
@@ -201,10 +201,10 @@ def test_a_closed_param_may_declare_a_static_type():
     ) -> Annotated[Text, Result(title="R")]:
         return Text("")
 
-    (inp,) = read_signature(structured).interface.inputs
-    assert inp.dtype.wrapped_type is Schema
-    assert isinstance(build_call_validator((inp,))({"schema": {"fields": ("a",)}})["schema"], Schema)
-    assert TypeAdapter(type(inp)).dump_python(inp, mode="json")["dtype"] == {"id": "setting", "of": "Schema"}
+    (input_,) = read_signature(structured).interface.inputs
+    assert input_.dtype.wrapped_type is Schema
+    assert isinstance(build_call_validator((input_,))({"schema": {"fields": ("a",)}})["schema"], Schema)
+    assert TypeAdapter(type(input_)).dump_python(input_, mode="json")["dtype"] == {"id": "setting", "of": "Schema"}
 
 
 def test_a_bare_dtype_input_is_refused():
@@ -239,7 +239,7 @@ def test_a_pass_through_declares_any():
     assert read_signature(route).return_shape.id == "any"
 
 
-def test_an_any_roster_validates_a_call():
+def test_an_any_inputs_validates_a_call():
     """By the time a call reaches a node, the compiler has already said
     what arrives on an `Any` input — the validator passes the value through."""
     from typing import Any

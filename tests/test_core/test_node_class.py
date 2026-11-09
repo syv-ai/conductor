@@ -411,9 +411,9 @@ def test_a_node_is_called_like_its_function():
 
     assert upper(Txt("a")) == "A"
     assert (upper.id, upper.title, upper.description, upper.category, upper.current_version) == ("upper", "Upper", "Upper-cases a text.", "", 1)
-    (inp,) = upper.versions[1].interface.inputs
+    (input_,) = upper.versions[1].interface.inputs
     (out,) = upper.versions[1].interface.outputs
-    assert (inp.name, inp.dtype, inp.title, inp.required) == ("text", Txt, "text", True)
+    assert (input_.name, input_.dtype, input_.title, input_.required) == ("text", Txt, "text", True)
     assert (out.name, out.dtype, out.title) == ("result", Txt, "result")
 
 

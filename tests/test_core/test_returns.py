@@ -143,7 +143,7 @@ def test_unpack_refuses_a_value_that_is_not_the_record():
         split_return_into_outputs(Pair, ("a", 1), outputs, outputs)
 
 
-def test_unpack_reads_a_mapping_against_the_roster():
+def test_unpack_reads_a_mapping_against_the_inputs():
     interface = (Output("name", Text, title="Name"), Output("age", Num, title="Age"))
 
     assert split_return_into_outputs(Mapping, {"name": "Ida", "age": 3}, interface, interface) == {"name": "Ida", "age": 3}

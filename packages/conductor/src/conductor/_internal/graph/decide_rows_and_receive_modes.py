@@ -113,14 +113,14 @@ def read_what_arrives_on_inputs(
 ) -> WhatArrivesOnInputs:
     """What arrives on each of ``inputs``. Stops at the first input that can't be read and says so in ``stopped_at_unreadable_source``."""
     found = WhatArrivesOnInputs()
-    for inp in inputs:
-        name = inp.name
+    for input_ in inputs:
+        name = input_.name
         binding = node.bindings.get(name)
         if not isinstance(binding, From):
             if name in inputs_given_a_list:
-                found.lists_on_node.append((name, inp.dtype))
+                found.lists_on_node.append((name, input_.dtype))
                 continue
-            found.carries[name], found.receive_modes[name] = _what_an_unwired_input_carries(inp, node.id)
+            found.carries[name], found.receive_modes[name] = _what_an_unwired_input_carries(input_, node.id)
             continue
         feeding = [_source_output(source, progress) for source in binding.refs]
         if None in feeding:
@@ -134,7 +134,7 @@ def read_what_arrives_on_inputs(
             found.stopped_at_unreadable_source = True
             return found
         sources: list[CompiledField] = cast("list[CompiledField]", feeding)
-        target = inp.dtype
+        target = input_.dtype
         found.tables_taken_in.extend(sources_taken_in_whole(target, sources))
         if target is _ReceivedAsItArrives:
             if not name.isidentifier():
@@ -162,7 +162,7 @@ def read_what_arrives_on_inputs(
             continue
         if is_untyped(target):
             element = sources[0].type.element or sources[0].type
-            target = Series[element] if inp.dtype.element is not None else element
+            target = Series[element] if input_.dtype.element is not None else element
             found.type_given_by_edge[name] = target
         for source_ref, source in zip(binding.refs, sources, strict=True):
             problems.extend(_type_mismatch_unless_accepted(target, node.id, name, source_ref, source))
@@ -350,12 +350,12 @@ def _all_on_one_index(sources: Sequence[CompiledField]) -> bool:
     return all(source._index is not None for source in sources) and len({source._index for source in sources}) == 1
 
 
-def _what_an_unwired_input_carries(inp: Input, node_id: str) -> tuple[InputCarries, ReceiveMode]:
+def _what_an_unwired_input_carries(input_: Input, node_id: str) -> tuple[InputCarries, ReceiveMode]:
     """What an input carries when no edge feeds it: one value copied to every
     call, or for a ``Series[X]`` input a column of its own, received whole."""
-    if inp.dtype.element is not None:
-        return InputCarries(inp.dtype, Index(Ref(node_id, inp.name))), EntireValue()
-    return InputCarries(inp.dtype, None), Broadcast()
+    if input_.dtype.element is not None:
+        return InputCarries(input_.dtype, Index(Ref(node_id, input_.name))), EntireValue()
+    return InputCarries(input_.dtype, None), Broadcast()
 
 
 def _row_above_reductions(reductions: list[tuple[Index, str]]) -> list[tuple[Index, str]]:

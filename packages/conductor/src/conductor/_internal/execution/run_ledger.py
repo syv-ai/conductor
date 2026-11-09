@@ -205,11 +205,11 @@ class RunLedger:
         roots: list[str] = []
         for node_id in order:
             node = compiled.node(node_id)
-            for inp in self._lookups.interfaces[node_id].inputs:
-                list_field = compiled.field(Ref(node_id, inp.name))
+            for input_ in self._lookups.interfaces[node_id].inputs:
+                list_field = compiled.field(Ref(node_id, input_.name))
                 if not list_field._is_list_on_node or list_field._index.parent is not None:
                     continue
-                for position, value in enumerate(node.statics[inp.name]):
+                for position, value in enumerate(node.statics[input_.name]):
                     self._add_row(list_field._index.id, (position,))
                     self._values.setdefault(list_field.ref, {})[(position,)] = value
                 self._mark_index_sealed(list_field._index.id)
@@ -253,9 +253,9 @@ class RunLedger:
         series on this index that receives it grouped or whole, not one row
         at a time."""
         for ref in self._lookups.outputs_on_index[index_id]:
-            for inp, receive_mode in self._lookups.read_by[ref]:
+            for input_, receive_mode in self._lookups.read_by[ref]:
                 if not _reads_one_value_at_row(receive_mode):
-                    yield inp.node_id, ref, _group_depth(receive_mode)
+                    yield input_.node_id, ref, _group_depth(receive_mode)
 
     def _lists_on_nodes_under(self, index_id: str) -> Iterator[tuple[Ref, str]]:
         """``(the input, its index)`` for each list set on a node, made under every row of this index."""
@@ -437,29 +437,29 @@ class RunLedger:
             return SkippedAtRow(row=row)
         values: dict[str, Any] = {}
         statics = node.statics
-        for inp in self._lookups.interfaces[node_id].inputs:
-            own = Ref(node_id, inp.name)
+        for input_ in self._lookups.interfaces[node_id].inputs:
+            own = Ref(node_id, input_.name)
             binding = self._fields[own].binding
             receive_mode = self._fields[own]._receive_mode
             if binding is None:
                 if isinstance(receive_mode, EntireValue):
-                    values[inp.name] = self._static_or_default_for_unit(receive_mode, inp.default, own)
+                    values[input_.name] = self._static_or_default_for_unit(receive_mode, input_.default, own)
                 continue  # a scalar default is the node's own; the call applies it
-            if inp.name in statics:
-                values[inp.name] = self._static_or_default_for_unit(receive_mode, statics[inp.name], own, row)
+            if input_.name in statics:
+                values[input_.name] = self._static_or_default_for_unit(receive_mode, statics[input_.name], own, row)
                 continue
             if isinstance(receive_mode, (PerRow, Broadcast)):
                 covering, skips = self._values_covering_row(node_id, binding.refs, row)
                 if not covering:
                     return SkippedAtRow(row=max(skips, key=len))
-                (values[inp.name],) = covering
+                (values[input_.name],) = covering
             elif isinstance(receive_mode, Merge):
                 merged = self._merged_table_for_unit(receive_mode, row)
                 if merged is None:
                     return SkippedAtRow(row=row)
                 # Read through the input's own type when the call is checked, so a
                 # merged table it won't take fails this node, naming the column.
-                values[inp.name] = merged
+                values[input_.name] = merged
             elif isinstance(receive_mode, Gather):
                 gathered: list[Any] = []
                 for ref in binding.refs:
@@ -471,7 +471,7 @@ class RunLedger:
                         gathered.append(value)
                     else:
                         gathered.extend(self._series_on_rows(node_id, (ref,), index, self._rows_under(index.id, ())).values)
-                values[inp.name] = Series(gathered, index=receive_mode.index)
+                values[input_.name] = Series(gathered, index=receive_mode.index)
             else:
                 group_row = row[: _group_depth(receive_mode)]
                 found = [self._value_or_skip_at(ref, group_row) for ref in binding.refs]
@@ -480,9 +480,9 @@ class RunLedger:
                 index = self._fields[binding.refs[0]]._index
                 if index is None:
                     # Received whole from a source that ran once: the one value.
-                    ((values[inp.name], _),) = found
+                    ((values[input_.name], _),) = found
                 else:
-                    values[inp.name] = self._series_on_rows(node_id, binding.refs, index, self._rows_under(index.id, group_row))
+                    values[input_.name] = self._series_on_rows(node_id, binding.refs, index, self._rows_under(index.id, group_row))
         blank = tuple(name for name in node._inputs_rejecting_a_blank if values.get(name, _MISSING) is None)
         if blank:
             return BlankInputsStopCall(blank)
@@ -824,12 +824,12 @@ class RunLedger:
         _, row = unit
         made_ready: set[Unit] = set()
         for ref, new_row in written:
-            for inp, receive_mode in self._lookups.read_by[ref]:
+            for input_, receive_mode in self._lookups.read_by[ref]:
                 depth = _group_depth(receive_mode)
                 if _reads_one_value_at_row(receive_mode) or len(new_row) < depth:
-                    made_ready.update(self._units_under(inp.node_id, new_row))
+                    made_ready.update(self._units_under(input_.node_id, new_row))
                 else:
-                    self._add_group_readers_if_written(ref, inp.node_id, new_row[:depth], made_ready)
+                    self._add_group_readers_if_written(ref, input_.node_id, new_row[:depth], made_ready)
         for index_id, new_rows in rows_made.items():
             readers = self._lookups.nodes_running_per_row_of_index[index_id]
             for new_row in new_rows:

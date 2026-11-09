@@ -511,7 +511,7 @@ def test_a_node_with_no_opinion_has_its_declaration_as_its_interface():
     assert compiled.node("a").interface == declared
 
 
-def test_a_roster_depends_only_on_what_the_author_typed():
+def test_a_inputs_depends_only_on_what_the_author_typed():
     """A connected input has no value until the graph runs, so the node's interface falls
     back to the declaration for it."""
     compiled = _compiled([

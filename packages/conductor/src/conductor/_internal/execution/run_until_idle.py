@@ -557,7 +557,7 @@ class RunningLeg:
     @staticmethod
     def _validation_error_as_text(invalid: ValidationError, inputs: tuple[Any, ...]) -> str:
         """A validation error as one line per field, using the field's title."""
-        titles = {inp.name: inp.title for inp in inputs}
+        titles = {input_.name: input_.title for input_ in inputs}
         parts = []
         for err in invalid.errors():
             loc = [segment for segment in err.get("loc", ()) if isinstance(segment, str)]

@@ -294,10 +294,10 @@ def build_call_validator(inputs: tuple[Input, ...]) -> Callable[[Mapping[str, An
     """
     adapter = TypeAdapter(
         with_config(ConfigDict(extra="ignore", arbitrary_types_allowed=True))(
-            TypedDict("Inputs", {inp.name: inp.dtype for inp in inputs})  # type: ignore[operator]
+            TypedDict("Inputs", {input_.name: input_.dtype for input_ in inputs})  # type: ignore[operator]
         )
     )
-    defaults = {inp.name: inp.default for inp in inputs if not inp.required}
+    defaults = {input_.name: input_.default for input_ in inputs if not input_.required}
 
     def check(values: Mapping[str, Any]) -> dict[str, Any]:
         return adapter.validate_python({**defaults, **values})

@@ -178,7 +178,7 @@ def test_a_value_that_satisfies_its_type_contributes_nothing():
 # --- a field name is unique within a node -------------------------------------------
 
 
-def test_a_computed_roster_naming_one_field_twice_is_fatal():
+def test_a_computed_inputs_naming_one_field_twice_is_fatal():
     """`Interface.of` refuses the declaration; an interface a hook computed is
     compile's to refuse, once, on the finished interface — within a side and
     across sides alike, because a `Ref` is one address on either side."""

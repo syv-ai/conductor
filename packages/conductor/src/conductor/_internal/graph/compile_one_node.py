@@ -109,7 +109,7 @@ def compile_one_node(node: GraphNode, progress: CompileProgress, registry: NodeR
     inputs_read = read_what_arrives_on_inputs(node, inputs, inputs_given_a_list, progress, problems)
     if inputs_read.stopped_at_unreadable_source:
         return _record_compiled_node(progress, node, problems, definition, version, _interface_without_wiring(node, version, inputs, inputs_read, statics, problems), statics)
-    inputs_typed_by_their_edges = tuple(_with_type_from_its_edge(inp, inputs_read.type_given_by_edge) for inp in inputs)
+    inputs_typed_by_their_edges = tuple(_with_type_from_its_edge(input_, inputs_read.type_given_by_edge) for input_ in inputs)
     try:
         outputs = _outputs_after_compute_outputs(version, inputs_read.arriving_types, statics)
     except ComputeHookError as hook_error:
@@ -258,19 +258,19 @@ def _bindings_can_be_wired(
             elif NODE_PATH_SEPARATOR in source_id or source_id not in progress.compiled:
                 can_wire = False
                 problems.append(make_problem("unknown_ref_node", node.id, name, source_node=source_id))
-    for inp in inputs:
-        if is_untyped(inp.dtype):
-            if isinstance(node.bindings.get(inp.name), From):
+    for input_ in inputs:
+        if is_untyped(input_.dtype):
+            if isinstance(node.bindings.get(input_.name), From):
                 continue
             can_wire = False
-        elif not inp.required or inp.name in node.bindings or (
-            embeddable is not None and inp.name in embeddable.inputs and embeddable.inputs[inp.name].has_static_inside
+        elif not input_.required or input_.name in node.bindings or (
+            embeddable is not None and input_.name in embeddable.inputs and embeddable.inputs[input_.name].has_static_inside
         ):
             continue
         if unbound_explained_by_typos:
             unbound_explained_by_typos -= 1
             continue
-        problems.append(make_problem("unbound_required", node.id, inp.name))
+        problems.append(make_problem("unbound_required", node.id, input_.name))
     return can_wire
 
 
@@ -284,7 +284,7 @@ def _interface_without_wiring(
         # The broken source carries the problem; a problem about its missing
         # arrival would report the same fact twice.
         answered = ()
-    inputs_typed_by_their_edges = tuple(_with_type_from_its_edge(inp, inputs_read.type_given_by_edge) for inp in inputs)
+    inputs_typed_by_their_edges = tuple(_with_type_from_its_edge(input_, inputs_read.type_given_by_edge) for input_ in inputs)
     problems.extend(field_problems(node.id, answered, frozenset(input_.name for input_ in inputs_typed_by_their_edges), untyped_ok=True))
     return _interface_with_fields(version.interface, inputs_typed_by_their_edges, answered)
 
@@ -336,13 +336,13 @@ def _wiring_of_function_node(
             problems_by_field.setdefault(str(problem.loc[1]), []).append(problem)
     fields: dict[str, CompiledField] = {}
     node_id = node.id
-    for inp in interface.inputs:
-        field_type = inputs_read.carries[inp.name]
-        fields[inp.name] = CompiledField(
-            ref=Ref._from_checked_parts(node_id, inp.name), type=field_type.dtype, binding=node.bindings.get(inp.name), condition=None,
-            problems=tuple(problems_by_field.get(inp.name, ())), _index=field_type.index, _receive_mode=inputs_read.receive_modes[inp.name],
-            _is_list_on_node=inp.name in inputs_given_a_list, _makes_rows=None, _column_of_table=None, _takes_blank=False, _title=inp.title,
-            _row_origins=progress.row_origins.origins_of_rows_on(field_type.index) if inp.name in inputs_given_a_list else None,
+    for input_ in interface.inputs:
+        field_type = inputs_read.carries[input_.name]
+        fields[input_.name] = CompiledField(
+            ref=Ref._from_checked_parts(node_id, input_.name), type=field_type.dtype, binding=node.bindings.get(input_.name), condition=None,
+            problems=tuple(problems_by_field.get(input_.name, ())), _index=field_type.index, _receive_mode=inputs_read.receive_modes[input_.name],
+            _is_list_on_node=input_.name in inputs_given_a_list, _makes_rows=None, _column_of_table=None, _takes_blank=False, _title=input_.title,
+            _row_origins=progress.row_origins.origins_of_rows_on(field_type.index) if input_.name in inputs_given_a_list else None,
         )
     node_condition = condition_node_runs_under(node.bindings, _condition_lookup_for_sources(progress))
     runs_once = runs_per_row_of is None

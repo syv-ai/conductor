@@ -147,7 +147,7 @@ def embeddable_view_of(graph: CompiledGraph) -> EmbeddableGraph:
 
     # One namespace for both sides: a field name is unique within the node this graph becomes.
     names = offered_names(Ref(field.name) for field in (*graph.interface.inputs, *graph.interface.outputs))
-    input_names = {Ref(inp.name): names[Ref(inp.name)] for inp in graph.interface.inputs}
+    input_names = {Ref(input_.name): names[Ref(input_.name)] for input_ in graph.interface.inputs}
     inputs: dict[str, OfferedInput] = {}
     for ref in input_names:
         node = nodes[ref.node_id]
@@ -164,7 +164,7 @@ def embeddable_view_of(graph: CompiledGraph) -> EmbeddableGraph:
         outputs[name] = at
         outputs.update({f"{name}.{column}": Ref(at.node_id, f"{at.field}.{column}") for column, _ in columns_of(out.dtype)})
     interface = Interface(
-        inputs=tuple(inp.model_copy(update={"name": input_names[Ref(inp.name)]}) for inp in graph.interface.inputs),
+        inputs=tuple(input_.model_copy(update={"name": input_names[Ref(input_.name)]}) for input_ in graph.interface.inputs),
         outputs=tuple(out.model_copy(update={"name": names[Ref(out.name)]}) for out in graph.interface.outputs),
         needs=graph.interface.needs,
     )
@@ -178,7 +178,7 @@ def _problems_blocking_embedding(graph: CompiledGraph, nodes: Mapping[str, Compi
     offers left empty, which a value from outside fills. An empty input the
     graph doesn't offer can never be filled, and one with no type of its own
     leaves its node unworked-out, so each stays a problem."""
-    offered_addresses = {inp.authored_address for inp in offered.values()}
+    offered_addresses = {input_.authored_address for input_ in offered.values()}
 
     def a_value_from_outside_fills_it(problem: Problem) -> bool:
         if problem.type != "unbound_required":

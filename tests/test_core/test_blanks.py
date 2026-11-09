@@ -144,8 +144,8 @@ def test_an_input_takes_a_blank_when_its_hint_says_so(annotation, takes_blank):
     def run(x): ...
 
     run.__annotations__ = {"x": annotation, "return": Txt}
-    (inp,) = read_signature(run).interface.inputs
-    assert inp.takes_blank is takes_blank
+    (input_,) = read_signature(run).interface.inputs
+    assert input_.takes_blank is takes_blank
 
 
 def test_the_bare_type_is_what_travels_on_an_edge():

@@ -206,18 +206,18 @@ class CompiledNode:
         """The check a call goes through (``build_call_validator``), built on first use. An
         input that takes a blank is read as its type or ``None``."""
         return build_call_validator(tuple(
-            inp.model_copy(update={"dtype": _nullable_dtype(inp.dtype)}) if inp.takes_blank else inp for inp in self._inputs
+            input_.model_copy(update={"dtype": _nullable_dtype(input_.dtype)}) if input_.takes_blank else input_ for input_ in self._inputs
         ))
 
     @cached_property
     def _inputs_rejecting_a_blank(self) -> tuple[str, ...]:
         """The one-value inputs on which a blank means this node isn't called."""
-        return tuple(inp.name for inp in self._inputs if inp.dtype.element is None and not inp.takes_blank)
+        return tuple(input_.name for input_ in self._inputs if input_.dtype.element is None and not input_.takes_blank)
 
     @cached_property
     def _series_inputs_leaving_blanks_out(self) -> tuple[str, ...]:
         """The series inputs whose blank cells, row by row, are left out of the call."""
-        return tuple(inp.name for inp in self._inputs if inp.dtype.element is not None and not inp.takes_blank)
+        return tuple(input_.name for input_ in self._inputs if input_.dtype.element is not None and not input_.takes_blank)
 
 
 @dataclass(frozen=True, eq=False, init=False)

@@ -204,7 +204,7 @@ class _ComputeFieldsHook:
 def _parse_hook(function: Callable[..., Iterable[Any]], interface: Interface, kind: str) -> _ComputeFieldsHook:
     """``function``'s signature, checked against the version it shapes."""
     hints = get_type_hints(function, include_extras=True)
-    names = {inp.name: inp for inp in interface.inputs}
+    names = {input_.name: input_ for input_ in interface.inputs}
     reads: list[str] = []
     required: set[str] = set()
     arriving: list[str] = []
