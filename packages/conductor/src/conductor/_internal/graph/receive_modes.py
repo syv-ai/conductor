@@ -46,7 +46,7 @@ from conductor._internal.index import Index
 from conductor._internal.ref import Ref
 
 
-@dataclass(frozen=True, init=False)
+@dataclass(frozen=True, slots=True)
 class Cell:
     """The unit receives the value at its own row cut to ``depth``, from whichever source covers it.
 
@@ -63,10 +63,6 @@ class Cell:
     rows_of: Ref | None
     depth: int
     type: Literal["cell"] = "cell"
-
-    def __init__(self, receive_mode: str, sources: tuple[Ref, ...], rows_of: Ref | None, depth: int, type: str = "cell") -> None:
-        """Compile builds one per input of a graph, so this sets them in one step, not one at a time."""
-        self.__dict__.update(receive_mode=receive_mode, sources=sources, rows_of=rows_of, depth=depth, type=type)
 
     @property
     def _what_is_read(self) -> str:
@@ -113,7 +109,7 @@ class RowsUnder:
         return f"{self._what_is_read}; none under it: called with an empty list; skipped above them: not called"
 
 
-@dataclass(frozen=True, init=False)
+@dataclass(frozen=True, slots=True)
 class FixedValue:
     """The unit receives a value compile already holds: a static or a default.
 
@@ -124,10 +120,6 @@ class FixedValue:
     receive_mode: Literal["same_value_every_row", "entire_value"]
     value: Annotated[Any, Field(exclude=True)] = field(default=None, repr=False, compare=False)
     type: Literal["fixed"] = "fixed"
-
-    def __init__(self, receive_mode: str, value: Any = None, type: str = "fixed") -> None:
-        """Compile builds one per input left to a value, so this sets them in one step, not one at a time."""
-        self.__dict__.update(receive_mode=receive_mode, value=value, type=type)
 
     @property
     def sources(self) -> tuple[Ref, ...]:
