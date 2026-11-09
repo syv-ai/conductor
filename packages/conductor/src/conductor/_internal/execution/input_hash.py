@@ -26,20 +26,11 @@ from conductor._internal.table import content_digest_of_table, is_frame
 DigestsOfValues = dict[int, tuple[Any, bytes]]
 
 
-def hash_of_inputs(seed: bytes, inputs: dict[str, Any], digests_of_values: DigestsOfValues) -> str:
-    """The hash of a unit receiving ``inputs`` on a node whose ``_input_hash_seed`` is ``seed``.
+def hash_of_inputs(seed: bytes, values: Iterable[Any], digests_of_values: DigestsOfValues) -> str:
+    """The hash of a unit receiving ``values``, on a node whose ``_input_hash_seed`` is ``seed``.
 
     A digest of a table, of a list or of any value with a JSON form is worked
     out once per object per leg, so a value that reaches every row is read once."""
-    return _hash_of_values(seed, inputs.values(), digests_of_values)
-
-
-def hash_of_row_cells(cells: Iterable[Any], digests_of_values: DigestsOfValues) -> str:
-    """The hash of one row's cells, read as ``hash_of_inputs`` reads a node's inputs."""
-    return _hash_of_values(b"", cells, digests_of_values)
-
-
-def _hash_of_values(seed: bytes, values: Iterable[Any], digests_of_values: DigestsOfValues) -> str:
     parts = [seed]
     for value in values:
         if isinstance(value, str):

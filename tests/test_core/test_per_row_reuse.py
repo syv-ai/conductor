@@ -320,28 +320,28 @@ def test_a_value_with_no_json_form_is_called_and_never_fails_the_leg() -> None:
         pass
 
     seed = b"seed"
-    assert hash_of_inputs(seed, {"a": NoJson()}, {}) != hash_of_inputs(seed, {"a": NoJson()}, {})  # nothing to compare it to, so it is new work
+    assert hash_of_inputs(seed, [NoJson()], {}) != hash_of_inputs(seed, [NoJson()], {})  # nothing to compare it to, so it is new work
 
 
 def test_what_a_value_is_stays_apart_in_the_hash() -> None:
     def hash_of(**inputs: Any) -> str:
-        return hash_of_inputs(b"seed", inputs, {})
+        return hash_of_inputs(b"seed", inputs.values(), {})
 
     values = [hash_of(a="ab", b="c"), hash_of(a="a", b="bc"), hash_of(a=1, b=None), hash_of(a="1", b=None), hash_of(a=1.0, b=None), hash_of(a=True, b=None), hash_of(a=None, b=None)]
     assert len(set(values)) == len(values)
-    assert hash_of(a=1) == hash_of(a=1) and hash_of_inputs(b"other", {"a": 1}, {}) != hash_of(a=1)
+    assert hash_of(a=1) == hash_of(a=1) and hash_of_inputs(b"other", [1], {}) != hash_of(a=1)
 
 
 def test_many_values_are_their_values_in_order() -> None:
-    assert hash_of_inputs(b"s", {"x": ["a", "b"]}, {}) != hash_of_inputs(b"s", {"x": ["b", "a"]}, {})
-    assert hash_of_inputs(b"s", {"x": ["a"]}, {}) != hash_of_inputs(b"s", {"x": ["ab"]}, {})
+    assert hash_of_inputs(b"s", [["a", "b"]], {}) != hash_of_inputs(b"s", [["b", "a"]], {})
+    assert hash_of_inputs(b"s", [["a"]], {}) != hash_of_inputs(b"s", [["ab"]], {})
 
 
 def test_a_value_that_reaches_every_row_is_read_once_and_its_memo_is_tied_to_the_value() -> None:
     memo: dict = {}
     value = {"a": 1}
-    hash_of_inputs(b"s", {"x": value}, memo)
-    hash_of_inputs(b"s", {"x": value}, memo)
+    hash_of_inputs(b"s", [value], memo)
+    hash_of_inputs(b"s", [value], memo)
     assert len(memo) == 1 and next(iter(memo.values()))[0] is value
 
 

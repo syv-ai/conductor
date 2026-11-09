@@ -62,7 +62,6 @@ from conductor._internal.execution.events import NodeComplete, NodeSkipped
 from conductor._internal.execution.input_hash import (
     DigestsOfValues,
     hash_of_inputs,
-    hash_of_row_cells,
 )
 from conductor._internal.execution.run_state import (
     EarlierUnit,
@@ -333,7 +332,7 @@ class RunLedger:
             return failure._as_problem_at(node_id, *row)
         if isinstance(inputs, (SkippedAtRow, BlankInputsStopCall)):
             return self.record(unit, inputs)
-        input_hash = hash_of_inputs(self._compiled.node(node_id)._input_hash_seed, inputs, self._digests_of_values)
+        input_hash = hash_of_inputs(self._compiled.node(node_id)._input_hash_seed, inputs.values(), self._digests_of_values)
         if node_id in self._nodes_returning_a_table:
             self._tables_received[unit] = self._tables_received_by(node_id, inputs)
         if self._earlier_units:
@@ -656,7 +655,7 @@ class RunLedger:
         maker = self._lookups.field_making_rows_of_index[index.id]
         if maker._held_as.__class__ is not TableAtRow:
             cells = self._values.cells_under(maker.ref, group)
-            return [repr(cell) if isinstance(cell, HOLDS_NO_TABLE) else hash_of_row_cells((cell,), self._digests_of_values) for cell in cells]
+            return [repr(cell) if isinstance(cell, HOLDS_NO_TABLE) else hash_of_inputs(b"", (cell,), self._digests_of_values) for cell in cells]
         stored, _ = self._value_or_skip_at(maker.ref, group)
         values = without_row_id_columns(stored)
         held = list(map(repr, values.iter_rows())) if values.width else [""] * stored.height  # a table's cells are plain, and their repr is exact
