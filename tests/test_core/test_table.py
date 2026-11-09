@@ -28,7 +28,7 @@ class Flag(DType, int):
 
     id = "flag"
     display_title = "Flag"
-    column = "Boolean"
+    polars_column_type = "Boolean"
 
 
 class Day(DType, datetime.date):

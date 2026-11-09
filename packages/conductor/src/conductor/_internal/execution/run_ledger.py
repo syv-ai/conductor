@@ -872,9 +872,9 @@ class RunLedger:
 
     # -- waiting on a person ---------------------------------------------
 
-    def mark_waiting(self, unit: Unit, asked: WaitingUnit) -> None:
+    def mark_waiting(self, unit: Unit, waiting_unit: WaitingUnit) -> None:
         """Hold this unit as waiting: its node asked a person. It and whatever reads it wait."""
-        self._waiting[unit] = asked
+        self._waiting[unit] = waiting_unit
 
     def is_waiting(self, unit: Unit) -> bool:
         return unit in self._waiting
@@ -883,7 +883,7 @@ class RunLedger:
         """Every unit waiting on a person, in execution order and row order
         within a node: not the order their concurrent calls happened to ask in."""
         return tuple(
-            asked for _, asked in sorted(self._waiting.items(), key=lambda item: (self._execution_position[item[0][0]], item[0][1]))
+            waiting_unit for _, waiting_unit in sorted(self._waiting.items(), key=lambda item: (self._execution_position[item[0][0]], item[0][1]))
         )
 
     # -- what the run produced -------------------------------------------------------
@@ -967,7 +967,7 @@ class RunLedger:
         restored._fields_with_a_skip = {ref for ref in values if state.output_columns[ref].skipped}
         finished = {node_id: rows for node_id, rows in state.finished_rows.items() if node_id not in dropped}
         done = [(node_id, row) for node_id, rows in finished.items() for row in rows]
-        restored._waiting = {(asked.node_id, asked.row): asked for asked in state.waiting if asked.node_id not in dropped}
+        restored._waiting = {(waiting_unit.node_id, waiting_unit.row): waiting_unit for waiting_unit in state.waiting if waiting_unit.node_id not in dropped}
         restored._remake_rows(done)
         restored._rows_not_called = {node_id: dict(counts) for node_id, counts in state.rows_not_called.items() if node_id not in dropped}
         problems = restored._problems_in_restored_units(finished)

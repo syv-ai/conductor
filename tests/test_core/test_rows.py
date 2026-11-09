@@ -460,7 +460,7 @@ def test_progress_is_per_row_and_the_total_is_known_once_the_index_is_sealed():
     assert [e.type for e in events if getattr(e, "node_id", None) == "up"][-1] == "node_complete"
 
 
-def test_a_unit_standing_in_for_rows_never_made_reports_no_progress():
+def test_a_unit_above_rows_never_made_reports_no_progress():
     """``a/b`` is long and splits into two lines; ``x`` is short, so its lines are
     never made and ``up`` stands in at ``(1,)``, which counts as no row."""
     events = _events([

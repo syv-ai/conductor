@@ -22,7 +22,7 @@ Bare ``Table`` is a table whose columns are known only when it arrives (a
 CSV nobody described). A column's Polars type comes from what its type is
 built on — ``str`` a string column, ``float``, ``int``, ``bool``,
 ``datetime.date`` and ``datetime.datetime`` theirs — and a ``DType`` says it
-itself (``DType.column``) only where that base would be wrong, as a flag
+itself (``DType.polars_column_type``) only where that base would be wrong, as a flag
 built on ``int`` does.
 
 Rows keep who they are. A table the engine stores carries a hidden column,
@@ -77,12 +77,12 @@ def polars_type_of(dtype: type[DType]) -> pl.DataType | None:
     """The Polars type a column of ``dtype`` values is stored as, or ``None`` when it has none.
 
     Read off the builtin ``dtype`` is built on, unless the type says it
-    itself (``DType.column``) because that base would be wrong.
+    itself (``DType.polars_column_type``) because that base would be wrong.
     """
     import polars as pl
 
     base = dtype._builtin_base()
-    name = dtype.column or (None if base is None else next((_COLUMN_OF_BASE[kind] for kind in base.__mro__ if kind in _COLUMN_OF_BASE), None))
+    name = dtype.polars_column_type or (None if base is None else next((_COLUMN_OF_BASE[kind] for kind in base.__mro__ if kind in _COLUMN_OF_BASE), None))
     return None if name is None else getattr(pl, name)()
 
 
@@ -372,7 +372,7 @@ class Table(DType, Generic[RowsOf]):
             if polars_type_of(dtype) is None:
                 raise NodeDeclarationError(
                     f"{dtype.__name__} can't be a table column: it is built on no builtin a column holds "
-                    "and states no column type of its own (DType.column)",
+                    "and states no column type of its own (DType.polars_column_type)",
                 code="table_column_no_storage",
                 )
             declared.append((name, dtype))

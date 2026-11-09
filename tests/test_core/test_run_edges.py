@@ -634,7 +634,7 @@ def test_a_skip_above_a_row_reaches_the_reader_at_that_row():
     assert compiled.results(state)["u"]["result"].rows == ((0, 0), (0, 1))
 
 
-def test_a_reduction_waits_for_the_unit_standing_in_for_a_skip_above_its_group():
+def test_a_reduction_waits_for_the_unit_above_the_rows_for_a_skip_above_its_group():
     release = threading.Event()
 
     @node("held", title="s", description="d", category="t", policy=Policy(concurrency=1))
