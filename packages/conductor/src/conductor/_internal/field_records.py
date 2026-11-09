@@ -42,14 +42,12 @@ from inspect import Parameter
 from typing import Annotated, Any, Final, TypedDict, Unpack
 
 from pydantic import (
-    ConfigDict,
     Field,
     PlainSerializer,
     PydanticUserError,
     SerializeAsAny,
     TypeAdapter,
     ValidationError,
-    with_config,
 )
 
 from conductor._internal.codec import to_jsonable
@@ -66,7 +64,6 @@ from conductor._internal.errors import NodeDeclarationError
 from conductor.widgets import Widget
 
 
-@with_config(ConfigDict(extra="forbid"))
 class ValueBounds(TypedDict, total=False):
     """The limits an input's value must keep to, named as pydantic and FastAPI name them."""
 

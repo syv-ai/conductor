@@ -267,11 +267,6 @@ class NodeVersion:
         """The compiled graph this version is; ``None`` when its body is a function."""
         return None if callable(self.body) else self.body
 
-    @property
-    def inputs_read_by_hooks(self) -> frozenset[str]:
-        """The inputs whose statics this version's hooks read."""
-        return frozenset(name for hook in (self.compute_added_inputs, self.compute_outputs) if hook is not None for name in hook.inputs_it_reads)
-
     def __repr__(self) -> str:
         """A function body by its qualified name rather than an address."""
         notice = "" if self.deprecation is None else f", deprecation={self.deprecation!r}"
@@ -305,11 +300,6 @@ def _version_of_function(
         body=function, interface=signature.interface, policy=policy, deprecation=deprecation, from_run=signature.from_run, return_shape=signature.return_shape,
         open_input_template=open_input_template, compute_added_inputs=inputs_hook, compute_outputs=outputs_hook, upgrade_from_previous=upgrade,
     )
-
-
-def _version_of_graph(graph: CompiledGraph, deprecation: Deprecation | None = None) -> NodeVersion:
-    """One ``NodeVersion`` whose body is ``graph``, with the interface it offers."""
-    return NodeVersion(body=graph, interface=graph._embeddable.interface, policy=None, deprecation=deprecation)
 
 
 def _raise_if_upgrade_is_missing(older: NodeVersion, newer: NodeVersion) -> None:
@@ -413,7 +403,10 @@ class NodeDefinition(Generic[_P, _R]):
             raise NodeDeclarationError(f"{id!r} has no versions; a definition declares at least one", code="versions_empty", node_id=id)
         return NodeDefinition(
             id=id, title=title or humanised(id), description=description, category=category, tags=tuple(tags), docs=docs,
-            versions=MappingProxyType({number: _version_of_graph(graph, deprecation if number == max(versions) else None) for number, graph in versions.items()}),
+            versions=MappingProxyType({
+                number: NodeVersion(body=graph, interface=graph._embeddable.interface, policy=None, deprecation=deprecation if number == max(versions) else None)
+                for number, graph in versions.items()
+            }),
             current_version=max(versions),
         )
 

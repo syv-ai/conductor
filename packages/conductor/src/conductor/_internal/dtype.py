@@ -299,22 +299,13 @@ def _an_edge_can_carry(python_type: Any) -> bool:
     return isinstance(python_type, type) and issubclass(python_type, (str, int, float, bool, datetime.date, BaseModel))
 
 
-#: One per plain type, built once.
-_PLAIN_PYTHON_DTYPES: dict[Any, type[_PlainPythonType]] = {}
-
-
+@cache
 def plain_python_dtype(python_type: Any) -> type[_PlainPythonType]:
-    """The ``DType`` a plain Python type is."""
-    dtype = _PLAIN_PYTHON_DTYPES.get(python_type)
-    if dtype is not None:
-        return dtype
+    """The ``DType`` a plain Python type is, one per type."""
     name = getattr(python_type, "__name__", str(python_type))
     if _an_edge_can_carry(python_type):
-        dtype = type(name, (_PlainPythonType,), {"id": name, "display_title": name, "wrapped_type": python_type, "travels_on_edges": True})
-    else:
-        dtype = type(f"Setting[{name}]", (_PlainPythonType,), {"wrapped_type": python_type}, _generic_base=_PlainPythonType)
-    _PLAIN_PYTHON_DTYPES[python_type] = dtype
-    return dtype
+        return type(name, (_PlainPythonType,), {"id": name, "display_title": name, "wrapped_type": python_type, "travels_on_edges": True})
+    return type(f"Setting[{name}]", (_PlainPythonType,), {"wrapped_type": python_type}, _generic_base=_PlainPythonType)
 
 
 @cache

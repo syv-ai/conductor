@@ -244,8 +244,7 @@ def frame_with_no_rows(dtype: Any) -> pl.DataFrame:
     """A frame of no rows with the columns a table type declares: a table a branch skipped."""
     import polars as pl
 
-    declared = columns_of(getattr(dtype, "element", None) or dtype)
-    return pl.DataFrame(schema={ROW_ID_COLUMN: pl.String, **{name: polars_type_of(holds) for name, holds in declared}})
+    return pl.DataFrame(schema={ROW_ID_COLUMN: pl.String, **{name: polars_type_of(holds) for name, holds in columns_of(dtype)}})
 
 
 def no_row_kept_its_id(frame: pl.DataFrame) -> bool:
