@@ -21,7 +21,6 @@ pytest.importorskip("httpx")
 
 from conductor import AskPerson, NodeRegistry, Param, Result, Series, node  # noqa: E402
 from conductor.widgets import Switch, Textarea  # noqa: E402
-from conductor_nodes.types import Flag, Text  # noqa: E402
 from conductor_providers.fastapi import conductor_router  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -35,12 +34,12 @@ def calls() -> list[str]:
 @pytest.fixture
 def client(calls: list[str]) -> TestClient:
     @node("words", title="Words", description="splits a text into words", category="test")
-    def words(text: Annotated[Text, Param(title="Text", widget=Textarea())]) -> Annotated[Series[Text], Result(title="Words")]:
+    def words(text: Annotated[str, Param(title="Text", widget=Textarea())]) -> Annotated[Series[str], Result(title="Words")]:
         calls.append("words")
-        return [Text(word) for word in text.split()]
+        return [word for word in text.split()]
 
     @node("approve", title="Approve", description="asks a person", category="test")
-    def approve(text: Annotated[Text, Param(title="Text", widget=Textarea())]) -> Annotated[Flag, Result(title="Approved")] | AskPerson:
+    def approve(text: Annotated[str, Param(title="Text", widget=Textarea())]) -> Annotated[bool, Result(title="Approved")] | AskPerson:
         calls.append("approve")
         return AskPerson(widgets={"result": Switch()})
 
@@ -86,7 +85,7 @@ def test_a_leg_that_asks_answers_waiting_and_the_next_leg_goes_on(client, calls)
     done = client.post("/run", json={"graph": ONCE, "state": body["state"], "answers": {"ok": {"result": True}}}).json()
 
     assert done["state"]["status"] == "complete"
-    assert done["results"]["ok"]["result"] == 1  # a Flag, written as its own type writes it
+    assert done["results"]["ok"]["result"] == 1  # a bool, written as its own type writes it
     assert calls == ["approve"]
 
 

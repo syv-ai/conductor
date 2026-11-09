@@ -40,8 +40,13 @@ Three things a ``DType`` deliberately does not do:
 ``Any`` is the one word an author writes for "whatever arrives"; a record
 holds a private ``DType`` in its place, so every field's type is a
 ``DType``. ``AsItArrives`` marks an open input received whole,
-``**inputs: AsItArrives``. A closed input of a plain Python type holds that
-type wrapped in another private ``DType``, ``setting_type``.
+``**inputs: AsItArrives``. A plain Python type (``str``, ``int``, ``float``,
+``bool``, ``date``, a pydantic model) is a ``DType`` the same way, in one
+place, ``dtype_of``: nothing past it knows a plain type from one written with
+``DType``. A value of such a type stays plain. So ``class Text(DType, str)``
+is for a type of your own, one that restricts which edges land on it, or
+carries a title for a palette; a ``str`` is what a node otherwise writes. A
+type no edge can carry (``list[Branch]``) closes its input.
 
 Conductor defines no concrete ``DType`` except ``Series``. Which types
 exist is the host application's decision, made on its ``NodeRegistry``:
@@ -54,6 +59,7 @@ the second reaches a registry, never at class definition.
 
 from __future__ import annotations
 
+import datetime
 import math
 from abc import ABC, ABCMeta
 from dataclasses import dataclass
@@ -61,7 +67,7 @@ from functools import cache
 from types import NoneType, UnionType
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Union, get_args, get_origin
 
-from pydantic import PlainSerializer, PlainValidator, WithJsonSchema
+from pydantic import BaseModel, PlainSerializer, PlainValidator, WithJsonSchema
 from pydantic_core import core_schema
 
 from conductor._internal.errors import NodeDeclarationError
@@ -205,6 +211,11 @@ class DType(ABC, metaclass=_DTypeMeta):
     # -- internals -----------------------------------------------------------
 
     @classmethod
+    def _instance_type(cls) -> type:
+        """The class a value of this type is an instance of."""
+        return cls
+
+    @classmethod
     def _builtin_base(cls) -> type | None:
         """The ``str`` / ``float`` / ``date`` this type is built on, or ``None``.
 
@@ -256,35 +267,62 @@ class _AsItArrivesMark:
 AsItArrives = Annotated[Any, _AsItArrivesMark()]
 
 
-class _Setting(DType):
-    """A closed input's plain Python type (a schema, a list of branches) as a ``DType``.
+class _PlainPythonType(DType):
+    """A Python type that is not a ``DType``, as one: ``str``, a pydantic model, a list of branches.
 
-    Nothing travels on it, so it has no place in a vocabulary and is never
-    asked ``accepts``. Its schema is the plain type's, so a typed-in value
-    reads back as that type. ``setting_type`` makes one."""
+    Its values are instances of the plain type, unwrapped, and its schema is
+    the plain type's. ``plain_python_dtype`` builds one per type, and an author never
+    sees it. One an edge can carry is named after the type (``{"id": "str"}``)
+    and is a word of a registry's vocabulary; any other is a setting, typed in
+    on a closed input and never on an edge (``{"id": "setting", "of": "list"}``)."""
 
     id = "setting"
-    #: The Python type this one wraps.
+    #: The Python type this one stands for.
     plain: ClassVar[Any] = None
+    travels_on_edges: ClassVar[bool] = False
 
     @classmethod
     def describe(cls) -> dict[str, Any]:
-        return {"id": cls.id, "of": getattr(cls.plain, "__name__", str(cls.plain))}
+        return {"id": cls.id} if cls.travels_on_edges else {"id": cls.id, "of": getattr(cls.plain, "__name__", str(cls.plain))}
+
+    @classmethod
+    def accepts(cls, source: Any) -> bool:
+        """A value of its own type, or a subtype of it, ``DType`` or plain. An ``int`` lands on a ``float``, as a type checker says."""
+        carried = source._builtin_base()
+        return carried is not None and issubclass(carried, (float, int) if cls.plain is float else cls.plain)
+
+    @classmethod
+    def _instance_type(cls) -> type:
+        return cls.plain
+
+    @classmethod
+    def _builtin_base(cls) -> type | None:
+        return cls.plain if isinstance(cls.plain, type) else None
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source_type: Any, handler: "GetCoreSchemaHandler") -> core_schema.CoreSchema:
         return handler.generate_schema(cls.plain)
 
 
-#: One wrapper per plain type, built once.
-_SETTINGS: dict[Any, type[_Setting]] = {}
+def _an_edge_can_carry(python_type: Any) -> bool:
+    return isinstance(python_type, type) and issubclass(python_type, (str, int, float, bool, datetime.date, BaseModel))
 
 
-def setting_type(plain: Any) -> type[_Setting]:
-    """The ``DType`` a closed input of the plain type ``plain`` holds."""
-    made = _SETTINGS.get(plain)
-    if made is None:
-        made = _SETTINGS[plain] = type(f"Setting[{getattr(plain, '__name__', plain)}]", (_Setting,), {"plain": plain}, _parameterises=_Setting)
+#: One per plain type, built once.
+_PLAIN_PYTHON_DTYPES: dict[Any, type[_PlainPythonType]] = {}
+
+
+def plain_python_dtype(python_type: Any) -> type[_PlainPythonType]:
+    """The ``DType`` a plain Python type is."""
+    made = _PLAIN_PYTHON_DTYPES.get(python_type)
+    if made is not None:
+        return made
+    name = getattr(python_type, "__name__", str(python_type))
+    if _an_edge_can_carry(python_type):
+        made = type(name, (_PlainPythonType,), {"id": name, "display_title": name, "plain": python_type, "travels_on_edges": True})
+    else:
+        made = type(f"Setting[{name}]", (_PlainPythonType,), {"plain": python_type}, _parameterises=_PlainPythonType)
+    _PLAIN_PYTHON_DTYPES[python_type] = made
     return made
 
 
@@ -310,11 +348,13 @@ def dtype_of(annotation: Any) -> type[DType] | None:
 
     ``Annotated[...]`` is unwrapped first, since an input's widget and an
     output's ``Result`` travel there. ``Any`` declares the private untyped
-    type; bare ``Series`` declares ``Series[Any]``::
+    type; bare ``Series`` declares ``Series[Any]``; a plain type an edge can
+    carry declares the ``DType`` it is; the one place that decides::
 
         dtype_of(Annotated[Text, Result(title="Summary")])   # Text
         dtype_of(Any)                                         # the untyped type
-        dtype_of(str)                                         # None
+        dtype_of(str)                                         # str, as a DType
+        dtype_of(list[int])                                   # None
     """
     if get_origin(annotation) is Annotated:
         annotation = get_args(annotation)[0]
@@ -322,7 +362,7 @@ def dtype_of(annotation: Any) -> type[DType] | None:
         return _UntypedValue
     if isinstance(annotation, type) and issubclass(annotation, DType):
         return annotation._when_written_bare()
-    return None
+    return plain_python_dtype(annotation) if _an_edge_can_carry(annotation) else None
 
 
 # -- how a record carries a declared type on the wire -------------------------
@@ -341,11 +381,10 @@ def name_of(declared: Any) -> str:
 
 
 def _as_field_type(value: Any) -> type[DType]:
-    """Validator for a ``DTypeRef`` field: ``Any`` becomes the private untyped
-    type, a ``DType`` stays as it is, anything else is refused."""
+    """Validator for a ``DTypeRef`` field: whatever ``dtype_of`` makes a type; anything else is refused."""
     declared = dtype_of(value)
     if declared is None:
-        raise ValueError(f"dtype must be a DType class or Any, not {value!r}")
+        raise ValueError(f"dtype must be a DType, a type an edge can carry or Any, not {value!r}")
     return declared
 
 

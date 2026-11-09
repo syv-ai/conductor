@@ -9,7 +9,8 @@ from typing import get_args
 
 import conductor_nodes
 import pytest
-from conductor_nodes.types import Flag, Json, Number, Text
+from conductor._internal.dtype import dtype_of
+from conductor_nodes.types import Json
 
 #: Every node id the catalog is expected to hold, checked in both directions
 #: against ``registry.nodes``: a node missing here or an unlisted
@@ -29,7 +30,7 @@ EXPECTED_IDS = {
 #: The types the catalog is declared with. A field's dtype is one of these,
 #: a ``Series`` of one, or ``Any`` on a node that routes a value it does not
 #: read.
-VOCABULARY = {Text, Number, Flag, Json}
+VOCABULARY = {dtype_of(str), dtype_of(float), dtype_of(bool), Json}
 
 
 @pytest.fixture(scope="module")

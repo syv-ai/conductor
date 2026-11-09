@@ -16,13 +16,12 @@ from typing import Annotated
 import conductor_nodes
 import pytest
 from conductor import CompiledGraph, From, Graph, GraphNode, NodeRegistry, Result, Static, node
-from conductor_nodes.types import Text
 from conductor_providers import react
 
 
 @node("build-pair", title="Build Pair", description="Emits a value", category="test")
-def build_pair() -> Annotated[Text, Result(title="Value")]:
-    return Text("val")
+def build_pair() -> Annotated[str, Result(title="Value")]:
+    return "val"
 
 
 @pytest.fixture

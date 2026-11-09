@@ -9,7 +9,7 @@ from typing import Annotated
 import conductor_nodes
 from conductor import AskPerson, CompiledGraph, From, Graph, GraphNode, Param, Result, RunState, Static, node
 from conductor.widgets import Textarea
-from conductor_nodes.types import Text
+
 
 registry = conductor_nodes.registry(categories=["text"])
 
@@ -22,7 +22,7 @@ assert [p.code for p in broken.problems] == ["unknown_ref_node"]
 
 
 @node("approve", title="Approve", description="Asks a person to approve a proposal.", category="review")
-def approve(proposal: Annotated[Text, Param(title="Proposal", widget=Textarea())]) -> Annotated[Text, Result(title="Decision")] | AskPerson:
+def approve(proposal: Annotated[str, Param(title="Proposal", widget=Textarea())]) -> Annotated[str, Result(title="Decision")] | AskPerson:
     return AskPerson(defaults={"result": proposal}, widgets={"result": Textarea()})
 
 

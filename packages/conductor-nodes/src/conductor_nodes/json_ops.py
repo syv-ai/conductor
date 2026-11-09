@@ -8,11 +8,11 @@ from typing import Annotated, Any
 from conductor import Param, Result
 from conductor.widgets import Range, Switch, Textarea, TextWidget
 
-from conductor_nodes.types import Flag, Json, Number, Text, stdlib_node
+from conductor_nodes.types import Json, stdlib_node
 
 
 @stdlib_node("json-parse", title="JSON Parse", description="Parses a JSON string into a value", category="json")
-def parse(text: Annotated[Text, Param(title="JSON text", widget=Textarea())]
+def parse(text: Annotated[str, Param(title="JSON text", widget=Textarea())]
 ) -> Annotated[Json, Result(title="Parsed")]:
     return Json(json.loads(text))
 
@@ -21,11 +21,11 @@ def parse(text: Annotated[Text, Param(title="JSON text", widget=Textarea())]
 def stringify(
     value: Annotated[Json, Param(title="Value", widget=Textarea())],
     indent: Annotated[
-        Number, Param(title="Indent", widget=Range(min_val=0, max_val=8, step=1))
-    ] = Number(0),
-    sort_keys: Annotated[Flag, Param(title="Sort keys", widget=Switch())] = Flag(False),
-) -> Annotated[Text, Result(title="JSON")]:
-    return Text(json.dumps(value.value, indent=int(indent) or None, sort_keys=bool(sort_keys)))
+        float, Param(title="Indent", widget=Range(min_val=0, max_val=8, step=1))
+    ] = 0.0,
+    sort_keys: Annotated[bool, Param(title="Sort keys", widget=Switch())] = False,
+) -> Annotated[str, Result(title="JSON")]:
+    return json.dumps(value.value, indent=int(indent) or None, sort_keys=bool(sort_keys))
 
 
 def _get_path(value: Any, path: str) -> Any:
@@ -49,7 +49,7 @@ def _get_path(value: Any, path: str) -> Any:
 @stdlib_node("json-get", title="JSON Get", description="Reads a dotted path from a JSON value (e.g. 'user.name', 'items.0.id')", category="json")
 def get_path(
     value: Annotated[Json, Param(title="Value", widget=Textarea())],
-    path: Annotated[Text, Param(title="Path", widget=TextWidget())],
+    path: Annotated[str, Param(title="Path", widget=TextWidget())],
 ) -> Annotated[Json, Result(title="Extracted")]:
     return Json(_get_path(value.value, path))
 

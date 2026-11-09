@@ -12,7 +12,7 @@ from typing import Annotated
 from conductor import SKIPPED, Param, Result
 from conductor.widgets import Switch, Textarea, TextWidget
 
-from conductor_nodes.types import Flag, Text, stdlib_node
+from conductor_nodes.types import stdlib_node
 
 
 @dataclass(frozen=True)
@@ -23,8 +23,8 @@ class Emptiness:
     ``Equality`` is the same shape for ``IfEquals``.
     """
 
-    not_empty: Annotated[Text, Result(title="Not empty", choice="emptiness")]
-    empty: Annotated[Text, Result(title="Empty", choice="emptiness")]
+    not_empty: Annotated[str, Result(title="Not empty", choice="emptiness")]
+    empty: Annotated[str, Result(title="Empty", choice="emptiness")]
 
 
 @dataclass(frozen=True)
@@ -34,12 +34,12 @@ class Equality:
     Both fields share ``choice="equality"``, so exactly one is produced.
     """
 
-    equal: Annotated[Text, Result(title="Equal", choice="equality")]
-    not_equal: Annotated[Text, Result(title="Not equal", choice="equality")]
+    equal: Annotated[str, Result(title="Equal", choice="equality")]
+    not_equal: Annotated[str, Result(title="Not equal", choice="equality")]
 
 
 @stdlib_node("logic-if-empty", title="If Empty", description="Routes text based on whether it is empty (after strip)", category="control")
-def if_empty(text: Annotated[Text, Param(title="Text", widget=Textarea())]
+def if_empty(text: Annotated[str, Param(title="Text", widget=Textarea())]
 ) -> Emptiness:
     if text.strip():
         return Emptiness(not_empty=text, empty=SKIPPED)
@@ -48,9 +48,9 @@ def if_empty(text: Annotated[Text, Param(title="Text", widget=Textarea())]
 
 @stdlib_node("logic-if-equals", title="If Equals", description="Routes based on whether two strings are equal", category="control")
 def if_equals(
-    a: Annotated[Text, Param(title="A", widget=TextWidget())],
-    b: Annotated[Text, Param(title="B", widget=TextWidget())],
-    case_sensitive: Annotated[Flag, Param(title="Case sensitive", widget=Switch())] = Flag(True),
+    a: Annotated[str, Param(title="A", widget=TextWidget())],
+    b: Annotated[str, Param(title="B", widget=TextWidget())],
+    case_sensitive: Annotated[bool, Param(title="Case sensitive", widget=Switch())] = True,
 ) -> Equality:
     left = a if case_sensitive else a.lower()
     right = b if case_sensitive else b.lower()
@@ -60,9 +60,9 @@ def if_equals(
 
 
 @stdlib_node("logic-not", title="Not", description="Logical negation of a boolean", category="logic")
-def not_node(value: Annotated[Flag, Param(title="Value", widget=Switch())]
-) -> Annotated[Flag, Result(title="Negated")]:
-    return Flag(not value)
+def not_node(value: Annotated[bool, Param(title="Value", widget=Switch())]
+) -> Annotated[bool, Result(title="Negated")]:
+    return (not value)
 
 
 #: Every node this module defines, in palette order.

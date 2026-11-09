@@ -17,8 +17,8 @@ more of them, written the way a signature is: ``Input("amount", Number)``.
 
 A ``Param`` with a widget is edited in place and reachable by an edge; a
 ``Param`` with no widget is filled by an edge only; ``connectable=False``
-closes the input to edges. A parameter whose type is not a ``DType`` is
-closed by itself, since nothing could travel on it.
+closes the input to edges. A parameter of a type no edge can carry
+(``list[Branch]``) is closed by itself.
 
 These records are their own schema: ``dtype`` is a ``DTypeRef``, so a
 dump gives the type's ``describe()``, and a palette is these records
@@ -37,8 +37,8 @@ from conductor._internal.dtype import (
     _UntypedValue,
     dtype_of,
     is_untyped,
+    plain_python_dtype,
     read_blank,
-    setting_type,
 )
 from conductor._internal.errors import NodeDeclarationError
 from conductor.widgets import AnyWidget
@@ -94,11 +94,10 @@ class Input(ConductorModel):
     """One input of a node, as the node carries it.
 
     ``name`` is what edges and bindings refer to (the ``field`` half of a
-    ``Ref``). ``dtype`` is always a ``DType``: ``Any`` is held as a private
-    untyped type, and a plain Python type (a schema, a list of branches)
-    closes the input and is held wrapped, so its value reads as the plain
-    type. A signature gives one per parameter; a ``compute_inputs`` hook
-    builds more::
+    ``Ref``). ``dtype`` is always a ``DType``, whatever was written
+    (``dtype_of``), and a type no edge can carry (a schema, a list of
+    branches) closes the input. A signature gives one per parameter; a
+    ``compute_inputs`` hook builds more::
 
         Input("amount", Number, title="Amount", widget=TextWidget())
 
@@ -135,7 +134,7 @@ class Input(ConductorModel):
         declared = dtype_of(written)
         if declared is None or (not connectable and declared is _UntypedValue):
             # Nothing can travel here, so what is typed in is read as the plain type.
-            declared, connectable = setting_type(written), False
+            declared, connectable = plain_python_dtype(written), False
         takes_blank = blank or written is Any or getattr(written, "element_takes_blank", False) or is_untyped(declared)
         required = default is _REQUIRED
         if default is None and not takes_blank:

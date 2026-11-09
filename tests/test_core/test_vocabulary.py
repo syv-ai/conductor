@@ -93,19 +93,9 @@ def test_a_type_declared_twice_registers_on_two_registries():
     assert b.types == {"text": second}
 
 
-def test_declaring_your_own_text_beside_the_standard_librarys_is_fine():
-    """The README imports ``conductor_nodes.types.Text`` in one section and declares a ``Text`` in another."""
-    from conductor_nodes.types import Text as StandardText
-
-    class Text(DType, str):
-        id = "text"
-        display_title = "Text"
-
-    assert Text.id == StandardText.id
-
-
 def test_one_id_from_two_classes_on_one_registry_is_refused_naming_both():
-    from conductor_nodes.types import Text as StandardText
+    class StandardText(DType, str):
+        id = "text"
 
     assert NodeRegistry(types=[Text, Text]).types == {"text": Text}  # the same class twice is not a collision
 
@@ -114,7 +104,7 @@ def test_one_id_from_two_classes_on_one_registry_is_refused_naming_both():
 
     message = str(refused.value)
     assert "'text'" in message
-    assert "conductor_nodes.types.Text" in message
+    assert "StandardText" in message
     assert f"{Text.__module__}.Text" in message
 
 

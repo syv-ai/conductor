@@ -64,12 +64,13 @@ def reader_of(dtype: Any) -> Callable[[Any], Any]:
     if dtype.id == "any":
         return _unchanged
     validate = _adapter(dtype).validate_python
+    instance_type = dtype._instance_type()
 
     def read(value: Any) -> Any:
-        if type(value) is dtype:
+        if type(value) is instance_type:
             return value
         made = validate(value)
-        if not isinstance(made, dtype):
+        if not isinstance(made, instance_type):
             raise TypeError(f"{dtype.__name__} read a {type(value).__name__} as a {type(made).__name__}; a type's validator must return the type")
         return made
 

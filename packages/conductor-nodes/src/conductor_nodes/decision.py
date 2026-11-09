@@ -6,7 +6,7 @@ connected to the branch not taken does not run. The engine treats ``SKIPPED``
 like any other value; the node has no special role. A choice between more
 than two branches is a chain of decisions.
 
-``when`` is a ``Flag``, not an expression to parse: the catalog already
+``when`` is a ``bool``, not an expression to parse: the catalog already
 produces booleans (``text-contains``, ``regex-match``, ``logic-not``), so
 the condition is connected in rather than written in a language this node
 would have to own.
@@ -25,7 +25,7 @@ from typing import Annotated, Any
 from conductor import SKIPPED, Arriving, Output, Param, Result
 from conductor.widgets import Switch
 
-from conductor_nodes.types import Flag, stdlib_node
+from conductor_nodes.types import stdlib_node
 
 
 @dataclass(frozen=True)
@@ -48,7 +48,7 @@ def decision_outputs(value: Arriving) -> tuple[Output, Output]:
 @stdlib_node("decision", title="Decision", description="Routes a value to one of two branches according to `when`.", category="control", compute_outputs=decision_outputs)
 def decision(
     value: Annotated[Any, Param(title="Value")],
-    when: Annotated[Flag, Param(title="When", widget=Switch())] = Flag(True),
+    when: Annotated[bool, Param(title="When", widget=Switch())] = True,
 ) -> Branches:
     if when:
         return Branches(if_true=value, if_false=SKIPPED)

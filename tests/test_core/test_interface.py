@@ -168,14 +168,21 @@ def test_each_of_several_outputs_carries_its_own_dtype():
     assert [o.dtype for o in read_signature(pair).interface.outputs] == [Text, Num]
 
 
-def test_a_plain_python_type_closes_the_input_by_itself():
-    """A plain `str` cannot travel on an edge, so nothing can connect to it."""
-
-    def plain(x: Annotated[str, Param(title="X", widget=Textarea())] = "") -> Annotated[Text, Result(title="R")]:
+def test_a_type_no_edge_can_carry_closes_the_input_by_itself():
+    def plain(x: Annotated[list[str], Param(title="X", widget=Textarea())] = []) -> Annotated[Text, Result(title="R")]:
         return Text(x)
 
     (x,) = read_signature(plain).interface.inputs
-    assert x.connectable is False and x.dtype.plain is str
+    assert x.connectable is False and x.dtype.plain == list[str]
+
+
+def test_a_plain_str_input_is_open_to_edges_and_a_host_closes_it_with_param():
+    def plain(x: str, y: Annotated[str, Param(connectable=False)] = "") -> str:
+        return x + y
+
+    (x, y) = read_signature(plain).interface.inputs
+    assert x.connectable is True and x.dtype.id == "str"
+    assert y.connectable is False and y.dtype.id == "str"
 
 
 def test_a_closed_param_may_declare_a_static_type():

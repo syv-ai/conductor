@@ -12,7 +12,7 @@ from conductor import Problem, RunState, Series
 from conductor._internal.execution.run_state import OutputColumn, Question, WaitingUnit
 from conductor._internal.series import Index
 from conductor.events import Event, NodeComplete, NodeFailed, RunEnd, UnitWaiting
-from conductor_nodes.types import Json, Text  # noqa: E402
+from conductor_nodes.types import Json  # noqa: E402
 from conductor_providers.fastapi.sse import sse_frame  # noqa: E402
 from helpers import stream_of
 
@@ -24,7 +24,7 @@ def _payload(event: Event) -> dict:
 
 
 def test_a_series_keeps_its_index_and_rows_and_an_ending_dumps_its_state():
-    lines = Series(Index("lines", parent=Index("docs")), [Text("a"), Text("b")], rows=((0, 0), (1, 0)))
+    lines = Series(Index("lines", parent=Index("docs")), ["a", "b"], rows=((0, 0), (1, 0)))
     state = RunState(status="complete", output_columns={"split.result": OutputColumn(rows=[(0,)], values=["a"])}, node_fingerprints={"split": "f" * 64})
 
     payload = _payload(NodeComplete(type="node_complete", node_id="split", result={"result": lines}))

@@ -23,7 +23,7 @@ from types import MappingProxyType
 from typing import Any
 
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.dtype import DType, _Setting, _UntypedValue
+from conductor._internal.dtype import DType, _PlainPythonType, _UntypedValue, dtype_of
 from conductor._internal.errors import NodeDeclarationError
 from conductor._internal.node_decorator import NodeDefinition, NodeDescription, NodeVersion
 from conductor._internal.series import Series
@@ -77,7 +77,7 @@ class NodeRegistry:
         #: The vocabulary, by id, in the order the words arrived.
         self._types: dict[str, type[DType]] = {}
         self._file(given)
-        self._types.update(self._admitted([_word_of(dtype, adding=True) for dtype in types]))
+        self._types.update(self._admitted([_word_of(dtype_of(dtype) or dtype, adding=True) for dtype in types]))
 
     def __repr__(self) -> str:
         """Its nodes, each as its own repr, one per line: ``NodeRegistry(nodes=(NodeDefinition(...),))``."""
@@ -194,8 +194,8 @@ def _word_of(declared: Any, *, adding: bool = False) -> type[DType] | None:
     """The vocabulary word a declared type names, or ``None`` when it names none.
 
     A scalar type is its own word; a ``Table[...]`` is ``Table``'s; a
-    ``Series[X]`` is ``X``'s. An untyped field and a closed input's plain
-    Python type name no word. With ``adding`` — the host
+    ``Series[X]`` is ``X``'s. An untyped field and a type no edge can carry
+    name no word. With ``adding`` — the host
     naming a type in ``types`` — a series, the base ``DType`` and a
     non-type are refused rather than silently naming nothing.
     """
@@ -203,7 +203,7 @@ def _word_of(declared: Any, *, adding: bool = False) -> type[DType] | None:
         if adding:
             raise NodeDeclarationError(f"{declared!r} is not a DType subclass", code="not_a_dtype")
         return None
-    if issubclass(declared, (_UntypedValue, _Setting)):
+    if issubclass(declared, _UntypedValue) or (issubclass(declared, _PlainPythonType) and not declared.travels_on_edges):
         return None
     if declared is DType:
         if adding:

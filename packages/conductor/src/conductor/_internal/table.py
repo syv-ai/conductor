@@ -47,7 +47,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, get_type_hint
 from pydantic import TypeAdapter
 from pydantic_core import PydanticSerializationError, core_schema, to_json
 
-from conductor._internal.dtype import DType
+from conductor._internal.dtype import DType, dtype_of
 from conductor._internal.errors import NodeDeclarationError
 from conductor._internal.series import Index, Row
 
@@ -62,7 +62,7 @@ _UNDER_ROW = "__under_row"
 
 #: The Polars column type of a value built on each builtin, by the dtype's name.
 _COLUMN_OF_BASE: dict[type, str] = {
-    str: "String", float: "Float64", int: "Int64", bool: "Boolean", datetime.date: "Date",
+    str: "String", float: "Float64", bool: "Boolean", int: "Int64", datetime.datetime: "Datetime", datetime.date: "Date",
 }
 
 Column = tuple[str, type[DType]]
@@ -76,7 +76,8 @@ def column_type(dtype: type[DType]) -> pl.DataType | None:
     """
     import polars as pl
 
-    name = dtype.column or _COLUMN_OF_BASE.get(dtype._builtin_base())  # type: ignore[arg-type]
+    base = dtype._builtin_base()
+    name = dtype.column or (None if base is None else next((_COLUMN_OF_BASE[kind] for kind in base.__mro__ if kind in _COLUMN_OF_BASE), None))
     return None if name is None else getattr(pl, name)()
 
 
@@ -294,11 +295,13 @@ class Table(DType, Generic[RowsOf]):
         return cls.with_columns(get_type_hints(item))
 
     @classmethod
-    def with_columns(cls, columns: Mapping[str, type[DType]]) -> type[Table[Any]]:
+    def with_columns(cls, columns: Mapping[str, Any]) -> type[Table[Any]]:
         """The table type with these columns, built once per set; ``Table[Contact]`` with the same columns is this type."""
-        for name, dtype in columns.items():
-            if not isinstance(name, str) or not (isinstance(dtype, type) and issubclass(dtype, DType)) or dtype.element is not None:
-                raise NodeDeclarationError(f"a column is a name and a scalar DType, got {name!r}: {dtype!r}", code="table_column_invalid")
+        declared: list[Column] = []
+        for name, written in columns.items():
+            dtype = dtype_of(written)
+            if not isinstance(name, str) or dtype is None or dtype.element is not None:
+                raise NodeDeclarationError(f"a column is a name and a scalar type, got {name!r}: {written!r}", code="table_column_invalid")
             if name == ROW_ID:
                 raise NodeDeclarationError(f"'{ROW_ID}' is the column of row ids every table carries; no column may be named it", code="table_column_reserved")
             if column_type(dtype) is None:
@@ -307,12 +310,13 @@ class Table(DType, Generic[RowsOf]):
                     "and states no column type of its own (DType.column)",
                 code="table_column_no_storage",
                 )
-        declared = tuple(columns.items())
-        made = _PARAMETERISED.get(declared)
+            declared.append((name, dtype))
+        key = tuple(declared)
+        made = _PARAMETERISED.get(key)
         if made is None:
-            label = ", ".join(f"{name}: {dtype.__name__}" for name, dtype in declared)
-            made = type(f"Table[{label}]", (cls,), {"columns": declared, "__slots__": ()}, _parameterises=Table)
-            _PARAMETERISED[declared] = made
+            label = ", ".join(f"{name}: {dtype.__name__}" for name, dtype in key)
+            made = type(f"Table[{label}]", (cls,), {"columns": key, "__slots__": ()}, _parameterises=Table)
+            _PARAMETERISED[key] = made
         return made
 
     # -- reading a value --------------------------------------------------------

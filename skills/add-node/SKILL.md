@@ -12,19 +12,19 @@ from typing import Annotated
 
 from conductor import NodeRegistry, Param, node
 from conductor.widgets import NumberWidget, TextWidget
-from conductor_nodes.types import Number, Text   # a host declares its own DTypes
+
 
 
 @node("greet", category="text")         # the registry id; a graph pins it with a version
 def greet(
-    name: Annotated[Text, Param(title="Name", widget=TextWidget())],
-    times: Annotated[Number, Param(title="Times", widget=NumberWidget(integer_only=True))] = Number(1),
-) -> Text:
+    name: Annotated[str, Param(title="Name", widget=TextWidget())],
+    times: Annotated[float, Param(title="Times", widget=NumberWidget(integer_only=True))] = float(1),
+) -> str:
     """Produces a greeting."""
-    return Text(" ".join(f"hello {name}" for _ in range(int(times))))
+    return " ".join(f"hello {name}" for _ in range(int(times)))
 
 
-assert greet(Text("Ida")) == "hello Ida"    # a node is called like its function
+assert greet("Ida") == "hello Ida"    # a node is called like its function
 registry = NodeRegistry([greet])
 ```
 

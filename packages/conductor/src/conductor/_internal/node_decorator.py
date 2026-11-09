@@ -47,7 +47,14 @@ from pydantic import Field
 from pydantic.json_schema import SkipJsonSchema
 
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.dtype import DType, DTypeRef, _AsItArrivesMark, _UntypedValue, is_untyped
+from conductor._internal.dtype import (
+    DType,
+    DTypeRef,
+    _AsItArrivesMark,
+    _UntypedValue,
+    dtype_of,
+    is_untyped,
+)
 from conductor._internal.errors import NodeDeclarationError
 from conductor._internal.field_records import Input, Output
 from conductor._internal.interface import Interface, open_input_of, read_signature
@@ -179,7 +186,7 @@ class _Hook:
         arguments = {name: values[name] for name in self.reads if name in values}
         for name in self.arriving:
             typed = typed_in.get(name)
-            arguments[name] = arriving.get(name, type(typed) if isinstance(typed, DType) else _UntypedValue)
+            arguments[name] = arriving.get(name, dtype_of(type(typed)) or _UntypedValue)
         if self.all_arriving:
             arguments.update({name: dtype for name, dtype in arriving.items() if name not in arguments})
         return tuple(self.function(**arguments))

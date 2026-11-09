@@ -30,7 +30,7 @@ from conductor import (
 from conductor._internal.execution.live_run_values import LiveRunValues
 from conductor._internal.series import Index
 from conductor.widgets import Textarea
-from conductor_nodes.types import Flag, Json, Number, Text
+from conductor_nodes.types import Json
 from pydantic import TypeAdapter
 
 
@@ -39,7 +39,19 @@ class Txt(DType, str):
     display_title = "Text"
 
 
-# -- the shipped types -------------------------------------------------------------
+class Text(DType, str):
+    id = "text"
+
+
+class Number(DType, float):
+    id = "number"
+
+
+class Flag(DType, int):
+    id = "flag"
+
+
+# -- types declared with DType -------------------------------------------------------
 
 
 @pytest.mark.parametrize(

@@ -35,15 +35,14 @@ from conductor import (
     node,
 )
 from conductor.widgets import Textarea
-from conductor_nodes.types import Text
 from helpers import stream_of
 
-Out = Annotated[Text, Result(title="Output")]
+Out = Annotated[str, Result(title="Output")]
 
 
 @node("upper", title="Upper", description="Uppercases its input", category="test")
-def upper_node(text: Annotated[Text, Param(title="Input", widget=Textarea())] = Text("")) -> Out:
-    return Text(text.upper())
+def upper_node(text: Annotated[str, Param(title="Input", widget=Textarea())] = "") -> Out:
+    return text.upper()
 
 
 @pytest.mark.slow
@@ -104,7 +103,7 @@ async def test_cancellation_honored_during_retry_sleep() -> None:
     call_count = 0
 
     @node("always-flaky", title="Always Flaky", description="Always fails (would succeed only after >5 tries)", category="test", policy=Policy(retries=5, delay=2.0))
-    def always_flaky(text: Annotated[Text, Param(title="In", widget=Textarea())] = Text("")) -> Out:
+    def always_flaky(text: Annotated[str, Param(title="In", widget=Textarea())] = "") -> Out:
         nonlocal call_count
         call_count += 1
         raise ExternalFailure(

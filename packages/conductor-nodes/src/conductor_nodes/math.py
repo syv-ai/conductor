@@ -7,89 +7,89 @@ from typing import Annotated
 from conductor import Param, Result, Series
 from conductor.widgets import ListWidget, NumberWidget, Range
 
-from conductor_nodes.types import Number, stdlib_node
+from conductor_nodes.types import stdlib_node
 
 
 @stdlib_node("math-add", title="Add", description="a + b", category="math")
 def add(
-    a: Annotated[Number, Param(title="A", widget=NumberWidget())],
-    b: Annotated[Number, Param(title="B", widget=NumberWidget())],
-) -> Annotated[Number, Result(title="Sum")]:
-    return Number(a + b)
+    a: Annotated[float, Param(title="A", widget=NumberWidget())],
+    b: Annotated[float, Param(title="B", widget=NumberWidget())],
+) -> Annotated[float, Result(title="Sum")]:
+    return float(a + b)
 
 
 @stdlib_node("math-subtract", title="Subtract", description="a - b", category="math")
 def subtract(
-    a: Annotated[Number, Param(title="A", widget=NumberWidget())],
-    b: Annotated[Number, Param(title="B", widget=NumberWidget())],
-) -> Annotated[Number, Result(title="Difference")]:
-    return Number(a - b)
+    a: Annotated[float, Param(title="A", widget=NumberWidget())],
+    b: Annotated[float, Param(title="B", widget=NumberWidget())],
+) -> Annotated[float, Result(title="Difference")]:
+    return float(a - b)
 
 
 @stdlib_node("math-multiply", title="Multiply", description="a * b", category="math")
 def multiply(
-    a: Annotated[Number, Param(title="A", widget=NumberWidget())],
-    b: Annotated[Number, Param(title="B", widget=NumberWidget())],
-) -> Annotated[Number, Result(title="Product")]:
-    return Number(a * b)
+    a: Annotated[float, Param(title="A", widget=NumberWidget())],
+    b: Annotated[float, Param(title="B", widget=NumberWidget())],
+) -> Annotated[float, Result(title="Product")]:
+    return float(a * b)
 
 
 @stdlib_node("math-divide", title="Divide", description="a / b — fails on b == 0", category="math")
 def divide(
-    a: Annotated[Number, Param(title="A", widget=NumberWidget())],
-    b: Annotated[Number, Param(title="B", widget=NumberWidget())],
-) -> Annotated[Number, Result(title="Quotient")]:
+    a: Annotated[float, Param(title="A", widget=NumberWidget())],
+    b: Annotated[float, Param(title="B", widget=NumberWidget())],
+) -> Annotated[float, Result(title="Quotient")]:
     if b == 0:
         raise ValueError("Division by zero")
-    return Number(a / b)
+    return float(a / b)
 
 
 @stdlib_node("math-modulo", title="Modulo", description="a % b", category="math")
 def modulo(
-    a: Annotated[Number, Param(title="A", widget=NumberWidget())],
-    b: Annotated[Number, Param(title="B", widget=NumberWidget())],
-) -> Annotated[Number, Result(title="Remainder")]:
+    a: Annotated[float, Param(title="A", widget=NumberWidget())],
+    b: Annotated[float, Param(title="B", widget=NumberWidget())],
+) -> Annotated[float, Result(title="Remainder")]:
     if b == 0:
         raise ValueError("Modulo by zero")
-    return Number(a % b)
+    return float(a % b)
 
 
 @stdlib_node("math-round", title="Round", description="Rounds to the given number of decimals", category="math")
 def round_node(
-    value: Annotated[Number, Param(title="Value", widget=NumberWidget())],
+    value: Annotated[float, Param(title="Value", widget=NumberWidget())],
     decimals: Annotated[
-        Number, Param(title="Decimals", widget=Range(min_val=0, max_val=10, step=1))
-    ] = Number(0),
-) -> Annotated[Number, Result(title="Rounded")]:
-    return Number(round(value, int(decimals)))
+        float, Param(title="Decimals", widget=Range(min_val=0, max_val=10, step=1))
+    ] = 0.0,
+) -> Annotated[float, Result(title="Rounded")]:
+    return float(round(value, int(decimals)))
 
 
 @stdlib_node("math-min", title="Min", description="Minimum of a series of numbers", category="math")
 def min_node(
     values: Annotated[
-        Series[Number], Param(title="Values", widget=ListWidget())
+        Series[float], Param(title="Values", widget=ListWidget())
     ],
-) -> Annotated[Number, Result(title="Min")]:
+) -> Annotated[float, Result(title="Min")]:
     if not len(values):
         raise ValueError("min requires at least one value")
-    return Number(min(values))
+    return float(min(values))
 
 
 @stdlib_node("math-max", title="Max", description="Maximum of a series of numbers", category="math")
 def max_node(
     values: Annotated[
-        Series[Number], Param(title="Values", widget=ListWidget())
+        Series[float], Param(title="Values", widget=ListWidget())
     ],
-) -> Annotated[Number, Result(title="Max")]:
+) -> Annotated[float, Result(title="Max")]:
     if not len(values):
         raise ValueError("max requires at least one value")
-    return Number(max(values))
+    return float(max(values))
 
 
 @stdlib_node("math-abs", title="Absolute", description="|value|", category="math")
-def absolute(value: Annotated[Number, Param(title="Value", widget=NumberWidget())]
-) -> Annotated[Number, Result(title="Absolute")]:
-    return Number(abs(value))
+def absolute(value: Annotated[float, Param(title="Value", widget=NumberWidget())]
+) -> Annotated[float, Result(title="Absolute")]:
+    return float(abs(value))
 
 
 #: Every node this module defines, in palette order.

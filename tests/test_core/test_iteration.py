@@ -707,11 +707,11 @@ def test_compile_stores_no_rows_and_no_mask():
 # --- what a hook may answer ---------------------------------------------------------
 
 
-def test_a_hook_that_adds_an_input_of_a_plain_type_closes_it():
-    """A plain Python type cannot travel on an edge, so the input it makes is closed."""
+def test_a_hook_that_adds_an_input_of_a_type_no_edge_can_carry_closes_it():
+    """A type no edge can carry closes the input it makes."""
 
     def adds_inputs():
-        return (Input("raw", int, title="Raw"),)
+        return (Input("raw", list[int], title="Raw"),)
 
     @node("adds", title="Adds", description="d", category="test", compute_inputs=adds_inputs)
     def adds(value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt(""), **more: Any) -> Out:

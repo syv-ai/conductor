@@ -23,7 +23,6 @@ from conductor import (
     Result,
     node,
 )
-from conductor_nodes.types import Text  # noqa: E402
 from conductor_providers.fastapi import conductor_router  # noqa: E402
 from fastapi import FastAPI, Request  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -35,8 +34,8 @@ class Caller:
 
 
 @node("greet", title="Greet", description="greets whoever made the request", category="test")
-def greet(caller: FromRun[Caller]) -> Annotated[Text, Result(title="Greeting")]:
-    return Text(f"hi {caller.name}")
+def greet(caller: FromRun[Caller]) -> Annotated[str, Result(title="Greeting")]:
+    return f"hi {caller.name}"
 
 
 GRAPH = {"graph": {"nodes": [{"id": "g", "type": "greet", "version": 1}]}}

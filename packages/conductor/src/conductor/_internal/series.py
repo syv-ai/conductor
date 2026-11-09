@@ -35,7 +35,7 @@ from uuid import uuid4
 from pydantic_core import core_schema
 
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.dtype import DType, _UntypedValue, description_of, read_blank
+from conductor._internal.dtype import DType, description_of, dtype_of, read_blank
 from conductor._internal.errors import NodeDeclarationError
 
 #: The element type, for the ``Sequence`` protocol: ``Series[Text]`` yields ``Text``.
@@ -129,10 +129,11 @@ class Series(DType, Sequence[T]):
     _parameterised: ClassVar[dict[tuple[Any, bool], type["Series[Any]"]]] = {}
 
     def __class_getitem__(cls, item: Any) -> type["Series[Any]"]:
-        item, keeps_blanks = read_blank(item)
-        if item is Any:
-            item = _UntypedValue
-        if getattr(item, "element", None) is not None:
+        written, keeps_blanks = read_blank(item)
+        item = dtype_of(written)
+        if item is None:
+            raise NodeDeclarationError(f"Series[{written!r}]: a series holds values an edge can carry, not {written!r}", code="series_element_invalid")
+        if item.element is not None:
             raise NodeDeclarationError(
                 "Series[Series[...]] does not exist — a nested structure is a "
                 "Table cell, opened one level by a node",

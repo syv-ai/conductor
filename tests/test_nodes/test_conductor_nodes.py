@@ -2,7 +2,7 @@
 
 Each node is put in a graph and run, so registration, the declared
 interface and the behaviour of ``run`` are checked together. Results come
-back as the library's own dtypes (``Text``, ``Number``, ``Flag``, ``Json``);
+back as the library's own dtypes (``str``, ``float``, ``bool``, ``Json``);
 a series output compares as a list. ``decision`` is called directly: its
 ``value`` is ``Any`` and nothing here records what arrives on it.
 """
@@ -13,7 +13,7 @@ import conductor_nodes
 import pytest
 from conductor import SKIPPED, CompiledGraph, From, Graph, GraphNode, NodeRegistry, Static
 from conductor_nodes.decision import decision
-from conductor_nodes.types import Flag, Json, Text
+from conductor_nodes.types import Json
 from helpers import stream_of
 
 
@@ -114,7 +114,7 @@ class TestText:
             [GraphNode(id="n", type="text-contains", version=1,
                        bindings={"text": Static("Hello"), "needle": Static("hello"), "case_sensitive": Static(False)})],
         )
-        assert r["n"]["result"] == Flag(True)
+        assert r["n"]["result"]
 
     def test_contains_case_sensitive(self, full_registry):
         r = _run(
@@ -122,7 +122,7 @@ class TestText:
             [GraphNode(id="n", type="text-contains", version=1,
                        bindings={"text": Static("Hello"), "needle": Static("hello"), "case_sensitive": Static(True)})],
         )
-        assert r["n"]["result"] == Flag(False)
+        assert not r["n"]["result"]
 
     def test_split(self, full_registry):
         r = _run(
@@ -278,21 +278,21 @@ class TestLogic:
             full_registry,
             [GraphNode(id="n", type="logic-not", version=1, bindings={"value": Static(True)})],
         )
-        assert r["n"]["result"] == Flag(False)
+        assert not r["n"]["result"]
 
 
 class TestDecision:
     """The gate's body: ``value`` lands on the branch ``when`` picks, ``SKIPPED`` on the other."""
 
     def test_true_routes_to_if_true(self):
-        branches = decision(value=Text("x"), when=Flag(True))
-        assert branches.if_true == Text("x")
+        branches = decision(value="x", when=True)
+        assert branches.if_true == "x"
         assert branches.if_false is SKIPPED
 
     def test_false_routes_to_if_false(self):
-        branches = decision(value=Text("x"), when=Flag(False))
+        branches = decision(value="x", when=False)
         assert branches.if_true is SKIPPED
-        assert branches.if_false == Text("x")
+        assert branches.if_false == "x"
 
 
 class TestJSON:
@@ -350,7 +350,7 @@ class TestRegex:
             [GraphNode(id="n", type="regex-match", version=1,
                        bindings={"text": Static("hello 123 world"), "pattern": Static(r"\d+")})],
         )
-        assert r["n"]["result"] == Flag(True)
+        assert r["n"]["result"]
 
     def test_match_false(self, full_registry):
         r = _run(
@@ -358,7 +358,7 @@ class TestRegex:
             [GraphNode(id="n", type="regex-match", version=1,
                        bindings={"text": Static("nothing numeric"), "pattern": Static(r"\d+")})],
         )
-        assert r["n"]["result"] == Flag(False)
+        assert not r["n"]["result"]
 
     def test_match_ignore_case(self, full_registry):
         r = _run(
@@ -366,7 +366,7 @@ class TestRegex:
             [GraphNode(id="n", type="regex-match", version=1,
                        bindings={"text": Static("Hello"), "pattern": Static(r"hello"), "ignore_case": Static(True)})],
         )
-        assert r["n"]["result"] == Flag(True)
+        assert r["n"]["result"]
 
     def test_replace(self, full_registry):
         r = _run(
@@ -446,7 +446,7 @@ def test_a_catastrophic_pattern_answers_at_once():
     seen = asyncio.run(events())
     assert time.monotonic() - started < conductor_nodes.regex_ops.TIMEOUT
     assert "node_start" in [e.type for e in seen]
-    assert compiled.results(seen[-1].state)["m"]["result"] == Flag(False)
+    assert not compiled.results(seen[-1].state)["m"]["result"]
 
 
 def test_a_pattern_that_times_out_fails_its_node_with_a_sentence_for_people(monkeypatch):

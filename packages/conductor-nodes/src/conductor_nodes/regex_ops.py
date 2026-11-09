@@ -17,7 +17,7 @@ import regex
 from conductor import NodeError, Param, Result, Series
 from conductor.widgets import Switch, Textarea, TextWidget
 
-from conductor_nodes.types import Flag, Text, stdlib_node
+from conductor_nodes.types import stdlib_node
 
 TOO_SLOW = "The pattern took too long."
 
@@ -36,39 +36,39 @@ def _timed(operation: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
 
 @stdlib_node("regex-match", title="Regex Match", description="True if the pattern matches anywhere in the text", category="regex")
 def match(
-    text: Annotated[Text, Param(title="Text", widget=Textarea())],
-    pattern: Annotated[Text, Param(title="Pattern", widget=TextWidget())],
-    ignore_case: Annotated[Flag, Param(title="Ignore case", widget=Switch())] = Flag(False),
-) -> Annotated[Flag, Result(title="Matched")]:
+    text: Annotated[str, Param(title="Text", widget=Textarea())],
+    pattern: Annotated[str, Param(title="Pattern", widget=TextWidget())],
+    ignore_case: Annotated[bool, Param(title="Ignore case", widget=Switch())] = False,
+) -> Annotated[bool, Result(title="Matched")]:
     flags = regex.IGNORECASE if ignore_case else 0
-    return Flag(_timed(regex.search, pattern, text, flags=flags) is not None)
+    return bool(_timed(regex.search, pattern, text, flags=flags) is not None)
 
 
 @stdlib_node("regex-replace", title="Regex Replace", description="Replaces all pattern matches with `replacement`", category="regex")
 def replace_all(
-    text: Annotated[Text, Param(title="Text", widget=Textarea())],
-    pattern: Annotated[Text, Param(title="Pattern", widget=TextWidget())],
-    replacement: Annotated[Text, Param(title="Replace with", widget=TextWidget())] = Text(""),
-    ignore_case: Annotated[Flag, Param(title="Ignore case", widget=Switch())] = Flag(False),
-) -> Annotated[Text, Result(title="Result")]:
+    text: Annotated[str, Param(title="Text", widget=Textarea())],
+    pattern: Annotated[str, Param(title="Pattern", widget=TextWidget())],
+    replacement: Annotated[str, Param(title="Replace with", widget=TextWidget())] = "",
+    ignore_case: Annotated[bool, Param(title="Ignore case", widget=Switch())] = False,
+) -> Annotated[str, Result(title="Result")]:
     flags = regex.IGNORECASE if ignore_case else 0
-    return Text(_timed(regex.sub, pattern, replacement, text, flags=flags))
+    return _timed(regex.sub, pattern, replacement, text, flags=flags)
 
 
 @stdlib_node("regex-extract", title="Regex Extract", description="Every match (or the first group of each, if the pattern has groups)", category="regex")
 def extract(
-    text: Annotated[Text, Param(title="Text", widget=Textarea())],
-    pattern: Annotated[Text, Param(title="Pattern", widget=TextWidget())],
-    ignore_case: Annotated[Flag, Param(title="Ignore case", widget=Switch())] = Flag(False),
-) -> Annotated[Series[Text], Result(title="Matches")]:
+    text: Annotated[str, Param(title="Text", widget=Textarea())],
+    pattern: Annotated[str, Param(title="Pattern", widget=TextWidget())],
+    ignore_case: Annotated[bool, Param(title="Ignore case", widget=Switch())] = False,
+) -> Annotated[Series[str], Result(title="Matches")]:
     flags = regex.IGNORECASE if ignore_case else 0
     compiled = regex.compile(pattern, flags=flags)
     if compiled.groups:
         # ``finditer`` is lazy and the timeout fires while it is walked, so
         # the walk happens inside ``_timed``.
         matches = _timed(lambda timeout: list(compiled.finditer(text, timeout=timeout)))
-        return [Text(m.group(1)) for m in matches]
-    return [Text(m) for m in _timed(compiled.findall, text)]
+        return [m.group(1) for m in matches]
+    return [m for m in _timed(compiled.findall, text)]
 
 
 #: Every node this module defines, in palette order.

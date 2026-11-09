@@ -147,7 +147,7 @@ def test_a_mapping_return_declares_no_outputs():
 
 
 def test_a_return_that_is_none_of_the_three_is_refused():
-    with pytest.raises(TypeError, match="DType, a dataclass"):
+    with pytest.raises(TypeError, match="a frozen dataclass of them"):
         _read_return_hint(tuple[Text, Text])
 
 

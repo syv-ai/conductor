@@ -11,13 +11,13 @@ from typing import Annotated
 
 from conductor import CompiledGraph, Graph, GraphNode, NodeRegistry, Param, Static, node
 from conductor.widgets import TextWidget
-from conductor_nodes.types import Number, Text
+
 
 
 @node("length", category="text")
-def length(text: Annotated[Text, Param(title="Text", widget=TextWidget())]) -> Number:
+def length(text: Annotated[str, Param(title="Text", widget=TextWidget())]) -> float:
     """Counts characters."""
-    return Number(len(text))
+    return float(len(text))
 
 
 registry = NodeRegistry([length])

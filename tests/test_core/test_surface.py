@@ -183,9 +183,9 @@ def test_a_bare_series_parameter_is_a_series_of_anything():
     assert declared.versions[1].interface.inputs[0].dtype is Series[Any]
 
 
-def test_a_plain_type_on_an_open_interface_is_refused():
+def test_a_type_no_edge_can_carry_on_an_open_interface_is_refused():
     with pytest.raises(TypeError, match=r"\*\*inputs"):
-        _declare(run=_run({"inputs": str}, inputs="**inputs"))
+        _declare(run=_run({"inputs": list[str]}, inputs="**inputs"))
 
 
 def test_an_underscore_parameter_is_refused():

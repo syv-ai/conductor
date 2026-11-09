@@ -34,18 +34,18 @@ uv run pytest tests/ -q
 from typing import Annotated
 from conductor import CompiledGraph, From, Graph, GraphNode, NodeRegistry, Param, Static, node
 from conductor.widgets import Textarea
-from conductor_nodes.types import Text
+
 
 @node("echo", title="Echo", description="Returns the input unchanged", category="text")
-def echo(text: Annotated[Text, Param(title="Input", widget=Textarea())]) -> Text:
+def echo(text: Annotated[str, Param(title="Input", widget=Textarea())]) -> str:
     return text
 
 @node("uppercase", category="text")
-def uppercase(text: Text) -> Text:
+def uppercase(text: str) -> str:
     """Converts to uppercase."""
-    return Text(text.upper())
+    return text.upper()
 
-assert uppercase(Text("a")) == "A"          # a node is called like its function
+assert uppercase("a") == "A"          # a node is called like its function
 
 registry = NodeRegistry([echo, uppercase])
 

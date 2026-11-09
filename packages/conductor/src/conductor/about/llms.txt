@@ -94,11 +94,11 @@ def operand_inputs(branches: Branches) -> list[Input]: ...                   # w
 def branch_outputs(branches: Branches, value: Arriving) -> list[Output]: ... # all the outputs
 ```
 
-Each is a plain function, given per version (`compute_inputs=` and `compute_outputs=` on `@node` or `OlderVersion`). A parameter names an input and receives its typed value, the declared default included; a parameter marked `Arriving` receives the type one call gets there (the edge's, or the typed-in value's with no edge; `Any` until something is), and `**x: Arriving` receives all connected ones. If a value parameter has neither a typed-in value nor a default the hook is not called and the node keeps what it declares. A hook adds inputs only onto a `**x` parameter, and builds records the way a signature reads: `Input("amount", Number, widget=...)`, `Output(name, value, choice="branches")`. A plain Python type closes an `Input`. Compile keeps the answer on `compiled.node(node_id).interface`. `CompileProblem(code, message, field=None)` becomes a `Problem` on the node.
+Each is a plain function, given per version (`compute_inputs=` and `compute_outputs=` on `@node` or `OlderVersion`). A parameter names an input and receives its typed value, the declared default included; a parameter marked `Arriving` receives the type one call gets there (the edge's, or the typed-in value's with no edge; `Any` until something is), and `**x: Arriving` receives all connected ones. If a value parameter has neither a typed-in value nor a default the hook is not called and the node keeps what it declares. A hook adds inputs only onto a `**x` parameter, and builds records the way a signature reads: `Input("amount", float, widget=...)`, `Output(name, value, choice="branches")`. A plain Python type closes an `Input`. Compile keeps the answer on `compiled.node(node_id).interface`. `CompileProblem(code, message, field=None)` becomes a `Problem` on the node.
 
 ### Types
 
-A `DType` is a class on a builtin with its own `id`, `title` defaulting to the class name (`class Number(DType, float)`). It never converts or picks a widget. `Input.dtype` and `Output.dtype` are always a `DType`: `Any` is held as a private type whose `id` is `any`, a closed input's plain type as one whose `id` is `setting`. `Series[X]` reads as `Sequence[X]` to a type checker, so a node returns a list; `Table[...]` takes a `TypedDict` naming the columns, and `Table.with_columns({"name": Text})` is the same type for a hook.
+A `DType` is a class on a builtin with its own `id`, `title` defaulting to the class name (`class Text(DType, str)`). It never converts or picks a widget. `Input.dtype` and `Output.dtype` are always a `DType`: `Any` is held as a private type whose `id` is `any`, a closed input's plain type as one whose `id` is `setting`. `Series[X]` reads as `Sequence[X]` to a type checker, so a node returns a list; `Table[...]` takes a `TypedDict` naming the columns, and `Table.with_columns({"name": Text})` is the same type for a hook.
 
 - `target.accepts(source)`: may an edge land, asked about one value of each side (default `issubclass`). `as_text` formats. `describe()`, `dtype_of(annotation)`.
 - `registry.types`: node types plus `NodeRegistry(..., types=[...])`; `registry.accepted_as(T)`: ids `T` lands on.
@@ -269,14 +269,14 @@ Every event record: `Event` (the union on `type`), `RunStart`, `NodeStart`, `Nod
 
 ### conductor-nodes
 
-Standard nodes on `conductor_nodes.types`: `Text`, `Number`, `Flag`, `Json`, and the decorator `stdlib_node`. `conductor_nodes.registry(*, categories=None)` builds a registry; `conductor_nodes.nodes(*, categories=None)` lists the definitions for a registry of your own.
+Standard nodes declare `str`, `float` and `bool`; `conductor_nodes.types` has `Json` and the decorator `stdlib_node`. `conductor_nodes.registry(*, categories=None)` builds a registry; `conductor_nodes.nodes(*, categories=None)` lists the definitions for a registry of your own.
 
 | Category | Node ids |
 |---|---|
 | `text` | `text-uppercase`, `text-lowercase`, `text-trim`, `text-length`, `text-concat`, `text-replace`, `text-contains`, `text-split`, `text-join`, `text-reverse` |
 | `math` | `math-add`, `math-subtract`, `math-multiply`, `math-divide`, `math-modulo`, `math-round`, `math-min`, `math-max`, `math-abs` |
 | `logic` | `logic-not` |
-| `control` | `logic-if-empty`, `logic-if-equals`, `decision` (routes a value on a `Flag`) |
+| `control` | `logic-if-empty`, `logic-if-equals`, `decision` (routes a value on a `bool`) |
 | `json` | `json-parse`, `json-stringify`, `json-get` |
 | `regex` | `regex-match`, `regex-replace`, `regex-extract` (past `.timeout` fails `pattern_timeout`) |
 

@@ -126,7 +126,7 @@ def test_each_package_declares_only_the_dependencies_listed_here(package):
     ("package", "line"),
     [
         ("conductor", "import fastapi"),
-        ("conductor", "from conductor_nodes.types import Text"),
+        ("conductor", "from conductor_nodes.types import Json"),
         ("conductor-nodes", "import yaml"),
         ("conductor-nodes", "from conductor_providers.react import graph_to_react"),
         ("conductor-providers", "from app.models import Flow"),
@@ -205,7 +205,7 @@ def test_the_library_declares_no_type_of_its_own_beyond_series_and_table():
 
 def test_a_package_that_declares_types_is_found():
     """The standard nodes ship their own vocabulary, so the same probe over them finds it."""
-    assert "text" in _types_declared_by("conductor_nodes")
+    assert "json" in _types_declared_by("conductor_nodes")
 
 
 def test_an_iteration_and_a_reduction_run_on_the_standard_nodes_alone():

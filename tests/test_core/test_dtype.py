@@ -167,9 +167,12 @@ def test_dtype_of_reads_the_annotation():
     assert dtype_of(Annotated[Text, object()]) is Text
 
 
-def test_dtype_of_returns_None_for_a_plain_python_type():
-    """AKA's catalog contract test is what turns this into an error."""
-    assert dtype_of(str) is None
+def test_dtype_of_makes_a_dtype_of_a_type_an_edge_can_carry():
+    assert dtype_of(str).plain is str and dtype_of(str).id == "str" and dtype_of(str) is dtype_of(str)
+
+
+def test_dtype_of_returns_None_for_a_type_no_edge_can_carry():
+    assert dtype_of(list[int]) is None
 
 
 def test_conductor_declares_no_domain_types_of_its_own():

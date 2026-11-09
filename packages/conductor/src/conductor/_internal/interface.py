@@ -16,14 +16,15 @@ there is one place the meaning of an annotation is decided, and it is here.
 
 What it understands:
 
-* a ``DType`` or ``Any`` on a parameter, with at most one ``Param`` beside it;
-* a plain Python type, which closes the input (``Input`` holds it wrapped);
+* a ``DType``, a plain type (``str``, a pydantic model) or ``Any`` on a
+  parameter, with at most one ``Param`` beside it;
+* a type no edge can carry (``list[Branch]``), which closes the input;
 * ``FromRun[Clock]``: not an input, a value the run supplies by type;
 * ``**x: T``: every edge an input declared ``T``, unless a
   ``compute_inputs`` hook says which inputs land there. ``AsItArrives``
   never runs the node per row, ``Series[Any]`` reduces, ``Any`` or a type
   runs it per row;
-* on the return: a ``DType`` (one output), a frozen dataclass (one output
+* on the return: a type (one output), a frozen dataclass (one output
   per field), ``Mapping`` (the node's ``compute_outputs`` says which),
   ``None`` (no outputs), and ``X | AskPerson`` read as ``X``.
 
@@ -147,7 +148,7 @@ def open_input_of(name: str, hint: Any) -> Input:
     dtype = dtype_of(declared)
     if dtype is None or dtype is DType:
         raise NodeDeclarationError(
-            f"**{name}: {declared!r} is no type an edge carries; each edge is an input, declared a DType, Any or AsItArrives",
+            f"**{name}: {declared!r} is no type an edge carries; each edge is an input, declared a type, Any or AsItArrives",
             code="open_interface_annotation",
         )
     return Input("", dtype)
@@ -172,7 +173,7 @@ def _input(name: str, declared: Any, extras: tuple[Any, ...], parameter: inspect
             raise NodeDeclarationError(f"parameter {name!r} carries a Result; a parameter carries a Param, and Result belongs on the return", code="result_on_parameter")
         raise NodeDeclarationError(f"parameter {name!r} carries {extra!r}, which conductor does not read", code="annotated_extra_unknown")
     if declared is inspect.Parameter.empty:
-        raise NodeDeclarationError(f"parameter {name!r} has no type; it must declare a DType, Any or a plain type", code="parameter_needs_type")
+        raise NodeDeclarationError(f"parameter {name!r} has no type; it must declare a type (str, a pydantic model, a DType) or Any", code="parameter_needs_type")
     if declared is DType:
         raise NodeDeclarationError(f"parameter {name!r} must declare a concrete DType, or Any for whatever arrives; the base would accept anything", code="parameter_base_dtype")
     param = next((extra for extra in extras if isinstance(extra, Param)), Param())
@@ -202,7 +203,7 @@ def _read_return(hints: Mapping[str, Any]) -> tuple[Any, tuple[Output, ...]]:
         return declared, _record_outputs(declared)
     if declared is Mapping or get_origin(declared) is Mapping:
         return Mapping, ()
-    raise NodeDeclarationError(f"a node returns a DType, a dataclass of them, Mapping[str, Any] or None — got {declared!r}", code="unsupported_return_type")
+    raise NodeDeclarationError(f"a node returns a type an edge can carry (str, a pydantic model, a DType), Series[X] for many of them, a frozen dataclass of them, Mapping[str, Any] or None — got {declared!r}", code="unsupported_return_type")
 
 
 def _record_outputs(record: type) -> tuple[Output, ...]:
@@ -216,7 +217,7 @@ def _record_outputs(record: type) -> tuple[Output, ...]:
         bare, blank = read_blank(declared)
         result = _result_in(extras)
         if dtype_of(bare) is None:
-            raise NodeDeclarationError(f"{record.__name__}.{each.name} must be a DType — got {declared!r}", code="record_field_needs_dtype")
+            raise NodeDeclarationError(f"{record.__name__}.{each.name} must be a type an edge can carry — got {declared!r}", code="record_field_needs_dtype")
         dtype = declared
         if result.name is not None:
             raise NodeDeclarationError(f"{record.__name__}.{each.name}: a record's field is named by the field, so Result(name=...) has nothing to name", code="result_name_on_record_field")

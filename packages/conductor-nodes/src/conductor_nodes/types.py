@@ -1,9 +1,6 @@
-"""The types this library's nodes are declared with.
+"""What this library's nodes declare beyond plain ``str``, ``float`` and ``bool``.
 
-Conductor itself ships no concrete ``DType``, so a node library declares
-its own. Four cover this catalog: ``Text``, ``Number``, ``Flag`` and
-``Json``. An application with its own vocabulary declares its own types
-and does not need these.
+``Json`` is a value of any JSON shape.
 
 ``Category`` is the closed set of category names this package uses, and
 ``stdlib_node`` is ``@node`` with ``category`` narrowed to it, so a
@@ -24,31 +21,6 @@ Category = Literal["control", "json", "logic", "math", "regex", "text"]
 def stdlib_node(id: str, *, category: Category, **declared: Any) -> Any:
     """``@node`` with ``category`` pinned to ``Category``."""
     return node(id, category=category, **declared)
-
-
-class Text(DType, str):
-    id = "text"
-    display_title = "Text"
-
-
-class Number(DType, float):
-    id = "number"
-    display_title = "Number"
-
-
-class Flag(DType, int):
-    """A boolean value.
-
-    Built on ``int`` because ``bool`` cannot be subclassed, and a ``bool``
-    is an ``int``: ``Flag(True) == 1`` and ``bool(Flag(0)) is False``.
-    """
-
-    id = "flag"
-    display_title = "Flag"
-    column = "Boolean"
-
-    def __repr__(self) -> str:
-        return f"Flag({bool(self)})"
 
 
 class Json(DType):
