@@ -73,13 +73,16 @@ its stored graphs itself. What a 1.x user must change:
   inside runs per row of the graph's row, where the same graph run alone ran it per row of that
   series. Whatever a node receives under a row is cut at that row, so a `**inputs: AsItArrives` input
   or a gather in a graph run per row sees only its own run's rows, and a node made to run per row by
-  another input gathers its own row's rows too. Values that ran once inside are gathered into a
-  `Series[X]` input, skipped ones left out, so a skip gives an empty list there as it does alone.
+  another input gathers its own row's rows too. Each source of a gather is cut at the row on its own,
+  so a column under the row and an unrelated column read their own rows and all of it, and a call
+  waits only for its own group. Values that ran once inside are gathered into a `Series[X]` input,
+  skipped ones left out, so a skip gives an empty list there as it does alone.
 - A merge's renamed column takes the source's own node id without the graph path (`name_crm`, not
   `name_orders/crm`). A node under a graph's row is stale when that row's rows change, so resuming with
   fewer rows above it works.
 - `compiled.run_plan.nodes[id].inputs[name]` is a `ReceiveMode`, the record the run reads: a `kind` of
   `cell`, `rows_under`, `fixed`, `gather` or `merge`, and the author's `receive_mode` word as before.
+  A `gather` or `merge` lists each source's read in `source_reads`, which is what the run reads.
   `InputPlan` is gone. A table wired alone into a `Table` input is received as that table, unmerged.
 - `compile(...)` is `CompiledGraph.from_graph(graph, registry)`. It never raises for a fault in the
   graph: read `problems` and `is_runnable`. A `Problem` is `type`, `loc`, `msg`, `ctx`.

@@ -139,7 +139,7 @@ def test_a_merge_reads_each_source_as_its_own_record():
     mode = compiled.field("h.table")._receive_mode
     ledger = _ledger_after(compiled, (("r", ()), {"result": frame}), (("w", ()), {"result": ["x"]}))
 
-    assert isinstance(mode, Merge) and [part.kind for part in mode.source_plans] == ["cell", "rows_under"]
+    assert isinstance(mode, Merge) and [part.kind for part in mode.source_reads] == ["cell", "rows_under"]
     assert ledger.read_input(mode, ("h", ())).columns == ["__row", "a", "result"]
 
 

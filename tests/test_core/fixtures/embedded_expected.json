@@ -145,14 +145,31 @@
      "inputs": {
       "values": {
        "collected_onto": "emb/single.values",
-       "depth": 0,
        "kind": "gather",
        "receive_mode": "collected",
-       "sources": [
-        "emb/gate.if_true",
-        "emb/gate.if_false"
-       ],
-       "takes_blank": true
+       "takes_blank": true,
+       "source_reads": [
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "emb/gate.if_true"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "takes_blank": true,
+         "kind": "cell"
+        },
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "emb/gate.if_false"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "takes_blank": true,
+         "kind": "cell"
+        }
+       ]
       }
      },
      "makes_rows": [],
@@ -378,14 +395,33 @@
      "inputs": {
       "values": {
        "collected_onto": "emb/single.values",
-       "depth": 1,
        "kind": "gather",
        "receive_mode": "collected",
-       "sources": [
-        "emb/gate.if_true",
-        "emb/gate.if_false"
-       ],
-       "takes_blank": true
+       "takes_blank": true,
+       "source_reads": [
+        {
+         "receive_mode": "all_rows_under_row",
+         "sources": [
+          "emb/gate.if_true"
+         ],
+         "rows_of": "docs.result",
+         "grouped_under": "docs.result",
+         "depth": 1,
+         "takes_blank": true,
+         "kind": "rows_under"
+        },
+        {
+         "receive_mode": "all_rows_under_row",
+         "sources": [
+          "emb/gate.if_false"
+         ],
+         "rows_of": "docs.result",
+         "grouped_under": "docs.result",
+         "depth": 1,
+         "takes_blank": true,
+         "kind": "rows_under"
+        }
+       ]
       }
      },
      "makes_rows": [],
@@ -584,14 +620,31 @@
      "inputs": {
       "values": {
        "collected_onto": "emb/single.values",
-       "depth": 0,
        "kind": "gather",
        "receive_mode": "collected",
-       "sources": [
-        "emb/a.result",
-        "emb/g.if_true"
-       ],
-       "takes_blank": true
+       "takes_blank": true,
+       "source_reads": [
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "emb/a.result"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "takes_blank": true,
+         "kind": "cell"
+        },
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "emb/g.if_true"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "takes_blank": true,
+         "kind": "cell"
+        }
+       ]
       }
      },
      "makes_rows": [],
@@ -855,14 +908,31 @@
      "inputs": {
       "values": {
        "collected_onto": "top/b/single.values",
-       "depth": 0,
        "kind": "gather",
        "receive_mode": "collected",
-       "sources": [
-        "top/b/gate.if_true",
-        "top/b/gate.if_false"
-       ],
-       "takes_blank": true
+       "takes_blank": true,
+       "source_reads": [
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "top/b/gate.if_true"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "takes_blank": true,
+         "kind": "cell"
+        },
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "top/b/gate.if_false"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "takes_blank": true,
+         "kind": "cell"
+        }
+       ]
       }
      },
      "makes_rows": [],
@@ -1017,14 +1087,31 @@
      "inputs": {
       "values": {
        "collected_onto": "top/s.values",
-       "depth": 0,
        "kind": "gather",
        "receive_mode": "collected",
-       "sources": [
-        "top/b/up.result",
-        "top/g.if_false"
-       ],
-       "takes_blank": true
+       "takes_blank": true,
+       "source_reads": [
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "top/b/up.result"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "takes_blank": true,
+         "kind": "cell"
+        },
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "top/g.if_false"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "takes_blank": true,
+         "kind": "cell"
+        }
+       ]
       }
      },
      "makes_rows": [],
@@ -1217,14 +1304,33 @@
      "inputs": {
       "values": {
        "collected_onto": "top/b/single.values",
-       "depth": 1,
        "kind": "gather",
        "receive_mode": "collected",
-       "sources": [
-        "top/b/gate.if_true",
-        "top/b/gate.if_false"
-       ],
-       "takes_blank": true
+       "takes_blank": true,
+       "source_reads": [
+        {
+         "receive_mode": "all_rows_under_row",
+         "sources": [
+          "top/b/gate.if_true"
+         ],
+         "rows_of": "docs.result",
+         "grouped_under": "docs.result",
+         "depth": 1,
+         "takes_blank": true,
+         "kind": "rows_under"
+        },
+        {
+         "receive_mode": "all_rows_under_row",
+         "sources": [
+          "top/b/gate.if_false"
+         ],
+         "rows_of": "docs.result",
+         "grouped_under": "docs.result",
+         "depth": 1,
+         "takes_blank": true,
+         "kind": "rows_under"
+        }
+       ]
       }
      },
      "makes_rows": [],
@@ -1371,14 +1477,33 @@
      "inputs": {
       "values": {
        "collected_onto": "top/s.values",
-       "depth": 1,
        "kind": "gather",
        "receive_mode": "collected",
-       "sources": [
-        "top/b/up.result",
-        "top/g.if_false"
-       ],
-       "takes_blank": true
+       "takes_blank": true,
+       "source_reads": [
+        {
+         "receive_mode": "all_rows_under_row",
+         "sources": [
+          "top/b/up.result"
+         ],
+         "rows_of": "docs.result",
+         "grouped_under": "docs.result",
+         "depth": 1,
+         "takes_blank": true,
+         "kind": "rows_under"
+        },
+        {
+         "receive_mode": "all_rows_under_row",
+         "sources": [
+          "top/g.if_false"
+         ],
+         "rows_of": "docs.result",
+         "grouped_under": "docs.result",
+         "depth": 1,
+         "takes_blank": true,
+         "kind": "rows_under"
+        }
+       ]
       }
      },
      "makes_rows": [],
@@ -1562,14 +1687,31 @@
      "inputs": {
       "values": {
        "collected_onto": "emb/single.values",
-       "depth": 0,
        "kind": "gather",
        "receive_mode": "collected",
-       "sources": [
-        "emb/gate.if_true",
-        "emb/gate.if_false"
-       ],
-       "takes_blank": true
+       "takes_blank": true,
+       "source_reads": [
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "emb/gate.if_true"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "takes_blank": true,
+         "kind": "cell"
+        },
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "emb/gate.if_false"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "takes_blank": true,
+         "kind": "cell"
+        }
+       ]
       }
      },
      "makes_rows": [],
@@ -1765,13 +1907,21 @@
      "inputs": {
       "texts": {
        "collected_onto": "emb/j.texts",
-       "depth": 0,
        "kind": "gather",
        "receive_mode": "collected",
-       "sources": [
-        "emb/n.result"
-       ],
-       "takes_blank": false
+       "takes_blank": false,
+       "source_reads": [
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "emb/n.result"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "takes_blank": false,
+         "kind": "cell"
+        }
+       ]
       }
      },
      "makes_rows": [],
@@ -3385,13 +3535,22 @@
      "inputs": {
       "texts": {
        "collected_onto": "emb/join.texts",
-       "depth": 1,
        "kind": "gather",
        "receive_mode": "collected",
-       "sources": [
-        "emb/up.result"
-       ],
-       "takes_blank": false
+       "takes_blank": false,
+       "source_reads": [
+        {
+         "receive_mode": "all_rows_under_row",
+         "sources": [
+          "emb/up.result"
+         ],
+         "rows_of": "docs.result",
+         "grouped_under": "docs.result",
+         "depth": 1,
+         "takes_blank": false,
+         "kind": "rows_under"
+        }
+       ]
       }
      },
      "makes_rows": [],
@@ -3528,14 +3687,33 @@
      "inputs": {
       "texts": {
        "collected_onto": "emb/join.texts",
-       "depth": 1,
        "kind": "gather",
        "receive_mode": "collected",
-       "sources": [
-        "emb/holder.result",
-        "emb/up.result"
-       ],
-       "takes_blank": false
+       "takes_blank": false,
+       "source_reads": [
+        {
+         "receive_mode": "all_rows_under_row",
+         "sources": [
+          "emb/holder.result"
+         ],
+         "rows_of": "docs.result",
+         "grouped_under": "docs.result",
+         "depth": 1,
+         "takes_blank": false,
+         "kind": "rows_under"
+        },
+        {
+         "receive_mode": "all_rows_under_row",
+         "sources": [
+          "emb/up.result"
+         ],
+         "rows_of": "docs.result",
+         "grouped_under": "docs.result",
+         "depth": 1,
+         "takes_blank": false,
+         "kind": "rows_under"
+        }
+       ]
       }
      },
      "makes_rows": [],
@@ -3641,14 +3819,31 @@
      "inputs": {
       "texts": {
        "collected_onto": "emb/join.texts",
-       "depth": 0,
        "kind": "gather",
        "receive_mode": "collected",
-       "sources": [
-        "h1.result",
-        "h2.result"
-       ],
-       "takes_blank": false
+       "takes_blank": false,
+       "source_reads": [
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "h1.result"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "takes_blank": false,
+         "kind": "cell"
+        },
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "h2.result"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "takes_blank": false,
+         "kind": "cell"
+        }
+       ]
       }
      },
      "makes_rows": [],
@@ -3744,13 +3939,21 @@
      "inputs": {
       "texts": {
        "collected_onto": "after.texts",
-       "depth": 0,
        "kind": "gather",
        "receive_mode": "collected",
-       "sources": [
-        "emb/join.result"
-       ],
-       "takes_blank": false
+       "takes_blank": false,
+       "source_reads": [
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "emb/join.result"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "takes_blank": false,
+         "kind": "cell"
+        }
+       ]
       }
      },
      "makes_rows": [],
@@ -6096,13 +6299,22 @@
      "inputs": {
       "texts": {
        "collected_onto": "emb/join.texts",
-       "depth": 1,
        "kind": "gather",
        "receive_mode": "collected",
-       "sources": [
-        "emb/up.result"
-       ],
-       "takes_blank": false
+       "takes_blank": false,
+       "source_reads": [
+        {
+         "receive_mode": "all_rows_under_row",
+         "sources": [
+          "emb/up.result"
+         ],
+         "rows_of": "docs.result",
+         "grouped_under": "docs.result",
+         "depth": 1,
+         "takes_blank": false,
+         "kind": "rows_under"
+        }
+       ]
       }
      },
      "makes_rows": [],
@@ -6312,13 +6524,22 @@
      "inputs": {
       "texts": {
        "collected_onto": "emb/join.texts",
-       "depth": 1,
        "kind": "gather",
        "receive_mode": "collected",
-       "sources": [
-        "emb/u.result"
-       ],
-       "takes_blank": false
+       "takes_blank": false,
+       "source_reads": [
+        {
+         "receive_mode": "all_rows_under_row",
+         "sources": [
+          "emb/u.result"
+         ],
+         "rows_of": "docs.result",
+         "grouped_under": "docs.result",
+         "depth": 1,
+         "takes_blank": false,
+         "kind": "rows_under"
+        }
+       ]
       }
      },
      "makes_rows": [],
@@ -7032,13 +7253,21 @@
      "inputs": {
       "texts": {
        "collected_onto": "emb/join.texts",
-       "depth": 0,
        "kind": "gather",
        "receive_mode": "collected",
-       "sources": [
-        "emb/up.result"
-       ],
-       "takes_blank": false
+       "takes_blank": false,
+       "source_reads": [
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "emb/up.result"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "takes_blank": false,
+         "kind": "cell"
+        }
+       ]
       }
      },
      "makes_rows": [],
@@ -7143,13 +7372,21 @@
      "inputs": {
       "texts": {
        "collected_onto": "emb/join.texts",
-       "depth": 0,
        "kind": "gather",
        "receive_mode": "collected",
-       "sources": [
-        "emb/up.result"
-       ],
-       "takes_blank": false
+       "takes_blank": false,
+       "source_reads": [
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "emb/up.result"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "takes_blank": false,
+         "kind": "cell"
+        }
+       ]
       }
      },
      "makes_rows": [],
@@ -7987,13 +8224,21 @@
      "inputs": {
       "texts": {
        "collected_onto": "emb/join.texts",
-       "depth": 0,
        "kind": "gather",
        "receive_mode": "collected",
-       "sources": [
-        "emb/up.result"
-       ],
-       "takes_blank": false
+       "takes_blank": false,
+       "source_reads": [
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "emb/up.result"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "takes_blank": false,
+         "kind": "cell"
+        }
+       ]
       }
      },
      "makes_rows": [],

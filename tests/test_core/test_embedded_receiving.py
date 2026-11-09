@@ -29,6 +29,7 @@ from conductor import (
     Table,
     node,
 )
+from conductor._internal.execution.run_ledger import RunLedger
 from conductor.widgets import Textarea
 
 from tests.test_core.embedded import embedded_graph_node
@@ -91,6 +92,11 @@ def whatever_arrives(**thing: AsItArrives) -> Out:
     return Txt(",".join(thing["thing"]))
 
 
+@node("whatever_arrives_at_row", title="s", description="d", category="t")
+def whatever_arrives_at_row(at: Text, **thing: AsItArrives) -> Out:
+    return Txt(f"{at}:" + ",".join(thing["thing"]))
+
+
 @dataclass(frozen=True)
 class YesNo:
     yes: Annotated[Txt, Result(title="Y", exclusive_group="c")]
@@ -112,7 +118,7 @@ def merged_columns(table: Annotated[Table, Param(title="Table")]) -> Out:
     return Txt(",".join(column for column in table.columns if not column.startswith("__")))
 
 
-REGISTRY = NodeRegistry([src, upper, split, join, joined_at_row, pair, two, whatever_arrives, always_yes, people, merged_columns])
+REGISTRY = NodeRegistry([src, upper, split, join, joined_at_row, pair, two, whatever_arrives, whatever_arrives_at_row, always_yes, people, merged_columns])
 
 
 def n(node_id: str, node_type: str, **bindings: Any) -> GraphNode:
@@ -176,6 +182,69 @@ def test_gather_of_a_value_that_ran_once_and_rows_under_the_row():
     ]), REGISTRY)
     results = compiled.results(compiled.run_sync())["j"]["result"]
     assert by_row(results) == {(0,): "ab:o+ab.a+ab.b", (1,): "c:o+c.c"}
+
+
+def test_a_gather_reads_each_source_by_how_it_stands_to_the_row():
+    """Rows under the node's row are cut to that row; a column that shares no row with it is read whole."""
+    compiled = CompiledGraph.from_graph(Graph(nodes=[
+        n("s", "src", text=Static(["ab", "c"])),
+        n("a", "split", text=From("s.result")),
+        n("o", "split", text=Static("zy")),
+        n("j", "joined_at_row", items=From("a.result", "o.result"), at=From("s.result")),
+    ]), REGISTRY)
+    results = compiled.results(compiled.run_sync())["j"]["result"]
+    assert by_row(results) == {(0,): "ab:ab.a+ab.b+zy.z+zy.y", (1,): "c:c.c+zy.z+zy.y"}
+
+
+def test_a_gather_cuts_a_source_on_the_nodes_own_row_to_that_row():
+    compiled = CompiledGraph.from_graph(Graph(nodes=[
+        n("s", "src", text=Static(["ab", "c"])),
+        n("o", "split", text=Static("zy")),
+        n("j", "joined_at_row", items=From("s.result", "o.result"), at=From("s.result")),
+    ]), REGISTRY)
+    results = compiled.results(compiled.run_sync())["j"]["result"]
+    assert by_row(results) == {(0,): "ab:ab+zy.z+zy.y", (1,): "c:c+zy.z+zy.y"}
+
+
+def test_a_gathering_unit_waits_only_for_its_own_group_of_each_source():
+    compiled = CompiledGraph.from_graph(Graph(nodes=[
+        n("s", "src", text=Static(["ab", "c"])),
+        n("a", "split", text=From("s.result")),
+        n("o", "split", text=Static("zy")),
+        n("j", "joined_at_row", items=From("a.result", "o.result"), at=From("s.result")),
+    ]), REGISTRY)
+    ledger = RunLedger(compiled)
+    ledger.units_ready_to_start()
+    ledger.record(("s", (0,)), {"result": Txt("ab")})
+    ledger.record(("s", (1,)), {"result": Txt("c")})
+    ledger.record(("o", ()), {"result": [Txt("z"), Txt("y")]})
+    ledger.record(("a", (0,)), {"result": [Txt("p")]})
+
+    assert ledger.first_thing_unit_still_needs(("j", (0,))) is None
+    assert ledger.first_thing_unit_still_needs(("j", (1,))) == ("a", (1,))
+
+
+def test_as_it_arrives_on_the_nodes_own_row_is_cut_to_that_row():
+    compiled = CompiledGraph.from_graph(Graph(nodes=[
+        n("s", "src", text=Static(["ab", "c"])),
+        n("k", "whatever_arrives_at_row", thing=From("s.result"), at=From("s.result")),
+    ]), REGISTRY)
+    results = compiled.results(compiled.run_sync())["k"]["result"]
+    assert by_row(results) == {(0,): "ab:ab", (1,): "c:c"}
+
+
+def test_run_plan_says_how_each_gathered_source_is_read():
+    compiled = CompiledGraph.from_graph(Graph(nodes=[
+        n("s", "src", text=Static(["ab", "c"])),
+        n("a", "split", text=From("s.result")),
+        n("o", "split", text=Static("zy")),
+        n("j", "joined_at_row", items=From("a.result", "s.result", "o.result"), at=From("s.result")),
+    ]), REGISTRY)
+    gather = receive_of(compiled, "j", "items")
+    assert [(read.receive_mode, read.rows_of, read.depth) for read in gather.source_reads] == [
+        ("all_rows_under_row", "a.result", 1), ("all_rows_under_row", "s.text", 1), ("entire_value", None, 0),
+    ]
+    assert str(gather) == "collected into one list: all rows of a.result under my row (grouped under s.text) + the value at my row (s.text) + all of o.result"
 
 
 def test_edge_from_outside_a_per_row_graph_still_reads_whole():

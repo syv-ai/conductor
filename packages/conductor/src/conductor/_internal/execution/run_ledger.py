@@ -82,7 +82,6 @@ from conductor._internal.table import (
     frame_with_no_rows,
     global_row_id,
     is_frame,
-    is_table_type,
     merge_tables_on_row_ids,
     one_column_frame_with_row_ids,
     with_ids_spelled_at_row,
@@ -447,55 +446,50 @@ class RunLedger:
                     return SkippedAtRow(row=max((value_row for _, value_row in found), key=len))
                 return self._rows_and_values_on(node_id, sources, row[:depth])[1]
             case Gather():
-                return self._gathered_for_unit(receive_mode, node_id, row)
+                return self._gathered_for_unit(receive_mode, unit)
             case Merge():
-                merged = self._merged_table_for_unit(receive_mode, row)
+                merged = self._merged_table_for_unit(receive_mode, unit)
                 # Read through the input's own type when the call is checked, so a
                 # merged table it won't take fails this node, naming the column.
                 return SkippedAtRow(row=row) if merged is None else merged
 
-    def _gathered_for_unit(self, receive_mode: Gather, node_id: str, row: Row) -> list[Any]:
-        """The values a unit at ``row`` gathers from its sources, left out where skipped."""
-        group_row = row[: receive_mode.depth]
+    def _gathered_for_unit(self, receive_mode: Gather, unit: Unit) -> list[Any]:
+        """The values this unit gathers, each source read as compile settled, left out where skipped."""
         gathered: list[Any] = []
-        for ref in receive_mode.sources:
-            value, _ = self._value_or_skip_at(ref, group_row[: self._depth_of_field[ref]])
-            if value is SKIPPED:
+        for read in receive_mode.source_reads:
+            value = self.read_input(read, unit)
+            if isinstance(value, SkippedAtRow):
                 continue
-            index = self._fields[ref]._index
-            if index is None or index.depth <= len(group_row):
+            if read.__class__ is Cell:
                 gathered.append(value)
             else:
-                gathered.extend(self._rows_and_values_on(node_id, (ref,), group_row)[1])
+                gathered.extend(value)
         return gathered
 
-    def _merged_table_for_unit(self, receive_mode: Merge, row: Row) -> pl.DataFrame | None:
-        """The one table a unit at ``row`` receives from every source of a ``Table``
-        input, or ``None`` when every source is skipped there. Reads each source's
-        rows; ``conductor._internal.table.merge_tables_on_row_ids`` matches them. A skipped source has no rows
-        and still counts as a source."""
+    def _merged_table_for_unit(self, receive_mode: Merge, unit: Unit) -> pl.DataFrame | None:
+        """The one table this unit receives from every source of a ``Table`` input, or
+        ``None`` when every source is skipped there. Reads each source by its own record;
+        ``conductor._internal.table.merge_tables_on_row_ids`` matches them. A skipped source
+        has no rows and still counts as a source."""
+        row = unit[1]
         sources: list[MergeSource] = []
         skipped = 0
-        for plan in receive_mode.source_plans:
-            (source,) = plan.sources
+        for read in receive_mode.source_reads:
+            (source,) = read.sources
             field = self._fields[source]
-            is_table = is_table_type(field.type)
-            index: Index = field._makes_rows if is_table else field._index  # type: ignore[assignment]
-            group_row = row[: plan.depth]
+            group_row = row[: read.depth]
             copied_down = source in receive_mode.copied_down
             stored, _ = self._value_or_skip_at(source, group_row)
             is_skip = stored is SKIPPED
             skipped += is_skip
-            if is_table:
+            if read.__class__ is Cell:  # a table: its rows are the ones it holds
                 frame = frame_with_no_rows(field.type) if is_skip else stored
-                sources.append(MergeSource(source.node_id, frame, index, [(*group_row, position) for position in range(frame.height)], copied_down))
+                sources.append(MergeSource(source.node_id, frame, field._makes_rows, [(*group_row, position) for position in range(frame.height)], copied_down))  # type: ignore[arg-type]
                 continue
-            present = [
-                (row, value) for row in self._rows[index.id].rows_under(group_row)
-                if (value := self._value_or_skip_at(source, row)[0]) is not SKIPPED and value is not _MISSING
-            ]
-            frame = one_column_frame_with_row_ids(field._title, field.type, [self._row_id(index, row) for row, _ in present], [value for _, value in present])
-            sources.append(MergeSource(source.node_id, frame, index, [row for row, _ in present], copied_down))
+            index: Index = field._index  # type: ignore[assignment]
+            rows, values = self._rows_and_values_on(unit[0], read.sources, group_row)
+            frame = one_column_frame_with_row_ids(field._title, field.type, [self._row_id(index, row) for row in rows], values)
+            sources.append(MergeSource(source.node_id, frame, index, rows, copied_down))
         return None if skipped == len(sources) else merge_tables_on_row_ids(sources)
 
     def _row_id(self, index: Index, row: Row) -> str:

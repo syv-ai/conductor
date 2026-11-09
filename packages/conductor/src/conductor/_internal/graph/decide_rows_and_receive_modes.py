@@ -27,7 +27,8 @@ edge.
 
 Whatever an input receives under a row is cut at that row, as far as the row
 and the source share one; sharing none, it is all of the source. A node that
-runs once shares nothing, so it receives everything.
+runs once shares nothing, so it receives everything. The sources of a gather
+or a merge are each read this way, on their own, once the node's row is known.
 
 An input no edge feeds holds what compile already knows: a static or its
 default, as a ``FixedValue``. A table wired alone into a ``Table`` input has
@@ -100,15 +101,11 @@ class InputCarries(NamedTuple):
     index: Index | None
 
 
-class RowsCutByTheRow(NamedTuple):
-    """An input whose receive mode waits for the node's row, because that row is where its sources are cut."""
+class SourcesReadAtTheRow(NamedTuple):
+    """An input whose receive mode waits for the node's row, because each of its sources is read at that row."""
 
     input: Input
-    refs: tuple[Ref, ...]
-    #: Each source's index, ``None`` for one that ran once.
-    source_indexes: tuple[Index | None, ...]
-    #: Those on the row of a graph around both them and this node, read at that row.
-    on_the_row_of_a_graph_around_both: frozenset[Index]
+    sources: tuple[tuple[Ref, CompiledField], ...]
     #: The input's own index when it gathers; ``None`` when it reads one column's rows.
     collected_onto: Index | None
 
@@ -129,7 +126,7 @@ class WhatArrivesOnInputs:
     #: The child indexes ``Series[X]`` inputs read, placed once the node's row is known.
     child_indexes_read_by_series_inputs: tuple[tuple[Index, Input, tuple[Ref, ...]], ...] = ()
     #: The inputs that don't choose the node's row and are cut by it, placed once it is known.
-    rows_cut_by_the_row: tuple[RowsCutByTheRow, ...] = ()
+    sources_read_at_the_row: tuple[SourcesReadAtTheRow, ...] = ()
     #: The inputs holding a list set on the node.
     lists_on_node: tuple[Input, ...] = ()
     #: The ``Table`` inputs with the table type each carries and its sources.
@@ -187,7 +184,7 @@ def read_what_arrives_on_inputs(
             if source._index is None or one_value_per_run_of_a_graph:
                 found.receive_modes[name] = cell_at_the_row(binding.refs, source._index, input_.takes_blank)
             else:
-                found.rows_cut_by_the_row += (RowsCutByTheRow(input_, binding.refs, (source._index,), frozenset(), None),)
+                found.sources_read_at_the_row += (SourcesReadAtTheRow(input_, ((binding.refs[0], source),), None),)
             continue
         if is_table_type(target) and not input_.many:
             pairs = list(zip(binding.refs, sources, strict=True))
@@ -226,9 +223,8 @@ def read_what_arrives_on_inputs(
             found.carries[name] = InputCarries(source.type, source._index)
         else:
             input_own_index = Index(Ref(node.id, name))
-            on_a_graphs_row = frozenset(source._index for source in sources if source._index is not None and _sits_on_the_row_of_a_graph_around_both(node.id, source, progress))
             found.arriving_types[name] = target
-            found.rows_cut_by_the_row += (RowsCutByTheRow(input_, binding.refs, tuple(source._index for source in sources), on_a_graphs_row, input_own_index),)
+            found.sources_read_at_the_row += (SourcesReadAtTheRow(input_, tuple(zip(binding.refs, sources, strict=True)), input_own_index),)
             found.carries[name] = InputCarries(target, input_own_index)
     return found
 
@@ -302,13 +298,13 @@ def decide_runs_per_row_of_and_receive_modes(node: GraphNode, found: WhatArrives
         found.receive_modes[input_.name] = cell_at_the_row((own_ref,), input_own_index, input_.takes_blank)
         runs_per_row_of = input_own_index
     for index, input_, refs in found.child_indexes_read_by_series_inputs:
-        depth = _depth_shared_with_row(index, runs_per_row_of)
+        depth = _depth_shared_with_row(index.parent, runs_per_row_of)  # type: ignore[arg-type]  # a reduction reads a child index
         if depth is None:
             problems.append(_misaligned(node_id, field_address_of(found.rows_required_by_inputs[0][1]), field_address_of(input_.name)))
             return False, None
         found.receive_modes[input_.name] = rows_under_the_row(refs, index, depth, input_.takes_blank)
-    for read in found.rows_cut_by_the_row:
-        found.receive_modes[read.input.name] = _receive_mode_cut_by_the_row(read, runs_per_row_of)
+    for read in found.sources_read_at_the_row:
+        found.receive_modes[read.input.name] = _receive_mode_read_at_the_row(read, runs_per_row_of)
     for input_, carried, sources in found.table_inputs_and_sources:
         found.carries[input_.name] = InputCarries(carried, runs_per_row_of)
         found.receive_modes[input_.name] = _receive_mode_of_table_input(sources, runs_per_row_of, input_.takes_blank)
@@ -316,21 +312,13 @@ def decide_runs_per_row_of_and_receive_modes(node: GraphNode, found: WhatArrives
     return True, runs_per_row_of
 
 
-def _receive_mode_cut_by_the_row(read: RowsCutByTheRow, runs_per_row_of: Index | None) -> RowsUnder | Gather:
-    """How an input that doesn't choose the node's row receives its sources on that row.
-
-    The depth is the shallowest any source shares with the row, ``0`` being all
-    of it; a source that ran once has one value at every depth and doesn't count."""
-    depths = [
-        index.depth if index in read.on_the_row_of_a_graph_around_both else _depth_shared_with_row(index, runs_per_row_of) or 0
-        for index in read.source_indexes if index is not None
-    ]
-    depth = min(depths, default=0)
-    if read.collected_onto is not None:
-        return Gather(read.refs, Ref(read.collected_onto.id), depth, read.input.takes_blank)
-    (index,) = read.source_indexes
-    assert index is not None  # only a column waits for the row this way
-    return rows_under_the_row(read.refs, index, depth, read.input.takes_blank)
+def _receive_mode_read_at_the_row(read: SourcesReadAtTheRow, runs_per_row_of: Index | None) -> Cell | RowsUnder | Gather:
+    """How an input that doesn't choose the node's row receives its sources on that row: each source by its own read."""
+    takes_blank = read.input.takes_blank
+    source_reads = tuple(_read_of_source_at_the_row(ref, source, runs_per_row_of, takes_blank) for ref, source in read.sources)
+    if read.collected_onto is None:
+        return source_reads[0]
+    return Gather(source_reads, Ref(read.collected_onto.id), takes_blank)
 
 
 def _receive_mode_of_table_input(sources: list[tuple[Ref, CompiledField]], runs_per_row_of: Index | None, takes_blank: bool) -> Cell | Merge:
@@ -338,7 +326,6 @@ def _receive_mode_of_table_input(sources: list[tuple[Ref, CompiledField]], runs_
     if len(sources) == 1 and is_table_type(sources[0][1].type):
         return cell_at_the_row((sources[0][0],), sources[0][1]._index, takes_blank)
     return Merge(
-        tuple(ref for ref, _ in sources),
         tuple(_read_of_merge_source(ref, source, runs_per_row_of, takes_blank) for ref, source in sources),
         tuple(_copied_down(sources)),
         takes_blank,
@@ -406,20 +393,26 @@ def _type_mismatch(target: Any, node_id: str, name: str, source_ref: Ref, source
 
 
 def _depth_shared_with_row(index: Index, runs_per_row_of: Index | None) -> int | None:
-    """How far up ``index``'s rows are grouped for a node on ``runs_per_row_of``: the
-    depth of the deepest index above them that the node's row sits on, ``None`` when none is."""
+    """The depth of the deepest of ``index`` and the indexes above it that the node's row sits on, ``None`` when none is."""
     lineage = () if runs_per_row_of is None else runs_per_row_of.lineage
-    return next((step.depth for step in reversed(index.lineage[:-1]) if step in lineage), None)
+    return next((step.depth for step in reversed(index.lineage) if step in lineage), None)
+
+
+def _read_of_source_at_the_row(ref: Ref, source: CompiledField, runs_per_row_of: Index | None, takes_blank: bool) -> Cell | RowsUnder:
+    """How a call on ``runs_per_row_of`` reads one source: the one value a source
+    with no rows holds; else its rows, cut at the deepest row the two share
+    (the source's own row when the call sits on or under it), all of them when they share none."""
+    index = source._index
+    if index is None:
+        return cell_at_the_row((ref,), None, takes_blank)
+    return rows_under_the_row((ref,), index, _depth_shared_with_row(index, runs_per_row_of) or 0, takes_blank)
 
 
 def _read_of_merge_source(ref: Ref, source: CompiledField, runs_per_row_of: Index | None, takes_blank: bool) -> Cell | RowsUnder:
-    """How a call reads one source of a ``Table`` input: a table at its row
-    or the one there is; a column's rows under its row; or all of them."""
-    index = source._index
-    if index is None or (runs_per_row_of is not None and index in runs_per_row_of.lineage):
-        return cell_at_the_row((ref,), index, takes_blank)
-    depth = _depth_shared_with_row(index, runs_per_row_of)
-    return rows_under_the_row((ref,), index, 0 if depth is None else depth, takes_blank)
+    """How a call reads one source of a ``Table`` input: a table is the one at its row, or the one there is; a column is read as any source."""
+    if is_table_type(source.type):
+        return cell_at_the_row((ref,), source._index, takes_blank)
+    return _read_of_source_at_the_row(ref, source, runs_per_row_of, takes_blank)
 
 
 def _all_on_one_index(sources: Sequence[CompiledField]) -> bool:

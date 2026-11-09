@@ -64,7 +64,7 @@ SEND = GraphNode(id="send", type="send", version=1, bindings={"email": From("csv
 def test_send_mail_per_contact_then_excel_has_name_email_and_sent():
     compiled = _compiled(CSV, SEND, GraphNode(id="excel", type="export", version=1, bindings={"table": From("csv.result", "send.result")}))
 
-    assert [(part.sources[0], part.receive_mode) for part in compiled.run_plan.nodes["excel"].inputs["table"].source_plans] == [
+    assert [(part.sources[0], part.receive_mode) for part in compiled.run_plan.nodes["excel"].inputs["table"].source_reads] == [
         ("csv.result", "same_value_every_row"), ("send.result", "entire_value"),
     ]
     assert compiled.problems == ()
@@ -149,7 +149,7 @@ def test_a_table_input_on_a_node_running_per_document_gets_that_documents_rows()
         GraphNode(id="excel", type="export", version=1, bindings={"table": From("read.result", "check.result")}),
     )
 
-    read, check = compiled.run_plan.nodes["excel"].inputs["table"].source_plans
+    read, check = compiled.run_plan.nodes["excel"].inputs["table"].source_reads
     assert (read.sources[0], read.receive_mode, read.rows_of) == ("read.result", "value_at_row", "docs.result")
     assert (check.sources[0], check.receive_mode, check.rows_of, check.grouped_under) == ("check.result", "all_rows_under_row", "read.result", "docs.result")
     sheets = compiled.results(compiled.run_sync())["excel"]["result"]["values"]
@@ -311,7 +311,7 @@ def test_a_column_two_levels_down_is_received_under_the_nodes_row():
         registry=_registry_with(words),
     )
 
-    from_words = next(part for part in compiled.run_plan.nodes["excel"].inputs["table"].source_plans if part.sources == (Ref("words", "result"),))
+    from_words = next(part for part in compiled.run_plan.nodes["excel"].inputs["table"].source_reads if part.sources == (Ref("words", "result"),))
     assert (from_words.receive_mode, from_words.rows_of, from_words.grouped_under) == ("all_rows_under_row", "words.result", "docs.result")
 
 

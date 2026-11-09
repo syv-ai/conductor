@@ -15,7 +15,11 @@ The run tells apart only what it reads differently, by ``kind``:
 - ``FixedValue``: a value compile already holds, a static or a default;
 - ``Gather``: unrelated sources collected onto an index of the input's own;
 - ``Merge``: one table of everything wired into a ``Table`` input, matched on
-  its rows' ids, each source read as a ``Cell`` or a ``RowsUnder``.
+  its rows' ids.
+
+``Gather`` and ``Merge`` hold one read per source, a ``Cell`` or a ``RowsUnder``
+settled once the node's row is known, so each source is read by how it stands
+to that row and a unit waits only for what its own reads cover.
 
 ``receive_mode`` is what a person reads about the same thing, in a word:
 
@@ -66,10 +70,14 @@ class Cell:
         """Compile builds one per input of a graph, so this sets them in one step, not one at a time."""
         self.__dict__.update(receive_mode=receive_mode, sources=sources, rows_of=rows_of, depth=depth, takes_blank=takes_blank, kind=kind)
 
-    def __str__(self) -> str:
+    @property
+    def _what_is_read(self) -> str:
         if self.rows_of is not None:
             return f"the value at my row ({self.rows_of})"
         return f"the same value every row ({' + '.join(self.sources)})"
+
+    def __str__(self) -> str:
+        return self._what_is_read
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +88,8 @@ class RowsUnder:
     under the node's row, however many steps down they sit; ``depth`` is that
     of the deepest index above them that the node's row sits on. ``0`` is
     everything on the field: a ``Series[X]`` fed one column on a root index.
+    A source of a ``Gather`` or a ``Merge`` on the node's own row or a row above
+    it is read to that row's depth: the one row it has there.
     """
 
     receive_mode: Literal["all_rows_under_row", "entire_value"]
@@ -93,11 +103,18 @@ class RowsUnder:
     takes_blank: bool
     kind: Literal["rows_under"] = "rows_under"
 
-    def __str__(self) -> str:
+    @property
+    def _what_is_read(self) -> str:
         if self.rows_of is None:
             return f"all of {' + '.join(self.sources)}"
-        grouped_under = "" if self.grouped_under == self.rows_of else f" (grouped under {self.grouped_under})"
-        return f"all rows of {self.rows_of} under my row{grouped_under}; none under it: called with an empty list; skipped above them: not called"
+        if self.grouped_under == self.rows_of:
+            return f"the value at my row ({self.rows_of})"
+        return f"all rows of {self.rows_of} under my row (grouped under {self.grouped_under})"
+
+    def __str__(self) -> str:
+        if self.rows_of is None or self.grouped_under == self.rows_of:
+            return self._what_is_read
+        return f"{self._what_is_read}; none under it: called with an empty list; skipped above them: not called"
 
 
 @dataclass(frozen=True, init=False)
@@ -131,50 +148,50 @@ class FixedValue:
         return "the same value every row" if self.receive_mode == "same_value_every_row" else "the whole list set on the node"
 
 
+#: How one source of a ``Gather`` or a ``Merge`` is read at a unit's row.
+ReadOfSource = Annotated[Cell | RowsUnder, Field(discriminator="kind")]
+
+
 @dataclass(frozen=True, slots=True)
 class Gather:
     """The unit receives its unrelated sources collected into one series.
 
     Several scalars, several series on indexes that share no rows, or the
     values of one run of the graph around the node, into one ``Series[X]``
-    input: each is read under the unit's row cut to ``depth``, ``0`` being all
-    of it, and laid out on ``collected_onto``, the input's own index. A skipped
-    source is left out rather than skipping the unit, since gathering is how
-    "whichever branch fired" is expressed.
+    input. Each source is read by its own record and laid out on
+    ``collected_onto``, the input's own index. A skipped source is left out
+    rather than skipping the unit, since gathering is how "whichever branch
+    fired" is expressed.
     """
 
-    sources: tuple[Ref, ...]
+    #: One read per source, in wiring order.
+    source_reads: tuple[ReadOfSource, ...]
     collected_onto: Ref
-    depth: int
     #: A blank here stays in the series. If not, its row is left out.
     takes_blank: bool
     receive_mode: Literal["collected"] = "collected"
     kind: Literal["gather"] = "gather"
 
     def __str__(self) -> str:
-        return f"collected into one list: {' + '.join(self.sources)}"
-
-
-#: How one source of a merge is read: the two ways a table or a column reaches a row.
-SourceOfMerge = Annotated[Cell | RowsUnder, Field(discriminator="kind")]
+        return f"collected into one list: {' + '.join(read._what_is_read for read in self.source_reads)}"
 
 
 @dataclass(frozen=True, slots=True)
 class Merge:
-    """The unit receives one table merged from every source, each read as its plan says.
+    """The unit receives one table merged from every source, each read by its own record.
 
-    Several tables or columns into one ``Table`` input: a table at the unit's
-    row or the one there is, a column's rows under the unit's row or all of
-    them, and the pieces are merged on their rows' ids: the rows are the deepest
-    sources', a parent's value copied down onto each of them, and a parent row
-    nothing sits under is not in the table. A ``Table`` input never makes its
-    node run per row by itself, and its sources never have to line up: rows that
-    match nothing are blanks. A table wired in alone is received as a ``Cell``.
+    Several tables or columns into one ``Table`` input: a table is a ``Cell``, the
+    one at the unit's row or the one there is; a column is a ``RowsUnder``, its
+    rows under the unit's row or all of them. The pieces are merged on their
+    rows' ids: the rows are the deepest sources', a parent's value copied down
+    onto each of them, and a parent row nothing sits under is not in the table.
+    A ``Table`` input never makes its node run per row by itself, and its sources
+    never have to line up: rows that match nothing are blanks. A table wired in
+    alone is received as a ``Cell``.
     """
 
-    sources: tuple[Ref, ...]
-    #: One record per source, in wiring order.
-    source_plans: tuple[SourceOfMerge, ...]
+    #: One read per source, in wiring order.
+    source_reads: tuple[ReadOfSource, ...]
     #: The sources whose rows sit above another source's: copied down onto those rows.
     copied_down: tuple[Ref, ...]
     #: A blank here stays in the table.
@@ -183,7 +200,7 @@ class Merge:
     kind: Literal["merge"] = "merge"
 
     def __str__(self) -> str:
-        return "merged: " + " + ".join(f"{source}{' [copied down]' if source in self.copied_down else ''}" for source in self.sources)
+        return "merged: " + " + ".join(f"{read.sources[0]}{' [copied down]' if read.sources[0] in self.copied_down else ''}" for read in self.source_reads)
 
 
 ReceiveMode = Annotated[Cell | RowsUnder | FixedValue | Gather | Merge, Field(discriminator="kind")]
@@ -205,6 +222,5 @@ def rows_under_the_row(sources: tuple[Ref, ...], index: Index, depth: int, takes
 
 def reads_of_input(receive_mode: Cell | RowsUnder | FixedValue | Gather | Merge) -> list[tuple[Ref, int]]:
     """Every field this input reads and the depth of the unit's row it is read at, in wiring order."""
-    if isinstance(receive_mode, Merge):
-        return [(source, part.depth) for part in receive_mode.source_plans for source in part.sources]
-    return [(source, receive_mode.depth) for source in receive_mode.sources]
+    reads = receive_mode.source_reads if isinstance(receive_mode, Gather | Merge) else (receive_mode,)
+    return [(source, read.depth) for read in reads for source in read.sources]

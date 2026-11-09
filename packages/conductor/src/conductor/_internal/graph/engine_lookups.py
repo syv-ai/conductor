@@ -165,7 +165,7 @@ def build_engine_lookups(nodes: Iterable[CompiledNode], row_ids_must_survive: fr
             writer = source.node_id if not field._is_list_on_node else node_making_rows_of_index[field._index.id]  # type: ignore[union-attr]
             if writer is None:
                 continue
-            waits.append((writer, min(depth_read, depth_of_field[source])))
+            waits.append((writer, depth_read))
             count_finished_units_at(writer, depth_read)
         what_each_read_waits_for[node_id] = waits
     nodes_finished_when_rows_made_by: dict[str, tuple[str, ...]] = {}

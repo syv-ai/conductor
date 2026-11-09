@@ -134,7 +134,7 @@ def test_the_run_plan_says_where_each_node_runs_and_what_each_input_receives():
     assert (counted.receive_mode, counted.rows_of, counted.grouped_under) == ("all_rows_under_row", "split.result", "upload.result")
     merged = plan.nodes["excel"].inputs["table"]
     assert merged.receive_mode == "merged"
-    assert [(part.sources, part.receive_mode) for part in merged.source_plans] == [((Ref("upload.result"),), "entire_value"), ((Ref("count.result"),), "entire_value")]
+    assert [(part.sources, part.receive_mode) for part in merged.source_reads] == [((Ref("upload.result"),), "entire_value"), ((Ref("count.result"),), "entire_value")]
 
 
 def test_a_parent_merged_with_rows_under_it_is_copied_down():

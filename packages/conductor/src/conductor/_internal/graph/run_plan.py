@@ -6,7 +6,7 @@ what it decided, in terms a host can show and compare::
     print(compiled.run_plan)
     # upload  once
     # split   per row of upload.result  text: the value at my row (upload.result)
-    # count   per row of upload.result  lines: all rows of split.result under my row; none under it: called with an empty list; skipped above them: not called
+    # count   per row of upload.result  lines: all rows of split.result under my row (grouped under upload.result); none under it: called with an empty list; skipped above them: not called
 
 Each input's entry is its ``ReceiveMode`` (``conductor._internal.graph.receive_modes``),
 the record the run reads, so what it says is what happens. Inside a graph run
@@ -39,7 +39,7 @@ class NodeRunPlan(ConductorModel):
 
     def _as_text_line(self, width: int) -> str:
         where = "once" if self.runs_per_row_of is None else f"per row of {self.runs_per_row_of}"
-        shown = [f"{name}: {plan}" for name, plan in self.inputs.items() if plan.sources]
+        shown = [f"{name}: {plan}" for name, plan in self.inputs.items() if plan.kind != "fixed"]
         return f"{self.node_id:<{width}}  {where:<28}  {shown[0] if shown else ''}".rstrip() + "".join(
             f"\n{'':<{width}}  {'':<28}  {more}" for more in shown[1:]
         )
