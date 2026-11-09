@@ -217,11 +217,11 @@ def test_a_mismatched_edge_is_a_fatal_problem_on_the_target_field():
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("n", "result"))}),
     ])
 
-    (problem,) = compiled.problems
-    assert (problem.type, problem.fatal, problem.loc[0], problem.loc[1]) == ("type_mismatch", True, "up", "text")
-    assert problem.ctx["source"] == "n.result"
-    assert set(problem.ctx) == {"source", "source_type", "target_type", "source_said", "target_said"}
-    assert "id" in problem.ctx["target_type"]  # a description record, not a name
+    (make_problem,) = compiled.problems
+    assert (make_problem.type, make_problem.fatal, make_problem.loc[0], make_problem.loc[1]) == ("type_mismatch", True, "up", "text")
+    assert make_problem.ctx["source"] == "n.result"
+    assert set(make_problem.ctx) == {"source", "source_type", "target_type", "source_said", "target_said"}
+    assert "id" in make_problem.ctx["target_type"]  # a description record, not a name
     assert not compiled.is_runnable
 
 
@@ -286,8 +286,8 @@ def test_an_unconnected_any_input_is_unbound_required_and_the_node_has_no_shape(
     field — unconnected is unconnected."""
     compiled = _compiled([GraphNode(id="r", type="route", version=1)])
 
-    (problem,) = compiled.problems
-    assert (problem.type, problem.fatal, problem.loc[0], problem.loc[1]) == ("unbound_required", True, "r", "value")
+    (make_problem,) = compiled.problems
+    assert (make_problem.type, make_problem.fatal, make_problem.loc[0], make_problem.loc[1]) == ("unbound_required", True, "r", "value")
     assert compiled.node("r").wiring is None
 
 
@@ -316,7 +316,7 @@ def test_an_open_roster_takes_one_input_per_edge_received_whole():
     assert [(i.name, i.dtype) for i in interface.inputs] == [("code", Txt), ("antal", Num), ("tekster", Series[Txt])]
     assert interface.inputs[2].widget is None
     assert compiled.run_plan.nodes["s"].runs_per_row_of is None
-    assert compiled.run_plan.nodes["s"].inputs["tekster"].arrives == "entire_value"
+    assert compiled.run_plan.nodes["s"].inputs["tekster"].receive_mode == "entire_value"
 
 
 def test_an_open_roster_parameter_takes_one_edge():
@@ -372,8 +372,8 @@ def test_a_node_with_no_outputs_yet_is_the_ordinary_mid_edit_state():
     registry = registry.extended_with([sheet])
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="s", type="sheet", version=1)]), registry)
 
-    (problem,) = compiled.problems
-    assert (problem.type, problem.fatal, problem.loc[0]) == ("no_outputs", False, "s")
+    (make_problem,) = compiled.problems
+    assert (make_problem.type, make_problem.fatal, make_problem.loc[0]) == ("no_outputs", False, "s")
     assert compiled.is_runnable
     assert compiled.run_plan.nodes["s"].runs_per_row_of is None
     assert compiled.node("s").interface.outputs == ()
@@ -429,9 +429,9 @@ def test_a_hook_that_cannot_answer_refuses_and_the_refusal_is_the_nodes_problem(
         GraphNode(id="f", type="fussy", version=1, bindings={"value": _edge(("docs", "texts"))}),
     ]), registry)
 
-    (problem,) = [p for p in compiled.problems if p.loc[0] == "f"]
-    assert (problem.type, problem.fatal, problem.loc[0]) == ("wrong_shape", True, "f")
-    assert problem.msg == "What arrives does not fit."
+    (make_problem,) = [p for p in compiled.problems if p.loc[0] == "f"]
+    assert (make_problem.type, make_problem.fatal, make_problem.loc[0]) == ("wrong_shape", True, "f")
+    assert make_problem.msg == "What arrives does not fit."
     assert compiled.node("f").interface.outputs == ()
 
 
@@ -455,9 +455,9 @@ def test_an_inputs_hook_that_cannot_answer_refuses_and_compile_does_not_raise():
         GraphNode(id="u", type="upper", version=1, bindings={"text": _edge(("f", "result"))}),
     ]), registry)
 
-    (problem,) = compiled.problems
-    assert (problem.type, problem.fatal, problem.loc[0]) == ("wrong_mode", True, "f")
-    assert problem.msg == "That mode is not one this node has."
+    (make_problem,) = compiled.problems
+    assert (make_problem.type, make_problem.fatal, make_problem.loc[0]) == ("wrong_mode", True, "f")
+    assert make_problem.msg == "That mode is not one this node has."
     assert not compiled.is_runnable
 
 
@@ -501,7 +501,7 @@ def test_two_series_outputs_of_one_node_do_not_line_up():
         GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("docs", "texts")), "b": _edge(("docs", "filenames"))}),
     ])
 
-    assert [problem.type for problem in compiled.problems] == ["misaligned"]
+    assert [make_problem.type for make_problem in compiled.problems] == ["misaligned"]
 
 
 def test_two_series_on_unrelated_indexes_are_a_fatal_problem_naming_both():
@@ -512,10 +512,10 @@ def test_two_series_on_unrelated_indexes_are_a_fatal_problem_naming_both():
         GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("a", "texts")), "b": _edge(("b", "texts"))}),
     ])
 
-    (problem,) = compiled.problems
-    assert (problem.type, problem.fatal, problem.loc) == ("misaligned", True, ("p",))
-    assert "p.a" in problem.msg and "p.b" in problem.msg
-    assert problem.ctx == {"a": "p.a", "b": "p.b"}
+    (make_problem,) = compiled.problems
+    assert (make_problem.type, make_problem.fatal, make_problem.loc) == ("misaligned", True, ("p",))
+    assert "p.a" in make_problem.msg and "p.b" in make_problem.msg
+    assert make_problem.ctx == {"a": "p.a", "b": "p.b"}
     assert compiled.node("p").wiring is None
 
 
@@ -531,7 +531,7 @@ def test_a_reduction_on_a_root_yields_a_scalar_and_does_not_iterate():
 
     assert compiled.is_runnable
     assert compiled.run_plan.nodes["j"].runs_per_row_of is None
-    assert compiled.run_plan.nodes["j"].inputs["texts"].arrives == "entire_value"
+    assert compiled.run_plan.nodes["j"].inputs["texts"].receive_mode == "entire_value"
     assert compiled.field(Ref("j", "result")).type is Txt
 
 
@@ -596,7 +596,7 @@ def test_n_scalar_refs_into_a_series_input_gather_onto_a_fresh_index():
 
     assert compiled.run_plan.nodes["j"].runs_per_row_of is None
     assert compiled.field(Ref("j", "texts")).type is Series[Txt]
-    assert compiled.run_plan.nodes["j"].inputs["texts"].arrives == "collected"
+    assert compiled.run_plan.nodes["j"].inputs["texts"].receive_mode == "collected"
 
 
 def test_n_series_refs_concatenate_and_lineage_is_gone():
@@ -608,7 +608,7 @@ def test_n_series_refs_concatenate_and_lineage_is_gone():
 
     assert compiled.is_runnable
     assert compiled.run_plan.nodes["j"].runs_per_row_of is None
-    assert compiled.run_plan.nodes["j"].inputs["texts"].arrives == "collected"
+    assert compiled.run_plan.nodes["j"].inputs["texts"].receive_mode == "collected"
 
 
 def test_two_refs_on_one_index_into_a_scalar_input_are_a_union_on_it():
@@ -632,8 +632,8 @@ def test_two_refs_on_different_indexes_into_a_scalar_input_is_fatal():
         GraphNode(id="m", type="upper", version=1, bindings={"text": _edge(("a", "texts"), ("b", "texts"))}),
     ])
 
-    (problem,) = [p for p in compiled.problems if p.loc[0] == "m"]
-    assert (problem.type, problem.loc[1]) == ("union_needs_one_index", "text")
+    (make_problem,) = [p for p in compiled.problems if p.loc[0] == "m"]
+    assert (make_problem.type, make_problem.loc[1]) == ("union_needs_one_index", "text")
 
 
 def test_two_series_refs_on_one_index_into_a_series_input_read_that_index_not_a_pile():
@@ -645,7 +645,7 @@ def test_two_series_refs_on_one_index_into_a_series_input_read_that_index_not_a_
     ])
 
     assert compiled.run_plan.nodes["j"].runs_per_row_of is None
-    assert compiled.run_plan.nodes["j"].inputs["texts"].arrives == "entire_value"
+    assert compiled.run_plan.nodes["j"].inputs["texts"].receive_mode == "entire_value"
 
 
 def test_one_scalar_ref_into_a_series_input_is_a_gather_of_one():
@@ -654,7 +654,7 @@ def test_one_scalar_ref_into_a_series_input_is_a_gather_of_one():
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("a", "result"))}),
     ])
 
-    assert compiled.run_plan.nodes["j"].inputs["texts"].arrives == "collected"
+    assert compiled.run_plan.nodes["j"].inputs["texts"].receive_mode == "collected"
 
 
 def test_a_typed_list_and_a_default_live_on_the_inputs_own_index():
@@ -663,8 +663,8 @@ def test_a_typed_list_and_a_default_live_on_the_inputs_own_index():
         GraphNode(id="absent", type="join", version=1),
     ])
 
-    assert compiled.run_plan.nodes["typed"].inputs["texts"].arrives == "entire_value"
-    assert compiled.run_plan.nodes["absent"].inputs["texts"].arrives == "entire_value"
+    assert compiled.run_plan.nodes["typed"].inputs["texts"].receive_mode == "entire_value"
+    assert compiled.run_plan.nodes["absent"].inputs["texts"].receive_mode == "entire_value"
 
 
 def test_a_gathered_series_judges_each_ref_by_the_element():
@@ -775,7 +775,7 @@ def test_a_list_set_on_a_node_running_per_row_hangs_under_its_rows():
 
     assert compiled.is_runnable, compiled.problems
     questions = "ask.b"
-    assert compiled.run_plan.nodes["ask"].inputs["b"].arrives == "value_at_row" and compiled.run_plan.nodes["ask"].inputs["b"].rows_of == questions
+    assert compiled.run_plan.nodes["ask"].inputs["b"].receive_mode == "value_at_row" and compiled.run_plan.nodes["ask"].inputs["b"].rows_of == questions
     assert compiled.run_plan.nodes["ask"].runs_per_row_of == questions
 
 
@@ -793,12 +793,12 @@ def test_two_lists_on_a_node_running_per_row_are_refused():
         }),
     ])
 
-    (refused,) = compiled.problems
-    assert (refused.type, refused.fatal, refused.loc[1]) == ("lists_on_a_per_row_node", True, "c")
-    assert refused.ctx == {"a": "ask.b", "b": "ask.c"}
+    (raised,) = compiled.problems
+    assert (raised.type, raised.fatal, raised.loc[1]) == ("lists_on_a_per_row_node", True, "c")
+    assert raised.ctx == {"a": "ask.b", "b": "ask.c"}
 
 
 def test_two_lists_on_a_node_that_runs_once_are_the_list_refusal():
     compiled = _compiled([GraphNode(id="ask", type="pair", version=1, bindings={"a": Static(["p", "q"]), "b": Static(["x", "y"])})])
 
-    assert [problem.type for problem in compiled.problems] == ["lists_on_a_per_row_node"]
+    assert [make_problem.type for make_problem in compiled.problems] == ["lists_on_a_per_row_node"]

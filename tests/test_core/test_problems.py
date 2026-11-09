@@ -146,9 +146,9 @@ def test_a_values_own_rule_is_its_types_constructor_and_reaches_compile_anchored
     static that breaks it is the statics pass's `invalid_static` — on the
     field, on the node. No hook is asked, and no node is told where it
     sits in the graph."""
-    (problem,) = _problems([GraphNode(id="p", type="picky", version=1, bindings={"x": Static("")})])
+    (make_problem,) = _problems([GraphNode(id="p", type="picky", version=1, bindings={"x": Static("")})])
 
-    assert (problem.type, problem.fatal, problem.loc[0], problem.loc[1]) == ("invalid_static", True, "p", "x")
+    assert (make_problem.type, make_problem.fatal, make_problem.loc[0], make_problem.loc[1]) == ("invalid_static", True, "p", "x")
 
 
 def test_the_problem_carries_what_the_type_itself_said():
@@ -156,19 +156,19 @@ def test_the_problem_carries_what_the_type_itself_said():
     type is where a value's rule is written, so the type's own words are the
     only ones that say what to change. The generic sentence leads, because it
     names the field; the type's follows it."""
-    (problem,) = _problems([GraphNode(id="p", type="picky", version=1, bindings={"x": Static("")})])
+    (make_problem,) = _problems([GraphNode(id="p", type="picky", version=1, bindings={"x": Static("")})])
 
-    assert problem.msg.endswith("The field must be filled in.") and "'x'" in problem.msg
-    assert problem.ctx["reason"] == "The field must be filled in."
+    assert make_problem.msg.endswith("The field must be filled in.") and "'x'" in make_problem.msg
+    assert make_problem.ctx["reason"] == "The field must be filled in."
 
 
 def test_a_type_that_said_nothing_of_its_own_leaves_the_generic_sentence_alone():
     """Pydantic's own report is English and about a JSON shape. A `Series`
     input handed a scalar is the same: nothing a person should read."""
-    (problem,) = _problems([GraphNode(id="j", type="join", version=1, bindings={"texts": Static(3)})])
+    (make_problem,) = _problems([GraphNode(id="j", type="join", version=1, bindings={"texts": Static(3)})])
 
-    assert "'texts'" in problem.msg
-    assert "reason" not in problem.ctx
+    assert "'texts'" in make_problem.msg
+    assert "reason" not in make_problem.ctx
 
 
 def test_a_value_that_satisfies_its_type_contributes_nothing():
@@ -217,20 +217,20 @@ def test_a_clean_graph_reports_no_problems():
 
 
 def test_a_binding_on_an_input_the_placement_does_not_have_is_stale():
-    (problem,) = _problems([GraphNode(id="a", type="echo", version=1, bindings={"z": Static(1)})])
+    (make_problem,) = _problems([GraphNode(id="a", type="echo", version=1, bindings={"z": Static(1)})])
 
-    assert (problem.type, problem.fatal, problem.loc[0], problem.loc[1]) == ("stale_binding", True, "a", "z")
+    assert (make_problem.type, make_problem.fatal, make_problem.loc[0], make_problem.loc[1]) == ("stale_binding", True, "a", "z")
 
 
 def test_an_edge_into_a_closed_handle_is_fatal():
     """`connectable=False` is the one wireability question, and the
     integrity it protects is structural — nothing upstream reaches `code`."""
-    (problem,) = _problems([
+    (make_problem,) = _problems([
         GraphNode(id="a", type="echo", version=1),
         GraphNode(id="s", type="script", version=1, bindings={"code": From("a.result")}),
     ])
 
-    assert (problem.type, problem.fatal, problem.loc[1]) == ("edge_into_unconnectable_input", True, "code")
+    assert (make_problem.type, make_problem.fatal, make_problem.loc[1]) == ("edge_into_unconnectable_input", True, "code")
 
 
 def test_two_scalar_refs_into_a_scalar_input_is_fatal():
@@ -254,29 +254,29 @@ def test_two_refs_into_a_series_input_is_a_gather_not_a_problem():
 
 
 def test_a_ref_to_a_node_not_in_the_graph_is_fatal():
-    (problem,) = _problems([GraphNode(id="b", type="echo", version=1, bindings={"x": From("ghost.result")})])
+    (make_problem,) = _problems([GraphNode(id="b", type="echo", version=1, bindings={"x": From("ghost.result")})])
 
-    assert (problem.type, problem.loc[0], problem.loc[1]) == ("unknown_ref_node", "b", "x")
-    assert problem.ctx == {"source_node": "ghost"}
+    assert (make_problem.type, make_problem.loc[0], make_problem.loc[1]) == ("unknown_ref_node", "b", "x")
+    assert make_problem.ctx == {"source_node": "ghost"}
 
 
 def test_a_ref_to_an_output_the_node_does_not_have_is_fatal():
-    (problem,) = _problems([
+    (make_problem,) = _problems([
         GraphNode(id="a", type="echo", version=1),
         GraphNode(id="b", type="echo", version=1, bindings={"x": From("a.nope")}),
     ])
 
-    assert (problem.type, problem.loc[0], problem.loc[1]) == ("unknown_ref_output", "b", "x")
-    assert problem.ctx == {"source": "a.nope", "outputs": "result"}
+    assert (make_problem.type, make_problem.loc[0], make_problem.loc[1]) == ("unknown_ref_output", "b", "x")
+    assert make_problem.ctx == {"source": "a.nope", "outputs": "result"}
 
 
 def test_a_required_input_with_nothing_bound_is_fatal():
     """A graph is closed. The caller's answer replaces a value the
     author set; it does not fill a hole."""
-    (problem,) = _problems([GraphNode(id="n", type="needs", version=1)])
+    (make_problem,) = _problems([GraphNode(id="n", type="needs", version=1)])
 
-    assert (problem.type, problem.fatal, problem.loc[1]) == ("unbound_required", True, "x")
-    assert problem.msg == "Nothing is connected to the field."
+    assert (make_problem.type, make_problem.fatal, make_problem.loc[1]) == ("unbound_required", True, "x")
+    assert make_problem.msg == "Nothing is connected to the field."
 
 
 def test_an_any_input_with_no_edge_is_unbound_required():
@@ -354,31 +354,31 @@ def test_every_code_is_declared_once_in_the_catalogue():
     the one table every emitting site reads. A site naming a code the table
     lacks raises where it is written, so nothing can be emitted undeclared."""
     from conductor import PROBLEM_CODES
-    from conductor._internal.errors import CATALOGUE, problem
+    from conductor._internal.errors import PROBLEM_CATALOGUE, make_problem
 
-    assert PROBLEM_CODES == frozenset(CATALOGUE)
+    assert PROBLEM_CODES == frozenset(PROBLEM_CATALOGUE)
     with pytest.raises(KeyError):
-        problem("no_such_code", "n")
+        make_problem("no_such_code", "n")
 
 
 def test_a_slot_the_details_do_not_fill_raises_unless_it_is_optional():
     """A template typo or a forgotten keyword is a programming error, caught
     where the problem is built; only the type's own sentence may be absent."""
-    from conductor._internal.errors import problem
+    from conductor._internal.errors import make_problem
 
     with pytest.raises(KeyError):
-        problem("unknown_ref_node", "b", "text")  # no source_node
-    assert problem("invalid_static", "b", "text", input="1", expected="text").msg == "The value 1 in 'text' cannot be read as text."
+        make_problem("unknown_ref_node", "b", "text")  # no source_node
+    assert make_problem("invalid_static", "b", "text", input="1", expected="text").msg == "The value 1 in 'text' cannot be read as text."
 
 
 def test_a_problem_is_formatted_from_its_details_and_keeps_them():
-    from conductor._internal.errors import problem
+    from conductor._internal.errors import make_problem
 
-    p = problem("unknown_ref_node", "b", "text", source_node="a")
+    p = make_problem("unknown_ref_node", "b", "text", source_node="a")
     assert p.msg == "Field 'text' is connected to 'a', which is not in the graph."
     assert p.ctx == {"source_node": "a"}
     assert p.fatal is True
-    assert problem("unknown_locked_field", "b", "old").fatal is False
+    assert make_problem("unknown_locked_field", "b", "old").fatal is False
 
 
 # --- what compile refuses ----------------------------------------------------------------
@@ -386,9 +386,9 @@ def test_a_problem_is_formatted_from_its_details_and_keeps_them():
 
 def test_a_slash_in_an_authored_id_is_fatal():
     """``/`` is how compile names the nodes of an embedded graph."""
-    (problem,) = _problems([GraphNode(id="a/b", type="echo", version=1)])
+    (make_problem,) = _problems([GraphNode(id="a/b", type="echo", version=1)])
 
-    assert (problem.type, problem.fatal, problem.loc[0]) == ("invalid_node_id", True, "a/b")
+    assert (make_problem.type, make_problem.fatal, make_problem.loc[0]) == ("invalid_node_id", True, "a/b")
 
 
 def test_an_edge_with_no_refs_is_refused_where_it_is_written():

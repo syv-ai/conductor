@@ -38,8 +38,8 @@ if TYPE_CHECKING:
 #: ``all_rows_under_row``: every row of a column under the call's row, however
 #: deep, flat. ``entire_value``: everything on the field, once. ``collected``: unrelated
 #: sources gathered into one series. ``merged``: tables and columns matched on
-#: their rows' ids into one table (``parts`` says how each arrives).
-InputArrival = Literal["value_at_row", "same_value_every_row", "all_rows_under_row", "entire_value", "collected", "merged"]
+#: their rows' ids into one table (``source_plans`` says how each arrives).
+ReceiveModeName = Literal["value_at_row", "same_value_every_row", "all_rows_under_row", "entire_value", "collected", "merged"]
 
 
 class InputPlan(ConductorModel):
@@ -47,7 +47,7 @@ class InputPlan(ConductorModel):
 
     #: The outputs wired to it; empty for a value typed in, or a default.
     sources: tuple[Ref, ...]
-    arrives: InputArrival
+    receive_mode: ReceiveModeName
     #: The field whose rows it reads: for ``value_at_row`` and ``all_rows_under_row``. ``None`` otherwise.
     rows_of: Ref | None = None
     #: For ``all_rows_under_row``: the level the rows are grouped under, which a
@@ -56,14 +56,14 @@ class InputPlan(ConductorModel):
     #: A blank here calls the node with ``None`` (or keeps the cell, on a series). If not, the row isn't called.
     takes_blank: bool
     #: For ``merged``: one plan per source, in wiring order.
-    parts: tuple[InputPlan, ...] = ()
+    source_plans: tuple[InputPlan, ...] = ()
     #: On a part of a merge: a parent table or column whose value is copied down
     #: onto the rows of a deeper source.
     copied_down: bool = False
 
     def __str__(self) -> str:
         source = " + ".join(self.sources)
-        match self.arrives:
+        match self.receive_mode:
             case "value_at_row":
                 return f"the value at my row ({self.rows_of})"
             case "same_value_every_row":
@@ -76,7 +76,7 @@ class InputPlan(ConductorModel):
             case "collected":
                 return f"collected into one list: {source}"
             case "merged":
-                return "merged: " + " + ".join(f"{part.sources[0]}{' [copied down]' if part.copied_down else ''}" for part in self.parts)
+                return "merged: " + " + ".join(f"{part.sources[0]}{' [copied down]' if part.copied_down else ''}" for part in self.source_plans)
 
 
 class NodeRunPlan(ConductorModel):
@@ -112,20 +112,20 @@ def _index_as_address(index: Index | None) -> Ref | None:
     return None if index is None else Ref(index.id)
 
 
-def _plan_of_receipt(sources: tuple[Ref, ...], received: object, takes_blank: bool) -> InputPlan:
+def _plan_of_receive_mode(sources: tuple[Ref, ...], receive_mode: object, takes_blank: bool) -> InputPlan:
     """The one reading of a receive record, for the words a host sees."""
-    match received:
+    match receive_mode:
         case PerRow(index=index):
-            return InputPlan.model_construct(sources=sources, arrives="value_at_row", rows_of=_index_as_address(index), grouped_under=None, takes_blank=takes_blank, parts=(), copied_down=False)
+            return InputPlan.model_construct(sources=sources, receive_mode="value_at_row", rows_of=_index_as_address(index), grouped_under=None, takes_blank=takes_blank, source_plans=(), copied_down=False)
         case Broadcast():
-            return InputPlan.model_construct(sources=sources, arrives="same_value_every_row", rows_of=None, grouped_under=None, takes_blank=takes_blank, parts=(), copied_down=False)
+            return InputPlan.model_construct(sources=sources, receive_mode="same_value_every_row", rows_of=None, grouped_under=None, takes_blank=takes_blank, source_plans=(), copied_down=False)
         case EntireValue():
-            return InputPlan.model_construct(sources=sources, arrives="entire_value", rows_of=None, grouped_under=None, takes_blank=takes_blank, parts=(), copied_down=False)
+            return InputPlan.model_construct(sources=sources, receive_mode="entire_value", rows_of=None, grouped_under=None, takes_blank=takes_blank, source_plans=(), copied_down=False)
         case RowsUnder(index=index, depth=depth):
-            return InputPlan.model_construct(sources=sources, arrives="all_rows_under_row", rows_of=_index_as_address(index), grouped_under=Ref(index.lineage[depth - 1].id), takes_blank=takes_blank, parts=(), copied_down=False)
+            return InputPlan.model_construct(sources=sources, receive_mode="all_rows_under_row", rows_of=_index_as_address(index), grouped_under=Ref(index.lineage[depth - 1].id), takes_blank=takes_blank, source_plans=(), copied_down=False)
         case Gather():
-            return InputPlan.model_construct(sources=sources, arrives="collected", rows_of=None, grouped_under=None, takes_blank=takes_blank, parts=(), copied_down=False)
-    raise AssertionError(f"no plan for {received!r}")
+            return InputPlan.model_construct(sources=sources, receive_mode="collected", rows_of=None, grouped_under=None, takes_blank=takes_blank, source_plans=(), copied_down=False)
+    raise AssertionError(f"no plan for {receive_mode!r}")
 
 
 def plan_of_node(node: CompiledNode) -> NodeRunPlan:
@@ -137,15 +137,15 @@ def plan_of_node(node: CompiledNode) -> NodeRunPlan:
         compiled_input = fields[inp.name]
         binding = compiled_input.binding
         sources = tuple(binding.refs) if binding is not None and hasattr(binding, "refs") else ()
-        received = compiled_input._receives
-        if isinstance(received, Merge):
-            parts = tuple(
-                _plan_of_receipt((source,), part, inp.takes_blank).model_copy(update={"copied_down": source in received.copied_down})
-                for source, part in received.parts
+        receive_mode = compiled_input._receive_mode
+        if isinstance(receive_mode, Merge):
+            source_plans = tuple(
+                _plan_of_receive_mode((source,), part, inp.takes_blank).model_copy(update={"copied_down": source in receive_mode.copied_down})
+                for source, part in receive_mode.receive_mode_by_source
             )
-            inputs[inp.name] = InputPlan.model_construct(sources=sources, arrives="merged", rows_of=None, grouped_under=None, takes_blank=inp.takes_blank, parts=parts, copied_down=False)
+            inputs[inp.name] = InputPlan.model_construct(sources=sources, receive_mode="merged", rows_of=None, grouped_under=None, takes_blank=inp.takes_blank, source_plans=source_plans, copied_down=False)
         else:
-            inputs[inp.name] = _plan_of_receipt(sources, received, inp.takes_blank)
+            inputs[inp.name] = _plan_of_receive_mode(sources, receive_mode, inp.takes_blank)
     runs_per_row_of = node.wiring._runs_per_row_of
     return NodeRunPlan.model_construct(
         node_id=node.id,

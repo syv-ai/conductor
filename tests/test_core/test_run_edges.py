@@ -530,12 +530,12 @@ def test_results_reads_the_state_without_building_a_run():
     def not_called(*_: Any, **__: Any) -> None:
         raise AssertionError("results built the run's live values")
 
-    original = live_run_values.LiveRunValues.__init__
-    live_run_values.LiveRunValues.__init__ = not_called  # type: ignore[method-assign]
+    original = live_run_values.RunLedger.__init__
+    live_run_values.RunLedger.__init__ = not_called  # type: ignore[method-assign]
     try:
         assert list(compiled.results(state)["sp"]["result"]) == ["a", "b"]
     finally:
-        live_run_values.LiveRunValues.__init__ = original  # type: ignore[method-assign]
+        live_run_values.RunLedger.__init__ = original  # type: ignore[method-assign]
 
 
 def test_a_node_that_ran_on_no_rows_is_in_the_results_with_no_rows_before_and_after_json():

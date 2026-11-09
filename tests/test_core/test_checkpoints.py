@@ -159,10 +159,10 @@ def test_outputs_refuses_a_checkpoint_and_results_reads_what_it_holds():
     graph = compiled()
     state = events_until(graph, all_but_hold_finished, checkpoint_every=0)[-1].state  # type: ignore[union-attr]
 
-    with pytest.raises(InvalidCallError) as refused:
+    with pytest.raises(InvalidCallError) as raised:
         graph.outputs(state)
-    assert refused.value.errors()[0].type == "run_not_complete"
-    assert refused.value.errors()[0].ctx["status"] == "running"
+    assert raised.value.errors()[0].type == "run_not_complete"
+    assert raised.value.errors()[0].ctx["status"] == "running"
     assert sorted(graph.results(state)["work"]["result"]) == ["A", "B", "C"]
 
 

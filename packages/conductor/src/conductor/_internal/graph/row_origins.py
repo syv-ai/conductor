@@ -20,7 +20,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from conductor._internal.errors import Problem, problem
+from conductor._internal.errors import Problem, make_problem
 from conductor._internal.ref import Ref
 from conductor._internal.table import holds_tables
 
@@ -71,7 +71,7 @@ class RowOriginsSoFar:
 
         for n, (source_ref, _) in enumerate(sources):
             if not any(meet(n, m) for m in range(len(sources)) if m != n):
-                return [problem("no_rows_in_common", node_id, field_name, source=str(source_ref))]
+                return [make_problem("no_rows_in_common", node_id, field_name, source=str(source_ref))]
         return []
 
 

@@ -292,19 +292,19 @@ def test_a_ready_unit_nobody_started_stops_the_leg_loudly(monkeypatch):
     write reports nothing leaves units ready and unstarted, and the leg
     raises when it goes quiet rather than ending short."""
     import pytest
-    from conductor._internal.execution.live_run_values import LiveRunValues
+    from conductor._internal.execution.live_run_values import RunLedger
 
     @node("echo-wake", title="Echo", description="d", category="test")
     def echo(text: In = Txt("")) -> Out:
         return text
 
-    record = LiveRunValues.record
+    record = RunLedger.record
 
     def silent(self, unit, outputs):
         record(self, unit, outputs)
         return []
 
-    monkeypatch.setattr(LiveRunValues, "record", silent)
+    monkeypatch.setattr(RunLedger, "record", silent)
     graph = Graph(nodes=[
         GraphNode(id="a", type="echo-wake", version=1),
         GraphNode(id="b", type="echo-wake", version=1, bindings={"text": From("a.result")}),

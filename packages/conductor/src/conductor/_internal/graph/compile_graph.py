@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from conductor._internal.errors import Problem, problem
+from conductor._internal.errors import Problem, make_problem
 from conductor._internal.graph.compile_one_node import compile_one_node
 from conductor._internal.graph.compiled_node import CompiledNode
 from conductor._internal.graph.embedding import SEPARATOR
@@ -32,7 +32,7 @@ class WalkSoFar:
     #: Every node compiled so far, by id; an embedded graph's nodes at their paths, after their graph node.
     compiled: dict[str, CompiledNode] = field(default_factory=dict)
     #: The ids written that can't name a node (``/`` or ``.`` in them), each with its problem.
-    refused: dict[str, Problem] = field(default_factory=dict)
+    invalid_node_ids: dict[str, Problem] = field(default_factory=dict)
     #: The nodes that are a compiled graph.
     graph_nodes: set[str] = field(default_factory=set)
     #: Problems found before a node's turn (its id was used twice).
@@ -67,18 +67,18 @@ def compile_graph(graph: Graph, registry: NodeRegistry) -> CompiledRecords:
     authored: dict[str, GraphNode] = {}
     for node in graph.nodes:
         if SEPARATOR in node.id or "." in node.id or "@" in node.id:
-            found = problem("invalid_node_id", node.id)
-            walk.refused[node.id] = found
+            found = make_problem("invalid_node_id", node.id)
+            walk.invalid_node_ids[node.id] = found
             walk.compiled[node.id] = _bare_node(node, found)
             walk.problems.append(found)
         elif node.id in authored:
-            walk.found_before.setdefault(node.id, []).append(problem("duplicate_node_id", node.id))
+            walk.found_before.setdefault(node.id, []).append(make_problem("duplicate_node_id", node.id))
         else:
             authored[node.id] = node
     dependencies = dependencies_of(authored.values())
     order, cyclic = order_of(dependencies)
     for node_id in sorted(cyclic):
-        found = problem("cycle", node_id)
+        found = make_problem("cycle", node_id)
         walk.compiled[node_id] = _bare_node(authored[node_id], found)
         walk.problems.append(found)
     for node_id in order:

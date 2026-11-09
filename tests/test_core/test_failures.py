@@ -222,10 +222,10 @@ def test_node_error_has_no_retryable_flag():
 # -- the policy's bounds ------------------------------------------------------------
 
 
-@pytest.mark.parametrize("refused", [{"concurrency": 0}, {"retries": -1}, {"delay": -0.5}, {"timeout": 0}])
-def test_a_policy_out_of_bounds_is_refused(refused):
+@pytest.mark.parametrize("raised", [{"concurrency": 0}, {"retries": -1}, {"delay": -0.5}, {"timeout": 0}])
+def test_a_policy_out_of_bounds_is_refused(raised):
     with pytest.raises(ValueError):
-        Policy(**refused)
+        Policy(**raised)
 
 
 def test_a_policy_keeps_retry_on_out_of_what_a_palette_reads():

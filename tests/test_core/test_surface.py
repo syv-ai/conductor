@@ -66,8 +66,8 @@ def test_a_misspelled_binding_on_a_node_whose_inputs_are_its_signature_is_fatal(
     """'facter' for 'factor' used to run with the default and a quiet note."""
     compiled = _compiled(GraphNode(id="s", type="scale", version=1, bindings={"facter": Static("3")}))
 
-    (problem,) = compiled.problems
-    assert (problem.type, problem.fatal, problem.loc[1]) == ("stale_binding", True, "facter")
+    (make_problem,) = compiled.problems
+    assert (make_problem.type, make_problem.fatal, make_problem.loc[1]) == ("stale_binding", True, "facter")
     assert not compiled.is_runnable
 
 
@@ -82,8 +82,8 @@ def test_a_node_whose_inputs_come_and_go_keeps_the_binding_as_a_note():
     changes, so the binding it held is left over, not a typo."""
     compiled = _compiled(GraphNode(id="h", type="shaped", version=1, bindings={"gone": Static("x")}))
 
-    (problem,) = compiled.problems
-    assert (problem.type, problem.fatal) == ("unused_binding", False)
+    (make_problem,) = compiled.problems
+    assert (make_problem.type, make_problem.fatal) == ("unused_binding", False)
     assert compiled.is_runnable
 
 
@@ -153,7 +153,7 @@ def test_a_compilation_error_lists_its_fatal_problems():
         compiled.run_sync()
 
     assert str(raised.value) == (
-        "1 refused:\n"
+        "1 problem(s):\n"
         "  s.facter — stale_binding: Field 'facter' is not an input of the node; it has factor, value."
     )
 

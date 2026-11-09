@@ -94,8 +94,8 @@ def conductor_router(
         try:
             compiled, state = _prepared(req)
             state = await compiled.run(state, from_run=from_run(request) if from_run else None)
-        except InvalidCallError as refused:
-            raise _unprocessable(refused) from refused
+        except InvalidCallError as invalid_call:
+            raise _unprocessable(invalid_call) from invalid_call
         return RunResult(state=state, results=as_data(compiled.results(state)))
 
     @router.post("/run-stream")
@@ -108,8 +108,8 @@ def conductor_router(
         try:
             compiled, state = _prepared(req)
             leg = compiled.stream(state, from_run=from_run(request) if from_run else None)
-        except InvalidCallError as refused:
-            raise _unprocessable(refused) from refused
+        except InvalidCallError as invalid_call:
+            raise _unprocessable(invalid_call) from invalid_call
 
         async def event_stream() -> Any:
             async with leg as events:
@@ -146,8 +146,8 @@ def conductor_router(
 
 
 
-def _unprocessable(refused: InvalidCallError) -> HTTPException:
-    return HTTPException(status_code=422, detail=[fault.model_dump(mode="json") for fault in refused.errors()])
+def _unprocessable(invalid_call: InvalidCallError) -> HTTPException:
+    return HTTPException(status_code=422, detail=[fault.model_dump(mode="json") for fault in invalid_call.errors()])
 
 
 def _answered(compiled: CompiledGraph, event: Event) -> dict[str, Any]:

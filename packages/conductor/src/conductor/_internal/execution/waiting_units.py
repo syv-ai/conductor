@@ -16,8 +16,8 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from conductor._internal.codec import to_wire
-from conductor._internal.errors import InvalidCallError, Problem, problem
-from conductor._internal.execution.live_run_values import LiveRunValues
+from conductor._internal.errors import InvalidCallError, Problem, make_problem
+from conductor._internal.execution.live_run_values import RunLedger
 from conductor._internal.execution.run_state import (
     Answers,
     OutputColumn,
@@ -64,9 +64,9 @@ def _with_defaults_and_widgets(node: CompiledNode, row: Row, asked: AskPerson) -
     for name, widget in asked.widgets.items():
         if not isinstance(widget, Widget):
             raise ValueError(f"AskPerson's widget for '{name}' is a {type(widget).__name__}, not a widget")
-    cells, faults = validate_unit_outputs(node, row, {name: asked.defaults.get(name, SKIPPED) for name in names})
-    if faults:
-        raise ValueError("; ".join(fault.message for fault in faults))
+    cells, problems = validate_unit_outputs(node, row, {name: asked.defaults.get(name, SKIPPED) for name in names})
+    if problems:
+        raise ValueError("; ".join(problem.msg for problem in problems))
     defaults = {name: _default_as_wire(cells[name], name) for name in asked.defaults}
     return tuple(
         question.model_copy(update={
@@ -89,56 +89,56 @@ def apply_answers(compiled: CompiledGraph, state: RunState, answers: Answers) ->
     """``state`` with these units answered; see the module docstring."""
     changed = set(compiled.nodes_changed_since(state))
     waiting = {asked.id: asked for asked in state.waiting}
-    faults: list[Problem] = []
+    problems: list[Problem] = []
     finished: list[tuple[WaitingUnit, dict[str, Any] | None]] = []
     for waiting_id, given in answers.items():
         asked = waiting.get(waiting_id)
         if asked is None or asked.node_id in changed:
-            faults.append(problem("not_waiting", "answers", waiting_id, waiting_id=waiting_id))
+            problems.append(make_problem("not_waiting", "answers", waiting_id, waiting_id=waiting_id))
             continue
-        cells = _answered_cells(compiled.node(asked.node_id), asked, given, faults)
+        cells = _answered_cells(compiled.node(asked.node_id), asked, given, problems)
         if cells is not ...:
             finished.append((asked, cells))
-    if faults:
-        raise InvalidCallError(faults)
+    if problems:
+        raise InvalidCallError(problems)
     return _with_units_finished(compiled, state, finished)
 
 
-def _answered_cells(node: CompiledNode, asked: WaitingUnit, given: Mapping[str, Any] | None, faults: list[Problem]) -> Any:
+def _answered_cells(node: CompiledNode, asked: WaitingUnit, given: Mapping[str, Any] | None, problems: list[Problem]) -> Any:
     """One unit's answer as the cells it finishes with, ``None`` for a unit
     with no value on its row. Adds its faults and returns ``...`` when it has any."""
     if given is None:
         return None
     where = ("answers", asked.id)
     if not isinstance(given, Mapping):
-        faults.append(problem("invalid_value", *where, reason=f"an answer is a value per output, not a {type(given).__name__}"))
+        problems.append(make_problem("invalid_value", *where, reason=f"an answer is a value per output, not a {type(given).__name__}"))
         return ...
-    before = len(faults)
+    before = len(problems)
     questions = {question.name: question for question in asked.questions}
     for name in given:
         if name not in questions:
-            faults.append(problem("not_asked", *where, name, name=name))
+            problems.append(make_problem("not_asked", *where, name, name=name))
     groups: dict[str, list[str]] = {}
     for question in asked.questions:
         if question.choice is not None:
             groups.setdefault(question.choice, []).append(question.name)
-    values = _with_choices_and_defaults(questions, groups, given, where, faults)
-    cells, output_faults = validate_unit_outputs(node, asked.row, {name: value for name, value in values.items() if name in questions})
-    for fault in output_faults:
-        faults.append(problem("invalid_value", *where, fault.output, reason=fault.message, errors=list(fault.errors)))
-    return ... if len(faults) > before else cells
+    values = _with_choices_and_defaults(questions, groups, given, where, problems)
+    cells, output_problems = validate_unit_outputs(node, asked.row, {name: value for name, value in values.items() if name in questions})
+    for output_problem in output_problems:
+        problems.append(make_problem("invalid_value", *where, output_problem.loc[0], reason=output_problem.msg, errors=list(output_problem.ctx["errors"])))
+    return ... if len(problems) > before else cells
 
 
 def _with_choices_and_defaults(
     questions: Mapping[str, Question], groups: Mapping[str, list[str]], given: Mapping[str, Any],
-    where: tuple[str, ...], faults: list[Problem],
+    where: tuple[str, ...], problems: list[Problem],
 ) -> dict[str, Any]:
     """What was given, a choice not taken as ``SKIPPED``, a blank question its default."""
     values = dict(given)
     for choice, names in groups.items():
         taken = [name for name in names if name in given]
         if len(taken) != 1:
-            faults.append(problem("choice_unanswered", *where, choice, alternatives=names, answered=len(taken)))
+            problems.append(make_problem("choice_unanswered", *where, choice, alternatives=names, answered=len(taken)))
         for name in names:
             if name not in given:
                 values[name] = SKIPPED
@@ -149,7 +149,7 @@ def _with_choices_and_defaults(
             values[name] = question.default
         else:
             values[name] = SKIPPED  # refused below; a value in its place so the other questions are still checked
-            faults.append(problem("missing", *where, name, name=name))
+            problems.append(make_problem("missing", *where, name, name=name))
     return values
 
 
@@ -209,5 +209,5 @@ def _with_nodes_complete_on_no_rows(compiled: CompiledGraph, state: RunState) ->
     """``state`` with every node an answer of no rows has left nothing to do listed as
     finished on none, as a leg would. Working that out means making the rows again, so
     only an answer that made no rows pays for it."""
-    finished = LiveRunValues.restore(compiled, state).state(state.status, state.failure).finished_rows
+    finished = RunLedger.restore(compiled, state).state(state.status, state.failure).finished_rows
     return state.model_copy(update={"finished_rows": {**{node_id: rows for node_id, rows in finished.items() if not rows}, **state.finished_rows}})

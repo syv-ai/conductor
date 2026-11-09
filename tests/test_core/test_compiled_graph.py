@@ -306,7 +306,7 @@ def test_an_empty_typed_input_is_a_value_that_arrives_later():
     assert not compiled.is_runnable
     assert [p.type for p in compiled.problems] == ["unbound_required"]
     assert (compiled.node("n").state, compiled.node("e").state) == ("ready", "ready")
-    assert compiled.run_plan.nodes["n"].inputs["text"].arrives == "same_value_every_row"
+    assert compiled.run_plan.nodes["n"].inputs["text"].receive_mode == "same_value_every_row"
     assert compiled.field(Ref("e", "result")).type is Txt
 
 
@@ -465,20 +465,20 @@ def test_a_node_type_the_registry_lacks_is_a_fatal_problem():
     the editor needs to show where."""
     compiled = _compiled([GraphNode(id="a", type="gone", version=1)])
 
-    (problem,) = compiled.problems
-    assert (problem.type, problem.fatal, problem.loc[0]) == ("unknown_node_type", True, "a")
+    (make_problem,) = compiled.problems
+    assert (make_problem.type, make_problem.fatal, make_problem.loc[0]) == ("unknown_node_type", True, "a")
     assert not compiled.is_runnable
     assert compiled.node("a").state == "resolution_failed"
     assert compiled.node("a").interface is None
     raised = compiled.node("a").cause
-    assert raised == problem
+    assert raised == make_problem
 
 
 def test_a_version_the_class_no_longer_declares_is_a_fatal_problem():
     compiled = _compiled([GraphNode(id="a", type="renamed", version=7)])
 
-    (problem,) = compiled.problems
-    assert (problem.type, problem.loc[0]) == ("unknown_node_version", "a")
+    (make_problem,) = compiled.problems
+    assert (make_problem.type, make_problem.loc[0]) == ("unknown_node_version", "a")
 
 
 def test_two_nodes_with_one_id_is_a_fatal_problem():

@@ -27,7 +27,7 @@ from conductor import (
     node,
     to_wire,
 )
-from conductor._internal.execution.live_run_values import LiveRunValues
+from conductor._internal.execution.live_run_values import RunLedger
 from conductor._internal.series import Index
 from conductor.widgets import Textarea
 from conductor_nodes.types import Json
@@ -134,13 +134,13 @@ def test_a_text_that_spells_the_old_skip_marker_is_a_text_after_a_round_trip():
         GraphNode(id="split", type="split", version=1, bindings={"text": Static("__skipped__,x")}),
         GraphNode(id="up", type="upper", version=1, bindings={"text": From("split.result")}),
     ])
-    ledger = LiveRunValues(compiled)
+    ledger = RunLedger(compiled)
     ledger.record(("split", ()), {"result": [Txt("__skipped__"), Txt("x")]})
     ledger.record(("up", (0,)), {"result": Txt("__SKIPPED__")})
     ledger.record(("up", (1,)), {"result": Txt("X")})
 
     state = ledger.state("complete")
-    restored = LiveRunValues.restore(compiled, RunState.model_validate(json.loads(state.model_dump_json())))
+    restored = RunLedger.restore(compiled, RunState.model_validate(json.loads(state.model_dump_json())))
 
     values = restored.result_of("split")["result"]
     assert list(values) == ["__skipped__", "x"] and all(type(v) is Txt for v in values)
@@ -155,7 +155,7 @@ def test_a_skip_is_listed_beside_the_values():
         GraphNode(id="split", type="split", version=1, bindings={"text": Static("a,b")}),
         GraphNode(id="up", type="upper", version=1, bindings={"text": From("split.result")}),
     ])
-    ledger = LiveRunValues(compiled)
+    ledger = RunLedger(compiled)
     ledger.record(("split", ()), {"result": [Txt("a"), Txt("b")]})
     ledger.record(("up", (0,)), {"result": SKIPPED})
     ledger.record(("up", (1,)), {"result": Txt("B")})
@@ -180,7 +180,7 @@ def test_a_value_with_no_json_form_raises_naming_the_field():
         return Opaque(object())
 
     compiled = _compiled(opens, nodes=[GraphNode(id="o", type="opens", version=1, bindings={"text": Static("x")})])
-    ledger = LiveRunValues(compiled)
+    ledger = RunLedger(compiled)
     ledger.record(("o", ()), {"result": Opaque(object())})
 
     with pytest.raises(Exception, match=r"o\.result"):

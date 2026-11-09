@@ -17,7 +17,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING
 
-from conductor._internal.errors import Problem, problem
+from conductor._internal.errors import Problem, make_problem
 from conductor._internal.graph.graph_records import GraphNode
 from conductor._internal.interface import Interface
 from conductor._internal.ref import Ref
@@ -45,15 +45,15 @@ def field_problems(
     what the hooks answered — the inputs before the walk over the edges,
     the outputs as the walk completes them.
     """
-    found: list[Problem] = []
+    problems: list[Problem] = []
     seen = set(taken)
     for declared in fields:
         if declared.name in seen:
-            found.append(problem("duplicate_field_name", node_id, declared.name))
+            problems.append(make_problem("duplicate_field_name", node_id, declared.name))
         seen.add(declared.name)
         if declared.dtype.id == "any" and not untyped_ok:
-            found.append(problem("output_has_no_type", node_id, declared.name))
-    return found
+            problems.append(make_problem("output_has_no_type", node_id, declared.name))
+    return problems
 
 
 def derive_interface(

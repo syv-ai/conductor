@@ -17,7 +17,7 @@ from typing import Any
 from pydantic import TypeAdapter, ValidationError
 
 from conductor._internal.dtype import name_of
-from conductor._internal.errors import Problem, problem
+from conductor._internal.errors import Problem, make_problem
 from conductor._internal.field_records import Input
 from conductor._internal.graph.binding import static_values
 from conductor._internal.graph.graph_records import GraphNode
@@ -32,7 +32,7 @@ def read_static_values(inputs: Iterable[Input], node: GraphNode) -> tuple[dict[s
     declared = {i.name: i for i in inputs}
     statics: dict[str, Any] = {}
     inputs_given_a_list: set[str] = set()
-    invalid: list[Problem] = []
+    problems: list[Problem] = []
     for name, value in values.items():
         inp = declared.get(name)
         if inp is None or inp.dtype.id == "any":
@@ -42,14 +42,14 @@ def read_static_values(inputs: Iterable[Input], node: GraphNode) -> tuple[dict[s
         except (ValidationError, TypeError, ValueError) as unreadable:
             column = missing_column_in(unreadable) if isinstance(unreadable, ValidationError) else None
             if column is not None:
-                invalid.append(problem("table_column_missing", node.id, name, column=column))
+                problems.append(make_problem("table_column_missing", node.id, name, column=column))
                 continue
             said = _what_the_type_said(unreadable)
-            invalid.append(problem("invalid_static", node.id, name, input=_short_repr(value), expected=name_of(inp.dtype), **({"reason": said} if said else {})))
+            problems.append(make_problem("invalid_static", node.id, name, input=_short_repr(value), expected=name_of(inp.dtype), **({"reason": said} if said else {})))
             continue
         if many:
             inputs_given_a_list.add(name)
-    return statics, frozenset(inputs_given_a_list), invalid
+    return statics, frozenset(inputs_given_a_list), problems
 
 
 def _read_value_or_list(inp: Input, value: Any) -> tuple[Any, bool]:
@@ -85,15 +85,15 @@ def _adapter(dtype: type) -> TypeAdapter[Any]:
     return TypeAdapter(dtype)
 
 
-def _what_the_type_said(invalid: Exception) -> str:
+def _what_the_type_said(unreadable: Exception) -> str:
     """The sentence the type's own constructor raised, if it raised one.
 
     A constructor written for people says something specific ("every row
     needs three cells"), which tells an author what to change; anything
     pydantic says on its own is about JSON shape and is not shown.
     """
-    if isinstance(invalid, ValidationError):
-        errors = invalid.errors()
+    if isinstance(unreadable, ValidationError):
+        errors = unreadable.errors()
         cause = errors[0].get("ctx", {}).get("error") if errors else None
         return str(cause) if isinstance(cause, ValueError) else ""
-    return str(invalid) if isinstance(invalid, ValueError) else ""
+    return str(unreadable) if isinstance(unreadable, ValueError) else ""

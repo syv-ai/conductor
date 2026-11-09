@@ -15,11 +15,11 @@ stopping at the first.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
+from conductor._internal.errors import Problem
 from conductor._internal.series import Row, Series
 from conductor._internal.skip_and_ask import SKIPPED
 from conductor._internal.table import frame_with_no_rows, is_frame, no_row_kept_its_id, with_row_ids
@@ -29,33 +29,22 @@ if TYPE_CHECKING:
     from conductor._internal.ref import Ref
 
 
-@dataclass(frozen=True)
-class OutputFault:
-    """One output that does not fit: which, a sentence that never quotes the
-    value, and pydantic's own errors when its check said why."""
-
-    output: str
-    message: str
-    errors: tuple[dict[str, Any], ...] = ()
-    code: str = "invalid_output"
-
-
-def validate_unit_outputs(node: CompiledNode, row: Row, named: Mapping[str, Any], row_ids_must_survive: frozenset[Ref] = frozenset()) -> tuple[dict[str, Any], list[OutputFault]]:
+def validate_unit_outputs(node: CompiledNode, row: Row, named: Mapping[str, Any], row_ids_must_survive: frozenset[Ref] = frozenset()) -> tuple[dict[str, Any], list[Problem]]:
     """``named`` as the cells the state holds, and every output that did not fit.
 
     ``row`` is the unit's own: a table's new rows are named after it. ``SKIPPED``
     passes on any output and on any element of a many-valued one. Only outputs
-    that fit are in the cells; a caller with faults writes none of them.
+    that fit are in the cells; a caller with problems writes none of them.
     ``row_ids_must_survive`` holds the outputs that had an id to keep: a unit given
     no rows, or a person's answer whose form has no place for one, passes none.
     """
     assert node.interface is not None and node.wiring is not None  # the engine runs only a runnable graph
     cells: dict[str, Any] = {}
-    faults: list[OutputFault] = []
+    problems: list[Problem] = []
     for out in node.interface.outputs:
         name = out.name
         if name not in named:
-            faults.append(OutputFault(name, f"no value for the output '{name}'"))
+            problems.append(_output_problem(name, f"no value for the output '{name}'"))
             continue
         value = named[name]
         if value is SKIPPED:
@@ -65,19 +54,23 @@ def validate_unit_outputs(node: CompiledNode, row: Row, named: Mapping[str, Any]
         try:
             cells[name] = _read_many(field, name, value) if field._holds_many else _read_one(field, row, value, row_ids_must_survive)
         except ValidationError as invalid:
-            faults.append(OutputFault(
-                name,
-                f"'{name}' must be {_named(field)}, not a {type(value).__name__}",
-                tuple(invalid.errors(include_url=False, include_input=False, include_context=False)),
+            problems.append(_output_problem(
+                name, f"'{name}' must be {_named(field)}, not a {type(value).__name__}",
+                errors=tuple(invalid.errors(include_url=False, include_input=False, include_context=False)),
             ))
         except _NotASequence as invalid:
-            faults.append(OutputFault(name, str(invalid)))
+            problems.append(_output_problem(name, str(invalid)))
         except _RowIdsLost:
-            faults.append(OutputFault(name, f"'{name}' lost the ids of its rows, so they can't be matched to the table it was built from", code="row_ids_lost"))
+            problems.append(_output_problem(name, f"'{name}' lost the ids of its rows, so they can't be matched to the table it was built from", code="row_ids_lost"))
     for name in named:
         if name not in node.wiring.fields or not node.wiring.fields[name]._is_output:
-            faults.append(OutputFault(name, f"'{name}' is not one of this node's outputs"))
-    return cells, faults
+            problems.append(_output_problem(name, f"'{name}' is not one of this node's outputs"))
+    return cells, problems
+
+
+def _output_problem(output: str, message: str, *, errors: tuple[dict[str, Any], ...] = (), code: str = "invalid_output") -> Problem:
+    """One output that does not fit: which, a sentence that never quotes the value, and pydantic's own errors when its check said why."""
+    return Problem(type=code, loc=(output,), msg=message, ctx={"errors": errors})
 
 
 def _read_many(field: CompiledField, name: str, value: Any) -> list[Any]:

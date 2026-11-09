@@ -61,7 +61,7 @@ from conductor._internal.graph.receive import (
     Gather,
     Merge,
     PerRow,
-    Receive,
+    ReceiveMode,
     RowsUnder,
 )
 from conductor._internal.graph.row_origins import (
@@ -127,7 +127,7 @@ class EmbeddableGraph:
     #: The outputs it offers and each column of a table output, by offered name, each with where it is in the run.
     outputs: Mapping[str, Ref]
     #: Every fatal problem but a typed input it offers left empty, which a value from outside fills.
-    faults: tuple[Problem, ...]
+    problems: tuple[Problem, ...]
     #: Its nodes, in the order compile met them: sources before readers.
     nodes: Mapping[str, CompiledNode]
 
@@ -169,24 +169,24 @@ def read_embeddable(graph: CompiledGraph) -> EmbeddableGraph:
         needs=graph.interface.needs,
     )
     return EmbeddableGraph(
-        interface=interface, inputs=inputs, outputs=outputs, faults=tuple(_faults_of(graph, nodes, inputs)), nodes=nodes,
+        interface=interface, inputs=inputs, outputs=outputs, problems=tuple(_problems_blocking_embedding(graph, nodes, inputs)), nodes=nodes,
     )
 
 
-def _faults_of(graph: CompiledGraph, nodes: Mapping[str, CompiledNode], offered: Mapping[str, OfferedInput]) -> list[Problem]:
+def _problems_blocking_embedding(graph: CompiledGraph, nodes: Mapping[str, CompiledNode], offered: Mapping[str, OfferedInput]) -> list[Problem]:
     """A graph can be embedded only when nothing in it is fatal but an input it
     offers left empty, which a value from outside fills. An empty input the
     graph doesn't offer can never be filled, and one with no type of its own
     leaves its node unworked-out, so each stays a fault."""
     offered_addresses = {inp.drawn for inp in offered.values()}
 
-    def fillable(found: Problem) -> bool:
-        if found.type != "unbound_required":
+    def fillable(problem: Problem) -> bool:
+        if problem.type != "unbound_required":
             return False
-        node = nodes.get(str(found.loc[0]))
-        return node is not None and node.wiring is not None and Ref(str(found.loc[0]), str(found.loc[1])) in offered_addresses
+        node = nodes.get(str(problem.loc[0]))
+        return node is not None and node.wiring is not None and Ref(str(problem.loc[0]), str(problem.loc[1])) in offered_addresses
 
-    return [found for found in graph.problems if found.fatal and not fillable(found)]
+    return [problem for problem in graph.problems if problem.fatal and not fillable(problem)]
 
 
 @dataclass(frozen=True)
@@ -196,7 +196,7 @@ class Crossing:
 
     type: Any
     index: Index | None
-    receives: Receive
+    receive_mode: ReceiveMode
 
 
 def lift_embedded_nodes(
@@ -274,11 +274,11 @@ def lift_embedded_nodes(
                     condition = fields[field._view_of[0].field].condition
                 elif field._is_output:
                     condition = output_condition(new_id, outputs_of[name], at_node, runs_once)
-                dtype, index, receives = _field_under(field, crossings, inner_nodes, prefix, runs_per_row_of, inside)
+                dtype, index, receive_mode = _field_under(field, crossings, inner_nodes, prefix, runs_per_row_of, inside)
                 makes = None if field._makes_rows is None else under(field._makes_rows, prefix, runs_per_row_of)
                 is_list = field._is_list_on_node and name not in crossed
-                if isinstance(receives, Merge) and field.ref not in crossings:
-                    row_origins.note_merge(new_id, name, [(source, found) for source, _ in receives.parts if (found := field_at(source)) is not None])
+                if isinstance(receive_mode, Merge) and field.ref not in crossings:
+                    row_origins.note_merge(new_id, name, [(source, found) for source, _ in receive_mode.receive_mode_by_source if (found := field_at(source)) is not None])
                 origins: frozenset[str] | None = None
                 if field._is_output:
                     origins = row_origins.note_table(makes, taken_in) if makes is not None and holds_tables(dtype) else row_origins.of_rows_on(index)
@@ -286,7 +286,7 @@ def lift_embedded_nodes(
                     origins = row_origins.of_rows_on(index)
                 fields[name] = CompiledField(
                     ref=Ref._of_parts(new_id, name), type=dtype, binding=bindings.get(name) if not field._is_output else None, condition=condition,
-                    problems=(), _index=index, _receives=receives, _is_list_on_node=is_list,
+                    problems=(), _index=index, _receive_mode=receive_mode, _is_list_on_node=is_list,
                     _makes_rows=makes, _view_of=None if field._view_of is None else (inside(field._view_of[0]), field._view_of[1]),
                     _takes_blank=field._takes_blank, _title=field._title, _row_origins=origins,
                 )
@@ -301,12 +301,12 @@ def lift_embedded_nodes(
 def _field_under(
     field: CompiledField, crossing_at: Mapping[Ref, Crossing], nodes: Mapping[str, CompiledNode], prefix: str,
     runs_per_row_of: Index | None, inside: Callable[[Ref], Ref],
-) -> tuple[Any, Index | None, Receive | None]:
+) -> tuple[Any, Index | None, ReceiveMode | None]:
     """An inner field's type, rows and receipt, as it stands embedded (rules 2-4)."""
     crossing = crossing_at.get(field.ref) if crossing_at else None
     if crossing is not None:
-        return crossing.type, crossing.index, crossing.receives
-    dtype, index, receipt = field.type, field._index, field._receives
+        return crossing.type, crossing.index, crossing.receive_mode
+    dtype, index, receive_mode = field.type, field._index, field._receive_mode
     is_output = field._is_output
     edge_fed = isinstance(field.binding, From)
     once_per_row = runs_per_row_of is not None and index is None and (is_output or edge_fed)
@@ -314,16 +314,16 @@ def _field_under(
     new_index = runs_per_row_of if once_per_row else under(index, prefix, runs_per_row_of)
     if is_output:
         return new_type, new_index, None
-    if once_per_row and isinstance(receipt, Broadcast):
+    if once_per_row and isinstance(receive_mode, Broadcast):
         return new_type, new_index, PerRow(runs_per_row_of)
-    if runs_per_row_of is not None and isinstance(receipt, Gather) and edge_fed and all(_source_index(source, nodes) is None for source in field.binding.refs):
+    if runs_per_row_of is not None and isinstance(receive_mode, Gather) and edge_fed and all(_source_index(source, nodes) is None for source in field.binding.refs):
         return new_type, runs_per_row_of, RowsUnder(runs_per_row_of, runs_per_row_of.depth)
-    if isinstance(receipt, Merge):
+    if isinstance(receive_mode, Merge):
         return new_type, new_index, Merge(
-            tuple((inside(source), _part_under(part, _source_index(source, nodes), prefix, runs_per_row_of)) for source, part in receipt.parts),
-            frozenset(inside(source) for source in receipt.copied_down),
+            tuple((inside(source), _merge_source_mode_inside_embedding(source_receive_mode, _source_index(source, nodes), prefix, runs_per_row_of)) for source, source_receive_mode in receive_mode.receive_mode_by_source),
+            frozenset(inside(source) for source in receive_mode.copied_down),
         )
-    return new_type, new_index, _received_under(receipt, index, prefix, runs_per_row_of)
+    return new_type, new_index, _receive_mode_inside_embedding(receive_mode, index, prefix, runs_per_row_of)
 
 
 def _source_index(source: Ref, nodes: Mapping[str, CompiledNode]) -> Index | None:
@@ -340,22 +340,22 @@ def under(index: Index | None, prefix: str, runs_per_row_of: Index | None) -> In
     return parent
 
 
-def _part_under(part: Any, index: Index | None, prefix: str, runs_per_row_of: Index | None) -> Any:
+def _merge_source_mode_inside_embedding(source_receive_mode: Any, index: Index | None, prefix: str, runs_per_row_of: Index | None) -> Any:
     """One source of an inner ``Table`` input as it stands embedded: a table the
     inner graph makes once is one per ``runs_per_row_of`` when the graph runs per row."""
-    if isinstance(part, Broadcast) and index is None and runs_per_row_of is not None:
+    if isinstance(source_receive_mode, Broadcast) and index is None and runs_per_row_of is not None:
         return PerRow(runs_per_row_of)
-    return _received_under(part, index, prefix, runs_per_row_of)
+    return _receive_mode_inside_embedding(source_receive_mode, index, prefix, runs_per_row_of)
 
 
-def _received_under(receipt: Receive, index: Index | None, prefix: str, runs_per_row_of: Index | None) -> Receive:
+def _receive_mode_inside_embedding(receive_mode: ReceiveMode, index: Index | None, prefix: str, runs_per_row_of: Index | None) -> ReceiveMode:
     """An inner receipt as it stands embedded (rules 1 and 3)."""
-    if isinstance(receipt, PerRow):
-        return PerRow(under(receipt.index, prefix, runs_per_row_of))
-    if isinstance(receipt, RowsUnder):
-        return RowsUnder(under(receipt.index, prefix, runs_per_row_of), receipt.depth + (0 if runs_per_row_of is None else runs_per_row_of.depth))
-    if isinstance(receipt, Gather):
-        return Gather(under(receipt.index, prefix, runs_per_row_of))
-    if isinstance(receipt, EntireValue):
-        return receipt if runs_per_row_of is None else RowsUnder(under(index, prefix, runs_per_row_of), runs_per_row_of.depth)
-    return receipt
+    if isinstance(receive_mode, PerRow):
+        return PerRow(under(receive_mode.index, prefix, runs_per_row_of))
+    if isinstance(receive_mode, RowsUnder):
+        return RowsUnder(under(receive_mode.index, prefix, runs_per_row_of), receive_mode.depth + (0 if runs_per_row_of is None else runs_per_row_of.depth))
+    if isinstance(receive_mode, Gather):
+        return Gather(under(receive_mode.index, prefix, runs_per_row_of))
+    if isinstance(receive_mode, EntireValue):
+        return receive_mode if runs_per_row_of is None else RowsUnder(under(index, prefix, runs_per_row_of), runs_per_row_of.depth)
+    return receive_mode

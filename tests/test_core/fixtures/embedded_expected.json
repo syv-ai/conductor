@@ -19,11 +19,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "emb/up.result"
        ],
@@ -66,22 +66,22 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "emb/holder.result"
        ],
        "takes_blank": true
       },
       "when": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -108,11 +108,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -144,11 +144,11 @@
     "plan": {
      "inputs": {
       "values": {
-       "arrives": "collected",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "collected",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "emb/gate.if_true",
         "emb/gate.if_false"
@@ -180,11 +180,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "emb/gate.if_true"
        ],
@@ -224,11 +224,11 @@
     "plan": {
      "inputs": {
       "values": {
-       "arrives": "entire_value",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "entire_value",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "emb/up.result"
        ],
@@ -257,11 +257,11 @@
     "plan": {
      "inputs": {
       "folder": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -300,22 +300,22 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "emb/holder.result"
        ],
        "takes_blank": true
       },
       "when": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -342,11 +342,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "docs.result"
        ],
@@ -375,11 +375,11 @@
     "plan": {
      "inputs": {
       "values": {
-       "arrives": "all_rows_under_row",
        "copied_down": false,
        "grouped_under": "docs.result",
-       "parts": [],
+       "receive_mode": "all_rows_under_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "emb/gate.if_true",
         "emb/gate.if_false"
@@ -409,11 +409,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "emb/gate.if_true"
        ],
@@ -456,11 +456,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "og.if_true"
        ],
@@ -489,11 +489,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -534,22 +534,22 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "emb/b.result"
        ],
        "takes_blank": true
       },
       "when": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -581,11 +581,11 @@
     "plan": {
      "inputs": {
       "values": {
-       "arrives": "collected",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "collected",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "emb/a.result",
         "emb/g.if_true"
@@ -615,11 +615,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -660,22 +660,22 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "h.result"
        ],
        "takes_blank": true
       },
       "when": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -720,11 +720,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "top/s.result"
        ],
@@ -769,22 +769,22 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "top/b/holder.result"
        ],
        "takes_blank": true
       },
       "when": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -813,11 +813,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "top/g.if_true"
        ],
@@ -853,11 +853,11 @@
     "plan": {
      "inputs": {
       "values": {
-       "arrives": "collected",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "collected",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "top/b/gate.if_true",
         "top/b/gate.if_false"
@@ -890,11 +890,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "top/b/gate.if_true"
        ],
@@ -937,22 +937,22 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "top/h.result"
        ],
        "takes_blank": true
       },
       "when": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -979,11 +979,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -1016,11 +1016,11 @@
     "plan": {
      "inputs": {
       "values": {
-       "arrives": "collected",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "collected",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "top/b/up.result",
         "top/g.if_false"
@@ -1064,11 +1064,11 @@
     "plan": {
      "inputs": {
       "values": {
-       "arrives": "entire_value",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "entire_value",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "top/s.result"
        ],
@@ -1097,11 +1097,11 @@
     "plan": {
      "inputs": {
       "folder": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -1140,22 +1140,22 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/b/holder.result"
        ],
        "takes_blank": true
       },
       "when": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -1182,11 +1182,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/g.if_true"
        ],
@@ -1215,11 +1215,11 @@
     "plan": {
      "inputs": {
       "values": {
-       "arrives": "all_rows_under_row",
        "copied_down": false,
        "grouped_under": "docs.result",
-       "parts": [],
+       "receive_mode": "all_rows_under_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/b/gate.if_true",
         "top/b/gate.if_false"
@@ -1249,11 +1249,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/b/gate.if_true"
        ],
@@ -1292,22 +1292,22 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/h.result"
        ],
        "takes_blank": true
       },
       "when": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -1334,11 +1334,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "docs.result"
        ],
@@ -1367,11 +1367,11 @@
     "plan": {
      "inputs": {
       "values": {
-       "arrives": "all_rows_under_row",
        "copied_down": false,
        "grouped_under": "docs.result",
-       "parts": [],
+       "receive_mode": "all_rows_under_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/b/up.result",
         "top/g.if_false"
@@ -1423,11 +1423,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "emb/single.result"
        ],
@@ -1472,22 +1472,22 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "emb/holder.result"
        ],
        "takes_blank": true
       },
       "when": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -1516,11 +1516,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "og.if_false"
        ],
@@ -1556,11 +1556,11 @@
     "plan": {
      "inputs": {
       "values": {
-       "arrives": "collected",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "collected",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "emb/gate.if_true",
         "emb/gate.if_false"
@@ -1593,11 +1593,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "emb/gate.if_true"
        ],
@@ -1626,11 +1626,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -1671,22 +1671,22 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "h.result"
        ],
        "takes_blank": true
       },
       "when": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -1726,11 +1726,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "emb/j.result"
        ],
@@ -1759,11 +1759,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "collected",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "collected",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "emb/n.result"
        ],
@@ -1792,11 +1792,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "h.result"
        ],
@@ -1825,11 +1825,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -1866,11 +1866,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "emb/u.result"
        ],
@@ -1899,11 +1899,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "h.result"
        ],
@@ -1932,11 +1932,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "emb/n.result"
        ],
@@ -1965,11 +1965,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -2006,11 +2006,11 @@
     "plan": {
      "inputs": {
       "folder": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -2039,11 +2039,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "docs.result"
        ],
@@ -2072,11 +2072,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "all_rows_under_row",
        "copied_down": false,
        "grouped_under": "docs.result",
-       "parts": [],
+       "receive_mode": "all_rows_under_row",
        "rows_of": "e0/lines.result",
+       "source_plans": [],
        "sources": [
         "e0/up.result"
        ],
@@ -2105,11 +2105,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "e0/s7.result"
        ],
@@ -2140,11 +2140,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "e0/holder.result"
        ],
@@ -2173,11 +2173,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "e0/s0.result"
        ],
@@ -2206,11 +2206,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "e0/s1.result"
        ],
@@ -2239,11 +2239,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "e0/s2.result"
        ],
@@ -2272,11 +2272,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "e0/s3.result"
        ],
@@ -2305,11 +2305,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "e0/s4.result"
        ],
@@ -2338,11 +2338,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "e0/s5.result"
        ],
@@ -2371,11 +2371,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "e0/s6.result"
        ],
@@ -2404,11 +2404,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "e0/lines.result",
+       "source_plans": [],
        "sources": [
         "e0/lines.result"
        ],
@@ -2437,11 +2437,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "docs.result"
        ],
@@ -2470,11 +2470,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "all_rows_under_row",
        "copied_down": false,
        "grouped_under": "docs.result",
-       "parts": [],
+       "receive_mode": "all_rows_under_row",
        "rows_of": "e1/lines.result",
+       "source_plans": [],
        "sources": [
         "e1/up.result"
        ],
@@ -2503,11 +2503,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "e1/s7.result"
        ],
@@ -2538,11 +2538,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "e1/holder.result"
        ],
@@ -2571,11 +2571,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "e1/s0.result"
        ],
@@ -2604,11 +2604,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "e1/s1.result"
        ],
@@ -2637,11 +2637,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "e1/s2.result"
        ],
@@ -2670,11 +2670,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "e1/s3.result"
        ],
@@ -2703,11 +2703,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "e1/s4.result"
        ],
@@ -2736,11 +2736,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "e1/s5.result"
        ],
@@ -2769,11 +2769,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "e1/s6.result"
        ],
@@ -2802,11 +2802,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "e1/lines.result",
+       "source_plans": [],
        "sources": [
         "e1/lines.result"
        ],
@@ -2835,11 +2835,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "docs.result"
        ],
@@ -2868,11 +2868,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "all_rows_under_row",
        "copied_down": false,
        "grouped_under": "docs.result",
-       "parts": [],
+       "receive_mode": "all_rows_under_row",
        "rows_of": "e2/lines.result",
+       "source_plans": [],
        "sources": [
         "e2/up.result"
        ],
@@ -2901,11 +2901,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "e2/s7.result"
        ],
@@ -2936,11 +2936,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "e2/holder.result"
        ],
@@ -2969,11 +2969,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "e2/s0.result"
        ],
@@ -3002,11 +3002,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "e2/s1.result"
        ],
@@ -3035,11 +3035,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "e2/s2.result"
        ],
@@ -3068,11 +3068,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "e2/s3.result"
        ],
@@ -3101,11 +3101,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "e2/s4.result"
        ],
@@ -3134,11 +3134,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "e2/s5.result"
        ],
@@ -3167,11 +3167,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "e2/s6.result"
        ],
@@ -3200,11 +3200,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "e2/lines.result",
+       "source_plans": [],
        "sources": [
         "e2/lines.result"
        ],
@@ -3276,11 +3276,11 @@
     "plan": {
      "inputs": {
       "folder": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -3309,11 +3309,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "docs.result"
        ],
@@ -3342,11 +3342,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "all_rows_under_row",
        "copied_down": false,
        "grouped_under": "docs.result",
-       "parts": [],
+       "receive_mode": "all_rows_under_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "emb/up.result"
        ],
@@ -3375,11 +3375,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "emb/holder.result"
        ],
@@ -3418,11 +3418,11 @@
     "plan": {
      "inputs": {
       "folder": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -3451,11 +3451,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "docs.result"
        ],
@@ -3484,11 +3484,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "all_rows_under_row",
        "copied_down": false,
        "grouped_under": "docs.result",
-       "parts": [],
+       "receive_mode": "all_rows_under_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "emb/holder.result",
         "emb/up.result"
@@ -3518,11 +3518,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "emb/holder.result"
        ],
@@ -3561,11 +3561,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "emb/join.result"
        ],
@@ -3594,11 +3594,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "collected",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "collected",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "h1.result",
         "h2.result"
@@ -3628,11 +3628,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -3659,11 +3659,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -3700,11 +3700,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "collected",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "collected",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "emb/join.result"
        ],
@@ -3733,11 +3733,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "emb/holder.value",
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -3764,11 +3764,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "entire_value",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "entire_value",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "emb/up.result"
        ],
@@ -3797,11 +3797,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "emb/holder.value",
+       "source_plans": [],
        "sources": [
         "emb/holder.result"
        ],
@@ -3840,11 +3840,11 @@
     "plan": {
      "inputs": {
       "folder": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -3873,11 +3873,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "docs.result"
        ],
@@ -3906,11 +3906,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/holder.result"
        ],
@@ -3939,11 +3939,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "all_rows_under_row",
        "copied_down": false,
        "grouped_under": "docs.result",
-       "parts": [],
+       "receive_mode": "all_rows_under_row",
        "rows_of": "top/inner/lines.result",
+       "source_plans": [],
        "sources": [
         "top/inner/up.result"
        ],
@@ -3972,11 +3972,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/inner/s7.result"
        ],
@@ -4007,11 +4007,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/inner/holder.result"
        ],
@@ -4040,11 +4040,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/inner/s0.result"
        ],
@@ -4073,11 +4073,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/inner/s1.result"
        ],
@@ -4106,11 +4106,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/inner/s2.result"
        ],
@@ -4139,11 +4139,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/inner/s3.result"
        ],
@@ -4172,11 +4172,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/inner/s4.result"
        ],
@@ -4205,11 +4205,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/inner/s5.result"
        ],
@@ -4238,11 +4238,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/inner/s6.result"
        ],
@@ -4271,11 +4271,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "top/inner/lines.result",
+       "source_plans": [],
        "sources": [
         "top/inner/lines.result"
        ],
@@ -4304,11 +4304,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "all_rows_under_row",
        "copied_down": false,
        "grouped_under": "docs.result",
-       "parts": [],
+       "receive_mode": "all_rows_under_row",
        "rows_of": "top/lines.result",
+       "source_plans": [],
        "sources": [
         "top/up.result"
        ],
@@ -4337,11 +4337,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/inner/join.result"
        ],
@@ -4372,11 +4372,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "top/lines.result",
+       "source_plans": [],
        "sources": [
         "top/lines.result"
        ],
@@ -4428,11 +4428,11 @@
     "plan": {
      "inputs": {
       "folder": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -4461,11 +4461,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "docs.result"
        ],
@@ -4494,11 +4494,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/holder.result"
        ],
@@ -4527,11 +4527,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/inner/holder.result"
        ],
@@ -4560,11 +4560,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/inner/inner/holder.result"
        ],
@@ -4593,11 +4593,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "all_rows_under_row",
        "copied_down": false,
        "grouped_under": "docs.result",
-       "parts": [],
+       "receive_mode": "all_rows_under_row",
        "rows_of": "top/inner/inner/inner/lines.result",
+       "source_plans": [],
        "sources": [
         "top/inner/inner/inner/up.result"
        ],
@@ -4626,11 +4626,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/inner/inner/inner/s7.result"
        ],
@@ -4661,11 +4661,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/inner/inner/inner/holder.result"
        ],
@@ -4694,11 +4694,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/inner/inner/inner/s0.result"
        ],
@@ -4727,11 +4727,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/inner/inner/inner/s1.result"
        ],
@@ -4760,11 +4760,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/inner/inner/inner/s2.result"
        ],
@@ -4793,11 +4793,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/inner/inner/inner/s3.result"
        ],
@@ -4826,11 +4826,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/inner/inner/inner/s4.result"
        ],
@@ -4859,11 +4859,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/inner/inner/inner/s5.result"
        ],
@@ -4892,11 +4892,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/inner/inner/inner/s6.result"
        ],
@@ -4925,11 +4925,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "top/inner/inner/inner/lines.result",
+       "source_plans": [],
        "sources": [
         "top/inner/inner/inner/lines.result"
        ],
@@ -4958,11 +4958,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "all_rows_under_row",
        "copied_down": false,
        "grouped_under": "docs.result",
-       "parts": [],
+       "receive_mode": "all_rows_under_row",
        "rows_of": "top/inner/inner/lines.result",
+       "source_plans": [],
        "sources": [
         "top/inner/inner/up.result"
        ],
@@ -4991,11 +4991,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/inner/inner/inner/join.result"
        ],
@@ -5026,11 +5026,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "top/inner/inner/lines.result",
+       "source_plans": [],
        "sources": [
         "top/inner/inner/lines.result"
        ],
@@ -5059,11 +5059,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "all_rows_under_row",
        "copied_down": false,
        "grouped_under": "docs.result",
-       "parts": [],
+       "receive_mode": "all_rows_under_row",
        "rows_of": "top/inner/lines.result",
+       "source_plans": [],
        "sources": [
         "top/inner/up.result"
        ],
@@ -5092,11 +5092,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/inner/inner/join.result"
        ],
@@ -5127,11 +5127,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "top/inner/lines.result",
+       "source_plans": [],
        "sources": [
         "top/inner/lines.result"
        ],
@@ -5160,11 +5160,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "all_rows_under_row",
        "copied_down": false,
        "grouped_under": "docs.result",
-       "parts": [],
+       "receive_mode": "all_rows_under_row",
        "rows_of": "top/lines.result",
+       "source_plans": [],
        "sources": [
         "top/up.result"
        ],
@@ -5193,11 +5193,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/inner/join.result"
        ],
@@ -5228,11 +5228,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "top/lines.result",
+       "source_plans": [],
        "sources": [
         "top/lines.result"
        ],
@@ -5292,11 +5292,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "entire_value",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "entire_value",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "top/join.result"
        ],
@@ -5325,11 +5325,11 @@
     "plan": {
      "inputs": {
       "folder": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -5358,11 +5358,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "docs.result"
        ],
@@ -5391,11 +5391,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "all_rows_under_row",
        "copied_down": false,
        "grouped_under": "docs.result",
-       "parts": [],
+       "receive_mode": "all_rows_under_row",
        "rows_of": "top/lines.result",
+       "source_plans": [],
        "sources": [
         "top/leafy/join.result"
        ],
@@ -5424,11 +5424,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "top/lines.result",
+       "source_plans": [],
        "sources": [
         "top/lines.result"
        ],
@@ -5457,11 +5457,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "all_rows_under_row",
        "copied_down": false,
        "grouped_under": "top/lines.result",
-       "parts": [],
+       "receive_mode": "all_rows_under_row",
        "rows_of": "top/leafy/lines.result",
+       "source_plans": [],
        "sources": [
         "top/leafy/up.result"
        ],
@@ -5490,11 +5490,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "top/lines.result",
+       "source_plans": [],
        "sources": [
         "top/leafy/s2.result"
        ],
@@ -5525,11 +5525,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "top/lines.result",
+       "source_plans": [],
        "sources": [
         "top/leafy/holder.result"
        ],
@@ -5558,11 +5558,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "top/lines.result",
+       "source_plans": [],
        "sources": [
         "top/leafy/s0.result"
        ],
@@ -5591,11 +5591,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "top/lines.result",
+       "source_plans": [],
        "sources": [
         "top/leafy/s1.result"
        ],
@@ -5624,11 +5624,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "top/leafy/lines.result",
+       "source_plans": [],
        "sources": [
         "top/leafy/lines.result"
        ],
@@ -5657,11 +5657,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "top/holder.result"
        ],
@@ -5710,11 +5710,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "all_rows_under_row",
        "copied_down": false,
        "grouped_under": "docs.result",
-       "parts": [],
+       "receive_mode": "all_rows_under_row",
        "rows_of": "emb/lines.result",
+       "source_plans": [],
        "sources": [
         "emb/up.result"
        ],
@@ -5743,11 +5743,11 @@
     "plan": {
      "inputs": {
       "folder": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -5776,11 +5776,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "docs.result"
        ],
@@ -5809,11 +5809,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "emb/holder.result"
        ],
@@ -5844,11 +5844,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "emb/lines.result",
+       "source_plans": [],
        "sources": [
         "emb/lines.result"
        ],
@@ -5888,11 +5888,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "entire_value",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "entire_value",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "emb/join.result"
        ],
@@ -5921,11 +5921,11 @@
     "plan": {
      "inputs": {
       "folder": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -5954,11 +5954,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "docs.result"
        ],
@@ -5987,11 +5987,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "all_rows_under_row",
        "copied_down": false,
        "grouped_under": "docs.result",
-       "parts": [],
+       "receive_mode": "all_rows_under_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "emb/up.result"
        ],
@@ -6020,11 +6020,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "emb/holder.result"
        ],
@@ -6064,11 +6064,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "emb/u.result"
        ],
@@ -6097,11 +6097,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -6128,11 +6128,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "emb/n.result"
        ],
@@ -6170,11 +6170,11 @@
     "plan": {
      "inputs": {
       "folder": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -6203,11 +6203,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "all_rows_under_row",
        "copied_down": false,
        "grouped_under": "docs.result",
-       "parts": [],
+       "receive_mode": "all_rows_under_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "emb/u.result"
        ],
@@ -6236,11 +6236,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "docs.result"
        ],
@@ -6269,11 +6269,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "emb/n.result"
        ],
@@ -6312,11 +6312,11 @@
     "plan": {
      "inputs": {
       "folder": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -6345,11 +6345,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "docs.result"
        ],
@@ -6378,11 +6378,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "all_rows_under_row",
        "copied_down": false,
        "grouped_under": "docs.result",
-       "parts": [],
+       "receive_mode": "all_rows_under_row",
        "rows_of": "emb/lines.result",
+       "source_plans": [],
        "sources": [
         "emb/lines.result"
        ],
@@ -6411,11 +6411,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "emb/holder.result"
        ],
@@ -6456,11 +6456,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "all_rows_under_row",
        "copied_down": false,
        "grouped_under": "docs.result",
-       "parts": [],
+       "receive_mode": "all_rows_under_row",
        "rows_of": "emb/lines.result",
+       "source_plans": [],
        "sources": [
         "emb/lines.result"
        ],
@@ -6489,11 +6489,11 @@
     "plan": {
      "inputs": {
       "folder": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -6522,11 +6522,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "docs.result"
        ],
@@ -6555,11 +6555,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "emb/holder.result"
        ],
@@ -6600,11 +6600,11 @@
     "plan": {
      "inputs": {
       "folder": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -6633,11 +6633,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "docs.result"
        ],
@@ -6666,11 +6666,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -6697,11 +6697,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "all_rows_under_row",
        "copied_down": false,
        "grouped_under": "docs.result",
-       "parts": [],
+       "receive_mode": "all_rows_under_row",
        "rows_of": "emb/lines.result",
+       "source_plans": [],
        "sources": [
         "emb/lines.result"
        ],
@@ -6730,11 +6730,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "emb/holder.result"
        ],
@@ -6776,11 +6776,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "all_rows_under_row",
        "copied_down": false,
        "grouped_under": "emb/docs.result",
-       "parts": [],
+       "receive_mode": "all_rows_under_row",
        "rows_of": "emb/lines.result",
+       "source_plans": [],
        "sources": [
         "emb/lines.result"
        ],
@@ -6809,11 +6809,11 @@
     "plan": {
      "inputs": {
       "folder": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -6842,11 +6842,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "emb/docs.result",
+       "source_plans": [],
        "sources": [
         "emb/docs.result"
        ],
@@ -6886,11 +6886,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -6917,11 +6917,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "collected",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "collected",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "emb/up.result"
        ],
@@ -6950,11 +6950,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "emb/holder.result"
        ],
@@ -6992,11 +6992,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "h.result"
        ],
@@ -7025,11 +7025,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "collected",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "collected",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "emb/up.result"
        ],
@@ -7058,11 +7058,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "emb/holder.result"
        ],
@@ -7091,11 +7091,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -7132,11 +7132,11 @@
     "plan": {
      "inputs": {
       "folder": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -7165,11 +7165,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "entire_value",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "entire_value",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "docs.result"
        ],
@@ -7206,11 +7206,11 @@
     "plan": {
      "inputs": {
       "folder": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -7239,11 +7239,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "docs.result"
        ],
@@ -7272,11 +7272,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "lines.result",
+       "source_plans": [],
        "sources": [
         "lines.result"
        ],
@@ -7305,11 +7305,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "lines.result",
+       "source_plans": [],
        "sources": [
         "emb/a.result"
        ],
@@ -7338,11 +7338,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "docs.result"
        ],
@@ -7384,11 +7384,11 @@
     "plan": {
      "inputs": {
       "folder": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -7417,11 +7417,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "docs.result"
        ],
@@ -7450,11 +7450,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "all_rows_under_row",
        "copied_down": false,
        "grouped_under": "docs.result",
-       "parts": [],
+       "receive_mode": "all_rows_under_row",
        "rows_of": "emb/t.b",
+       "source_plans": [],
        "sources": [
         "emb/t.result"
        ],
@@ -7487,22 +7487,22 @@
     "plan": {
      "inputs": {
       "a": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "emb/h.result"
        ],
        "takes_blank": false
       },
       "b": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "emb/t.b",
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -7539,11 +7539,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "all_rows_under_row",
        "copied_down": false,
        "grouped_under": "docs.result",
-       "parts": [],
+       "receive_mode": "all_rows_under_row",
        "rows_of": "emb/lines.result",
+       "source_plans": [],
        "sources": [
         "emb/p.result"
        ],
@@ -7572,11 +7572,11 @@
     "plan": {
      "inputs": {
       "folder": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -7605,11 +7605,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "docs.result"
        ],
@@ -7638,11 +7638,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -7669,11 +7669,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "emb/b.result"
        ],
@@ -7708,22 +7708,22 @@
     "plan": {
      "inputs": {
       "a": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "emb/ua.result"
        ],
        "takes_blank": false
       },
       "b": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "emb/lines.result",
+       "source_plans": [],
        "sources": [
         "emb/lines.result"
        ],
@@ -7752,11 +7752,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "value_at_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "value_at_row",
        "rows_of": "docs.result",
+       "source_plans": [],
        "sources": [
         "emb/a.result"
        ],
@@ -7798,11 +7798,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "emb/join.result"
        ],
@@ -7831,11 +7831,11 @@
     "plan": {
      "inputs": {
       "value": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [],
        "takes_blank": false
       }
@@ -7862,11 +7862,11 @@
     "plan": {
      "inputs": {
       "texts": {
-       "arrives": "collected",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "collected",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "emb/up.result"
        ],
@@ -7895,11 +7895,11 @@
     "plan": {
      "inputs": {
       "text": {
-       "arrives": "same_value_every_row",
        "copied_down": false,
        "grouped_under": null,
-       "parts": [],
+       "receive_mode": "same_value_every_row",
        "rows_of": null,
+       "source_plans": [],
        "sources": [
         "emb/holder.result"
        ],

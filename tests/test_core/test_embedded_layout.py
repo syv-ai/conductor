@@ -198,18 +198,18 @@ def test_a_broken_edge_into_a_graph_node_is_the_graph_nodes_own_problem():
         GraphNode(id="emb", type="inner-graph", version=1, bindings={"value": From("ghost.result")}),
     ])
 
-    (problem,) = compiled.problems
-    assert (problem.type, problem.loc[0], problem.loc[1]) == ("unknown_ref_node", "emb", "value")
-    assert problem.ctx == {"source_node": "ghost"}
+    (make_problem,) = compiled.problems
+    assert (make_problem.type, make_problem.loc[0], make_problem.loc[1]) == ("unknown_ref_node", "emb", "value")
+    assert make_problem.ctx == {"source_node": "ghost"}
     assert compiled.node("emb").state == "wiring_failed"
-    assert compiled.node("emb").cause is problem
+    assert compiled.node("emb").cause is make_problem
 
 
 def test_a_stale_key_on_the_placement_is_reported_on_the_placement():
     compiled = _compiled([GraphNode(id="emb", type="inner-graph", version=1, bindings={"nope.value": Static(1)})])
 
-    (problem,) = compiled.problems
-    assert (problem.type, problem.fatal, problem.loc[0], problem.loc[1]) == ("stale_binding", True, "emb", "nope.value")
+    (make_problem,) = compiled.problems
+    assert (make_problem.type, make_problem.fatal, make_problem.loc[0], make_problem.loc[1]) == ("stale_binding", True, "emb", "nope.value")
 
 
 # --- the row a graph node runs on -----------------------------------------------
@@ -449,8 +449,8 @@ def test_an_authored_id_holding_a_slash_is_refused_and_stays_the_authors():
     ]
     assert [(p.type, p.loc[0]) for p in compiled.node("e").version.problems] == [("unknown_node_type", "holder")]
     assert compiled.node("e").state == "wiring_failed"
-    refused = compiled.node("e/holder")
-    assert (refused.state, refused.embedded_in, refused.cause.type) == ("resolution_failed", None, "invalid_node_id")
+    raised = compiled.node("e/holder")
+    assert (raised.state, raised.embedded_in, raised.cause.type) == ("resolution_failed", None, "invalid_node_id")
 
 
 def test_misaligned_inside_an_embedded_graph_is_reported_once_with_the_authors_addresses():
@@ -475,10 +475,10 @@ def test_misaligned_inside_an_embedded_graph_is_reported_once_with_the_authors_a
         _registry(inner, pair),
     )
 
-    (problem,) = compiled.problems
-    assert (problem.type, problem.loc[0]) == ("misaligned", "emb")
-    assert problem.ctx == {"a": "emb.a", "b": "emb.b"}
-    assert "emb.p" not in problem.msg and "emb.p" not in str(problem.ctx)
+    (make_problem,) = compiled.problems
+    assert (make_problem.type, make_problem.loc[0]) == ("misaligned", "emb")
+    assert make_problem.ctx == {"a": "emb.a", "b": "emb.b"}
+    assert "emb.p" not in make_problem.msg and "emb.p" not in str(make_problem.ctx)
 
 
 def test_an_edge_into_a_field_fed_inside_the_graph_is_a_stale_binding():
@@ -490,7 +490,7 @@ def test_an_edge_into_a_field_fed_inside_the_graph_is_a_stale_binding():
         GraphNode(id="emb", type="inner-graph", version=1, bindings={"text": From("d1.result", "d2.result")}),
     ])
 
-    (problem,) = compiled.problems
-    assert (problem.type, problem.loc[0], problem.loc[1]) == ("stale_binding", "emb", "text")
+    (make_problem,) = compiled.problems
+    assert (make_problem.type, make_problem.loc[0], make_problem.loc[1]) == ("stale_binding", "emb", "text")
 
 

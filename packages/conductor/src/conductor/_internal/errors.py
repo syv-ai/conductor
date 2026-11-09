@@ -38,7 +38,7 @@ the engine wraps those. Every other exception a node lets out is wrapped as
 no flag beside it to disagree with.
 
 **What people are told.** A problem the engine writes carries the English
-for its code, from ``CATALOGUE``; a ``NodeError`` the node raised keeps
+for its code, from ``PROBLEM_CATALOGUE``; a ``NodeError`` the node raised keeps
 the message the node chose, since the node wrote it for people. The text
 of a foreign exception goes to ``logging.getLogger("conductor")``, with its
 traceback, and never in a problem, because a host streams problems to a browser;
@@ -51,7 +51,7 @@ A pause is not an error and nothing raises for one: a node returns
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from typing import Any
+from typing import Any, NamedTuple
 
 from pydantic import ConfigDict, Field, computed_field
 
@@ -65,7 +65,7 @@ from conductor._internal.conductor_model import ConductorModel
 #: writes is fatal, as it is what stopped them. A code that is not here is a
 #: host's own, from a hook or a node, and is always fatal. A host that
 #: translates by code covers ``PROBLEM_CODES``.
-CATALOGUE: Mapping[str, tuple[str, bool]] = {
+_PROBLEM_MESSAGES: Mapping[str, tuple[str, bool]] = {
     # -- what compile finds in a graph -----------------------------------------
     "cycle": ("The node is part of a cycle, so the graph cannot run.", True),
     "duplicate_field_name": ("The node has two fields named '{field}'.", True),
@@ -138,8 +138,19 @@ CATALOGUE: Mapping[str, tuple[str, bool]] = {
     "timeout": ("The node did not answer in time.", True),
 }
 
+
+class CatalogueEntry(NamedTuple):
+    """One code's English, with its ``ctx`` keys as slots, and whether a problem of that code stops what it is about."""
+
+    message: str
+    fatal: bool
+
+
+#: Every code conductor writes, as its catalogue entry.
+PROBLEM_CATALOGUE: Mapping[str, CatalogueEntry] = {code: CatalogueEntry(*entry) for code, entry in _PROBLEM_MESSAGES.items()}
+
 #: The codes a host translating by code has to cover.
-PROBLEM_CODES: frozenset[str] = frozenset(CATALOGUE)
+PROBLEM_CODES: frozenset[str] = frozenset(PROBLEM_CATALOGUE)
 
 
 class Problem(ConductorModel):
@@ -164,7 +175,7 @@ class Problem(ConductorModel):
     A compile problem's field need not exist: half of them are about a
     binding to a removed input or an edge to an unknown output.
 
-    ``fatal`` is not stored: it is the row of ``type`` in ``CATALOGUE``, and
+    ``fatal`` is not stored: it is the row of ``type`` in ``PROBLEM_CATALOGUE``, and
     ``True`` for a code that isn't there. It stops a run for a compile
     problem; on the others it is simply true, since they are what stopped
     something. A dump carries it, for a reader with no catalogue, and reading the
@@ -182,39 +193,38 @@ class Problem(ConductorModel):
     @property
     def fatal(self) -> bool:
         """Whether this stops what it is about, by its code's row."""
-        row = CATALOGUE.get(self.type)
-        return row is None or row[1]
+        entry = PROBLEM_CATALOGUE.get(self.type)
+        return entry is None or entry.fatal
 
 
 #: The one slot a caller may leave unfilled: the sentence a type's own
 #: constructor raised, which not every constructor gives. Any other slot a
-#: row names must be supplied, or ``problem`` raises where it is called — a
+#: row names must be supplied, or ``make_problem`` raises where it is called — a
 #: typo in a row or a forgotten keyword is a programming error, not an
 #: empty message.
-_OPTIONAL_SLOTS: frozenset[str] = frozenset({"reason"})
+_OPTIONAL_MESSAGE_ARGUMENTS: frozenset[str] = frozenset({"reason"})
 
 
-class _Slots(dict[str, Any]):
+class _MessageArguments(dict[str, Any]):
     """Formatting slots: an optional slot the caller left out renders empty;
     any other missing slot raises."""
 
     def __missing__(self, key: str) -> str:
-        if key in _OPTIONAL_SLOTS:
+        if key in _OPTIONAL_MESSAGE_ARGUMENTS:
             return ""
         raise KeyError(f"the message for this problem needs {key!r}")
 
 
-def problem(code: str, /, *loc: str | int | None, **ctx: Any) -> Problem:
+def make_problem(code: str, /, *loc: str | int | None, **ctx: Any) -> Problem:
     """The problem ``code`` at ``loc``, its message made from ``ctx``, which the record keeps.
 
     A ``None`` place is left out, so a site with an optional field passes it
-    as it is. A code not in ``CATALOGUE``, or a slot its row names that
+    as it is. A code not in ``PROBLEM_CATALOGUE``, or a slot its row names that
     ``ctx`` does not fill, is a programming error and raises.
     """
-    template, _ = CATALOGUE[code]
-    places = tuple(place for place in loc if place is not None)
-    slots = _Slots(node_id=places[0] if places else None, field=places[1] if len(places) > 1 else None, **ctx)
-    return Problem(type=code, loc=places, msg=template.format_map(slots).rstrip(), ctx=ctx)
+    location = tuple(place for place in loc if place is not None)
+    arguments = _MessageArguments(node_id=location[0] if location else None, field=location[1] if len(location) > 1 else None, **ctx)
+    return Problem(type=code, loc=location, msg=PROBLEM_CATALOGUE[code].message.format_map(arguments).rstrip(), ctx=ctx)
 
 
 class ConductorError(Exception):
@@ -252,8 +262,8 @@ class CompileProblem(ConductorError):
     """
 
     def __init__(self, code: str, message: str, *, field: str | None = None) -> None:
-        row = CATALOGUE.get(code)
-        if row is not None and not row[1]:
+        entry = PROBLEM_CATALOGUE.get(code)
+        if entry is not None and not entry.fatal:
             raise ValueError(f"{code!r} is a code for a graph that can still run; a hook's problem always stops it")
         self.code = code
         self.message = message
@@ -276,7 +286,7 @@ class InvalidCallError(ConductorError, ValueError):
 
     def __init__(self, problems: Iterable[Problem]) -> None:
         self._problems = list(problems)
-        super().__init__("\n".join([f"{len(self._problems)} refused:", *(f"  {'.'.join(str(at) for at in p.loc)} — {p.type}: {p.msg}" for p in self._problems)]))
+        super().__init__("\n".join([f"{len(self._problems)} problem(s):", *(f"  {'.'.join(str(place) for place in problem.loc)} — {problem.type}: {problem.msg}" for problem in self._problems)]))
 
     def errors(self) -> list[Problem]:
         """Every fault, in the order the call met them."""

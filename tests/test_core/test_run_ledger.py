@@ -17,11 +17,11 @@ from conductor import (
     Series,
     node,
 )
-from conductor._internal.execution.live_run_values import LiveRunValues, Skip
+from conductor._internal.execution.live_run_values import RunLedger, Skip
 from conductor.widgets import Textarea
 
 
-def _results_of(ledger: LiveRunValues) -> dict:
+def _results_of(ledger: RunLedger) -> dict:
     """What a host reads off the state this ledger would write now."""
     return ledger._compiled.results(ledger.state("running"))
 
@@ -92,7 +92,7 @@ def _registry():
 def _ledger(nodes):
     compiled = CompiledGraph.from_graph(Graph(nodes=nodes), _registry())
     assert compiled.is_runnable, compiled.problems
-    return LiveRunValues(compiled)
+    return RunLedger(compiled)
 
 
 def _edge(*refs):

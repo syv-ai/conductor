@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from conductor._internal.graph.compiled import CompiledGraph
     from conductor._internal.graph.conditions import Condition
     from conductor._internal.graph.graph_records import GraphNode
-    from conductor._internal.graph.receive import Receive
+    from conductor._internal.graph.receive import ReceiveMode
     from conductor._internal.interface import Interface
     from conductor._internal.node_decorator import NodeDefinition
     from conductor._internal.ref import Ref
@@ -244,7 +244,7 @@ class CompiledField:
     #: Where its rows come from, for a field that carries a series; ``None`` otherwise.
     _index: Index | None = field(repr=False)
     #: How a unit of its node receives it; ``None`` exactly on an output.
-    _receives: Receive | None = field(repr=False)
+    _receive_mode: ReceiveMode | None = field(repr=False)
     #: An input the author typed many values into, so its node runs once per
     #: value; an edge may read the values as a column of those rows.
     _is_list_on_node: bool = field(repr=False)
@@ -264,18 +264,18 @@ class CompiledField:
 
     def __init__(
         self, ref: Ref, type: Any, binding: Binding | None, condition: Condition | None, problems: tuple[Problem, ...], *,
-        _index: Index | None, _receives: Receive | None, _is_list_on_node: bool, _makes_rows: Index | None, _view_of: tuple[Ref, str] | None,
+        _index: Index | None, _receive_mode: ReceiveMode | None, _is_list_on_node: bool, _makes_rows: Index | None, _view_of: tuple[Ref, str] | None,
         _takes_blank: bool, _title: str, _row_origins: frozenset[str] | None,
     ) -> None:
         """Compile builds one per field of a graph, so this sets them in one step instead of one at a time."""
         self.__dict__.update(
-            ref=ref, type=type, binding=binding, condition=condition, problems=problems, _index=_index, _receives=_receives,
+            ref=ref, type=type, binding=binding, condition=condition, problems=problems, _index=_index, _receive_mode=_receive_mode,
             _is_list_on_node=_is_list_on_node, _makes_rows=_makes_rows, _view_of=_view_of, _takes_blank=_takes_blank, _title=_title, _row_origins=_row_origins,
         )
 
     @property
     def _is_output(self) -> bool:
-        return self._receives is None
+        return self._receive_mode is None
 
     @cached_property
     def _cell_type(self) -> Any:

@@ -120,15 +120,15 @@ def test_the_stream_takes_the_state_and_the_answers_too(client, calls):
 def test_a_wrong_answer_is_a_422_listing_every_fault(client):
     first = client.post("/run", json={"graph": ONCE}).json()
 
-    refused = client.post("/run", json={"graph": ONCE, "state": first["state"], "answers": {"ghost": {}}})
-    assert refused.status_code == 422
-    assert [(d["type"], d["loc"]) for d in refused.json()["detail"]] == [("not_waiting", ["answers", "ghost"])]
+    raised = client.post("/run", json={"graph": ONCE, "state": first["state"], "answers": {"ghost": {}}})
+    assert raised.status_code == 422
+    assert [(d["type"], d["loc"]) for d in raised.json()["detail"]] == [("not_waiting", ["answers", "ghost"])]
 
 
 def test_answers_with_no_state_are_refused(client):
-    refused = client.post("/run", json={"graph": ONCE, "answers": {"ok": {"result": True}}})
+    raised = client.post("/run", json={"graph": ONCE, "answers": {"ok": {"result": True}}})
 
-    assert refused.status_code == 422 and refused.json()["detail"][0]["type"] == "not_waiting"
+    assert raised.status_code == 422 and raised.json()["detail"][0]["type"] == "not_waiting"
 
 
 def _app(*definitions) -> TestClient:

@@ -103,7 +103,7 @@ class Gather:
 
 @dataclass(frozen=True)
 class Merge:
-    """The unit receives one table merged from every source, each received as its ``part`` says.
+    """The unit receives one table merged from every source, each received as its ``mode`` says.
 
     Several tables or columns into one ``Table`` input: each source is read
     as its part says — a table value at the unit's row (``PerRow``) or the
@@ -116,9 +116,9 @@ class Merge:
     """
 
     #: Per source, in wiring order: the source and how the unit receives it.
-    parts: tuple[tuple[Ref, PerRow | Broadcast | EntireValue | RowsUnder], ...]
+    receive_mode_by_source: tuple[tuple[Ref, PerRow | Broadcast | EntireValue | RowsUnder], ...]
     #: The sources whose rows sit above another source's: copied down onto those rows.
     copied_down: frozenset[Ref] = frozenset()
 
 
-Receive = PerRow | Broadcast | EntireValue | RowsUnder | Gather | Merge
+ReceiveMode = PerRow | Broadcast | EntireValue | RowsUnder | Gather | Merge

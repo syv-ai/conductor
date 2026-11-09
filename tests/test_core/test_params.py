@@ -67,9 +67,9 @@ def test_a_param_with_a_widget_describes_with_one_title():
 def test_a_bare_widget_in_annotated_is_refused_naming_param():
     def run(a: Annotated[Num, NumberWidget()]) -> Out: ...
 
-    with pytest.raises(TypeError, match=r"Param\(title=.*widget=") as refused:
+    with pytest.raises(TypeError, match=r"Param\(title=.*widget=") as raised:
         read_signature(run).interface
-    assert "'a'" in str(refused.value)
+    assert "'a'" in str(raised.value)
 
 
 def test_a_param_with_a_title_alone_is_a_connection_only_input():

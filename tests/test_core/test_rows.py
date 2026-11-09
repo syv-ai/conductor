@@ -406,12 +406,12 @@ def test_a_defect_in_the_engine_fails_the_leg_instead_of_hanging_it(monkeypatch)
     """An exception the engine did not expect, raised while running a unit,
     ends the leg as a failure of that unit. A task that died silently would
     leave the loop waiting for a unit that never reports."""
-    from conductor._internal.execution.live_run_values import LiveRunValues
+    from conductor._internal.execution.live_run_values import RunLedger
 
     def broken(self, unit):
         raise RuntimeError("the ledger lost a value")
 
-    monkeypatch.setattr(LiveRunValues, "inputs_for", broken)
+    monkeypatch.setattr(RunLedger, "inputs_for", broken)
     compiled = CompiledGraph.from_graph(Graph(nodes=[_docs("a,b")]), _registry())
 
     async def gathered():
@@ -749,18 +749,18 @@ def test_a_restore_leaves_a_list_set_on_a_node_under_a_skipped_outer_row_complet
     """A skip above the embedded graph leaves its list set on a node with no rows
     under the outer row, and a restore works that out again, so the inner
     node that stood in is still complete on the next leg."""
-    from conductor._internal.execution.live_run_values import LiveRunValues, Skip
+    from conductor._internal.execution.live_run_values import RunLedger, Skip
 
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[_docs("a,b"), GraphNode(id="emb", type="typed-inside", version=1, bindings={"text": _edge(("docs", "texts"))})]),
         _registry_with_asks(TypedInside),
     )
-    live = LiveRunValues(compiled)
+    live = RunLedger(compiled)
     live.record(("docs", ()), Skip(row=()))
     for node_id in compiled.execution_order[1:]:
         live.record((node_id, ()), live.inputs_for((node_id, ())))
 
-    restored = LiveRunValues.restore(compiled, live.state("complete"))
+    restored = RunLedger.restore(compiled, live.state("complete"))
 
     assert restored.units("emb/t") == live.units("emb/t") == [("emb/t", ())]
     assert restored.completed_nodes() == live.completed_nodes() == set(compiled.execution_order)

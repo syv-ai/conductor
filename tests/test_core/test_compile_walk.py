@@ -127,14 +127,14 @@ def test_the_run_plan_says_where_each_node_runs_and_what_each_input_receives():
 
     assert plan.nodes["upload"].runs_per_row_of is None and plan.nodes["upload"].makes_rows == (Ref("upload.result"),)
     assert plan.nodes["split"].runs_per_row_of == "upload.result"
-    assert plan.nodes["split"].inputs["text"].arrives == "value_at_row"
+    assert plan.nodes["split"].inputs["text"].receive_mode == "value_at_row"
     assert plan.nodes["split"].inputs["text"].rows_of == "upload.result"
     assert plan.nodes["count"].runs_per_row_of == "upload.result"
     counted = plan.nodes["count"].inputs["lines"]
-    assert (counted.arrives, counted.rows_of, counted.grouped_under) == ("all_rows_under_row", "split.result", "upload.result")
+    assert (counted.receive_mode, counted.rows_of, counted.grouped_under) == ("all_rows_under_row", "split.result", "upload.result")
     merged = plan.nodes["excel"].inputs["table"]
-    assert merged.arrives == "merged"
-    assert [(part.sources, part.arrives) for part in merged.parts] == [((Ref("upload.result"),), "entire_value"), ((Ref("count.result"),), "entire_value")]
+    assert merged.receive_mode == "merged"
+    assert [(part.sources, part.receive_mode) for part in merged.source_plans] == [((Ref("upload.result"),), "entire_value"), ((Ref("count.result"),), "entire_value")]
 
 
 def test_a_parent_merged_with_rows_under_it_is_copied_down():
@@ -144,7 +144,7 @@ def test_a_parent_merged_with_rows_under_it_is_copied_down():
         _node("excel", "excel", table=From("upload.result", "split.result")),
     ).run_plan
 
-    assert [part.copied_down for part in plan.nodes["excel"].inputs["table"].parts] == [True, False]
+    assert [part.copied_down for part in plan.nodes["excel"].inputs["table"].source_plans] == [True, False]
     assert "table: merged: upload.result [copied down] + split.result" in str(plan)
 
 
@@ -165,7 +165,7 @@ def test_the_run_plan_says_a_blank_and_a_typed_in_value():
     plan = _compiled(_node("b", "blank", a=From("upload.result")), _node("upload", "upload"), registry=NodeRegistry([upload, blank])).run_plan
 
     assert plan.nodes["b"].inputs["a"].takes_blank
-    assert (plan.nodes["b"].inputs["b"].arrives, plan.nodes["b"].inputs["b"].takes_blank) == ("same_value_every_row", False)
+    assert (plan.nodes["b"].inputs["b"].receive_mode, plan.nodes["b"].inputs["b"].takes_blank) == ("same_value_every_row", False)
 
 
 def test_a_table_part_at_a_nodes_own_row_and_a_deep_column_are_said():
@@ -184,7 +184,7 @@ def test_a_table_part_at_a_nodes_own_row_and_a_deep_column_are_said():
 
     assert plan.nodes["d"].runs_per_row_of == "upload.result"
     lines = plan.nodes["d"].inputs["lines"]
-    assert (lines.arrives, lines.rows_of, lines.grouped_under) == ("all_rows_under_row", "line.result", "upload.result")
+    assert (lines.receive_mode, lines.rows_of, lines.grouped_under) == ("all_rows_under_row", "line.result", "upload.result")
 
 
 def test_a_node_that_is_not_ready_is_absent_from_the_run_plan():
@@ -323,11 +323,11 @@ def test_a_hook_refusing_leaves_a_node_that_is_only_known_by_its_problem():
     def refuse():
         raise CompileProblem("nope", "Nej.", field=None)
 
-    @node("refused", compute_inputs=refuse)
-    def refused(**more: Any) -> Txt:
+    @node("raised", compute_inputs=refuse)
+    def raised(**more: Any) -> Txt:
         return Txt("")
 
-    compiled = _compiled(_node("r", "refused"), registry=NodeRegistry([refused]))
+    compiled = _compiled(_node("r", "raised"), registry=NodeRegistry([raised]))
 
     assert compiled.node("r").interface is None and compiled.node("r").version is not None
     assert compiled.node("r").cause.type == "nope"

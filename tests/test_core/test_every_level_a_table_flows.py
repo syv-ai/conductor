@@ -383,9 +383,9 @@ def test_scenario_21_a_missing_column_is_named_in_a_structured_code() -> None:
         return contacts
 
     compiled = _compiled(_node("h", "app-input"), registry=_catalogue(app_input))
-    with pytest.raises(InvalidCallError) as refused:
+    with pytest.raises(InvalidCallError) as raised:
         compiled.with_inputs(contacts=[{"name": "Ida"}])
-    (found,) = refused.value.errors()
+    (found,) = raised.value.errors()
     assert (found.type, found.ctx["column"]) == ("table_column_missing", "email")
     assert "email" in found.msg
 

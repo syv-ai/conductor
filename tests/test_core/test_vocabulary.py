@@ -99,10 +99,10 @@ def test_one_id_from_two_classes_on_one_registry_is_refused_naming_both():
 
     assert NodeRegistry(types=[Text, Text]).types == {"text": Text}  # the same class twice is not a collision
 
-    with pytest.raises(NodeDeclarationError) as refused:
+    with pytest.raises(NodeDeclarationError) as raised:
         NodeRegistry(types=[Text, StandardText])
 
-    message = str(refused.value)
+    message = str(raised.value)
     assert "'text'" in message
     assert "StandardText" in message
     assert f"{Text.__module__}.Text" in message
@@ -134,11 +134,11 @@ def test_a_collision_through_register_names_both_classes_and_files_nothing():
         return AnotherText(text.lower())
 
     registry = NodeRegistry([shout])
-    with pytest.raises(NodeDeclarationError) as refused:
+    with pytest.raises(NodeDeclarationError) as raised:
         registry = registry.extended_with([whisper])
 
-    assert f"{Text.__module__}.Text" in str(refused.value)
-    assert f"{AnotherText.__module__}.AnotherText" in str(refused.value)
+    assert f"{Text.__module__}.Text" in str(raised.value)
+    assert f"{AnotherText.__module__}.AnotherText" in str(raised.value)
     assert "whisper" not in registry
     assert registry.types == {"text": Text, "number": Number}
 

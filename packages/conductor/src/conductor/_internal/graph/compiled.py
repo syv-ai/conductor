@@ -65,7 +65,7 @@ from dataclasses import dataclass, field
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
-from conductor._internal.errors import InvalidCallError, Problem, problem
+from conductor._internal.errors import InvalidCallError, Problem, make_problem
 from conductor._internal.execution.events import Event, RunEnd
 from conductor._internal.execution.live_run_values import node_result, read_output_columns
 from conductor._internal.execution.run_state import Answers, RunState
@@ -75,7 +75,7 @@ from conductor._internal.graph.binding import Static
 from conductor._internal.graph.compile_graph import compile_graph
 from conductor._internal.graph.compiled_node import CompiledField, CompiledNode
 from conductor._internal.graph.embedding import EmbeddableGraph, offered_names, read_embeddable
-from conductor._internal.graph.engine_read_plan import EngineReadPlan, build_engine_read_plan
+from conductor._internal.graph.engine_read_plan import EngineLookups, build_engine_lookups
 from conductor._internal.graph.run_plan import RunPlan
 from conductor._internal.ref import Ref
 
@@ -145,9 +145,9 @@ class CompiledGraph:
     # -- one node, one field ---------------------------------------------------
 
     @cached_property
-    def _read_plan(self) -> EngineReadPlan:
+    def _engine_lookups(self) -> EngineLookups:
         """What the engine looks up on every step, built on the first run: compiling alone never pays for it."""
-        return build_engine_read_plan((self._nodes[node_id] for node_id in self._order), self._row_ids_must_survive)
+        return build_engine_lookups((self._nodes[node_id] for node_id in self._order), self._row_ids_must_survive)
 
     @cached_property
     def _for_embedding(self) -> EmbeddableGraph:
@@ -210,28 +210,28 @@ class CompiledGraph:
         read is an ``invalid_static``, raised with any names it doesn't offer.
         The copy still offers every input. Not a run.
         """
-        return self._refilled({**(inputs or {}), **by_name}, (), refuse_unreadable_values=True)
+        return self._refilled({**(inputs or {}), **by_name}, (), raise_on_unreadable_values=True)
 
-    def _refilled(self, values: Mapping[str, Any], cleared: Iterable[str], *, refuse_unreadable_values: bool = False) -> CompiledGraph:
+    def _refilled(self, values: Mapping[str, Any], cleared: Iterable[str], *, raise_on_unreadable_values: bool = False) -> CompiledGraph:
         """This graph compiled again with ``values`` typed on the inputs they
         name and the values its author typed on the ``cleared`` inputs taken
         off, so they arrive at run time. ``with_inputs`` for a caller; a
         graph that embeds this one asks for the copy one graph node fills. Names are read as ``with_inputs`` reads them.
         A graph that embeds this one wants a value its input can't read as
-        a problem of the compile, so it says so with ``refuse_unreadable_values=False``; a caller
+        a problem of the compile, so it says so with ``raise_on_unreadable_values=False``; a caller
         gets it raised."""
         offered = [inp.name for inp in self.interface.inputs]
-        faults: list[Problem] = []
+        problems: list[Problem] = []
         filled: dict[str, dict[str, Static]] = {}
         written_as: dict[tuple[str, str], str] = {}
         for name, value in values.items():
-            ref = self._offered(name, offered, faults)
+            ref = self._offered(name, offered, problems)
             if ref is not None:
                 filled.setdefault(ref.node_id, {})[ref.field] = Static(value)
                 written_as[ref.node_id, ref.field] = name
         taken: dict[str, set[str]] = {}
         for name in cleared:
-            ref = self._offered(name, offered, faults)
+            ref = self._offered(name, offered, problems)
             if ref is not None:
                 taken.setdefault(ref.node_id, set()).add(ref.field)
         graph = self.graph.model_copy(update={"nodes": tuple(
@@ -242,16 +242,16 @@ class CompiledGraph:
             for node in self.graph.nodes
         )})
         refilled = CompiledGraph.from_graph(graph, self._registry)
-        if refuse_unreadable_values:
-            faults += [
-                found.model_copy(update={"loc": ("inputs", written_as[found.loc])})  # type: ignore[index]
-                for found in refilled.problems if found.type in ("invalid_static", "table_column_missing") and found.loc in written_as
+        if raise_on_unreadable_values:
+            problems += [
+                problem.model_copy(update={"loc": ("inputs", written_as[problem.loc])})  # type: ignore[index]
+                for problem in refilled.problems if problem.type in ("invalid_static", "table_column_missing") and problem.loc in written_as
             ]
-        if faults:
-            raise InvalidCallError(faults)
+        if problems:
+            raise InvalidCallError(problems)
         return refilled
 
-    def _offered(self, name: str, offered: list[Ref], faults: list[Problem]) -> Ref | None:
+    def _offered(self, name: str, offered: list[Ref], problems: list[Problem]) -> Ref | None:
         """The input a keyword to ``with_inputs`` names; or ``None``, and the fault that lists what is offered."""
         names = offered_names(offered)
         matches = [ref for ref in offered if ref == name or names[ref] == name]
@@ -265,7 +265,7 @@ class CompiledGraph:
             reason = f"{name!r} is not an input this graph offers; it offers {', '.join(str(ref) for ref in offered)}"
         else:
             reason = f"{name!r}: this graph takes no inputs"
-        faults.append(problem("not_offered", "inputs", name, reason=reason, offered=[str(ref) for ref in offered]))
+        problems.append(make_problem("not_offered", "inputs", name, reason=reason, offered=[str(ref) for ref in offered]))
         return None
 
     # -- the run ------------------------------------------------------------------
@@ -290,7 +290,7 @@ class CompiledGraph:
         left out: its decision picks rows and gates nothing downstream. So
         is a node that is not ready: whether it runs per row is not
         known."""
-        found: dict[str, dict[str, tuple[str, ...]]] = {}
+        groups_by_node: dict[str, dict[str, tuple[str, ...]]] = {}
         for node_id in self._order:
             node = self._nodes[node_id]
             if node.wiring is None or node.wiring._runs_per_row_of is not None:
@@ -300,8 +300,8 @@ class CompiledGraph:
                 if out.choice is not None:
                     groups.setdefault(out.choice, []).append(out.name)
             if groups:
-                found[node_id] = {choice: tuple(names) for choice, names in groups.items()}
-        return found
+                groups_by_node[node_id] = {choice: tuple(names) for choice, names in groups.items()}
+        return groups_by_node
 
     # -- running it ----------------------------------------------------------------
 
@@ -414,7 +414,7 @@ class CompiledGraph:
         produced: dict[str, dict[str, Any]] = {}
         for node_id in self._order:
             if node_id in state.finished_rows and node_id not in dropped:
-                result = node_result(self._read_plan, node_id, values)
+                result = node_result(self._engine_lookups, node_id, values)
                 if result is not None:
                     produced[node_id] = result
         return produced
@@ -432,7 +432,7 @@ class CompiledGraph:
         """
         if state.status != "complete":
             failure = state.failure
-            raise InvalidCallError([problem(
+            raise InvalidCallError([make_problem(
                 "run_not_complete", "state", "status", status=state.status,
                 reason="" if failure is None else failure.msg,
                 failure=None if failure is None else failure.model_dump(mode="json"),
@@ -440,7 +440,7 @@ class CompiledGraph:
         where = self._where_each_output_is_in_the_run
         changed = set(self.nodes_changed_since(state)).intersection(at.node_id for at in where.values())
         if changed:
-            raise InvalidCallError([problem(
+            raise InvalidCallError([make_problem(
                 "run_not_complete", "state", "status", status="stale",
                 reason=f"These have changed since it ran: {', '.join(sorted(changed))}.", failure=None,
             )])
@@ -462,7 +462,7 @@ class CompiledGraph:
         what is stale; a host wanting a strict pin refuses when the list is
         not empty.
         """
-        self._refuse_unless_runnable()
+        self._raise_unless_runnable()
         fingerprints = state.node_fingerprints
         changed = {node_id for node_id in self._order if fingerprints.get(node_id) != self._nodes[node_id].fingerprint}
         stale = changed | self._readers_of(changed)
@@ -474,7 +474,7 @@ class CompiledGraph:
         through other nodes: an output, or a column of a table output. Walked
         over the read plan on each call rather than stored, since every node's
         readers stored would cost memory quadratic in a long chain."""
-        read_by = self._read_plan.read_by
+        read_by = self._engine_lookups.read_by
         found: set[str] = set()
         frontier = list(node_ids)
         while frontier:
@@ -485,14 +485,14 @@ class CompiledGraph:
                         frontier.append(reader.node_id)
         return found
 
-    def _refuse_unless_runnable(self) -> None:
+    def _raise_unless_runnable(self) -> None:
         """Refuse any verb on a graph with a fatal problem, naming every one."""
         if not self.is_runnable:
-            raise InvalidCallError(p for p in self.problems if p.fatal)
+            raise InvalidCallError(problem for problem in self.problems if problem.fatal)
 
     # -- what is wrong -------------------------------------------------------------
 
     @property
     def is_runnable(self) -> bool:
         """True when nothing fatal was found. A run refuses otherwise."""
-        return not any(p.fatal for p in self.problems)
+        return not any(problem.fatal for problem in self.problems)

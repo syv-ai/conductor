@@ -24,7 +24,7 @@ from conductor import (
     Static,
     node,
 )
-from conductor._internal.errors import ConductorError, problem
+from conductor._internal.errors import ConductorError, make_problem
 
 
 class Txt(DType, str):
@@ -42,11 +42,11 @@ def _registry(*nodes: Any) -> NodeRegistry:
 
 
 def test_a_problem_is_the_four_keys_and_its_fatality_is_its_codes():
-    told = problem("no_outputs", "a")
+    told = make_problem("no_outputs", "a")
 
     assert (told.type, told.loc, told.ctx) == ("no_outputs", ("a",), {})
     assert told.fatal is False
-    assert problem("unbound_required", "a", "x").fatal is True
+    assert make_problem("unbound_required", "a", "x").fatal is True
 
 
 def test_a_code_the_catalogue_does_not_know_is_fatal():
@@ -62,7 +62,7 @@ def test_fatality_cannot_be_set_on_a_record():
 
 
 def test_a_dump_has_fatal_and_reads_back():
-    told = problem("unknown_locked_field", "a", "x")
+    told = make_problem("unknown_locked_field", "a", "x")
     dumped = told.model_dump(mode="json")
 
     assert dumped == {"type": "unknown_locked_field", "msg": told.msg, "loc": ["a", "x"], "ctx": {}, "fatal": False}
@@ -70,12 +70,12 @@ def test_a_dump_has_fatal_and_reads_back():
 
 
 def test_a_none_place_is_left_out_of_loc():
-    assert problem("unbound_required", "a", None).loc == ("a",)
+    assert make_problem("unbound_required", "a", None).loc == ("a",)
 
 
 def test_every_code_a_site_writes_is_in_the_catalogue_and_every_row_is_written():
     """``PROBLEM_CODES`` is what a host translating by code covers, so it
-    equals the codes written at the sites: a ``problem(...)`` and a ``code=``
+    equals the codes written at the sites: a ``make_problem(...)`` and a ``code=``
     in the engine and compile. ``failed`` is the engine's name for a
     ``NodeError`` the node raised with no code."""
     import conductor._internal.execution
@@ -91,7 +91,7 @@ def test_every_code_a_site_writes_is_in_the_catalogue_and_every_row_is_written()
             for graph_node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
                 if not isinstance(graph_node, ast.Call):
                     continue
-                if isinstance(graph_node.func, ast.Name) and graph_node.func.id == "problem" and graph_node.args:
+                if isinstance(graph_node.func, ast.Name) and graph_node.func.id == "make_problem" and graph_node.args:
                     written |= literals(graph_node.args[0])
                 written |= {
                     value for keyword in graph_node.keywords if keyword.arg == "code" for value in literals(keyword.value)
@@ -121,11 +121,11 @@ def test_a_graph_that_cannot_run_is_refused_with_its_own_problems():
     graph = Graph(nodes=[GraphNode(id="a", type="echo", version=1)])
     compiled = CompiledGraph.from_graph(graph, _registry())
 
-    with pytest.raises(InvalidCallError) as refused:
+    with pytest.raises(InvalidCallError) as raised:
         compiled.run_sync()
 
-    assert refused.value.errors() == [p for p in compiled.problems if p.fatal]
-    assert refused.value.errors()[0].loc == ("a", "text")
+    assert raised.value.errors() == [p for p in compiled.problems if p.fatal]
+    assert raised.value.errors()[0].loc == ("a", "text")
 
 
 # --- hooks -----------------------------------------------------------------------

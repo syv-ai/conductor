@@ -42,7 +42,7 @@ from functools import cache
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from conductor._internal.dtype import _ReceivedAsItArrives, description_of, is_untyped, name_of
-from conductor._internal.errors import Problem, problem
+from conductor._internal.errors import Problem, make_problem
 from conductor._internal.field_records import Input
 from conductor._internal.graph.binding import From
 from conductor._internal.graph.graph_records import GraphNode
@@ -52,7 +52,7 @@ from conductor._internal.graph.receive import (
     Gather,
     Merge,
     PerRow,
-    Receive,
+    ReceiveMode,
     RowsUnder,
 )
 from conductor._internal.graph.row_origins import sources_taken_in_whole
@@ -72,7 +72,7 @@ if TYPE_CHECKING:
     from conductor._internal.graph.compiled_node import CompiledField
 
 
-class Arrival(NamedTuple):
+class InputCarries(NamedTuple):
     """What one input carries: its type and, for a series, the level its rows are on."""
 
     dtype: Any
@@ -84,10 +84,10 @@ class InputsRead:
     """What one node's inputs receive, gathered as its edges are read."""
 
     #: Per input name: what it carries, and how a call receives it.
-    arrivals: dict[str, Arrival] = field(default_factory=dict)
-    receives: dict[str, Receive] = field(default_factory=dict)
+    carries: dict[str, InputCarries] = field(default_factory=dict)
+    receive_modes: dict[str, ReceiveMode] = field(default_factory=dict)
     #: Per connected input: the type one call sees, what ``compute_outputs`` is told.
-    arriving: dict[str, Any] = field(default_factory=dict)
+    arriving_types: dict[str, Any] = field(default_factory=dict)
     #: The types edges gave to inputs that had none of their own.
     bound: dict[str, Any] = field(default_factory=dict)
     #: The rows the node must run per row of, each with the input that demands it.
@@ -116,14 +116,14 @@ def read_inputs(
             if name in inputs_given_a_list:
                 found.lists_on_node.append((name, inp.dtype))
                 continue
-            found.arrivals[name], found.receives[name] = _originates(inp, node.id)
+            found.carries[name], found.receive_modes[name] = _originates(inp, node.id)
             continue
         feeding = [_source(source, walk) for source in binding.refs]
         if None in feeding:
             # A source that was worked out but has no such output is this input's
             # fault; one that wasn't carries its own problem already.
             problems.extend(
-                problem("unknown_ref_output", node.id, name, source=str(ref_), outputs=_outputs_offered_by(ref_.node_id, walk))
+                make_problem("unknown_ref_output", node.id, name, source=str(ref_), outputs=_outputs_offered_by(ref_.node_id, walk))
                 for ref_, source in zip(binding.refs, feeding, strict=True)
                 if source is None and _source_node_is_wired(ref_, walk)
             )
@@ -134,27 +134,27 @@ def read_inputs(
         found.tables_taken_in.extend(sources_taken_in_whole(target, sources))
         if target is _ReceivedAsItArrives:
             if not name.isidentifier():
-                problems.append(problem("parameter_name_invalid", node.id, name))
+                problems.append(make_problem("parameter_name_invalid", node.id, name))
                 found.broken = True
                 return found
             if len(sources) > 1:
-                problems.append(problem("one_edge_per_parameter", node.id, name))
+                problems.append(make_problem("one_edge_per_parameter", node.id, name))
                 found.broken = True
                 return found
-            found.bound[name] = found.arriving[name] = sources[0].type
-            found.arrivals[name] = Arrival(sources[0].type, sources[0]._index)
-            found.receives[name] = EntireValue()
+            found.bound[name] = found.arriving_types[name] = sources[0].type
+            found.carries[name] = InputCarries(sources[0].type, sources[0]._index)
+            found.receive_modes[name] = EntireValue()
             continue
         if _is_table_type(target):
             pairs = list(zip(binding.refs, sources, strict=True))
-            faults = [fault for source_ref, source in pairs for fault in _admit_into_table(target, node.id, name, source_ref, source)]
-            problems.extend(faults)
-            merged = None if faults else _merged_columns(pairs)
+            problems_found = [problem for source_ref, source in pairs for problem in _admit_into_table(target, node.id, name, source_ref, source)]
+            problems.extend(problems_found)
+            merged = None if problems_found else _merged_columns(pairs)
             found.demands.extend((source._index, name) for source in sources if holds_tables(source.type) and source._index is not None)
             carried = _table_a_call_receives(target, merged)
             _check_columns(node.id, name, target, merged, problems)
             found.merging.append((name, carried, pairs))
-            found.arriving[name] = carried
+            found.arriving_types[name] = carried
             continue
         if is_untyped(target):
             element = sources[0].type.element or sources[0].type
@@ -164,30 +164,30 @@ def read_inputs(
             problems.extend(_admit(target, node.id, name, source_ref, source))
         if target.element is None:
             if len(sources) > 1 and not _one_index(sources):
-                problems.append(problem("union_needs_one_index", node.id, name))
+                problems.append(make_problem("union_needs_one_index", node.id, name))
                 found.broken = True
                 return found
-            arriving = sources[0]
-            found.arriving[name] = arriving.type.element or arriving.type
-            if arriving._index is None:
-                found.receives[name] = Broadcast()
+            source = sources[0]
+            found.arriving_types[name] = source.type.element or source.type
+            if source._index is None:
+                found.receive_modes[name] = Broadcast()
             else:
-                found.receives[name] = PerRow(arriving._index)
-                found.demands.append((arriving._index, name))
-            found.arrivals[name] = Arrival(arriving.type, arriving._index)
+                found.receive_modes[name] = PerRow(source._index)
+                found.demands.append((source._index, name))
+            found.carries[name] = InputCarries(source.type, source._index)
         elif _one_index(sources):
-            arriving = sources[0]
-            found.arriving[name] = arriving.type
-            if arriving._index.parent is not None:
-                found.reductions.append((arriving._index, name))
+            source = sources[0]
+            found.arriving_types[name] = source.type
+            if source._index.parent is not None:
+                found.reductions.append((source._index, name))
             else:
-                found.receives[name] = EntireValue()
-            found.arrivals[name] = Arrival(arriving.type, arriving._index)
+                found.receive_modes[name] = EntireValue()
+            found.carries[name] = InputCarries(source.type, source._index)
         else:
             own = Index(Ref(node.id, name))
-            found.arriving[name] = target
-            found.receives[name] = Gather(own)
-            found.arrivals[name] = Arrival(target, own)
+            found.arriving_types[name] = target
+            found.receive_modes[name] = Gather(own)
+            found.carries[name] = InputCarries(target, own)
     return found
 
 
@@ -200,7 +200,7 @@ def _source(ref: Ref, walk: WalkSoFar) -> CompiledField | None:
     """The output ``ref`` names, on a node above this one; ``None`` when no such output has been worked out."""
     source_id = ref.node_id
     node = walk.compiled.get(source_id)
-    if node is None or node.wiring is None or source_id in walk.refused:
+    if node is None or node.wiring is None or source_id in walk.invalid_node_ids:
         return None
     found = node.wiring.fields.get(ref.field)
     return found if found is not None and (found._is_output or found._is_list_on_node) else None
@@ -238,23 +238,23 @@ def decide_rows(node: GraphNode, found: InputsRead, problems: list[Problem], row
         return False, None
     if len(found.lists_on_node) > 1:
         (first, _), (second, _) = found.lists_on_node[:2]
-        problems.append(problem("lists_on_a_per_row_node", node_id, second, a=str(where(first)), b=str(where(second))))
+        problems.append(make_problem("lists_on_a_per_row_node", node_id, second, a=str(where(first)), b=str(where(second))))
         return False, None
     if found.lists_on_node:
         (name, dtype), = found.lists_on_node
         own = Index(str(where(name)), parent=runs_per_row_of)
-        found.arrivals[name], found.receives[name] = Arrival(Series[dtype], own), PerRow(own)
+        found.carries[name], found.receive_modes[name] = InputCarries(Series[dtype], own), PerRow(own)
         runs_per_row_of = own
     for index, name in found.reductions:
         depth = _depth_shared_with_row(index, runs_per_row_of)
         if depth is None:
             problems.append(_misaligned(node_id, where(found.demands[0][1]), where(name)))
             return False, None
-        found.receives[name] = RowsUnder(index, depth)
+        found.receive_modes[name] = RowsUnder(index, depth)
     for name, carried, sources in found.merging:
-        found.arrivals[name] = Arrival(carried, None) if runs_per_row_of is None else Arrival(Series[carried], runs_per_row_of)
-        found.receives[name] = Merge(
-            tuple((source_ref, _part(source, runs_per_row_of)) for source_ref, source in sources),
+        found.carries[name] = InputCarries(carried, None) if runs_per_row_of is None else InputCarries(Series[carried], runs_per_row_of)
+        found.receive_modes[name] = Merge(
+            tuple((source_ref, _receive_mode_of_merge_source(source, runs_per_row_of)) for source_ref, source in sources),
             frozenset(_copied_down(sources)),
         )
         problems.extend(row_origins.note_merge(node_id, name, sources))
@@ -296,7 +296,7 @@ def _check_columns(node_id: str, name: str, target: Any, merged: tuple[Column, .
     have = {column for column, _ in merged}
     missing = next((column for column, _ in columns_of(target) if column not in have), None)
     if missing is not None:
-        problems.append(problem("table_column_missing", node_id, name, column=missing))
+        problems.append(make_problem("table_column_missing", node_id, name, column=missing))
 
 
 def _admit_into_table(target: Any, node_id: str, name: str, source_ref: Ref, source: CompiledField) -> list[Problem]:
@@ -316,7 +316,7 @@ def _admit(target: Any, node_id: str, name: str, source_ref: Ref, source: Compil
 
 
 def _type_mismatch(target: Any, node_id: str, name: str, source_ref: Ref, source: CompiledField) -> Problem:
-    return problem(
+    return make_problem(
         "type_mismatch", node_id, name, source=str(source_ref), source_type=description_of(source.type),
         target_type=description_of(target), source_said=name_of(source.type), target_said=name_of(target),
     )
@@ -329,7 +329,7 @@ def _depth_shared_with_row(index: Index, runs_per_row_of: Index | None) -> int |
     return next((step.depth for step in reversed(index.lineage[:-1]) if step in lineage), None)
 
 
-def _part(source: CompiledField, runs_per_row_of: Index | None) -> PerRow | Broadcast | EntireValue | RowsUnder:
+def _receive_mode_of_merge_source(source: CompiledField, runs_per_row_of: Index | None) -> PerRow | Broadcast | EntireValue | RowsUnder:
     """How a call receives one source of a ``Table`` input: a table at its row
     or the one there is; a column's rows under its row; or all of them."""
     index = source._index
@@ -346,12 +346,12 @@ def _one_index(sources: Sequence[CompiledField]) -> bool:
     return all(s._index is not None for s in sources) and len({s._index for s in sources}) == 1
 
 
-def _originates(inp: Input, node_id: str) -> tuple[Arrival, Receive]:
+def _originates(inp: Input, node_id: str) -> tuple[InputCarries, ReceiveMode]:
     """What an input carries when no edge feeds it: one value copied to every
     call, or for a ``Series[X]`` input a column of its own, received whole."""
     if inp.dtype.element is not None:
-        return Arrival(inp.dtype, Index(Ref(node_id, inp.name))), EntireValue()
-    return Arrival(inp.dtype, None), Broadcast()
+        return InputCarries(inp.dtype, Index(Ref(node_id, inp.name))), EntireValue()
+    return InputCarries(inp.dtype, None), Broadcast()
 
 
 def _row_above_reductions(reductions: list[tuple[Index, str]]) -> list[tuple[Index, str]]:
@@ -375,4 +375,4 @@ def _deepest(demands: list[tuple[Index, str]]) -> tuple[Index | None, tuple[str,
 
 
 def _misaligned(node_id: str, a: Ref, b: Ref) -> Problem:
-    return problem("misaligned", node_id, a=str(a), b=str(b))
+    return make_problem("misaligned", node_id, a=str(a), b=str(b))

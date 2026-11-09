@@ -52,7 +52,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import ValidationError
 
 from conductor._internal.errors import (
-    CATALOGUE,
+    PROBLEM_CATALOGUE,
     ExternalFailure,
     InvalidCallError,
     NodeError,
@@ -60,7 +60,7 @@ from conductor._internal.errors import (
     NodeTimeoutError,
     NodeValidationError,
     Problem,
-    problem,
+    make_problem,
 )
 from conductor._internal.execution.events import (
     Event,
@@ -75,7 +75,7 @@ from conductor._internal.execution.events import (
     RunStart,
     UnitWaiting,
 )
-from conductor._internal.execution.live_run_values import LiveRunValues, NotCalled, Skip, Unit
+from conductor._internal.execution.live_run_values import NotCalled, RunLedger, Skip, Unit
 from conductor._internal.execution.run_state import RunState
 from conductor._internal.execution.validate_unit_outputs import took_a_row_in, validate_unit_outputs
 from conductor._internal.execution.waiting_units import waiting_unit_for
@@ -166,25 +166,25 @@ class Leg:
     ) -> None:
         self.compiled = compiled
         if state is not None and not isinstance(state, RunState):
-            raise InvalidCallError([problem("state_unreadable", "state", reason=f"A state is a RunState, not a {type(state).__name__}.")])
-        self.live = LiveRunValues(compiled) if state is None else LiveRunValues.restore(compiled, state)
+            raise InvalidCallError([make_problem("state_unreadable", "state", reason=f"A state is a RunState, not a {type(state).__name__}.")])
+        self.ledger = RunLedger(compiled) if state is None else RunLedger.restore(compiled, state)
         self.changed_nodes = [] if state is None else compiled.nodes_changed_since(state)
         self.free_slots: dict[str, int] = {}
-        faults = [problem("from_run_not_a_type", "from_run", repr(key), key=repr(key)) for key in from_run if not isinstance(key, type)]
+        problems = [make_problem("from_run_not_a_type", "from_run", repr(key), key=repr(key)) for key in from_run if not isinstance(key, type)]
         for node_id in compiled.execution_order:
             version = compiled.node(node_id).version
-            faults += [
-                problem("from_run_missing", "from_run", needed.__name__, node=node_id, parameter=name, needs=needed.__name__)
+            problems += [
+                make_problem("from_run_missing", "from_run", needed.__name__, node=node_id, parameter=name, needs=needed.__name__)
                 for name, needed in version.from_run.items() if needed not in from_run
             ]
             self.free_slots[node_id] = version.policy.concurrency
-        if faults:
-            raise InvalidCallError(faults)
+        if problems:
+            raise InvalidCallError(problems)
         self.from_run = dict(from_run)
         self.timeout = timeout
         self.cancel = cancel
         self.checkpoint_every = checkpoint_every
-        self.started = self.live.completed_nodes()
+        self.started = self.ledger.completed_nodes()
         self.calls: queue.SimpleQueue[tuple[asyncio.Future[Any], Unit, dict[str, Any]] | None] = queue.SimpleQueue()
         self.calls_in_threads = 0
         self.threads_made = 0
@@ -242,7 +242,7 @@ class Leg:
 
     async def _events(self) -> AsyncGenerator[Event, None]:
         """Say what this leg starts from, then start every ready unit until the leg ends."""
-        ledger, order = self.live, self.compiled.execution_order
+        ledger, order = self.ledger, self.compiled.execution_order
         yield RunStart(
             reused_nodes=[node_id for node_id in order if node_id in self.started],
             changed_nodes=self.changed_nodes,
@@ -252,11 +252,11 @@ class Leg:
         while self.in_flight:
             message = await self._next()
             if isinstance(message, _Cancelled):
-                yield RunEnd(state=ledger.state("cancelled", problem("run_cancelled")))
+                yield RunEnd(state=ledger.state("cancelled", make_problem("run_cancelled")))
                 return
             if isinstance(message, _TimedOut):
                 elapsed = time.monotonic() - self.started_at
-                failure = problem("run_timed_out", elapsed_seconds=elapsed, timeout_seconds=message.seconds)
+                failure = make_problem("run_timed_out", elapsed_seconds=elapsed, timeout_seconds=message.seconds)
                 yield RunEnd(state=ledger.state("timed_out", failure))
                 return
             if not isinstance(message, _UnitDone):
@@ -299,7 +299,7 @@ class Leg:
         """Queue each of these ready units not already in flight, done or waiting.
 
         A unit two records both made ready is in both lists; the second finds it in flight."""
-        ledger = self.live
+        ledger = self.ledger
         for unit in units:
             if unit in self.in_flight or ledger.is_done(unit) or ledger.is_waiting(unit):
                 continue
@@ -383,7 +383,7 @@ class Leg:
             # the event carries the generic line and the class name; the log has the rest.
             node_id, row = unit
             logger.error("the engine failed on node %r", node_id, exc_info=raised)
-            failure = NodeExecutionError(CATALOGUE["engine_error"][0], node_id=node_id, code="engine_error", ctx={"exception": type(raised).__name__})
+            failure = NodeExecutionError(PROBLEM_CATALOGUE["engine_error"].message, node_id=node_id, code="engine_error", ctx={"exception": type(raised).__name__})
             self.queue.put_nowait(_UnitDone(unit, error=self._error_event(node_id, failure, row)))
 
     async def _unit(self, unit: Unit, attempt: int) -> None:
@@ -394,7 +394,7 @@ class Leg:
         for it. An attempt that needs no thread gives its slot back here. A
         failed attempt the policy retries holds no slot while it waits."""
         node_id, row = unit
-        compiled, ledger, queue = self.compiled, self.live, self.queue
+        compiled, ledger, queue = self.compiled, self.ledger, self.queue
         try:
             inputs = ledger.inputs_for(unit)
         except NodeError as failure:  # two edges into one input both supplied this row
@@ -421,7 +421,7 @@ class Leg:
         except TimeoutError:
             # Final: the thread runs on, and a retry beside it would be a
             # second call of the same unit.
-            failure = NodeTimeoutError(CATALOGUE["timeout"][0], node_id=node_id, code="timeout", ctx={"seconds": policy.timeout})
+            failure = NodeTimeoutError(PROBLEM_CATALOGUE["timeout"].message, node_id=node_id, code="timeout", ctx={"seconds": policy.timeout})
             queue.put_nowait(_UnitDone(unit, error=self._error_event(node_id, failure, row)))
             return
         except NodeError as raised:
@@ -447,13 +447,15 @@ class Leg:
             must_survive = compiled._row_ids_must_survive
             if must_survive and not took_a_row_in(inputs):
                 must_survive = frozenset()
-            cells, faults = validate_unit_outputs(node, row, unpack(version.returns, value, node.interface.outputs, version.interface.outputs), must_survive)
+            cells, problems = validate_unit_outputs(node, row, unpack(version.returns, value, node.interface.outputs, version.interface.outputs), must_survive)
         except ValueError as invalid:  # the wrong shape of return, or an ask that isn't sound
             queue.put_nowait(_UnitDone(unit, error=self._invalid_output(node_id, row, str(invalid), code="invalid_output")))
             return
-        if faults:
-            reason = "; ".join(fault.message for fault in faults)
-            queue.put_nowait(_UnitDone(unit, error=self._invalid_output(node_id, row, reason, [e for fault in faults for e in fault.errors], code=next((fault.code for fault in faults if fault.code != "invalid_output"), "invalid_output"))))
+        if problems:
+            reason = "; ".join(problem.msg for problem in problems)
+            errors = [error for problem in problems for error in problem.ctx["errors"]]
+            code = next((problem.type for problem in problems if problem.type != "invalid_output"), "invalid_output")
+            queue.put_nowait(_UnitDone(unit, error=self._invalid_output(node_id, row, reason, errors, code=code)))
             return
         ready = ledger.record(unit, cells)
         self._after(unit)
@@ -498,7 +500,7 @@ class Leg:
         except version.policy.retry_on as raised:
             logger.warning("node %r: an outside service failed", node_id, exc_info=raised)
             raise ExternalFailure(
-                CATALOGUE["external_failed"][0], node_id=node_id, code="external_failed", ctx={"exception": type(raised).__name__},
+                PROBLEM_CATALOGUE["external_failed"].message, node_id=node_id, code="external_failed", ctx={"exception": type(raised).__name__},
             ) from raised
         except BaseException as raised:
             raise self._node_failed(node_id, raised) from raised
@@ -506,12 +508,12 @@ class Leg:
     @staticmethod
     def _node_failed(node_id: str, raised: BaseException) -> NodeExecutionError:
         logger.error("node %r failed", node_id, exc_info=raised)
-        return NodeExecutionError(CATALOGUE["execution_failed"][0], node_id=node_id, code="execution_failed", ctx={"exception": type(raised).__name__})
+        return NodeExecutionError(PROBLEM_CATALOGUE["execution_failed"].message, node_id=node_id, code="execution_failed", ctx={"exception": type(raised).__name__})
 
     def _after(self, unit: Unit) -> None:
         """Report progress, and completion when this was the node's last unit."""
         node_id, _ = unit
-        ledger = self.live
+        ledger = self.ledger
         if ledger.on_a_row(unit):
             done, total = ledger.progress(node_id)
             self.queue.put_nowait(NodeProgress(node_id=node_id, done=done, total=total))
@@ -531,7 +533,7 @@ class Leg:
         details: dict[str, Any] = {"reason": reason}
         if errors:
             details["errors"] = errors
-        failure = NodeExecutionError(CATALOGUE[code][0], node_id=node_id, code=code, ctx=details)
+        failure = NodeExecutionError(PROBLEM_CATALOGUE[code].message, node_id=node_id, code=code, ctx=details)
         return self._error_event(node_id, failure, row)
 
     @staticmethod

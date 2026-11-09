@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from conductor._internal.errors import InvalidCallError, problem
+from conductor._internal.errors import InvalidCallError, make_problem
 from conductor._internal.graph.binding import From, Static, static_values
 from conductor._internal.graph.graph_records import Graph, GraphNode
 from conductor._internal.node_decorator import NodeVersion, Upgrade
@@ -34,15 +34,15 @@ def upgrade_node(graph: Graph, node_id: str, registry: NodeRegistry, *, to: int 
     """
     node = next((n for n in graph.nodes if n.id == node_id), None)
     if node is None:
-        raise InvalidCallError([problem("node_not_in_graph", "node", node_id, node=node_id, nodes=", ".join(n.id for n in graph.nodes))])
+        raise InvalidCallError([make_problem("node_not_in_graph", "node", node_id, node=node_id, nodes=", ".join(n.id for n in graph.nodes))])
     if node.type not in registry:
-        raise InvalidCallError([problem("unknown_node_type", "node", node_id, node_type=node.type, choices=", ".join(sorted(registry)) or "none")])
+        raise InvalidCallError([make_problem("unknown_node_type", "node", node_id, node_type=node.type, choices=", ".join(sorted(registry)) or "none")])
     definition = registry[node.type]
     target = definition.current if to is None else to
     if target == node.version:
         return graph
     if target < node.version or target not in definition.versions or node.version not in definition.versions:
-        raise InvalidCallError([problem(
+        raise InvalidCallError([make_problem(
             "cannot_move_to_version", "node", node_id,
             node_type=node.type, version=node.version, target=target, versions=", ".join(str(n) for n in sorted(definition.versions)),
         )])

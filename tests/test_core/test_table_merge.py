@@ -63,7 +63,7 @@ SEND = GraphNode(id="send", type="send", version=1, bindings={"email": From("csv
 def test_send_mail_per_contact_then_excel_has_name_email_and_sent():
     compiled = _compiled(CSV, SEND, GraphNode(id="excel", type="export", version=1, bindings={"table": From("csv.result", "send.result")}))
 
-    assert [(part.sources[0], part.arrives) for part in compiled.run_plan.nodes["excel"].inputs["table"].parts] == [
+    assert [(part.sources[0], part.receive_mode) for part in compiled.run_plan.nodes["excel"].inputs["table"].source_plans] == [
         ("csv.result", "same_value_every_row"), ("send.result", "entire_value"),
     ]
     assert compiled.problems == ()
@@ -148,9 +148,9 @@ def test_a_table_input_on_a_node_running_per_document_gets_that_documents_rows()
         GraphNode(id="excel", type="export", version=1, bindings={"table": From("read.result", "check.result")}),
     )
 
-    read, check = compiled.run_plan.nodes["excel"].inputs["table"].parts
-    assert (read.sources[0], read.arrives, read.rows_of) == ("read.result", "value_at_row", "docs.result")
-    assert (check.sources[0], check.arrives, check.rows_of, check.grouped_under) == ("check.result", "all_rows_under_row", "read.result", "docs.result")
+    read, check = compiled.run_plan.nodes["excel"].inputs["table"].source_plans
+    assert (read.sources[0], read.receive_mode, read.rows_of) == ("read.result", "value_at_row", "docs.result")
+    assert (check.sources[0], check.receive_mode, check.rows_of, check.grouped_under) == ("check.result", "all_rows_under_row", "read.result", "docs.result")
     sheets = compiled.results(compiled.run_sync())["excel"]["result"]
     assert [sheet.drop(ROW_ID).to_dicts() for sheet in sheets] == [
         [{"vendor": "acme", "amount": 10.0, "Approved": "acme ok"}, {"vendor": "beta", "amount": 5.0, "Approved": "beta ok"}],
@@ -162,7 +162,7 @@ def test_columns_of_two_unrelated_tables_into_a_node_running_per_row_are_misalig
     other = GraphNode(id="other", type="csv", version=1, bindings={"text": Static("Ole,ole@x")})
     compiled = _compiled(CSV, other, GraphNode(id="route", type="route", version=1, bindings={"name": From("csv.result.name"), "email": From("other.result.email")}))
 
-    assert [problem.type for problem in compiled.problems] == ["misaligned"]
+    assert [make_problem.type for make_problem in compiled.problems] == ["misaligned"]
 
 
 def test_merge_matches_rows_on_their_ids_and_keeps_a_clashing_name_apart():
@@ -193,7 +193,7 @@ def test_a_single_value_into_a_table_input_is_refused():
         GraphNode(id="excel", type="export", version=1, bindings={"table": From("t.result")}),
     )
 
-    assert [problem.type for problem in compiled.problems] == ["type_mismatch"]
+    assert [make_problem.type for make_problem in compiled.problems] == ["type_mismatch"]
 
 
 
@@ -283,7 +283,7 @@ def test_two_tables_made_per_document_share_no_rows_and_the_author_is_told():
         GraphNode(id="excel", type="export", version=1, bindings={"table": From("read.result.vendor", "again.result.amount")}),
     )
 
-    assert [problem.type for problem in compiled.problems] == ["no_rows_in_common"]
+    assert [make_problem.type for make_problem in compiled.problems] == ["no_rows_in_common"]
 
 
 def test_a_declared_table_input_missing_a_column_is_refused_when_checked():
@@ -310,8 +310,8 @@ def test_a_column_two_levels_down_is_received_under_the_nodes_row():
         registry=_registry_with(words),
     )
 
-    from_words = next(part for part in compiled.run_plan.nodes["excel"].inputs["table"].parts if part.sources == (Ref("words", "result"),))
-    assert (from_words.arrives, from_words.rows_of, from_words.grouped_under) == ("all_rows_under_row", "words.result", "docs.result")
+    from_words = next(part for part in compiled.run_plan.nodes["excel"].inputs["table"].source_plans if part.sources == (Ref("words", "result"),))
+    assert (from_words.receive_mode, from_words.rows_of, from_words.grouped_under) == ("all_rows_under_row", "words.result", "docs.result")
 
 
 def _events(compiled: CompiledGraph):
@@ -468,7 +468,7 @@ def test_two_series_under_unrelated_rows_are_misaligned():
         registry=_deep_registry(),
     )
 
-    assert [problem.type for problem in compiled.problems] == ["misaligned"]
+    assert [make_problem.type for make_problem in compiled.problems] == ["misaligned"]
 
 
 @node("skip-or-read", title="Skip or read", description="d", category="test")

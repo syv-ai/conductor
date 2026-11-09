@@ -80,7 +80,7 @@ def _node_lines(
 
 def _label(input_plan: InputPlan) -> str | None:
     """How an arrow's reading input receives it, in a few words; ``None`` where there is nothing to say."""
-    match input_plan.arrives:
+    match input_plan.receive_mode:
         case "value_at_row":
             return f"per row of {input_plan.rows_of}"
         case "all_rows_under_row":

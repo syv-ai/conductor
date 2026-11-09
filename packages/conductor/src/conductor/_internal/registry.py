@@ -71,7 +71,7 @@ class NodeRegistry:
         """A registry holding ``nodes`` and the words in ``types``, checked whole."""
         given = list(nodes)
         for definition in given:
-            _refuse_unless_definition(definition)
+            _raise_unless_definition(definition)
         #: The definitions, by id, in the order given.
         self._nodes: dict[str, NodeDefinition[..., Any]] = {}
         #: The vocabulary, by id, in the order the words arrived.
@@ -137,7 +137,7 @@ class NodeRegistry:
         extended._nodes, extended._types = dict(self._nodes), dict(self._types)
         fresh = list(definitions)
         for definition in fresh:
-            _refuse_unless_definition(definition)
+            _raise_unless_definition(definition)
         extended._file([definition for definition in fresh if definition.id not in self._nodes])
         return extended
 
@@ -185,7 +185,7 @@ class NodeRegistry:
         return admitted
 
 
-def _refuse_unless_definition(definition: Any) -> None:
+def _raise_unless_definition(definition: Any) -> None:
     if not isinstance(definition, NodeDefinition):
         raise NodeDeclarationError(f"{definition!r} is not a node; declare one with @node", code="not_a_node_definition")
 

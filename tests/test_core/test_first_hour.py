@@ -177,8 +177,8 @@ def test_a_pydantic_model_travels_on_an_edge_and_through_json():
 
 def test_a_dtype_built_on_str_lands_on_a_str_input_and_not_the_other_way():
     assert _plain(_n("e", "email"), _n("h", "hello", name=From("e.result"))).is_runnable
-    refused = _plain(_n("h", "hello", name=Static("x")), _n("w", "wants-email", address=From("h.result")))
-    assert [p.type for p in refused.problems] == ["type_mismatch"]
+    raised = _plain(_n("h", "hello", name=Static("x")), _n("w", "wants-email", address=From("h.result")))
+    assert [p.type for p in raised.problems] == ["type_mismatch"]
 
 
 def test_an_int_lands_on_a_float_as_a_type_checker_says():
@@ -395,9 +395,9 @@ def test_each_missing_input_beside_a_typo_is_still_reported():
 
 
 def test_a_binding_that_is_neither_from_nor_static_is_one_error():
-    with pytest.raises(ValidationError) as refused:
+    with pytest.raises(ValidationError) as raised:
         GraphNode(id="a", type="t", version=1, bindings={"text": "hi"})
-    (error,) = refused.value.errors()
+    (error,) = raised.value.errors()
     assert error["type"] == "not_a_binding"
 
 
@@ -411,25 +411,25 @@ def test_from_run_missing_raises_at_the_call():
         return "now"
 
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="t", type="timed", version=1)]), NodeRegistry([timed]))
-    with pytest.raises(InvalidCallError) as refused:
+    with pytest.raises(InvalidCallError) as raised:
         compiled.run_sync()
-    (error,) = refused.value.errors()
+    (error,) = raised.value.errors()
     assert error.type == "from_run_missing" and error.ctx["node"] == "t" and error.ctx["needs"] == "Clock"
 
 
 def test_a_from_run_key_that_is_no_type_is_refused_and_a_type_no_node_needs_is_fine():
     compiled = _plain(_n("a", "hello", name=Static("x")))
-    with pytest.raises(InvalidCallError) as refused:
+    with pytest.raises(InvalidCallError) as raised:
         compiled.run_sync(from_run={"x": 1})
-    assert [p.type for p in refused.value.errors()] == ["from_run_not_a_type"]
+    assert [p.type for p in raised.value.errors()] == ["from_run_not_a_type"]
     assert compiled.run_sync(from_run={int: 1}).status == "complete"
 
 
 def test_with_inputs_raises_for_a_bad_value_and_a_typo_together():
     compiled = _plain(_n("a", "shout", text=Static("x")), _n("b", "flag", on=Static(True)))
-    with pytest.raises(InvalidCallError) as refused:
+    with pytest.raises(InvalidCallError) as raised:
         compiled.with_inputs(times="many", txt="y")
-    assert sorted((p.type, p.loc) for p in refused.value.errors()) == [("invalid_static", ("inputs", "times")), ("not_offered", ("inputs", "txt"))]
+    assert sorted((p.type, p.loc) for p in raised.value.errors()) == [("invalid_static", ("inputs", "times")), ("not_offered", ("inputs", "txt"))]
 
 
 @pytest.mark.parametrize("written", ["", 5])
