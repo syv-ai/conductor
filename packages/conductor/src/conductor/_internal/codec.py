@@ -19,8 +19,7 @@ A float that isn't finite is the text ``"NaN"``, ``"Infinity"`` or
 ``"-Infinity"`` wherever it stands, since JSON has no literal for one and a
 ``jsonb`` column refuses the bare token. A float's validator reads the text
 back; a value typed ``Any`` comes back as this text, as it comes back as the
-JSON form of everything else it held. A pydantic record a host declared keeps
-the rule of its own config.
+JSON form of everything else it held.
 
 A skip has no type to cross by, so a run's state lists the skipped rows beside the values.
 """
@@ -33,8 +32,8 @@ from math import isfinite, isnan
 from types import NoneType
 from typing import Annotated, Any
 
-from pydantic import ConfigDict, PlainSerializer, PydanticUserError, TypeAdapter
-from pydantic_core import from_json
+from pydantic import BaseModel, ConfigDict, PlainSerializer, PydanticUserError, TypeAdapter
+from pydantic_core import from_json, to_json
 
 from conductor._internal.table import Table, is_frame_type, is_table_type
 
@@ -99,6 +98,8 @@ def each_to_jsonable(values: list[Any]) -> list[Any]:
     if issubclass(runtime_type, _NEVER_HOLDS_A_FLOAT) or is_frame_type(runtime_type):
         written: list[Any] = adapter.dump_python(values, mode="json", fallback=_dump_by_runtime_type)
         return written
+    if issubclass(runtime_type, BaseModel):  # a record's config spells its own floats, so they are read out of it first
+        return from_json(to_json(adapter.dump_python(values, mode="json", fallback=_dump_by_runtime_type), inf_nan_mode="strings"), allow_inf_nan=False)  # type: ignore[no-any-return]
     return from_json(adapter.dump_json(values, fallback=_dump_by_runtime_type), allow_inf_nan=False)  # type: ignore[no-any-return]
 
 
@@ -127,9 +128,8 @@ def _dump_by_runtime_type(value: Any) -> Any:
 
 @cache
 def cached_type_adapter(dtype: Any) -> TypeAdapter[Any]:
-    """One adapter per declared type: building one reads the type's schema, which is the
-    slow part. Its ``dump_json`` spells a float that isn't finite the way ``float_as_json`` does.
-    A type with a config of its own keeps that."""
+    """One adapter per declared type: building one reads the type's schema, which is the slow part.
+    A float it writes itself that isn't finite is spelled the way ``float_as_json`` does; a pydantic record's own floats are spelled by ``each_to_jsonable``."""
     dtype = _written_as(dtype)
     try:
         return TypeAdapter(dtype, config=ConfigDict(ser_json_inf_nan="strings"))

@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from conductor._internal.execution.values_of_run import is_held_at_its_own_row, is_list_on_node
 from conductor._internal.graph.compiled_node import CompiledField, CompiledNode
-from conductor._internal.graph.receive_modes import ReceiveMode, reads_of_input
+from conductor._internal.graph.receive_modes import ReceiveMode, RowsUnder, reads_of_input
 from conductor._internal.index import Index
 from conductor._internal.node_signature import Interface
 from conductor._internal.ref import Ref
@@ -40,6 +40,8 @@ class EngineLookups:
     lists_on_nodes_under_index: dict[str, tuple[Ref, ...]]
     #: The field that makes each index's rows, by index id.
     field_making_rows_of_index: dict[str, CompiledField]
+    #: Per node, the sources of its inputs of many values that read one index with another such input: columns of one table to keep in step.
+    sources_of_series_inputs_on_one_index: dict[str, tuple[Ref, ...]]
     #: Per node, one ``(writer node, depth)`` per edge it reads, in reading order: the
     #: writer's units at or under the reading unit's row cut to that depth are
     #: what the read waits for. An edge from a list set on a node, whose values are
@@ -173,11 +175,21 @@ def build_engine_lookups(nodes: Iterable[CompiledNode]) -> EngineLookups:
     return EngineLookups(
         fields, runs_per_row_of, interfaces, _lists_as_tuples(receive_modes_of_node), _lists_as_tuples(read_by), _lists_as_tuples(nodes_running_per_row_of_index), _lists_as_tuples(outputs_on_index), _lists_as_tuples(lists_on_nodes_under_index),
         field_making_rows_of_index,
+        {node_id: _sources_of_series_inputs_on_one_index(modes, fields) for node_id, modes in receive_modes_of_node.items()},
         _lists_as_tuples(what_each_read_waits_for),
         {node_id: tuple(sorted(depths)) for node_id, depths in depths_counted.items()},
         nodes_finished_when_rows_made_by, node_making_rows_of_index, _lists_as_tuples(index_ids_by_parent), tuple(lists_on_nodes_at_the_top),
         frozenset(ref for ref, field in fields.items() if is_held_at_its_own_row(field)),
     )
+
+
+def _sources_of_series_inputs_on_one_index(receive_modes: list[tuple[str, ReceiveMode]], fields: dict[Ref, CompiledField]) -> tuple[Ref, ...]:
+    """The sources of every input read as rows of an index another such input also reads."""
+    inputs_reading: dict[Index | None, list[RowsUnder]] = {}
+    for _, receive_mode in receive_modes:
+        if isinstance(receive_mode, RowsUnder):
+            inputs_reading.setdefault(fields[receive_mode.sources[0]]._index, []).append(receive_mode)
+    return tuple(source for readers in inputs_reading.values() if len(readers) > 1 for reader in readers for source in reader.sources)
 
 
 def _lists_as_tuples[K, V](by_index_id: dict[K, list[V]]) -> dict[K, tuple[V, ...]]:

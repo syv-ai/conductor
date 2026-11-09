@@ -40,8 +40,18 @@ from datetime import date
 from functools import cache
 from typing import Annotated, Any, Final, TypedDict, Unpack
 
-from pydantic import ConfigDict, Field, SerializeAsAny, TypeAdapter, ValidationError, with_config
+from pydantic import (
+    ConfigDict,
+    Field,
+    PlainSerializer,
+    PydanticUserError,
+    SerializeAsAny,
+    TypeAdapter,
+    ValidationError,
+    with_config,
+)
 
+from conductor._internal.codec import to_jsonable
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.dtype import (
     DTypeField,
@@ -103,6 +113,14 @@ def humanised(name: str) -> str:
 def was_titled_by_its_author(field: Input | Output) -> bool:
     """Did someone write this field's title, rather than it being its name in everyday words?"""
     return field.title != humanised(field.name)
+
+
+def _default_as_written(default: Any) -> Any:
+    """A default as JSON, or ``None`` for a host's own value that has no JSON form: an editor has nothing to show of it, and the signature still holds it."""
+    try:
+        return to_jsonable(default)
+    except (TypeError, ValueError, PydanticUserError):
+        return None
 
 
 class Param(ConductorModel):
@@ -173,7 +191,7 @@ class Input(ConductorModel):
     connectable: bool = True
     bounds: Mapping[str, Any] = Field(default_factory=dict)
     #: What the value is when nothing binds the input; ``None`` on a required one.
-    default: Any = None
+    default: Annotated[Any, PlainSerializer(_default_as_written, return_type=Any, when_used="json")] = None
     required: bool = True
     takes_blank: bool = False
     many: bool = False

@@ -439,7 +439,7 @@ class Table(DType, Generic[RowsOf]):
             frame = _frame_from_wire(value)
         elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
             try:
-                frame = pl.DataFrame([dict(record) for record in value])
+                frame = pl.DataFrame([dict(record) for record in value], infer_schema_length=None)
             except (TypeError, ValueError, pl.exceptions.PolarsError) as unreadable:
                 raise ValueError(f"a list of records could not be read as a table: {unreadable}") from unreadable
         else:
@@ -783,7 +783,8 @@ def _cast_column_or_raise(column: pl.Series, target: pl.DataType, type_name_for_
     A column already of ``target``'s kind stays as it is, its parameters
     with it: a ``DType`` naming ``"Decimal"`` says nothing of the scale.
     Text is parsed into a date, a time or a moment, since they travel as
-    text in JSON and in most files; everything else is Polars' own cast."""
+    text in JSON and in most files; everything else is Polars' own cast,
+    which may not change a number: ``12.75`` is no ``Int64``, as it is no ``int``."""
     import polars as pl
 
     if column.dtype == type(target):
@@ -799,6 +800,7 @@ def _cast_column_or_raise(column: pl.Series, target: pl.DataType, type_name_for_
             cast = column.cast(target, strict=False)
     except (pl.exceptions.InvalidOperationError, pl.exceptions.ComputeError):
         cast = None
-    if cast is None or cast.null_count() > column.null_count():
+    loses_a_value = cast is not None and column.dtype.is_numeric() and (target.is_integer() or target == pl.Boolean) and not cast.cast(column.dtype).equals(column)
+    if cast is None or cast.null_count() > column.null_count() or loses_a_value:
         raise ValueError(f"column '{column.name}' has a value that is not a {type_name_for_error}")
     return cast

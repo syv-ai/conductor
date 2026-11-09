@@ -407,8 +407,7 @@ class RunLedger:
         blank = tuple(name for name in node._inputs_rejecting_a_blank if values[name] is None)
         if blank:
             return BlankInputsStopCall(blank)
-        if node._series_inputs_leaving_blanks_out:
-            self._leave_out_blank_rows(unit, values, node._series_inputs_leaving_blanks_out)
+        self._line_up_series_inputs(unit, values, node._series_inputs_leaving_blanks_out)
         return values
 
     def read_input(self, receive_mode: ReceiveMode, unit: Unit) -> Any | SkippedAtRow:
@@ -512,31 +511,36 @@ class RunLedger:
                 values.append(covering[0])
         return rows, values
 
-    def _leave_out_blank_rows(self, unit: Unit, values: dict[str, Any], names: tuple[str, ...]) -> None:
-        """Leave a row out of every input reading an index when one of ``names`` is blank there.
+    def _line_up_series_inputs(self, unit: Unit, values: dict[str, Any], leaving_blanks_out: tuple[str, ...]) -> None:
+        """Keep the inputs of many values that read one index on the same rows, whatever a node does with them.
 
-        ``names`` are the inputs of many values that take no blank. A row leaves
+        A row one column skipped is blank in that column, the row kept in the others;
+        a row blank on an input in ``leaving_blanks_out`` (they take no blank) then leaves
         all of them on its index, or a node zipping them would pair wrong values.
         An input gathered or set on the node has rows of its own, so its blanks leave only it."""
-        if not any(cell is None for name in names for cell in values[name]):  # by identity: a frame refuses ``==``
-            return
         node_id, row = unit
-        read_as_rows: dict[str, tuple[Index, list[Row], list[Any]]] = {}
+        may_be_out_of_step = any(map(self._values.may_hold_a_skip, self._lookups.sources_of_series_inputs_on_one_index[node_id]))
+        if not may_be_out_of_step and not any(cell is None for name in leaving_blanks_out for cell in values[name]):  # by identity: a frame refuses ``==``
+            return
+        read_as_rows: dict[str, tuple[Index, dict[Row, Any]]] = {}
+        rows_of_index: dict[Index, set[Row]] = {}
         for name, receive_mode in self._lookups.receive_modes_of_node[node_id]:
             if isinstance(receive_mode, RowsUnder):
                 index = self._fields[receive_mode.sources[0]]._index
                 assert index is not None  # what is read as rows has an index
-                read_as_rows[name] = (index, *self._rows_and_values_on(node_id, receive_mode.sources, row[: receive_mode.depth]))
-        blank_rows: dict[Index, set[Row]] = {}
-        for name in names:
+                rows, cells = self._rows_and_values_on(node_id, receive_mode.sources, row[: receive_mode.depth])
+                read_as_rows[name] = (index, dict(zip(rows, cells, strict=True)))
+                rows_of_index.setdefault(index, set()).update(rows)
+        rows_leaving: dict[Index, set[Row]] = {}
+        for name in leaving_blanks_out:
             if name in read_as_rows:
-                index, rows, cells = read_as_rows[name]
-                blank_rows.setdefault(index, set()).update(on_row for on_row, cell in zip(rows, cells, strict=True) if cell is None)
+                index, cell_at = read_as_rows[name]
+                rows_leaving.setdefault(index, set()).update(on_row for on_row in rows_of_index[index] if cell_at.get(on_row) is None)
             else:
                 values[name] = [cell for cell in values[name] if cell is not None]
-        for name, (index, rows, cells) in read_as_rows.items():
-            if blank_rows.get(index):
-                values[name] = [cell for on_row, cell in zip(rows, cells, strict=True) if on_row not in blank_rows[index]]
+        for name, (index, cell_at) in read_as_rows.items():
+            leaving = rows_leaving.get(index, ())
+            values[name] = [cell_at.get(on_row) for on_row in sorted(rows_of_index[index]) if on_row not in leaving]
 
     # -- recording -----------------------------------------------------------------
 

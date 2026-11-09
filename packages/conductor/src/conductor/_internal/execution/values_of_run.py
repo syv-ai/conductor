@@ -372,6 +372,8 @@ class ValuesOfRun:
             self._note_skip_at(field, row)
         elif (index := field._held_as.rows_made) is not None:
             self._make_rows_under(index.id, row, len(value), rows_made)
+            if field._held_as.__class__ is CellsInAList and any(cell is SKIPPED for cell in value):
+                self._fields_with_a_skip.add(field.ref)
 
     def _note_skip_at(self, field: CompiledField, row: Row) -> None:
         self._fields_with_a_skip.add(field.ref)
@@ -425,6 +427,10 @@ class ValuesOfRun:
         if cells is MISSING or row[-1] >= len(cells):
             return MISSING, row
         return cells[row[-1]], row
+
+    def may_hold_a_skip(self, ref: Ref) -> bool:
+        """Can a row of this field hold nothing because of a skip? Only then can columns on one index be out of step."""
+        return ref in self._fields_with_a_skip
 
     def cells_under(self, ref: Ref, row: Row) -> list[Any]:
         """The list a row-making output holds at ``row``, whose items are the rows under it."""
@@ -523,6 +529,8 @@ class ValuesOfRun:
                 if read is None:
                     continue
                 self._values[ref] = read
+                if column.skipped:
+                    self._fields_with_a_skip.add(ref)
                 for row in column.skipped:
                     if read.get(row) is SKIPPED:
                         self._note_skip_at(self._fields[ref], row)
