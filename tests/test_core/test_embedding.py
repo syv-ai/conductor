@@ -451,11 +451,10 @@ def _condition(condition) -> list[list[str]]:
     return sorted(sorted(repr(atom) for atom in alternative) for alternative in condition)
 
 
-def _what_the_engine_reads(compiled: CompiledGraph) -> dict[str, Any]:
-    """Every run node, in order: the row it runs on, the values typed on it,
-    and each field's type, rows, receipt, binding and condition, as reprs.
-    What an editor draws is here too, so a value that no longer holds can't
-    hide behind a run that reads right."""
+def _what_compile_says(compiled: CompiledGraph) -> dict[str, Any]:
+    """Every node that runs, in order: its run plan, the values set on it, and
+    each field's type, binding and condition, as reprs. What an editor draws is
+    here too, so a value that goes missing can't hide behind a run that reads right."""
     assert compiled.is_runnable, compiled.problems
     nodes: dict[str, Any] = {}
     for node_id in compiled.execution_order:
@@ -466,13 +465,10 @@ def _what_the_engine_reads(compiled: CompiledGraph) -> dict[str, Any]:
             found = compiled.field(Ref(node_id, declared.name))
             fields[declared.name] = {
                 "type": repr(found.type),
-                "index": repr(found._index),
-                **({
-                    "receives": repr(found._receives), "binding": repr(found.binding), "listed": found._listed,
-                } if declared.name in inputs else {"condition": _condition(found.condition)}),
+                **({"binding": repr(found.binding)} if declared.name in inputs else {"condition": _condition(found.condition)}),
             }
         nodes[node_id] = {
-            "runs_per_row_of": repr(graph_node.wiring._runs_per_row_of),
+            "plan": compiled.run_plan.nodes[node_id].model_dump(mode="json"),
             "statics": repr(dict(sorted(graph_node.statics.items()))),
             "fields": fields,
         }
@@ -481,7 +477,7 @@ def _what_the_engine_reads(compiled: CompiledGraph) -> dict[str, Any]:
 
 @pytest.mark.parametrize("name", sorted(SCENARIOS))
 def test_a_compiled_graph_embedded_reads_exactly_as_the_raw_graph_inlined(name):
-    assert _what_the_engine_reads(_compiled(name)) == json.loads(FIXTURE.read_text())[name]
+    assert _what_compile_says(_compiled(name)) == json.loads(FIXTURE.read_text())[name]
 
 
 def test_the_pinned_values_are_the_scenarios():

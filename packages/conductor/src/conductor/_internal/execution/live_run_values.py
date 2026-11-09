@@ -495,7 +495,7 @@ class LiveRunValues:
                         gathered.append(value)
                     else:
                         gathered.extend(self._series(node_id, (ref,), index, self._rows_under(index.id, ())).values)
-                values[inp.name] = Series(received.index, gathered)
+                values[inp.name] = Series(gathered, index=received.index)
             else:
                 group = row[: _rows_under_depth(received)]
                 found = [self._lookup(ref, group) for ref in binding.refs]
@@ -579,7 +579,7 @@ class LiveRunValues:
         value.
         """
         if isinstance(received, EntireValue):
-            return Series(self._fields[own]._index, value.values if isinstance(value, Series) else list(value))
+            return Series(value.values if isinstance(value, Series) else list(value), index=self._fields[own]._index)
         if isinstance(received, PerRow):
             return list(value)[row[received.index.depth - 1]]
         return value
@@ -633,7 +633,7 @@ class LiveRunValues:
             covering, _ = self._covering(node_id, refs, r)
             if covering:
                 present.append((r, covering[0]))
-        return Series(index, [v for _, v in present], rows=[r for r, _ in present])
+        return Series([v for _, v in present], index=index, rows=[r for r, _ in present])
 
     # -- recording -----------------------------------------------------------------
 
@@ -1095,7 +1095,7 @@ def _leave_out_blank_rows(values: dict[str, Any], names: tuple[str, ...]) -> Non
         if isinstance(value, Series) and value.index in blank_rows:
             gone = blank_rows[value.index]
             kept = [(row, cell) for row, cell in zip(value.rows, value.values, strict=True) if row not in gone]
-            values[name] = Series(value.index, [cell for _, cell in kept], rows=[row for row, _ in kept])
+            values[name] = Series([cell for _, cell in kept], index=value.index, rows=[row for row, _ in kept])
 
 
 def _rows_by_parent(by_row: Mapping[Row, Any]) -> dict[Row, list[Row]]:
@@ -1184,7 +1184,7 @@ def node_result(plan: EngineReadPlan, node_id: str, values: Mapping[Ref, Mapping
         index = plan.fields[Ref(node_id, name)]._index
         if index is not None:
             rows = _rows_with_a_value(by_row)
-            result[name] = Series(index, [by_row[row] for row in rows], rows=rows)
+            result[name] = Series([by_row[row] for row in rows], index=index, rows=rows)
         elif at_top is not _MISSING:
             result[name] = at_top
     return result

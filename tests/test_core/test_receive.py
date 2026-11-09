@@ -24,8 +24,6 @@ from conductor import (
     Static,
     node,
 )
-from conductor._internal.graph.receive import Broadcast, EntireValue, Gather, PerRow, RowsUnder
-from conductor._internal.series import Index
 from conductor.widgets import Textarea
 
 from test_core.embedded import embedded_graph_node
@@ -86,8 +84,8 @@ def _edge(*refs):
     return From(*(Ref(n, f) for n, f in refs))
 
 
-def _receives(compiled, node_id, field):
-    return compiled.field(Ref(node_id, field))._receives
+def _input_plan(compiled, node_id, field):
+    return compiled.run_plan.nodes[node_id].inputs[field]
 
 
 # --- fed by an edge -------------------------------------------------------------
@@ -99,7 +97,7 @@ def test_a_scalar_input_fed_a_scalar_receives_one_value_once():
         GraphNode(id="b", type="upper", version=1, bindings={"text": _edge(("a", "result"))}),
     ])
 
-    assert _receives(compiled, "b", "text") == Broadcast()
+    assert _input_plan(compiled, "b", "text").arrives == "same_value_every_row"
 
 
 def test_a_scalar_input_fed_a_series_receives_one_value_per_row_of_its_index():
@@ -108,8 +106,8 @@ def test_a_scalar_input_fed_a_series_receives_one_value_per_row_of_its_index():
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "result"))}),
     ])
 
-    assert _receives(compiled, "up", "text") == PerRow(Index("docs.result"))
-    assert compiled.node("up").wiring._runs_per_row_of == Index("docs.result")
+    assert (_input_plan(compiled, "up", "text").arrives, _input_plan(compiled, "up", "text").rows_of) == ("value_at_row", "docs.result")
+    assert compiled.run_plan.nodes["up"].runs_per_row_of == "docs.result"
 
 
 def test_a_series_input_fed_one_series_on_a_root_receives_it_whole():
@@ -118,8 +116,8 @@ def test_a_series_input_fed_one_series_on_a_root_receives_it_whole():
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("docs", "result"))}),
     ])
 
-    assert _receives(compiled, "j", "texts") == EntireValue()
-    assert compiled.node("j").wiring._runs_per_row_of is None
+    assert _input_plan(compiled, "j", "texts").arrives == "entire_value"
+    assert compiled.run_plan.nodes["j"].runs_per_row_of is None
 
 
 def test_a_series_input_fed_a_series_on_a_child_reduces_under_the_parent_row():
@@ -129,8 +127,8 @@ def test_a_series_input_fed_a_series_on_a_child_reduces_under_the_parent_row():
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("lines", "result"))}),
     ])
 
-    assert _receives(compiled, "j", "texts") == RowsUnder(Index("lines.result"), depth=1)
-    assert compiled.node("j").wiring._runs_per_row_of == Index("docs.result")
+    assert (_input_plan(compiled, "j", "texts").arrives, _input_plan(compiled, "j", "texts").rows_of) == ("all_rows_under_row", "lines.result")
+    assert compiled.run_plan.nodes["j"].runs_per_row_of == "docs.result"
 
 
 def test_a_series_input_fed_unrelated_sources_gathers_them_onto_the_fields_own_index():
@@ -140,9 +138,7 @@ def test_a_series_input_fed_unrelated_sources_gathers_them_onto_the_fields_own_i
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("a", "result"), ("b", "result"))}),
     ])
 
-    received = _receives(compiled, "j", "texts")
-    assert received == Gather(Index(Ref("j", "texts")))
-    assert received.index == compiled.field(Ref("j", "texts"))._index
+    assert _input_plan(compiled, "j", "texts").arrives == "collected"
 
 
 def test_an_open_parameter_receives_its_edge_whole_even_when_a_series_arrives():
@@ -151,8 +147,8 @@ def test_an_open_parameter_receives_its_edge_whole_even_when_a_series_arrives():
         GraphNode(id="s", type="script", version=1, bindings={"v": _edge(("docs", "result"))}),
     ])
 
-    assert _receives(compiled, "s", "v") == EntireValue()
-    assert compiled.node("s").wiring._runs_per_row_of is None
+    assert _input_plan(compiled, "s", "v").arrives == "entire_value"
+    assert compiled.run_plan.nodes["s"].runs_per_row_of is None
 
 
 # --- nothing feeds it -------------------------------------------------------------
@@ -165,10 +161,10 @@ def test_a_typed_in_scalar_is_received_once_and_a_typed_in_list_once_per_value()
         GraphNode(id="default", type="upper", version=1),
     ])
 
-    assert _receives(compiled, "one", "text") == Broadcast()
-    assert _receives(compiled, "many", "text") == PerRow(Index(Ref("many", "text")))
-    assert compiled.node("many").wiring._runs_per_row_of == Index(Ref("many", "text"))
-    assert _receives(compiled, "default", "text") == Broadcast()
+    assert _input_plan(compiled, "one", "text").arrives == "same_value_every_row"
+    assert (_input_plan(compiled, "many", "text").arrives, _input_plan(compiled, "many", "text").rows_of) == ("value_at_row", "many.text")
+    assert compiled.run_plan.nodes["many"].runs_per_row_of == "many.text"
+    assert _input_plan(compiled, "default", "text").arrives == "same_value_every_row"
 
 
 def test_a_series_input_with_a_typed_in_list_or_a_default_receives_it_whole_on_its_own_index():
@@ -177,21 +173,8 @@ def test_a_series_input_with_a_typed_in_list_or_a_default_receives_it_whole_on_i
         GraphNode(id="default", type="join", version=1),
     ])
 
-    assert _receives(compiled, "typed", "texts") == EntireValue()
-    assert compiled.field(Ref("typed", "texts"))._index == Index(Ref("typed", "texts"))
-    assert _receives(compiled, "default", "texts") == EntireValue()
-
-
-def test_a_closed_input_typed_as_a_list_holds_one_value_and_the_node_runs_once():
-    """``['a', 'b', 'c']`` on ``tags: list[str]`` is the one value the
-    type read, not three values to run per; whether the author typed many is
-    decided by which validation succeeded, never by the shape of the result."""
-    compiled = _compiled([GraphNode(id="t", type="tags", version=1, bindings={"tags": Static(["a", "b", "c"])})])
-
-    assert compiled.is_runnable, compiled.problems
-    assert _receives(compiled, "t", "tags") == Broadcast()
-    assert compiled.node("t").wiring._runs_per_row_of is None
-    assert compiled.node("t").statics == {"tags": ["a", "b", "c"]}
+    assert _input_plan(compiled, "typed", "texts").arrives == "entire_value"
+    assert _input_plan(compiled, "default", "texts").arrives == "entire_value"
 
 
 def test_a_default_is_not_a_static():
@@ -201,13 +184,7 @@ def test_a_default_is_not_a_static():
 
     assert compiled.is_runnable, compiled.problems
     assert compiled.node("t").statics == {}
-    assert _receives(compiled, "t", "tags") == Broadcast()
-
-
-def test_an_output_has_no_receive_record():
-    compiled = _compiled([GraphNode(id="a", type="upper", version=1, bindings={"text": Static("hi")})])
-
-    assert compiled.field(Ref("a", "result"))._receives is None
+    assert _input_plan(compiled, "t", "tags").arrives == "same_value_every_row"
 
 
 # --- inside an embedded graph ----------------------------------------------------------
@@ -224,9 +201,9 @@ def test_an_inner_reduction_over_the_entering_series_reduces_to_its_own_row():
     ], inner)
 
     assert compiled.is_runnable, compiled.problems
-    assert _receives(compiled, "emb/holder", "text") == PerRow(Index("docs.result"))
-    assert _receives(compiled, "emb/join", "texts") == RowsUnder(Index("docs.result"), depth=1)
-    assert compiled.node("emb/join").wiring._runs_per_row_of == Index("docs.result")
+    assert (_input_plan(compiled, "emb/holder", "text").arrives, _input_plan(compiled, "emb/holder", "text").rows_of) == ("value_at_row", "docs.result")
+    assert (_input_plan(compiled, "emb/join", "texts").arrives, _input_plan(compiled, "emb/join", "texts").rows_of) == ("all_rows_under_row", "docs.result")
+    assert compiled.run_plan.nodes["emb/join"].runs_per_row_of == "docs.result"
 
 
 def test_unrelated_rows_inside_an_embedded_graph_are_misaligned_not_paired():

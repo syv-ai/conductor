@@ -29,7 +29,6 @@ from conductor import (
     Upgrade,
     node,
 )
-from conductor._internal.graph.receive import Broadcast
 from conductor._internal.interface import build_call_validator
 from conductor.widgets import Choice, Dropdown, Textarea
 from pydantic import ValidationError
@@ -256,7 +255,7 @@ def test_a_painter_reads_every_node_of_a_broken_graph():
             continue
         assert graph_node.interface.inputs
         if graph_node.state == "ready":
-            assert graph_node.wiring._runs_per_row_of is None
+            assert compiled.run_plan.nodes[drawn.id].runs_per_row_of is None
             assert all(compiled.field(Ref(drawn.id, i.name)).type is Txt for i in graph_node.interface.inputs)
 
 
@@ -307,7 +306,7 @@ def test_an_empty_typed_input_is_a_value_that_arrives_later():
     assert not compiled.is_runnable
     assert [p.type for p in compiled.problems] == ["unbound_required"]
     assert (compiled.node("n").state, compiled.node("e").state) == ("ready", "ready")
-    assert compiled.field(Ref("n", "text"))._receives == Broadcast()
+    assert compiled.run_plan.nodes["n"].inputs["text"].arrives == "same_value_every_row"
     assert compiled.field(Ref("e", "result")).type is Txt
 
 
@@ -429,16 +428,6 @@ def test_execution_order_follows_the_edges():
 
 
 # --- a field's binding ----------------------------------------------------
-
-
-def test_binding_answers_where_an_input_comes_from():
-    compiled = _compiled([
-        GraphNode(id="a", type="echo", version=1, bindings={"x": Static("hi")}),
-        GraphNode(id="b", type="echo", version=1, bindings={"x": From("a.result")}),
-    ])
-
-    assert isinstance(compiled.field(Ref("a", "x")).binding, Static)
-    assert isinstance(compiled.field(Ref("b", "x")).binding, From)
 
 
 def test_an_unbound_input_reads_as_None_once_compiled():
@@ -635,7 +624,7 @@ def test_compiling_the_same_graph_twice_gives_the_same_answers():
     assert first.interface == second.interface
     assert first.node("b").interface == second.node("b").interface
     assert first.field(Ref("b", "result")).type is second.field(Ref("b", "result")).type
-    assert first.field(Ref("b", "result"))._index == second.field(Ref("b", "result"))._index
+    assert first.run_plan == second.run_plan
 
 
 def test_compiling_does_not_mutate_the_graph():

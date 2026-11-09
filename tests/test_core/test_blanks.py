@@ -7,7 +7,6 @@ from typing import Annotated, Any, Optional
 import polars as pl
 import pytest
 from conductor import (
-    AsItArrives,
     AskPerson,
     CompiledGraph,
     DType,
@@ -178,13 +177,6 @@ def test_a_record_field_takes_a_blank_when_its_hint_says_so():
 def test_a_field_built_by_a_hook_says_it_the_same_way():
     assert Input("x", Txt | None).takes_blank and Output("x", Txt | None).takes_blank
     assert not Input("x", Txt).takes_blank
-
-
-def test_as_it_arrives_takes_a_blank():
-    def run(**inputs: AsItArrives) -> Mapping[str, Any]: ...
-
-    declared = node("n", compute_outputs=lambda: [])(run)
-    assert declared.versions[1].open_input.takes_blank
 
 
 def test_a_none_default_on_an_input_that_takes_no_blank_is_refused():

@@ -28,7 +28,6 @@ from conductor import (
     Table,
     node,
 )
-from conductor._internal.series import Index
 from conductor.widgets import Textarea
 from helpers import stream_of
 
@@ -133,7 +132,7 @@ def test_send_mail_runs_once_per_contact_and_bos_blank_email_runs_blank():
     results = _results(compiled)
 
     sent = results["send"]["result"]
-    assert sent.index == Index("csv.result") and sent.rows == ((0,), (1,), (2,))
+    assert sent.index.id == "csv.result" and sent.rows == ((0,), (1,), (2,))
     assert list(sent) == ["sent to ida@x", "no address", "sent to nina@x"]
 
 
@@ -162,7 +161,7 @@ def test_invoices_per_document_get_their_check_and_a_skipped_check_is_a_gap_on_i
     results = _results(compiled)
 
     approved = results["check"]["result"]
-    assert approved.index == Index("read.result", parent=Index("docs.result"))
+    assert approved.index.id == "read.result"
     assert approved.rows == ((0, 0), (1, 0))
     assert list(approved) == ["acme ok", "beta ok"]
     assert list(results["total"]["result"]) == [15.0, 7.0]
@@ -228,7 +227,7 @@ def test_an_embedded_graph_run_per_row_lands_its_result_on_the_contacts():
     results = _results(compiled)
 
     sent = results["emb/send"]["result"]
-    assert sent.index == Index("csv.result")
+    assert sent.index.id == "csv.result"
     assert list(sent) == ["sent to ida@x", "no address", "sent to nina@x"]
 
 

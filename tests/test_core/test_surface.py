@@ -119,9 +119,9 @@ def test_a_series_prints_as_its_constructor():
     from conductor import Series
     from conductor._internal.series import Index
 
-    assert repr(Series[Txt](Index("lines"), [Txt("a")])) == "Series[Txt](Index('lines'), ['a'])"
-    sparse = Series[Txt](Index("lines"), [Txt("b")], rows=[(1,)])
-    assert repr(sparse) == "Series[Txt](Index('lines'), ['b'], rows=[(1,)])"
+    assert repr(Series[Txt]([Txt("a")], index=Index("lines"))) == "Series[Txt](['a'], index=Index('lines'))"
+    sparse = Series[Txt]([Txt("b")], index=Index("lines"), rows=[(1,)])
+    assert repr(sparse) == "Series[Txt](['b'], index=Index('lines'), rows=[(1,)])"
     assert repr(Index("b", parent=Index("a"))) == "Index('b', parent=Index('a'))"
 
 

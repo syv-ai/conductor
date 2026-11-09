@@ -130,7 +130,7 @@ def test_a_frame_is_the_json_the_dict_was():
     from conductor_providers.fastapi.sse import sse_frame
 
     event = NodeComplete(
-        type="node_complete", node_id="s", result={"result": Series[Txt](Index("s"), [Txt("a")], rows=[(0,)])}
+        type="node_complete", node_id="s", result={"result": Series[Txt]([Txt("a")], index=Index("s"), rows=[(0,)])}
     )
 
     assert json.loads(sse_frame(event).removeprefix("data: ")) == {

@@ -6,10 +6,10 @@ its outputs become series on the same index. When a node declares
 ``Series[X]`` it receives the whole series at once — a reduction. The
 declared type decides; there is no flag on the wire::
 
-    s = Series[Text](Index("docs"), ["a", "b", "c"])
+    s = Series[Text](["a", "b", "c"])
     list(s)     # ["a", "b", "c"]
     s.rows      # ((0,), (1,), (2,))
-    s.index     # Index("docs")
+    s.index     # a new root index
 
 The **index** says where the rows came from, and it is what the engine
 compares — never lengths: two series may feed one node only if they share
@@ -158,11 +158,13 @@ class Series(DType, Sequence[T]):
 
     def __init__(
         self,
-        index: Index,
         values: Sequence[T],
+        *,
+        index: Index | None = None,
         rows: Sequence[Row] | None = None,
     ) -> None:
-        self.index = index
+        #: Where the rows come from. Left out, a new root: values made apart share no rows.
+        self.index = Index.fresh() if index is None else index
         self.values: tuple[T, ...] = tuple(values)
         #: One path per value. Left out, the series is dense on a root:
         #: ``(0,), (1,), ...``. A child index has no such default — its rows
@@ -200,11 +202,11 @@ class Series(DType, Sequence[T]):
         return hash((self.index, self.rows, self.values))
 
     def __repr__(self) -> str:
-        """``Series[Text](Index('lines'), ['a'])``: the call that makes it, rows
+        """``Series[Text](['a'], index=Index('lines'))``: the call that makes it, rows
         only when they are not the dense default a root gives."""
         dense = self.rows == tuple((i,) for i in range(len(self.values)))
         rows = "" if dense else f", rows={list(self.rows)!r}"
-        return f"{type(self).__name__}({self.index!r}, {list(self.values)!r}{rows})"
+        return f"{type(self).__name__}({list(self.values)!r}, index={self.index!r}{rows})"
 
     # -- the wire ----------------------------------------------------------
 

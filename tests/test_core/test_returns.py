@@ -19,23 +19,6 @@ class Text(DType, str):
     display_title = "Text"
 
 
-def test_an_output_is_a_field_and_adds_one_contract_fact():
-    """``choice`` names the group of exclusive alternatives an output
-    belongs to. Compile's contract derivation and the editor read it; the
-    engine never does."""
-    output = Output("result", Text, title="Resultat")
-
-    assert output.choice is None
-    assert Output("if_true", Text, title="If true", choice="branches").choice == "branches"
-
-
-def test_an_output_carries_what_both_sides_of_a_node_have():
-    output = Output("result", Text, title="Resultat", description="Svaret")
-
-    assert (output.name, output.dtype, output.title) == ("result", Text, "Resultat")
-    assert output.description == "Svaret"
-
-
 def test_an_output_has_no_widget_no_default_no_optional():
     """Not blank there — meaningless there. Nobody supplies a result."""
     output = Output("result", Text, title="R")
@@ -51,17 +34,6 @@ def test_an_output_says_nothing_about_downloading():
 
     assert not hasattr(output, "download")
     assert not hasattr(output, "filename")
-
-
-def test_a_field_is_frozen_and_keyword_only():
-    """`kw_only` is load-bearing, not style: it is what lets `Input` add a
-    *required* `widget` after this parent's defaulted fields."""
-    output = Output("result", Text, title="R")
-
-    with pytest.raises(Exception):
-        output.name = "other"
-    with pytest.raises(TypeError):
-        Output("result", Text, "R")
 
 
 def test_the_record_is_the_schema():

@@ -30,7 +30,6 @@ from conductor import (
     Static,
     node,
 )
-from conductor._internal.series import Index
 from conductor.widgets import Textarea
 from helpers import stream_of
 
@@ -166,6 +165,27 @@ def _events(nodes):
     return asyncio.run(gathered())
 
 
+# --- what no run reaches by another way ---------------------------------------------------
+
+
+def test_an_unconnected_series_input_receives_its_default():
+    assert _run([GraphNode(id="j", type="join", version=1)])["j"]["result"] == ""
+
+
+def test_a_row_two_edges_both_supply_fails_the_node_with_the_row():
+    compiled = CompiledGraph.from_graph(Graph(nodes=[
+        _docs("x"),
+        GraphNode(id="a", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
+        GraphNode(id="b", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
+        GraphNode(id="m", type="upper", version=1, bindings={"text": _edge(("a", "result"), ("b", "result"))}),
+    ]), _registry())
+
+    state = compiled.run_sync()
+
+    assert state.status == "failed"
+    assert (state.failure.type, state.failure.ctx["row"]) == ("row_covered_twice", [0])
+
+
 # --- a computed interface, by name -----------------------------------------------------
 
 
@@ -177,7 +197,7 @@ def test_a_computed_roster_runs_by_name_and_edges_like_any_field():
     ])
 
     assert list(results["c"]["navn"]) == ["navn:a", "navn:b"]
-    assert results["c"]["email"].index == Index("docs.texts")
+    assert results["c"]["email"].index.id == "docs.texts"
     assert list(results["up"]["result"]) == ["EMAIL:A", "EMAIL:B"]
 
 
@@ -200,7 +220,7 @@ def test_an_iterating_chain_runs_per_row_and_a_reduction_collapses_it():
 
     up = results["up"]["result"]
     assert isinstance(up, Series)
-    assert up.index == Index("docs.texts")
+    assert up.index.id == "docs.texts"
     assert up.rows == ((0,), (1,), (2,))
     assert list(up) == ["A", "B", "C"]
     assert results["j"]["result"] == "A+B+C"
@@ -227,11 +247,11 @@ def test_an_iterating_node_returning_a_series_unfolds_and_a_reduction_refolds():
     ])
 
     lines = results["lines"]["result"]
-    assert lines.index == Index("lines.result", parent=Index("docs.texts"))
+    assert lines.index.id == "lines.result"
     assert lines.rows == ((0, 0), (0, 1), (1, 0))
     assert results["up"]["result"].rows == ((0, 0), (0, 1), (1, 0))
     per_doc = results["j"]["result"]
-    assert per_doc.index == Index("docs.texts")
+    assert per_doc.index.id == "docs.texts"
     assert list(per_doc) == ["A+B", "C"]
 
 
@@ -718,7 +738,6 @@ def test_a_typed_in_list_inside_an_iterating_embedded_graph_is_a_child_row_under
         ]),
         _registry_with_asks(TypedInside),
     )
-    assert compiled.node("emb/t").wiring._runs_per_row_of.parent == Index("docs.texts")
 
     results = compiled.results(compiled.run_sync())
 
@@ -770,5 +789,5 @@ def test_an_inner_reduction_over_the_entering_series_runs_once_per_outer_row():
 
     assert list(results["emb/holder"]["result"]) == ["A", "B", "C"]
     assert list(results["emb/gather"]["result"]) == ["A", "B", "C"]
-    assert results["emb/gather"]["result"].index == Index("docs.texts")
+    assert results["emb/gather"]["result"].index.id == "docs.texts"
     assert results["after"]["result"] == "A+B+C"

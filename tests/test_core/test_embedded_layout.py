@@ -20,7 +20,6 @@ from conductor import (
     Static,
     node,
 )
-from conductor._internal.series import Index
 from conductor.widgets import Textarea
 
 from test_core.embedded import embedded_graph_node
@@ -133,8 +132,7 @@ def test_an_unconnected_placement_keeps_the_inner_statics_and_lays_out_flat():
 
     assert compiled.is_runnable, compiled.problems
     assert compiled.field(Ref("emb/holder", "value")).binding == Static("inner")
-    assert compiled.node("emb").wiring._runs_per_row_of is None
-    assert all(compiled.node(node_id).wiring._runs_per_row_of is None for node_id in compiled.execution_order)
+    assert all(plan.runs_per_row_of is None for plan in compiled.run_plan.nodes.values())
 
 
 def test_a_graph_node_is_a_node_in_the_interface_named_by_what_it_offers():
@@ -224,9 +222,8 @@ def test_a_series_entering_through_a_scalar_field_makes_the_placement_iterate():
     ])
 
     assert compiled.is_runnable, compiled.problems
-    assert compiled.node("emb").wiring._runs_per_row_of == Index("docs.result")
-    assert compiled.node("emb/holder").wiring._runs_per_row_of == Index("docs.result")
-    assert compiled.node("emb/up").wiring._runs_per_row_of == Index("docs.result")
+    assert compiled.run_plan.nodes["emb/holder"].runs_per_row_of == "docs.result"
+    assert compiled.run_plan.nodes["emb/up"].runs_per_row_of == "docs.result"
 
 
 def test_an_inner_reduction_over_the_entering_series_is_a_fold_of_one():
@@ -237,8 +234,8 @@ def test_an_inner_reduction_over_the_entering_series_is_a_fold_of_one():
         GraphNode(id="emb", type="inner-graph", version=1, bindings={"value": From("docs.result")}),
     ])
 
-    assert compiled.node("emb/join").wiring._runs_per_row_of == Index("docs.result")
-    assert (compiled.field(Ref("emb/join", "result")).type, compiled.field(Ref("emb/join", "result"))._index) == (Series[Txt], Index("docs.result"))
+    assert compiled.run_plan.nodes["emb/join"].runs_per_row_of == "docs.result"
+    assert compiled.field(Ref("emb/join", "result")).type is Series[Txt]
 
 
 def test_a_series_made_inside_reduces_to_the_outer_row_by_lineage_alone():
@@ -259,9 +256,9 @@ def test_a_series_made_inside_reduces_to_the_outer_row_by_lineage_alone():
     )
 
     assert compiled.is_runnable, compiled.problems
-    made = compiled.field(Ref("emb/lines", "result"))._index
-    assert (made, made.parent) == (Index("emb/lines.result"), Index("docs.result"))
-    assert compiled.node("emb/join").wiring._runs_per_row_of == Index("docs.result")
+    assert compiled.run_plan.nodes["emb/lines"].makes_rows == (Ref("emb/lines", "result"),)
+    assert compiled.run_plan.nodes["emb/lines"].runs_per_row_of == "docs.result"
+    assert compiled.run_plan.nodes["emb/join"].runs_per_row_of == "docs.result"
 
     # The same, when the series is made off an inner *static* the entering
     # series never touches: the block runs per row, so the new index is a child of
@@ -280,12 +277,11 @@ def test_a_series_made_inside_reduces_to_the_outer_row_by_lineage_alone():
         _registry(unfed, lines),
     )
     assert compiled.is_runnable, compiled.problems
-    made = compiled.field(Ref("emb/lines", "result"))._index
-    assert (made, made.parent) == (Index("emb/lines.result"), Index("docs.result"))
+    assert compiled.run_plan.nodes["emb/lines"].makes_rows == (Ref("emb/lines", "result"),)
     # The nodes the entering series never reaches still run once per outer row.
-    assert compiled.node("emb/holder").wiring._runs_per_row_of == Index("docs.result")
-    assert compiled.node("emb/lines").wiring._runs_per_row_of == Index("docs.result")
-    assert compiled.node("emb/join").wiring._runs_per_row_of == Index("docs.result")
+    assert compiled.run_plan.nodes["emb/holder"].runs_per_row_of == "docs.result"
+    assert compiled.run_plan.nodes["emb/lines"].runs_per_row_of == "docs.result"
+    assert compiled.run_plan.nodes["emb/join"].runs_per_row_of == "docs.result"
 
 
 def test_two_crossings_on_one_lineage_make_the_whole_block_iterate_on_the_deeper():
@@ -311,12 +307,10 @@ def test_two_crossings_on_one_lineage_make_the_whole_block_iterate_on_the_deeper
     )
 
     assert compiled.is_runnable, compiled.problems
-    per_line = Index("lines.result", parent=Index("docs.result"))
-    assert compiled.node("emb").wiring._runs_per_row_of == per_line
-    assert compiled.node("emb/a").wiring._runs_per_row_of == per_line
-    assert compiled.node("emb/ua").wiring._runs_per_row_of == per_line
-    assert compiled.node("emb/b").wiring._runs_per_row_of == per_line
-    assert compiled.field(Ref("emb/ua", "result"))._index == per_line
+    per_line = "lines.result"
+    assert compiled.run_plan.nodes["emb/a"].runs_per_row_of == per_line
+    assert compiled.run_plan.nodes["emb/ua"].runs_per_row_of == per_line
+    assert compiled.run_plan.nodes["emb/b"].runs_per_row_of == per_line
 
 
 def test_a_series_entering_a_series_field_is_read_whole_and_the_block_lays_out_flat():
@@ -332,8 +326,7 @@ def test_a_series_entering_a_series_field_is_read_whole_and_the_block_lays_out_f
     )
 
     assert compiled.is_runnable, compiled.problems
-    assert compiled.node("emb").wiring._runs_per_row_of is None
-    assert compiled.node("emb/join").wiring._runs_per_row_of is None
+    assert compiled.run_plan.nodes["emb/join"].runs_per_row_of is None
     assert compiled.field(Ref("emb/join", "result")).type is Txt
 
 

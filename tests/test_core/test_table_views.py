@@ -17,7 +17,6 @@ from conductor import (
     Table,
     node,
 )
-from conductor._internal.series import Index
 
 from test_core.test_table import Num, Txt
 from test_core.test_table_runs import CSV, Contacts, Text, _registry
@@ -54,17 +53,15 @@ def test_a_column_is_a_series_on_rows_the_table_output_owns():
     compiled = _compiled(CSV)
     email = compiled.field(Ref("csv", "result.email"))
 
-    assert email.type is Series[Txt] and email._index == Index("csv.result")
-    assert email._view_of == (Ref("csv", "result"), "email")
-    assert compiled.field(Ref("csv", "result"))._makes_rows == Index("csv.result")
-    assert compiled.field(Ref("csv", "result"))._index is None
+    assert email.type is Series[Txt]
+    assert compiled.run_plan.nodes["csv"].makes_rows == (Ref("csv", "result"),)
 
 
 def test_a_column_wired_into_a_single_value_input_runs_the_node_per_row_of_the_table():
     compiled = _compiled(CSV, GraphNode(id="send", type="send", version=1, bindings={"email": From("csv.result.email")}))
 
     assert compiled.is_runnable, compiled.problems
-    assert compiled.node("send").wiring._runs_per_row_of == Index("csv.result")
+    assert compiled.run_plan.nodes["send"].runs_per_row_of == "csv.result"
 
 
 def test_a_table_per_document_offers_columns_on_rows_under_each_document():
@@ -75,8 +72,8 @@ def test_a_table_per_document_offers_columns_on_rows_under_each_document():
     )
 
     assert compiled.is_runnable, compiled.problems
-    assert compiled.field(Ref("read", "result"))._index == Index("docs.result")
-    assert compiled.node("check").wiring._runs_per_row_of == Index("read.result", parent=Index("docs.result"))
+    assert compiled.run_plan.nodes["read"].runs_per_row_of == "docs.result"
+    assert compiled.run_plan.nodes["check"].runs_per_row_of == "read.result"
     assert compiled.field(Ref("read", "result.amount")).type is Series[Num]
 
 

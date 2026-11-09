@@ -9,18 +9,31 @@
         "Atom(node_id='emb/gate', choice='branches', output='if_true')"
        ]
       ],
-      "index": "None",
       "type": "Txt"
      },
      "text": {
       "binding": "From(refs=('emb/up.result',))",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "emb/up.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/gate": {
@@ -31,7 +44,6 @@
         "Atom(node_id='emb/gate', choice='branches', output='if_false')"
        ]
       ],
-      "index": "None",
       "type": "Txt"
      },
      "if_true": {
@@ -40,25 +52,44 @@
         "Atom(node_id='emb/gate', choice='branches', output='if_true')"
        ]
       ],
-      "index": "None",
       "type": "Txt"
      },
      "value": {
       "binding": "From(refs=('emb/holder.result',))",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      },
      "when": {
       "binding": "None",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Flag"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "emb/holder.result"
+       ],
+       "takes_blank": true
+      },
+      "when": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/gate",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/holder": {
@@ -67,18 +98,29 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "value": {
       "binding": "Static(value='x')",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/holder",
+     "runs_per_row_of": null
+    },
     "statics": "{'value': 'x'}"
    },
    "emb/single": {
@@ -92,18 +134,32 @@
         "Atom(node_id='emb/gate', choice='branches', output='if_true')"
        ]
       ],
-      "index": "None",
       "type": "Txt"
      },
      "values": {
       "binding": "From(refs=('emb/gate.if_true', 'emb/gate.if_false'))",
-      "index": "Index('emb/single.values')",
-      "listed": false,
-      "receives": "Gather(index=Index('emb/single.values'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "values": {
+       "arrives": "collected",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "emb/gate.if_true",
+        "emb/gate.if_false"
+       ],
+       "takes_blank": true
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/single",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/up": {
@@ -114,18 +170,31 @@
         "Atom(node_id='emb/gate', choice='branches', output='if_true')"
        ]
       ],
-      "index": "None",
       "type": "Txt"
      },
      "text": {
       "binding": "From(refs=('emb/gate.if_true',))",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "emb/gate.if_true"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/up",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    }
   },
@@ -145,38 +214,64 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "values": {
       "binding": "From(refs=('emb/up.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "EntireValue()",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "values": {
+       "arrives": "entire_value",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "emb/up.result"
+       ],
+       "takes_blank": true
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "docs": {
     "fields": {
      "folder": {
       "binding": "None",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      },
      "result": {
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "folder": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/gate": {
@@ -185,32 +280,50 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "if_true": {
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "value": {
       "binding": "From(refs=('emb/holder.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "when": {
       "binding": "None",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Flag"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/holder.result"
+       ],
+       "takes_blank": true
+      },
+      "when": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/gate",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "emb/holder": {
@@ -219,18 +332,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "value": {
       "binding": "From(refs=('docs.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/holder",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "emb/single": {
@@ -239,18 +365,32 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "values": {
       "binding": "From(refs=('emb/gate.if_true', 'emb/gate.if_false'))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "RowsUnder(index=Index('docs.result'), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "values": {
+       "arrives": "all_rows_under_row",
+       "copied_down": false,
+       "grouped_under": "docs.result",
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/gate.if_true",
+        "emb/gate.if_false"
+       ],
+       "takes_blank": true
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/single",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "emb/up": {
@@ -259,18 +399,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('emb/gate.if_true',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/gate.if_true"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/up",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    }
   },
@@ -293,18 +446,31 @@
         "Atom(node_id='og', choice='branches', output='if_true')"
        ]
       ],
-      "index": "None",
       "type": "Txt"
      },
      "value": {
       "binding": "From(refs=('og.if_true',))",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "og.if_true"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/a",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/b": {
@@ -313,18 +479,29 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "value": {
       "binding": "Static(value='z')",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/b",
+     "runs_per_row_of": null
+    },
     "statics": "{'value': 'z'}"
    },
    "emb/g": {
@@ -335,7 +512,6 @@
         "Atom(node_id='emb/g', choice='branches', output='if_false')"
        ]
       ],
-      "index": "None",
       "type": "Txt"
      },
      "if_true": {
@@ -344,25 +520,44 @@
         "Atom(node_id='emb/g', choice='branches', output='if_true')"
        ]
       ],
-      "index": "None",
       "type": "Txt"
      },
      "value": {
       "binding": "From(refs=('emb/b.result',))",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      },
      "when": {
       "binding": "None",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Flag"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "emb/b.result"
+       ],
+       "takes_blank": true
+      },
+      "when": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/g",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/single": {
@@ -376,18 +571,32 @@
         "Atom(node_id='og', choice='branches', output='if_true')"
        ]
       ],
-      "index": "None",
       "type": "Txt"
      },
      "values": {
       "binding": "From(refs=('emb/a.result', 'emb/g.if_true'))",
-      "index": "Index('emb/single.values')",
-      "listed": false,
-      "receives": "Gather(index=Index('emb/single.values'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "values": {
+       "arrives": "collected",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "emb/a.result",
+        "emb/g.if_true"
+       ],
+       "takes_blank": true
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/single",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "h": {
@@ -396,18 +605,29 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "value": {
       "binding": "Static(value='y')",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "h",
+     "runs_per_row_of": null
+    },
     "statics": "{'value': 'y'}"
    },
    "og": {
@@ -418,7 +638,6 @@
         "Atom(node_id='og', choice='branches', output='if_false')"
        ]
       ],
-      "index": "None",
       "type": "Txt"
      },
      "if_true": {
@@ -427,25 +646,44 @@
         "Atom(node_id='og', choice='branches', output='if_true')"
        ]
       ],
-      "index": "None",
       "type": "Txt"
      },
      "value": {
       "binding": "From(refs=('h.result',))",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      },
      "when": {
       "binding": "None",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Flag"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "h.result"
+       ],
+       "takes_blank": true
+      },
+      "when": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "og",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    }
   },
@@ -472,18 +710,31 @@
         "Atom(node_id='top/g', choice='branches', output='if_false')"
        ]
       ],
-      "index": "None",
       "type": "Txt"
      },
      "text": {
       "binding": "From(refs=('top/s.result',))",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "top/s.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "top/b/gate": {
@@ -495,7 +746,6 @@
         "Atom(node_id='top/g', choice='branches', output='if_true')"
        ]
       ],
-      "index": "None",
       "type": "Txt"
      },
      "if_true": {
@@ -505,25 +755,44 @@
         "Atom(node_id='top/g', choice='branches', output='if_true')"
        ]
       ],
-      "index": "None",
       "type": "Txt"
      },
      "value": {
       "binding": "From(refs=('top/b/holder.result',))",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      },
      "when": {
       "binding": "None",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Flag"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "top/b/holder.result"
+       ],
+       "takes_blank": true
+      },
+      "when": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/b/gate",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "top/b/holder": {
@@ -534,18 +803,31 @@
         "Atom(node_id='top/g', choice='branches', output='if_true')"
        ]
       ],
-      "index": "None",
       "type": "Txt"
      },
      "value": {
       "binding": "From(refs=('top/g.if_true',))",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "top/g.if_true"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/b/holder",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "top/b/single": {
@@ -561,18 +843,32 @@
         "Atom(node_id='top/g', choice='branches', output='if_true')"
        ]
       ],
-      "index": "None",
       "type": "Txt"
      },
      "values": {
       "binding": "From(refs=('top/b/gate.if_true', 'top/b/gate.if_false'))",
-      "index": "Index('top/b/single.values')",
-      "listed": false,
-      "receives": "Gather(index=Index('top/b/single.values'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "values": {
+       "arrives": "collected",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "top/b/gate.if_true",
+        "top/b/gate.if_false"
+       ],
+       "takes_blank": true
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/b/single",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "top/b/up": {
@@ -584,18 +880,31 @@
         "Atom(node_id='top/g', choice='branches', output='if_true')"
        ]
       ],
-      "index": "None",
       "type": "Txt"
      },
      "text": {
       "binding": "From(refs=('top/b/gate.if_true',))",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "top/b/gate.if_true"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/b/up",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "top/g": {
@@ -606,7 +915,6 @@
         "Atom(node_id='top/g', choice='branches', output='if_false')"
        ]
       ],
-      "index": "None",
       "type": "Txt"
      },
      "if_true": {
@@ -615,25 +923,44 @@
         "Atom(node_id='top/g', choice='branches', output='if_true')"
        ]
       ],
-      "index": "None",
       "type": "Txt"
      },
      "value": {
       "binding": "From(refs=('top/h.result',))",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      },
      "when": {
       "binding": "None",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Flag"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "top/h.result"
+       ],
+       "takes_blank": true
+      },
+      "when": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/g",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "top/h": {
@@ -642,18 +969,29 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "value": {
       "binding": "Static(value='m')",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/h",
+     "runs_per_row_of": null
+    },
     "statics": "{'value': 'm'}"
    },
    "top/s": {
@@ -668,18 +1006,32 @@
         "Atom(node_id='top/g', choice='branches', output='if_false')"
        ]
       ],
-      "index": "None",
       "type": "Txt"
      },
      "values": {
       "binding": "From(refs=('top/b/up.result', 'top/g.if_false'))",
-      "index": "Index('top/s.values')",
-      "listed": false,
-      "receives": "Gather(index=Index('top/s.values'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "values": {
+       "arrives": "collected",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "top/b/up.result",
+        "top/g.if_false"
+       ],
+       "takes_blank": true
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/s",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    }
   },
@@ -702,38 +1054,64 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "values": {
       "binding": "From(refs=('top/s.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "EntireValue()",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "values": {
+       "arrives": "entire_value",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "top/s.result"
+       ],
+       "takes_blank": true
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "docs": {
     "fields": {
      "folder": {
       "binding": "None",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      },
      "result": {
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "folder": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "top/b/gate": {
@@ -742,32 +1120,50 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "if_true": {
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "value": {
       "binding": "From(refs=('top/b/holder.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "when": {
       "binding": "None",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Flag"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/b/holder.result"
+       ],
+       "takes_blank": true
+      },
+      "when": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/b/gate",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/b/holder": {
@@ -776,18 +1172,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "value": {
       "binding": "From(refs=('top/g.if_true',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/g.if_true"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/b/holder",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/b/single": {
@@ -796,18 +1205,32 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "values": {
       "binding": "From(refs=('top/b/gate.if_true', 'top/b/gate.if_false'))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "RowsUnder(index=Index('docs.result'), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "values": {
+       "arrives": "all_rows_under_row",
+       "copied_down": false,
+       "grouped_under": "docs.result",
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/b/gate.if_true",
+        "top/b/gate.if_false"
+       ],
+       "takes_blank": true
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/b/single",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/b/up": {
@@ -816,18 +1239,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/b/gate.if_true',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/b/gate.if_true"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/b/up",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/g": {
@@ -836,32 +1272,50 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "if_true": {
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "value": {
       "binding": "From(refs=('top/h.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "when": {
       "binding": "None",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Flag"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/h.result"
+       ],
+       "takes_blank": true
+      },
+      "when": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/g",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/h": {
@@ -870,18 +1324,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "value": {
       "binding": "From(refs=('docs.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/h",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/s": {
@@ -890,18 +1357,32 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "values": {
       "binding": "From(refs=('top/b/up.result', 'top/g.if_false'))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "RowsUnder(index=Index('docs.result'), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "values": {
+       "arrives": "all_rows_under_row",
+       "copied_down": false,
+       "grouped_under": "docs.result",
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/b/up.result",
+        "top/g.if_false"
+       ],
+       "takes_blank": true
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/s",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    }
   },
@@ -932,18 +1413,31 @@
         "Atom(node_id='og', choice='branches', output='if_false')"
        ]
       ],
-      "index": "None",
       "type": "Txt"
      },
      "text": {
       "binding": "From(refs=('emb/single.result',))",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "emb/single.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/gate": {
@@ -955,7 +1449,6 @@
         "Atom(node_id='og', choice='branches', output='if_false')"
        ]
       ],
-      "index": "None",
       "type": "Txt"
      },
      "if_true": {
@@ -965,25 +1458,44 @@
         "Atom(node_id='og', choice='branches', output='if_false')"
        ]
       ],
-      "index": "None",
       "type": "Txt"
      },
      "value": {
       "binding": "From(refs=('emb/holder.result',))",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      },
      "when": {
       "binding": "None",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Flag"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "emb/holder.result"
+       ],
+       "takes_blank": true
+      },
+      "when": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/gate",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/holder": {
@@ -994,18 +1506,31 @@
         "Atom(node_id='og', choice='branches', output='if_false')"
        ]
       ],
-      "index": "None",
       "type": "Txt"
      },
      "value": {
       "binding": "From(refs=('og.if_false',))",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "og.if_false"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/holder",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/single": {
@@ -1021,18 +1546,32 @@
         "Atom(node_id='og', choice='branches', output='if_false')"
        ]
       ],
-      "index": "None",
       "type": "Txt"
      },
      "values": {
       "binding": "From(refs=('emb/gate.if_true', 'emb/gate.if_false'))",
-      "index": "Index('emb/single.values')",
-      "listed": false,
-      "receives": "Gather(index=Index('emb/single.values'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "values": {
+       "arrives": "collected",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "emb/gate.if_true",
+        "emb/gate.if_false"
+       ],
+       "takes_blank": true
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/single",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/up": {
@@ -1044,18 +1583,31 @@
         "Atom(node_id='og', choice='branches', output='if_false')"
        ]
       ],
-      "index": "None",
       "type": "Txt"
      },
      "text": {
       "binding": "From(refs=('emb/gate.if_true',))",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "emb/gate.if_true"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/up",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "h": {
@@ -1064,18 +1616,29 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "value": {
       "binding": "Static(value='y')",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "h",
+     "runs_per_row_of": null
+    },
     "statics": "{'value': 'y'}"
    },
    "og": {
@@ -1086,7 +1649,6 @@
         "Atom(node_id='og', choice='branches', output='if_false')"
        ]
       ],
-      "index": "None",
       "type": "Txt"
      },
      "if_true": {
@@ -1095,25 +1657,44 @@
         "Atom(node_id='og', choice='branches', output='if_true')"
        ]
       ],
-      "index": "None",
       "type": "Txt"
      },
      "value": {
       "binding": "From(refs=('h.result',))",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      },
      "when": {
       "binding": "None",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Flag"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "h.result"
+       ],
+       "takes_blank": true
+      },
+      "when": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "og",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    }
   },
@@ -1135,18 +1716,31 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "text": {
       "binding": "From(refs=('emb/j.result',))",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "emb/j.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/j": {
@@ -1155,18 +1749,31 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "texts": {
       "binding": "From(refs=('emb/n.result',))",
-      "index": "Index('emb/j.texts')",
-      "listed": false,
-      "receives": "Gather(index=Index('emb/j.texts'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "collected",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "emb/n.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/j",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/n": {
@@ -1175,18 +1782,31 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "text": {
       "binding": "From(refs=('h.result',))",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "h.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/n",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "h": {
@@ -1195,18 +1815,29 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "value": {
       "binding": "Static(value='outside')",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "h",
+     "runs_per_row_of": null
+    },
     "statics": "{'value': 'outside'}"
    }
   },
@@ -1225,18 +1856,31 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "text": {
       "binding": "From(refs=('emb/u.result',))",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "emb/u.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/n": {
@@ -1245,18 +1889,31 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "text": {
       "binding": "From(refs=('h.result',))",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "h.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/n",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/u": {
@@ -1265,18 +1922,31 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "text": {
       "binding": "From(refs=('emb/n.result',))",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "emb/n.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/u",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "h": {
@@ -1285,18 +1955,29 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "value": {
       "binding": "Static(value='outside')",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "h",
+     "runs_per_row_of": null
+    },
     "statics": "{'value': 'outside'}"
    }
   },
@@ -1313,20 +1994,33 @@
     "fields": {
      "folder": {
       "binding": "None",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      },
      "result": {
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "folder": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "e0/holder": {
@@ -1335,18 +2029,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "value": {
       "binding": "From(refs=('docs.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e0/holder",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e0/join": {
@@ -1355,18 +2062,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "texts": {
       "binding": "From(refs=('e0/up.result',))",
-      "index": "Index('e0/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "RowsUnder(index=Index('e0/lines.result', parent=Index('docs.result')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "all_rows_under_row",
+       "copied_down": false,
+       "grouped_under": "docs.result",
+       "parts": [],
+       "rows_of": "e0/lines.result",
+       "sources": [
+        "e0/up.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e0/join",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e0/lines": {
@@ -1375,18 +2095,33 @@
       "condition": [
        []
       ],
-      "index": "Index('e0/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('e0/s7.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "e0/s7.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "e0/lines.result"
+     ],
+     "node_id": "e0/lines",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e0/s0": {
@@ -1395,18 +2130,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('e0/holder.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "e0/holder.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e0/s0",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e0/s1": {
@@ -1415,18 +2163,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('e0/s0.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "e0/s0.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e0/s1",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e0/s2": {
@@ -1435,18 +2196,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('e0/s1.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "e0/s1.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e0/s2",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e0/s3": {
@@ -1455,18 +2229,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('e0/s2.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "e0/s2.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e0/s3",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e0/s4": {
@@ -1475,18 +2262,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('e0/s3.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "e0/s3.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e0/s4",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e0/s5": {
@@ -1495,18 +2295,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('e0/s4.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "e0/s4.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e0/s5",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e0/s6": {
@@ -1515,18 +2328,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('e0/s5.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "e0/s5.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e0/s6",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e0/s7": {
@@ -1535,18 +2361,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('e0/s6.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "e0/s6.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e0/s7",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e0/up": {
@@ -1555,18 +2394,31 @@
       "condition": [
        []
       ],
-      "index": "Index('e0/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('e0/lines.result',))",
-      "index": "Index('e0/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "PerRow(index=Index('e0/lines.result', parent=Index('docs.result')))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('e0/lines.result', parent=Index('docs.result'))",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "e0/lines.result",
+       "sources": [
+        "e0/lines.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e0/up",
+     "runs_per_row_of": "e0/lines.result"
+    },
     "statics": "{}"
    },
    "e1/holder": {
@@ -1575,18 +2427,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "value": {
       "binding": "From(refs=('docs.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e1/holder",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e1/join": {
@@ -1595,18 +2460,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "texts": {
       "binding": "From(refs=('e1/up.result',))",
-      "index": "Index('e1/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "RowsUnder(index=Index('e1/lines.result', parent=Index('docs.result')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "all_rows_under_row",
+       "copied_down": false,
+       "grouped_under": "docs.result",
+       "parts": [],
+       "rows_of": "e1/lines.result",
+       "sources": [
+        "e1/up.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e1/join",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e1/lines": {
@@ -1615,18 +2493,33 @@
       "condition": [
        []
       ],
-      "index": "Index('e1/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('e1/s7.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "e1/s7.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "e1/lines.result"
+     ],
+     "node_id": "e1/lines",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e1/s0": {
@@ -1635,18 +2528,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('e1/holder.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "e1/holder.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e1/s0",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e1/s1": {
@@ -1655,18 +2561,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('e1/s0.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "e1/s0.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e1/s1",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e1/s2": {
@@ -1675,18 +2594,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('e1/s1.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "e1/s1.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e1/s2",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e1/s3": {
@@ -1695,18 +2627,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('e1/s2.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "e1/s2.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e1/s3",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e1/s4": {
@@ -1715,18 +2660,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('e1/s3.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "e1/s3.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e1/s4",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e1/s5": {
@@ -1735,18 +2693,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('e1/s4.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "e1/s4.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e1/s5",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e1/s6": {
@@ -1755,18 +2726,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('e1/s5.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "e1/s5.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e1/s6",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e1/s7": {
@@ -1775,18 +2759,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('e1/s6.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "e1/s6.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e1/s7",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e1/up": {
@@ -1795,18 +2792,31 @@
       "condition": [
        []
       ],
-      "index": "Index('e1/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('e1/lines.result',))",
-      "index": "Index('e1/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "PerRow(index=Index('e1/lines.result', parent=Index('docs.result')))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('e1/lines.result', parent=Index('docs.result'))",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "e1/lines.result",
+       "sources": [
+        "e1/lines.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e1/up",
+     "runs_per_row_of": "e1/lines.result"
+    },
     "statics": "{}"
    },
    "e2/holder": {
@@ -1815,18 +2825,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "value": {
       "binding": "From(refs=('docs.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e2/holder",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e2/join": {
@@ -1835,18 +2858,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "texts": {
       "binding": "From(refs=('e2/up.result',))",
-      "index": "Index('e2/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "RowsUnder(index=Index('e2/lines.result', parent=Index('docs.result')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "all_rows_under_row",
+       "copied_down": false,
+       "grouped_under": "docs.result",
+       "parts": [],
+       "rows_of": "e2/lines.result",
+       "sources": [
+        "e2/up.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e2/join",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e2/lines": {
@@ -1855,18 +2891,33 @@
       "condition": [
        []
       ],
-      "index": "Index('e2/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('e2/s7.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "e2/s7.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "e2/lines.result"
+     ],
+     "node_id": "e2/lines",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e2/s0": {
@@ -1875,18 +2926,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('e2/holder.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "e2/holder.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e2/s0",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e2/s1": {
@@ -1895,18 +2959,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('e2/s0.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "e2/s0.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e2/s1",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e2/s2": {
@@ -1915,18 +2992,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('e2/s1.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "e2/s1.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e2/s2",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e2/s3": {
@@ -1935,18 +3025,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('e2/s2.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "e2/s2.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e2/s3",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e2/s4": {
@@ -1955,18 +3058,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('e2/s3.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "e2/s3.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e2/s4",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e2/s5": {
@@ -1975,18 +3091,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('e2/s4.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "e2/s4.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e2/s5",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e2/s6": {
@@ -1995,18 +3124,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('e2/s5.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "e2/s5.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e2/s6",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e2/s7": {
@@ -2015,18 +3157,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('e2/s6.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "e2/s6.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e2/s7",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "e2/up": {
@@ -2035,18 +3190,31 @@
       "condition": [
        []
       ],
-      "index": "Index('e2/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('e2/lines.result',))",
-      "index": "Index('e2/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "PerRow(index=Index('e2/lines.result', parent=Index('docs.result')))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('e2/lines.result', parent=Index('docs.result'))",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "e2/lines.result",
+       "sources": [
+        "e2/lines.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e2/up",
+     "runs_per_row_of": "e2/lines.result"
+    },
     "statics": "{}"
    }
   },
@@ -2096,20 +3264,33 @@
     "fields": {
      "folder": {
       "binding": "None",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      },
      "result": {
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "folder": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/holder": {
@@ -2118,18 +3299,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "value": {
       "binding": "From(refs=('docs.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/holder",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "emb/join": {
@@ -2138,18 +3332,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "texts": {
       "binding": "From(refs=('emb/up.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "RowsUnder(index=Index('docs.result'), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "all_rows_under_row",
+       "copied_down": false,
+       "grouped_under": "docs.result",
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/up.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/join",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "emb/up": {
@@ -2158,18 +3365,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('emb/holder.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/holder.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/up",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    }
   },
@@ -2186,20 +3406,33 @@
     "fields": {
      "folder": {
       "binding": "None",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      },
      "result": {
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "folder": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/holder": {
@@ -2208,18 +3441,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "value": {
       "binding": "From(refs=('docs.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/holder",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "emb/join": {
@@ -2228,18 +3474,32 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "texts": {
       "binding": "From(refs=('emb/holder.result', 'emb/up.result'))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "RowsUnder(index=Index('docs.result'), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "all_rows_under_row",
+       "copied_down": false,
+       "grouped_under": "docs.result",
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/holder.result",
+        "emb/up.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/join",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "emb/up": {
@@ -2248,18 +3508,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('emb/holder.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/holder.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/up",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    }
   },
@@ -2278,18 +3551,31 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "text": {
       "binding": "From(refs=('emb/join.result',))",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "emb/join.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/join": {
@@ -2298,18 +3584,32 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "texts": {
       "binding": "From(refs=('h1.result', 'h2.result'))",
-      "index": "Index('emb.texts')",
-      "listed": false,
-      "receives": "Gather(index=Index('emb.texts'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "collected",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "h1.result",
+        "h2.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/join",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "h1": {
@@ -2318,18 +3618,29 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "value": {
       "binding": "Static(value='a')",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "h1",
+     "runs_per_row_of": null
+    },
     "statics": "{'value': 'a'}"
    },
    "h2": {
@@ -2338,18 +3649,29 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "value": {
       "binding": "Static(value='b')",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "h2",
+     "runs_per_row_of": null
+    },
     "statics": "{'value': 'b'}"
    }
   },
@@ -2368,18 +3690,31 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "texts": {
       "binding": "From(refs=('emb/join.result',))",
-      "index": "Index('after.texts')",
-      "listed": false,
-      "receives": "Gather(index=Index('after.texts'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "collected",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "emb/join.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/holder": {
@@ -2388,18 +3723,29 @@
       "condition": [
        []
       ],
-      "index": "Index('emb/holder.value')",
       "type": "Series[Txt]"
      },
      "value": {
       "binding": "Static(value=['a', 'b'])",
-      "index": "Index('emb/holder.value')",
-      "listed": true,
-      "receives": "PerRow(index=Index('emb/holder.value'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('emb/holder.value')",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "emb/holder.value",
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/holder",
+     "runs_per_row_of": "emb/holder.value"
+    },
     "statics": "{'value': ['a', 'b']}"
    },
    "emb/join": {
@@ -2408,18 +3754,31 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "texts": {
       "binding": "From(refs=('emb/up.result',))",
-      "index": "Index('emb/holder.value')",
-      "listed": false,
-      "receives": "EntireValue()",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "entire_value",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "emb/up.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/join",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/up": {
@@ -2428,18 +3787,31 @@
       "condition": [
        []
       ],
-      "index": "Index('emb/holder.value')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('emb/holder.result',))",
-      "index": "Index('emb/holder.value')",
-      "listed": false,
-      "receives": "PerRow(index=Index('emb/holder.value'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('emb/holder.value')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "emb/holder.value",
+       "sources": [
+        "emb/holder.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/up",
+     "runs_per_row_of": "emb/holder.value"
+    },
     "statics": "{}"
    }
   },
@@ -2456,20 +3828,33 @@
     "fields": {
      "folder": {
       "binding": "None",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      },
      "result": {
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "folder": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "top/holder": {
@@ -2478,18 +3863,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "value": {
       "binding": "From(refs=('docs.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/holder",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/inner/holder": {
@@ -2498,18 +3896,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "value": {
       "binding": "From(refs=('top/holder.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/holder.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/holder",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/inner/join": {
@@ -2518,18 +3929,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "texts": {
       "binding": "From(refs=('top/inner/up.result',))",
-      "index": "Index('top/inner/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "RowsUnder(index=Index('top/inner/lines.result', parent=Index('docs.result')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "all_rows_under_row",
+       "copied_down": false,
+       "grouped_under": "docs.result",
+       "parts": [],
+       "rows_of": "top/inner/lines.result",
+       "sources": [
+        "top/inner/up.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/join",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/inner/lines": {
@@ -2538,18 +3962,33 @@
       "condition": [
        []
       ],
-      "index": "Index('top/inner/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/inner/s7.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/s7.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "top/inner/lines.result"
+     ],
+     "node_id": "top/inner/lines",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/inner/s0": {
@@ -2558,18 +3997,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/inner/holder.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/holder.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/s0",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/inner/s1": {
@@ -2578,18 +4030,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/inner/s0.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/s0.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/s1",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/inner/s2": {
@@ -2598,18 +4063,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/inner/s1.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/s1.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/s2",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/inner/s3": {
@@ -2618,18 +4096,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/inner/s2.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/s2.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/s3",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/inner/s4": {
@@ -2638,18 +4129,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/inner/s3.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/s3.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/s4",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/inner/s5": {
@@ -2658,18 +4162,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/inner/s4.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/s4.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/s5",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/inner/s6": {
@@ -2678,18 +4195,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/inner/s5.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/s5.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/s6",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/inner/s7": {
@@ -2698,18 +4228,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/inner/s6.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/s6.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/s7",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/inner/up": {
@@ -2718,18 +4261,31 @@
       "condition": [
        []
       ],
-      "index": "Index('top/inner/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/inner/lines.result',))",
-      "index": "Index('top/inner/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "PerRow(index=Index('top/inner/lines.result', parent=Index('docs.result')))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('top/inner/lines.result', parent=Index('docs.result'))",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "top/inner/lines.result",
+       "sources": [
+        "top/inner/lines.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/up",
+     "runs_per_row_of": "top/inner/lines.result"
+    },
     "statics": "{}"
    },
    "top/join": {
@@ -2738,18 +4294,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "texts": {
       "binding": "From(refs=('top/up.result',))",
-      "index": "Index('top/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "RowsUnder(index=Index('top/lines.result', parent=Index('docs.result')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "all_rows_under_row",
+       "copied_down": false,
+       "grouped_under": "docs.result",
+       "parts": [],
+       "rows_of": "top/lines.result",
+       "sources": [
+        "top/up.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/join",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/lines": {
@@ -2758,18 +4327,33 @@
       "condition": [
        []
       ],
-      "index": "Index('top/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/inner/join.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/join.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "top/lines.result"
+     ],
+     "node_id": "top/lines",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/up": {
@@ -2778,18 +4362,31 @@
       "condition": [
        []
       ],
-      "index": "Index('top/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/lines.result',))",
-      "index": "Index('top/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "PerRow(index=Index('top/lines.result', parent=Index('docs.result')))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('top/lines.result', parent=Index('docs.result'))",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "top/lines.result",
+       "sources": [
+        "top/lines.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/up",
+     "runs_per_row_of": "top/lines.result"
+    },
     "statics": "{}"
    }
   },
@@ -2819,20 +4416,33 @@
     "fields": {
      "folder": {
       "binding": "None",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      },
      "result": {
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "folder": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "top/holder": {
@@ -2841,18 +4451,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "value": {
       "binding": "From(refs=('docs.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/holder",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/inner/holder": {
@@ -2861,18 +4484,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "value": {
       "binding": "From(refs=('top/holder.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/holder.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/holder",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/inner/inner/holder": {
@@ -2881,18 +4517,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "value": {
       "binding": "From(refs=('top/inner/holder.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/holder.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/inner/holder",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/inner/inner/inner/holder": {
@@ -2901,18 +4550,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "value": {
       "binding": "From(refs=('top/inner/inner/holder.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/inner/holder.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/inner/inner/holder",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/inner/inner/inner/join": {
@@ -2921,18 +4583,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "texts": {
       "binding": "From(refs=('top/inner/inner/inner/up.result',))",
-      "index": "Index('top/inner/inner/inner/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "RowsUnder(index=Index('top/inner/inner/inner/lines.result', parent=Index('docs.result')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "all_rows_under_row",
+       "copied_down": false,
+       "grouped_under": "docs.result",
+       "parts": [],
+       "rows_of": "top/inner/inner/inner/lines.result",
+       "sources": [
+        "top/inner/inner/inner/up.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/inner/inner/join",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/inner/inner/inner/lines": {
@@ -2941,18 +4616,33 @@
       "condition": [
        []
       ],
-      "index": "Index('top/inner/inner/inner/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/inner/inner/inner/s7.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/inner/inner/s7.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "top/inner/inner/inner/lines.result"
+     ],
+     "node_id": "top/inner/inner/inner/lines",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/inner/inner/inner/s0": {
@@ -2961,18 +4651,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/inner/inner/inner/holder.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/inner/inner/holder.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/inner/inner/s0",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/inner/inner/inner/s1": {
@@ -2981,18 +4684,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/inner/inner/inner/s0.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/inner/inner/s0.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/inner/inner/s1",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/inner/inner/inner/s2": {
@@ -3001,18 +4717,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/inner/inner/inner/s1.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/inner/inner/s1.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/inner/inner/s2",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/inner/inner/inner/s3": {
@@ -3021,18 +4750,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/inner/inner/inner/s2.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/inner/inner/s2.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/inner/inner/s3",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/inner/inner/inner/s4": {
@@ -3041,18 +4783,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/inner/inner/inner/s3.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/inner/inner/s3.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/inner/inner/s4",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/inner/inner/inner/s5": {
@@ -3061,18 +4816,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/inner/inner/inner/s4.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/inner/inner/s4.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/inner/inner/s5",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/inner/inner/inner/s6": {
@@ -3081,18 +4849,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/inner/inner/inner/s5.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/inner/inner/s5.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/inner/inner/s6",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/inner/inner/inner/s7": {
@@ -3101,18 +4882,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/inner/inner/inner/s6.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/inner/inner/s6.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/inner/inner/s7",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/inner/inner/inner/up": {
@@ -3121,18 +4915,31 @@
       "condition": [
        []
       ],
-      "index": "Index('top/inner/inner/inner/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/inner/inner/inner/lines.result',))",
-      "index": "Index('top/inner/inner/inner/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "PerRow(index=Index('top/inner/inner/inner/lines.result', parent=Index('docs.result')))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('top/inner/inner/inner/lines.result', parent=Index('docs.result'))",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "top/inner/inner/inner/lines.result",
+       "sources": [
+        "top/inner/inner/inner/lines.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/inner/inner/up",
+     "runs_per_row_of": "top/inner/inner/inner/lines.result"
+    },
     "statics": "{}"
    },
    "top/inner/inner/join": {
@@ -3141,18 +4948,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "texts": {
       "binding": "From(refs=('top/inner/inner/up.result',))",
-      "index": "Index('top/inner/inner/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "RowsUnder(index=Index('top/inner/inner/lines.result', parent=Index('docs.result')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "all_rows_under_row",
+       "copied_down": false,
+       "grouped_under": "docs.result",
+       "parts": [],
+       "rows_of": "top/inner/inner/lines.result",
+       "sources": [
+        "top/inner/inner/up.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/inner/join",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/inner/inner/lines": {
@@ -3161,18 +4981,33 @@
       "condition": [
        []
       ],
-      "index": "Index('top/inner/inner/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/inner/inner/inner/join.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/inner/inner/join.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "top/inner/inner/lines.result"
+     ],
+     "node_id": "top/inner/inner/lines",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/inner/inner/up": {
@@ -3181,18 +5016,31 @@
       "condition": [
        []
       ],
-      "index": "Index('top/inner/inner/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/inner/inner/lines.result',))",
-      "index": "Index('top/inner/inner/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "PerRow(index=Index('top/inner/inner/lines.result', parent=Index('docs.result')))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('top/inner/inner/lines.result', parent=Index('docs.result'))",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "top/inner/inner/lines.result",
+       "sources": [
+        "top/inner/inner/lines.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/inner/up",
+     "runs_per_row_of": "top/inner/inner/lines.result"
+    },
     "statics": "{}"
    },
    "top/inner/join": {
@@ -3201,18 +5049,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "texts": {
       "binding": "From(refs=('top/inner/up.result',))",
-      "index": "Index('top/inner/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "RowsUnder(index=Index('top/inner/lines.result', parent=Index('docs.result')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "all_rows_under_row",
+       "copied_down": false,
+       "grouped_under": "docs.result",
+       "parts": [],
+       "rows_of": "top/inner/lines.result",
+       "sources": [
+        "top/inner/up.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/join",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/inner/lines": {
@@ -3221,18 +5082,33 @@
       "condition": [
        []
       ],
-      "index": "Index('top/inner/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/inner/inner/join.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/inner/join.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "top/inner/lines.result"
+     ],
+     "node_id": "top/inner/lines",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/inner/up": {
@@ -3241,18 +5117,31 @@
       "condition": [
        []
       ],
-      "index": "Index('top/inner/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/inner/lines.result',))",
-      "index": "Index('top/inner/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "PerRow(index=Index('top/inner/lines.result', parent=Index('docs.result')))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('top/inner/lines.result', parent=Index('docs.result'))",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "top/inner/lines.result",
+       "sources": [
+        "top/inner/lines.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/up",
+     "runs_per_row_of": "top/inner/lines.result"
+    },
     "statics": "{}"
    },
    "top/join": {
@@ -3261,18 +5150,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "texts": {
       "binding": "From(refs=('top/up.result',))",
-      "index": "Index('top/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "RowsUnder(index=Index('top/lines.result', parent=Index('docs.result')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "all_rows_under_row",
+       "copied_down": false,
+       "grouped_under": "docs.result",
+       "parts": [],
+       "rows_of": "top/lines.result",
+       "sources": [
+        "top/up.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/join",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/lines": {
@@ -3281,18 +5183,33 @@
       "condition": [
        []
       ],
-      "index": "Index('top/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/inner/join.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/join.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "top/lines.result"
+     ],
+     "node_id": "top/lines",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/up": {
@@ -3301,18 +5218,31 @@
       "condition": [
        []
       ],
-      "index": "Index('top/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/lines.result',))",
-      "index": "Index('top/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "PerRow(index=Index('top/lines.result', parent=Index('docs.result')))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('top/lines.result', parent=Index('docs.result'))",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "top/lines.result",
+       "sources": [
+        "top/lines.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/up",
+     "runs_per_row_of": "top/lines.result"
+    },
     "statics": "{}"
    }
   },
@@ -3352,38 +5282,64 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "texts": {
       "binding": "From(refs=('top/join.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "EntireValue()",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "entire_value",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "top/join.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "docs": {
     "fields": {
      "folder": {
       "binding": "None",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      },
      "result": {
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "folder": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "top/holder": {
@@ -3392,18 +5348,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "value": {
       "binding": "From(refs=('docs.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/holder",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/join": {
@@ -3412,18 +5381,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "texts": {
       "binding": "From(refs=('top/leafy/join.result',))",
-      "index": "Index('top/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "RowsUnder(index=Index('top/lines.result', parent=Index('docs.result')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "all_rows_under_row",
+       "copied_down": false,
+       "grouped_under": "docs.result",
+       "parts": [],
+       "rows_of": "top/lines.result",
+       "sources": [
+        "top/leafy/join.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/join",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "top/leafy/holder": {
@@ -3432,18 +5414,31 @@
       "condition": [
        []
       ],
-      "index": "Index('top/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "value": {
       "binding": "From(refs=('top/lines.result',))",
-      "index": "Index('top/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "PerRow(index=Index('top/lines.result', parent=Index('docs.result')))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('top/lines.result', parent=Index('docs.result'))",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "top/lines.result",
+       "sources": [
+        "top/lines.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/leafy/holder",
+     "runs_per_row_of": "top/lines.result"
+    },
     "statics": "{}"
    },
    "top/leafy/join": {
@@ -3452,18 +5447,31 @@
       "condition": [
        []
       ],
-      "index": "Index('top/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "texts": {
       "binding": "From(refs=('top/leafy/up.result',))",
-      "index": "Index('top/leafy/lines.result', parent=Index('top/lines.result', parent=Index('docs.result')))",
-      "listed": false,
-      "receives": "RowsUnder(index=Index('top/leafy/lines.result', parent=Index('top/lines.result', parent=Index('docs.result'))), depth=2)",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('top/lines.result', parent=Index('docs.result'))",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "all_rows_under_row",
+       "copied_down": false,
+       "grouped_under": "top/lines.result",
+       "parts": [],
+       "rows_of": "top/leafy/lines.result",
+       "sources": [
+        "top/leafy/up.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/leafy/join",
+     "runs_per_row_of": "top/lines.result"
+    },
     "statics": "{}"
    },
    "top/leafy/lines": {
@@ -3472,18 +5480,33 @@
       "condition": [
        []
       ],
-      "index": "Index('top/leafy/lines.result', parent=Index('top/lines.result', parent=Index('docs.result')))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/leafy/s2.result',))",
-      "index": "Index('top/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "PerRow(index=Index('top/lines.result', parent=Index('docs.result')))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('top/lines.result', parent=Index('docs.result'))",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "top/lines.result",
+       "sources": [
+        "top/leafy/s2.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "top/leafy/lines.result"
+     ],
+     "node_id": "top/leafy/lines",
+     "runs_per_row_of": "top/lines.result"
+    },
     "statics": "{}"
    },
    "top/leafy/s0": {
@@ -3492,18 +5515,31 @@
       "condition": [
        []
       ],
-      "index": "Index('top/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/leafy/holder.result',))",
-      "index": "Index('top/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "PerRow(index=Index('top/lines.result', parent=Index('docs.result')))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('top/lines.result', parent=Index('docs.result'))",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "top/lines.result",
+       "sources": [
+        "top/leafy/holder.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/leafy/s0",
+     "runs_per_row_of": "top/lines.result"
+    },
     "statics": "{}"
    },
    "top/leafy/s1": {
@@ -3512,18 +5548,31 @@
       "condition": [
        []
       ],
-      "index": "Index('top/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/leafy/s0.result',))",
-      "index": "Index('top/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "PerRow(index=Index('top/lines.result', parent=Index('docs.result')))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('top/lines.result', parent=Index('docs.result'))",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "top/lines.result",
+       "sources": [
+        "top/leafy/s0.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/leafy/s1",
+     "runs_per_row_of": "top/lines.result"
+    },
     "statics": "{}"
    },
    "top/leafy/s2": {
@@ -3532,18 +5581,31 @@
       "condition": [
        []
       ],
-      "index": "Index('top/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/leafy/s1.result',))",
-      "index": "Index('top/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "PerRow(index=Index('top/lines.result', parent=Index('docs.result')))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('top/lines.result', parent=Index('docs.result'))",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "top/lines.result",
+       "sources": [
+        "top/leafy/s1.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/leafy/s2",
+     "runs_per_row_of": "top/lines.result"
+    },
     "statics": "{}"
    },
    "top/leafy/up": {
@@ -3552,18 +5614,31 @@
       "condition": [
        []
       ],
-      "index": "Index('top/leafy/lines.result', parent=Index('top/lines.result', parent=Index('docs.result')))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/leafy/lines.result',))",
-      "index": "Index('top/leafy/lines.result', parent=Index('top/lines.result', parent=Index('docs.result')))",
-      "listed": false,
-      "receives": "PerRow(index=Index('top/leafy/lines.result', parent=Index('top/lines.result', parent=Index('docs.result'))))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('top/leafy/lines.result', parent=Index('top/lines.result', parent=Index('docs.result')))",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "top/leafy/lines.result",
+       "sources": [
+        "top/leafy/lines.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/leafy/up",
+     "runs_per_row_of": "top/leafy/lines.result"
+    },
     "statics": "{}"
    },
    "top/lines": {
@@ -3572,18 +5647,33 @@
       "condition": [
        []
       ],
-      "index": "Index('top/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('top/holder.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "top/holder.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "top/lines.result"
+     ],
+     "node_id": "top/lines",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    }
   },
@@ -3610,38 +5700,64 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "texts": {
       "binding": "From(refs=('emb/up.result',))",
-      "index": "Index('emb/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "RowsUnder(index=Index('emb/lines.result', parent=Index('docs.result')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "all_rows_under_row",
+       "copied_down": false,
+       "grouped_under": "docs.result",
+       "parts": [],
+       "rows_of": "emb/lines.result",
+       "sources": [
+        "emb/up.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "docs": {
     "fields": {
      "folder": {
       "binding": "None",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      },
      "result": {
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "folder": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/holder": {
@@ -3650,18 +5766,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "value": {
       "binding": "From(refs=('docs.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/holder",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "emb/lines": {
@@ -3670,18 +5799,33 @@
       "condition": [
        []
       ],
-      "index": "Index('emb/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('emb/holder.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/holder.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "emb/lines.result"
+     ],
+     "node_id": "emb/lines",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "emb/up": {
@@ -3690,18 +5834,31 @@
       "condition": [
        []
       ],
-      "index": "Index('emb/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('emb/lines.result',))",
-      "index": "Index('emb/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "PerRow(index=Index('emb/lines.result', parent=Index('docs.result')))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('emb/lines.result', parent=Index('docs.result'))",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "emb/lines.result",
+       "sources": [
+        "emb/lines.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/up",
+     "runs_per_row_of": "emb/lines.result"
+    },
     "statics": "{}"
    }
   },
@@ -3721,38 +5878,64 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "texts": {
       "binding": "From(refs=('emb/join.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "EntireValue()",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "entire_value",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "emb/join.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "docs": {
     "fields": {
      "folder": {
       "binding": "None",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      },
      "result": {
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "folder": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/holder": {
@@ -3761,18 +5944,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "value": {
       "binding": "From(refs=('docs.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/holder",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "emb/join": {
@@ -3781,18 +5977,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "texts": {
       "binding": "From(refs=('emb/up.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "RowsUnder(index=Index('docs.result'), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "all_rows_under_row",
+       "copied_down": false,
+       "grouped_under": "docs.result",
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/up.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/join",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "emb/up": {
@@ -3801,18 +6010,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('emb/holder.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/holder.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/up",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    }
   },
@@ -3832,18 +6054,31 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "text": {
       "binding": "From(refs=('emb/u.result',))",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "emb/u.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/n": {
@@ -3852,18 +6087,29 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "text": {
       "binding": "Static(value='inside')",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/n",
+     "runs_per_row_of": null
+    },
     "statics": "{'text': 'inside'}"
    },
    "emb/u": {
@@ -3872,18 +6118,31 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "text": {
       "binding": "From(refs=('emb/n.result',))",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "emb/n.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/u",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    }
   },
@@ -3899,20 +6158,33 @@
     "fields": {
      "folder": {
       "binding": "None",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      },
      "result": {
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "folder": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/join": {
@@ -3921,18 +6193,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "texts": {
       "binding": "From(refs=('emb/u.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "RowsUnder(index=Index('docs.result'), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "all_rows_under_row",
+       "copied_down": false,
+       "grouped_under": "docs.result",
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/u.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/join",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "emb/n": {
@@ -3941,18 +6226,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('docs.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/n",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "emb/u": {
@@ -3961,18 +6259,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('emb/n.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/n.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/u",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    }
   },
@@ -3989,20 +6300,33 @@
     "fields": {
      "folder": {
       "binding": "None",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      },
      "result": {
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "folder": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/holder": {
@@ -4011,18 +6335,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "value": {
       "binding": "From(refs=('docs.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/holder",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "emb/join": {
@@ -4031,18 +6368,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "texts": {
       "binding": "From(refs=('emb/lines.result',))",
-      "index": "Index('emb/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "RowsUnder(index=Index('emb/lines.result', parent=Index('docs.result')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "all_rows_under_row",
+       "copied_down": false,
+       "grouped_under": "docs.result",
+       "parts": [],
+       "rows_of": "emb/lines.result",
+       "sources": [
+        "emb/lines.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/join",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "emb/lines": {
@@ -4051,18 +6401,33 @@
       "condition": [
        []
       ],
-      "index": "Index('emb/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('emb/holder.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/holder.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "emb/lines.result"
+     ],
+     "node_id": "emb/lines",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    }
   },
@@ -4081,38 +6446,64 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "texts": {
       "binding": "From(refs=('emb/lines.result',))",
-      "index": "Index('emb/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "RowsUnder(index=Index('emb/lines.result', parent=Index('docs.result')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "all_rows_under_row",
+       "copied_down": false,
+       "grouped_under": "docs.result",
+       "parts": [],
+       "rows_of": "emb/lines.result",
+       "sources": [
+        "emb/lines.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "docs": {
     "fields": {
      "folder": {
       "binding": "None",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      },
      "result": {
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "folder": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/holder": {
@@ -4121,18 +6512,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "value": {
       "binding": "From(refs=('docs.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/holder",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "emb/lines": {
@@ -4141,18 +6545,33 @@
       "condition": [
        []
       ],
-      "index": "Index('emb/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('emb/holder.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/holder.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "emb/lines.result"
+     ],
+     "node_id": "emb/lines",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    }
   },
@@ -4169,20 +6588,33 @@
     "fields": {
      "folder": {
       "binding": "None",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      },
      "result": {
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "folder": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/entered": {
@@ -4191,18 +6623,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "value": {
       "binding": "From(refs=('docs.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/entered",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "emb/holder": {
@@ -4211,18 +6656,29 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "value": {
       "binding": "Static(value='a\\nb')",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/holder",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{'value': 'a\\nb'}"
    },
    "emb/join": {
@@ -4231,18 +6687,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "texts": {
       "binding": "From(refs=('emb/lines.result',))",
-      "index": "Index('emb/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "RowsUnder(index=Index('emb/lines.result', parent=Index('docs.result')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "all_rows_under_row",
+       "copied_down": false,
+       "grouped_under": "docs.result",
+       "parts": [],
+       "rows_of": "emb/lines.result",
+       "sources": [
+        "emb/lines.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/join",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "emb/lines": {
@@ -4251,18 +6720,33 @@
       "condition": [
        []
       ],
-      "index": "Index('emb/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('emb/holder.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/holder.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "emb/lines.result"
+     ],
+     "node_id": "emb/lines",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    }
   },
@@ -4282,38 +6766,64 @@
       "condition": [
        []
       ],
-      "index": "Index('emb/docs.result')",
       "type": "Series[Txt]"
      },
      "texts": {
       "binding": "From(refs=('emb/lines.result',))",
-      "index": "Index('emb/lines.result', parent=Index('emb/docs.result'))",
-      "listed": false,
-      "receives": "RowsUnder(index=Index('emb/lines.result', parent=Index('emb/docs.result')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('emb/docs.result')",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "all_rows_under_row",
+       "copied_down": false,
+       "grouped_under": "emb/docs.result",
+       "parts": [],
+       "rows_of": "emb/lines.result",
+       "sources": [
+        "emb/lines.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": "emb/docs.result"
+    },
     "statics": "{}"
    },
    "emb/docs": {
     "fields": {
      "folder": {
       "binding": "None",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      },
      "result": {
       "condition": [
        []
       ],
-      "index": "Index('emb/docs.result')",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "folder": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "emb/docs.result"
+     ],
+     "node_id": "emb/docs",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/lines": {
@@ -4322,18 +6832,33 @@
       "condition": [
        []
       ],
-      "index": "Index('emb/lines.result', parent=Index('emb/docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('emb/docs.result',))",
-      "index": "Index('emb/docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('emb/docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('emb/docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "emb/docs.result",
+       "sources": [
+        "emb/docs.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "emb/lines.result"
+     ],
+     "node_id": "emb/lines",
+     "runs_per_row_of": "emb/docs.result"
+    },
     "statics": "{}"
    }
   },
@@ -4351,18 +6876,29 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "value": {
       "binding": "Static(value='inner')",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/holder",
+     "runs_per_row_of": null
+    },
     "statics": "{'value': 'inner'}"
    },
    "emb/join": {
@@ -4371,18 +6907,31 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "texts": {
       "binding": "From(refs=('emb/up.result',))",
-      "index": "Index('emb/join.texts')",
-      "listed": false,
-      "receives": "Gather(index=Index('emb/join.texts'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "collected",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "emb/up.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/join",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/up": {
@@ -4391,18 +6940,31 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "text": {
       "binding": "From(refs=('emb/holder.result',))",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "emb/holder.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/up",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    }
   },
@@ -4420,18 +6982,31 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "value": {
       "binding": "From(refs=('h.result',))",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "h.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/holder",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/join": {
@@ -4440,18 +7015,31 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "texts": {
       "binding": "From(refs=('emb/up.result',))",
-      "index": "Index('emb/join.texts')",
-      "listed": false,
-      "receives": "Gather(index=Index('emb/join.texts'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "collected",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "emb/up.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/join",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/up": {
@@ -4460,18 +7048,31 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "text": {
       "binding": "From(refs=('emb/holder.result',))",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "emb/holder.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/up",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "h": {
@@ -4480,18 +7081,29 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "value": {
       "binding": "Static(value='z')",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "h",
+     "runs_per_row_of": null
+    },
     "statics": "{'value': 'z'}"
    }
   },
@@ -4508,20 +7120,33 @@
     "fields": {
      "folder": {
       "binding": "None",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      },
      "result": {
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "folder": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/join": {
@@ -4530,18 +7155,31 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "texts": {
       "binding": "From(refs=('docs.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "EntireValue()",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "entire_value",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "docs.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/join",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    }
   },
@@ -4556,20 +7194,33 @@
     "fields": {
      "folder": {
       "binding": "None",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      },
      "result": {
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "folder": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/a": {
@@ -4578,18 +7229,31 @@
       "condition": [
        []
       ],
-      "index": "Index('lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "value": {
       "binding": "From(refs=('docs.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('lines.result', parent=Index('docs.result'))",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/a",
+     "runs_per_row_of": "lines.result"
+    },
     "statics": "{}"
    },
    "emb/b": {
@@ -4598,18 +7262,31 @@
       "condition": [
        []
       ],
-      "index": "Index('lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "value": {
       "binding": "From(refs=('lines.result',))",
-      "index": "Index('lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "PerRow(index=Index('lines.result', parent=Index('docs.result')))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('lines.result', parent=Index('docs.result'))",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "lines.result",
+       "sources": [
+        "lines.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/b",
+     "runs_per_row_of": "lines.result"
+    },
     "statics": "{}"
    },
    "emb/ua": {
@@ -4618,18 +7295,31 @@
       "condition": [
        []
       ],
-      "index": "Index('lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('emb/a.result',))",
-      "index": "Index('lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "PerRow(index=Index('lines.result', parent=Index('docs.result')))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('lines.result', parent=Index('docs.result'))",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "lines.result",
+       "sources": [
+        "emb/a.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/ua",
+     "runs_per_row_of": "lines.result"
+    },
     "statics": "{}"
    },
    "lines": {
@@ -4638,18 +7328,33 @@
       "condition": [
        []
       ],
-      "index": "Index('lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('docs.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "lines.result"
+     ],
+     "node_id": "lines",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    }
   },
@@ -4667,20 +7372,33 @@
     "fields": {
      "folder": {
       "binding": "None",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      },
      "result": {
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "folder": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/h": {
@@ -4689,18 +7407,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('docs.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/h",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "emb/j": {
@@ -4709,45 +7440,77 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "texts": {
       "binding": "From(refs=('emb/t.result',))",
-      "index": "Index('emb/t.b', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "RowsUnder(index=Index('emb/t.b', parent=Index('docs.result')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "all_rows_under_row",
+       "copied_down": false,
+       "grouped_under": "docs.result",
+       "parts": [],
+       "rows_of": "emb/t.b",
+       "sources": [
+        "emb/t.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/j",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "emb/t": {
     "fields": {
      "a": {
       "binding": "From(refs=('emb/h.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "b": {
       "binding": "Static(value=['p', 'q'])",
-      "index": "Index('emb/t.b', parent=Index('docs.result'))",
-      "listed": true,
-      "receives": "PerRow(index=Index('emb/t.b', parent=Index('docs.result')))",
       "type": "Series[Txt]"
      },
      "result": {
       "condition": [
        []
       ],
-      "index": "Index('emb/t.b', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('emb/t.b', parent=Index('docs.result'))",
+    "plan": {
+     "inputs": {
+      "a": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/h.result"
+       ],
+       "takes_blank": false
+      },
+      "b": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "emb/t.b",
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/t",
+     "runs_per_row_of": "emb/t.b"
+    },
     "statics": "{'b': ['p', 'q']}"
    }
   },
@@ -4766,38 +7529,64 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "texts": {
       "binding": "From(refs=('emb/p.result',))",
-      "index": "Index('emb/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "RowsUnder(index=Index('emb/lines.result', parent=Index('docs.result')), depth=1)",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "all_rows_under_row",
+       "copied_down": false,
+       "grouped_under": "docs.result",
+       "parts": [],
+       "rows_of": "emb/lines.result",
+       "sources": [
+        "emb/p.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "docs": {
     "fields": {
      "folder": {
       "binding": "None",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      },
      "result": {
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "folder": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/a": {
@@ -4806,18 +7595,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "value": {
       "binding": "From(refs=('docs.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/a",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "emb/b": {
@@ -4826,18 +7628,29 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "value": {
       "binding": "Static(value='x\\ny')",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/b",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{'value': 'x\\ny'}"
    },
    "emb/lines": {
@@ -4846,45 +7659,81 @@
       "condition": [
        []
       ],
-      "index": "Index('emb/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('emb/b.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/b.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [
+      "emb/lines.result"
+     ],
+     "node_id": "emb/lines",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    },
    "emb/p": {
     "fields": {
      "a": {
       "binding": "From(refs=('emb/ua.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      },
      "b": {
       "binding": "From(refs=('emb/lines.result',))",
-      "index": "Index('emb/lines.result', parent=Index('docs.result'))",
-      "listed": false,
-      "receives": "PerRow(index=Index('emb/lines.result', parent=Index('docs.result')))",
       "type": "Series[Txt]"
      },
      "result": {
       "condition": [
        []
       ],
-      "index": "Index('emb/lines.result', parent=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('emb/lines.result', parent=Index('docs.result'))",
+    "plan": {
+     "inputs": {
+      "a": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/ua.result"
+       ],
+       "takes_blank": false
+      },
+      "b": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "emb/lines.result",
+       "sources": [
+        "emb/lines.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/p",
+     "runs_per_row_of": "emb/lines.result"
+    },
     "statics": "{}"
    },
    "emb/ua": {
@@ -4893,18 +7742,31 @@
       "condition": [
        []
       ],
-      "index": "Index('docs.result')",
       "type": "Series[Txt]"
      },
      "text": {
       "binding": "From(refs=('emb/a.result',))",
-      "index": "Index('docs.result')",
-      "listed": false,
-      "receives": "PerRow(index=Index('docs.result'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "Index('docs.result')",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "value_at_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/a.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/ua",
+     "runs_per_row_of": "docs.result"
+    },
     "statics": "{}"
    }
   },
@@ -4926,18 +7788,31 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "text": {
       "binding": "From(refs=('emb/join.result',))",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "emb/join.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/holder": {
@@ -4946,18 +7821,29 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "value": {
       "binding": "Static(value='set outside')",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "value": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/holder",
+     "runs_per_row_of": null
+    },
     "statics": "{'value': 'set outside'}"
    },
    "emb/join": {
@@ -4966,18 +7852,31 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "texts": {
       "binding": "From(refs=('emb/up.result',))",
-      "index": "Index('emb/join.texts')",
-      "listed": false,
-      "receives": "Gather(index=Index('emb/join.texts'))",
       "type": "Series[Txt]"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "texts": {
+       "arrives": "collected",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "emb/up.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/join",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    },
    "emb/up": {
@@ -4986,18 +7885,31 @@
       "condition": [
        []
       ],
-      "index": "None",
       "type": "Txt"
      },
      "text": {
       "binding": "From(refs=('emb/holder.result',))",
-      "index": "None",
-      "listed": false,
-      "receives": "Broadcast()",
       "type": "Txt"
      }
     },
-    "runs_per_row_of": "None",
+    "plan": {
+     "inputs": {
+      "text": {
+       "arrives": "same_value_every_row",
+       "copied_down": false,
+       "grouped_under": null,
+       "parts": [],
+       "rows_of": null,
+       "sources": [
+        "emb/holder.result"
+       ],
+       "takes_blank": false
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/up",
+     "runs_per_row_of": null
+    },
     "statics": "{}"
    }
   },

@@ -26,7 +26,6 @@ from conductor import (
     Table,
     node,
 )
-from conductor._internal.series import Index
 from conductor.events import RunEnd, RunStart, UnitWaiting
 from conductor.widgets import Textarea
 from helpers import read_table
@@ -536,7 +535,7 @@ def test_no_series_constructor_is_needed_for_skips_in_a_many_valued_output():
     registry = NodeRegistry([sparse])
     compiled = CompiledGraph.from_graph(Graph(nodes=(GraphNode(id="s", type="sparse", version=1),)), registry)
     assert compiled.outputs(roundtrip(compiled.run_sync()))["s.result"].rows == ((0,), (2,))
-    assert Series[Txt](Index("x"), [Txt("a")]).rows == ((0,),)
+    assert Series[Txt]([Txt("a")]).rows == ((0,),)
 
 
 # -- staleness reaches a reader of a table column; a partly answered node reads so far ---

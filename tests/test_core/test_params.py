@@ -31,7 +31,6 @@ from conductor import (
     node,
 )
 from conductor._internal.interface import read_signature
-from conductor._internal.series import Index
 from conductor.widgets import NumberWidget, Textarea
 from helpers import stream_of
 
@@ -193,7 +192,7 @@ def test_each_row_of_a_per_row_node_is_answered_by_its_own_id():
 
     assert second[-1].state.status == "complete"
     assert list(compiled.results(second[-1].state)["ask"]["result"]) == ["x", "y", "z"]
-    assert compiled.results(second[-1].state)["ask"]["result"] == Series(Index("docs.result"), [Txt("x"), Txt("y"), Txt("z")], rows=[(0,), (1,), (2,)])
+    assert compiled.results(second[-1].state)["ask"]["result"].rows == ((0,), (1,), (2,))
 
 
 def test_a_row_skipped_upstream_never_asks():
@@ -213,4 +212,5 @@ def test_a_row_skipped_upstream_never_asks():
     second = _leg(compiled, state=first, answers={"ask@0": {"result": "x"}, "ask@2": {"result": "z"}})
 
     assert second[-1].state.status == "complete"
-    assert compiled.results(second[-1].state)["ask"]["result"] == Series(Index("docs.result"), [Txt("x"), Txt("z")], rows=[(0,), (2,)])
+    answered = compiled.results(second[-1].state)["ask"]["result"]
+    assert (list(answered), answered.rows) == (["x", "z"], ((0,), (2,)))

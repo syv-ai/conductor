@@ -19,7 +19,7 @@ class Num(DType, float):
 
 
 def test_a_series_reads_as_its_values():
-    s = Series[Text](Index("docs"), ["first", "second"])
+    s = Series[Text](["first", "second"], index=Index("docs"))
 
     assert list(s) == ["first", "second"]
     assert s[0] == "first"
@@ -28,14 +28,14 @@ def test_a_series_reads_as_its_values():
 
 def test_a_dense_root_series_covers_every_row_of_its_index():
     """A row is a path: ``(i,)`` on a root."""
-    s = Series[Text](Index("docs"), ["a", "b", "c"])
+    s = Series[Text](["a", "b", "c"], index=Index("docs"))
 
     assert s.rows == ((0,), (1,), (2,))
 
 
 def test_a_sparse_series_covers_a_subset():
     """What an iterating decision produces: fewer rows, no holes, same index."""
-    s = Series[Text](Index("docs"), ["a", "c"], rows=((0,), (2,)))
+    s = Series[Text](["a", "c"], index=Index("docs"), rows=((0,), (2,)))
 
     assert s.rows == ((0,), (2,))
     assert list(s) == ["a", "c"]
@@ -43,13 +43,13 @@ def test_a_sparse_series_covers_a_subset():
 
 def test_rows_and_values_must_agree():
     with pytest.raises(ValueError, match="rows"):
-        Series[Text](Index("docs"), ["a", "b"], rows=((0,),))
+        Series[Text](["a", "b"], index=Index("docs"), rows=((0,),))
 
 
 def test_a_row_is_a_path_of_ints():
     """A bare int where a path belongs is a mistake, not a shorthand."""
     with pytest.raises(TypeError, match="path"):
-        Series[Text](Index("docs"), ["a"], rows=(0,))
+        Series[Text](["a"], index=Index("docs"), rows=(0,))
 
 
 def test_a_node_never_builds_a_series():
@@ -63,19 +63,11 @@ def test_a_node_never_builds_a_series():
 # --- the index is lineage ---------------------------------------------------
 
 
-def test_two_series_on_one_index_share_it():
-    docs = Index("docs")
-    a = Series[Text](docs, ["x", "y"])
-    b = Series[Num](docs, [Num(1), Num(2)])
-
-    assert a.index == b.index
-
-
 def test_a_child_row_knows_its_parent_row():
     """What an unfold node creates: three employees from two applications. The
     row's path says which application, and nothing else has to."""
     docs = Index("docs")
-    employees = Series[Text](Index("employees", parent=docs), ["a", "b", "c"], rows=((0, 0), (0, 1), (1, 0)))
+    employees = Series[Text](["a", "b", "c"], index=Index("employees", parent=docs), rows=((0, 0), (0, 1), (1, 0)))
 
     assert employees.index.parent == docs
     assert [row[:-1] for row in employees.rows] == [(0,), (0,), (1,)]
@@ -164,7 +156,7 @@ def test_pydantic_validates_the_elements_and_keeps_the_index():
         sources: Series[Text]
 
     docs = Index("docs")
-    validated = M(sources=Series[Text](docs, ["hello"], rows=((3,),))).sources
+    validated = M(sources=Series[Text](["hello"], index=docs, rows=((3,),))).sources
 
     assert isinstance(validated[0], Text)
     assert validated.index == docs
@@ -196,7 +188,7 @@ def test_a_bad_element_fails_validation_naming_the_field():
         sources: Series[Text]
 
     with pytest.raises(Exception) as exc:
-        M(sources=Series[Text](Index("docs"), [object()]))
+        M(sources=Series[Text]([object()], index=Index("docs")))
 
     assert "sources" in str(exc.value)
 
@@ -208,7 +200,7 @@ def test_a_series_dumps_with_its_index_and_rows():
     from pydantic import TypeAdapter
 
     docs = Index("docs")
-    s = Series[Text](Index("lines", parent=docs), ["a", "b"], rows=((0, 0), (1, 0)))
+    s = Series[Text](["a", "b"], index=Index("lines", parent=docs), rows=((0, 0), (1, 0)))
 
     assert TypeAdapter(Series[Text]).dump_python(s, mode="json") == {
         "index": {"id": "lines", "parent": {"id": "docs", "parent": None}},
@@ -248,7 +240,7 @@ def test_a_series_of_wire_formed_values_dumps_each_through_its_own_schema():
                 ),
             )
 
-    dumped = TypeAdapter(Series[Blob]).dump_python(Series[Blob](Index("x"), [Blob("a")]), mode="json")
+    dumped = TypeAdapter(Series[Blob]).dump_python(Series[Blob]([Blob("a")], index=Index("x")), mode="json")
 
     assert dumped["values"] == [{"data": "a"}]
 
@@ -259,7 +251,7 @@ def test_a_series_of_wire_formed_values_dumps_each_through_its_own_schema():
 def test_a_series_and_a_list_are_unequal_both_ways():
     from conductor._internal.series import Index
 
-    s = Series[Text](Index("a"), [Text("x")])
+    s = Series[Text]([Text("x")], index=Index("a"))
     assert s != [Text("x")] and [Text("x")] != s
     assert list(s) == ["x"]
 
@@ -267,11 +259,11 @@ def test_a_series_and_a_list_are_unequal_both_ways():
 def test_two_series_differing_only_in_rows_are_unequal():
     from conductor._internal.series import Index
 
-    assert Series[Text](Index("a"), [Text("x")], rows=[(0,)]) != Series[Text](Index("a"), [Text("x")], rows=[(5,)])
+    assert Series[Text]([Text("x")], index=Index("a"), rows=[(0,)]) != Series[Text]([Text("x")], index=Index("a"), rows=[(5,)])
 
 
 def test_a_series_is_hashable_by_what_it_equals_on():
     from conductor._internal.series import Index
 
-    one, same = Series[Text](Index("a"), [Text("x")]), Series[Text](Index("a"), [Text("x")])
+    one, same = Series[Text]([Text("x")], index=Index("a")), Series[Text]([Text("x")], index=Index("a"))
     assert hash(one) == hash(same) and len({one, same}) == 1

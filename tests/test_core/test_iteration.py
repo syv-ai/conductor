@@ -22,8 +22,6 @@ from conductor import (
     Static,
     node,
 )
-from conductor._internal.graph.receive import PerRow
-from conductor._internal.series import Index
 from conductor.widgets import Textarea
 
 
@@ -143,26 +141,23 @@ def test_a_scalar_node_fed_scalars_does_not_iterate():
         GraphNode(id="b", type="upper", version=1, bindings={"text": _edge(("a", "result"))}),
     ])
 
-    assert compiled.node("b").wiring._runs_per_row_of is None
+    assert compiled.run_plan.nodes["b"].runs_per_row_of is None
     assert compiled.field(Ref("b", "result")).type is Txt
-    assert compiled.field(Ref("b", "result"))._index is None
 
 
 def test_a_series_is_made_at_the_node_that_produces_it():
     compiled = _compiled([GraphNode(id="docs", type="docs", version=1)])
 
-    texts_type, texts_index = compiled.field(Ref("docs", "texts")).type, compiled.field(Ref("docs", "texts"))._index
-    assert texts_type is Series[Txt]
-    assert texts_index == Index("docs.texts")
-    assert texts_index.parent is None
+    assert compiled.field(Ref("docs", "texts")).type is Series[Txt]
+    assert Ref("docs", "texts") in compiled.run_plan.nodes["docs"].makes_rows
+    assert compiled.run_plan.nodes["docs"].runs_per_row_of is None
 
 
 def test_each_series_output_makes_rows_on_an_index_of_its_own():
     """Each output that returns rows owns its table: two series outputs of one node are two indexes, named after the outputs."""
     compiled = _compiled([GraphNode(id="docs", type="docs", version=1)])
 
-    assert compiled.field(Ref("docs", "texts"))._index == Index("docs.texts")
-    assert compiled.field(Ref("docs", "filenames"))._index == Index("docs.filenames")
+    assert compiled.run_plan.nodes["docs"].makes_rows == (Ref("docs", "texts"), Ref("docs", "filenames"))
 
 
 def test_a_series_into_a_scalar_input_makes_the_node_iterate():
@@ -172,8 +167,8 @@ def test_a_series_into_a_scalar_input_makes_the_node_iterate():
     ])
 
     assert compiled.is_runnable
-    assert compiled.node("up").wiring._runs_per_row_of == Index("docs.texts")
-    assert compiled.field(Ref("up", "text"))._index == Index("docs.texts")
+    assert compiled.run_plan.nodes["up"].runs_per_row_of == "docs.texts"
+    assert compiled.run_plan.nodes["up"].inputs["text"].rows_of == "docs.texts"
 
 
 def test_an_iterating_nodes_outputs_are_series_on_the_same_index():
@@ -182,9 +177,8 @@ def test_an_iterating_nodes_outputs_are_series_on_the_same_index():
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
     ])
 
-    result_type, result_index = compiled.field(Ref("up", "result")).type, compiled.field(Ref("up", "result"))._index
-    assert result_type is Series[Txt]
-    assert result_index == Index("docs.texts")
+    assert compiled.field(Ref("up", "result")).type is Series[Txt]
+    assert compiled.run_plan.nodes["up"].runs_per_row_of == "docs.texts"
 
 
 def test_iteration_is_contagious_and_needs_no_construct():
@@ -196,7 +190,7 @@ def test_iteration_is_contagious_and_needs_no_construct():
         GraphNode(id="n", type="count", version=1, bindings={"text": _edge(("up", "result"))}),
     ])
 
-    assert compiled.node("n").wiring._runs_per_row_of == Index("docs.texts")
+    assert compiled.run_plan.nodes["n"].runs_per_row_of == "docs.texts"
     assert compiled.field(Ref("n", "result")).type is Series[Num]
 
 
@@ -209,9 +203,9 @@ def test_a_scalar_beside_a_series_broadcasts():
     ])
 
     assert compiled.is_runnable
-    assert compiled.node("p").wiring._runs_per_row_of == Index("docs.texts")
-    assert compiled.field(Ref("p", "a"))._index is None
-    assert compiled.field(Ref("p", "b"))._index == Index("docs.texts")
+    assert compiled.run_plan.nodes["p"].runs_per_row_of == "docs.texts"
+    assert compiled.run_plan.nodes["p"].inputs["a"].rows_of is None
+    assert compiled.run_plan.nodes["p"].inputs["b"].rows_of == "docs.texts"
 
 
 # --- admission: the one type question, asked here ---------------------------------
@@ -269,8 +263,8 @@ def test_an_iterating_pass_through_binds_the_element_and_iterates():
 
     assert compiled.is_runnable, compiled.problems
     assert compiled.field(Ref("r", "result")).type is Series[Txt]
-    assert compiled.node("r").wiring._runs_per_row_of == Index("docs.texts")
-    assert compiled.node("up").wiring._runs_per_row_of == Index("docs.texts")
+    assert compiled.run_plan.nodes["r"].runs_per_row_of == "docs.texts"
+    assert compiled.run_plan.nodes["up"].runs_per_row_of == "docs.texts"
 
 
 def test_a_reduction_over_the_variable_binds_from_the_series_element():
@@ -283,7 +277,7 @@ def test_a_reduction_over_the_variable_binds_from_the_series_element():
     assert compiled.node("one").interface.inputs[0].dtype is Series[Txt]
     assert compiled.field(Ref("one", "result")).type is compiled.field(Ref("one", "result")).type
     assert compiled.field(Ref("one", "result")).type is Txt
-    assert compiled.node("one").wiring._runs_per_row_of is None
+    assert compiled.run_plan.nodes["one"].runs_per_row_of is None
 
 
 def test_an_unconnected_any_input_is_unbound_required_and_the_node_has_no_shape():
@@ -321,8 +315,8 @@ def test_an_open_roster_takes_one_input_per_edge_received_whole():
     interface = compiled.node("s").interface
     assert [(i.name, i.dtype) for i in interface.inputs] == [("code", Txt), ("antal", Num), ("tekster", Series[Txt])]
     assert interface.inputs[2].widget is None
-    assert compiled.node("s").wiring._runs_per_row_of is None
-    assert compiled.field(Ref("s", "tekster"))._index == Index("docs.texts")
+    assert compiled.run_plan.nodes["s"].runs_per_row_of is None
+    assert compiled.run_plan.nodes["s"].inputs["tekster"].arrives == "entire_value"
 
 
 def test_an_open_roster_parameter_takes_one_edge():
@@ -381,7 +375,7 @@ def test_a_node_with_no_outputs_yet_is_the_ordinary_mid_edit_state():
     (problem,) = compiled.problems
     assert (problem.type, problem.fatal, problem.loc[0]) == ("no_outputs", False, "s")
     assert compiled.is_runnable
-    assert compiled.node("s").wiring._runs_per_row_of is None
+    assert compiled.run_plan.nodes["s"].runs_per_row_of is None
     assert compiled.node("s").interface.outputs == ()
 
 
@@ -410,7 +404,7 @@ def test_compute_outputs_sees_the_dtype_each_connected_input_receives():
 
     assert compiled.is_runnable, compiled.problems
     assert [o.name for o in compiled.node("o").interface.outputs] == ["from_iteration-test-txt"]
-    assert compiled.field(Ref("o", "from_iteration-test-txt"))._index == Index("docs.texts")
+    assert compiled.run_plan.nodes["o"].runs_per_row_of == "docs.texts"
     assert [o.name for o in compiled.node("bare").interface.outputs] == ["result"]
 
 
@@ -497,7 +491,7 @@ def test_two_series_on_one_index_align():
     ])
 
     assert compiled.is_runnable
-    assert compiled.node("p").wiring._runs_per_row_of == Index("docs.texts")
+    assert compiled.run_plan.nodes["p"].runs_per_row_of == "docs.texts"
 
 
 def test_two_series_outputs_of_one_node_do_not_line_up():
@@ -536,11 +530,9 @@ def test_a_reduction_on_a_root_yields_a_scalar_and_does_not_iterate():
     ])
 
     assert compiled.is_runnable
-    assert compiled.node("j").wiring._runs_per_row_of is None
-    assert compiled.field(Ref("j", "texts"))._index == Index("docs.texts")
-    assert compiled.field(Ref("j", "result")).type is compiled.field(Ref("j", "result")).type
+    assert compiled.run_plan.nodes["j"].runs_per_row_of is None
+    assert compiled.run_plan.nodes["j"].inputs["texts"].arrives == "entire_value"
     assert compiled.field(Ref("j", "result")).type is Txt
-    assert compiled.field(Ref("j", "result"))._index is None
 
 
 def test_a_node_running_per_row_returning_a_series_makes_rows_of_a_child_index():
@@ -551,11 +543,9 @@ def test_a_node_running_per_row_returning_a_series_makes_rows_of_a_child_index()
         GraphNode(id="lines", type="lines", version=1, bindings={"text": _edge(("docs", "texts"))}),
     ])
 
-    lines_type, lines_index = compiled.field(Ref("lines", "result")).type, compiled.field(Ref("lines", "result"))._index
-    assert compiled.node("lines").wiring._runs_per_row_of == Index("docs.texts")
-    assert lines_type is Series[Txt]
-    assert lines_index == Index("lines.result")
-    assert lines_index.parent == Index("docs.texts")
+    assert compiled.run_plan.nodes["lines"].runs_per_row_of == "docs.texts"
+    assert compiled.field(Ref("lines", "result")).type is Series[Txt]
+    assert compiled.run_plan.nodes["lines"].makes_rows == (Ref("lines", "result"),)
 
 
 def test_a_reduction_on_a_child_runs_per_row_of_the_parent():
@@ -567,9 +557,8 @@ def test_a_reduction_on_a_child_runs_per_row_of_the_parent():
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("lines", "result"))}),
     ])
 
-    assert compiled.node("j").wiring._runs_per_row_of == Index("docs.texts")
+    assert compiled.run_plan.nodes["j"].runs_per_row_of == "docs.texts"
     assert compiled.field(Ref("j", "result")).type is Series[Txt]
-    assert compiled.field(Ref("j", "result"))._index == Index("docs.texts")
 
 
 def test_a_parent_index_series_broadcasts_down_to_a_child_index_node():
@@ -581,7 +570,7 @@ def test_a_parent_index_series_broadcasts_down_to_a_child_index_node():
     ])
 
     assert compiled.is_runnable
-    assert compiled.node("p").wiring._runs_per_row_of == Index("lines.result")
+    assert compiled.run_plan.nodes["p"].runs_per_row_of == "lines.result"
 
 
 def test_two_children_of_one_parent_do_not_align():
@@ -605,11 +594,9 @@ def test_n_scalar_refs_into_a_series_input_gather_onto_a_fresh_index():
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("a", "result"), ("b", "result"))}),
     ])
 
-    texts_type, texts_index = compiled.field(Ref("j", "texts")).type, compiled.field(Ref("j", "texts"))._index
-    assert compiled.node("j").wiring._runs_per_row_of is None
-    assert texts_type is Series[Txt]
-    assert texts_index == Index("j.texts")
-    assert texts_index.parent is None
+    assert compiled.run_plan.nodes["j"].runs_per_row_of is None
+    assert compiled.field(Ref("j", "texts")).type is Series[Txt]
+    assert compiled.run_plan.nodes["j"].inputs["texts"].arrives == "collected"
 
 
 def test_n_series_refs_concatenate_and_lineage_is_gone():
@@ -620,8 +607,8 @@ def test_n_series_refs_concatenate_and_lineage_is_gone():
     ])
 
     assert compiled.is_runnable
-    assert compiled.node("j").wiring._runs_per_row_of is None
-    assert compiled.field(Ref("j", "texts"))._index == Index("j.texts")
+    assert compiled.run_plan.nodes["j"].runs_per_row_of is None
+    assert compiled.run_plan.nodes["j"].inputs["texts"].arrives == "collected"
 
 
 def test_two_refs_on_one_index_into_a_scalar_input_are_a_union_on_it():
@@ -634,8 +621,8 @@ def test_two_refs_on_one_index_into_a_scalar_input_are_a_union_on_it():
     ])
 
     assert compiled.is_runnable, compiled.problems
-    assert compiled.node("m").wiring._runs_per_row_of == Index("docs.texts")
-    assert (compiled.field(Ref("m", "result")).type, compiled.field(Ref("m", "result"))._index) == (Series[Txt], Index("docs.texts"))
+    assert compiled.run_plan.nodes["m"].runs_per_row_of == "docs.texts"
+    assert compiled.field(Ref("m", "result")).type is Series[Txt]
 
 
 def test_two_refs_on_different_indexes_into_a_scalar_input_is_fatal():
@@ -657,8 +644,8 @@ def test_two_series_refs_on_one_index_into_a_series_input_read_that_index_not_a_
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("a", "result"), ("b", "result"))}),
     ])
 
-    assert compiled.node("j").wiring._runs_per_row_of is None
-    assert compiled.field(Ref("j", "texts"))._index == Index("docs.texts")
+    assert compiled.run_plan.nodes["j"].runs_per_row_of is None
+    assert compiled.run_plan.nodes["j"].inputs["texts"].arrives == "entire_value"
 
 
 def test_one_scalar_ref_into_a_series_input_is_a_gather_of_one():
@@ -667,7 +654,7 @@ def test_one_scalar_ref_into_a_series_input_is_a_gather_of_one():
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("a", "result"))}),
     ])
 
-    assert compiled.field(Ref("j", "texts"))._index == Index("j.texts")
+    assert compiled.run_plan.nodes["j"].inputs["texts"].arrives == "collected"
 
 
 def test_a_typed_list_and_a_default_live_on_the_inputs_own_index():
@@ -676,8 +663,8 @@ def test_a_typed_list_and_a_default_live_on_the_inputs_own_index():
         GraphNode(id="absent", type="join", version=1),
     ])
 
-    assert compiled.field(Ref("typed", "texts"))._index == Index("typed.texts")
-    assert compiled.field(Ref("absent", "texts"))._index == Index("absent.texts")
+    assert compiled.run_plan.nodes["typed"].inputs["texts"].arrives == "entire_value"
+    assert compiled.run_plan.nodes["absent"].inputs["texts"].arrives == "entire_value"
 
 
 def test_a_gathered_series_judges_each_ref_by_the_element():
@@ -699,7 +686,6 @@ def test_compile_stores_no_rows_and_no_mask():
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
     ])
 
-    assert not hasattr(compiled.node("up").wiring._runs_per_row_of, "rows")
     assert not hasattr(compiled, "rows")
     assert not hasattr(compiled, "mask")
 
@@ -788,17 +774,15 @@ def test_a_list_set_on_a_node_running_per_row_hangs_under_its_rows():
     ])
 
     assert compiled.is_runnable, compiled.problems
-    questions = Index("ask.b", parent=Index("docs.texts"))
-    assert compiled.field(Ref("ask", "b"))._index == questions
-    assert compiled.field(Ref("ask", "b"))._receives == PerRow(questions)
-    assert compiled.node("ask").wiring._runs_per_row_of == questions
+    questions = "ask.b"
+    assert compiled.run_plan.nodes["ask"].inputs["b"].arrives == "value_at_row" and compiled.run_plan.nodes["ask"].inputs["b"].rows_of == questions
+    assert compiled.run_plan.nodes["ask"].runs_per_row_of == questions
 
 
 def test_a_list_set_on_a_node_that_runs_once_is_a_root():
     compiled = _compiled([GraphNode(id="ask", type="pair", version=1, bindings={"b": Static(["q1", "q2"])})])
 
-    assert compiled.node("ask").wiring._runs_per_row_of == Index("ask.b")
-    assert compiled.field(Ref("ask", "b"))._index.parent is None
+    assert compiled.run_plan.nodes["ask"].runs_per_row_of == "ask.b"
 
 
 def test_two_lists_on_a_node_running_per_row_are_refused():

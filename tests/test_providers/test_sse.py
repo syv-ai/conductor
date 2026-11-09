@@ -24,7 +24,7 @@ def _payload(event: Event) -> dict:
 
 
 def test_a_series_keeps_its_index_and_rows_and_an_ending_dumps_its_state():
-    lines = Series(Index("lines", parent=Index("docs")), ["a", "b"], rows=((0, 0), (1, 0)))
+    lines = Series(["a", "b"], index=Index("lines", parent=Index("docs")), rows=((0, 0), (1, 0)))
     state = RunState(status="complete", output_columns={"split.result": OutputColumn(rows=[(0,)], values=["a"])}, node_fingerprints={"split": "f" * 64})
 
     payload = _payload(NodeComplete(type="node_complete", node_id="split", result={"result": lines}))
@@ -51,7 +51,7 @@ def test_a_pending_units_questions_and_a_failures_cause_are_records():
 
 
 def test_a_typed_value_dumps_through_its_own_type_and_one_with_no_form_raises():
-    parsed = Series(Index("parts"), [Json({"a": 1}), Json([2])])
+    parsed = Series([Json({"a": 1}), Json([2])])
 
     assert _payload(NodeComplete(type="node_complete", node_id="parse", result={"result": parsed}))["result"]["result"]["values"] == [{"a": 1}, [2]]
     assert _payload(NodeComplete(type="node_complete", node_id="n", result={"n": float("nan")}))["result"] == {"n": None}

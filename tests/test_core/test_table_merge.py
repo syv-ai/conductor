@@ -20,7 +20,6 @@ from conductor import (
     Table,
     node,
 )
-from conductor._internal.graph.receive import Broadcast, EntireValue, Merge, PerRow, RowsUnder
 from conductor._internal.series import Index
 from conductor._internal.table import MergeSource, merge
 from conductor.widgets import Textarea
@@ -64,9 +63,9 @@ SEND = GraphNode(id="send", type="send", version=1, bindings={"email": From("csv
 def test_send_mail_per_contact_then_excel_has_name_email_and_sent():
     compiled = _compiled(CSV, SEND, GraphNode(id="excel", type="export", version=1, bindings={"table": From("csv.result", "send.result")}))
 
-    assert compiled.field(Ref("excel", "table"))._receives == Merge((
-        (Ref("csv", "result"), Broadcast()), (Ref("send", "result"), EntireValue()),
-    ))
+    assert [(part.sources[0], part.arrives) for part in compiled.run_plan.nodes["excel"].inputs["table"].parts] == [
+        ("csv.result", "same_value_every_row"), ("send.result", "entire_value"),
+    ]
     assert compiled.problems == ()
     assert _sheet(compiled).to_dicts() == [
         {"name": "Ida", "email": "ida@x", "Sent": "sent to ida@x"},
@@ -149,10 +148,9 @@ def test_a_table_input_on_a_node_running_per_document_gets_that_documents_rows()
         GraphNode(id="excel", type="export", version=1, bindings={"table": From("read.result", "check.result")}),
     )
 
-    assert compiled.field(Ref("excel", "table"))._receives == Merge((
-        (Ref("read", "result"), PerRow(Index("docs.result"))),
-        (Ref("check", "result"), RowsUnder(Index("read.result", parent=Index("docs.result")), 1)),
-    ))
+    read, check = compiled.run_plan.nodes["excel"].inputs["table"].parts
+    assert (read.sources[0], read.arrives, read.rows_of) == ("read.result", "value_at_row", "docs.result")
+    assert (check.sources[0], check.arrives, check.rows_of, check.grouped_under) == ("check.result", "all_rows_under_row", "read.result", "docs.result")
     sheets = compiled.results(compiled.run_sync())["excel"]["result"]
     assert [sheet.drop(ROW_ID).to_dicts() for sheet in sheets] == [
         [{"vendor": "acme", "amount": 10.0, "Approved": "acme ok"}, {"vendor": "beta", "amount": 5.0, "Approved": "beta ok"}],
@@ -312,8 +310,8 @@ def test_a_column_two_levels_down_is_received_under_the_nodes_row():
         registry=_registry_with(words),
     )
 
-    parts = dict(compiled.field(Ref("excel", "table"))._receives.parts)
-    assert parts[Ref("words", "result")] == RowsUnder(Index("words.result", parent=Index("read.result", parent=Index("docs.result"))), 1)
+    from_words = next(part for part in compiled.run_plan.nodes["excel"].inputs["table"].parts if part.sources == (Ref("words", "result"),))
+    assert (from_words.arrives, from_words.rows_of, from_words.grouped_under) == ("all_rows_under_row", "words.result", "docs.result")
 
 
 def _events(compiled: CompiledGraph):
@@ -424,15 +422,15 @@ def test_a_child_table_a_branch_skipped_gives_no_rows_and_the_sheet_keeps_its_co
 def test_a_series_two_levels_down_with_nothing_else_runs_per_row_of_the_level_above_it():
     compiled = _compiled(*_three_levels("a,b;c|d"), GraphNode(id="n", type="labelled", version=1, bindings={"texts": From("lines.result")}), registry=_deep_registry())
 
-    assert compiled.node("n").wiring._runs_per_row_of == Index("paras.result", parent=Index("docs.result"))
+    assert compiled.run_plan.nodes["n"].runs_per_row_of == "paras.result"
     assert _said(compiled) == ["=a,b", "=c", "=d"]
 
 
 def test_a_value_on_a_document_with_a_series_of_lines_gets_every_line_of_the_document_flat():
     compiled = _compiled(*_three_levels("a,b;c|d"), GraphNode(id="n", type="labelled", version=1, bindings={"label": From("docs.result"), "texts": From("lines.result")}), registry=_deep_registry())
 
-    assert compiled.node("n").wiring._runs_per_row_of == Index("docs.result")
-    assert compiled.field(Ref("n", "texts"))._receives.depth == 1
+    assert compiled.run_plan.nodes["n"].runs_per_row_of == "docs.result"
+    assert compiled.run_plan.nodes["n"].inputs["texts"].grouped_under == "docs.result"
     assert _said(compiled) == ["a,b;c=a,b,c", "d=d"]
 
 
@@ -457,7 +455,7 @@ def test_a_document_with_no_paragraphs_runs_with_an_empty_series():
 def test_two_series_at_different_depths_are_both_read_per_row_of_the_shallowest_level_above_them():
     compiled = _compiled(*_three_levels("a,b;c|d"), GraphNode(id="n", type="two-columns", version=1, bindings={"a": From("paras.result"), "b": From("lines.result")}), registry=_deep_registry())
 
-    assert compiled.node("n").wiring._runs_per_row_of == Index("docs.result")
+    assert compiled.run_plan.nodes["n"].runs_per_row_of == "docs.result"
     assert _said(compiled) == ["a,b,c+a,b,c", "d+d"]
 
 

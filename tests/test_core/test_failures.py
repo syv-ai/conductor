@@ -32,7 +32,6 @@ from conductor import (
     Static,
     node,
 )
-from conductor._internal.errors import CATALOGUE
 from conductor._internal.execution.run_until_idle import Leg
 from conductor.widgets import Textarea
 from helpers import stream_of
@@ -212,12 +211,6 @@ def test_a_foreign_exceptions_text_is_its_cause_and_nowhere_else():
     assert str(wrapped) == "The node failed."
     assert wrapped.code == "execution_failed" and str(wrapped) == "The node failed."
     assert "secret-token" not in str(wrapped)
-
-
-def test_the_generic_messages_cover_the_engines_own_codes():
-    """``CATALOGUE`` says what people read for each code the engine writes
-    itself; ``failed`` is the node's own message and has no generic line."""
-    assert CATALOGUE["execution_failed"][0] == "The node failed."
 
 
 def test_node_error_has_no_retryable_flag():

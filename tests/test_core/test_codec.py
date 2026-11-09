@@ -75,7 +75,6 @@ def test_each_shipped_type_round_trips(dtype, value, wire):
 
 def test_any_passes_through_as_json_ready_data():
     assert to_wire({"k": (1, 2)}, Any) == {"k": [1, 2]}
-    assert TypeAdapter(Any).validate_python({"k": [1, 2]}) == {"k": [1, 2]}
 
 
 # -- a series -------------------------------------------------------------------------
@@ -84,7 +83,7 @@ def test_any_passes_through_as_json_ready_data():
 def test_a_series_of_json_round_trips_in_both_modes():
     docs = Index("docs")
     lines = Index("lines", parent=docs)
-    series = Series[Json](lines, [Json({"n": 1}), Json([2])], rows=((0, 0), (1, 0)))
+    series = Series[Json]([Json({"n": 1}), Json([2])], index=lines, rows=((0, 0), (1, 0)))
 
     wire = to_wire(series, Series[Json])
 

@@ -158,7 +158,7 @@ def test_an_iterating_decision_masks_rows_and_is_not_a_condition():
     ])
 
     assert compiled.is_runnable, compiled.problems
-    assert compiled.node("g").wiring._runs_per_row_of is not None
+    assert compiled.run_plan.nodes["g"].runs_per_row_of is not None
     assert compiled.field(Ref("yes", "result")).condition == ALWAYS
     assert compiled.decisions == {}
 

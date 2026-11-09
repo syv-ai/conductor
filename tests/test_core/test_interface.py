@@ -254,29 +254,6 @@ def test_an_any_roster_validates_a_call():
 # --- the open interface -------------------------------------------------------
 
 
-def test_an_open_roster_is_single_on_the_keyword_parameter():
-    """A node that takes whatever is connected to it: every connected name is an
-    input, typed by its edge and received as one value. The signature
-    declares no inputs for them — the compiler makes one per edge — and the
-    interface says only that it is open, and how."""
-    from collections.abc import Mapping
-    from typing import Any
-
-    def script(code: Annotated[Text, Param(title="Code", widget=Textarea())], **inputs: AsItArrives) -> Mapping[str, Any]:
-        return {}
-
-    iface = read_signature(script).interface
-
-    assert [i.name for i in iface.inputs] == ["code"]
-    assert read_signature(script).var_keyword[0] == "inputs"
-    assert read_signature(sample).var_keyword is None
-
-    def columns(**columns: Series) -> Annotated[Text, Result(title="R")]:
-        return Text("")
-
-    assert read_signature(columns).var_keyword[1] is Series
-
-
 def test_single_is_spelled_on_the_keyword_parameter_only():
     """`AsItArrives` is the open interface's shape and nothing else's: a
     named parameter declares a DType, or `Any` for whatever arrives."""

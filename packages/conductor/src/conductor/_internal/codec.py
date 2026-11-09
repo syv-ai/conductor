@@ -180,15 +180,15 @@ def series_from_wire(value: Any, validate_values: Callable[[list[Any]], list[Any
     list is dense rows on a fresh root index; a scalar is refused rather
     than wrapped. What ``Series``'s pydantic schema calls to validate."""
     if isinstance(value, Series):
-        return Series(value.index, validate_values(list(value.values)), rows=value.rows)
+        return Series(validate_values(list(value.values)), index=value.index, rows=value.rows)
     if isinstance(value, Mapping) and set(value) == {"index", "rows", "values"}:
         return Series(
-            Index.model_validate(value["index"]),
             validate_values(list(value["values"])),
+            index=Index.model_validate(value["index"]),
             rows=[tuple(row) for row in value["rows"]],
         )
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
-        return Series(Index.fresh(), validate_values(list(value)))
+        return Series(validate_values(list(value)))
     raise TypeError(f"expected a series, got {type(value).__name__}")
 
 

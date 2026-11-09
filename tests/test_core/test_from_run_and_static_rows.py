@@ -20,7 +20,6 @@ from conductor import (
     node,
 )
 from conductor._internal.interface import read_signature
-from conductor._internal.series import Index
 from conductor.widgets import ListWidget, TextWidget
 
 
@@ -80,9 +79,9 @@ def test_a_static_sequence_on_a_scalar_input_makes_the_node_iterate():
         GraphNode(id="j", type="joinall", version=1, bindings={"texts": From("u.result")}),
     ]), _registry())
     assert compiled.is_runnable, compiled.problems
-    assert compiled.node("u").wiring._runs_per_row_of == Index("u.text")
+    assert compiled.run_plan.nodes["u"].runs_per_row_of == "u.text"
     assert compiled.field(Ref("u", "text")).type is Series[Txt]
-    assert compiled.field(Ref("u", "result"))._index == Index("u.text")
+    assert compiled.run_plan.nodes["u"].inputs["text"].rows_of == "u.text"
     results = compiled.results(compiled.run_sync())
     assert list(results["u"]["result"]) == ["A", "B", "C"]
     assert results["u"]["result"].rows == ((0,), (1,), (2,))
@@ -101,5 +100,5 @@ def test_an_empty_static_sequence_is_an_empty_series():
 
 def test_a_static_string_is_one_value_not_a_sequence():
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="u", type="upper", version=1, bindings={"text": Static(Txt("abc"))})]), _registry())
-    assert compiled.node("u").wiring._runs_per_row_of is None
+    assert compiled.run_plan.nodes["u"].runs_per_row_of is None
     assert compiled.results(compiled.run_sync())["u"]["result"] == "ABC"
