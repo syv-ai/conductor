@@ -73,7 +73,7 @@ def call_node(
         kwargs.update({name: from_run[needed] for name, needed in version.from_run.items()})
         returned = version.body(**kwargs)
     except NodeError as raised:
-        return CallFailed(raised._as_problem_at(node.id, row), retryable=isinstance(raised, ExternalFailure))
+        return CallFailed(raised._as_problem_at(node.id, *row), retryable=isinstance(raised, ExternalFailure))
     except version.policy.retry_on as raised:
         logger.warning("node %r: an outside service failed", node.id, exc_info=raised)
         return CallFailed(make_problem("external_failed", node.id, *row, exception=type(raised).__name__), retryable=True)

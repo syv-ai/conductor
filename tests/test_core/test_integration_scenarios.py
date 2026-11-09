@@ -57,7 +57,7 @@ def always_fail(
     reason: Annotated[Txt, Param(title="Why", widget=Textarea())] = Txt("boom"),
     number: Annotated[Num, Param(title="Number", widget=NumberWidget())] = Num(0),
 ) -> Out:
-    raise NodeError(reason, node_id="always_fail")
+    raise NodeError(reason)
 
 
 @node("tally", title="Tally", description="Returns its label once a number arrives", category="test")
@@ -148,7 +148,7 @@ class TestRetry:
             nonlocal calls
             calls += 1
             if calls < 2:
-                raise ExternalFailure("transient", node_id="flaky")
+                raise ExternalFailure("transient")
             return Txt("ok")
 
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="flaky", version=1)]), _registry(flaky))

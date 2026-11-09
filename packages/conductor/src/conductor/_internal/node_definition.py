@@ -400,7 +400,7 @@ class NodeDefinition(Generic[_P, _R]):
         if not isinstance(versions, Mapping):
             versions = {1: versions}
         if not versions:
-            raise NodeDeclarationError(f"{id!r} has no versions; a definition declares at least one", code="versions_empty", node_id=id)
+            raise NodeDeclarationError(f"{id!r} has no versions; a definition declares at least one", code="versions_empty")
         return NodeDefinition(
             id=id, title=title or humanised(id), description=description, category=category, tags=tuple(tags), docs=docs,
             versions=MappingProxyType({
@@ -459,7 +459,7 @@ def node(
             if replaces is not None:
                 _raise_if_upgrade_is_missing(replaces.versions[replaces.current_version], version)
         except NodeDeclarationError as error:
-            raise NodeDeclarationError(f"@node({id!r}) on {function.__name__}: {error}", code=error.code, node_id=id) from error
+            raise NodeDeclarationError(f"@node({id!r}) on {function.__name__}: {error}", code=error.code) from error
         number = 1 if replaces is None else replaces.current_version + 1
         return NodeDefinition(
             id=id,

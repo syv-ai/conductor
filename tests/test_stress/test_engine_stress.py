@@ -108,7 +108,6 @@ async def test_cancellation_honored_during_retry_sleep() -> None:
         call_count += 1
         raise ExternalFailure(
             f"transient (attempt {call_count})",
-            node_id="n1",
         )
 
     registry = NodeRegistry([always_flaky])

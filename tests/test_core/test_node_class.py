@@ -466,7 +466,7 @@ def test_an_async_function_is_refused():
         @node("waits")
         async def waits(x: Txt) -> Txt:
             return x
-    assert raised.value.code == "async_run" and raised.value.node_id == "waits"
+    assert raised.value.code == "async_run" and "waits" in str(raised.value)
 
 
 def test_a_definition_is_frozen():

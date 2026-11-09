@@ -204,7 +204,7 @@ def test_a_wrong_declaration_is_a_type_error_with_a_code_and_the_node():
             return text
 
     assert isinstance(wrong.value, TypeError)
-    assert (wrong.value.code, wrong.value.node_id) == ("missing_return_type", "no-return")
+    assert wrong.value.code == "missing_return_type" and "no-return" in str(wrong.value)
 
 
 def test_a_wrong_type_has_a_code_and_no_node():
@@ -212,7 +212,7 @@ def test_a_wrong_type_has_a_code_and_no_node():
         class NoId(DType, str):
             display_title = "x"
 
-    assert (wrong.value.code, wrong.value.node_id) == ("type_without_id", None)
+    assert wrong.value.code == "type_without_id"
 
 
 def test_a_registry_refusal_names_the_node():
@@ -223,7 +223,7 @@ def test_a_registry_refusal_names_the_node():
     with pytest.raises(NodeDeclarationError) as wrong:
         NodeRegistry([echo, other])
 
-    assert (wrong.value.code, wrong.value.node_id) == ("duplicate_node_id", "echo")
+    assert wrong.value.code == "duplicate_node_id" and "echo" in str(wrong.value)
 
 
 def test_a_single_annotation_is_still_refused_on_a_named_parameter():

@@ -93,7 +93,7 @@ def compile_one_node(node: GraphNode, progress: CompileProgress, registry: NodeR
         try:
             added = version.compute_added_inputs.call_with(statics, {}) or ()
         except ComputeHookError as hook_error:
-            problems.append(hook_error.as_problem_on_node(node.id))
+            problems.append(hook_error._as_problem_at(node.id, hook_error.field))
             return _record_compiled_node(progress, node, problems, definition, version, None, {})
         inputs = (*inputs, *added)
         statics_added, lists_added, unreadable_added = read_static_values(added, node)
@@ -126,7 +126,7 @@ def compile_one_node(node: GraphNode, progress: CompileProgress, registry: NodeR
         outputs = _outputs_after_compute_outputs(version, inputs_read, statics)
     except ComputeHookError as hook_error:
         if not stopped:  # a stopped node's broken source carries the problem; its missing arrival is the same fact
-            problems.append(hook_error.as_problem_on_node(node.id))
+            problems.append(hook_error._as_problem_at(node.id, hook_error.field))
         return _record_compiled_node(progress, node, problems, definition, version, _interface_with_fields(version.interface, inputs_typed_by_their_edges, ()), statics)
     interface = _interface_with_fields(version.interface, inputs_typed_by_their_edges, outputs)
     if stopped:  # complete its fields from what did arrive, so an editor can draw it

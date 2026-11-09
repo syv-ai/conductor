@@ -91,7 +91,7 @@ class NodeRegistry:
         for definition in definitions:
             existing = self._nodes.get(definition.id)
             if existing is not None and existing is not definition:
-                raise NodeDeclarationError(f"{definition.id!r} is declared twice; ids are unique.", code="duplicate_node_id", node_id=definition.id)
+                raise NodeDeclarationError(f"{definition.id!r} is declared twice; ids are unique.", code="duplicate_node_id")
             self._nodes[definition.id] = definition
             self._types.update(self._types_checked_for_id_clash(_types_declared_by(definition)))
         for definition in definitions:
@@ -99,7 +99,7 @@ class NodeRegistry:
                 if notice is not None and notice.alternative is not None and notice.alternative not in self._nodes:
                     raise NodeDeclarationError(
                         f"{definition.id!r} names {notice.alternative!r} as its alternative, which is not here",
-                        code="alternative_missing", node_id=definition.id,
+                        code="alternative_missing",
                     )
 
     def __contains__(self, node_id: object) -> bool:

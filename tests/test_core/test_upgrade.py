@@ -101,7 +101,7 @@ def _newer_y(y: Annotated[Txt, _param("Y")]) -> Annotated[Txt, Result(title="R")
 def test_an_input_gone_from_the_next_version_needs_an_upgrade():
     with pytest.raises(NodeDeclarationError) as raised:
         node("two", replaces=node("two")(_older_x))(_newer_y)
-    assert raised.value.code == "upgrade_missing" and raised.value.node_id == "two"
+    assert raised.value.code == "upgrade_missing" and "two" in str(raised.value)
 
 
 def test_an_upgrade_must_say_where_a_gone_input_went():

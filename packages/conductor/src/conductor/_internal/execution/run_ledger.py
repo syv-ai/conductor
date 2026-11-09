@@ -330,7 +330,7 @@ class RunLedger:
         try:
             inputs = self.inputs_for(unit)
         except NodeError as failure:
-            return failure._as_problem_at(node_id, row)
+            return failure._as_problem_at(node_id, *row)
         if isinstance(inputs, (SkippedAtRow, BlankInputsStopCall)):
             return self.record(unit, inputs)
         input_hash = hash_of_inputs(self._compiled.node(node_id)._input_hash_seed, inputs, self._digests_of_values)

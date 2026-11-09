@@ -69,7 +69,7 @@ def test_a_chain_written_wrong_is_refused_where_it_is_written(written, code):
 
     with pytest.raises(NodeDeclarationError) as raised:
         written()(newer)
-    assert raised.value.code == code and raised.value.node_id is not None
+    assert raised.value.code == code
 
 
 def _compiled_inner():

@@ -50,7 +50,7 @@ A pause is not an error and nothing raises for one: a node returns
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from typing import Any, NamedTuple
+from typing import Any, ClassVar, NamedTuple
 
 from pydantic import ConfigDict, Field, ValidationError, computed_field
 
@@ -238,17 +238,21 @@ class ConductorError(Exception):
         raise ComputeHookError("The schema has no columns.", code="schema_empty", ctx={"schema": name}, field="schema")
 
     ``message`` is for a person. ``code`` is the stable word a host keys on
-    and ``ctx`` the values its own sentence is filled from. ``field`` names
-    the input it is about, where that means something. ``node_id`` is filled in by the library.
+    and ``ctx`` the values its own sentence is filled from.
     """
 
-    def __init__(self, message: str, *, code: str | None = None, ctx: Mapping[str, Any] | None = None, field: str | None = None, node_id: str | None = None) -> None:
+    #: The ``Problem`` code of one that names no ``code`` of its own.
+    _code_when_none_given: ClassVar[str]
+
+    def __init__(self, message: str, *, code: str | None = None, ctx: Mapping[str, Any] | None = None) -> None:
         self.message = message
         self.code = code
         self.ctx = ctx or {}
-        self.field = field
-        self.node_id = node_id
         super().__init__(message)
+
+    def _as_problem_at(self, *loc: str | int | None) -> Problem:
+        """The ``Problem`` this is at ``loc``; a ``None`` place is left out, as in ``make_problem``."""
+        return Problem(type=self.code or self._code_when_none_given, loc=tuple(place for place in loc if place is not None), msg=self.message, ctx=self.ctx)
 
 
 class NodeDeclarationError(ConductorError, TypeError):
@@ -276,15 +280,14 @@ class ComputeHookError(ConductorError):
     one is a ``ValueError``, from the hook.
     """
 
-    def __init__(self, message: str, *, code: str | None = None, ctx: Mapping[str, Any] | None = None, field: str | None = None, node_id: str | None = None) -> None:
+    _code_when_none_given = "compute_hook_failed"
+
+    def __init__(self, message: str, *, code: str | None = None, ctx: Mapping[str, Any] | None = None, field: str | None = None) -> None:
         entry = PROBLEM_CATALOGUE.get(code) if code is not None else None
         if entry is not None and not entry.fatal:
             raise ValueError(f"{code!r} is a code for a graph that can still run; a hook's problem always stops it")
-        super().__init__(message, code=code, ctx=ctx, field=field, node_id=node_id)
-
-    def as_problem_on_node(self, node_id: str) -> Problem:
-        """The ``Problem`` this is on ``node_id``."""
-        return Problem(type=self.code or "compute_hook_failed", msg=self.message, ctx=self.ctx, loc=(node_id,) if self.field is None else (node_id, self.field))
+        super().__init__(message, code=code, ctx=ctx)
+        self.field = field
 
 
 class InvalidCallError(ConductorError, ValueError):
@@ -315,10 +318,7 @@ class NodeError(ConductorError):
     a failure the outside world caused is an ``ExternalFailure``.
     """
 
-    def _as_problem_at(self, node_id: str, row: tuple[int, ...]) -> Problem:
-        """The ``Problem`` this is on the unit at ``row``; with no code of its own, the one for its family."""
-        code = self.code or ("external_failed" if isinstance(self, ExternalFailure) else "failed")
-        return Problem(type=code, msg=str(self), loc=(node_id, *row), ctx=self.ctx)
+    _code_when_none_given = "failed"
 
 
 class ExternalFailure(NodeError):
@@ -330,3 +330,5 @@ class ExternalFailure(NodeError):
     the same way, with code ``external_failed`` and the generic message. Not for a bug in the node or a value it cannot use — those
     are internal, and retrying them repeats the same failure.
     """
+
+    _code_when_none_given = "external_failed"
