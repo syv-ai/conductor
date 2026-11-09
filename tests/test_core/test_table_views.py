@@ -51,7 +51,7 @@ def test_a_column_is_a_series_on_rows_the_table_output_owns():
     compiled = _compiled(CSV)
     email = compiled.field(Ref("csv", "result.email"))
 
-    assert email.type is Txt and email.many
+    assert email.dtype is Txt and email.many
     assert compiled.run_plan.nodes["csv"].makes_rows == (Ref("csv", "result"),)
 
 
@@ -72,7 +72,7 @@ def test_a_table_per_document_offers_columns_on_rows_under_each_document():
     assert compiled.is_runnable, compiled.problems
     assert compiled.run_plan.nodes["read"].runs_per_row_of == "docs.result"
     assert compiled.run_plan.nodes["check"].runs_per_row_of == "read.result"
-    assert compiled.field(Ref("read", "result.amount")).type is Num and compiled.field(Ref("read", "result.amount")).many
+    assert compiled.field(Ref("read", "result.amount")).dtype is Num and compiled.field(Ref("read", "result.amount")).many
 
 
 def test_a_column_appears_exactly_when_its_table_does():

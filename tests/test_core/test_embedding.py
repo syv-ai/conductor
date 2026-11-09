@@ -459,7 +459,7 @@ def _what_compile_says(compiled: CompiledGraph) -> dict[str, Any]:
         for declared in (*graph_node.interface.inputs, *graph_node.interface.outputs):
             found = compiled.field(Ref(node_id, declared.name))
             fields[declared.name] = {
-                "type": repr(found.type),
+                "type": repr(found.dtype),
                 "many": found.many,
                 **({"binding": repr(found.binding)} if declared.name in inputs else {"condition": _condition(found.condition)}),
             }

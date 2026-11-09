@@ -355,7 +355,7 @@ def _sheet_from(*placed: GraphNode, wired: tuple[str, ...]) -> tuple[CompiledGra
 
 def test_a_column_a_derived_table_carries_is_one_column_beside_its_source() -> None:
     compiled, sheet = _sheet_from(_contacts.graph_node("c"), _first_two.graph_node("p", contacts=From("c.result")), wired=("c.result", "p.result"))
-    assert sheet.columns == ["name", "email"] == [name for name, _ in compiled.field("sheet.table").type.columns]
+    assert sheet.columns == ["name", "email"] == [name for name, _ in compiled.field("sheet.table").dtype.columns]
     assert sheet.to_dicts() == [{"name": "Ida", "email": None}, {"name": "Bo", "email": "B"}, {"name": "Nina", "email": "n"}]
 
 

@@ -135,13 +135,13 @@ def test_a_scalar_node_fed_scalars_does_not_iterate():
     ])
 
     assert compiled.run_plan.nodes["b"].runs_per_row_of is None
-    assert compiled.field(Ref("b", "result")).type is Txt
+    assert compiled.field(Ref("b", "result")).dtype is Txt
 
 
 def test_a_series_is_made_at_the_node_that_produces_it():
     compiled = _compiled([GraphNode(id="docs", type="docs", version=1)])
 
-    assert compiled.field(Ref("docs", "texts")).type is Txt and compiled.field(Ref("docs", "texts")).many
+    assert compiled.field(Ref("docs", "texts")).dtype is Txt and compiled.field(Ref("docs", "texts")).many
     assert Ref("docs", "texts") in compiled.run_plan.nodes["docs"].makes_rows
     assert compiled.run_plan.nodes["docs"].runs_per_row_of is None
 
@@ -170,7 +170,7 @@ def test_an_iterating_nodes_outputs_are_series_on_the_same_index():
         GraphNode(id="up", type="upper", version=1, bindings={"text": From("docs.texts")}),
     ])
 
-    assert compiled.field(Ref("up", "result")).type is Txt and compiled.field(Ref("up", "result")).many
+    assert compiled.field(Ref("up", "result")).dtype is Txt and compiled.field(Ref("up", "result")).many
     assert compiled.run_plan.nodes["up"].runs_per_row_of == "docs.texts"
 
 
@@ -184,7 +184,7 @@ def test_iteration_is_contagious_and_needs_no_construct():
     ])
 
     assert compiled.run_plan.nodes["n"].runs_per_row_of == "docs.texts"
-    assert compiled.field(Ref("n", "result")).type is Num and compiled.field(Ref("n", "result")).many
+    assert compiled.field(Ref("n", "result")).dtype is Num and compiled.field(Ref("n", "result")).many
 
 
 def test_a_scalar_beside_a_series_broadcasts():
@@ -240,7 +240,7 @@ def test_a_pass_through_binds_its_type_from_the_edge():
 
     assert compiled.node("r").interface.inputs[0].dtype is Num
     assert compiled.node("r").interface.outputs[0].dtype is Num
-    assert compiled.field(Ref("r", "result")).type is Num
+    assert compiled.field(Ref("r", "result")).dtype is Num
     # A node aware of the type it inherits: the next edge is checked against the bound type.
     assert [p.type for p in compiled.problems] == ["type_mismatch"]
 
@@ -255,7 +255,7 @@ def test_an_iterating_pass_through_binds_the_element_and_iterates():
     ])
 
     assert compiled.is_runnable, compiled.problems
-    assert compiled.field(Ref("r", "result")).type is Txt and compiled.field(Ref("r", "result")).many
+    assert compiled.field(Ref("r", "result")).dtype is Txt and compiled.field(Ref("r", "result")).many
     assert compiled.run_plan.nodes["r"].runs_per_row_of == "docs.texts"
     assert compiled.run_plan.nodes["up"].runs_per_row_of == "docs.texts"
 
@@ -268,8 +268,8 @@ def test_a_reduction_over_the_variable_binds_from_the_series_element():
 
     assert compiled.is_runnable, compiled.problems
     assert compiled.node("one").interface.inputs[0].dtype is Txt and compiled.node("one").interface.inputs[0].many
-    assert compiled.field(Ref("one", "result")).type is compiled.field(Ref("one", "result")).type
-    assert compiled.field(Ref("one", "result")).type is Txt
+    assert compiled.field(Ref("one", "result")).dtype is compiled.field(Ref("one", "result")).dtype
+    assert compiled.field(Ref("one", "result")).dtype is Txt
     assert compiled.run_plan.nodes["one"].runs_per_row_of is None
 
 
@@ -342,7 +342,7 @@ def test_a_node_with_a_broken_edge_has_no_shape_and_says_so_once():
     assert [p.type for p in compiled.problems] == ["unknown_ref_node"]
     assert compiled.node("b")._fields is None
     with pytest.raises(KeyError):
-        compiled.field(Ref("c", "result")).type
+        compiled.field(Ref("c", "result")).dtype
 
 
 def test_a_node_with_no_outputs_yet_is_the_ordinary_mid_edit_state():
@@ -520,7 +520,7 @@ def test_a_reduction_on_a_root_yields_a_scalar_and_does_not_iterate():
     assert compiled.is_runnable
     assert compiled.run_plan.nodes["j"].runs_per_row_of is None
     assert compiled.run_plan.nodes["j"].inputs["texts"].receive_mode == "entire_value"
-    assert compiled.field(Ref("j", "result")).type is Txt
+    assert compiled.field(Ref("j", "result")).dtype is Txt
 
 
 def test_a_node_running_per_row_returning_a_series_makes_rows_of_a_child_index():
@@ -532,7 +532,7 @@ def test_a_node_running_per_row_returning_a_series_makes_rows_of_a_child_index()
     ])
 
     assert compiled.run_plan.nodes["lines"].runs_per_row_of == "docs.texts"
-    assert compiled.field(Ref("lines", "result")).type is Txt and compiled.field(Ref("lines", "result")).many
+    assert compiled.field(Ref("lines", "result")).dtype is Txt and compiled.field(Ref("lines", "result")).many
     assert compiled.run_plan.nodes["lines"].makes_rows == (Ref("lines", "result"),)
 
 
@@ -546,7 +546,7 @@ def test_a_reduction_on_a_child_runs_per_row_of_the_parent():
     ])
 
     assert compiled.run_plan.nodes["j"].runs_per_row_of == "docs.texts"
-    assert compiled.field(Ref("j", "result")).type is Txt and compiled.field(Ref("j", "result")).many
+    assert compiled.field(Ref("j", "result")).dtype is Txt and compiled.field(Ref("j", "result")).many
 
 
 def test_a_parent_index_series_broadcasts_down_to_a_child_index_node():
@@ -583,7 +583,7 @@ def test_n_scalar_refs_into_a_series_input_gather_onto_a_fresh_index():
     ])
 
     assert compiled.run_plan.nodes["j"].runs_per_row_of is None
-    assert compiled.field(Ref("j", "texts")).type is Txt and compiled.field(Ref("j", "texts")).many
+    assert compiled.field(Ref("j", "texts")).dtype is Txt and compiled.field(Ref("j", "texts")).many
     assert compiled.run_plan.nodes["j"].inputs["texts"].receive_mode == "collected"
 
 
@@ -610,7 +610,7 @@ def test_two_refs_on_one_index_into_a_scalar_input_are_a_union_on_it():
 
     assert compiled.is_runnable, compiled.problems
     assert compiled.run_plan.nodes["m"].runs_per_row_of == "docs.texts"
-    assert compiled.field(Ref("m", "result")).type is Txt and compiled.field(Ref("m", "result")).many
+    assert compiled.field(Ref("m", "result")).dtype is Txt and compiled.field(Ref("m", "result")).many
 
 
 def test_two_refs_on_different_indexes_into_a_scalar_input_is_fatal():

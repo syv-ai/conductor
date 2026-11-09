@@ -77,7 +77,7 @@ def test_a_static_sequence_on_a_scalar_input_makes_the_node_iterate():
     ]), _registry())
     assert compiled.is_runnable, compiled.problems
     assert compiled.run_plan.nodes["u"].runs_per_row_of == "u.text"
-    assert compiled.field(Ref("u", "text")).type is Txt and compiled.field(Ref("u", "text")).many
+    assert compiled.field(Ref("u", "text")).dtype is Txt and compiled.field(Ref("u", "text")).many
     assert compiled.run_plan.nodes["u"].inputs["text"].rows_of == "u.text"
     results = compiled.results(compiled.run_sync())
     assert results["u"]["result"]["values"] == ["A", "B", "C"]

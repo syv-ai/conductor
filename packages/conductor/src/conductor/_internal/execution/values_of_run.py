@@ -142,7 +142,7 @@ def blank_of(field: CompiledField) -> Any:
         case CellsInAList():
             return []
         case TableAtRow():
-            return frame_with_no_rows(field.type)
+            return frame_with_no_rows(field.dtype)
         case _:
             return None
 
@@ -236,7 +236,7 @@ def read_output_column(compiled: CompiledGraph, ref: Ref, column: OutputColumn, 
         return None
     by_row: dict[Row, Any] = {}
     read = field._validate_cell
-    cell_type = field.type
+    cell_type = field.dtype
     a_blank_passes = field._held_as.__class__ is not TableAtRow
     for row, stored in zip(column.rows, column.values, strict=True):
         try:
@@ -259,7 +259,7 @@ def _restored_list_of_cells(field: CompiledField, stored: Any, read: Any) -> lis
     """The cells a many-valued output wrote at one row, each read as its output's cell."""
     if not isinstance(stored, list):
         raise TypeError(f"a list of values, not a {type(stored).__name__}")
-    cell_type = field.type
+    cell_type = field.dtype
     return [cell if cell is None or type(cell) is cell_type else _restored_cell(field, cell, read) for cell in stored]
 
 
@@ -456,7 +456,7 @@ class ValuesOfRun:
         if row[-1] >= len(column):
             return MISSING
         cell = column[row[-1]]
-        return None if cell is None else field.type(cell)
+        return None if cell is None else field.dtype(cell)
 
     def _row_a_skip_reaches_on(self, ref: Ref, row: Row) -> Row | None:
         index = self._fields[ref]._index

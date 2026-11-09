@@ -138,7 +138,7 @@ def test_a_field_on_rows_is_many_and_its_type_is_one_value():
         REGISTRY,
     )
     field = compiled.node("s")._fields["result"]
-    assert (field.type, field.many) == (Text, True)
+    assert (field.dtype, field.many) == (Text, True)
 
 
 def test_a_reduction_over_tables_receives_a_list_of_them():

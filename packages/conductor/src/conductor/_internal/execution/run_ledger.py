@@ -449,7 +449,7 @@ class RunLedger:
             index: Index = field._index  # type: ignore[assignment]
             rows, values = self._rows_and_values_on(read.sources, group_row)
             row_id_at = self._values.row_id
-            frame = one_column_frame_with_row_ids(names_in_a_merge(field)[0], field.type, [row_id_at(index, row) for row in rows], values)
+            frame = one_column_frame_with_row_ids(names_in_a_merge(field)[0], field.dtype, [row_id_at(index, row) for row in rows], values)
             sources.append(MergeSource(output_name, frame, index, rows, copied_down, carried))
         return None if skipped == len(sources) else merge_tables_on_row_ids(sources)
 

@@ -81,7 +81,7 @@ def describe_graph(compiled: CompiledGraph) -> GraphDescription:
             for name in names:
                 ref = Ref(drawn.id, name)
                 field = compiled.field(ref)
-                fields[ref] = FieldDescription(dtype=field.type, many=field.many)
+                fields[ref] = FieldDescription(dtype=field.dtype, many=field.many)
     return GraphDescription(
         is_runnable=compiled.is_runnable,
         problems=compiled.problems,

@@ -86,7 +86,7 @@ def test_every_key_of_fields_is_an_address_compiled_field_accepts():
 
     assert set(described.fields) == {"emb.text", "emb.result", "words.text", "words.result", "hook.language", "hook.en", "hook.result"}
     for address, field in described.fields.items():
-        assert field.dtype is compiled.field(address).type
+        assert field.dtype is compiled.field(address).dtype
         assert field.many is compiled.field(address).many
     assert described.fields[Ref("words", "result")].many is True
     assert described.fields[Ref("emb", "result")].many is False

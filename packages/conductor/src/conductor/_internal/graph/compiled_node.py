@@ -230,7 +230,7 @@ class CompiledField:
     #: The field's address: ``Ref("approve/check", "amount")`` for a field inside an embedded graph.
     ref: Ref
     #: The type of one value on this field. Whether it holds many is ``many``.
-    type: Any
+    dtype: Any
     #: Where this input's value comes from: ``From``, ``Static``, or ``None``
     #: when its declared default applies. Always ``None`` on an output.
     binding: Binding | None
@@ -254,13 +254,13 @@ class CompiledField:
     _row_origins: frozenset[str] | None = field(repr=False)
 
     def __init__(
-        self, ref: Ref, type: Any, binding: Binding | None, problems: tuple[Problem, ...], *,
+        self, ref: Ref, dtype: Any, binding: Binding | None, problems: tuple[Problem, ...], *,
         _condition_with_rows: Condition | None, _index: Index | None, _receive_mode: ReceiveMode | None, _held_as: HeldAs,
         _takes_blank: bool, _row_origins: frozenset[str] | None,
     ) -> None:
         """Compile builds one per field of a graph, so this sets them in one step, not one at a time."""
         self.__dict__.update(
-            ref=ref, type=type, binding=binding, condition=_condition_with_rows if _condition_with_rows is None or _condition_with_rows is ALWAYS else run_once_condition(_condition_with_rows), problems=problems,
+            ref=ref, dtype=dtype, binding=binding, condition=_condition_with_rows if _condition_with_rows is None or _condition_with_rows is ALWAYS else run_once_condition(_condition_with_rows), problems=problems,
             _condition_with_rows=_condition_with_rows, _index=_index, _receive_mode=_receive_mode, _held_as=_held_as, _takes_blank=_takes_blank, _row_origins=_row_origins,
         )
 
@@ -279,5 +279,5 @@ class CompiledField:
         (``conductor._internal.codec.cell_validator_for``), returned by a node, answered by a
         person or read back from a stored state. A blank passes where the
         output's type says ``| None``."""
-        read = cell_validator_for(self.type)
+        read = cell_validator_for(self.dtype)
         return (lambda value: None if value is None else read(value)) if self._takes_blank else read

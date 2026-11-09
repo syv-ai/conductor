@@ -186,10 +186,10 @@ def _reading_of_edges(
         return _reading_of_a_table(node_id, input_, refs, sources, progress, problems)
     given_by_edge = None
     if is_untyped(target):
-        target = sources[0].type
+        target = sources[0].dtype
         given_by_edge = {"dtype": target}
     for source_ref, source in zip(refs, sources, strict=True):
-        if not target.accepts(source.type):
+        if not target.accepts(source.dtype):
             problems.append(_type_mismatch(target, node_id, input_.name, source_ref, source, target_many=input_.many))
     if not input_.many:
         if len(sources) > 1 and not _all_on_one_index(sources):
@@ -231,9 +231,9 @@ def _reading_of_as_it_arrives(node_id: str, input_: Input, refs: tuple[Ref, ...]
 
     def received_at_the_row(row: Index | None) -> ReceivedAtTheRow:
         mode = cell_at_the_row(refs, source._index) if source._index is None or one_value_per_run_of_a_graph else _read_of_source_at_the_row(refs[0], source, row)
-        return ReceivedAtTheRow(source.type, source._index, mode)
+        return ReceivedAtTheRow(source.dtype, source._index, mode)
 
-    return ReadingOfInput(input_, received_at_the_row, arriving_type=source.type, given_by_edge={"dtype": source.type, "many": source.many and not one_value_per_run_of_a_graph})
+    return ReadingOfInput(input_, received_at_the_row, arriving_type=source.dtype, given_by_edge={"dtype": source.dtype, "many": source.many and not one_value_per_run_of_a_graph})
 
 
 def _reading_of_a_table(node_id: str, input_: Input, refs: tuple[Ref, ...], sources: list[CompiledField], progress: CompileProgress, problems: list[Problem]) -> ReadingOfInput:
@@ -251,13 +251,13 @@ def _reading_of_a_table(node_id: str, input_: Input, refs: tuple[Ref, ...], sour
         problems.extend(progress.row_origins.check_merge(node_id, name, places))
         return ReceivedAtTheRow(carried, row, _receive_mode_of_table_input(places, row))
 
-    return ReadingOfInput(input_, received_at_the_row, arriving_type=carried, requires_rows_of=tuple(source._index for source in sources if is_table_type(source.type) and source._index is not None))
+    return ReadingOfInput(input_, received_at_the_row, arriving_type=carried, requires_rows_of=tuple(source._index for source in sources if is_table_type(source.dtype) and source._index is not None))
 
 
 def _reading_of_one_value(input_: Input, refs: tuple[Ref, ...], source: CompiledField, given_by_edge: Mapping[str, Any] | None) -> ReadingOfInput:
     """One value at the call's row; a series arriving makes the node run per row of it."""
-    received = ReceivedAtTheRow(source.type, source._index, cell_at_the_row(refs, source._index))
-    return ReadingOfInput(input_, lambda _: received, arriving_type=source.type, given_by_edge=given_by_edge, requires_rows_of=() if source._index is None else (source._index,))
+    received = ReceivedAtTheRow(source.dtype, source._index, cell_at_the_row(refs, source._index))
+    return ReadingOfInput(input_, lambda _: received, arriving_type=source.dtype, given_by_edge=given_by_edge, requires_rows_of=() if source._index is None else (source._index,))
 
 
 def _reading_of_a_series_on_one_index(input_: Input, refs: tuple[Ref, ...], source: CompiledField, given_by_edge: Mapping[str, Any] | None) -> ReadingOfInput:
@@ -265,13 +265,13 @@ def _reading_of_a_series_on_one_index(input_: Input, refs: tuple[Ref, ...], sour
     index = source._index
     assert index is not None  # the kind is a series on one index
     if index.parent is None:
-        received = ReceivedAtTheRow(source.type, index, rows_under_the_row(refs, index, 0))
-        return ReadingOfInput(input_, lambda _: received, arriving_type=source.type, given_by_edge=given_by_edge)
+        received = ReceivedAtTheRow(source.dtype, index, rows_under_the_row(refs, index, 0))
+        return ReadingOfInput(input_, lambda _: received, arriving_type=source.dtype, given_by_edge=given_by_edge)
 
     def received_at_the_row(row: Index | None) -> ReceivedAtTheRow:
-        return ReceivedAtTheRow(source.type, index, rows_under_the_row(refs, index, _depth_shared_with_row(index.parent, row)))  # type: ignore[arg-type]  # checked once the row is known
+        return ReceivedAtTheRow(source.dtype, index, rows_under_the_row(refs, index, _depth_shared_with_row(index.parent, row)))  # type: ignore[arg-type]  # checked once the row is known
 
-    return ReadingOfInput(input_, received_at_the_row, arriving_type=source.type, given_by_edge=given_by_edge, reduces=index)
+    return ReadingOfInput(input_, received_at_the_row, arriving_type=source.dtype, given_by_edge=given_by_edge, reduces=index)
 
 
 def _reading_of_a_collected_series(input_: Input, refs: tuple[Ref, ...], sources: list[CompiledField], target: Any, given_by_edge: Mapping[str, Any] | None) -> ReadingOfInput:
@@ -368,7 +368,7 @@ def series_inputs_that_never_share_a_row(node_id: str, inputs: Sequence[Input], 
 
 def _receive_mode_of_table_input(places: list[SourcesThatAreAlternatives], runs_per_row_of: Index | None) -> Cell | Merge:
     """How a ``Table`` input receives what is wired into it: one table on its own, or the one of several alternatives that ran, has nothing to match with."""
-    if len(places) == 1 and is_table_type(places[0][0][1].type):
+    if len(places) == 1 and is_table_type(places[0][0][1].dtype):
         return cell_at_the_row(tuple(ref for ref, _ in places[0]), places[0][0][1]._index)
     return Merge(tuple(_read_of_merge_place(place, runs_per_row_of) for place in places), tuple(_copied_down([pair for place in places for pair in place])), tuple(tuple(sorted(carried)) for carried in _columns_carried_on(places)))
 
@@ -393,7 +393,7 @@ def _sources_grouped_into_alternatives(pairs: list[tuple[Ref, CompiledField]]) -
 
 def _are_alternatives(left: CompiledField, right: CompiledField) -> bool:
     """Two tables on one row where only one ever has a value: two outputs of one ``exclusive_group``, or what hangs off two branches of one decision."""
-    return is_table_type(left.type) and is_table_type(right.type) and _never_hold_a_value_on_one_row(left, right)
+    return is_table_type(left.dtype) and is_table_type(right.dtype) and _never_hold_a_value_on_one_row(left, right)
 
 
 def _never_hold_a_value_on_one_row(left: CompiledField, right: CompiledField) -> bool:
@@ -422,12 +422,12 @@ def _merged_columns(places: list[SourcesThatAreAlternatives]) -> tuple[Column, .
     for place in places:
         first = place[0][1]
         column_name, output_name = names_in_a_merge(first)
-        if is_table_type(first.type):
+        if is_table_type(first.dtype):
             columns = _columns_of_alternatives(place)
             if columns is None:
                 return None
         else:
-            columns = ((column_name, first.type),)
+            columns = ((column_name, first.dtype),)
         columns_each.append((output_name, columns))
     carries = _columns_carried_on(places)
     renames = renames_in_merge((output_name, (name for name, _ in columns), carried) for (output_name, columns), carried in zip(columns_each, carries, strict=True))
@@ -442,7 +442,7 @@ def _merged_columns(places: list[SourcesThatAreAlternatives]) -> tuple[Column, .
 
 def _columns_of_alternatives(place: SourcesThatAreAlternatives) -> tuple[Column, ...] | None:
     """The columns every table of ``place`` holds alike, what a call can count on whichever ran; ``None`` when none is known to."""
-    each = [columns_of(source.type) for _, source in place]
+    each = [columns_of(source.dtype) for _, source in place]
     return tuple(column for column in each[0] if all(column in other for other in each[1:])) or None
 
 
@@ -466,15 +466,15 @@ def _check_columns(node_id: str, name: str, target: Any, merged: tuple[Column, .
 def _type_mismatch_unless_table_or_column(target: Any, node_id: str, name: str, source_ref: Ref, source: CompiledField) -> list[Problem]:
     """A ``Table`` input takes a table, or a column: a series of a type a
     table column holds. A single value or anything else is ``type_mismatch``."""
-    if is_table_type(source.type) or (source.many and polars_type_of(source.type) is not None):
+    if is_table_type(source.dtype) or (source.many and polars_type_of(source.dtype) is not None):
         return []
     return [_type_mismatch(target, node_id, name, source_ref, source)]
 
 
 def _type_mismatch(target: Any, node_id: str, name: str, source_ref: Ref, source: CompiledField, *, target_many: bool = False) -> Problem:
     return make_problem(
-        "type_mismatch", node_id, name, source=str(source_ref), source_type=source.type.describe(), source_many=source.many,
-        target_type=target.describe(), target_many=target_many, source_said=type_name_for_sentence(source.type, source.many), target_said=type_name_for_sentence(target, target_many),
+        "type_mismatch", node_id, name, source=str(source_ref), source_type=source.dtype.describe(), source_many=source.many,
+        target_type=target.describe(), target_many=target_many, source_said=type_name_for_sentence(source.dtype, source.many), target_said=type_name_for_sentence(target, target_many),
     )
 
 
@@ -497,7 +497,7 @@ def _read_of_source_at_the_row(ref: Ref, source: CompiledField, runs_per_row_of:
 def _read_of_merge_place(place: SourcesThatAreAlternatives, runs_per_row_of: Index | None) -> Cell | RowsUnder:
     """How a call reads one place of a ``Table`` input: a table is the one at its row, or the one there is, of the alternatives that ran; a column is read as any source."""
     ref, source = place[0]
-    if is_table_type(source.type):
+    if is_table_type(source.dtype):
         assert source._index is None or (runs_per_row_of is not None and source._index in runs_per_row_of.lineage)  # a table arriving per row put the node on its row, or was misaligned
         return cell_at_the_row(tuple(ref for ref, _ in place), source._index)
     return _read_of_source_at_the_row(ref, source, runs_per_row_of)

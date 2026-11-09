@@ -80,7 +80,7 @@ class RowOriginsSeen:
 
 def sources_taken_in_whole(reader_type: Any, sources: Sequence[CompiledField]) -> list[CompiledField]:
     """The sources a node takes in as a whole table, whichever side says so: a table it returns may carry their rows' ids."""
-    return list(sources) if is_table_type(reader_type) else [source for source in sources if is_table_type(source.type)]
+    return list(sources) if is_table_type(reader_type) else [source for source in sources if is_table_type(source.dtype)]
 
 
 def origins_taken_in(sources: list[CompiledField]) -> frozenset[str] | None:

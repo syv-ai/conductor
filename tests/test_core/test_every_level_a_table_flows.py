@@ -198,7 +198,7 @@ def test_arriving_merged_table_names_every_column_as_the_run_does() -> None:
         _node("x", "filter", table=From("c.result", "s.result", "s2.result")),
         registry=_catalogue(filter_rows),
     )
-    declared = [name for name, _ in compiled.field(Ref("x", "result")).type.columns]
+    declared = [name for name, _ in compiled.field(Ref("x", "result")).dtype.columns]
     assert declared == ["name", "email", "result", "result_2"]
     state = compiled.run_sync()
     assert state.status == "complete", state.failure

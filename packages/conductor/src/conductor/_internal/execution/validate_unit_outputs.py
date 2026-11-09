@@ -69,4 +69,4 @@ def validate_unit_outputs(node: CompiledNode, row: Row, value_by_output: Mapping
 
 
 def _type_name_for_error(field: CompiledField) -> str:
-    return f"a {getattr(field.type, '__name__', field.type)}"
+    return f"a {getattr(field.dtype, '__name__', field.dtype)}"
