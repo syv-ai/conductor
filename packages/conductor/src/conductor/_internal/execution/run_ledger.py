@@ -235,6 +235,7 @@ class RunLedger:
         self._nodes_returning_a_table = frozenset(field.ref.node_id for field in lookups.field_making_rows_of_index.values() if field._held_as.__class__ is TableAtRow)
         #: Per (index id, row above), what each row under it reads: worked out once, for a unit a person is asked about.
         self._reads_of_rows: dict[tuple[str, Row], list[str]] = {}
+        self._nodes_with_series_inputs_on_one_index = frozenset(node_id for node_id, sources in lookups.sources_of_series_inputs_on_one_index.items() if sources)
         #: Per changed node, what a later unit may still reuse.
         self._earlier_units: dict[str, _EarlierUnitsOfNode] = {}
         #: Per node, how many units this leg took from earlier work.
@@ -408,7 +409,8 @@ class RunLedger:
         blank = tuple(name for name in node._inputs_rejecting_a_blank if values[name] is None)
         if blank:
             return BlankInputsStopCall(blank)
-        self._line_up_series_inputs(unit, values, node._series_inputs_leaving_blanks_out)
+        if node._series_inputs_leaving_blanks_out or node_id in self._nodes_with_series_inputs_on_one_index:
+            self._line_up_series_inputs(unit, values, node._series_inputs_leaving_blanks_out)
         return values
 
     def read_input(self, receive_mode: ReceiveMode, unit: Unit) -> Any | SkippedAtRow:
