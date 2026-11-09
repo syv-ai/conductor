@@ -118,7 +118,7 @@ class CompiledGraph:
     every step of a run), an editor's compile endpoint (``describe``), and
     anything deciding whether a run may start (``is_runnable``).
 
-    Three attributes are public, ``graph``, ``interface`` and ``problems``; every other
+    Four attributes are public, ``graph``, ``interface``, ``problems`` and ``execution_order``; every other
     attribute is private and read through the methods here and through
     ``node`` and ``field``. ``node`` answers for every node compile met and
     raises ``KeyError`` only for an id the graph does not have.
@@ -127,8 +127,9 @@ class CompiledGraph:
     #: The registry the graph was compiled against, kept so a compiled
     #: graph can produce another (``with_inputs``).
     _registry: NodeRegistry
-    #: What ``execution_order`` answers.
-    _execution_order: tuple[str, ...]
+    #: The ids of the nodes that run, in an order where every edge's source precedes
+    #: its target. A node in a cycle is not in it; it has a fatal ``Problem`` instead.
+    execution_order: tuple[str, ...]
     #: What this graph takes and returns, in the same record a node version
     #: declares: ``inputs`` are the unlocked, connectable fields of the nodes
     #: nothing feeds into (each declaration whole, titled as the author
@@ -161,7 +162,7 @@ class CompiledGraph:
         """
         records = compile_graph(graph, registry)
         return cls(
-            _registry=registry, _execution_order=records.order, interface=records.interface, graph=graph, problems=records.problems,
+            _registry=registry, execution_order=records.order, interface=records.interface, graph=graph, problems=records.problems,
             _nodes=records.nodes, _row_ids_must_survive=records.row_ids_must_survive,
         )
 
@@ -170,7 +171,7 @@ class CompiledGraph:
     @cached_property
     def _engine_lookups(self) -> EngineLookups:
         """What the engine looks up on every step, built on the first run: compiling alone never pays for it."""
-        return build_engine_lookups(self._nodes[node_id] for node_id in self._execution_order)
+        return build_engine_lookups(self._nodes[node_id] for node_id in self.execution_order)
 
     @cached_property
     def _embeddable(self) -> EmbeddableGraph:
@@ -189,7 +190,7 @@ class CompiledGraph:
         compare (``conductor._internal.graph.run_plan``). ``str(compiled.run_plan)`` is
         that as text. A node that isn't ready is absent."""
         return RunPlan.model_construct(nodes={
-            node_id: node._run_plan for node_id in self._execution_order if (node := self._nodes[node_id])._wiring is not None
+            node_id: node._run_plan for node_id in self.execution_order if (node := self._nodes[node_id])._wiring is not None
         })
 
     def node(self, node_id: str) -> CompiledNode:
@@ -285,13 +286,6 @@ class CompiledGraph:
         return describe_graph(self)
 
     @property
-    def execution_order(self) -> tuple[str, ...]:
-        """The ids of the nodes that run, in an order where every edge's source precedes
-        its target. A node in a cycle is not in it; it has a fatal
-        ``Problem`` instead."""
-        return self._execution_order
-
-    @property
     def decisions(self) -> dict[str, dict[str, tuple[str, ...]]]:
         """Every decision a caller could observe: for each node that runs
         once and declares an ``exclusive_group`` group, the group's alternatives in
@@ -300,7 +294,7 @@ class CompiledGraph:
         is a node that is not ready: whether it runs per row is not
         known."""
         groups_by_node: dict[str, dict[str, tuple[str, ...]]] = {}
-        for node_id in self._execution_order:
+        for node_id in self.execution_order:
             node = self._nodes[node_id]
             if node._wiring is None or node._wiring._runs_per_row_of is not None:
                 continue
@@ -423,7 +417,7 @@ class CompiledGraph:
         if problems:
             raise InvalidCallError(problems)
         produced: dict[str, dict[str, Any]] = {}
-        for node_id in self._execution_order:
+        for node_id in self.execution_order:
             work = state.nodes.get(node_id)
             if work is not None and work.finished_units is not None and node_id not in dropped:
                 result = values.result_of(node_id)
@@ -476,7 +470,7 @@ class CompiledGraph:
         """
         self._raise_unless_runnable()
         work_of_node = state.nodes
-        changed = {node_id for node_id in self._execution_order if (work := work_of_node.get(node_id)) is None or work.fingerprint != self._nodes[node_id].fingerprint}
+        changed = {node_id for node_id in self.execution_order if (work := work_of_node.get(node_id)) is None or work.fingerprint != self._nodes[node_id].fingerprint}
         return self._with_their_readers(changed, state)
 
     def _nodes_a_leg_runs_again(self, state: RunState, /) -> list[str]:
@@ -488,13 +482,13 @@ class CompiledGraph:
         changed = self._nodes_changed_since(state)
         if state.status != "complete":
             return changed
-        reading_the_world = {node_id for node_id in self._execution_order if not self._nodes[node_id].version.policy.reuse_when_inputs_match}  # type: ignore[union-attr]  # a node that runs is a function
+        reading_the_world = {node_id for node_id in self.execution_order if not self._nodes[node_id].version.policy.reuse_when_inputs_match}  # type: ignore[union-attr]  # a node that runs is a function
         return self._with_their_readers(set(changed) | reading_the_world, state)
 
     def _with_their_readers(self, node_ids: set[str], state: RunState) -> list[str]:
         """``node_ids`` and whatever reads them, in execution order, then the nodes ``state`` names that the graph doesn't have."""
-        stale = node_ids | self._readers_of(node_ids & set(self._execution_order))
-        return [node_id for node_id in self._execution_order if node_id in stale] + sorted(state.nodes.keys() - set(self._execution_order))
+        stale = node_ids | self._readers_of(node_ids & set(self.execution_order))
+        return [node_id for node_id in self.execution_order if node_id in stale] + sorted(state.nodes.keys() - set(self.execution_order))
 
     def _readers_of(self, node_ids: Iterable[str]) -> set[str]:
         """Every node that reads a field of one of ``node_ids``, directly or

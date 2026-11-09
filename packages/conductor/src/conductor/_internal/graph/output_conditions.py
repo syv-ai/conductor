@@ -105,9 +105,6 @@ def output_condition(node_id: str, out: Output, node_condition: Condition, on_ro
 
 def _any_of(conditions: Iterable[Condition]) -> Condition:
     """Holds when any of ``conditions`` does: their alternatives, pooled."""
-    conditions = tuple(conditions)
-    if len(conditions) == 1:
-        return conditions[0]
     joined: set[frozenset[BranchTaken]] = set()
     for condition in conditions:
         joined |= condition

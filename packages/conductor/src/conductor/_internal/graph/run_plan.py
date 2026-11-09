@@ -24,7 +24,6 @@ from conductor._internal.ref import Ref
 
 if TYPE_CHECKING:
     from conductor._internal.graph.compiled_node import CompiledNode
-    from conductor._internal.index import Index
 
 
 class NodeRunPlan(ConductorModel):
@@ -56,17 +55,14 @@ class RunPlan(ConductorModel):
         return "\n".join(plan._as_text_line(width) for plan in self.nodes.values())
 
 
-def _index_as_address(index: Index | None) -> Ref | None:
-    return None if index is None else Ref(index.id)
-
-
 def plan_of_node(node: CompiledNode) -> NodeRunPlan:
     """The run plan of one ready node."""
     assert node._wiring is not None and node.interface is not None
     fields = node._wiring.fields
+    index = node._wiring._runs_per_row_of
     return NodeRunPlan.model_construct(
         node_id=node.id,
-        runs_per_row_of=_index_as_address(node._wiring._runs_per_row_of),
+        runs_per_row_of=None if index is None else Ref(index.id),
         inputs={input_.name: fields[input_.name]._receive_mode for input_ in node.interface.inputs},
         makes_rows=tuple(field.ref for field in fields.values() if field._is_output and field._held_as.rows_made is not None),
     )
