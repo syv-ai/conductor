@@ -43,6 +43,7 @@ from typing import Annotated, Any, Literal, TypedDict, get_args, get_origin, get
 from pydantic import ConfigDict, TypeAdapter, with_config
 
 from conductor.dtype import DType, Single, dtype_of
+from conductor.errors import NodeDeclarationError
 from conductor.metadata import Input, Output, Param, Result
 from conductor.returns import outputs_of
 from conductor.series import Series
@@ -107,9 +108,10 @@ class Interface:
         returns, outputs = cls._declared_outputs(hints)
         taken = {i.name for i in inputs} & {o.name for o in outputs}
         if taken:
-            raise TypeError(
+            raise NodeDeclarationError(
                 f"{sorted(taken)} named on both sides: a field name is unique within a node, "
-                "because a Ref (node_id, field) is an address on either side"
+                "because a Ref (node_id, field) is an address on either side",
+                code="field_on_both_sides",
             )
         return cls(inputs=inputs, outputs=outputs, returns=returns, needs=needs, open=open_shape)
 
@@ -140,51 +142,58 @@ class Interface:
                     # reduction.
                     open_shape = "series"
                 elif isinstance(annotation, type) and issubclass(annotation, Series):
-                    raise TypeError(
+                    raise NodeDeclarationError(
                         f"**{name}: {annotation.__name__} would close the interface silently; an open "
-                        f"interface whose every edge is a reduction is **{name}: Series"
+                        f"interface whose every edge is a reduction is **{name}: Series",
+                code="open_interface_annotation",
                     )
                 # Any other ``**values``: the inputs this node's ``compute_inputs``
                 # adds arrive here by name. The hook declares them, not the signature.
                 continue
             if parameter.kind is inspect.Parameter.VAR_POSITIONAL:
-                raise TypeError(
+                raise NodeDeclarationError(
                     f"parameter *{name}: a node's inputs are named, so an edge or a binding "
-                    "can land on each; *args names none"
+                    "can land on each; *args names none",
+                code="var_positional_parameter",
                 )
             if annotation is Single or _declared(annotation) is Single:
-                raise TypeError(
+                raise NodeDeclarationError(
                     f"parameter {name!r}: Single is spelled on **inputs only; "
-                    "a named parameter declares a DType, or Any for whatever arrives"
+                    "a named parameter declares a DType, or Any for whatever arrives",
+                code="single_on_named_parameter",
                 )
             if _annotation_of(annotation, FromRun) is not None:
                 needs[name] = get_args(annotation)[0]
                 continue
             if _annotation_of(annotation, Widget) is not None:
-                raise TypeError(
+                raise NodeDeclarationError(
                     f"parameter {name!r} carries a bare widget; the widget goes on the Param — "
-                    "Annotated[Text, Param(title=..., widget=Textarea())]"
+                    "Annotated[Text, Param(title=..., widget=Textarea())]",
+                code="widget_outside_param",
                 )
             if Result.on(annotation) is not None:
-                raise TypeError(
-                    f"parameter {name!r} carries a Result; a parameter carries a Param, and Result belongs on the return"
+                raise NodeDeclarationError(
+                    f"parameter {name!r} carries a Result; a parameter carries a Param, and Result belongs on the return",
+                code="result_on_parameter",
                 )
             param = Param.on(annotation) or Param()
             dtype = dtype_of(annotation)
             if isinstance(dtype, type) and issubclass(dtype, Series) and dtype.element is None:
-                raise TypeError(f"parameter {name!r} is a bare Series; declare Series[X] with the element type")
+                raise NodeDeclarationError(f"parameter {name!r} is a bare Series; declare Series[X] with the element type", code="bare_series")
             if param.show_handle:
                 # An edge can land here, so the type must be one an edge carries:
                 # a DType, or Any for "whatever arrives".
                 if dtype is None:
-                    raise TypeError(
+                    raise NodeDeclarationError(
                         f"parameter {name!r} has a handle and must declare a DType or Any — "
-                        f"got {annotation!r}"
+                        f"got {annotation!r}",
+                code="parameter_needs_dtype",
                     )
                 if dtype is DType:
-                    raise TypeError(
+                    raise NodeDeclarationError(
                         f"parameter {name!r} must declare a concrete DType, or "
-                        "Any for whatever arrives; the base would accept anything"
+                        "Any for whatever arrives; the base would accept anything",
+                code="parameter_base_dtype",
                     )
             elif dtype is None:
                 # No handle, so nothing travels: the declared type is a static
@@ -215,7 +224,7 @@ class Interface:
         supplies them when the graph is compiled.
         """
         if "return" not in hints:
-            raise TypeError("run() must declare a return type")
+            raise NodeDeclarationError("run() must declare a return type", code="missing_return_type")
         return outputs_of(hints["return"])
 
 
@@ -257,7 +266,7 @@ def _refuse_name(name: str) -> None:
     """Refuse a parameter name no input can carry: one starting with an
     underscore, private by convention and never a field an author fills."""
     if name.startswith("_"):
-        raise TypeError(f"parameter {name!r}: an input's name cannot start with an underscore")
+        raise NodeDeclarationError(f"parameter {name!r}: an input's name cannot start with an underscore", code="parameter_name_private")
 
 
 def _declared(hint: Any) -> Any:

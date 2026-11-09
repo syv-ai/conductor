@@ -92,7 +92,7 @@ class TestCompile:
     def test_compile_unknown_node_type_is_a_problem(self, registry):
         nodes = [GraphNode(id="n1", type="nonexistent", version=1)]
         compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry)
-        assert [p.code for p in compiled.problems] == ["unknown_node_type"]
+        assert [p.type for p in compiled.problems] == ["unknown_node_type"]
         assert not compiled.is_runnable
 
     def test_compile_edge_from_a_missing_node_is_a_problem(self, registry):
@@ -100,7 +100,7 @@ class TestCompile:
         nodes = [GraphNode(id="n1", type="echo", version=1, bindings={"text": From("n_missing.result")})]
 
         compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry)
-        assert [p.code for p in compiled.problems] == ["unknown_ref_node"]
+        assert [p.type for p in compiled.problems] == ["unknown_ref_node"]
 
     def test_compile_cycle_is_a_problem_on_each_node_in_it(self, registry):
         registry.register(Echo)
@@ -109,5 +109,5 @@ class TestCompile:
             GraphNode(id="n2", type="echo", version=1, bindings={"text": From('n1.result')}),
         ]
         compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry)
-        assert [(p.code, p.node_id) for p in compiled.problems] == [("cycle", "n1"), ("cycle", "n2")]
+        assert [(p.type, p.loc[0]) for p in compiled.problems] == [("cycle", "n1"), ("cycle", "n2")]
         assert not compiled.is_runnable

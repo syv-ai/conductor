@@ -100,7 +100,7 @@ def test_a_bare_table_offers_no_columns():
 def test_an_output_named_like_a_column_is_refused():
     compiled = _compiled(GraphNode(id="c", type="clash", version=1), extra=(Clash,))
 
-    assert [(p.code, p.field) for p in compiled.problems] == [("view_name_taken", "rows.email")]
+    assert [(p.type, p.loc[1]) for p in compiled.problems] == [("view_name_taken", "rows.email")]
 
 
 class ManyTables(NodeDefinition):
@@ -116,4 +116,4 @@ class ManyTables(NodeDefinition):
 def test_a_series_of_tables_is_refused_since_a_table_is_already_many_rows():
     compiled = _compiled(GraphNode(id="m", type="many-tables", version=1), extra=(ManyTables,))
 
-    assert [(p.code, p.field, p.fatal) for p in compiled.problems] == [("series_of_tables", "result", True)]
+    assert [(p.type, p.loc[1], p.fatal) for p in compiled.problems] == [("series_of_tables", "result", True)]

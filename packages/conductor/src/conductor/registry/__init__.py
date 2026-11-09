@@ -26,6 +26,7 @@ from types import MappingProxyType
 from typing import Any, Callable
 
 from conductor.dtype import DType
+from conductor.errors import NodeDeclarationError
 from conductor.graph.binding import From, Static, static_values
 from conductor.graph.model import Graph, GraphNode
 from conductor.model import ConductorModel
@@ -100,20 +101,24 @@ class NodeRegistry:
         hole, a deprecation pointing nowhere, or a declared type whose id
         another class already holds here.
         """
-        if not (isinstance(node_cls, type) and issubclass(node_cls, NodeDefinition)):
-            raise TypeError(f"{node_cls!r} must be a NodeDefinition subclass")
-        existing = self._nodes.get(node_cls.id)
-        if existing is not None and existing is not node_cls:
-            raise ValueError(
-                f"{node_cls.id!r} is already registered by {existing.__name__}; ids are unique."
-            )
+        _refuse_unless_node_class(node_cls)
         declared = set(node_cls.versions)
         if declared != set(range(1, max(declared) + 1)):
-            raise ValueError(
-                f"{node_cls.id!r} declares versions {sorted(declared)}; "
-                "a registered node numbers from 1 with no hole — a graph can pin "
-                "any version up to the current one. A loaded definition "
-                "(``extended_with``) carries exactly the versions its host admitted."
+            raise NodeDeclarationError(
+                f"{node_cls.id!r} declares versions {sorted(declared)}; a registered node numbers "
+                "from 1 with no hole, since a graph can pin any version up to the current one",
+                code="versions_with_hole", node_id=node_cls.id,
+            )
+        self._file(node_cls)
+
+    def _file(self, node_cls: type[NodeDefinition]) -> None:
+        """File a node class and the types it declares, after the checks every
+        node passes: its id is free and its deprecations point somewhere."""
+        existing = self._nodes.get(node_cls.id)
+        if existing is not None and existing is not node_cls:
+            raise NodeDeclarationError(
+                f"{node_cls.id!r} is already registered by {existing.__name__}; ids are unique.",
+                code="duplicate_node_id", node_id=node_cls.id,
             )
         current = node_cls.versions[node_cls.current]
         if (
@@ -121,18 +126,20 @@ class NodeRegistry:
             and current.deprecation is not None
             and node_cls.deprecation is None
         ):
-            raise ValueError(
+            raise NodeDeclarationError(
                 f"{node_cls.id!r} deprecates its current version {node_cls.current} with no "
-                "newer one to move to; retire the node (@deprecated on the class) or add a version"
+                "newer one to move to; retire the node (@deprecated on the class) or add a version",
+                code="current_version_deprecated", node_id=node_cls.id,
             )
         notices = [node_cls.deprecation] + [
             v.deprecation for v in node_cls.versions.values() if isinstance(v, NodeVersion)
         ]
         for notice in notices:
             if notice is not None and notice.alternative is not None and notice.alternative not in self:
-                raise ValueError(
+                raise NodeDeclarationError(
                     f"{node_cls.id!r} names {notice.alternative!r} as its alternative, which is not "
-                    "registered here; register the replacement before the node it replaces"
+                    "registered here; register the replacement before the node it replaces",
+                code="alternative_missing", node_id=node_cls.id,
                 )
         words = self._admitted(_declared_words(node_cls))
         self._nodes[node_cls.id] = node_cls
@@ -207,24 +214,23 @@ class NodeRegistry:
             "nodes": tuple(moved if n is node else _reading_renamed(n, node_id, output_steps) for n in graph.nodes),
         })
 
-    def extended_with(
-        self, definitions: Mapping[str, type[NodeDefinition]]
-    ) -> "NodeRegistry":
+    def extended_with(self, definitions: Iterable[type[NodeDefinition]]) -> NodeRegistry:
         """A new registry holding these definitions plus everything a host loaded.
 
         A new object rather than a mutation: the registry is process-wide
-        and the loaded definitions are per run. A registered type wins over
-        a loaded one of the same id, so a host cannot redefine a built-in
-        node by loading something under its name. Loaded definitions are
-        not held to the numbering rule — a version loaded because a graph
-        pinned it may be the only one. The vocabulary carries over, plus
-        whatever the loaded definitions declare.
+        and the loaded definitions are per run. Each is filed under its own
+        id with ``register``'s checks, but not its numbering: a version loaded
+        because a graph pinned it may be the only one. A definition whose id
+        this registry already holds adds nothing, its types included, so a
+        host cannot redefine a built-in node by loading something under its
+        name. Two loaded definitions with one id are refused.
         """
         extended = NodeRegistry()
-        extended._nodes = {**definitions, **self._nodes}
-        extended._types = dict(self._types)
-        for definition in definitions.values():
-            extended.add_types(*_declared_words(definition))
+        extended._nodes, extended._types = dict(self._nodes), dict(self._types)
+        for definition in definitions:
+            _refuse_unless_node_class(definition)
+            if definition.id not in self._nodes:
+                extended._file(definition)
         return extended
 
     # -- the vocabulary ----------------------------------------------------------
@@ -270,14 +276,20 @@ class NodeRegistry:
         for word in words:
             existing = self._types.get(word.id, admitted.get(word.id))
             if existing is not None and existing is not word:
-                raise ValueError(
+                raise NodeDeclarationError(
                     f"type id {word.id!r} is declared by both {_where(existing)} and {_where(word)}; "
-                    "one registry holds one type per id"
+                    "one registry holds one type per id",
+                code="duplicate_type_id",
                 )
             admitted[word.id] = word
         return admitted
 
     # -- running -------------------------------------------------------------------
+
+
+def _refuse_unless_node_class(node_cls: Any) -> None:
+    if not (isinstance(node_cls, type) and issubclass(node_cls, NodeDefinition)):
+        raise NodeDeclarationError(f"{node_cls!r} must be a NodeDefinition subclass", code="not_a_node_definition")
 
 
 def _word_of(declared: Any, *, adding: bool = False) -> type[DType] | None:
@@ -291,15 +303,15 @@ def _word_of(declared: Any, *, adding: bool = False) -> type[DType] | None:
     """
     if not (isinstance(declared, type) and issubclass(declared, DType)):
         if adding:
-            raise TypeError(f"{declared!r} is not a DType subclass")
+            raise NodeDeclarationError(f"{declared!r} is not a DType subclass", code="not_a_dtype")
         return None
     if declared is DType:
         if adding:
-            raise TypeError("the base DType is not a word; add a concrete type")
+            raise NodeDeclarationError("the base DType is not a word; add a concrete type", code="base_dtype_added")
         return None
     if issubclass(declared, Series):
         if adding:
-            raise TypeError(f"{declared!r} is a series; its element is the word to add")
+            raise NodeDeclarationError(f"{declared!r} is a series; its element is the word to add", code="series_added")
         return _word_of(declared.element)
     if declared.parameterises is not None:
         return _word_of(declared.parameterises, adding=adding)

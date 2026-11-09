@@ -46,6 +46,7 @@ from typing import TYPE_CHECKING, Any, Callable, ClassVar, Literal
 from pydantic import Field
 from pydantic.json_schema import SkipJsonSchema
 
+from conductor.errors import NodeDeclarationError
 from conductor.interface import Interface
 from conductor.metadata import Input, Output
 from conductor.model import ConductorModel
@@ -96,7 +97,7 @@ def deprecated(
     def decorate(target: Any) -> Any:
         if isinstance(target, type):
             if not issubclass(target, NodeDefinition):
-                raise TypeError(f"@deprecated marks a NodeDefinition or a run method, not {target!r}")
+                raise NodeDeclarationError(f"@deprecated marks a NodeDefinition or a run method, not {target!r}", code="deprecated_target")
             target.deprecation = notice
         else:
             target.__node_deprecation__ = notice
@@ -381,18 +382,29 @@ class NodeDefinition(ABC, metaclass=_NodeMeta):
         class's, and live in ``register()``.
         """
         super().__init_subclass__(**kwargs)
+        try:
+            cls._declare()
+        except NodeDeclarationError as wrong:
+            wrong.node_id = getattr(cls, "id", None)
+            raise
+
+    @classmethod
+    def _declare(cls) -> None:
+        """The checks and derivations ``__init_subclass__`` runs."""
         if "upgrades" in vars(cls):
-            raise TypeError(
+            raise NodeDeclarationError(
                 f"{cls.__name__} sets 'upgrades'; it is collected from the class's "
-                "@upgrade methods, so declare each rewrite with @upgrade"
+                "@upgrade methods, so declare each rewrite with @upgrade",
+                code="upgrades_set_by_hand",
             )
         cls.upgrades = cls._collect_upgrades()
         given = "versions" in vars(cls)
         if not given and "id" in vars(cls) and "run" not in vars(cls):
             defined = sorted(n for n, v in vars(cls).items() if callable(v) and not n.startswith("__"))
-            raise TypeError(
+            raise NodeDeclarationError(
                 f"{cls.__name__} declares an id but no run; a node's work is the method named run "
-                f"(the class defines {defined})"
+                f"(the class defines {defined})",
+                code="node_without_run",
             )
         if not given and (inspect.isabstract(cls) or "run" not in vars(cls)):
             # An intermediate base that adds no ``run`` — and hands over no
@@ -400,15 +412,17 @@ class NodeDefinition(ABC, metaclass=_NodeMeta):
             return
         for required in ("id", "title", "description", "category"):
             if not getattr(cls, required, None):
-                raise TypeError(
-                    f"{cls.__name__} must declare a class-level '{required}'"
+                raise NodeDeclarationError(
+                    f"{cls.__name__} must declare a class-level '{required}'",
+                code="node_missing_attribute",
                 )
         if given:
             # Given by value: nothing to walk, and no ``run`` needed, since
             # a graph-bodied version is laid out in place by the compiler.
             if not cls.versions:
-                raise TypeError(
-                    f"{cls.__name__}.versions is empty; a definition declares at least one version"
+                raise NodeDeclarationError(
+                    f"{cls.__name__}.versions is empty; a definition declares at least one version",
+                code="versions_empty",
                 )
             cls.current = max(cls.versions)
             return
@@ -423,9 +437,10 @@ class NodeDefinition(ABC, metaclass=_NodeMeta):
             # An ``Any`` output promises that ``compute_outputs`` will type
             # it from what arrives; without the hook, refuse here rather
             # than three nodes downstream.
-            raise TypeError(
+            raise NodeDeclarationError(
                 f"{cls.__name__} declares an output typed Any but no "
-                "compute_outputs to type it from what arrives"
+                "compute_outputs to type it from what arrives",
+                code="any_output_without_hook",
             )
 
     @classmethod
@@ -449,9 +464,10 @@ class NodeDefinition(ABC, metaclass=_NodeMeta):
                 if number is None:
                     continue
                 if number in claimed:
-                    raise TypeError(
+                    raise NodeDeclarationError(
                         f"{cls.__name__}: two methods claim version {number}. "
-                        "Each version is one signature."
+                        "Each version is one signature.",
+                code="version_claimed_twice",
                     )
                 claimed[number] = fn
             for number, fn in claimed.items():
@@ -465,18 +481,20 @@ class NodeDefinition(ABC, metaclass=_NodeMeta):
         elif getattr(cls.run, "__node_version__", None) is None:
             # Beside declared versions a plain ``run`` has no number, and
             # the current version is the method named ``run``.
-            raise TypeError(
+            raise NodeDeclarationError(
                 f"{cls.__name__}: run has no @version, but other methods do; "
-                "mark run with the number of the version it is"
+                "mark run with the number of the version it is",
+                code="run_without_version",
             )
 
         for number, fn in methods.items():
             if inspect.iscoroutinefunction(fn) or inspect.isasyncgenfunction(fn):
                 # The engine calls ``run`` in a worker thread and never awaits
                 # it, so an async one would hand back a coroutine as its result.
-                raise TypeError(
+                raise NodeDeclarationError(
                     f"{cls.__name__}: version {number} is async; run is a plain "
-                    "function, and the engine gives each call a thread"
+                    "function, and the engine gives each call a thread",
+                code="async_run",
                 )
 
         # No contiguity check here: numbering from 1 with no holes is the
@@ -513,9 +531,10 @@ class NodeDefinition(ABC, metaclass=_NodeMeta):
                     continue
                 from_version, to_version, step = marker
                 if (from_version, to_version) in claimed:
-                    raise TypeError(
+                    raise NodeDeclarationError(
                         f"{cls.__name__}: two methods declare @upgrade({from_version}, {to_version}); "
-                        "one step per pair of versions"
+                        "one step per pair of versions",
+                code="upgrade_claimed_twice",
                     )
                 claimed.add((from_version, to_version))
                 found[(from_version, to_version)] = step
@@ -527,16 +546,18 @@ class NodeDefinition(ABC, metaclass=_NodeMeta):
         versions, and an adjacent pair of versions with no step, naming it."""
         for from_version, to_version in cls.upgrades:
             if to_version != from_version + 1 or not {from_version, to_version} <= cls.versions.keys():
-                raise TypeError(
+                raise NodeDeclarationError(
                     f"{cls.__name__}: @upgrade({from_version}, {to_version}) is not a step between "
                     f"two adjacent versions it declares ({sorted(cls.versions)}); each step goes "
-                    "one version forward, and a longer jump is a chain of steps"
+                    "one version forward, and a longer jump is a chain of steps",
+                code="upgrade_not_adjacent",
                 )
         for number in sorted(cls.versions):
             if number + 1 in cls.versions and (number, number + 1) not in cls.upgrades:
-                raise TypeError(
+                raise NodeDeclarationError(
                     f"{cls.__name__} declares versions {number} and {number + 1} but no "
-                    f"@upgrade({number}, {number + 1}); a graph saved at {number} could never move on"
+                    f"@upgrade({number}, {number + 1}); a graph saved at {number} could never move on",
+                code="upgrade_missing",
                 )
 
     @abstractmethod
@@ -560,7 +581,7 @@ class NodeDefinition(ABC, metaclass=_NodeMeta):
         declared defaults. A connected input has no value until the graph
         runs, and a required input the author left empty has none either, so
         neither has an entry. A hook that can't answer without one raises
-        ``Refuses``.
+        ``CompileProblem``.
         """
         return declared
 

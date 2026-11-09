@@ -96,7 +96,7 @@ To watch a run, `async with compiled.stream() as events:`. It yields `run_start`
 
 **Versions and retries.** Several versions live in one class as `@version(n)` methods, each with a `Policy` (`retries`, `delay`, `timeout`, `concurrency`, `retry_on`). `@upgrade(1, 2)` rewrites values saved against version 1, and `@deprecated` retires a node or a version. Only an `ExternalFailure`, or an exception class named in `retry_on`, is retried.
 
-**Failures.** Every run-time failure carries an `ErrorCause` (`code`, `message`, `details`, `row`, `node_id`) on the exception, the event and `state.failure`. A call that cannot be acted on raises `InvalidCallError`, every fault listed. All exceptions inherit from `ConductorError`.
+**Failures.** Every run-time failure is a `Problem` (`type`, `loc`, `msg`, `ctx`), the same record a compile reports, on the event and `state.failure`. A call that cannot be acted on raises `InvalidCallError`, every fault listed. All exceptions inherit from `ConductorError`.
 
 **Values the host supplies.** A parameter marked `Annotated[T, FromRun()]` is filled by type from `compiled.run_sync(from_run={T: value})`, not from an edge.
 

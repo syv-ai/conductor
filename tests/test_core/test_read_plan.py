@@ -64,10 +64,10 @@ class Join(NodeDefinition):
 
 def _pair(registry: NodeRegistry) -> NodeRegistry:
     """A stored graph: ``a`` takes the graph node's text, ``b`` holds a list set on it."""
-    return registry.extended_with({"pair": embedded_graph_node("pair", (
+    return registry.extended_with([embedded_graph_node("pair", (
         GraphNode(id="a", type="upper", version=1),
         GraphNode(id="b", type="upper", version=1, bindings={"text": Static([Txt("x"), Txt("y")])}),
-    ), registry, "Pair")})
+    ), registry, "Pair")])
 
 
 def _compiled(*nodes: GraphNode) -> CompiledGraph:

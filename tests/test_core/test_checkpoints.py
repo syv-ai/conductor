@@ -178,8 +178,8 @@ def test_outputs_refuses_a_checkpoint_and_results_reads_what_it_holds():
 
     with pytest.raises(InvalidCallError) as refused:
         graph.outputs(state)
-    assert refused.value.errors()[0]["type"] == "run_not_complete"
-    assert refused.value.errors()[0]["ctx"]["status"] == "running"
+    assert refused.value.errors()[0].type == "run_not_complete"
+    assert refused.value.errors()[0].ctx["status"] == "running"
     assert sorted(graph.results(state)["work"]["result"]) == ["A", "B", "C"]
 
 

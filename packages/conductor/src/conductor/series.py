@@ -36,6 +36,7 @@ from pydantic_core import core_schema
 
 from conductor.dtype import DType
 from conductor.dtype_ref import description_of
+from conductor.errors import NodeDeclarationError
 from conductor.model import ConductorModel
 
 #: The element type, for the ``Sequence`` protocol: ``Series[Text]`` yields ``Text``.
@@ -130,9 +131,10 @@ class Series(DType, Sequence[T]):
 
     def __class_getitem__(cls, item: Any) -> type["Series[Any]"]:
         if getattr(item, "element", None) is not None:
-            raise TypeError(
+            raise NodeDeclarationError(
                 "Series[Series[...]] does not exist — a nested structure is a "
-                "Table cell, opened one level by a node"
+                "Table cell, opened one level by a node",
+                code="nested_series",
             )
         made = Series._parameterised.get(item)
         if made is None:

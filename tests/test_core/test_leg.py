@@ -223,7 +223,7 @@ def test_concurrency_one_with_a_timeout_never_has_two_calls_in_flight():
     assert most == 1
     assert [e.type for e in events if e.type == "node_retry"] == []
     assert events[-1].state.status == "failed"
-    assert events[-1].state.failure.code == "timeout"
+    assert events[-1].state.failure.type == "timeout"
     assert elapsed < 0.45, f"the leg waited {elapsed:.2f}s for an abandoned thread"
 
 
@@ -247,9 +247,9 @@ def test_a_timed_out_attempt_is_final_and_its_cause_is_timeout():
 
     assert len(calls) == 1
     error = next(e for e in events if e.type == "node_failed")
-    assert error.cause.code == "timeout"
-    assert error.cause.message == "The node did not answer in time."
-    assert error.cause.details == {"seconds": 0.1}
+    assert error.cause.type == "timeout"
+    assert error.cause.msg == "The node did not answer in time."
+    assert error.cause.ctx == {"seconds": 0.1}
     assert "node_retry" not in [e.type for e in events]
 
 
@@ -289,8 +289,8 @@ def test_a_leg_deadline_ends_the_leg_at_once_timed_out():
     elapsed = time.monotonic() - start
 
     assert events[-1].state.status == "timed_out"
-    assert events[-1].state.failure.details["timeout_seconds"] == 0.2
-    assert 0.2 <= events[-1].state.failure.details["elapsed_seconds"] < 0.5
+    assert events[-1].state.failure.ctx["timeout_seconds"] == 0.2
+    assert 0.2 <= events[-1].state.failure.ctx["elapsed_seconds"] < 0.5
     assert elapsed < 0.5
 
 

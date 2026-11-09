@@ -14,7 +14,7 @@ from collections.abc import Callable
 from typing import Annotated, Any, ClassVar
 
 import regex
-from conductor import ErrorCause, NodeError, Param, Result, Series
+from conductor import NodeError, Param, Result, Series
 from conductor.widgets import Switch, Textarea, TextWidget
 
 from conductor_nodes.types import Flag, StdlibNode, Text
@@ -33,7 +33,7 @@ class PatternNode(StdlibNode):
         try:
             return operation(*args, timeout=self.timeout, **kwargs)
         except TimeoutError as slow:
-            raise NodeError(TOO_SLOW, cause=ErrorCause(code="pattern_timeout", message=TOO_SLOW)) from slow
+            raise NodeError(TOO_SLOW, code="pattern_timeout") from slow
 
 
 class Match(PatternNode):

@@ -7,17 +7,10 @@ from typing import Annotated, Any
 import pytest
 from conductor import NodeRegistry
 from conductor.dtype import DType, Single
-from conductor.errors import (
-    CompilationError,
-    NodeKindError,
-    NodeResolutionError,
-    NodeWiringError,
-    Refuses,
-)
+from conductor.errors import CompileProblem, NodeReadError, Problem
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import FieldContent, Graph, GraphNode
-from conductor.graph.problem import Problem
 from conductor.graph.receive import Broadcast
 from conductor.interface import FromRun, Interface, model_of
 from conductor.metadata import Input, Output, Param, Result
@@ -260,18 +253,18 @@ def test_reading_what_a_state_lacks_names_the_problem():
     """A gated read raises a named error carrying the problem that explains it: the node's own, or the one upstream."""
     compiled = _half_finished()
 
-    with pytest.raises(NodeWiringError) as own:
+    with pytest.raises(NodeReadError) as own:
         compiled.node("b").runs_per_row_of
-    assert own.value.problems[0].code == "unknown_ref_node" and own.value.problems[0].node_id == "b"
-    with pytest.raises(NodeWiringError) as upstream:
+    assert own.value.problem.type == "unknown_ref_node" and own.value.problem.loc[0] == "b"
+    with pytest.raises(NodeReadError) as upstream:
         compiled.node("c").runs_per_row_of
-    assert upstream.value.problems[0] is own.value.problems[0]
-    with pytest.raises(NodeWiringError):
+    assert upstream.value.problem is own.value.problem
+    with pytest.raises(NodeReadError):
         compiled.field(Ref("c", "x")).type
-    with pytest.raises(NodeResolutionError) as lost:
+    with pytest.raises(NodeReadError) as lost:
         compiled.node("x").interface
-    assert lost.value.problems[0].code == "unknown_node_type"
-    with pytest.raises(NodeResolutionError):
+    assert lost.value.problem.type == "unknown_node_type"
+    with pytest.raises(NodeReadError):
         compiled.field(Ref("x", "x"))
     # What each state has still answers.
     assert compiled.node("c").interface.inputs[0].name == "x"
@@ -282,15 +275,13 @@ def test_reading_what_a_state_lacks_names_the_problem():
 def test_the_named_errors_are_not_key_errors():
     """``except KeyError`` catches a caller's wrong id and nothing else; the message names the node, the read and the cause."""
     compiled = _half_finished()
-    with pytest.raises(NodeWiringError) as raised:
+    with pytest.raises(NodeReadError) as raised:
         compiled.node("c").runs_per_row_of
 
-    assert issubclass(NodeWiringError, CompilationError) and not issubclass(NodeWiringError, KeyError)
-    assert issubclass(NodeResolutionError, CompilationError) and not issubclass(NodeResolutionError, KeyError)
-    assert not issubclass(NodeKindError, CompilationError)
-    assert len(raised.value.problems) == 1
+    assert not issubclass(NodeReadError, KeyError)
+    assert raised.value.problem is not None
     assert "'c'" in str(raised.value) and "runs_per_row_of" in str(raised.value)
-    assert "b.x — unknown_ref_node" in str(raised.value)
+    assert "unknown_ref_node" in str(raised.value)
 
 
 def test_a_node_downstream_of_a_cycle_carries_the_cycle():
@@ -302,9 +293,9 @@ def test_a_node_downstream_of_a_cycle_carries_the_cycle():
 
     assert (compiled.node("a").state, compiled.node("b").state) == ("resolution_failed", "resolution_failed")
     assert compiled.node("c").state == "wiring_failed"
-    with pytest.raises(NodeWiringError) as raised:
+    with pytest.raises(NodeReadError) as raised:
         compiled.node("c").runs_per_row_of
-    assert raised.value.problems[0].code == "cycle"
+    assert raised.value.problem.type == "cycle"
 
 
 def test_a_painter_reads_every_node_of_a_broken_graph():
@@ -339,14 +330,14 @@ def test_an_input_named_with_a_leading_underscore_is_refused_at_compile():
         GraphNode(id="s", type="open-inputs", version=1, bindings={"_x": From("a.result")}),
     ], _registry(OpenInputs))
 
-    assert [(p.code, p.node_id, p.field) for p in compiled.problems] == [("parameter_name_invalid", "s", "_x")]
+    assert [(p.type, p.loc[0], p.loc[1]) for p in compiled.problems] == [("parameter_name_invalid", "s", "_x")]
     assert compiled.node("s").state == "wiring_failed"
 
 
 def test_a_hook_that_adds_an_input_named_with_a_leading_underscore_is_refused_at_compile():
     compiled = _compiled([GraphNode(id="h", type="hidden", version=1)], _registry(AddsHidden))
 
-    assert [(p.code, p.field) for p in compiled.problems] == [("parameter_name_invalid", "_x")]
+    assert [(p.type, p.loc[1]) for p in compiled.problems] == [("parameter_name_invalid", "_x")]
     assert compiled.node("h").state == "wiring_failed"
 
 
@@ -372,7 +363,7 @@ def test_an_empty_typed_input_is_a_value_that_arrives_later():
     ], _registry(Needs))
 
     assert not compiled.is_runnable
-    assert [p.code for p in compiled.problems] == ["unbound_required"]
+    assert [p.type for p in compiled.problems] == ["unbound_required"]
     assert (compiled.node("n").state, compiled.node("e").state) == ("ready", "ready")
     assert compiled.field(Ref("n", "text")).receives == Broadcast()
     assert compiled.field(Ref("e", "result")).type is Txt
@@ -392,7 +383,7 @@ class Headed(NodeDefinition):
 
     def compute_outputs(self, declared, values, arriving):
         if "header" not in values:
-            raise Refuses("header_missing", "Type a header first.")
+            raise CompileProblem("header_missing", "Type a header first.")
         return declared
 
 
@@ -401,7 +392,7 @@ def test_a_hook_is_not_handed_a_required_input_left_empty():
     for a connected one; a hook that needs it refuses, and compile reports."""
     compiled = _compiled([GraphNode(id="n", type="headed", version=1)], _registry(Headed))
 
-    assert [(p.code, p.fatal) for p in compiled.problems] == [("unbound_required", True), ("header_missing", True)]
+    assert [(p.type, p.fatal) for p in compiled.problems] == [("unbound_required", True), ("header_missing", True)]
 
 
 class Gathers(NodeDefinition):
@@ -419,7 +410,7 @@ class Gathers(NodeDefinition):
 def test_an_empty_list_of_anything_breaks_its_node_like_anything():
     compiled = _compiled([GraphNode(id="n", type="gathers", version=1)], _registry(Gathers))
 
-    assert [p.code for p in compiled.problems] == ["unbound_required"]
+    assert [p.type for p in compiled.problems] == ["unbound_required"]
     assert compiled.node("n").state == "wiring_failed"
 
 
@@ -558,19 +549,19 @@ def test_a_node_type_the_registry_lacks_is_a_fatal_problem():
     compiled = _compiled([GraphNode(id="a", type="gone", version=1)])
 
     (problem,) = compiled.problems
-    assert (problem.code, problem.fatal, problem.node_id) == ("unknown_node_type", True, "a")
+    assert (problem.type, problem.fatal, problem.loc[0]) == ("unknown_node_type", True, "a")
     assert not compiled.is_runnable
     assert compiled.node("a").state == "resolution_failed"
-    with pytest.raises(NodeResolutionError) as raised:
+    with pytest.raises(NodeReadError) as raised:
         compiled.node("a").interface
-    assert raised.value.problems[0] == problem
+    assert raised.value.problem == problem
 
 
 def test_a_version_the_class_no_longer_declares_is_a_fatal_problem():
     compiled = _compiled([GraphNode(id="a", type="renamed", version=7)])
 
     (problem,) = compiled.problems
-    assert (problem.code, problem.node_id) == ("unknown_node_version", "a")
+    assert (problem.type, problem.loc[0]) == ("unknown_node_version", "a")
 
 
 def test_two_nodes_with_one_id_is_a_fatal_problem():
@@ -579,7 +570,7 @@ def test_two_nodes_with_one_id_is_a_fatal_problem():
         GraphNode(id="a", type="echo", version=1),
     ])
 
-    assert [p.code for p in compiled.problems] == ["duplicate_node_id"]
+    assert [p.type for p in compiled.problems] == ["duplicate_node_id"]
 
 
 # --- interfaces: the hooks are asked, once, on a fresh instance -----------------
@@ -683,7 +674,7 @@ def test_a_node_that_did_not_resolve_contributes_no_fields():
     node compile could not resolve rather than anchoring it again."""
     compiled = _compiled([GraphNode(id="a", type="gone", version=1)])
 
-    assert [p.code for p in compiled.problems] == ["unknown_node_type"]
+    assert [p.type for p in compiled.problems] == ["unknown_node_type"]
     assert compiled.interface.inputs == () and compiled.interface.outputs == ()
 
 
@@ -753,7 +744,7 @@ def test_a_compiled_node_validates_a_call_and_hands_back_its_keyword_arguments()
     assert set(kwargs) == {"x", "y"} and isinstance(kwargs["x"], Txt) and kwargs["y"] == Txt("")
     with pytest.raises(ValidationError):
         node.validate({"x": ["not", "text"]})
-    with pytest.raises(NodeWiringError):
+    with pytest.raises(NodeReadError):
         _compiled([GraphNode(id="b", type="echo", version=1, bindings={"x": From("ghost.result")})]).node("b").validate({})
 
 
@@ -791,5 +782,5 @@ def test_the_record_keeps_the_authored_graph_and_the_registry_and_drops_what_not
 
     assert compiled.graph is graph and compiled._registry is registry
     assert not hasattr(compiled.node("a"), "dependencies")
-    assert [p.code for p in compiled.node("a").problems] == ["stale_binding"]
+    assert [p.type for p in compiled.node("a").problems] == ["stale_binding"]
     assert compiled.field(Ref("a", "x")).problems == ()

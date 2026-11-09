@@ -17,7 +17,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import ConfigDict, Field
 
-from conductor.errors import ErrorCause
+from conductor.errors import Problem
 from conductor.execution.run_state import RunState, WaitingUnit
 from conductor.model import ConductorModel
 from conductor.series import Row
@@ -70,13 +70,13 @@ class NodeSkipped(_EventRecord):
 
 
 class NodeFailed(_EventRecord):
-    """A node failed, or one row of a node that runs per row. ``cause.code``
+    """A node failed, or one row of a node that runs per row. ``cause.type``
     says what kind of failure, for a consumer to key on."""
 
     type: Literal["node_failed"] = "node_failed"
     node_id: str
     error: str
-    cause: ErrorCause
+    cause: Problem
 
 
 class NodeRetry(_EventRecord):

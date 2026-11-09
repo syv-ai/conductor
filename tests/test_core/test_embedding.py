@@ -33,7 +33,7 @@ import pytest
 from conductor import NodeRegistry
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
-from conductor.errors import Refuses
+from conductor.errors import CompileProblem
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
@@ -155,7 +155,7 @@ class Both(NodeDefinition):
 
 
 class Picky(NodeDefinition):
-    """Refuses the mode ``bad`` in its hook."""
+    """CompileProblem the mode ``bad`` in its hook."""
 
     id = "picky"
     title = "Picky"
@@ -167,7 +167,7 @@ class Picky(NodeDefinition):
 
     def compute_inputs(self, declared, values):
         if values.get("mode") == "bad":
-            raise Refuses("picky_refuses", "Not that mode.")
+            raise CompileProblem("picky_refuses", "Not that mode.")
         return declared
 
 
@@ -496,7 +496,7 @@ def _registry(scenario: Scenario) -> NodeRegistry:
     """The plain nodes, then each inner graph compiled once and offered as a definition, innermost first."""
     registry = _plain_registry()
     for type_id, nodes in scenario.graphs:
-        registry = registry.extended_with({type_id: _definition(type_id, CompiledGraph.from_graph(Graph(nodes=list(nodes)), registry))})
+        registry = registry.extended_with([_definition(type_id, CompiledGraph.from_graph(Graph(nodes=list(nodes)), registry))])
     return registry
 
 
@@ -601,7 +601,7 @@ def _broken_graph_registry():
         N(id="a", type="holder", version=1),
         N(id="b", type="upper", version=1, bindings={"text": From("a.nope")}),
     ]), _plain_registry())
-    return broken, _plain_registry().extended_with({"broken": _definition("broken", broken)})
+    return broken, _plain_registry().extended_with([_definition("broken", broken)])
 
 
 def test_a_broken_graph_is_one_problem_on_the_graph_node():
@@ -614,12 +614,12 @@ def test_a_broken_graph_is_one_problem_on_the_graph_node():
     ]), registry)
 
     (found,) = compiled.problems
-    assert (found.code, found.fatal, found.node_id, found.field) == ("embedded_graph_broken", True, "emb", None)
-    assert found.details == {"graph": "Graph broken", "problems": 1}
+    assert (found.type, found.fatal, found.loc) == ("embedded_graph_broken", True, ("emb",))
+    assert found.ctx == {"graph": "Graph broken", "problems": 1}
     assert compiled.node("emb").state == "wiring_failed"
     assert compiled.node("after").state == "wiring_failed"
     assert compiled.node("emb").version is broken
-    assert [p.code for p in compiled.node("emb").version.problems] == ["unknown_ref_output"]
+    assert [p.type for p in compiled.node("emb").version.problems] == ["unknown_ref_output"]
 
 
 def test_an_outer_edge_may_only_read_what_the_graph_offers():
@@ -629,7 +629,7 @@ def test_an_outer_edge_may_only_read_what_the_graph_offers():
         N(id="after", type="upper", version=1, bindings={"text": From("emb.up.result")}),
     ]), _registry(SCENARIOS["runs_once"]))
 
-    assert [(p.code, p.node_id) for p in compiled.problems] == [("unknown_ref_output", "after")]
+    assert [(p.type, p.loc[0]) for p in compiled.problems] == [("unknown_ref_output", "after")]
 
 
 
@@ -646,7 +646,7 @@ def test_two_series_made_by_different_nodes_inside_do_not_line_up_outside():
     ))
     problems = CompiledGraph.from_graph(Graph(nodes=list(scenario.nodes)), _registry(scenario)).problems
 
-    assert [(p.code, p.node_id) for p in problems] == [("misaligned", "after")]
+    assert [(p.type, p.loc[0]) for p in problems] == [("misaligned", "after")]
 
 
 
@@ -658,10 +658,10 @@ def test_a_graph_that_cannot_run_is_refused_even_when_every_node_is_ready():
     ]), _plain_registry())
     assert not graph.is_runnable
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[N(id="emb", type="bad", version=1)]), _plain_registry().extended_with({"bad": _definition("bad", graph)}),
+        Graph(nodes=[N(id="emb", type="bad", version=1)]), _plain_registry().extended_with([_definition("bad", graph)]),
     )
 
-    assert [(p.code, p.details) for p in compiled.problems] == [("embedded_graph_broken", {"graph": "Graph bad", "problems": 1})]
+    assert [(p.type, p.ctx) for p in compiled.problems] == [("embedded_graph_broken", {"graph": "Graph bad", "problems": 1})]
 
 
 def test_a_graph_whose_required_input_is_left_empty_can_be_placed():
@@ -673,7 +673,7 @@ def test_a_graph_whose_required_input_is_left_empty_can_be_placed():
 
 def _embedded_alone(inner: tuple[GraphNode, ...], **bindings: Any) -> CompiledGraph:
     graph = CompiledGraph.from_graph(Graph(nodes=list(inner)), _plain_registry())
-    registry = _plain_registry().extended_with({"g": _definition("g", graph)})
+    registry = _plain_registry().extended_with([_definition("g", graph)])
     return CompiledGraph.from_graph(Graph(nodes=[N(id="emb", type="g", version=1, bindings=bindings)]), registry)
 
 
@@ -687,7 +687,7 @@ def test_a_graph_with_an_empty_input_it_does_not_offer_cannot_be_embedded():
     ))
 
     for compiled in (locked, fed_beside):
-        assert [(p.code, p.details) for p in compiled.problems] == [("embedded_graph_broken", {"graph": "Graph g", "problems": 1})]
+        assert [(p.type, p.ctx) for p in compiled.problems] == [("embedded_graph_broken", {"graph": "Graph g", "problems": 1})]
 
 
 def test_a_value_typed_on_a_placed_graph_that_a_hook_inside_refuses_is_the_outer_authors_problem():
@@ -695,7 +695,7 @@ def test_a_value_typed_on_a_placed_graph_that_a_hook_inside_refuses_is_the_outer
     typed it, so they see the hook's own words on the field they typed in."""
     compiled = _embedded_alone((N(id="p", type="picky", version=1),), **{"p.mode": Static("bad")})
 
-    assert [(p.code, p.message, p.node_id, p.field) for p in compiled.problems] == [
+    assert [(p.type, p.msg, p.loc[0], p.loc[1]) for p in compiled.problems] == [
         ("picky_refuses", "Not that mode.", "emb", "p.mode"),
     ]
     assert compiled.node("emb").state == "wiring_failed"
@@ -720,7 +720,7 @@ def test_a_broken_graph_with_a_value_typed_on_it_is_one_problem():
         N(id="emb", type="broken", version=1, bindings={"a.value": Static("v")}),
     ]), registry)
 
-    assert [p.code for p in compiled.problems] == ["embedded_graph_broken"]
+    assert [p.type for p in compiled.problems] == ["embedded_graph_broken"]
 
 
 def test_a_graph_the_walk_leaves_out_is_one_node_with_nothing_inside():
@@ -736,7 +736,7 @@ def test_a_graph_the_walk_leaves_out_is_one_node_with_nothing_inside():
 
     for compiled, cause in ((upstream_broken, "unknown_node_type"), (unembeddable, "embedded_graph_broken")):
         node = compiled.node("emb")
-        assert (node.state, node.kind, node._cause.code) == ("wiring_failed", "graph", cause)
+        assert (node.state, node.kind, node._cause.type) == ("wiring_failed", "graph", cause)
         with pytest.raises(KeyError):
             compiled.node("emb/holder" if compiled is upstream_broken else "emb/a")
     assert unembeddable.node("emb").version.node("a").state == "ready"
@@ -749,7 +749,7 @@ def test_a_value_on_a_field_the_graph_does_not_offer_is_a_stale_binding():
         N(id="emb", type="inner-graph", version=1, bindings={"up.text": Static("x")}),
     ]), _registry(SCENARIOS["runs_once"]))
 
-    assert [(p.code, p.node_id, p.field) for p in compiled.problems] == [("stale_binding", "emb", "up.text")]
+    assert [(p.type, p.loc[0], p.loc[1]) for p in compiled.problems] == [("stale_binding", "emb", "up.text")]
     assert compiled.node("emb").statics == {}
 
 
@@ -759,5 +759,5 @@ def test_an_edge_into_a_field_the_graph_does_not_offer_is_a_stale_binding():
         N(id="emb", type="inner-graph", version=1, bindings={"up.text": From("h.result")}),
     ]), _registry(SCENARIOS["runs_once"]))
 
-    assert [(p.code, p.node_id, p.field) for p in compiled.problems] == [("stale_binding", "emb", "up.text")]
+    assert [(p.type, p.loc[0], p.loc[1]) for p in compiled.problems] == [("stale_binding", "emb", "up.text")]
 

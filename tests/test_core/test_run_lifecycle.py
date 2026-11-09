@@ -251,7 +251,7 @@ def test_a_failed_node_is_a_status_with_its_cause():
     compiled = compiled_of(n("boom"))
     state = compiled.run_sync()
     assert state.status == "failed"
-    assert (state.failure.code, state.failure.message, state.failure.node_id, state.failure.row) == ("failed", "det gik galt", "boom", ())
+    assert (state.failure.type, state.failure.msg, state.failure.loc[0], state.failure.loc[1:]) == ("failed", "det gik galt", "boom", ())
 
 
 def test_outputs_of_a_state_that_is_not_complete_raises_with_the_cause():
@@ -260,19 +260,19 @@ def test_outputs_of_a_state_that_is_not_complete_raises_with_the_cause():
     with pytest.raises(InvalidCallError, match="det gik galt") as raised:
         compiled.outputs(state)
     (fault,) = raised.value.errors()
-    assert fault["type"] == "run_not_complete"
-    assert fault["ctx"]["status"] == "failed" and fault["ctx"]["failure"]["code"] == "failed"
+    assert fault.type == "run_not_complete"
+    assert fault.ctx["status"] == "failed" and fault.ctx["failure"]["type"] == "failed"
 
 
 def test_a_node_returning_the_wrong_type_ends_the_run_failed_not_refused():
     state = compiled_of(n("wrong-type")).run_sync()
-    assert state.status == "failed" and state.failure.code == "invalid_output"
-    assert "42" not in str(state.failure.details["reason"])
+    assert state.status == "failed" and state.failure.type == "invalid_output"
+    assert "42" not in str(state.failure.ctx["reason"])
 
 
 def test_asking_about_an_output_the_node_does_not_have_fails_the_run():
     state = compiled_of(n("ask-stray")).run_sync()
-    assert state.status == "failed" and state.failure.code == "invalid_output"
+    assert state.status == "failed" and state.failure.type == "invalid_output"
 
 
 def test_results_reads_what_a_stopped_run_did_produce():
@@ -302,7 +302,7 @@ def test_a_refused_stream_raises_at_the_call_not_inside_the_block():
     with pytest.raises(InvalidCallError) as raised:
         broken.stream()
     (fault,) = raised.value.errors()
-    assert fault["type"] == "unknown_node_type" and fault["loc"] == ("graph", "x")
+    assert fault.type == "unknown_node_type" and fault.loc == ("x",)
 
 
 def test_leaving_the_block_stops_the_units_and_writes_no_state():
@@ -320,8 +320,8 @@ def test_leaving_the_block_stops_the_units_and_writes_no_state():
 def test_cancel_and_timeout_end_the_leg_with_a_state():
     compiled = compiled_of(n("slow"))
     state = compiled.run_sync(timeout=0.05)
-    assert state.status == "timed_out" and state.failure.code == "run_timed_out"
-    assert state.failure.details["timeout_seconds"] == 0.05
+    assert state.status == "timed_out" and state.failure.type == "run_timed_out"
+    assert state.failure.ctx["timeout_seconds"] == 0.05
 
     async def cancelled():
         cancel = asyncio.Event()
@@ -329,7 +329,7 @@ def test_cancel_and_timeout_end_the_leg_with_a_state():
         return await compiled.run(cancel=cancel)
 
     state = asyncio.run(cancelled())
-    assert state.status == "cancelled" and state.failure.code == "run_cancelled"
+    assert state.status == "cancelled" and state.failure.type == "run_cancelled"
 
 
 # -- scenario 3: a run stops for a person; another process goes on -----------------------
@@ -389,7 +389,7 @@ def test_every_fault_of_a_call_is_reported_at_once_and_the_state_is_untouched():
             "ask": {"stray": "x"},
             "d": {"yes": "a", "no": "b", "note": 1},
         })
-    assert sorted((fault["type"], fault["loc"]) for fault in raised.value.errors()) == [
+    assert sorted((fault.type, fault.loc) for fault in raised.value.errors()) == [
         ("choice_unanswered", ("answers", "d", "verdict")),
         ("invalid_value", ("answers", "d", "note")),
         ("not_asked", ("answers", "ask", "stray")),
@@ -402,7 +402,7 @@ def test_a_question_with_no_default_left_out_is_missing():
     compiled = compiled_of(n("d", "decide"))
     with pytest.raises(InvalidCallError) as raised:
         compiled.answer(compiled.run_sync(), {"d": {"yes": "a"}})
-    assert [(fault["type"], fault["loc"]) for fault in raised.value.errors()] == [("missing", ("answers", "d", "note"))]
+    assert [(fault.type, fault.loc) for fault in raised.value.errors()] == [("missing", ("answers", "d", "note"))]
 
 
 def test_a_choice_output_left_out_means_that_branch_was_not_taken():
@@ -417,7 +417,7 @@ def test_an_answer_for_a_unit_already_answered_is_not_waiting():
     answered = compiled.answer(compiled.run_sync(), {"ask": {"result": "b"}})
     with pytest.raises(InvalidCallError) as raised:
         compiled.answer(answered, {"ask": {"result": "c"}})
-    assert raised.value.errors()[0]["type"] == "not_waiting"
+    assert raised.value.errors()[0].type == "not_waiting"
 
 
 def test_a_series_output_is_answered_as_a_plain_list_per_row():
@@ -455,7 +455,7 @@ def test_a_table_form_with_rows_that_do_not_line_up_is_a_refusal():
             "data": {"name": ["a"], "email": ["a"]}, "rows": ["x", "y"]}
     with pytest.raises(InvalidCallError) as raised:
         compiled.answer(compiled.run_sync(), {"t": {"result": wire}})
-    assert raised.value.errors()[0]["type"] == "invalid_value"
+    assert raised.value.errors()[0].type == "invalid_value"
 
 
 def test_a_table_default_dumps_with_the_waiting_unit():
@@ -469,7 +469,7 @@ def test_a_changed_node_asks_again_and_its_old_unit_is_gone():
     changed = compiled_of(n("ask", "approve", text=Static("b")))
     with pytest.raises(InvalidCallError) as raised:
         changed.answer(earlier, {"ask": {"result": "x"}})
-    assert raised.value.errors()[0]["type"] == "not_waiting"
+    assert raised.value.errors()[0].type == "not_waiting"
     again = changed.run_sync(earlier)
     assert again.status == "waiting" and again.waiting[0].prompt == "ok? b" and calls["approve"] == 2
 
@@ -530,7 +530,7 @@ def test_a_stored_value_that_no_longer_reads_is_refused_naming_where():
         with pytest.raises(InvalidCallError) as raised:
             verb(RunState.model_validate(stored))
         (fault,) = raised.value.errors()
-        assert fault["type"] == "state_unreadable" and fault["loc"] == ("state", "count.result")
+        assert fault.type == "state_unreadable" and fault.loc == ("state", "count.result")
 
 
 def test_a_value_at_a_row_its_field_cannot_have_is_refused():
@@ -539,7 +539,7 @@ def test_a_value_at_a_row_its_field_cannot_have_is_refused():
     stored["output_columns"]["count.result"]["rows"] = [[3]]
     with pytest.raises(InvalidCallError) as raised:
         compiled.run_sync(RunState.model_validate(stored))
-    assert raised.value.errors()[0]["loc"] == ("state", "count.result", 3)
+    assert raised.value.errors()[0].loc == ("state", "count.result", 3)
 
 
 def test_a_blank_is_a_legal_stored_value_on_any_output():
@@ -562,7 +562,7 @@ def test_a_node_returning_none_on_a_typed_output_still_fails():
     registry = NodeRegistry()
     registry.register(ReturnsNone)
     compiled = CompiledGraph.from_graph(Graph(nodes=(GraphNode(id="r", type="returns-none", version=1),)), registry)
-    assert compiled.run_sync().failure.code == "invalid_output"
+    assert compiled.run_sync().failure.type == "invalid_output"
 
 
 def test_a_dump_of_a_value_with_no_json_form_names_the_output():
@@ -593,7 +593,7 @@ def test_with_inputs_refuses_every_name_it_does_not_offer():
     compiled = compiled_of(n("a", "upper", text=Static("x")))
     with pytest.raises(InvalidCallError) as raised:
         compiled.with_inputs(nope=1, ghost=2)
-    assert [(fault["type"], fault["loc"]) for fault in raised.value.errors()] == [
+    assert [(fault.type, fault.loc) for fault in raised.value.errors()] == [
         ("not_offered", ("inputs", "nope")), ("not_offered", ("inputs", "ghost")),
     ]
 

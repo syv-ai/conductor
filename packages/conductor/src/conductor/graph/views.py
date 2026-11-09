@@ -19,9 +19,9 @@ from collections.abc import Collection, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 from conductor.dtype import DType
+from conductor.errors import Problem, problem
 from conductor.graph.embedding import address
 from conductor.graph.model import GraphNode
-from conductor.graph.problem import Problem, problem
 from conductor.interface import Interface
 
 if TYPE_CHECKING:

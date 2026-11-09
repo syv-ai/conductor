@@ -94,7 +94,7 @@ def test_an_embedded_graph_given_the_whole_table_lands_its_result_on_the_contact
         GraphNode(id="keep", type="with-email", version=1),
         GraphNode(id="send", type="send", version=1, bindings={"email": From("keep.result.email")}),
     ), registry, "Mailer")
-    registry = registry.extended_with({"mailer": inner})
+    registry = registry.extended_with([inner])
     compiled = _compiled(
         CSV,
         GraphNode(id="emb", type="mailer", version=1, bindings={"keep.contacts": From("csv.result")}),
@@ -114,7 +114,7 @@ def test_two_unrelated_tables_merge_into_blanks_and_the_author_is_told_while_dra
     compiled = _compiled(CSV, other, GraphNode(id="excel", type="export", version=1, bindings={"table": From("csv.result", "other.result")}))
 
     (told,) = compiled.problems
-    assert (told.code, told.fatal, told.field, told.details) == ("no_rows_in_common", False, "table", {"source": "csv.result"})
+    assert (told.type, told.fatal, told.loc[1], told.ctx) == ("no_rows_in_common", False, "table", {"source": "csv.result"})
     sheet = _sheet(compiled)
     assert sheet.height == 4
     assert sheet["name"].to_list() == ["Ida", "Bo", "Nina", None]
@@ -165,7 +165,7 @@ def test_columns_of_two_unrelated_tables_into_a_node_running_per_row_are_misalig
     other = GraphNode(id="other", type="csv", version=1, bindings={"text": Static("Ole,ole@x")})
     compiled = _compiled(CSV, other, GraphNode(id="route", type="route", version=1, bindings={"name": From("csv.result.name"), "email": From("other.result.email")}))
 
-    assert [problem.code for problem in compiled.problems] == ["misaligned"]
+    assert [problem.type for problem in compiled.problems] == ["misaligned"]
 
 
 def test_merge_matches_rows_on_their_ids_and_keeps_a_clashing_name_apart():
@@ -196,7 +196,7 @@ def test_a_single_value_into_a_table_input_is_refused():
         GraphNode(id="excel", type="export", version=1, bindings={"table": From("t.result")}),
     )
 
-    assert [problem.code for problem in compiled.problems] == ["type_mismatch"]
+    assert [problem.type for problem in compiled.problems] == ["type_mismatch"]
 
 
 
@@ -249,7 +249,7 @@ def test_a_table_input_inside_an_embedded_graph_merges_its_inner_sources():
         GraphNode(id="send", type="send", version=1, bindings={"email": From("csv.result.email")}),
         GraphNode(id="excel", type="export", version=1, bindings={"table": From("csv.result", "send.result")}),
     ), registry, "Sheet maker")
-    compiled = _compiled(GraphNode(id="emb", type="sheet-maker", version=1), registry=registry.extended_with({"sheet-maker": inner}))
+    compiled = _compiled(GraphNode(id="emb", type="sheet-maker", version=1), registry=registry.extended_with([inner]))
 
     assert _sheet(compiled, "emb/excel")["result"].to_list() == ["sent to ida@x", "no address"]
 
@@ -289,7 +289,7 @@ def test_an_embedded_graphs_table_rows_carry_ids_in_so_nothing_is_told():
         GraphNode(id="emb", type="filter", version=1, bindings={"keep.contacts": From("csv.result")}),
         GraphNode(id="send", type="send", version=1, bindings={"email": From("emb.keep.result.email")}),
         GraphNode(id="excel", type="export", version=1, bindings={"table": From("csv.result", "send.result")}),
-        registry=registry.extended_with({"filter": inner}),
+        registry=registry.extended_with([inner]),
     )
 
     assert compiled.problems == ()
@@ -303,14 +303,14 @@ def test_two_tables_made_per_document_share_no_rows_and_the_author_is_told():
         GraphNode(id="excel", type="export", version=1, bindings={"table": From("read.result.vendor", "again.result.amount")}),
     )
 
-    assert [problem.code for problem in compiled.problems] == ["no_rows_in_common"]
+    assert [problem.type for problem in compiled.problems] == ["no_rows_in_common"]
 
 
 def test_a_declared_table_input_missing_a_column_is_refused_when_checked():
     compiled = _compiled(CSV, SEND, GraphNode(id="s", type="sheet", version=1, bindings={"table": From("csv.result", "send.result")}), registry=_registry_with(Sheet))
 
     (missing,) = compiled.problems
-    assert (missing.code, missing.fatal, missing.field, missing.details) == ("table_column_missing", True, "table", {"column": "sent"})
+    assert (missing.type, missing.fatal, missing.loc[1], missing.ctx) == ("table_column_missing", True, "table", {"column": "sent"})
 
 
 def test_a_merged_table_that_wont_read_as_the_input_fails_that_node():
@@ -319,7 +319,7 @@ def test_a_merged_table_that_wont_read_as_the_input_fails_that_node():
 
     events = list(_events(compiled))
     (failed,) = [event for event in events if event.type == "node_failed"]
-    assert (failed.node_id, failed.cause.code) == ("s", "invalid_input")
+    assert (failed.node_id, failed.cause.type) == ("s", "invalid_input")
 
 
 def test_a_column_two_levels_down_is_received_under_the_nodes_row():
@@ -512,7 +512,7 @@ def test_two_series_under_unrelated_rows_are_misaligned():
         registry=_deep_registry(),
     )
 
-    assert [problem.code for problem in compiled.problems] == ["misaligned"]
+    assert [problem.type for problem in compiled.problems] == ["misaligned"]
 
 
 class SkipOrRead(NodeDefinition):
@@ -563,7 +563,7 @@ def test_a_table_that_lost_every_rows_id_fails_when_merged_with_the_table_it_was
 
     assert compiled.is_runnable, compiled.problems
     state = compiled.run_sync()
-    assert (state.status, state.failure.code, state.failure.node_id) == ("failed", "row_ids_lost", "keep")
+    assert (state.status, state.failure.type, state.failure.loc[0]) == ("failed", "row_ids_lost", "keep")
     assert "mail" not in compiled.results(state)
 
 

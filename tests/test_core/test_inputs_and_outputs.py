@@ -78,7 +78,7 @@ def _compiled(*nodes: GraphNode) -> CompiledGraph:
     registry = NodeRegistry()
     for node_cls in (Upper, Needs, Fails, Skips):
         registry.register(node_cls)
-    registry = registry.extended_with({"shout": embedded_graph_node("shout", (GraphNode(id="up", type="upper", version=1),), registry, "Shout")})
+    registry = registry.extended_with([embedded_graph_node("shout", (GraphNode(id="up", type="upper", version=1),), registry, "Shout")])
     return CompiledGraph.from_graph(Graph(nodes=nodes), registry)
 
 
@@ -153,7 +153,7 @@ def test_a_list_on_an_input_for_one_value_runs_the_graph_once_per_item():
 def test_a_required_input_left_unfilled_is_compiles_own_problem():
     compiled = _compiled(GraphNode(id="n", type="needs", version=1))
 
-    assert "unbound_required" in [p.code for p in compiled.problems]
+    assert "unbound_required" in [p.type for p in compiled.problems]
     assert compiled.with_inputs(text="x").is_runnable
 
 

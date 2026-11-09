@@ -271,7 +271,7 @@ def test_unrelated_rows_inside_an_embedded_graph_are_misaligned_not_paired():
         GraphNode(id="e", type="pair-graph", version=1, bindings={"up.text": _edge(("a", "result")), "j.texts": _edge(("lb", "result"))}),
     ], inner)
 
-    assert [(p.code, p.node_id) for p in compiled.problems] == [("misaligned", "e")]
+    assert [(p.type, p.loc[0]) for p in compiled.problems] == [("misaligned", "e")]
     assert not compiled.is_runnable
 
 
@@ -283,7 +283,7 @@ def test_an_edge_from_another_nodes_input_is_not_a_source():
         GraphNode(id="u", type="upper", version=1, bindings={"text": _edge(("h", "text"))}),
     ])
 
-    assert [(p.code, p.node_id, p.field) for p in compiled.problems] == [("unknown_ref_output", "u", "text")]
+    assert [(p.type, p.loc[0], p.loc[1]) for p in compiled.problems] == [("unknown_ref_output", "u", "text")]
     assert not compiled.is_runnable
 
 
@@ -297,7 +297,7 @@ def test_an_open_parameter_inside_an_embedded_graph_is_not_an_input_it_offers():
         GraphNode(id="emb", type="script-graph", version=1, bindings={"s.v": _edge(("docs", "result"))}),
     ], inner)
 
-    assert [(p.code, p.node_id, p.field) for p in compiled.problems] == [("stale_binding", "emb", "s.v")]
+    assert [(p.type, p.loc[0], p.loc[1]) for p in compiled.problems] == [("stale_binding", "emb", "s.v")]
 
 
 # --- the ledger reads the record -----------------------------------------------------

@@ -12,7 +12,7 @@ from pydantic_core import to_jsonable_python
 def as_data(event: Any) -> Any:
     """An event as JSON-ready data, the one place a frame is serialised.
 
-    A record (a ``RunState``, an ``ErrorCause``, a waiting
+    A record (a ``RunState``, a ``Problem``, a waiting
     unit's questions) dumps through pydantic; a typed value pydantic
     has no rule for by itself — a ``Series`` in a result, a type a host
     declared — dumps through the codec by its own type, so a series keeps

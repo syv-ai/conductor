@@ -526,7 +526,7 @@ def test_a_row_two_sources_cover_fails_the_node_with_the_row():
 
     with pytest.raises(NodeExecutionError) as failed:
         ledger.inputs_for(("m", (0,)))
-    assert failed.value.cause.code == "row_covered_twice" and failed.value.cause.row == (0,)
+    assert failed.value.code == "row_covered_twice" and failed.value.ctx["row"] == [0]
 
 
 def test_two_refs_on_one_index_into_a_series_input_are_one_series_on_it():

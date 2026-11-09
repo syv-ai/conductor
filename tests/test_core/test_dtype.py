@@ -96,11 +96,6 @@ def test_a_scalar_has_no_element():
     assert Text.element is None
 
 
-def test_a_type_refuses_nothing_whole_unless_it_says_so():
-    """The one question compile asks a source before binding it whole."""
-    assert Text.refuses_whole() is None and Colour.refuses_whole() is None
-
-
 def test_the_base_has_no_id():
     """Nothing on an edge ever carries "could not say". A pass-through
     declares ``Any``, which compile types from the edge — so the base is an

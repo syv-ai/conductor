@@ -7,7 +7,7 @@ import pytest
 from conductor import NodeRegistry, Param
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
-from conductor.errors import NodeWiringError
+from conductor.errors import NodeReadError
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.conditions import ALWAYS, Atom
@@ -194,6 +194,6 @@ def test_a_decision_on_a_node_whose_wiring_failed_is_not_one_a_run_makes():
 
     assert compiled.decisions == {}
     assert compiled.node("g").state == "wiring_failed"
-    with pytest.raises(NodeWiringError) as raised:
+    with pytest.raises(NodeReadError) as raised:
         compiled.node("g").runs_per_row_of
-    assert raised.value.problems[0].code == "unknown_ref_output"
+    assert raised.value.problem.type == "unknown_ref_output"

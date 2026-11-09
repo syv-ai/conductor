@@ -4,13 +4,12 @@ import dataclasses
 
 import pytest
 from conductor.dtype import DType
-from conductor.errors import ErrorCause
+from conductor.errors import Problem
 from conductor.execution.live_run_values import Skip
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.compiled_node import CompiledField, CompiledNode
 from conductor.graph.model import FieldContent, Graph, GraphNode
-from conductor.graph.problem import Problem
 from conductor.interface import Interface
 from conductor.metadata import Field, Input, Output, Param, Result
 from conductor.model import ConductorModel
@@ -116,8 +115,7 @@ READ_BACK = (
     FieldContent(title="X", description="x"),
     From("a.result", "b.result"),
     Static({"rows": [1, 2]}),
-    Problem(code="cycle", message="m", fatal=True, node_id="a", field="x", details={"path": ["a", "b"]}),
-    ErrorCause(code="timeout", message="m", details={"seconds": 3}, row=(0, 2)),
+    Problem(type="cycle", msg="m", loc=("a", "x"), ctx={"path": ["a", "b"]}),
     Deprecation(header="Gone", alternative="echo"),
     Policy(retries=2, delay=0.5, timeout=3.0, concurrency=1),
     Choice(id="en", title="English", element={"id": "text"}),
@@ -149,7 +147,7 @@ def test_a_description_does_not_read_back_as_a_type():
 
 
 SAVED = (
-    Graph, GraphNode, FieldContent, From, Static, Problem, ErrorCause,
+    Graph, GraphNode, FieldContent, From, Static, Problem,
     Deprecation, Policy, VersionDescription, NodeDescription,
     Field, Param, Result, Input, Output, Widget, Textarea, Dropdown, Choice, OperatorChoice, Index,
 )

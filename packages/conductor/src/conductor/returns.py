@@ -47,6 +47,7 @@ from typing import Annotated, Any, Union, get_args, get_origin, get_type_hints
 
 from conductor._sentinel import AskPerson
 from conductor.dtype import DType, dtype_of
+from conductor.errors import NodeDeclarationError
 from conductor.metadata import Output, Param, Result
 
 RESULT_KEY = "result"
@@ -71,13 +72,13 @@ def outputs_of(return_hint: Any) -> tuple[Any, tuple[Output, ...]]:
         if len(members) == 1 and AskPerson in get_args(return_hint):
             return outputs_of(members[0])
     if Param.on(return_hint) is not None:
-        raise TypeError("the return carries a Param; a return carries a Result, and Param belongs on a parameter")
+        raise NodeDeclarationError("the return carries a Param; a return carries a Result, and Param belongs on a parameter", code="param_on_return")
     declared = get_args(return_hint)[0] if get_origin(return_hint) is Annotated else return_hint
     dtype = dtype_of(declared)
     if dtype is not None:
         result = Result.on(return_hint)
         if result is None:
-            raise TypeError("a one-output run() must be annotated Annotated[DType, Result(title=...)]")
+            raise NodeDeclarationError("a one-output run() must be annotated Annotated[DType, Result(title=...)]", code="return_needs_result")
         return dtype, (result.output(RESULT_KEY, dtype),)
     if isinstance(declared, type) and is_dataclass(declared):
         hints = get_type_hints(declared, include_extras=True)
@@ -86,17 +87,19 @@ def outputs_of(return_hint: Any) -> tuple[Any, tuple[Output, ...]]:
             hint = hints[field.name]
             field_dtype, result = dtype_of(hint), Result.on(hint)
             if Param.on(hint) is not None:
-                raise TypeError(f"{declared.__name__}.{field.name} carries a Param; a record's field carries a Result")
+                raise NodeDeclarationError(f"{declared.__name__}.{field.name} carries a Param; a record's field carries a Result", code="param_on_record_field")
             if field_dtype is None or result is None:
-                raise TypeError(
-                    f"{declared.__name__}.{field.name} must be Annotated[DType, Result(title=...)] — got {hint!r}"
+                raise NodeDeclarationError(
+                    f"{declared.__name__}.{field.name} must be Annotated[DType, Result(title=...)] — got {hint!r}",
+                code="record_field_needs_result",
                 )
             outputs.append(result.output(field.name, field_dtype))
         return declared, tuple(outputs)
     if declared is Mapping or get_origin(declared) is Mapping:
         return Mapping, ()
-    raise TypeError(
-        f"run() must return a DType, a dataclass of them, or Mapping[str, Any] — got {declared!r}"
+    raise NodeDeclarationError(
+        f"run() must return a DType, a dataclass of them, or Mapping[str, Any] — got {declared!r}",
+                code="unsupported_return_type",
     )
 
 

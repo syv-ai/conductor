@@ -61,6 +61,8 @@ from typing import TYPE_CHECKING, Annotated, Any, ClassVar, get_args, get_origin
 
 from pydantic_core import core_schema
 
+from conductor.errors import NodeDeclarationError
+
 if TYPE_CHECKING:
     from pydantic import GetCoreSchemaHandler
 
@@ -111,21 +113,6 @@ class DType(ABC, metaclass=_DTypeMeta):
     #: base would be wrong, as a flag built on ``int`` does.
     column: ClassVar[str | None] = None
 
-    @classmethod
-    def refuses_whole(cls) -> None:
-        """Raise ``conductor.errors.Refuses`` when a node may not receive a value of this type as a whole.
-
-        Returns quietly for nearly every type, and by default. Only a type
-        that can be declared incompletely (a table whose columns nobody
-        stated) overrides it, raising the same ``Refuses(code, message)`` a
-        node's hook raises.
-
-        The compiler asks it of a source type connected into an open interface
-        (``**inputs: Single``), where the node will read the value; a
-        refusal becomes a fatal problem on the field with that code and
-        message. A value only routed through an ``Any`` input is never asked.
-        """
-
     def __init_subclass__(cls, *, parameterises: type["DType"] | None = None, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         if parameterises is not None:
@@ -135,27 +122,30 @@ class DType(ABC, metaclass=_DTypeMeta):
                 and parameterises is not DType
                 and issubclass(cls, parameterises)
             ):
-                raise TypeError(
-                    f"{cls.__name__} parameterises {parameterises!r}, which is not a concrete DType among its bases"
+                raise NodeDeclarationError(
+                    f"{cls.__name__} parameterises {parameterises!r}, which is not a concrete DType among its bases",
+                code="parameterises_not_a_base",
                 )
             if "id" in vars(cls):
-                raise TypeError(
+                raise NodeDeclarationError(
                     f"{cls.__name__} parameterises {parameterises.__name__} and so carries its id; "
-                    "a type with an id of its own is not a parameterisation"
+                    "a type with an id of its own is not a parameterisation",
+                code="parameterisation_with_id",
                 )
             cls.parameterises = parameterises
         else:
             if "id" not in vars(cls):
-                raise TypeError(
+                raise NodeDeclarationError(
                     f"{cls.__name__} declares no 'id' of its own. A subclass is a type of its own and "
                     "names itself; a subclass that only carries a detail of its base is declared with "
-                    "parameterises=<base> and keeps the base's id"
+                    "parameterises=<base> and keeps the base's id",
+                code="type_without_id",
                 )
             # Set on every type of its own, so a self-named subclass of a
             # parameterisation does not inherit the mark.
             cls.parameterises = None
         if not getattr(cls, "title", None):
-            raise TypeError(f"{cls.__name__} must declare a class-level 'title'")
+            raise NodeDeclarationError(f"{cls.__name__} must declare a class-level 'title'", code="type_without_title")
 
     # -- the description --------------------------------------------------
 

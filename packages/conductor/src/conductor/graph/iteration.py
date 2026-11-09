@@ -74,13 +74,11 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
-from conductor.dtype import DType
 from conductor.dtype_ref import description_of, name_of
-from conductor.errors import Refuses
+from conductor.errors import CompileProblem, Problem, problem
 from conductor.graph.binding import From
 from conductor.graph.embedding import SEPARATOR, address, as_drawn, under
 from conductor.graph.model import GraphNode
-from conductor.graph.problem import Problem, problem
 from conductor.graph.receive import Broadcast, Gather, Merge, PerRow, Receive, RowsUnder, Whole
 from conductor.graph.views import field_problems
 from conductor.interface import Interface
@@ -156,7 +154,7 @@ def derive(
     ``compute_outputs`` is asked once per node, here, with ``arriving``
     (the type each connected input receives per call) and the values the
     author typed laid over the declaration's defaults. A hook that raises
-    ``Refuses`` makes its code and message the node's one fatal problem.
+    ``CompileProblem`` makes it the node's one fatal problem.
 
     A node in ``graphs``, whose version is a compiled graph, is walked as
     one node with that graph's interface; ``Compilation.embed_graphs`` embeds
@@ -340,11 +338,6 @@ class _Walk:
                     self.problems.append(problem("one_edge_per_parameter", node.id, inp.name))
                     found.broken = True
                     return found
-                refused = self._refuses_whole(node.id, inp.name, sources[0].dtype)
-                if refused is not None:
-                    self.problems.append(refused)
-                    found.broken = True
-                    return found
                 found.bound[inp.name] = sources[0].dtype
                 found.arriving[inp.name] = sources[0].dtype
                 found.arrivals[ref] = sources[0]
@@ -400,14 +393,14 @@ class _Walk:
         carries and how each input receives."""
         interface = self.asked[node.id]
         inputs = tuple(self._typed(inp, arrived.bound) for inp in interface.inputs)
-        answered = self._outputs(node, arrived.arriving)
-        if isinstance(answered, Problem):
+        try:
+            outputs = self._outputs(node, arrived.arriving)
+        except CompileProblem as refusal:
             # The refusal is the node's problem: fatal, with no `no_outputs`
             # beside it, and nothing is derived past it.
-            self.problems.append(answered)
+            self.problems.append(refusal.at(node.id))
             self.completed[node.id] = replace(self.versions[node.id].interface, inputs=inputs, outputs=())
             return
-        outputs = answered
         self.completed[node.id] = replace(self.versions[node.id].interface, inputs=inputs, outputs=outputs)
         faults = field_problems(node.id, outputs, frozenset(i.name for i in inputs), untyped_ok=False)
         faults += [
@@ -660,8 +653,9 @@ class _Walk:
     def _complete_without_deriving(self, node: GraphNode, arrived: _Arrivals) -> None:
         """A source was broken: complete the inputs and outputs from what
         arrived so an editor can draw the node, and derive nothing."""
-        answered = self._outputs(node, arrived.arriving)
-        if isinstance(answered, Problem):
+        try:
+            answered = self._outputs(node, arrived.arriving)
+        except CompileProblem:
             # The broken source carries the fault; a refusal about its missing
             # arrival would report the same fact twice.
             answered = ()
@@ -671,26 +665,19 @@ class _Walk:
         # name used twice or a type no edge can carry is the node's own fault.
         self.problems.extend(field_problems(node.id, answered, frozenset(i.name for i in inputs), untyped_ok=True))
 
-    def _outputs(self, node: GraphNode, arriving: Mapping[str, Any]) -> tuple[Output, ...] | Problem:
+    def _outputs(self, node: GraphNode, arriving: Mapping[str, Any]) -> tuple[Output, ...]:
         """Ask the node's ``compute_outputs`` now that it can be told what
         arrives, with the values the author typed laid over the
         declaration's defaults. An optional input is always there; a
-        required one the author left empty, or connected, is not.
-
-        A hook that cannot answer for these values and arrivals raises
-        ``Refuses(code, message)``, and the refusal comes back as the node's
-        one fatal ``Problem`` — the hook chose the code and the message,
-        compile only records which node it belongs to.
+        required one the author left empty, or connected, is not. A
+        ``CompileProblem`` from the hook goes to the caller, which records it.
         """
         version = self.versions[node.id]
         if node.id in self.graphs:
             return version.interface.outputs  # a compiled graph embedded as a node: it has no hooks
         declared = (*version.interface.inputs, *self.asked[node.id].inputs)
         values = {**{i.name: i.default for i in declared if i.optional}, **self.statics[node.id]}
-        try:
-            return self.definitions[node.id]().compute_outputs(version.interface.outputs, values, arriving)
-        except Refuses as refusal:
-            return Problem(code=refusal.code, message=refusal.message, fatal=True, node_id=node.id)
+        return self.definitions[node.id]().compute_outputs(version.interface.outputs, values, arriving)
 
     def _whole(self, node_id: str, inp: Input) -> bool:
         """Is ``inp`` a ``**inputs: Single`` parameter — a connected name the
@@ -709,29 +696,6 @@ class _Walk:
     def _one_index(sources: Sequence[_Carried]) -> bool:
         """Do all sources carry a series on one and the same index? Then the edges together are one set of rows."""
         return all(s.index is not None for s in sources) and len({s.index for s in sources}) == 1
-
-    @staticmethod
-    def _refuses_whole(node_id: str, field: str, dtype: type[DType]) -> Problem | None:
-        """A source type that says it cannot be handed over whole — a table whose
-        columns nobody stated — is refused on the field, fatal, with the type's
-        own message. Asked only where a node will *read* the value, a
-        ``**inputs`` parameter; an ``Any`` input only passes the value on, and
-        nothing is asked.
-        """
-        asked = dtype.element or dtype
-        try:
-            answered = asked.refuses_whole()
-        except Refuses as refusal:
-            return Problem(
-                code=refusal.code, message=f"Field '{field}': {refusal.message}", fatal=True, node_id=node_id,
-                field=field, details={"inner_message": refusal.message},
-            )
-        if answered is not None:
-            raise TypeError(
-                f"{asked.__name__}.refuses_whole() returned {answered!r}; a type refuses by raising Refuses "
-                "and returns None otherwise"
-            )
-        return None
 
     @staticmethod
     def _originates(inp: Input, ref: Ref) -> tuple[_Carried, Receive]:

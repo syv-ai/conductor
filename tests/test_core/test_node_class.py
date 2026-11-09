@@ -3,6 +3,7 @@ from typing import Annotated, ClassVar
 import pytest
 from conductor import NodeRegistry
 from conductor.dtype import DType
+from conductor.errors import NodeDeclarationError
 from conductor.graph.binding import Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
@@ -297,7 +298,7 @@ def test_a_gap_in_the_versions_is_the_catalogs_rule_not_the_classs():
     assert set(Gapped.versions) == {1, 3}
     from conductor import NodeRegistry
 
-    with pytest.raises(ValueError, match="numbers from 1 with no hole"):
+    with pytest.raises(NodeDeclarationError, match="numbers from 1 with no hole"):
         NodeRegistry().register(Gapped)
 
 
@@ -556,7 +557,7 @@ def test_registering_the_same_id_twice_is_refused():
 
     registry = NodeRegistry()
     registry.register(A)
-    with pytest.raises(ValueError, match="dupe"):
+    with pytest.raises(NodeDeclarationError, match="dupe"):
         registry.register(B)
 
 
@@ -572,7 +573,7 @@ def test_a_registered_node_numbers_from_one():
             return x
 
     assert set(Late.versions) == {3}, "a class may declare any contiguous range"
-    with pytest.raises(ValueError, match="numbers from 1"):
+    with pytest.raises(NodeDeclarationError, match="numbers from 1"):
         NodeRegistry().register(Late)
 
 
@@ -597,7 +598,7 @@ def test_the_current_version_may_not_retire_alone():
         def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
             return x
 
-    with pytest.raises(ValueError, match="current"):
+    with pytest.raises(NodeDeclarationError, match="current"):
         NodeRegistry().register(Dying)
 
     @deprecated(header="Whole node retired")
@@ -638,7 +639,7 @@ def test_an_alternative_names_a_node_in_the_same_catalog():
         def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
             return x
 
-    with pytest.raises(ValueError, match="new-node"):
+    with pytest.raises(NodeDeclarationError, match="new-node"):
         NodeRegistry().register(Old)
 
     registry = NodeRegistry()
@@ -752,12 +753,12 @@ def test_a_node_with_no_shaping_declares_none():
 
 
 def test_a_hook_that_cannot_answer_raises_refuses():
-    """`Refuses(code, message)` is the one refusal a field hook has: the
+    """`CompileProblem(code, message)` is the one refusal a field hook has: the
     host names the code and writes the sentence, and the compiler anchors both
     as the node's fatal `Problem` (the graph plans)."""
-    from conductor.errors import ConductorError, Refuses
+    from conductor.errors import CompileProblem, ConductorError
 
-    refusal = Refuses("wrong_shape", "What arrives does not fit.")
+    refusal = CompileProblem("wrong_shape", "What arrives does not fit.")
     assert (refusal.code, refusal.message) == ("wrong_shape", "What arrives does not fit.")
     assert isinstance(refusal, ConductorError)
 
@@ -1058,7 +1059,7 @@ def test_a_version_a_class_does_not_declare_is_refused():
         GraphNode(id="b", type="never-registered", version=1),
     ]), registry)
 
-    assert [p.code for p in compiled.problems] == ["unknown_node_version", "unknown_node_type"]
+    assert [p.type for p in compiled.problems] == ["unknown_node_version", "unknown_node_type"]
     assert not hasattr(NodeRegistry, "runner_for")
 
 
@@ -1117,7 +1118,7 @@ def test_a_definition_may_carry_its_versions_by_value():
     described = Wrapped.describe().versions[3]
     assert [i.name for i in described.inputs] == ["inner.text"]
     assert described.policy is None and described.deprecation is None
-    with pytest.raises(ValueError, match="numbers from 1"):
+    with pytest.raises(NodeDeclarationError, match="numbers from 1"):
         NodeRegistry().register(Wrapped)
 
     class Loaded(Wrapped):

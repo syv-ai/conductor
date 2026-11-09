@@ -10,20 +10,17 @@ from conductor._sentinel import SKIPPED, AskPerson, is_skipped
 from conductor.codec import from_wire, to_wire
 from conductor.dtype import DType, Single
 from conductor.errors import (
-    CompilationError,
+    PROBLEM_CODES,
+    CompileProblem,
     ConductorError,
-    ErrorCause,
     ExternalFailure,
-    InvalidCallDetail,
     InvalidCallError,
+    NodeDeclarationError,
     NodeError,
     NodeExecutionError,
-    NodeKindError,
-    NodeResolutionError,
     NodeTimeoutError,
     NodeValidationError,
-    NodeWiringError,
-    Refuses,
+    Problem,
 )
 from conductor.execution.run_state import (
     Answers,
@@ -38,7 +35,6 @@ from conductor.graph.compiled import CompiledGraph
 from conductor.graph.compiled_node import CompiledField, CompiledNode
 from conductor.graph.conditions import ALWAYS, NEVER, Atom, Condition
 from conductor.graph.model import FieldContent, Graph, GraphNode
-from conductor.graph.problem import Problem
 from conductor.graph.receive import Broadcast, Gather, PerRow, Receive, RowsUnder, Whole
 from conductor.graph.topology import dependencies_of
 from conductor.interface import FromRun, Interface, model_of
@@ -63,13 +59,14 @@ from conductor.table import Table
 __all__ = [
     "ALWAYS",
     "NEVER",
+    "PROBLEM_CODES",
     "SKIPPED",
     "Answers",
     "AskPerson",
     "Atom",
     "Binding",
     "Broadcast",
-    "CompilationError",
+    "CompileProblem",
     "CompiledField",
     "CompiledGraph",
     "CompiledNode",
@@ -77,7 +74,6 @@ __all__ = [
     "ConductorError",
     "DType",
     "Deprecation",
-    "ErrorCause",
     "ExternalFailure",
     "FieldContent",
     "From",
@@ -87,20 +83,17 @@ __all__ = [
     "GraphNode",
     "Index",
     "Input",
-    "InvalidCallDetail",
     "InvalidCallError",
     "Interface",
+    "NodeDeclarationError",
     "NodeDefinition",
     "NodeDescription",
     "NodeError",
     "NodeExecutionError",
-    "NodeKindError",
     "NodeRegistry",
     "NodeTimeoutError",
     "NodeValidationError",
     "NodeVersion",
-    "NodeWiringError",
-    "NodeResolutionError",
     "Output",
     "OutputColumn",
     "Param",
@@ -110,7 +103,6 @@ __all__ = [
     "Question",
     "Receive",
     "Ref",
-    "Refuses",
     "RegistryDescription",
     "Result",
     "RowsUnder",

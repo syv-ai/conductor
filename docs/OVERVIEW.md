@@ -32,7 +32,7 @@ Retries live on the version's `Policy`, and each row retries on its own. Only th
 
 `Policy.timeout` is how long the engine waits on one attempt. It never interrupts the thread: a timed-out attempt is final, and the thread finishes on its own. The timeout worth retrying is the client's own, set inside `run`. A `run` that holds the GIL blocks the whole process, so where runs happen is the host's decision.
 
-Every failure carries an `ErrorCause` (`code`, `message`, `details`, `row`) on the exception and on the event, so a host routes it by code.
+Every failure is a `Problem` (`type`, `loc`, `msg`, `ctx`) on the event and on the state, the same record a compile reports, so a host routes it by its code.
 
 ## Bindings
 

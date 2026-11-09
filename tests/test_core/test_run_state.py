@@ -284,9 +284,9 @@ def test_a_return_of_the_wrong_type_fails_the_returning_node_with_invalid_output
 
     error = next(e for e in events if e.type == "node_failed")
     assert error.node_id == "w"
-    assert error.cause.code == "invalid_output"
-    assert error.cause.message == "The node returned a value that is not what it declared."
-    assert "result" in error.cause.details["reason"] and "42" not in error.cause.details["reason"]
+    assert error.cause.type == "invalid_output"
+    assert error.cause.msg == "The node returned a value that is not what it declared."
+    assert "result" in error.cause.ctx["reason"] and "42" not in error.cause.ctx["reason"]
     assert events[-1].state.status == "failed" and "w.result" not in events[-1].state.output_columns
     assert calls == []
 
@@ -391,7 +391,7 @@ def test_a_unit_whose_second_output_is_invalid_writes_nothing():
 
     state = compiled.run_sync()
 
-    assert state.status == "failed" and state.failure.code == "invalid_output"
+    assert state.status == "failed" and state.failure.type == "invalid_output"
     assert state.output_columns == {} and state.finished_rows == {}
 
 

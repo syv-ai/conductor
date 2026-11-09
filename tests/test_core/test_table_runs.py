@@ -278,7 +278,7 @@ def test_an_embedded_graph_run_per_row_lands_its_result_on_the_contacts():
     compiled = _compiled(
         CSV,
         GraphNode(id="emb", type="mailer", version=1, bindings={"send.email": From("csv.result.email")}),
-        registry=registry.extended_with({"mailer": sub}),
+        registry=registry.extended_with([sub]),
     )
     results = _results(compiled)
 
@@ -293,7 +293,7 @@ def test_a_table_made_inside_an_embedded_graph_offers_its_columns_at_the_graph_n
     compiled = _compiled(
         GraphNode(id="emb", type="reader", version=1, bindings={"csv.text": Static("Ida,ida@x;Bo,")}),
         GraphNode(id="send", type="send", version=1, bindings={"email": From("emb.csv.result.email")}),
-        registry=registry.extended_with({"reader": sub}),
+        registry=registry.extended_with([sub]),
     )
 
     assert list(_results(compiled)["send"]["result"]) == ["sent to ida@x", "no address"]

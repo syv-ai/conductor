@@ -12,7 +12,6 @@ from conductor import InvalidCallError, NodeRegistry
 from conductor._sentinel import SKIPPED, AskPerson
 from conductor.dtype import DType
 from conductor.errors import (
-    ErrorCause,
     NodeExecutionError,
 )
 from conductor.graph.binding import From, Static
@@ -119,7 +118,7 @@ class FailsOn(NodeDefinition):
 
     def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
         if text == "boom":
-            raise NodeExecutionError("kunne ikke", cause=ErrorCause(code="boom", message="Boom."))
+            raise NodeExecutionError("kunne ikke", code="boom")
         return text
 
 
@@ -229,7 +228,7 @@ def test_a_computed_roster_runs_by_name_and_edges_like_any_field():
 def test_a_computed_roster_with_no_outputs_is_compiles_problem():
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="c", type="columns", version=1, bindings={"spec": Static("")})]), _registry())
 
-    assert [(p.code, p.node_id, p.fatal) for p in compiled.problems] == [("no_outputs", "c", False)]
+    assert [(p.type, p.loc[0], p.fatal) for p in compiled.problems] == [("no_outputs", "c", False)]
     assert compiled.is_runnable
 
 
@@ -409,8 +408,8 @@ def test_a_failed_row_fails_the_node_and_the_cause_names_the_row():
 
     (error,) = [e for e in events if e.type == "node_failed"]
     assert error.node_id == "f"
-    assert error.cause.code == "boom"
-    assert error.cause.row == (1,)
+    assert error.cause.type == "boom"
+    assert error.cause.loc[1:] == (1,)
     assert events[-1].state.status == "failed"
     assert not any(e.type == "node_start" and e.node_id == "j" for e in events)
 
@@ -423,8 +422,8 @@ def test_run_sync_returns_the_error_ending_with_its_cause():
 
     ending = compiled.run_sync()
     assert ending.status == "failed"
-    assert ending.failure.node_id == "f"
-    assert ending.failure.row == (0,)
+    assert ending.failure.loc[0] == "f"
+    assert ending.failure.loc[1:] == (0,)
 
 
 def test_a_defect_in_the_engine_fails_the_leg_instead_of_hanging_it(monkeypatch):
@@ -445,8 +444,8 @@ def test_a_defect_in_the_engine_fails_the_leg_instead_of_hanging_it(monkeypatch)
     events = asyncio.run(gathered())
 
     assert events[-1].state.status == "failed"
-    assert events[-1].state.failure.code == "engine_error"
-    assert events[-1].state.failure.details == {"exception": "RuntimeError"}
+    assert events[-1].state.failure.type == "engine_error"
+    assert events[-1].state.failure.ctx == {"exception": "RuntimeError"}
     assert "the ledger lost a value" not in str(events[-1].state.failure)
 
 
@@ -455,7 +454,7 @@ def test_a_graph_compile_rejected_is_refused_with_its_problems():
 
     with pytest.raises(InvalidCallError) as raised:
         compiled.run_sync()
-    assert [fault["type"] for fault in raised.value.errors()] == ["unknown_node_type"]
+    assert [fault.type for fault in raised.value.errors()] == ["unknown_node_type"]
 
 
 # --- scheduling -----------------------------------------------------------------

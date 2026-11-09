@@ -27,7 +27,7 @@ from typing import Any, Literal, Self
 from pydantic import Field, field_serializer, model_validator
 
 from conductor.codec import values_to_wire
-from conductor.errors import ErrorCause
+from conductor.errors import Problem
 from conductor.model import ConductorModel
 from conductor.ref import Ref
 from conductor.series import Row
@@ -112,7 +112,7 @@ class RunState(ConductorModel):
     status: RunStatus
     #: Why the leg stopped short: the failed node's cause, or a host's stop.
     #: ``None`` when the leg went quiet by itself (``complete``, ``waiting``).
-    failure: ErrorCause | None = None
+    failure: Problem | None = None
     waiting: tuple[WaitingUnit, ...] = ()
     output_columns: dict[Ref, OutputColumn] = Field(default_factory=dict)
     #: Per node, the rows that finished; ``()`` for a node that ran once.

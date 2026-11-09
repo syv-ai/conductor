@@ -327,7 +327,7 @@ def test_a_definition_with_no_steps_only_has_its_version_set():
         category = "test"
         versions: ClassVar[dict[int, CompiledGraph]] = {1: embedded("inner"), 2: embedded("renamed")}
 
-    registry = NodeRegistry().extended_with({"embedded": Embedded})
+    registry = NodeRegistry().extended_with([Embedded])
     graph = Graph(nodes=[GraphNode(id="f", type="embedded", version=1, bindings={"inner.text": Static("x")})])
 
     upgraded = registry.upgraded(graph, "f")

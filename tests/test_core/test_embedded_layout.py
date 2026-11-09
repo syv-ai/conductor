@@ -6,7 +6,7 @@ from typing import Annotated, Any
 import pytest
 from conductor import NodeRegistry
 from conductor.dtype import DType
-from conductor.errors import NodeKindError, NodeWiringError
+from conductor.errors import NodeReadError
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import FieldContent, Graph, GraphNode
@@ -122,9 +122,9 @@ def test_the_inner_nodes_are_nodes_of_the_one_run_under_the_graph_nodes_name():
     emb = compiled.node("emb")
     assert (emb.kind, emb.graph_node.type, compiled.node("src").kind) == ("graph", "inner-graph", "node")
     for asked in ("runner", "fingerprint"):
-        with pytest.raises(NodeKindError, match="a node of kind 'graph' does not run as one unit"):
+        with pytest.raises(NodeReadError, match="runs as the nodes inside it"):
             getattr(emb, asked)
-    with pytest.raises(NodeKindError):
+    with pytest.raises(NodeReadError):
         emb.validate({})
 
 
@@ -230,8 +230,8 @@ def test_a_broken_edge_into_a_graph_node_is_the_graph_nodes_own_problem():
     ])
 
     (problem,) = compiled.problems
-    assert (problem.code, problem.node_id, problem.field) == ("unknown_ref_node", "emb", "holder.value")
-    assert problem.details == {"source_node": "ghost"}
+    assert (problem.type, problem.loc[0], problem.loc[1]) == ("unknown_ref_node", "emb", "holder.value")
+    assert problem.ctx == {"source_node": "ghost"}
     assert compiled.node("emb").state == "wiring_failed"
     assert compiled.node("emb")._cause is problem
 
@@ -240,7 +240,7 @@ def test_a_stale_key_on_the_placement_is_reported_on_the_placement():
     compiled = _compiled([GraphNode(id="emb", type="inner-graph", version=1, bindings={"nope.value": Static(1)})])
 
     (problem,) = compiled.problems
-    assert (problem.code, problem.fatal, problem.node_id, problem.field) == ("stale_binding", True, "emb", "nope.value")
+    assert (problem.type, problem.fatal, problem.loc[0], problem.loc[1]) == ("stale_binding", True, "emb", "nope.value")
 
 
 # --- the row a graph node runs on -----------------------------------------------
@@ -382,14 +382,14 @@ def test_two_unrelated_series_entering_one_placement_are_its_misaligned():
         _registry(inner),
     )
 
-    assert [(p.code, p.node_id) for p in compiled.problems] == [("misaligned", "emb")]
+    assert [(p.type, p.loc[0]) for p in compiled.problems] == [("misaligned", "emb")]
     (misaligned,) = compiled.problems
     graph_node = compiled.node("emb")
     assert graph_node.state == "wiring_failed"
     assert graph_node.problems == compiled.problems
-    with pytest.raises(NodeWiringError) as raised:
+    with pytest.raises(NodeReadError) as raised:
         graph_node.runs_per_row_of
-    assert raised.value.problems[0] == misaligned
+    assert raised.value.problem == misaligned
     assert "emb" not in compiled.decisions
 
 
@@ -426,16 +426,16 @@ def test_a_broken_graph_inside_a_graph_breaks_the_graph_around_it():
         Graph(nodes=[GraphNode(id="top", type="wrapper-graph", version=1)]), _registry(broken, wrapper),
     )
 
-    assert [(p.code, p.node_id) for p in compiled.problems] == [("embedded_graph_broken", "top")]
+    assert [(p.type, p.loc[0]) for p in compiled.problems] == [("embedded_graph_broken", "top")]
     top = compiled.node("top")
-    assert [(p.code, p.node_id) for p in top.version.problems] == [("embedded_graph_broken", "mid")]
-    assert [(p.code, p.node_id) for p in top.version.node("mid").version.problems] == [("unknown_node_type", "x")]
+    assert [(p.type, p.loc[0]) for p in top.version.problems] == [("embedded_graph_broken", "mid")]
+    assert [(p.type, p.loc[0]) for p in top.version.node("mid").version.problems] == [("unknown_node_type", "x")]
     for node in (top, top.version.node("mid")):
         assert (node.state, node.kind) == ("wiring_failed", "graph")
         assert node.interface is not None  # the box and its handles still draw
-        with pytest.raises(NodeWiringError) as raised:
+        with pytest.raises(NodeReadError) as raised:
             node.runs_per_row_of
-        assert raised.value.problems[0].code == "embedded_graph_broken"
+        assert raised.value.problem.type == "embedded_graph_broken"
 
 
 # --- what compile refuses about an embedded graph ---------------------------------------
@@ -450,7 +450,7 @@ def test_an_authored_id_with_a_slash_is_refused_and_never_collides_with_an_inner
         GraphNode(id="e", type="inner-graph", version=1),
     ])
 
-    assert [(p.code, p.fatal, p.node_id) for p in compiled.problems] == [("invalid_node_id", True, "e/holder")]
+    assert [(p.type, p.fatal, p.loc[0]) for p in compiled.problems] == [("invalid_node_id", True, "e/holder")]
     assert compiled.execution_order.count("e/holder") == 1
     assert compiled.field(Ref("e/holder", "value")).binding == Static("inner")
 
@@ -464,7 +464,7 @@ def test_a_refused_authored_id_is_not_the_problem_of_the_inner_node_sharing_it()
         GraphNode(id="e/holder", type="upper", version=1),
     ])
 
-    assert [(p.code, p.node_id) for p in compiled.problems] == [("invalid_node_id", "e/holder")]
+    assert [(p.type, p.loc[0]) for p in compiled.problems] == [("invalid_node_id", "e/holder")]
     inner = compiled.node("e/holder")
     assert (inner.state, inner.embedded_in, inner.problems) == ("ready", "e", ())
 
@@ -480,13 +480,13 @@ def test_an_authored_id_holding_a_slash_is_refused_and_stays_the_authors():
         GraphNode(id="e/holder", type="upper", version=1),
     ]), _registry(lost))
 
-    assert [(p.code, p.node_id, p.field) for p in compiled.problems] == [
-        ("invalid_node_id", "e/holder", None), ("embedded_graph_broken", "e", None),
+    assert [(p.type, p.loc) for p in compiled.problems] == [
+        ("invalid_node_id", ("e/holder",)), ("embedded_graph_broken", ("e",)),
     ]
-    assert [(p.code, p.node_id) for p in compiled.node("e").version.problems] == [("unknown_node_type", "holder")]
+    assert [(p.type, p.loc[0]) for p in compiled.node("e").version.problems] == [("unknown_node_type", "holder")]
     assert compiled.node("e").state == "wiring_failed"
     refused = compiled.node("e/holder")
-    assert (refused.state, refused.embedded_in, refused._cause.code) == ("resolution_failed", None, "invalid_node_id")
+    assert (refused.state, refused.embedded_in, refused._cause.type) == ("resolution_failed", None, "invalid_node_id")
 
 
 def test_misaligned_inside_an_embedded_graph_is_reported_once_with_the_authors_addresses():
@@ -518,9 +518,9 @@ def test_misaligned_inside_an_embedded_graph_is_reported_once_with_the_authors_a
     )
 
     (problem,) = compiled.problems
-    assert (problem.code, problem.node_id) == ("misaligned", "emb")
-    assert problem.details == {"a": "emb/p.a", "b": "emb/p.b"}
-    assert "emb.p" not in problem.message and "emb.p" not in str(problem.details)
+    assert (problem.type, problem.loc[0]) == ("misaligned", "emb")
+    assert problem.ctx == {"a": "emb/p.a", "b": "emb/p.b"}
+    assert "emb.p" not in problem.msg and "emb.p" not in str(problem.ctx)
 
 
 def test_an_edge_into_a_field_fed_inside_the_graph_is_a_stale_binding():
@@ -533,6 +533,6 @@ def test_an_edge_into_a_field_fed_inside_the_graph_is_a_stale_binding():
     ])
 
     (problem,) = compiled.problems
-    assert (problem.code, problem.node_id, problem.field) == ("stale_binding", "emb", "up.text")
+    assert (problem.type, problem.loc[0], problem.loc[1]) == ("stale_binding", "emb", "up.text")
 
 

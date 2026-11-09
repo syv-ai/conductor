@@ -18,7 +18,7 @@ from conductor import (
     version,
 )
 from conductor.dtype import DType
-from conductor.graph.problem import Problem
+from conductor.errors import Problem
 from conductor.metadata import Input, Param
 from conductor.node import upgrade
 from conductor.series import Index
@@ -118,7 +118,7 @@ def test_a_record_prints_only_what_is_not_at_its_default():
     assert repr(Policy()) == "Policy()"
     assert repr(Policy(retries=2)) == "Policy(retries=2)"
     assert repr(Deprecation()) == "Deprecation()"
-    assert repr(Problem(code="cycle", message="m", fatal=True, node_id="a")) == "Problem(code='cycle', message='m', fatal=True, node_id='a')"
+    assert repr(Problem(type="cycle", msg="m", loc=("a",))) == "Problem(type='cycle', loc=('a',), msg='m', fatal=True)"
     assert repr(Index("lines", parent=Index("docs"))) == "Index('lines', parent=Index('docs'))"
 
 

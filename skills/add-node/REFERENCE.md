@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Annotated, Any
 
-from conductor import AskPerson, deprecated, ExternalFailure, FromRun, Input, NodeDefinition, Output, Param, Policy, Refuses, Result, Series, SKIPPED, upgrade, version
+from conductor import AskPerson, deprecated, ExternalFailure, FromRun, Input, NodeDefinition, Output, Param, Policy, CompileProblem, Result, Series, SKIPPED, upgrade, version
 from conductor.widgets import Switch, Textarea, TextWidget
 from conductor_nodes.types import Flag, Text
 
@@ -86,7 +86,7 @@ class Columns(NodeDefinition):
 
     def compute_outputs(self, declared, values: Mapping[str, Any], arriving) -> tuple[Output, ...]:
         if not values.get("names"):
-            raise Refuses("no_columns", "Type at least one column name.")   # a compile Problem on the node
+            raise CompileProblem("no_columns", "Type at least one column name.")   # a compile Problem on the node
         return tuple(Output(name=name, dtype=Text, title=name) for name in values["names"].split(","))
 
 

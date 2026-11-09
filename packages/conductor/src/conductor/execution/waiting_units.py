@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 from conductor._sentinel import SKIPPED, AskPerson
 from conductor.codec import json_schema_of, to_wire
 from conductor.dtype_ref import description_of
-from conductor.errors import InvalidCallDetail, InvalidCallError
+from conductor.errors import InvalidCallError, Problem, problem
 from conductor.execution.run_state import Answers, OutputColumn, Question, RunState, WaitingUnit
 from conductor.execution.validate_unit_outputs import validate_unit_outputs
 from conductor.metadata import Output
@@ -80,12 +80,12 @@ def apply_answers(compiled: CompiledGraph, state: RunState, answers: Answers) ->
     """``state`` with these units answered; see the module docstring."""
     changed = set(compiled.nodes_changed_since(state))
     waiting = {asked.id: asked for asked in state.waiting}
-    faults: list[InvalidCallDetail] = []
+    faults: list[Problem] = []
     finished: list[tuple[WaitingUnit, dict[str, Any] | None]] = []
     for waiting_id, given in answers.items():
         asked = waiting.get(waiting_id)
         if asked is None or asked.node_id in changed:
-            faults.append(_fault("not_waiting", ("answers", waiting_id), f"nothing is waiting on an answer as {waiting_id!r}"))
+            faults.append(problem("not_waiting", "answers", waiting_id, waiting_id=waiting_id))
             continue
         cells = _answered_cells(compiled.node(asked.node_id), asked, given, faults)
         if cells is not ...:
@@ -95,20 +95,20 @@ def apply_answers(compiled: CompiledGraph, state: RunState, answers: Answers) ->
     return _with_units_finished(compiled, state, finished)
 
 
-def _answered_cells(node: CompiledNode, asked: WaitingUnit, given: Mapping[str, Any] | None, faults: list[InvalidCallDetail]) -> Any:
+def _answered_cells(node: CompiledNode, asked: WaitingUnit, given: Mapping[str, Any] | None, faults: list[Problem]) -> Any:
     """One unit's answer as the cells it finishes with, ``None`` for a unit
     with no value on its row. Adds its faults and returns ``...`` when it has any."""
     if given is None:
         return None
     where = ("answers", asked.id)
     if not isinstance(given, Mapping):
-        faults.append(_fault("invalid_value", where, f"an answer is a value per output, not a {type(given).__name__}"))
+        faults.append(problem("invalid_value", *where, reason=f"an answer is a value per output, not a {type(given).__name__}"))
         return ...
     before = len(faults)
     questions = {question.name: question for question in asked.questions}
     for name in given:
         if name not in questions:
-            faults.append(_fault("not_asked", (*where, name), f"'{name}' was not asked"))
+            faults.append(problem("not_asked", *where, name, name=name))
     groups: dict[str, list[str]] = {}
     for question in asked.questions:
         if question.choice is not None:
@@ -116,20 +116,20 @@ def _answered_cells(node: CompiledNode, asked: WaitingUnit, given: Mapping[str, 
     values = _with_choices_and_defaults(questions, groups, given, where, faults)
     cells, output_faults = validate_unit_outputs(node, asked.row, {name: value for name, value in values.items() if name in questions})
     for fault in output_faults:
-        faults.append(_fault("invalid_value", (*where, fault.output), fault.message, {"errors": list(fault.errors)}))
+        faults.append(problem("invalid_value", *where, fault.output, reason=fault.message, errors=list(fault.errors)))
     return ... if len(faults) > before else cells
 
 
 def _with_choices_and_defaults(
     questions: Mapping[str, Question], groups: Mapping[str, list[str]], given: Mapping[str, Any],
-    where: tuple[str, ...], faults: list[InvalidCallDetail],
+    where: tuple[str, ...], faults: list[Problem],
 ) -> dict[str, Any]:
     """What was given, a choice not taken as ``SKIPPED``, a blank question its default."""
     values = dict(given)
     for choice, names in groups.items():
         taken = [name for name in names if name in given]
         if len(taken) != 1:
-            faults.append(_fault("choice_unanswered", (*where, choice), f"answer exactly one of {names}; {len(taken)} answered", {"alternatives": names}))
+            faults.append(problem("choice_unanswered", *where, choice, alternatives=names, answered=len(taken)))
         for name in names:
             if name not in given:
                 values[name] = SKIPPED
@@ -140,7 +140,7 @@ def _with_choices_and_defaults(
             values[name] = question.default
         else:
             values[name] = SKIPPED  # refused below; a value in its place so the other questions are still checked
-            faults.append(_fault("missing", (*where, name), f"'{name}' was not answered"))
+            faults.append(problem("missing", *where, name, name=name))
     return values
 
 
@@ -189,7 +189,3 @@ def _with_units_finished(compiled: CompiledGraph, state: RunState, finished: lis
         "output_columns": columns,
         "finished_rows": finished_rows,
     })
-
-
-def _fault(code: str, loc: tuple[str | int, ...], message: str, ctx: dict[str, Any] | None = None) -> InvalidCallDetail:
-    return {"type": code, "loc": loc, "msg": message, "ctx": ctx or {}}

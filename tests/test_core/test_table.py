@@ -9,7 +9,6 @@ import pytest
 from conductor import Table
 from conductor.codec import from_wire, to_wire
 from conductor.dtype import DType
-from conductor.errors import Refuses
 from conductor.series import Index
 from conductor.table import ROW_ID, column_type, row_id, with_row_ids
 
@@ -135,13 +134,6 @@ def test_a_table_input_takes_a_table_with_at_least_its_columns():
     assert Names.accepts(Contacts) and Table.accepts(Contacts) and Names.accepts(Table)
     assert not Contacts.accepts(Names)
     assert not Names.accepts(Txt)
-
-
-def test_a_bare_table_is_refused_where_a_node_reads_it_whole():
-    with pytest.raises(Refuses) as refused:
-        Table.refuses_whole()
-    assert refused.value.code == "table_columns_unknown"
-    assert Contacts.refuses_whole() is None
 
 
 def test_a_table_type_describes_its_columns():

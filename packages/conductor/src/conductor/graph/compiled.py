@@ -73,7 +73,7 @@ from dataclasses import dataclass, field
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
-from conductor.errors import InvalidCallDetail, InvalidCallError
+from conductor.errors import InvalidCallError, Problem, problem
 from conductor.execution.events import Event, RunEnd
 from conductor.execution.live_run_values import LiveRunValues
 from conductor.execution.run_state import Answers, RunState
@@ -83,7 +83,6 @@ from conductor.graph.binding import Static
 from conductor.graph.compiled_node import CompiledField, CompiledNode, _gate
 from conductor.graph.compiler import Compilation
 from conductor.graph.embedding import as_drawn
-from conductor.graph.problem import Problem
 from conductor.ref import Ref
 
 if TYPE_CHECKING:
@@ -144,7 +143,9 @@ class CompiledGraph:
         Pure — the same graph and registry always give the same result.
         Every definition the graph names must already be in the registry.
         Nothing raises for a fault in the graph; read ``problems`` and
-        ``is_runnable``. The steps of compile are ``compiler.Compilation.run``'s;
+        ``is_runnable``. A node's hook that raises anything but
+        ``CompileProblem`` is a bug in the node, and that exception leaves
+        here as it is. The steps of compile are ``compiler.Compilation.run``'s;
         every ``CompiledNode`` and ``CompiledField`` is built once from what
         they recorded, on the first question about a node (``_nodes``).
         """
@@ -210,7 +211,7 @@ class CompiledGraph:
         the author's spelling, ``Ref("emb", "all.result")``, raises ``KeyError``
         like any node or field the graph does not have, since asking for one
         is a programming error. A node compile could not resolve raises
-        ``NodeResolutionError``: nobody knows its fields."""
+        ``NodeReadError``: nobody knows its fields."""
         node = self._nodes.get(ref.node_id)
         if node is None:
             raise KeyError(f"{ref.node_id!r} is not a node of this graph")
@@ -251,7 +252,7 @@ class CompiledGraph:
         graph that embeds this one asks for the copy one graph node fills
         (``Compilation._as_embedded``). Names are read as ``with_inputs`` reads them."""
         offered = [inp.name for inp in self.interface.inputs]
-        faults: list[InvalidCallDetail] = []
+        faults: list[Problem] = []
         filled: dict[str, dict[str, Static]] = {}
         for name, value in values.items():
             ref = self._offered(name, offered, faults)
@@ -275,19 +276,19 @@ class CompiledGraph:
         )})
         return CompiledGraph.from_graph(graph, self._registry)
 
-    def _offered(self, name: str, offered: list[Ref], faults: list[InvalidCallDetail]) -> Ref | None:
+    def _offered(self, name: str, offered: list[Ref], faults: list[Problem]) -> Ref | None:
         """The input a keyword to ``with_inputs`` names; or ``None``, and the fault that lists what is offered."""
         matches = [ref for ref in offered if ref == name] or [ref for ref in offered if ref.field == name]
         if len(matches) == 1:
             return matches[0]
         if matches:
             both = ", ".join(str(ref) for ref in matches)
-            message = f"{name!r} is an input of several nodes ({both}); name one by its address"
+            reason = f"{name!r} is an input of several nodes ({both}); name one by its address"
         elif offered:
-            message = f"{name!r} is not an input this graph offers; it offers {', '.join(str(ref) for ref in offered)}"
+            reason = f"{name!r} is not an input this graph offers; it offers {', '.join(str(ref) for ref in offered)}"
         else:
-            message = f"{name!r}: this graph takes no inputs"
-        faults.append({"type": "not_offered", "loc": ("inputs", name), "msg": message, "ctx": {"offered": [str(ref) for ref in offered]}})
+            reason = f"{name!r}: this graph takes no inputs"
+        faults.append(problem("not_offered", "inputs", name, reason=reason, offered=[str(ref) for ref in offered]))
         return None
 
     # -- the run ------------------------------------------------------------------
@@ -440,13 +441,11 @@ class CompiledGraph:
         """
         if state.status != "complete":
             failure = state.failure
-            said = "" if failure is None else f": {failure.message}"
-            raise InvalidCallError([{
-                "type": "run_not_complete",
-                "loc": ("state", "status"),
-                "msg": f"the run is {state.status}, so it has no outputs yet{said}",
-                "ctx": {"status": state.status, "failure": None if failure is None else failure.model_dump(mode="json")},
-            }])
+            raise InvalidCallError([problem(
+                "run_not_complete", "state", "status", status=state.status,
+                reason="" if failure is None else failure.msg,
+                failure=None if failure is None else failure.model_dump(mode="json"),
+            )])
         results = self.results(state)
         returned: dict[str, Any] = {}
         for output in self.interface.outputs:
@@ -490,15 +489,7 @@ class CompiledGraph:
     def _refuse_unless_runnable(self) -> None:
         """Refuse any verb on a graph with a fatal problem, naming every one."""
         if not self.is_runnable:
-            raise InvalidCallError([
-                {
-                    "type": p.code,
-                    "loc": ("graph", p.node_id) if p.field is None else ("graph", p.node_id, p.field),
-                    "msg": p.message,
-                    "ctx": dict(p.details),
-                }
-                for p in self.problems if p.fatal
-            ])
+            raise InvalidCallError(p for p in self.problems if p.fatal)
 
     # -- what is wrong -------------------------------------------------------------
 

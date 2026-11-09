@@ -403,7 +403,7 @@ def test_a_locked_name_the_node_does_not_declare_is_a_problem():
     without it."""
     graph = _graph(application_locked=("ghost",))
 
-    assert [(p.code, p.node_id, p.fatal) for p in _locks(graph)] == [("unknown_locked_field", "application", False)]
+    assert [(p.type, p.loc[0], p.fatal) for p in _locks(graph)] == [("unknown_locked_field", "application", False)]
     assert [i.name for i in _interface(graph).inputs] == ["application.value", "language.value"]
 
 
@@ -417,7 +417,7 @@ def test_a_stale_lock_reports_on_a_connected_node_too():
         for node in graph.nodes
     ])
 
-    assert [(p.code, p.node_id, p.fatal) for p in _locks(graph)] == [("unknown_locked_field", "language", False)]
+    assert [(p.type, p.loc[0], p.fatal) for p in _locks(graph)] == [("unknown_locked_field", "language", False)]
     assert [i.name for i in _interface(graph).inputs] == ["application.value"]
 
 

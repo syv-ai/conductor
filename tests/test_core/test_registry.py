@@ -10,6 +10,7 @@ from typing import Annotated, Any
 
 import pytest
 from conductor.dtype import DType
+from conductor.errors import NodeDeclarationError
 from conductor.metadata import Param, Result
 from conductor.node import NodeDefinition, upgrade, version
 from conductor.registry import NodeRegistry
@@ -92,7 +93,7 @@ def test_a_second_class_under_the_same_id_is_refused(registry):
             return x
 
     registry.register(First)
-    with pytest.raises(ValueError, match="already registered"):
+    with pytest.raises(NodeDeclarationError, match="already registered"):
         registry.register(Second)
 
 
@@ -188,7 +189,7 @@ def test_extending_leaves_the_original_alone():
     base.register(_node("static"))
     loaded = _node("loaded")
 
-    extended = base.extended_with({"loaded": loaded})
+    extended = base.extended_with([loaded])
 
     assert "loaded" in extended
     assert "static" in extended
@@ -201,7 +202,7 @@ def test_a_registered_type_cannot_be_shadowed():
     base = NodeRegistry()
     base.register(static)
 
-    extended = base.extended_with({"shared-id": _node("other")})
+    extended = base.extended_with([_node("other")])
 
     assert extended["shared-id"] is static
 
@@ -222,7 +223,7 @@ def test_a_loaded_definition_need_not_number_from_one():
         def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="R")]:
             return x
 
-    extended = NodeRegistry().extended_with({"loaded-3": Loaded})
+    extended = NodeRegistry().extended_with([Loaded])
 
     assert extended["loaded-3"].versions.keys() == {3}
 
@@ -231,7 +232,7 @@ def test_extending_with_nothing_is_the_same_registry_contents():
     base = NodeRegistry()
     base.register(_node("only"))
 
-    assert base.extended_with({})["only"] is base["only"]
+    assert base.extended_with([])["only"] is base["only"]
 
 
 def test_a_registry_lists_its_nodes_as_the_classes_in_registration_order():

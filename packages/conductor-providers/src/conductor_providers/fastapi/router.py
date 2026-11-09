@@ -144,7 +144,7 @@ def conductor_router(
 
 
 def _unprocessable(refused: InvalidCallError) -> HTTPException:
-    return HTTPException(status_code=422, detail=refused.errors())
+    return HTTPException(status_code=422, detail=[fault.model_dump(mode="json") for fault in refused.errors()])
 
 
 def _answered(compiled: CompiledGraph, event: Event) -> dict[str, Any]:

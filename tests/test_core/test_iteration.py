@@ -6,7 +6,7 @@ from typing import Annotated, Any
 import pytest
 from conductor import NodeRegistry
 from conductor.dtype import DType, Single
-from conductor.errors import NodeWiringError
+from conductor.errors import NodeReadError
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
@@ -273,10 +273,10 @@ def test_a_mismatched_edge_is_a_fatal_problem_on_the_target_field():
     ])
 
     (problem,) = compiled.problems
-    assert (problem.code, problem.fatal, problem.node_id, problem.field) == ("type_mismatch", True, "up", "text")
-    assert problem.details["source"] == "n.result"
-    assert set(problem.details) == {"source", "source_type", "target_type", "source_said", "target_said"}
-    assert "id" in problem.details["target_type"]  # a description record, not a name
+    assert (problem.type, problem.fatal, problem.loc[0], problem.loc[1]) == ("type_mismatch", True, "up", "text")
+    assert problem.ctx["source"] == "n.result"
+    assert set(problem.ctx) == {"source", "source_type", "target_type", "source_said", "target_said"}
+    assert "id" in problem.ctx["target_type"]  # a description record, not a name
     assert not compiled.is_runnable
 
 
@@ -287,7 +287,7 @@ def test_a_mismatched_series_is_judged_by_its_element():
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("n", "result"))}),
     ])
 
-    assert [p.code for p in compiled.problems] == ["type_mismatch"]
+    assert [p.type for p in compiled.problems] == ["type_mismatch"]
 
 
 def test_a_pass_through_binds_its_type_from_the_edge():
@@ -304,7 +304,7 @@ def test_a_pass_through_binds_its_type_from_the_edge():
     assert compiled.node("r").interface.outputs[0].dtype is Num
     assert compiled.field(Ref("r", "result")).type is Num
     # A node aware of the type it inherits: the next edge is checked against the bound type.
-    assert [p.code for p in compiled.problems] == ["type_mismatch"]
+    assert [p.type for p in compiled.problems] == ["type_mismatch"]
 
 
 def test_an_iterating_pass_through_binds_the_element_and_iterates():
@@ -342,8 +342,8 @@ def test_an_unconnected_any_input_is_unbound_required_and_the_node_has_no_shape(
     compiled = _compiled([GraphNode(id="r", type="route", version=1)])
 
     (problem,) = compiled.problems
-    assert (problem.code, problem.fatal, problem.node_id, problem.field) == ("unbound_required", True, "r", "value")
-    with pytest.raises(NodeWiringError):
+    assert (problem.type, problem.fatal, problem.loc[0], problem.loc[1]) == ("unbound_required", True, "r", "value")
+    with pytest.raises(NodeReadError):
         compiled.node("r").runs_per_row_of
 
 
@@ -351,120 +351,7 @@ def test_a_static_on_an_any_input_is_unbound_too():
     """Only an edge can say what the type is."""
     compiled = _compiled([GraphNode(id="r", type="route", version=1, bindings={"value": Static("hi")})])
 
-    assert [p.code for p in compiled.problems] == ["unbound_required"]
-
-
-def test_a_refuses_whole_that_returns_its_refusal_fails_loud():
-    """A type refuses by raising ``Refuses``; one that returns its reason
-    instead would let the edge through, so compile says so."""
-    from typing import Annotated
-
-    import pytest
-    from conductor import NodeRegistry
-    from conductor.dtype import DType, Single
-    from conductor.metadata import Result
-    from conductor.node import NodeDefinition
-
-    class Returns(DType):
-        id = "returns-its-refusal"
-        title = "R"
-
-        @classmethod
-        def refuses_whole(cls):
-            return ("columns_unknown", "The columns are unknown.")
-
-    class Makes(NodeDefinition):
-        id = "makes"
-        title = "M"
-        description = "d"
-        category = "test"
-
-        def run(self) -> Annotated[Returns, Result(title="R")]:
-            return Returns()
-
-    class Reads(NodeDefinition):
-        id = "reads"
-        title = "R"
-        description = "d"
-        category = "test"
-
-        def run(self, **inputs: Single) -> Annotated[Txt, Result(title="Text")]:
-            return Txt("")
-
-    registry = NodeRegistry([Makes, Reads])
-    graph = Graph(nodes=[
-        GraphNode(id="m", type="makes", version=1),
-        GraphNode(id="r", type="reads", version=1, bindings={"x": From("m.result")}),
-    ])
-
-    with pytest.raises(TypeError, match=r"Returns.refuses_whole\(\) returned"):
-        CompiledGraph.from_graph(graph, registry)
-
-
-def test_a_source_may_refuse_to_be_received_whole_naming_the_fix():
-    """A type stated incompletely — a table with no columns — cannot
-    be handed whole to a node that will read it by name. The type says so
-    (`refuses_whole`), and compile refuses the edge on the field with the
-    type's own sentence; routed through an `Any` input the same value passes."""
-    from typing import Annotated
-
-    from conductor import NodeRegistry
-    from conductor.dtype import DType, Single
-    from conductor.metadata import Result
-    from conductor.node import NodeDefinition
-
-    class Half(DType):
-        id = "half"
-        title = "Half"
-
-        @classmethod
-        def refuses_whole(cls):
-            from conductor.errors import Refuses
-
-            raise Refuses("columns_unknown", "The columns are unknown; state them.")
-
-    class Halves(NodeDefinition):
-        id = "halves"
-        title = "H"
-        description = "d"
-        category = "test"
-
-        def run(self) -> Annotated[Half, Result(title="Half")]:
-            return Half()
-
-    class Reads(NodeDefinition):
-        id = "reads"
-        title = "R"
-        description = "d"
-        category = "test"
-
-        def run(self, **inputs: Single) -> Annotated[Txt, Result(title="Text")]:
-            return Txt("")
-
-    class Routes(NodeDefinition):
-        id = "routes"
-        title = "R"
-        description = "d"
-        category = "test"
-
-        def run(self, value: Annotated[Any, Param(title="V")]) -> Annotated[Any, Result(title="V")]:
-            return value
-
-        def compute_outputs(self, declared, values, arriving):
-            dtype = arriving.get("value", Any)
-            return tuple(out.model_copy(update={"dtype": dtype}) for out in declared)
-
-    registry = NodeRegistry()
-    for node_cls in (Halves, Reads, Routes):
-        registry.register(node_cls)
-    edge = {"h": GraphNode(id="h", type="halves", version=1)}
-    read = CompiledGraph.from_graph(Graph(nodes=[edge["h"], GraphNode(id="r", type="reads", version=1, bindings={"x": From("h.result")})]), registry)
-    routed = CompiledGraph.from_graph(Graph(nodes=[edge["h"], GraphNode(id="r", type="routes", version=1, bindings={"value": From("h.result")})]), registry)
-
-    (problem,) = [p for p in read.problems if p.node_id == "r"]
-    assert (problem.code, problem.fatal, problem.field) == ("columns_unknown", True, "x")
-    assert "state them" in problem.message
-    assert routed.is_runnable and routed.field(Ref("r", "result")).type is Half
+    assert [p.type for p in compiled.problems] == ["unbound_required"]
 
 
 def test_an_open_roster_takes_one_input_per_edge_received_whole():
@@ -495,7 +382,7 @@ def test_an_open_roster_parameter_takes_one_edge():
         GraphNode(id="s", type="script", version=1, bindings={"code": Static(""), "x": _edge(("a", "result"), ("b", "result"))}),
     ])
 
-    assert [p.code for p in compiled.problems] == ["one_edge_per_parameter"]
+    assert [p.type for p in compiled.problems] == ["one_edge_per_parameter"]
 
 
 def test_an_open_roster_parameter_is_named_like_a_keyword_argument():
@@ -506,7 +393,7 @@ def test_an_open_roster_parameter_is_named_like_a_keyword_argument():
         GraphNode(id="s", type="script", version=1, bindings={"code": Static(""), "my value": _edge(("a", "result"))}),
     ])
 
-    assert [(p.code, p.field) for p in compiled.problems] == [("parameter_name_invalid", "my value")]
+    assert [(p.type, p.loc[1]) for p in compiled.problems] == [("parameter_name_invalid", "my value")]
 
 
 def test_a_node_with_a_broken_edge_has_no_shape_and_says_so_once():
@@ -515,10 +402,10 @@ def test_a_node_with_a_broken_edge_has_no_shape_and_says_so_once():
         GraphNode(id="c", type="upper", version=1, bindings={"text": _edge(("b", "result"))}),
     ])
 
-    assert [p.code for p in compiled.problems] == ["unknown_ref_node"]
-    with pytest.raises(NodeWiringError):
+    assert [p.type for p in compiled.problems] == ["unknown_ref_node"]
+    with pytest.raises(NodeReadError):
         compiled.node("b").runs_per_row_of
-    with pytest.raises(NodeWiringError):
+    with pytest.raises(NodeReadError):
         compiled.field(Ref("c", "result")).type
 
 
@@ -548,7 +435,7 @@ def test_a_node_with_no_outputs_yet_is_the_ordinary_mid_edit_state():
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="s", type="sheet", version=1)]), registry)
 
     (problem,) = compiled.problems
-    assert (problem.code, problem.fatal, problem.node_id) == ("no_outputs", False, "s")
+    assert (problem.type, problem.fatal, problem.loc[0]) == ("no_outputs", False, "s")
     assert compiled.is_runnable
     assert compiled.node("s").runs_per_row_of is None
     assert compiled.node("s").interface.outputs == ()
@@ -589,11 +476,11 @@ def test_compute_outputs_sees_the_dtype_each_connected_input_receives():
 
 
 def test_a_hook_that_cannot_answer_refuses_and_the_refusal_is_the_nodes_problem():
-    """`Refuses(code, message)` from a field hook — asked once, with real
+    """`CompileProblem(code, message)` from a field hook — asked once, with real
     arrivals — lands as the node's one fatal `Problem`: the host
     names the code and writes the sentence, compile only anchors it, and
     there is no `no_outputs` echo beside it."""
-    from conductor.errors import Refuses
+    from conductor.errors import CompileProblem
 
     class Fussy(NodeDefinition):
         id = "fussy"
@@ -605,7 +492,7 @@ def test_a_hook_that_cannot_answer_refuses_and_the_refusal_is_the_nodes_problem(
             return value
 
         def compute_outputs(self, declared, values, arriving):
-            raise Refuses("wrong_shape", "What arrives does not fit.")
+            raise CompileProblem("wrong_shape", "What arrives does not fit.")
 
     registry = _registry()
     registry.register(Fussy)
@@ -614,17 +501,17 @@ def test_a_hook_that_cannot_answer_refuses_and_the_refusal_is_the_nodes_problem(
         GraphNode(id="f", type="fussy", version=1, bindings={"value": _edge(("docs", "texts"))}),
     ]), registry)
 
-    (problem,) = [p for p in compiled.problems if p.node_id == "f"]
-    assert (problem.code, problem.fatal, problem.node_id) == ("wrong_shape", True, "f")
-    assert problem.message == "What arrives does not fit."
+    (problem,) = [p for p in compiled.problems if p.loc[0] == "f"]
+    assert (problem.type, problem.fatal, problem.loc[0]) == ("wrong_shape", True, "f")
+    assert problem.msg == "What arrives does not fit."
     assert compiled.node("f").interface.outputs == ()
 
 
 def test_an_inputs_hook_that_cannot_answer_refuses_and_compile_does_not_raise():
-    """`Refuses` from `compute_inputs` is the node's one fatal `Problem`
+    """`CompileProblem` from `compute_inputs` is the node's one fatal `Problem`
     too, asked before any edge is walked: compile never raises for a fault
     in the graph, and a node reading the refused one carries no echo."""
-    from conductor.errors import Refuses
+    from conductor.errors import CompileProblem
 
     class Fussy(NodeDefinition):
         id = "fussy-inputs"
@@ -636,7 +523,7 @@ def test_an_inputs_hook_that_cannot_answer_refuses_and_compile_does_not_raise():
             return value
 
         def compute_inputs(self, declared, values):
-            raise Refuses("wrong_mode", "That mode is not one this node has.")
+            raise CompileProblem("wrong_mode", "That mode is not one this node has.")
 
     registry = _registry()
     registry.register(Fussy)
@@ -646,8 +533,8 @@ def test_an_inputs_hook_that_cannot_answer_refuses_and_compile_does_not_raise():
     ]), registry)
 
     (problem,) = compiled.problems
-    assert (problem.code, problem.fatal, problem.node_id) == ("wrong_mode", True, "f")
-    assert problem.message == "That mode is not one this node has."
+    assert (problem.type, problem.fatal, problem.loc[0]) == ("wrong_mode", True, "f")
+    assert problem.msg == "That mode is not one this node has."
     assert not compiled.is_runnable
 
 
@@ -696,7 +583,7 @@ def test_two_series_outputs_of_one_node_do_not_line_up():
         GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("docs", "texts")), "b": _edge(("docs", "filenames"))}),
     ])
 
-    assert [problem.code for problem in compiled.problems] == ["misaligned"]
+    assert [problem.type for problem in compiled.problems] == ["misaligned"]
 
 
 def test_two_series_on_unrelated_indexes_are_a_fatal_problem_naming_both():
@@ -708,10 +595,10 @@ def test_two_series_on_unrelated_indexes_are_a_fatal_problem_naming_both():
     ])
 
     (problem,) = compiled.problems
-    assert (problem.code, problem.fatal, problem.node_id, problem.field) == ("misaligned", True, "p", None)
-    assert "p.a" in problem.message and "p.b" in problem.message
-    assert problem.details == {"a": "p.a", "b": "p.b"}
-    with pytest.raises(NodeWiringError):
+    assert (problem.type, problem.fatal, problem.loc) == ("misaligned", True, ("p",))
+    assert "p.a" in problem.msg and "p.b" in problem.msg
+    assert problem.ctx == {"a": "p.a", "b": "p.b"}
+    with pytest.raises(NodeReadError):
         compiled.node("p").runs_per_row_of
 
 
@@ -782,7 +669,7 @@ def test_two_children_of_one_parent_do_not_align():
         GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("l1", "result")), "b": _edge(("l2", "result"))}),
     ])
 
-    assert [p.code for p in compiled.problems] == ["misaligned"]
+    assert [p.type for p in compiled.problems] == ["misaligned"]
 
 
 # --- gather ---------------------------------------------------------------------------
@@ -835,8 +722,8 @@ def test_two_refs_on_different_indexes_into_a_scalar_input_is_fatal():
         GraphNode(id="m", type="upper", version=1, bindings={"text": _edge(("a", "texts"), ("b", "texts"))}),
     ])
 
-    (problem,) = [p for p in compiled.problems if p.node_id == "m"]
-    assert (problem.code, problem.field) == ("union_needs_one_index", "text")
+    (problem,) = [p for p in compiled.problems if p.loc[0] == "m"]
+    assert (problem.type, problem.loc[1]) == ("union_needs_one_index", "text")
 
 
 def test_two_series_refs_on_one_index_into_a_series_input_read_that_index_not_a_pile():
@@ -877,7 +764,7 @@ def test_a_gathered_series_judges_each_ref_by_the_element():
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("a", "result"), ("n", "result"))}),
     ])
 
-    assert [p.code for p in compiled.problems] == ["type_mismatch"]
+    assert [p.type for p in compiled.problems] == ["type_mismatch"]
 
 
 # --- compile knows which index, never which rows ----------------------------------
@@ -921,8 +808,8 @@ def test_a_hook_that_adds_a_connected_input_without_an_edge_type_is_a_problem_no
         GraphNode(id="a", type="adds", version=1, bindings={"raw": _edge(("n", "result"))}),
     ]), registry)
 
-    assert [(p.code, p.fatal, p.node_id, p.field) for p in compiled.problems] == [("handle_needs_dtype", True, "a", "raw")]
-    with pytest.raises(NodeWiringError):
+    assert [(p.type, p.fatal, p.loc[0], p.loc[1]) for p in compiled.problems] == [("handle_needs_dtype", True, "a", "raw")]
+    with pytest.raises(NodeReadError):
         compiled.node("a").runs_per_row_of
 
 
@@ -949,7 +836,7 @@ def test_a_hook_that_leaves_a_connected_output_untyped_is_a_problem_not_a_crash(
         GraphNode(id="u", type="upper", version=1, bindings={"text": _edge(("v", "result"))}),
     ]), registry)
 
-    assert [(p.code, p.fatal, p.node_id, p.field) for p in compiled.problems] == [("handle_needs_dtype", True, "v", "result")]
+    assert [(p.type, p.fatal, p.loc[0], p.loc[1]) for p in compiled.problems] == [("handle_needs_dtype", True, "v", "result")]
     assert not compiled.is_runnable
 
 
@@ -974,7 +861,7 @@ def test_a_static_is_typed_against_the_interface_the_hook_returned():
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="r", type="retypes", version=1, bindings={"value": Static("abc")})]), registry)
     numeric = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="r", type="retypes", version=1, bindings={"value": Static("2")})]), registry)
 
-    assert [(p.code, p.field) for p in compiled.problems] == [("invalid_static", "value")]
+    assert [(p.type, p.loc[1]) for p in compiled.problems] == [("invalid_static", "value")]
     assert numeric.is_runnable and numeric.node("r").statics == {"value": Num(2)}
 
 
@@ -982,7 +869,7 @@ def test_a_refusal_from_a_node_whose_source_is_broken_is_dropped_for_the_sources
     """The broken edge carries the fault; the hook's refusal about the arrival
     it never got would report the same fact twice. The node still gets an
     interface an editor can draw, with no outputs."""
-    from conductor.errors import Refuses
+    from conductor.errors import CompileProblem
 
     class Fussy(NodeDefinition):
         id = "fussy"
@@ -994,16 +881,16 @@ def test_a_refusal_from_a_node_whose_source_is_broken_is_dropped_for_the_sources
             return value
 
         def compute_outputs(self, declared, values, arriving):
-            raise Refuses("wrong_shape", "What arrives does not fit.")
+            raise CompileProblem("wrong_shape", "What arrives does not fit.")
 
-    registry = _registry().extended_with({"fussy": Fussy})
+    registry = _registry().extended_with([Fussy])
 
     def codes(source_field):
         compiled = CompiledGraph.from_graph(Graph(nodes=[
             GraphNode(id="docs", type="docs", version=1),
             GraphNode(id="f", type="fussy", version=1, bindings={"value": _edge(("docs", source_field))}),
         ]), registry)
-        return [p.code for p in compiled.problems if p.node_id == "f"], compiled.node("f")
+        return [p.type for p in compiled.problems if p.loc[0] == "f"], compiled.node("f")
 
     broken, node = codes("nope")
     assert broken == ["unknown_ref_output"]
@@ -1044,11 +931,11 @@ def test_two_lists_on_a_node_running_per_row_are_refused():
     ])
 
     (refused,) = compiled.problems
-    assert (refused.code, refused.fatal, refused.field) == ("lists_on_a_per_row_node", True, "c")
-    assert refused.details == {"a": "ask.b", "b": "ask.c"}
+    assert (refused.type, refused.fatal, refused.loc[1]) == ("lists_on_a_per_row_node", True, "c")
+    assert refused.ctx == {"a": "ask.b", "b": "ask.c"}
 
 
 def test_two_lists_on_a_node_that_runs_once_are_misaligned():
     compiled = _compiled([GraphNode(id="ask", type="pair", version=1, bindings={"a": Static(["p", "q"]), "b": Static(["x", "y"])})])
 
-    assert [problem.code for problem in compiled.problems] == ["misaligned"]
+    assert [problem.type for problem in compiled.problems] == ["misaligned"]

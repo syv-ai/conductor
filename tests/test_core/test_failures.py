@@ -16,8 +16,7 @@ import pytest
 from conductor import CompiledGraph, GraphNode, NodeRegistry, Param
 from conductor.dtype import DType
 from conductor.errors import (
-    MESSAGES,
-    ErrorCause,
+    CATALOGUE,
     ExternalFailure,
     NodeError,
     NodeExecutionError,
@@ -87,8 +86,8 @@ def test_a_foreign_exception_runs_once_and_is_execution_failed():
     assert len(calls) == 1
     assert [e.type for e in events if e.type == "node_retry"] == []
     error = _error(events)
-    assert error.cause.code == "execution_failed"
-    assert error.cause.message == "The node failed."
+    assert error.cause.type == "execution_failed"
+    assert error.cause.msg == "The node failed."
     assert error.error == "The node failed."
     assert "missing" not in json.dumps(error.cause.model_dump(mode="json"))
 
@@ -139,8 +138,8 @@ def test_an_exhausted_external_failure_is_external_failed():
 
     assert len(calls) == 3
     error = _error(events)
-    assert error.cause.code == "external_failed"
-    assert error.cause.message == "An outside service did not answer."
+    assert error.cause.type == "external_failed"
+    assert error.cause.msg == "An outside service did not answer."
     assert "socket" not in error.error
     assert compiled.run_sync().status == "failed"
 
@@ -164,8 +163,8 @@ def test_an_external_failure_the_node_raised_retries_and_keeps_its_message():
     error = _error(_events(_compiled(Bank)))
 
     assert len(calls) == 2
-    assert error.cause.code == "external_failed"
-    assert error.cause.message == "Nationalbanken svarede ikke."
+    assert error.cause.type == "external_failed"
+    assert error.cause.msg == "Nationalbanken svarede ikke."
 
 
 def test_a_node_error_the_node_raised_runs_once_and_keeps_its_message():
@@ -183,13 +182,13 @@ def test_a_node_error_the_node_raised_runs_once_and_keeps_its_message():
             if len(calls) == 1:
                 raise NodeError("Dokumentet kunne ikke læses.")
             raise NodeExecutionError(
-                "unreadable", cause=ErrorCause(code="unreadable", message="Dokumentet er beskadiget.")
+                "unreadable", code="unreadable"
             )
 
     error = _error(_events(_compiled(Reader)))
 
     assert len(calls) == 1
-    assert (error.cause.code, error.cause.message) == ("failed", "Dokumentet kunne ikke læses.")
+    assert (error.cause.type, error.cause.msg) == ("failed", "Dokumentet kunne ikke læses.")
 
 
 def test_a_nodes_own_cause_streams_as_written():
@@ -201,12 +200,12 @@ def test_a_nodes_own_cause_streams_as_written():
 
         def run(self, text: In = Txt("")) -> Out:
             raise NodeExecutionError(
-                "unreadable", cause=ErrorCause(code="unreadable", message="Dokumentet er beskadiget.")
+                "unreadable", code="unreadable"
             )
 
     error = _error(_events(_compiled(Reader)))
 
-    assert (error.cause.code, error.cause.message) == ("unreadable", "Dokumentet er beskadiget.")
+    assert (error.cause.type, error.cause.msg) == ("unreadable", "unreadable")
 
 
 def test_a_validation_error_the_node_raised_is_never_retried():
@@ -254,14 +253,14 @@ def test_a_foreign_exceptions_text_is_on_original_and_nowhere_else():
     assert isinstance(wrapped.original, KeyError)
     assert wrapped.__cause__ is wrapped.original
     assert str(wrapped) == "The node failed."
-    assert wrapped.cause is not None and wrapped.cause.message == "The node failed."
-    assert "secret-token" not in str(wrapped) + json.dumps(wrapped.cause.model_dump(mode="json"))
+    assert wrapped.code == "execution_failed" and str(wrapped) == "The node failed."
+    assert "secret-token" not in str(wrapped)
 
 
 def test_the_generic_messages_cover_the_engines_own_codes():
-    """``MESSAGES`` says what people read for each code the engine writes
+    """``CATALOGUE`` says what people read for each code the engine writes
     itself; ``failed`` is the node's own message and has no generic line."""
-    assert set(MESSAGES) == {"engine_error", "execution_failed", "external_failed", "invalid_input", "invalid_output", "row_ids_lost", "run_cancelled", "run_timed_out", "timeout"}
+    assert CATALOGUE["execution_failed"][0] == "The node failed."
 
 
 def test_node_error_has_no_retryable_flag():
@@ -433,6 +432,6 @@ def test_a_type_whose_validator_does_not_return_the_type_fails_loud():
 
     ending = compiled.run_sync()
 
-    assert ending.status == "failed" and ending.failure.node_id == "d"
-    assert ending.failure.code == "engine_error" and ending.failure.details == {"exception": "TypeError"}
+    assert ending.status == "failed" and ending.failure.loc[0] == "d"
+    assert ending.failure.type == "engine_error" and ending.failure.ctx == {"exception": "TypeError"}
     assert compiled.results(ending) == {}

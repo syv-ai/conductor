@@ -41,7 +41,7 @@ from pydantic import TypeAdapter
 from pydantic_core import core_schema, to_jsonable_python
 
 from conductor.dtype import DType
-from conductor.errors import Refuses
+from conductor.errors import NodeDeclarationError
 from conductor.series import Index, Row
 
 if TYPE_CHECKING:
@@ -243,13 +243,14 @@ class Table(DType):
         for column in columns:
             name, dtype = column if isinstance(column, tuple) and len(column) == 2 else (None, None)
             if not isinstance(name, str) or not (isinstance(dtype, type) and issubclass(dtype, DType)) or dtype.element is not None:
-                raise TypeError(f"a column is (name, scalar DType), got {column!r}")
+                raise NodeDeclarationError(f"a column is (name, scalar DType), got {column!r}", code="table_column_invalid")
             if name == ROW_ID:
-                raise TypeError(f"'{ROW_ID}' is the column of row ids every table carries; no column may be named it")
+                raise NodeDeclarationError(f"'{ROW_ID}' is the column of row ids every table carries; no column may be named it", code="table_column_reserved")
             if column_type(dtype) is None:
-                raise TypeError(
+                raise NodeDeclarationError(
                     f"{dtype.__name__} can't be a table column: it is built on no builtin a column holds "
-                    "and states no column type of its own (DType.column)"
+                    "and states no column type of its own (DType.column)",
+                code="table_column_no_storage",
                 )
         made = _PARAMETERISED.get(columns)
         if made is None:
@@ -302,12 +303,6 @@ class Table(DType):
             return True
         theirs = dict(source.columns)
         return all(name in theirs and dtype.accepts(theirs[name]) for name, dtype in cls.columns)
-
-    @classmethod
-    def refuses_whole(cls) -> None:
-        """A bare ``Table`` handed to a node that reads it whole is refused: nobody stated its columns."""
-        if not cls.columns:
-            raise Refuses("table_columns_unknown", "a table whose columns nobody stated can't be read here")
 
     @classmethod
     def describe(cls) -> dict[str, Any]:

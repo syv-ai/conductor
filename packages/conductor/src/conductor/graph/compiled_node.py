@@ -24,18 +24,18 @@ from pydantic_core import to_jsonable_python
 
 from conductor.codec import reader_of, to_wire
 from conductor.dtype_ref import description_of
-from conductor.errors import NodeKindError, NodeResolutionError, NodeWiringError
+from conductor.errors import NodeReadError
 from conductor.interface import model_of
 from conductor.node import runner_of
 from conductor.series import Series
 from conductor.table import holds_tables
 
 if TYPE_CHECKING:
+    from conductor.errors import Problem
     from conductor.graph.binding import Binding
     from conductor.graph.compiled import CompiledGraph
     from conductor.graph.conditions import Condition
     from conductor.graph.model import GraphNode
-    from conductor.graph.problem import Problem
     from conductor.graph.receive import Receive
     from conductor.interface import Interface
     from conductor.node import NodeDefinition, NodeVersion
@@ -94,12 +94,10 @@ def _gate(node: CompiledNode, asked: str, *, needs_wiring: bool, needs_one_unit:
     ``needs_one_unit`` asks for a node that runs as one unit rather than as
     an embedded graph. Only a ready node has no ``_cause``."""
     cause = node._cause
-    if cause is not None and node.state == "resolution_failed":
-        raise NodeResolutionError(node.id, asked, cause)
+    if cause is not None and (needs_wiring or node.state == "resolution_failed"):
+        raise NodeReadError(node.id, asked, cause)
     if needs_one_unit and node._kind != "node":
-        raise NodeKindError(node.id, asked, node._kind)
-    if cause is not None and needs_wiring:
-        raise NodeWiringError(node.id, asked, cause)
+        raise NodeReadError(node.id, asked, None)
 
 
 def _receive_shape(receives: Receive | None) -> list[Any]:
@@ -128,16 +126,15 @@ class CompiledNode:
     - Always: ``id``, ``state``, ``graph_node``, ``embedded_in`` and
       ``problems``.
     - Unless compile couldn't make sense of the node at all: its ``kind``,
-      ``definition``, ``version``, ``interface`` and ``statics``. Otherwise
-      they raise ``NodeResolutionError``.
-    - Only on a ready node: ``runs_per_row_of``. Otherwise it raises
-      ``NodeWiringError``.
+      ``definition``, ``version``, ``interface`` and ``statics``.
+    - Only on a ready node: ``runs_per_row_of``.
 
-    Both errors carry the one problem that explains why.
+    A read the state rules out raises ``NodeReadError``, carrying the one
+    problem that explains why.
 
     A node whose ``kind`` is ``graph`` is a whole graph embedded as a
     node. It doesn't run itself; its inner nodes run in its place, so
-    ``runner``, ``validate`` and ``fingerprint`` raise ``NodeKindError``.
+    ``runner``, ``validate`` and ``fingerprint`` raise ``NodeReadError``.
     It has no fields of its own: an address on it reads through to the
     inner node's field. Its own graph's problems are on its ``version``.
     """
@@ -319,7 +316,7 @@ class CompiledField:
 
     Only a resolved node has fields. ``ref``, ``problems`` and ``binding``
     answer always; ``type``, ``index``, ``receives`` and ``condition``
-    are decided by the node's connections, and raise ``NodeWiringError``
+    are decided by the node's connections, and raise ``NodeReadError``
     on a node whose connections compile could not work out.
     Asking a field for what its kind does not have is a ``KeyError``: an
     input has no ``condition``, an output has no ``binding``, ``receives``
@@ -384,7 +381,7 @@ class CompiledField:
 
     def _gate(self, asked: str) -> None:
         if self._cause is not None:
-            raise NodeWiringError(self.ref.node_id, asked, self._cause)
+            raise NodeReadError(self.ref.node_id, asked, self._cause)
 
     def _only(self, kind: Literal["input", "output"]) -> None:
         """Raise the ``KeyError`` for a read only an input, or only an output, has."""

@@ -8,7 +8,7 @@ import pytest
 
 pytest.importorskip("fastapi")
 
-from conductor.errors import ErrorCause  # noqa: E402
+from conductor.errors import Problem  # noqa: E402
 from conductor.execution.events import (  # noqa: E402
     Event,
     NodeComplete,
@@ -48,12 +48,12 @@ def test_a_pending_units_questions_and_a_failures_cause_are_records():
     question = Question(name="result", title="Svar", dtype={"id": "text"}, json_schema={"type": "string"}, widget={"kind": "textarea"}, default="forslag", optional=True)
 
     pending = _payload(UnitWaiting(unit=WaitingUnit(id="ask@1", node_id="ask", row=(1,), questions=(question,))))
-    failed = _payload(NodeFailed(type="node_failed", node_id="n", error="boom", cause=ErrorCause(code="boom", message="Boom.", row=(2,))))
+    failed = _payload(NodeFailed(type="node_failed", node_id="n", error="boom", cause=Problem(type="boom", msg="Boom.", loc=("n", 2))))
 
     (asked,) = pending["unit"]["questions"]
     assert (asked["name"], asked["default"], asked["widget"]["kind"]) == ("result", "forslag", "textarea")
     assert pending["unit"]["row"] == [1]
-    assert failed["cause"] == {"code": "boom", "message": "Boom.", "details": {}, "row": [2], "node_id": None}
+    assert failed["cause"] == {"type": "boom", "msg": "Boom.", "loc": ["n", 2], "ctx": {}, "fatal": True}
 
 
 def test_a_typed_value_dumps_through_its_own_type_and_one_with_no_form_raises():

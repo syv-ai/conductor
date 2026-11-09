@@ -53,11 +53,11 @@ def test_every_problem_comes_back_anchored(client):
     ]}})
 
     assert resp.status_code == 200
-    assert [(p["code"], p["fatal"], p["node_id"], p["field"]) for p in resp.json()] == [
-        ("unknown_node_type", True, "n1", None),
+    assert [(p["type"], p["fatal"], *p["loc"]) for p in resp.json()] == [
+        ("unknown_node_type", True, "n1"),
         ("unknown_ref_node", True, "n2", "text"),
     ]
-    assert resp.json()[1]["details"] == {"source_node": "ghost"}
+    assert resp.json()[1]["ctx"] == {"source_node": "ghost"}
 
 
 # --- a bad request is a 4xx, not a 500 --------------------------------------------------

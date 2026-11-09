@@ -19,6 +19,7 @@ from typing import Annotated, Any
 import pytest
 from conductor import NodeDefinition, NodeRegistry, Param, Result
 from conductor.dtype import DType
+from conductor.errors import NodeDeclarationError
 from conductor.registry import RegistryDescription, TypeDescription
 from conductor.series import Series
 from conductor.widgets import Textarea
@@ -113,7 +114,7 @@ def test_one_id_from_two_classes_on_one_registry_is_refused_naming_both():
     registry.add_types(Text)
     registry.add_types(Text)  # the same class again is not a collision
 
-    with pytest.raises(ValueError) as refused:
+    with pytest.raises(NodeDeclarationError) as refused:
         registry.add_types(StandardText)
 
     message = str(refused.value)
@@ -126,7 +127,7 @@ def test_one_id_from_two_classes_on_one_registry_is_refused_naming_both():
 def test_two_classes_with_one_id_in_one_call_are_refused_together():
     """A batch is checked against itself as well as against what is filed."""
     registry = NodeRegistry()
-    with pytest.raises(ValueError, match="'text'"):
+    with pytest.raises(NodeDeclarationError, match="'text'"):
         registry.add_types(Text, AnotherText)
     assert registry.types == {}
 
@@ -139,7 +140,7 @@ def test_two_classes_with_one_id_in_one_call_are_refused_together():
         def run(self, text: Annotated[Text, Param(title="Text", widget=Textarea())]) -> Annotated[AnotherText, Result(title="Same")]:
             return AnotherText(text)
 
-    with pytest.raises(ValueError, match="'text'"):
+    with pytest.raises(NodeDeclarationError, match="'text'"):
         registry.register(Echo)
     assert registry.types == {} and "echo" not in registry
 
@@ -164,7 +165,7 @@ def test_a_collision_through_register_names_both_classes_and_files_nothing():
 
     registry = NodeRegistry()
     registry.register(Shout)
-    with pytest.raises(ValueError) as refused:
+    with pytest.raises(NodeDeclarationError) as refused:
         registry.register(Whisper)
 
     assert f"{Text.__module__}.Text" in str(refused.value)
@@ -194,7 +195,7 @@ def test_the_vocabulary_is_read_only_and_kept_by_extended_with():
     with pytest.raises(TypeError):
         registry.types["score"] = Score  # type: ignore[index]
 
-    assert registry.extended_with({}).types == registry.types
+    assert registry.extended_with([]).types == registry.types
 
 
 # --- accepted_as -------------------------------------------------------------

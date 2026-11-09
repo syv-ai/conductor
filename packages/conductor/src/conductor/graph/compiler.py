@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import TypeAdapter, ValidationError
 
-from conductor.errors import Refuses
+from conductor.errors import CompileProblem, Problem, problem
 from conductor.graph.binding import From, Static, static_values
 from conductor.graph.compiled_node import CompiledField, CompiledNode, NodeState
 from conductor.graph.conditions import Condition, conditions_of
@@ -42,7 +42,6 @@ from conductor.graph.embedding import (
 )
 from conductor.graph.iteration import Iteration, derive
 from conductor.graph.model import Graph, GraphNode
-from conductor.graph.problem import Problem, problem
 from conductor.graph.receive import Merge, Receive
 from conductor.graph.topology import dependencies_of, order_of
 from conductor.graph.views import derive_interface, field_problems, lock_problems
@@ -84,23 +83,6 @@ class Layout:
     graphs: frozenset[str]
 
 
-def resolved(node: GraphNode, registry: NodeRegistry) -> tuple[type[NodeDefinition], Any] | Problem:
-    """The class a node in the graph names and the version it pins, or the problem saying which is missing.
-
-    Compile's one lookup of a node (``Compilation.pin``). A stored graph can
-    name a type the registry has since lost or a version the class has
-    since dropped; either is a fatal problem on the node. Everything after
-    compile reads the class and version off the compiled node.
-    """
-    if node.type not in registry:
-        return problem("unknown_node_type", node.id, node_type=node.type)
-    definition = registry[node.type]
-    version = definition.versions.get(node.version)
-    if version is None:
-        return problem("unknown_node_version", node.id, node_type=node.type, version=node.version)
-    return definition, version
-
-
 def _resolved_edges(node: GraphNode, offered: Mapping[str, frozenset[str]]) -> GraphNode:
     """``node`` with every edge out of an embedded graph pointed at the field
     inside it that the author's address names (``approve.check.amount`` at
@@ -126,8 +108,8 @@ def _faults(graph: CompiledGraph) -> list[Problem]:
     return [
         found for found in graph.problems
         if found.fatal and not (
-            found.code == "unbound_required"
-            and address(found.node_id, found.field, graph._compilation.layout.graphs) in offered
+            found.type == "unbound_required"
+            and address(str(found.loc[0]), str(found.loc[1]), graph._compilation.layout.graphs) in offered
         )
     ]
 
@@ -242,7 +224,7 @@ class Compilation:
             self.authored[node.id] = node
 
     def pin(self) -> None:
-        """The class and version each authored node uses, resolved once, here (``resolved``).
+        """The class and version each authored node uses, resolved once, here.
 
         A node stores a ``type`` and a ``version`` number; the registry gives
         the class and the class its version record. A stored graph can name
@@ -252,11 +234,15 @@ class Compilation:
         per version; the walk sees it as one node and ``embed_graphs`` embeds it.
         """
         for node in self.authored.values():
-            found = resolved(node, self.registry)
-            if isinstance(found, Problem):
-                self.problems.append(found)
+            if node.type not in self.registry:
+                self.problems.append(problem("unknown_node_type", node.id, node_type=node.type, choices=", ".join(sorted(self.registry)) or "none"))
                 continue
-            self.pinned[node.id] = found
+            definition = self.registry[node.type]
+            version = definition.versions.get(node.version)
+            if version is None:
+                self.problems.append(problem("unknown_node_version", node.id, node_type=node.type, version=node.version))
+                continue
+            self.pinned[node.id] = definition, version
 
     def _refuse_if_broken(
         self, node_id: str, definition: type[NodeDefinition], graph: CompiledGraph, stored: CompiledGraph,
@@ -283,11 +269,11 @@ class Compilation:
         if not faults:
             return
         self.unembeddable.add(node_id)
-        had = {(found.code, found.node_id, found.field) for found in _faults(stored)} if graph is not stored else None
-        brought = [found for found in faults if had is not None and (found.code, found.node_id, found.field) not in had]
+        had = {(found.type, found.loc) for found in _faults(stored)} if graph is not stored else None
+        brought = [found for found in faults if had is not None and (found.type, found.loc) not in had]
         for found in brought:
-            where = next((name for name in typed if as_drawn(Ref(name), stored._compilation.layout.graphs)[0] == found.node_id), None)
-            self.problems.append(found.model_copy(update={"node_id": node_id, "field": where}))
+            where = next((name for name in typed if as_drawn(Ref(name), stored._compilation.layout.graphs)[0] == found.loc[0]), None)
+            self.problems.append(found.model_copy(update={"loc": (node_id,) if where is None else (node_id, where)}))
         if len(brought) < len(faults):
             self.problems.append(problem(
                 "embedded_graph_broken", node_id, graph=definition.title, problems=len(faults) - len(brought),
@@ -339,8 +325,8 @@ class Compilation:
         stay as declared until the walk over the edges, which can tell
         ``compute_outputs`` what type arrives on each connected input.
 
-        A hook that cannot answer for these values raises ``Refuses``; its
-        code and message are the node's one fatal ``Problem``, and the node is
+        A hook that cannot answer for these values raises ``CompileProblem``;
+        it is the node's one fatal ``Problem``, and the node is
         left out of every later pass, as a node whose type is unknown is.
 
         On a version that takes ``**inputs``, every connected name that is not
@@ -359,8 +345,8 @@ class Compilation:
                 for_hook, _, _ = self._typed_statics(version.interface.inputs, node)
                 try:
                     inputs = instance.compute_inputs(version.interface.inputs, {**defaults, **for_hook})
-                except Refuses as refusal:
-                    self.problems.append(Problem(code=refusal.code, message=refusal.message, fatal=True, node_id=node_id))
+                except CompileProblem as refusal:
+                    self.problems.append(refusal.at(node_id))
                     continue
             else:
                 inputs = version.interface.inputs  # a compiled graph embedded as a node: it has no hooks
@@ -432,8 +418,9 @@ class Compilation:
 
         Reports a lock on a field the node does not have (``unknown_locked_field``,
         not fatal), a binding on a field the node does not have (``stale_binding``:
-        fatal, a typo that would otherwise run with the default, unless the
-        node's ``compute_inputs`` makes its fields come and go), an edge into an input that cannot be connected
+        fatal, a typo that would otherwise run with the default; ``unused_binding``,
+        not fatal, when the node's ``compute_inputs`` makes its fields come
+        and go), an edge into an input that cannot be connected
         (``show_handle=False``), an edge from a node that does not exist, and a required
         input nothing binds (``unbound_required``). A parameter typed ``Any``,
         or ``Series[Any]``, gets its type from its edge and nothing else, so
@@ -471,10 +458,8 @@ class Compilation:
 
             for name, binding in node.bindings.items():
                 if name not in declared:
-                    dead = problem("stale_binding", node_id, name, inputs=", ".join(sorted(declared)) or "none")
-                    if self.layout.definitions[node_id].compute_inputs is not NodeDefinition.compute_inputs:
-                        dead = dead.model_copy(update={"fatal": False})
-                    self.problems.append(dead)
+                    hook_decides_inputs = self.layout.definitions[node_id].compute_inputs is not NodeDefinition.compute_inputs
+                    self.problems.append(problem("unused_binding" if hook_decides_inputs else "stale_binding", node_id, name, inputs=", ".join(sorted(declared)) or "none"))
                     continue
                 if not isinstance(binding, From):
                     continue
@@ -689,7 +674,7 @@ class Compilation:
         """Every problem, by the node it is on, so finding a node's problems doesn't scan them all."""
         by_node: dict[str, list[Problem]] = {}
         for found in self.problems:
-            by_node.setdefault(found.node_id, []).append(found)
+            by_node.setdefault(str(found.loc[0]), []).append(found)
         return by_node
 
     def _fields(
@@ -705,7 +690,7 @@ class Compilation:
         iteration, conditions = self.iteration, self.output_conditions
         on_field: dict[str | None, list[Problem]] = {}
         for found in problems:
-            on_field.setdefault(found.field, []).append(found)
+            on_field.setdefault(str(found.loc[1]) if len(found.loc) > 1 else None, []).append(found)
         fields: dict[str, CompiledField] = {}
         for name in (declared.name for declared in (*interface.inputs, *interface.outputs)):
             if name in fields:
@@ -803,7 +788,7 @@ class Compilation:
         of the same id that compile met and readied."""
         for other in ids:
             if other in self.refused:
-                return next(p for p in self.problems if p.code == "invalid_node_id" and p.node_id == other)
+                return next(p for p in self.problems if p.type == "invalid_node_id" and p.loc[0] == other)
             if other in self.every_node_seen and other not in visiting and self.state(other) != "ready":
                 return self.cause(other, visiting)
         return None

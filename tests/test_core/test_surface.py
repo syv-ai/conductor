@@ -76,14 +76,14 @@ def test_a_misspelled_binding_on_a_node_whose_inputs_are_its_signature_is_fatal(
     compiled = _compiled(GraphNode(id="s", type="scale", version=1, bindings={"facter": Static("3")}))
 
     (problem,) = compiled.problems
-    assert (problem.code, problem.fatal, problem.field) == ("stale_binding", True, "facter")
+    assert (problem.type, problem.fatal, problem.loc[1]) == ("stale_binding", True, "facter")
     assert not compiled.is_runnable
 
 
 def test_the_dead_binding_names_the_inputs_the_node_has():
     compiled = _compiled(GraphNode(id="s", type="scale", version=1, bindings={"facter": Static("3")}))
 
-    assert compiled.problems[0].message == "Field 'facter' is not an input of the node; it has factor, value."
+    assert compiled.problems[0].msg == "Field 'facter' is not an input of the node; it has factor, value."
 
 
 def test_a_node_whose_inputs_come_and_go_keeps_the_binding_as_a_note():
@@ -92,7 +92,7 @@ def test_a_node_whose_inputs_come_and_go_keeps_the_binding_as_a_note():
     compiled = _compiled(GraphNode(id="h", type="shaped", version=1, bindings={"gone": Static("x")}))
 
     (problem,) = compiled.problems
-    assert (problem.code, problem.fatal) == ("stale_binding", False)
+    assert (problem.type, problem.fatal) == ("unused_binding", False)
     assert compiled.is_runnable
 
 
@@ -162,7 +162,7 @@ def test_a_compilation_error_lists_its_fatal_problems():
 
     assert str(raised.value) == (
         "1 refused:\n"
-        "  graph.s.facter — stale_binding: Field 'facter' is not an input of the node; it has factor, value."
+        "  s.facter — stale_binding: Field 'facter' is not an input of the node; it has factor, value."
     )
 
 
@@ -255,28 +255,11 @@ def test_a_graphs_nodes_are_a_tuple():
 # --- one refusal, raised -------------------------------------------------------------
 
 
-def test_refuses_is_a_conductor_error_at_the_root():
+def test_compile_problem_is_a_conductor_error_at_the_root():
     import conductor
-    from conductor.errors import ConductorError, Refuses
+    from conductor.errors import CompileProblem, ConductorError
 
-    assert conductor.Refuses is Refuses and issubclass(Refuses, ConductorError)
-
-
-def test_a_type_refuses_to_be_read_whole_by_raising_the_same_refusal():
-    from conductor.errors import Refuses
-
-    class Loose(DType):
-        id = "surface-loose"
-        title = "Loose"
-
-        @classmethod
-        def refuses_whole(cls) -> None:
-            raise Refuses("columns_unknown", "Nobody said the columns.")
-
-    with pytest.raises(Refuses) as refused:
-        Loose.refuses_whole()
-    assert (refused.value.code, refused.value.message) == ("columns_unknown", "Nobody said the columns.")
-    assert Txt.refuses_whole() is None
+    assert conductor.CompileProblem is CompileProblem and issubclass(CompileProblem, ConductorError)
 
 
 # --- a declared type is a type -------------------------------------------------------

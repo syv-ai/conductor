@@ -5,7 +5,7 @@ of a failure it reports: each crosses into JSON, so each is a frozen
 pydantic model on this one base.
 
 What a host saves reads back what it wrote — a ``Graph`` and its parts, a
-``Problem``, an ``ErrorCause``, a ``Policy``, an ``Index``::
+``Problem``, a ``Policy``, an ``Index``::
 
     graph = Graph.from_path("approval.yaml")
     graph.to_yaml()

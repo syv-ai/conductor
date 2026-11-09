@@ -23,16 +23,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 DOORS: dict[str, list[str]] = {
     "conductor": [
-        "ALWAYS", "Answers", "AskPerson", "Atom", "Binding", "Broadcast", "CompilationError", "CompiledField", "CompiledGraph",
-        "CompiledNode", "Condition", "ConductorError", "DType", "Deprecation",
-        "ErrorCause", "ExternalFailure", "FieldContent", "From", "FromRun", "Gather", "Graph", "GraphNode",
-        "Index", "Input", "Interface", "InvalidCallDetail", "InvalidCallError", "NEVER",
-        "NodeDefinition", "NodeDescription", "NodeError", "NodeExecutionError", "NodeKindError", "NodeRegistry", "NodeResolutionError",
-        "NodeTimeoutError", "NodeValidationError", "NodeVersion", "NodeWiringError", "Output", "OutputColumn", "Param", "PerRow", "Policy", "Problem", "Question",
-        "Receive", "Ref", "Refuses", "RegistryDescription", "Result", "RowsUnder", "RunState", "RunStatus", "SKIPPED", "Series", "Single",
-        "Static", "Table", "TypeDescription", "Upgrade", "VersionDescription",
-        "WaitingUnit", "Whole", "dependencies_of", "deprecated", "from_wire", "is_skipped", "model_of",
-        "to_wire", "upgrade", "version",
+        "ALWAYS", "Answers", "AskPerson", "Atom", "Binding", "Broadcast", "CompileProblem", "CompiledField", "CompiledGraph", "CompiledNode", "Condition", "ConductorError", "DType", "Deprecation", "ExternalFailure", "FieldContent", "From", "FromRun", "Gather", "Graph", "GraphNode", "Index", "Input", "Interface", "InvalidCallError", "NEVER", "NodeDeclarationError", "NodeDefinition", "NodeDescription", "NodeError", "NodeExecutionError", "NodeRegistry", "NodeTimeoutError", "NodeValidationError", "NodeVersion", "Output", "OutputColumn", "PROBLEM_CODES", "Param", "PerRow", "Policy", "Problem", "Question", "Receive", "Ref", "RegistryDescription", "Result", "RowsUnder", "RunState", "RunStatus", "SKIPPED", "Series", "Single", "Static", "Table", "TypeDescription", "Upgrade", "VersionDescription", "WaitingUnit", "Whole", "dependencies_of", "deprecated", "from_wire", "is_skipped", "model_of", "to_wire", "upgrade", "version",
     ],
     "conductor.widgets": [
         "AnyWidget", "Choice", "CodeEditor", "DatePicker", "Dropdown", "EntityDropdown", "FileUpload",

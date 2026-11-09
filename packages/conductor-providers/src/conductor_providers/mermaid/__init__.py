@@ -39,7 +39,7 @@ _FAULT = "classDef fault stroke:#c62828,stroke-width:2px"
 
 def flowchart(compiled: CompiledGraph) -> str:
     """The flowchart, as Mermaid source ending in a newline."""
-    faulty = {p.node_id for p in compiled.problems if p.fatal}
+    faulty = {str(p.loc[0]) for p in compiled.problems if p.fatal}
     names: dict[str, str] = {}
     lines = ["flowchart LR"]
     for node in compiled.graph.nodes:

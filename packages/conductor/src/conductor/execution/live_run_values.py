@@ -60,7 +60,7 @@ from typing import TYPE_CHECKING, Any, Iterator
 from pydantic import ValidationError
 
 from conductor._sentinel import SKIPPED, is_skipped
-from conductor.errors import ErrorCause, InvalidCallDetail, InvalidCallError, NodeExecutionError
+from conductor.errors import CATALOGUE, InvalidCallError, NodeExecutionError, Problem, problem
 from conductor.execution.run_state import OutputColumn, RunState, RunStatus, WaitingUnit
 from conductor.graph.receive import Broadcast, Gather, Merge, PerRow, Receive, RowsUnder, Whole
 from conductor.ref import Ref
@@ -537,7 +537,7 @@ class LiveRunValues:
         """Of several refs read at one row: the values that cover it, and the
         rows at which the others were skipped. Two covering the same row
         means two edges both supplied that row, and the node fails with
-        that row."""
+        that row, named in the failure's ``ctx``."""
         covering: list[Any] = []
         skips: list[Row] = []
         for ref in refs:
@@ -549,16 +549,7 @@ class LiveRunValues:
             else:
                 covering.append(value)
         if len(covering) > 1:
-            raise NodeExecutionError(
-                f"'{node_id}' received the same row from {len(covering)} edges",
-                node_id=node_id,
-                cause=ErrorCause(
-                    code="row_covered_twice",
-                    message="The row comes from more than one edge; a merge may cover each row only once.",
-                    details={"edges": len(covering)},
-                    row=row,
-                ),
-            )
+            raise NodeExecutionError(CATALOGUE["row_covered_twice"][0], node_id=node_id, code="row_covered_twice", ctx={"edges": len(covering), "row": list(row)})
         return covering, skips
 
     def _typed(self, received: Receive, value: Any, own: Ref, row: Row = ()) -> Any:
@@ -915,7 +906,7 @@ class LiveRunValues:
 
     # -- the state ----------------------------------------------------------------
 
-    def state(self, status: RunStatus, failure: ErrorCause | None = None) -> RunState:
+    def state(self, status: RunStatus, failure: Problem | None = None) -> RunState:
         """Everything this leg has produced, as the ``RunState`` a host stores.
 
         Built without validation from values that already passed, and holding
@@ -966,7 +957,7 @@ class LiveRunValues:
         """
         restored = cls(compiled)
         dropped = set(compiled.nodes_changed_since(state))
-        faults: list[InvalidCallDetail] = []
+        faults: list[Problem] = []
         for ref, column in state.output_columns.items():
             if ref.node_id not in dropped:
                 restored._restore_column(ref, column, faults)
@@ -991,17 +982,17 @@ class LiveRunValues:
         ])
         return restored
 
-    def _restore_column(self, ref: Ref, column: OutputColumn, faults: list[InvalidCallDetail]) -> None:
+    def _restore_column(self, ref: Ref, column: OutputColumn, faults: list[Problem]) -> None:
         """One output's stored rows and cells written in, or the faults that stop them."""
         try:
             field = self._compiled.field(ref)
         except KeyError:
-            faults.append(_unreadable(("state", ref), f"the state has a value for {ref}, which the graph does not have"))
+            faults.append(problem("state_unreadable", "state", ref, reason=f"the state has a value for {ref}, which the graph does not have"))
             return
         depth = 0 if field.index is None else field.index.depth
         misplaced = [row for row in (*column.rows, *column.skipped) if len(row) > depth]
         for row in misplaced:
-            faults.append(_unreadable(("state", ref, *row), f"the state's value for {ref} is at row {list(row)}, which {ref} has no place for"))
+            faults.append(problem("state_unreadable", "state", ref, *row, reason=f"the state's value for {ref} is at row {list(row)}, which {ref} has no place for"))
         if misplaced:
             return
         by_row = self._values.setdefault(ref, {})
@@ -1010,19 +1001,19 @@ class LiveRunValues:
             try:
                 by_row[row] = _restored_cell(field, row, stored, read)
             except (TypeError, ValueError) as unreadable:
-                faults.append(_unreadable(("state", ref, *row), f"the state's value for {ref} at row {list(row)} does not read back: {_reason(unreadable)}"))
+                faults.append(problem("state_unreadable", "state", ref, *row, reason=f"the state's value for {ref} at row {list(row)} does not read back: {_reason(unreadable)}"))
         if column.skipped:
             self._skipped_on.add(ref)
             for row in column.skipped:
                 by_row[row] = SKIPPED
 
-    def _fits_node(self, node_id: str, row: Row, faults: list[InvalidCallDetail], loc: tuple[str | int, ...]) -> bool:
+    def _fits_node(self, node_id: str, row: Row, faults: list[Problem], loc: tuple[str | int, ...]) -> bool:
         """Whether a stored unit sits at a row its node can have; the fault that says it does not, if not."""
         if node_id not in self._compiled._nodes:
             return False
         if _fits(row, self._compiled.node(node_id).runs_per_row_of):
             return True
-        faults.append(_unreadable(loc, f"the state has {node_id!r} at row {list(row)}, which {node_id!r} has no place for"))
+        faults.append(problem("state_unreadable", *loc, reason=f"the state has {node_id!r} at row {list(row)}, which {node_id!r} has no place for"))
         return False
 
     def _remake_rows(self, done: list[Unit]) -> None:
@@ -1077,10 +1068,6 @@ def _restored_cell(field: CompiledField, row: Row, stored: Any, read: Any) -> An
     if field._makes_rows is not None and isinstance(cell, Table):
         return type(cell)._holding(with_row_ids(cell.frame, field._makes_rows, row))
     return cell
-
-
-def _unreadable(loc: tuple[str | int, ...], message: str) -> InvalidCallDetail:
-    return {"type": "state_unreadable", "loc": loc, "msg": message, "ctx": {}}
 
 
 def _reason(unreadable: Exception) -> str:

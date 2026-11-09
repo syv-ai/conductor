@@ -89,8 +89,8 @@ def test_every_event_names_its_fields_and_requires_its_type_in_the_schema():
     definitions = TypeAdapter(Event).json_schema(mode="serialization")["$defs"]
     shapes = {
         schema["properties"]["type"]["const"]: (sorted(schema["properties"]), sorted(schema.get("required", [])))
-        for schema in definitions.values()
-        if "type" in schema.get("properties", {})
+        for name, schema in definitions.items()
+        if "type" in schema.get("properties", {}) and name != "Problem"
     }
 
     assert shapes == SHAPES

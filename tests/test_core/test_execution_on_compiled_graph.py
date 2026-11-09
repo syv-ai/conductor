@@ -143,7 +143,7 @@ def test_a_graph_compile_rejected_is_refused_with_its_problems():
 
     with pytest.raises(InvalidCallError) as raised:
         compiled.run_sync()
-    assert [fault["type"] for fault in raised.value.errors()] == ["unknown_node_type"]
+    assert [fault.type for fault in raised.value.errors()] == ["unknown_node_type"]
 
 
 def test_events_carry_the_placement_title():
