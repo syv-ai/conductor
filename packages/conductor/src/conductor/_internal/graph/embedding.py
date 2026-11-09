@@ -4,8 +4,12 @@ A host compiles each graph version once and hands the ``CompiledGraph`` to
 conductor as the node's version. The outer compile wires the graph node as a
 plain node with the graph's interface, which decides the row it runs on, then
 compiles each node of the graph where it stands, under that row (``runs_under``
-of ``compile_one_node``): the same walk, so an embedded graph follows every
-rule a graph drawn there would. Its author's own problems were reported when
+of ``compile_one_node``): the same walk, so an embedded graph behaves as its
+nodes drawn there. Under a row that can differ from the graph run alone, since
+there is then a level above its columns: a reduction that ran per row of a
+series the graph makes runs per row of the graph's row instead. What each node
+reads is what its own run holds, so a run never sees another row's values.
+Its author's own problems were reported when
 it was compiled; a problem only this graph node's edges or values cause is the
 graph node's. Its inner nodes' ids take the graph node's path (``emb/lines``).
 
@@ -35,7 +39,7 @@ from typing import TYPE_CHECKING, Any
 from conductor._internal.graph.binding import Binding, From, Static
 from conductor._internal.graph.compiled_node import CompiledNode
 from conductor._internal.node_signature import Interface
-from conductor._internal.ref import Ref
+from conductor._internal.ref import NODE_PATH_SEPARATOR, Ref
 from conductor._internal.table import columns_of
 
 if TYPE_CHECKING:
@@ -43,9 +47,6 @@ if TYPE_CHECKING:
     from conductor._internal.field_records import Input
     from conductor._internal.graph.compiled_graph import CompiledGraph
     from conductor._internal.graph.graph_records import GraphNode
-
-
-NODE_PATH_SEPARATOR = "/"
 
 
 def offered_names(addresses: Iterable[Ref]) -> dict[Ref, str]:

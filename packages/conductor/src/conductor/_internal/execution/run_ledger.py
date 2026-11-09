@@ -458,7 +458,7 @@ class RunLedger:
         group_row = row[: receive_mode.depth]
         gathered: list[Any] = []
         for ref in receive_mode.sources:
-            value, _ = self._value_or_skip_at(ref, group_row)
+            value, _ = self._value_or_skip_at(ref, group_row[: self._depth_of_field[ref]])
             if value is SKIPPED:
                 continue
             index = self._fields[ref]._index
@@ -927,15 +927,23 @@ class RunLedger:
             elif len(hashes) != len(rows_of_node):
                 problems.append(make_problem("state_unreadable", "state", node_id, reason=f"the state has {len(rows_of_node)} finished rows for {node_id!r} and {len(hashes)} input hashes"))
                 continue
+            rows_seen: set[Row] = set()
             for row, input_hash in sorted(zip(rows_of_node, hashes, strict=True), key=itemgetter(0)):
                 if not self._row_exists_for_node(index, row):
                     problems.append(make_problem("state_unreadable", "state", node_id, *row, reason=f"the state has {node_id!r} at row {list(row)}, which {node_id!r} has no place for"))
                     continue
+                if row in rows_seen:
+                    problems.append(make_problem("state_unreadable", "state", node_id, *row, reason=f"the state lists {node_id!r} as finished at row {list(row)} twice"))
+                    continue
+                rows_seen.add(row)
                 for out in interfaces[node_id].outputs:
                     field = self._fields[Ref(node_id, out.name)]
                     value, write_row = _stored_value_of_unit(self._values.get(field.ref, _NO_VALUES), row)
                     if value is _MISSING:
                         problems.append(make_problem("state_unreadable", "state", field.ref, *row, reason=f"the state has {node_id!r} finished at row {list(row)}, with no value for {field.ref}"))
+                        continue
+                    if value is None and field._makes_rows is not None:
+                        problems.append(make_problem("state_unreadable", "state", field.ref, *row, reason=f"the state holds null for {field.ref} at row {list(row)}, where rows are made"))
                         continue
                     self._note_rows_made_by_write(field, write_row, value, [])
                 self._mark_done((node_id, row), input_hash)

@@ -24,7 +24,6 @@ from conductor._internal.graph.decide_rows_and_receive_modes import (
     read_what_arrives_on_inputs,
 )
 from conductor._internal.graph.embedding import (
-    NODE_PATH_SEPARATOR,
     inner_node_placed_at,
     parent_graph_of_node_id,
 )
@@ -41,7 +40,7 @@ from conductor._internal.graph.row_origins import origins_taken_in
 from conductor._internal.index import Index
 from conductor._internal.node_definition import NodeVersion
 from conductor._internal.node_signature import Interface
-from conductor._internal.ref import Ref
+from conductor._internal.ref import NODE_PATH_SEPARATOR, Ref
 from conductor._internal.registry import NodeRegistry
 from conductor._internal.table import columns_of, is_table_type
 
@@ -167,10 +166,18 @@ def _why_node_is_unwired(node: GraphNode, problems: list[Problem], progress: Com
         for ref in binding.refs:
             if ref.node_id in progress.invalid_node_ids:
                 return progress.invalid_node_ids[ref.node_id]
-            source = progress.compiled.get(ref.node_id)
+            source = progress.compiled.get(ref.node_id) or _refused_graph_around(ref.node_id, progress)
             if source is not None and source.wiring is None:
                 return source.cause
     raise AssertionError(f"compile left {node.id!r} unwired with nothing fatal to say why")
+
+
+def _refused_graph_around(node_id: str, progress: CompileProgress) -> CompiledNode | None:
+    """The nearest graph node around ``node_id`` on record: a refused graph's inner nodes are taken back out, and it holds their cause."""
+    graph_id = parent_graph_of_node_id(node_id)
+    while graph_id is not None and graph_id not in progress.compiled:
+        graph_id = parent_graph_of_node_id(graph_id)
+    return None if graph_id is None else progress.compiled[graph_id]
 
 
 def _with_edges_out_of_embedded_graphs_resolved(node: GraphNode, progress: CompileProgress) -> GraphNode:

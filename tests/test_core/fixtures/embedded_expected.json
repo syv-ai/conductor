@@ -3384,11 +3384,10 @@
     "plan": {
      "inputs": {
       "texts": {
+       "collected_onto": "emb/join.texts",
        "depth": 1,
-       "grouped_under": "docs.result",
-       "kind": "rows_under",
-       "receive_mode": "all_rows_under_row",
-       "rows_of": "docs.result",
+       "kind": "gather",
+       "receive_mode": "collected",
        "sources": [
         "emb/up.result"
        ],
@@ -6096,11 +6095,10 @@
     "plan": {
      "inputs": {
       "texts": {
+       "collected_onto": "emb/join.texts",
        "depth": 1,
-       "grouped_under": "docs.result",
-       "kind": "rows_under",
-       "receive_mode": "all_rows_under_row",
-       "rows_of": "docs.result",
+       "kind": "gather",
+       "receive_mode": "collected",
        "sources": [
         "emb/up.result"
        ],
@@ -6313,11 +6311,10 @@
     "plan": {
      "inputs": {
       "texts": {
+       "collected_onto": "emb/join.texts",
        "depth": 1,
-       "grouped_under": "docs.result",
-       "kind": "rows_under",
-       "receive_mode": "all_rows_under_row",
-       "rows_of": "docs.result",
+       "kind": "gather",
+       "receive_mode": "collected",
        "sources": [
         "emb/u.result"
        ],

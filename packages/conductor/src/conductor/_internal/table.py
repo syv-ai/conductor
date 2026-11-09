@@ -60,6 +60,7 @@ from pydantic_core import PydanticCustomError, PydanticSerializationError, core_
 from conductor._internal.dtype import DType, dtype_of
 from conductor._internal.errors import NodeDeclarationError
 from conductor._internal.index import Index, Row
+from conductor._internal.ref import NODE_PATH_SEPARATOR
 
 if TYPE_CHECKING:
     import polars as pl
@@ -279,8 +280,9 @@ def renames_in_merge(sources: Iterable[tuple[str, Iterable[str]]]) -> list[dict[
     merged table: the columns a run's frames hold, or what compile reads off the sources' types.
 
     ``sources`` is each one's node id and column names. A column another
-    source already holds takes its node's id (``name_crm``); every other keeps
-    its name. The one rule, so compile and the run can't call a column two things."""
+    source already holds takes its node's own id, without the path of any graph
+    around it (``name_crm``, for ``crm`` or ``orders/crm``); every other keeps its
+    name. The one rule, so compile and the run can't call a column two things."""
     taken: set[str] = set()
     renames: list[dict[str, str]] = []
     for node_id, columns in sources:
@@ -289,7 +291,7 @@ def renames_in_merge(sources: Iterable[tuple[str, Iterable[str]]]) -> list[dict[
             if name == ROW_ID_COLUMN:
                 continue
             if name in taken:
-                renamed[name] = _first_free_name(f"{name}_{node_id}", taken)
+                renamed[name] = _first_free_name(f"{name}_{node_id.rpartition(NODE_PATH_SEPARATOR)[2]}", taken)
             taken.add(renamed.get(name, name))
         renames.append(renamed)
     return renames

@@ -454,18 +454,30 @@ class CompiledGraph:
 
     def _readers_of(self, node_ids: Iterable[str]) -> set[str]:
         """Every node that reads a field of one of ``node_ids``, directly or
-        through other nodes: an output, or a column of a table output. Walked
-        over the lookups on each call rather than stored, since every node's
-        readers stored would cost memory quadratic in a long chain."""
-        read_by = self._engine_lookups.read_by
+        through other nodes: an output, a column of a table output, or the
+        rows such a node makes, which a node inside a graph run per row runs
+        on with no edge to them. Walked over the lookups on each call rather
+        than stored, since every node's readers stored would cost memory
+        quadratic in a long chain."""
+        lookups = self._engine_lookups
         found: set[str] = set()
         frontier = list(node_ids)
+
+        def add(node_id: str) -> None:
+            if node_id not in found:
+                found.add(node_id)
+                frontier.append(node_id)
+
         while frontier:
             for compiled_field in self._nodes[frontier.pop()].wiring.fields.values():
-                for reader in read_by[compiled_field.ref]:
-                    if reader.node_id not in found:
-                        found.add(reader.node_id)
-                        frontier.append(reader.node_id)
+                for reader in lookups.read_by[compiled_field.ref]:
+                    add(reader.node_id)
+                rows_made = compiled_field._makes_rows or (compiled_field._index if compiled_field._is_list_on_node else None)
+                if rows_made is not None:
+                    for runs_on_them in lookups.nodes_running_per_row_of_index[rows_made.id]:
+                        add(runs_on_them)
+                    for list_under_them in lookups.lists_on_nodes_under_index[rows_made.id]:
+                        add(list_under_them.node_id)
         return found
 
     def _raise_unless_runnable(self) -> None:

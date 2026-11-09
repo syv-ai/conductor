@@ -21,7 +21,7 @@ The run tells apart only what it reads differently, by ``kind``:
 
 - ``value_at_row``: the value at the call's own row;
 - ``same_value_every_row``: one value, copied to every call, from an edge or set on the node;
-- ``all_rows_under_row``: every row of a column under the call's row, however deep, flat;
+- ``all_rows_under_row``: every row of a column under the call's row, however deep, flat; none there is an empty list, a skip above them no call;
 - ``entire_value``: everything on the field, once;
 - ``collected``: unrelated sources gathered into one series;
 - ``merged``: tables and columns matched on their rows' ids into one table.
@@ -97,7 +97,7 @@ class RowsUnder:
         if self.rows_of is None:
             return f"all of {' + '.join(self.sources)}"
         grouped_under = "" if self.grouped_under == self.rows_of else f" (grouped under {self.grouped_under})"
-        return f"all rows of {self.rows_of} under my row{grouped_under}; none under it: called with an empty list"
+        return f"all rows of {self.rows_of} under my row{grouped_under}; none under it: called with an empty list; skipped above them: not called"
 
 
 @dataclass(frozen=True, init=False)
@@ -135,11 +135,12 @@ class FixedValue:
 class Gather:
     """The unit receives its unrelated sources collected into one series.
 
-    Several scalars, or several series on indexes that share no rows, into one
-    ``Series[X]`` input: each is read under the unit's row cut to ``depth``, ``0``
-    being all of it, and laid out on ``collected_onto``, the input's own index. A
-    skipped source is left out rather than skipping the unit, since gathering is
-    how "whichever branch fired" is expressed.
+    Several scalars, several series on indexes that share no rows, or the
+    values of one run of the graph around the node, into one ``Series[X]``
+    input: each is read under the unit's row cut to ``depth``, ``0`` being all
+    of it, and laid out on ``collected_onto``, the input's own index. A skipped
+    source is left out rather than skipping the unit, since gathering is how
+    "whichever branch fired" is expressed.
     """
 
     sources: tuple[Ref, ...]

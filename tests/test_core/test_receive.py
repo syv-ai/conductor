@@ -202,7 +202,7 @@ def test_an_inner_reduction_over_the_entering_series_reduces_to_its_own_row():
 
     assert compiled.is_runnable, compiled.problems
     assert (_input_plan(compiled, "emb/holder", "text").receive_mode, _input_plan(compiled, "emb/holder", "text").rows_of) == ("value_at_row", "docs.result")
-    assert (_input_plan(compiled, "emb/join", "texts").receive_mode, _input_plan(compiled, "emb/join", "texts").rows_of) == ("all_rows_under_row", "docs.result")
+    assert (_input_plan(compiled, "emb/join", "texts").receive_mode, _input_plan(compiled, "emb/join", "texts").depth) == ("collected", 1)
     assert compiled.run_plan.nodes["emb/join"].runs_per_row_of == "docs.result"
 
 

@@ -101,7 +101,7 @@ def test_an_embedded_graph_is_a_subgraph_of_its_inner_nodes():
                 n3["emb/all · join"]
             end
             n0 -->|per row of docs.result| n2
-            n2 -->|grouped by docs.result| n3
+            n2 -->|gathered| n3
         """)
 
 

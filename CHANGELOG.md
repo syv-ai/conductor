@@ -61,6 +61,15 @@ its stored graphs itself. What a 1.x user must change:
   `Static(value)`; there is no edge list and no `"id@version"` string.
 - An embedded graph is compiled in place, each of its nodes by the rule that compiles any node; a list
   or a hook inside reads the graph node's values with no second compile.
+- A graph embedded under a row behaves as its nodes drawn there: a reduction over a series made
+  inside runs per row of the graph's row, where the same graph run alone ran it per row of that
+  series. Whatever a node receives under a row is cut at that row, so a `**inputs: AsItArrives` input
+  or a gather in a graph run per row sees only its own run's rows, and a node made to run per row by
+  another input gathers its own row's rows too. Values that ran once inside are gathered into a
+  `Series[X]` input, skipped ones left out, so a skip gives an empty list there as it does alone.
+- A merge's renamed column takes the source's own node id without the graph path (`name_crm`, not
+  `name_orders/crm`). A node under a graph's row is stale when that row's rows change, so resuming with
+  fewer rows above it works.
 - `compiled.run_plan.nodes[id].inputs[name]` is a `ReceiveMode`, the record the run reads: a `kind` of
   `cell`, `rows_under`, `fixed`, `gather` or `merge`, and the author's `receive_mode` word as before.
   `InputPlan` is gone. A table wired alone into a `Table` input is received as that table, unmerged.

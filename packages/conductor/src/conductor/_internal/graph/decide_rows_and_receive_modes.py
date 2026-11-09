@@ -21,9 +21,13 @@ makes the node run per row by itself, except a table arriving per row. What
 it carries is the merged table's type, each column named as the merge will
 name it, or what the input declares when it names columns.
 
-A ``**inputs: AsItArrives`` input takes what its edge carries, whole, and
-never makes the node run per row. A parameter typed ``Any`` takes the type of
-its first edge.
+A ``**inputs: AsItArrives`` input takes what its edge carries and never makes
+the node run per row. A parameter typed ``Any`` takes the type of its first
+edge.
+
+Whatever an input receives under a row is cut at that row, as far as the row
+and the source share one; sharing none, it is all of the source. A node that
+runs once shares nothing, so it receives everything.
 
 An input no edge feeds holds what compile already knows: a static or its
 default, as a ``FixedValue``. A table wired alone into a ``Table`` input has
@@ -31,9 +35,11 @@ nothing to match with, so it is received as a plain ``Cell``, the same frame.
 
 Inside an embedded graph a node compiles under the row the graph node runs on
 (``runs_under``): it runs at least per row of it, and its outputs and rows
-hang under it. Whatever ran once inside is then a column on that row. A
-``Series[X]`` input reading such a column still reads the one value, at its
-own row, as it does in the graph alone; more than one, it gathers them there.
+hang under it, as they would for the same nodes drawn there. A reduction over
+a series made inside is therefore a reduction under that row. Whatever ran
+once inside is a column on that row holding one value per run of the graph:
+a ``Series[X]`` input over such columns gathers this run's values, and an
+empty gather is an empty series.
 
 A list set on an input that takes one value is a column of its own, under
 each row the node otherwise runs on, and an edge reads it like an output (``q.question``).
@@ -58,7 +64,7 @@ from conductor._internal.dtype import (
 from conductor._internal.errors import Problem, make_problem
 from conductor._internal.field_records import Input
 from conductor._internal.graph.binding import From
-from conductor._internal.graph.embedding import NODE_PATH_SEPARATOR, parent_graph_of_node_id
+from conductor._internal.graph.embedding import parent_graph_of_node_id
 from conductor._internal.graph.graph_records import GraphNode
 from conductor._internal.graph.receive_modes import (
     Cell,
@@ -72,7 +78,7 @@ from conductor._internal.graph.receive_modes import (
 )
 from conductor._internal.graph.row_origins import sources_taken_in_whole
 from conductor._internal.index import Index
-from conductor._internal.ref import Ref
+from conductor._internal.ref import NODE_PATH_SEPARATOR, Ref
 from conductor._internal.table import (
     Column,
     columns_of,
@@ -93,6 +99,19 @@ class InputCarries(NamedTuple):
     index: Index | None
 
 
+class RowsCutByTheRow(NamedTuple):
+    """An input whose receive mode waits for the node's row, because that row is where its sources are cut."""
+
+    input: Input
+    refs: tuple[Ref, ...]
+    #: Each source's index, ``None`` for one that ran once.
+    source_indexes: tuple[Index | None, ...]
+    #: Those on the row of a graph around both them and this node, read at that row.
+    on_the_row_of_a_graph_around_both: frozenset[Index]
+    #: The input's own index when it gathers; ``None`` when it reads one column's rows.
+    collected_onto: Index | None
+
+
 @dataclass
 class WhatArrivesOnInputs:
     """What one node's inputs receive, gathered as its edges are read."""
@@ -108,6 +127,8 @@ class WhatArrivesOnInputs:
     rows_required_by_inputs: tuple[tuple[Index, str], ...] = ()
     #: The child indexes ``Series[X]`` inputs read, placed once the node's row is known.
     child_indexes_read_by_series_inputs: tuple[tuple[Index, Input, tuple[Ref, ...]], ...] = ()
+    #: The inputs that don't choose the node's row and are cut by it, placed once it is known.
+    rows_cut_by_the_row: tuple[RowsCutByTheRow, ...] = ()
     #: The inputs holding a list set on the node.
     lists_on_node: tuple[Input, ...] = ()
     #: The ``Table`` inputs with the table type each carries and its sources.
@@ -165,7 +186,7 @@ def read_what_arrives_on_inputs(
             if source._index is None or one_value_per_run_of_a_graph:
                 found.receive_modes[name] = cell_at_the_row(binding.refs, source._index, input_.takes_blank)
             else:
-                found.receive_modes[name] = rows_under_the_row(binding.refs, source._index, 0, input_.takes_blank)
+                found.rows_cut_by_the_row += (RowsCutByTheRow(input_, binding.refs, (source._index,), frozenset(), None),)
             continue
         if is_table_type(target) and not input_.many:
             pairs = list(zip(binding.refs, sources, strict=True))
@@ -194,9 +215,7 @@ def read_what_arrives_on_inputs(
             if source._index is not None:
                 found.rows_required_by_inputs += ((source._index, name),)
             found.carries[name] = InputCarries(source.type, source._index)
-        elif _all_on_one_index(sources) and _sits_on_the_row_of_a_graph_around_both(node.id, sources[0], progress):
-            _read_at_the_row_of_the_graph_around_it(node.id, input_, binding.refs, sources[0], target, found)
-        elif _all_on_one_index(sources):
+        elif _all_on_one_index(sources) and not _sits_on_the_row_of_a_graph_around_both(node.id, sources[0], progress):
             source = sources[0]
             found.arriving_types[name] = source.type
             if source._index.parent is not None:
@@ -206,8 +225,9 @@ def read_what_arrives_on_inputs(
             found.carries[name] = InputCarries(source.type, source._index)
         else:
             input_own_index = Index(Ref(node.id, name))
+            on_a_graphs_row = frozenset(source._index for source in sources if source._index is not None and _sits_on_the_row_of_a_graph_around_both(node.id, source, progress))
             found.arriving_types[name] = target
-            found.receive_modes[name] = Gather(binding.refs, Ref(input_own_index.id), 0, input_.takes_blank)
+            found.rows_cut_by_the_row += (RowsCutByTheRow(input_, binding.refs, tuple(source._index for source in sources), on_a_graphs_row, input_own_index),)
             found.carries[name] = InputCarries(target, input_own_index)
     return found
 
@@ -222,20 +242,6 @@ def _sits_on_the_row_of_a_graph_around_both(node_id: str, source: CompiledField,
             return True
         graph_id = parent_graph_of_node_id(graph_id)
     return False
-
-
-def _read_at_the_row_of_the_graph_around_it(node_id: str, input_: Input, refs: tuple[Ref, ...], source: CompiledField, target: Any, found: WhatArrivesOnInputs) -> None:
-    """A ``Series[X]`` input over one value per run of the graph around it: the value at its own row, a series of one, or several gathered there."""
-    name, index = input_.name, source._index
-    assert index is not None
-    found.arriving_types[name] = source.type
-    if len(refs) == 1:
-        found.receive_modes[name] = rows_under_the_row(refs, index, index.depth, input_.takes_blank)
-        found.carries[name] = InputCarries(source.type, index)
-    else:
-        input_own_index = Index(Ref(node_id, name))
-        found.receive_modes[name] = Gather(refs, Ref(input_own_index.id), index.depth, input_.takes_blank)
-        found.carries[name] = InputCarries(target, input_own_index)
 
 
 def _source_output(ref: Ref, reader_id: str, progress: CompileProgress) -> CompiledField | None:
@@ -300,11 +306,30 @@ def decide_runs_per_row_of_and_receive_modes(node: GraphNode, found: WhatArrives
             problems.append(_misaligned(node_id, field_address_of(found.rows_required_by_inputs[0][1]), field_address_of(input_.name)))
             return False, None
         found.receive_modes[input_.name] = rows_under_the_row(refs, index, depth, input_.takes_blank)
+    for read in found.rows_cut_by_the_row:
+        found.receive_modes[read.input.name] = _receive_mode_cut_by_the_row(read, runs_per_row_of)
     for input_, carried, sources in found.table_inputs_and_sources:
         found.carries[input_.name] = InputCarries(carried, runs_per_row_of)
         found.receive_modes[input_.name] = _receive_mode_of_table_input(sources, runs_per_row_of, input_.takes_blank)
         problems.extend(row_origins.check_merge(node_id, input_.name, sources))
     return True, runs_per_row_of
+
+
+def _receive_mode_cut_by_the_row(read: RowsCutByTheRow, runs_per_row_of: Index | None) -> RowsUnder | Gather:
+    """How an input that doesn't choose the node's row receives its sources on that row.
+
+    The depth is the shallowest any source shares with the row, ``0`` being all
+    of it; a source that ran once has one value at every depth and doesn't count."""
+    depths = [
+        index.depth if index in read.on_the_row_of_a_graph_around_both else _depth_shared_with_row(index, runs_per_row_of) or 0
+        for index in read.source_indexes if index is not None
+    ]
+    depth = min(depths, default=0)
+    if read.collected_onto is not None:
+        return Gather(read.refs, Ref(read.collected_onto.id), depth, read.input.takes_blank)
+    (index,) = read.source_indexes
+    assert index is not None  # only a column waits for the row this way
+    return rows_under_the_row(read.refs, index, depth, read.input.takes_blank)
 
 
 def _receive_mode_of_table_input(sources: list[tuple[Ref, CompiledField]], runs_per_row_of: Index | None, takes_blank: bool) -> Cell | Merge:

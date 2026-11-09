@@ -12,7 +12,7 @@ Which scenario pins which rule of a node compiled under a row:
 
 1. an index renamed and hung under the row: ``rows_made_inside``, ``nested_iterating``;
 2. a value that ran once becomes a series on the row: ``entering_scalar``, ``gather_two_inside``;
-3. a ``Series[X]`` input over one value per run of the graph reads it at its row, several of them gathered there: ``rows_made_inside``, ``gather_two_inside``;
+3. a ``Series[X]`` input over values of one run of the graph gathers them at its row: ``entering_scalar``, ``rows_made_inside``, ``gather_two_inside``;
 4. an edge in from outside reads as it would anywhere: ``two_crossings``, ``series_field``, ``gathered_into_the_graph_node``;
 5. an output read outside takes the inner field's index: ``rows_made_inside_exposed``, ``read_from_outside``, ``rows_made_under_a_row_inside``;
 6. conditions put in place: every ``cond_`` scenario.

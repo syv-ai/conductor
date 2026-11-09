@@ -38,6 +38,9 @@ from typing import Any
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema, core_schema
 
+#: Separates the graphs inside a node id: ``approve/check`` is ``check`` inside the graph node ``approve``.
+NODE_PATH_SEPARATOR = "/"
+
 
 class Ref(str):
     """The address ``"<node id>.<field name>"`` of one field on one node.

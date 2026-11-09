@@ -6,10 +6,12 @@ what it decided, in terms a host can show and compare::
     print(compiled.run_plan)
     # upload  once
     # split   per row of upload.result  text: the value at my row (upload.result)
-    # count   per row of upload.result  lines: all rows of split.result under my row; none under it: called with an empty list
+    # count   per row of upload.result  lines: all rows of split.result under my row; none under it: called with an empty list; skipped above them: not called
 
 Each input's entry is its ``ReceiveMode`` (``conductor._internal.graph.receive_modes``),
-the record the run reads, so what it says is what happens.
+the record the run reads, so what it says is what happens. Inside a graph run
+per row, a node's row is that row or one under it, as if the graph's nodes were
+drawn there.
 """
 
 from __future__ import annotations
