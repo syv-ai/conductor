@@ -4,16 +4,15 @@ from dataclasses import dataclass
 from typing import Annotated, Any
 
 import pytest
-from conductor import NodeRegistry, Param
+from conductor import Arriving, NodeRegistry, Param, node
 from conductor._sentinel import SKIPPED
-from conductor.dtype import DType, _UntypedValue
+from conductor.dtype import DType
 from conductor.errors import NodeReadError
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.conditions import ALWAYS, Atom
 from conductor.graph.model import Graph, GraphNode
-from conductor.metadata import Result
-from conductor.node import NodeDefinition
+from conductor.metadata import Output, Result
 from conductor.ref import Ref
 from conductor.series import Series
 from conductor.widgets import Switch, Textarea
@@ -38,76 +37,49 @@ class Branches:
     if_false: Annotated[Any, Result(title="If false", choice="branches")]
 
 
-class Gate(NodeDefinition):
-    id = "gate"
-    title = "If/else"
-    description = "d"
-    category = "test"
+def gate_outputs(value: Arriving):
+    dtype = value
+    return (Output("if_true", dtype, title="If true", choice="branches"), Output("if_false", dtype, title="If false", choice="branches"))
 
-    def run(
-        self,
-        value: Annotated[Any, Param(title="Value")],
-        when: Annotated[Flag, Param(title="When", widget=Switch())] = Flag(1),
-    ) -> Branches:
-        return Branches(if_true=value, if_false=SKIPPED) if when else Branches(if_true=SKIPPED, if_false=value)
-
-    def compute_outputs(self, declared, values, arriving):
-        dtype = arriving.get("value", _UntypedValue)
-        return tuple(out.model_copy(update={"dtype": dtype}) for out in declared)
+@node("gate", title="If/else", description="d", category="test", compute_outputs=gate_outputs)
+def gate(
+    value: Annotated[Any, Param(title="Value")],
+    when: Annotated[Flag, Param(title="When", widget=Switch())] = Flag(1),
+) -> Branches:
+    return Branches(if_true=value, if_false=SKIPPED) if when else Branches(if_true=SKIPPED, if_false=value)
 
 
-class Holder(NodeDefinition):
-    id = "holder"
-    title = "Text"
-    description = "d"
-    category = "test"
-
-    def run(self, value: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
-        return value
+@node("holder", title="Text", description="d", category="test")
+def holder(value: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
+    return value
 
 
-class Upper(NodeDefinition):
-    id = "upper"
-    title = "Upper"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
-        return Txt(text.upper())
+@node("upper", title="Upper", description="d", category="test")
+def upper_node(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
+    return Txt(text.upper())
 
 
-class Single(NodeDefinition):
+def single_outputs(**arriving: Arriving):
+    series = arriving.get("values")
+    dtype = series.element if series is not None else Any
+    return (Output("result", dtype, title="The value"),)
+
+@node("single", title="Only one", description="d", category="test", compute_outputs=single_outputs)
+def single(values: Annotated[Series[Any], Param(title="Values")]) -> Annotated[Any, Result(title="The value")]:
     """The merge for scalars: a `Series[X]` input drops the skipped edges, so
     whichever branch fired is the one value it receives."""
-
-    id = "single"
-    title = "Only one"
-    description = "d"
-    category = "test"
-
-    def run(self, values: Annotated[Series[Any], Param(title="Values")]) -> Annotated[Any, Result(title="The value")]:
-        return values[0]
-
-    def compute_outputs(self, declared, values, arriving):
-        series = arriving.get("values")
-        dtype = series.element if series is not None else Any
-        return tuple(out.model_copy(update={"dtype": dtype}) for out in declared)
+    return values[0]
 
 
-class Docs(NodeDefinition):
-    id = "docs"
-    title = "Docs"
-    description = "d"
-    category = "test"
-
-    def run(self, folder: Annotated[Txt, Param(title="Folder", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Texts")]:
-        return [Txt("a")]
+@node("docs", title="Docs", description="d", category="test")
+def docs(folder: Annotated[Txt, Param(title="Folder", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Texts")]:
+    return [Txt("a")]
 
 
 def _compiled(nodes):
     registry = NodeRegistry()
-    for node_cls in (Gate, Holder, Upper, Docs, Single):
-        registry.register(node_cls)
+    for node_cls in (gate, holder, upper_node, docs, single):
+        registry = registry.extended_with([node_cls])
     return CompiledGraph.from_graph(Graph(nodes=nodes), registry)
 
 

@@ -3,11 +3,11 @@
 from dataclasses import dataclass
 from typing import Annotated
 
-from conductor import CompiledGraph, GraphNode, Static, Table
+from conductor import CompiledGraph, GraphNode, Static, Table, node
 from conductor.graph.binding import From
 from conductor.graph.model import Graph
-from conductor.metadata import Result
-from conductor.node import NodeDefinition
+from conductor.metadata import Output, Result
+from conductor.node_decorator import NodeDefinition
 from conductor.ref import Ref
 from conductor.series import Index, Series
 
@@ -21,36 +21,24 @@ class Clashing:
     clash: Annotated[Txt, Result(title="Clash")]
 
 
-class Clash(NodeDefinition):
+def clash_node_outputs():
+    return (Output("rows", Contacts, title="Rows"), Output("rows.email", Txt, title="Clash"))
+
+@node("clash", title="Clash", description="d", category="test", compute_outputs=clash_node_outputs)
+def clash_node(text: Text = Txt("")) -> Clashing:
     """Declares an output named like one of its table's columns would be offered."""
-
-    id = "clash"
-    title = "Clash"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Text = Txt("")) -> Clashing:
-        raise NotImplementedError
-
-    @classmethod
-    def compute_outputs(cls, declared, values, arriving):  # noqa: ARG003
-        return (*declared[:1], declared[1].model_copy(update={"name": "rows.email"}))
+    raise NotImplementedError
 
 
-class Bare(NodeDefinition):
-    id = "bare"
-    title = "Bare"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Text = Txt("")) -> Annotated[Table, Result(title="Anything")]:
-        raise NotImplementedError
+@node("bare", title="Bare", description="d", category="test")
+def bare(text: Text = Txt("")) -> Annotated[Table, Result(title="Anything")]:
+    raise NotImplementedError
 
 
 def _compiled(*nodes: GraphNode, extra: tuple[type[NodeDefinition], ...] = ()) -> CompiledGraph:
     registry = _registry()
-    for node in extra:
-        registry.register(node)
+    for graph_node in extra:
+        registry = registry.extended_with([graph_node])
     return CompiledGraph.from_graph(Graph(nodes=list(nodes)), registry)
 
 
@@ -91,29 +79,24 @@ def test_a_column_appears_exactly_when_its_table_does():
 
 
 def test_a_bare_table_offers_no_columns():
-    compiled = _compiled(GraphNode(id="b", type="bare", version=1), extra=(Bare,))
+    compiled = _compiled(GraphNode(id="b", type="bare", version=1), extra=(bare,))
 
     assert compiled.is_runnable, compiled.problems
     assert set(compiled.node("b")._fields) == {"text", "result"}
 
 
 def test_an_output_named_like_a_column_is_refused():
-    compiled = _compiled(GraphNode(id="c", type="clash", version=1), extra=(Clash,))
+    compiled = _compiled(GraphNode(id="c", type="clash", version=1), extra=(clash_node,))
 
     assert [(p.type, p.loc[1]) for p in compiled.problems] == [("view_name_taken", "rows.email")]
 
 
-class ManyTables(NodeDefinition):
-    id = "many-tables"
-    title = "Many tables"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Text = Txt("")) -> Annotated[Series[Contacts], Result(title="Tables")]:
-        raise NotImplementedError
+@node("many-tables", title="Many tables", description="d", category="test")
+def many_tables(text: Text = Txt("")) -> Annotated[Series[Contacts], Result(title="Tables")]:
+    raise NotImplementedError
 
 
 def test_a_series_of_tables_is_refused_since_a_table_is_already_many_rows():
-    compiled = _compiled(GraphNode(id="m", type="many-tables", version=1), extra=(ManyTables,))
+    compiled = _compiled(GraphNode(id="m", type="many-tables", version=1), extra=(many_tables,))
 
     assert [(p.type, p.loc[1], p.fatal) for p in compiled.problems] == [("series_of_tables", "result", True)]

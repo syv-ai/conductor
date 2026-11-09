@@ -55,7 +55,7 @@ def conductor_router(
         from_run: Optional hook invoked per request on ``/run`` and
             ``/run-stream``. Receives the FastAPI ``Request`` and returns
             the values the run supplies by type, ``run(from_run=...)``: a
-            ``run`` parameter annotated ``Annotated[X, FromRun()]`` receives
+            parameter annotated ``FromRun[X]`` receives
             the value keyed by ``X``.
         entity_resolver: Optional hook backing the ``EntityDropdown`` widget.
             Receives the entity kind (e.g. ``"document"``) and the FastAPI

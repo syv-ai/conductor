@@ -3,14 +3,13 @@
 from dataclasses import dataclass
 from typing import Annotated
 
-from conductor import NodeRegistry
+from conductor import NodeRegistry, node
 from conductor.dtype import DType
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.graph.receive import PerRow, Whole
 from conductor.metadata import Param, Result
-from conductor.node import NodeDefinition
 from conductor.ref import Ref
 from conductor.series import Index, Series
 from conductor.widgets import Textarea
@@ -32,34 +31,19 @@ class Found:
     names: Annotated[Series[Txt], Result(title="Names")]
 
 
-class Docs(NodeDefinition):
-    id = "docs"
-    title = "Documents"
-    description = "d"
-    category = "test"
-
-    def run(self, folder: Annotated[Txt, Param(title="Folder", widget=Textarea())] = Txt("")) -> Found:
-        return Found(texts=[Txt("a")], names=[Txt("x")])
+@node("docs", title="Documents", description="d", category="test")
+def docs(folder: Annotated[Txt, Param(title="Folder", widget=Textarea())] = Txt("")) -> Found:
+    return Found(texts=[Txt("a")], names=[Txt("x")])
 
 
-class Upper(NodeDefinition):
-    id = "upper"
-    title = "Upper"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
-        return Txt(text.upper())
+@node("upper", title="Upper", description="d", category="test")
+def upper_node(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
+    return Txt(text.upper())
 
 
-class Join(NodeDefinition):
-    id = "join"
-    title = "Join"
-    description = "d"
-    category = "test"
-
-    def run(self, texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
-        return Txt("+".join(texts))
+@node("join", title="Join", description="d", category="test")
+def join_node(texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
+    return Txt("+".join(texts))
 
 
 def _pair(registry: NodeRegistry) -> NodeRegistry:
@@ -71,7 +55,7 @@ def _pair(registry: NodeRegistry) -> NodeRegistry:
 
 
 def _compiled(*nodes: GraphNode) -> CompiledGraph:
-    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), _pair(NodeRegistry(nodes=(Docs, Upper, Join))))
+    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), _pair(NodeRegistry((docs, upper_node, join_node))))
     assert compiled.is_runnable, compiled.problems
     return compiled
 

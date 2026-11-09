@@ -4,14 +4,15 @@ A widget is the control a person edits an input with, plus what that control nee
 
 ## Declaring one
 
-The widget goes on the `Param` of a `run` parameter. The title, the description and `show_handle` belong to the `Param`:
+The widget goes on the `Param` of a parameter. The title, the description and `connectable` belong to the `Param`:
 
 ```python
-def run(self, name: Annotated[Text, Param(title="Name", description="Who to greet", widget=TextWidget())]) -> Annotated[Text, Result(title="Greeting")]:
+@node("greet")
+def greet(name: Annotated[Text, Param(title="Name", description="Who to greet", widget=TextWidget())]) -> Annotated[Text, Result(title="Greeting")]:
     return Text(f"Hello, {name}!")
 ```
 
-There is no default widget for any type, since the same `Text` may be a textarea, a single line or a dropdown. A `Param` with no widget is an input only an edge fills. `Param(show_handle=False)` closes an input to edges, and it may then declare any pydantic-validatable type.
+There is no default widget for any type, since the same `Text` may be a textarea, a single line or a dropdown. A `Param` with no widget is an input only an edge fills. `Param(connectable=False)` closes an input to edges, and it may then declare any pydantic-validatable type.
 
 ## Catalog
 

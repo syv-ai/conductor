@@ -1,11 +1,10 @@
 """A compiled graph is asked, not traversed."""
 
 from collections import Counter
-from collections.abc import Mapping
 from typing import Annotated, Any
 
 import pytest
-from conductor import NodeRegistry
+from conductor import NodeRegistry, OlderVersion, Upgrade, node
 from conductor.dtype import AsItArrives, DType
 from conductor.errors import CompileProblem, NodeReadError, Problem
 from conductor.graph.binding import From, Static
@@ -14,7 +13,7 @@ from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.receive import Broadcast
 from conductor.interface import FromRun, Interface, model_of
 from conductor.metadata import Input, Output, Param, Result
-from conductor.node import NodeDefinition, Policy, upgrade, version
+from conductor.node_decorator import Policy
 from conductor.ref import Ref
 from conductor.series import Series
 from conductor.widgets import Choice, Dropdown, Textarea
@@ -36,140 +35,86 @@ class Num(DType, float):
 Out = Annotated[Txt, Result(title="Result")]
 
 
-class Echo(NodeDefinition):
-    id = "echo"
-    title = "Echo"
-    description = "d"
-    category = "test"
-
-    def run(
-        self,
-        x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt(""),
-        y: Annotated[Txt, Param(title="Y", widget=Textarea())] = Txt(""),
-    ) -> Out:
-        return Txt(x + y)
+@node("echo", title="Echo", description="d", category="test")
+def echo(
+    x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt(""),
+    y: Annotated[Txt, Param(title="Y", widget=Textarea())] = Txt(""),
+) -> Out:
+    return Txt(x + y)
 
 
-class TextInput(NodeDefinition):
-    id = "text-input"
-    title = "Text"
-    description = "d"
-    category = "test"
-
-    def run(self, value: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
-        return value
+@node("text-input", title="Text", description="d", category="test")
+def text_input(value: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
+    return value
 
 
-class Modes(NodeDefinition):
+def modes_inputs(mode):
+    if mode == "a":
+        return ()
+    return (Input("extra", Txt, title="Extra", widget=Textarea(), default=Txt("")),)
+
+@node("modes", title="Modes", description="d", category="test", compute_inputs=modes_inputs)
+def modes(
+    mode: Annotated[Txt, Param(title="State", widget=Dropdown(choices=(Choice(id="a", title="A"), Choice(id="b", title="B"))))] = Txt("a"),
+    **more: Txt,
+) -> Out:
     """An interface that depends on what the author typed."""
-
-    id = "modes"
-    title = "Modes"
-    description = "d"
-    category = "test"
-
-    def run(
-        self,
-        mode: Annotated[Txt, Param(title="State", widget=Dropdown(choices=(Choice(id="a", title="A"), Choice(id="b", title="B"))))] = Txt("a"),
-        extra: Annotated[Txt, Param(title="Extra", widget=Textarea())] = Txt(""),
-    ) -> Out:
-        return mode
-
-    def compute_inputs(self, declared, values):
-        if values.get("mode") == "b":
-            return declared
-        return tuple(i for i in declared if i.name != "extra")
+    return mode
 
 
-class OpenSheet(NodeDefinition):
+def open_sheet_outputs(header=""):
+    return tuple(
+        Output(col, Txt)
+        for col in str(header).split(",")
+        if col
+    )
+
+@node("open-sheet", title="Open sheet", description="d", category="test", compute_outputs=open_sheet_outputs)
+def open_sheet(header: Annotated[Txt, Param(title="Header", widget=Textarea())] = Txt("")) -> Out:
     """Columns come from the value."""
-
-    id = "open-sheet"
-    title = "Open sheet"
-    description = "d"
-    category = "test"
-
-    def run(self, header: Annotated[Txt, Param(title="Header", widget=Textarea())] = Txt("")) -> Out:
-        return header
-
-    def compute_outputs(self, declared, values, arriving):
-        return tuple(
-            Output(name=col, dtype=Txt, title=col)
-            for col in str(values.get("header", "")).split(",")
-            if col
-        )
+    return header
 
 
-class Renamed(NodeDefinition):
-    id = "renamed"
-    title = "Renamed"
-    description = "d"
-    category = "test"
+def renamed_v1(old: Annotated[Txt, Param(title="Old", widget=Textarea())] = Txt("")) -> Out:
+    return old
 
-    @upgrade(1, 2)
-    def _v1_to_v2(values):
-        return values
-
-    @version(1)
-    def run_v1(self, old: Annotated[Txt, Param(title="Old", widget=Textarea())] = Txt("")) -> Out:
-        return old
-
-    @version(2, policy=Policy(retries=2))
-    def run(self, new: Annotated[Txt, Param(title="New", widget=Textarea())] = Txt("")) -> Out:
-        return new
+@node("renamed", title="Renamed", description="d", category="test", policy=Policy(retries=2), older=[OlderVersion(renamed_v1, upgrade=Upgrade(renamed_inputs={"old": "new"}))])
+def renamed(new: Annotated[Txt, Param(title="New", widget=Textarea())] = Txt("")) -> Out:
+    return new
 
 
 class Clock:
     """Something the run supplies, not the graph (`FromRun`)."""
 
 
-class Stamped(NodeDefinition):
+@node("stamped", title="Stamped", description="d", category="test")
+def stamped(
+    clock: FromRun[Clock],
+    x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt(""),
+) -> Out:
     """A node with a need: the run must provide a `Clock`."""
-
-    id = "stamped"
-    title = "Stamped"
-    description = "d"
-    category = "test"
-
-    def run(
-        self,
-        clock: Annotated[Clock, FromRun()],
-        x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt(""),
-    ) -> Out:
-        return x
+    return x
 
 
-class OpenInputs(NodeDefinition):
+@node("open-inputs", title="Open inputs", description="d", category="test")
+def open_inputs(**inputs: AsItArrives) -> Out:
     """Takes any edge as an input of its own."""
-
-    id = "open-inputs"
-    title = "Open inputs"
-    description = "d"
-    category = "test"
-
-    def run(self, **inputs: AsItArrives) -> Out:
-        return Txt("")
+    return Txt("")
 
 
-class AddsHidden(NodeDefinition):
+def adds_hidden_inputs():
+    return (Input("_x", Txt, title="X", connectable=False, default=Txt("")),)
+
+@node("hidden", title="Hidden", description="d", category="test", compute_inputs=adds_hidden_inputs)
+def adds_hidden(value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt(""), **more: Any) -> Out:
     """Its hook adds a closed input the author cannot see."""
-
-    id = "hidden"
-    title = "Hidden"
-    description = "d"
-    category = "test"
-
-    def run(self, value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
-        return value
-
-    def compute_inputs(self, declared, values):
-        return (*declared, Input(name="_x", dtype=Txt, title="X", show_handle=False, default=Txt(""), optional=True))
+    return value
 
 
 def _registry(*extra):
     registry = NodeRegistry()
-    for node_cls in (Echo, TextInput, Modes, OpenSheet, Renamed, *extra):
-        registry.register(node_cls)
+    for node_cls in (echo, text_input, modes, open_sheet, renamed, *extra):
+        registry = registry.extended_with([node_cls])
     return registry
 
 
@@ -303,13 +248,13 @@ def test_a_painter_reads_every_node_of_a_broken_graph():
     compiled = _half_finished()
 
     for drawn in compiled.graph.nodes:
-        node = compiled.node(drawn.id)
-        if node.state == "resolution_failed":
+        graph_node = compiled.node(drawn.id)
+        if graph_node.state == "resolution_failed":
             continue
-        assert node.interface.inputs
-        if node.state == "ready":
-            assert node.runs_per_row_of is None
-            assert all(compiled.field(Ref(drawn.id, i.name)).type is Txt for i in node.interface.inputs)
+        assert graph_node.interface.inputs
+        if graph_node.state == "ready":
+            assert graph_node.runs_per_row_of is None
+            assert all(compiled.field(Ref(drawn.id, i.name)).type is Txt for i in graph_node.interface.inputs)
 
 
 def test_node_problems_are_the_problems_anchored_on_it():
@@ -328,29 +273,23 @@ def test_an_input_named_with_a_leading_underscore_is_refused_at_compile():
     compiled = _compiled([
         GraphNode(id="a", type="echo", version=1),
         GraphNode(id="s", type="open-inputs", version=1, bindings={"_x": From("a.result")}),
-    ], _registry(OpenInputs))
+    ], _registry(open_inputs))
 
     assert [(p.type, p.loc[0], p.loc[1]) for p in compiled.problems] == [("parameter_name_invalid", "s", "_x")]
     assert compiled.node("s").state == "wiring_failed"
 
 
 def test_a_hook_that_adds_an_input_named_with_a_leading_underscore_is_refused_at_compile():
-    compiled = _compiled([GraphNode(id="h", type="hidden", version=1)], _registry(AddsHidden))
+    compiled = _compiled([GraphNode(id="h", type="hidden", version=1)], _registry(adds_hidden))
 
     assert [(p.type, p.loc[1]) for p in compiled.problems] == [("parameter_name_invalid", "_x")]
     assert compiled.node("h").state == "wiring_failed"
 
 
-class Needs(NodeDefinition):
+@node("needs", title="Needs", description="d", category="test")
+def needs_node(text: Annotated[Txt, Param(title="Text", widget=Textarea())]) -> Out:
     """One required input with a type and no default."""
-
-    id = "needs"
-    title = "Needs"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())]) -> Out:
-        return text
+    return text
 
 
 def test_an_empty_typed_input_is_a_value_that_arrives_later():
@@ -360,7 +299,7 @@ def test_an_empty_typed_input_is_a_value_that_arrives_later():
     compiled = _compiled([
         GraphNode(id="n", type="needs", version=1),
         GraphNode(id="e", type="echo", version=1, bindings={"x": From("n.result")}),
-    ], _registry(Needs))
+    ], _registry(needs_node))
 
     assert not compiled.is_runnable
     assert [p.type for p in compiled.problems] == ["unbound_required"]
@@ -370,45 +309,33 @@ def test_an_empty_typed_input_is_a_value_that_arrives_later():
 
 
 
-class Headed(NodeDefinition):
+def headed_outputs(header=None):
+    if header is None:
+        raise CompileProblem("header_missing", "Type a header first.")
+    return (Output("result", Txt, title="R"),)
+
+@node("headed", title="Headed", description="d", category="test", compute_outputs=headed_outputs)
+def headed(header: Annotated[Txt, Param(title="Header", widget=Textarea())]) -> Out:
     """Outputs named by a required header the author types; no header yet, no outputs to name."""
-
-    id = "headed"
-    title = "Headed"
-    description = "d"
-    category = "test"
-
-    def run(self, header: Annotated[Txt, Param(title="Header", widget=Textarea())]) -> Out:
-        return header
-
-    def compute_outputs(self, declared, values, arriving):
-        if "header" not in values:
-            raise CompileProblem("header_missing", "Type a header first.")
-        return declared
+    return header
 
 
 def test_a_hook_is_not_handed_a_required_input_left_empty():
     """``values`` has no entry for a required input nobody filled, just as
     for a connected one; a hook that needs it refuses, and compile reports."""
-    compiled = _compiled([GraphNode(id="n", type="headed", version=1)], _registry(Headed))
+    compiled = _compiled([GraphNode(id="n", type="headed", version=1)], _registry(headed))
 
     assert [(p.type, p.fatal) for p in compiled.problems] == [("unbound_required", True), ("header_missing", True)]
 
 
-class Gathers(NodeDefinition):
+@node("gathers", title="Gathers", description="d", category="test")
+def gathers(items: Annotated[Series[Any], Param(title="Items", widget=Textarea())]) -> Out:
     """A required list of anything: only an edge can say what it holds."""
-
-    id = "gathers"
-    title = "Gathers"
-    description = "d"
-    category = "test"
-
-    def run(self, items: Annotated[Series[Any], Param(title="Items", widget=Textarea())]) -> Out:
-        return Txt("")
+    return Txt("")
 
 
 def test_an_empty_list_of_anything_breaks_its_node_like_anything():
-    compiled = _compiled([GraphNode(id="n", type="gathers", version=1)], _registry(Gathers))
+    compiled = _compiled([GraphNode(id="n", type="gathers", version=1)], _registry(gathers))
 
     assert [p.type for p in compiled.problems] == ["unbound_required"]
     assert compiled.node("n").state == "wiring_failed"
@@ -429,7 +356,7 @@ class CountingRegistry(NodeRegistry):
 def test_compile_looks_each_node_up_once():
     """One lookup per node the author drew; everything after reads the class compile resolved. An
     embedded graph's own nodes were looked up once, when the host compiled it."""
-    registry = CountingRegistry(nodes=(Echo, Wrapped))
+    registry = CountingRegistry(nodes=(echo, Wrapped))
     registry.counts = Counter()
     CompiledGraph.from_graph(Graph(nodes=[
         GraphNode(id="a", type="echo", version=1),
@@ -446,9 +373,9 @@ def test_a_compiled_node_holds_the_class_it_resolved_to():
         GraphNode(id="emb", type="wrapped", version=1),
     ], _registry(Wrapped))
 
-    assert compiled.node("a").definition is Echo
+    assert compiled.node("a").definition is echo
     assert compiled.node("emb").definition is Wrapped
-    assert compiled.node("emb/inner").definition is Echo
+    assert compiled.node("emb/inner").definition is echo
 
 
 def _imports_of(module) -> set[str]:
@@ -462,11 +389,11 @@ def _imports_of(module) -> set[str]:
     tree = ast.parse(Path(module.__file__).read_text())
     tree.body = [n for n in tree.body if not (isinstance(n, ast.If) and getattr(n.test, "id", None) == "TYPE_CHECKING")]
     reached: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module:
-            reached |= {node.module, *(f"{node.module}.{alias.name}" for alias in node.names)}
-        if isinstance(node, ast.Import):
-            reached |= {alias.name for alias in node.names}
+    for graph_node in ast.walk(tree):
+        if isinstance(graph_node, ast.ImportFrom) and graph_node.module:
+            reached |= {graph_node.module, *(f"{graph_node.module}.{alias.name}" for alias in graph_node.names)}
+        if isinstance(graph_node, ast.Import):
+            reached |= {alias.name for alias in graph_node.names}
     return reached
 
 
@@ -540,7 +467,7 @@ def test_a_node_reads_the_version_it_pins():
 
     assert [i.name for i in compiled.node("old").interface.inputs] == ["old"]
     assert compiled.node("old").version.policy == Policy()
-    assert compiled.node("old").version.run.__name__ == "run_v1"
+    assert compiled.node("old").version.run.__name__ == "renamed_v1"
 
 
 def test_a_node_type_the_registry_lacks_is_a_fatal_problem():
@@ -590,7 +517,7 @@ def test_a_nodes_interface_is_what_the_hooks_answered():
 def test_a_node_with_no_opinion_has_its_declaration_as_its_interface():
     compiled = _compiled([GraphNode(id="a", type="echo", version=1)])
 
-    declared = Echo.versions[1].interface
+    declared = echo.versions[1].interface
     assert compiled.node("a").interface == declared
 
 
@@ -638,7 +565,6 @@ def test_the_interface_is_an_interface_and_types_a_call_by_address():
     compiled = _compiled([_exposed()])
 
     assert isinstance(compiled.interface, Interface)
-    assert compiled.interface.returns is Mapping
     answers = model_of(compiled.interface.inputs)({"besked.value": "hej"})
     assert answers["besked.value"] == "hej"
 
@@ -651,7 +577,7 @@ def test_needs_is_the_union_of_the_nodes_needs():
         GraphNode(id="a", type="stamped", version=1),
         GraphNode(id="b", type="stamped", version=1, bindings={"x": From("a.result")}),
         GraphNode(id="c", type="echo", version=1),
-    ], _registry(Stamped))
+    ], _registry(stamped))
 
     assert compiled.is_runnable, compiled.problems
     assert compiled.interface.needs == {"clock": Clock}
@@ -738,12 +664,12 @@ def test_a_compiled_node_validates_a_call_and_hands_back_its_keyword_arguments()
     node; the engine asks ``validate`` and gets the keyword arguments the
     call runs with, and never meets the model."""
     compiled = _compiled([GraphNode(id="a", type="echo", version=1, bindings={"x": Static("hi")})])
-    node = compiled.node("a")
+    graph_node = compiled.node("a")
 
-    kwargs = node.validate({"x": Txt("a")})
+    kwargs = graph_node.validate({"x": Txt("a")})
     assert set(kwargs) == {"x", "y"} and isinstance(kwargs["x"], Txt) and kwargs["y"] == Txt("")
     with pytest.raises(ValidationError):
-        node.validate({"x": ["not", "text"]})
+        graph_node.validate({"x": ["not", "text"]})
     with pytest.raises(NodeReadError):
         _compiled([GraphNode(id="b", type="echo", version=1, bindings={"x": From("ghost.result")})]).node("b").validate({})
 
@@ -754,17 +680,12 @@ def test_a_default_reaches_the_node_as_its_input_s_type():
 
     seen = []
 
-    class Counted(NodeDefinition):
-        id = "counted"
-        title = "Counted"
-        description = "d"
-        category = "test"
+    @node("counted", title="Counted", description="d", category="test")
+    def counted(n: Annotated[Num, Param(title="N", widget=Textarea())] = 3) -> Out:  # type: ignore[assignment]
+        seen.append(n)
+        return Txt("")
 
-        def run(self, n: Annotated[Num, Param(title="N", widget=Textarea())] = 3) -> Out:  # type: ignore[assignment]
-            seen.append(n)
-            return Txt("")
-
-    compiled = _compiled([GraphNode(id="c", type="counted", version=1)], NodeRegistry(nodes=(Counted,)))
+    compiled = _compiled([GraphNode(id="c", type="counted", version=1)], NodeRegistry((counted,)))
 
     assert isinstance(compiled.node("c").validate({})["n"], Num)
     assert compiled.run_sync().status == "complete"

@@ -25,6 +25,7 @@ from conductor import (
     Series,
     Static,
     Table,
+    node,
 )
 from conductor.events import RunEnd, RunStart, UnitWaiting
 from conductor.widgets import Textarea
@@ -54,52 +55,32 @@ def _no_calls():
     calls.clear()
 
 
-def node(cls_id, run_fn, **attrs):
+def graph_node(cls_id, run_fn, **attrs):
     return type(cls_id.title().replace("-", ""), (NodeDefinition,), {"id": cls_id, "title": cls_id, "description": "d", "category": "test", "run": run_fn, **attrs})
 
 
-class Split(NodeDefinition):
-    id = "split"
-    title = "Split"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="T", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Lines")]:
-        _called("split")
-        return [Txt(line) for line in text.split("\n")]
+@node("split", title="Split", description="d", category="test")
+def split_node(text: Annotated[Txt, Param(title="T", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Lines")]:
+    _called("split")
+    return [Txt(line) for line in text.split("\n")]
 
 
-class Words(NodeDefinition):
-    id = "words"
-    title = "Words"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="T")]) -> Annotated[Whole, Result(title="N")]:
-        _called("words")
-        return Whole(len(text.split()))
+@node("words", title="Words", description="d", category="test")
+def words(text: Annotated[Txt, Param(title="T")]) -> Annotated[Whole, Result(title="N")]:
+    _called("words")
+    return Whole(len(text.split()))
 
 
-class Upper(NodeDefinition):
-    id = "upper"
-    title = "Upper"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="T", widget=Textarea())] = Txt("")) -> Out:
-        _called("upper")
-        return Txt(text.upper())
+@node("upper", title="Upper", description="d", category="test")
+def upper_node(text: Annotated[Txt, Param(title="T", widget=Textarea())] = Txt("")) -> Out:
+    _called("upper")
+    return Txt(text.upper())
 
 
-class Approve(NodeDefinition):
-    id = "approve"
-    title = "Approve"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="T", widget=Textarea())] = Txt("")) -> Out | AskPerson:
-        _called("approve")
-        return AskPerson(prompt=f"ok? {text}", defaults={"result": text})
+@node("approve", title="Approve", description="d", category="test")
+def approve(text: Annotated[Txt, Param(title="T", widget=Textarea())] = Txt("")) -> Out | AskPerson:
+    _called("approve")
+    return AskPerson(prompt=f"ok? {text}", defaults={"result": text})
 
 
 @dataclass(frozen=True)
@@ -109,94 +90,54 @@ class Verdict:
     note: Annotated[Txt, Result(title="Note")]
 
 
-class Decide(NodeDefinition):
-    id = "decide"
-    title = "Decide"
-    description = "d"
-    category = "test"
-
-    def run(self) -> Verdict | AskPerson:
-        _called("decide")
-        return AskPerson()
+@node("decide", title="Decide", description="d", category="test")
+def decide() -> Verdict | AskPerson:
+    _called("decide")
+    return AskPerson()
 
 
-class AskTable(NodeDefinition):
-    id = "ask-table"
-    title = "Ask table"
-    description = "d"
-    category = "test"
-
-    def run(self) -> Annotated[Contacts, Result(title="Rettelser")] | AskPerson:
-        _called("ask-table")
-        return AskPerson(defaults={"result": Contacts([{"name": "a", "email": "a@x"}])})
+@node("ask-table", title="Ask table", description="d", category="test")
+def ask_table() -> Annotated[Contacts, Result(title="Rettelser")] | AskPerson:
+    _called("ask-table")
+    return AskPerson(defaults={"result": Contacts([{"name": "a", "email": "a@x"}])})
 
 
-class AskMany(NodeDefinition):
-    id = "ask-many"
-    title = "Ask many"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="T")]) -> Annotated[Series[Txt], Result(title="Dele")] | AskPerson:
-        return AskPerson()
+@node("ask-many", title="Ask many", description="d", category="test")
+def ask_many(text: Annotated[Txt, Param(title="T")]) -> Annotated[Series[Txt], Result(title="Dele")] | AskPerson:
+    return AskPerson()
 
 
-class ReadEmails(NodeDefinition):
-    id = "read-emails"
-    title = "Read"
-    description = "d"
-    category = "test"
-
-    def run(self, email: Annotated[Txt, Param(title="E")]) -> Out:
-        return Txt(email.upper())
+@node("read-emails", title="Read", description="d", category="test")
+def read_emails(email: Annotated[Txt, Param(title="E")]) -> Out:
+    return Txt(email.upper())
 
 
-class Boom(NodeDefinition):
-    id = "boom"
-    title = "Boom"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="T", widget=Textarea())] = Txt("")) -> Out:
-        raise NodeError("det gik galt")
+@node("boom", title="Boom", description="d", category="test")
+def boom(text: Annotated[Txt, Param(title="T", widget=Textarea())] = Txt("")) -> Out:
+    raise NodeError("det gik galt")
 
 
-class WrongType(NodeDefinition):
-    id = "wrong-type"
-    title = "Wrong"
-    description = "d"
-    category = "test"
-
-    def run(self) -> Out:
-        return 42  # type: ignore[return-value]
+@node("wrong-type", title="Wrong", description="d", category="test")
+def wrong_type() -> Out:
+    return 42  # type: ignore[return-value]
 
 
-class AskStray(NodeDefinition):
-    id = "ask-stray"
-    title = "Ask stray"
-    description = "d"
-    category = "test"
-
-    def run(self) -> Out | AskPerson:
-        return AskPerson(defaults={"nope": Txt("x")})
+@node("ask-stray", title="Ask stray", description="d", category="test")
+def ask_stray() -> Out | AskPerson:
+    return AskPerson(defaults={"nope": Txt("x")})
 
 
-class Slow(NodeDefinition):
-    id = "slow"
-    title = "Slow"
-    description = "d"
-    category = "test"
+@node("slow", title="Slow", description="d", category="test")
+def slow() -> Out:
+    import time
 
-    def run(self) -> Out:
-        import time
-
-        time.sleep(0.4)
-        return Txt("late")
+    time.sleep(0.4)
+    return Txt("late")
 
 
 REGISTRY = NodeRegistry()
-for cls in (Split, Words, Upper, Approve, Decide, AskTable, AskMany, ReadEmails, Boom, WrongType, AskStray, Slow):
-    REGISTRY.register(cls)
+for cls in (split_node, words, upper_node, approve, decide, ask_table, ask_many, read_emails, boom, wrong_type, ask_stray, slow):
+    REGISTRY = REGISTRY.extended_with([cls])
 
 
 def compiled_of(*nodes: GraphNode) -> CompiledGraph:
@@ -550,17 +491,11 @@ def test_a_blank_is_a_legal_stored_value_on_any_output():
 
 
 def test_a_node_returning_none_on_a_typed_output_still_fails():
-    class ReturnsNone(NodeDefinition):
-        id = "returns-none"
-        title = "x"
-        description = "d"
-        category = "test"
+    @node("returns-none", title="x", description="d", category="test")
+    def returns_none() -> Out:
+        return None  # type: ignore[return-value]
 
-        def run(self) -> Out:
-            return None  # type: ignore[return-value]
-
-    registry = NodeRegistry()
-    registry.register(ReturnsNone)
+    registry = NodeRegistry([returns_none])
     compiled = CompiledGraph.from_graph(Graph(nodes=(GraphNode(id="r", type="returns-none", version=1),)), registry)
     assert compiled.run_sync().failure.type == "invalid_output"
 
@@ -570,17 +505,11 @@ def test_a_dump_of_a_value_with_no_json_form_names_the_output():
         id = "lifecycle-opaque"
         title = "x"
 
-    class MakesOpaque(NodeDefinition):
-        id = "makes-opaque"
-        title = "x"
-        description = "d"
-        category = "test"
+    @node("makes-opaque", title="x", description="d", category="test")
+    def makes_opaque() -> Annotated[Opaque, Result(title="O")]:
+        return Opaque()
 
-        def run(self) -> Annotated[Opaque, Result(title="O")]:
-            return Opaque()
-
-    registry = NodeRegistry()
-    registry.register(MakesOpaque)
+    registry = NodeRegistry([makes_opaque])
     state = CompiledGraph.from_graph(Graph(nodes=(GraphNode(id="o", type="makes-opaque", version=1),)), registry).run_sync()
     with pytest.raises(Exception, match=r"o\.result"):
         state.model_dump_json()
@@ -599,17 +528,11 @@ def test_with_inputs_refuses_every_name_it_does_not_offer():
 
 
 def test_no_series_constructor_is_needed_for_skips_in_a_many_valued_output():
-    class Sparse(NodeDefinition):
-        id = "sparse"
-        title = "x"
-        description = "d"
-        category = "test"
+    @node("sparse", title="x", description="d", category="test")
+    def sparse() -> Annotated[Series[Txt], Result(title="L")]:
+        return [Txt("a"), SKIPPED, Txt("c")]
 
-        def run(self) -> Annotated[Series[Txt], Result(title="L")]:
-            return [Txt("a"), SKIPPED, Txt("c")]
-
-    registry = NodeRegistry()
-    registry.register(Sparse)
+    registry = NodeRegistry([sparse])
     compiled = CompiledGraph.from_graph(Graph(nodes=(GraphNode(id="s", type="sparse", version=1),)), registry)
     assert compiled.outputs(roundtrip(compiled.run_sync()))["s.result"].rows == ((0,), (2,))
     assert Series[Txt](Index("x"), [Txt("a")]).rows == ((0,),)
@@ -618,17 +541,12 @@ def test_no_series_constructor_is_needed_for_skips_in_a_many_valued_output():
 # -- staleness reaches a reader of a table column; a partly answered node reads so far ---
 
 
-class Extract(NodeDefinition):
-    id = "extract"
-    title = "Extract"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="T", widget=Textarea())] = Txt("")) -> Annotated[Contacts, Result(title="R")]:
-        return Contacts([{"name": text, "email": "a@x"}])
+@node("extract", title="Extract", description="d", category="test")
+def extract(text: Annotated[Txt, Param(title="T", widget=Textarea())] = Txt("")) -> Annotated[Contacts, Result(title="R")]:
+    return Contacts([{"name": text, "email": "a@x"}])
 
 
-REGISTRY.register(Extract)
+REGISTRY = REGISTRY.extended_with([extract])
 
 
 def test_a_change_above_a_column_reader_drops_its_answer_and_it_asks_again():
@@ -662,19 +580,14 @@ def test_the_state_module_imports_nothing_from_the_graph():
 
 
 def test_a_signature_that_moves_a_node_to_other_rows_changes_its_fingerprint():
-    class Whole_(NodeDefinition):
-        id = "words"
-        title = "x"
-        description = "d"
-        category = "test"
-
-        def run(self, text: Annotated[Series[Txt], Param(title="T")]) -> Annotated[Whole, Result(title="N")]:
-            return Whole(len(text))
+    @node("words", title="x", description="d", category="test")
+    def whole_(text: Annotated[Series[Txt], Param(title="T")]) -> Annotated[Whole, Result(title="N")]:
+        return Whole(len(text))
 
     per_row = compiled_of(*LINES)
     registry = NodeRegistry()
-    for cls in (Split, Whole_):
-        registry.register(cls)
+    for cls in (split_node, whole_):
+        registry = registry.extended_with([cls])
     whole = CompiledGraph.from_graph(Graph(nodes=LINES), registry)
     assert per_row.node("count").fingerprint != whole.node("count").fingerprint
     assert whole.nodes_changed_since(per_row.run_sync()) == ["count"]

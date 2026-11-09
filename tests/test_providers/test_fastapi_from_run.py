@@ -17,10 +17,12 @@ import pytest
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
-from conductor import NodeRegistry  # noqa: E402
+from conductor import (
+    NodeRegistry,  # noqa: E402
+    node,
+)
 from conductor.interface import FromRun  # noqa: E402
 from conductor.metadata import Result  # noqa: E402
-from conductor.node import NodeDefinition  # noqa: E402
 from conductor_nodes.types import Text  # noqa: E402
 from conductor_providers.fastapi import conductor_router  # noqa: E402
 from fastapi import FastAPI, Request  # noqa: E402
@@ -32,22 +34,16 @@ class Caller:
     name: str
 
 
-class Greet(NodeDefinition):
-    id = "greet"
-    title = "Greet"
-    description = "greets whoever made the request"
-    category = "test"
-
-    def run(self, caller: Annotated[Caller, FromRun()]) -> Annotated[Text, Result(title="Greeting")]:
-        return Text(f"hi {caller.name}")
+@node("greet", title="Greet", description="greets whoever made the request", category="test")
+def greet(caller: FromRun[Caller]) -> Annotated[Text, Result(title="Greeting")]:
+    return Text(f"hi {caller.name}")
 
 
 GRAPH = {"graph": {"nodes": [{"id": "g", "type": "greet", "version": 1}]}}
 
 
 def _client(**router_kwargs) -> TestClient:
-    registry = NodeRegistry()
-    registry.register(Greet)
+    registry = NodeRegistry([greet])
     app = FastAPI()
     app.include_router(conductor_router(registry, **router_kwargs))
     return TestClient(app, raise_server_exceptions=False)

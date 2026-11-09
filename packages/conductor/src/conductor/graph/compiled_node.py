@@ -26,7 +26,6 @@ from conductor.codec import reader_of, to_wire
 from conductor.dtype import description_of
 from conductor.errors import NodeReadError
 from conductor.interface import model_of
-from conductor.node import runner_of
 from conductor.series import Series
 from conductor.table import holds_tables
 
@@ -38,7 +37,7 @@ if TYPE_CHECKING:
     from conductor.graph.model import GraphNode
     from conductor.graph.receive import Receive
     from conductor.interface import Interface
-    from conductor.node import NodeDefinition, NodeVersion
+    from conductor.node_decorator import NodeDefinition, NodeVersion
     from conductor.ref import Ref
     from conductor.series import Index
 
@@ -160,7 +159,7 @@ class CompiledNode:
     _cause: Problem | None = field(repr=False)
     #: The answers a resolved node has; ``None`` on one whose resolution failed.
     _kind: NodeKind = field(repr=False)
-    _definition: type[NodeDefinition] = field(repr=False)
+    _definition: NodeDefinition[..., Any] = field(repr=False)
     _version: NodeVersion | CompiledGraph = field(repr=False)
     _interface: Interface = field(repr=False)
     _statics: Mapping[str, Any] = field(repr=False)
@@ -177,10 +176,9 @@ class CompiledNode:
     _fields: Mapping[str, CompiledField] = field(repr=False)
 
     @property
-    def definition(self) -> type[NodeDefinition]:
-        """The class this node's type resolved to in the registry compile was
-        given; ``version`` is one of its ``versions``. Its hooks and its
-        runner are made from it, each on a fresh instance."""
+    def definition(self) -> NodeDefinition[..., Any]:
+        """The definition this node's type resolved to in the registry compile
+        was given; ``version`` is one of its ``versions``."""
         _gate(self, "definition", needs_wiring=False)
         return self._definition
 
@@ -225,10 +223,9 @@ class CompiledNode:
 
     @property
     def runner(self) -> Callable[..., Any]:
-        """The callable that runs this node, on a fresh instance of
-        ``definition`` per call. Made on each read, not stored."""
+        """The function that runs this node."""
         _gate(self, "runner", needs_wiring=False, needs_one_unit=True)
-        return runner_of(self._definition, self._version)
+        return self._version.run
 
     @cached_property
     def fingerprint(self) -> str:

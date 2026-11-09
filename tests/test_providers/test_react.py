@@ -15,29 +15,22 @@ from typing import Annotated
 
 import conductor_nodes
 import pytest
-from conductor import CompiledGraph, Graph, GraphNode, NodeRegistry
+from conductor import CompiledGraph, Graph, GraphNode, NodeRegistry, node
 from conductor.graph.binding import From, Static
 from conductor.metadata import Result
-from conductor.node import NodeDefinition
 from conductor_nodes.types import Text
 from conductor_providers import react
 
 
-class BuildPair(NodeDefinition):
-    id = "build-pair"
-    title = "Build Pair"
-    description = "Emits a value"
-    category = "test"
-
-    def run(self) -> Annotated[Text, Result(title="Value")]:
-        return Text("val")
+@node("build-pair", title="Build Pair", description="Emits a value", category="test")
+def build_pair() -> Annotated[Text, Result(title="Value")]:
+    return Text("val")
 
 
 @pytest.fixture
 def registry() -> NodeRegistry:
-    reg = NodeRegistry()
-    conductor_nodes.register_all(reg)
-    reg.register(BuildPair)
+    reg = conductor_nodes.registry()
+    reg = reg.extended_with([build_pair])
     return reg
 
 

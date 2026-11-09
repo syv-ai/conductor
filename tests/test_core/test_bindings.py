@@ -1,11 +1,10 @@
 import dataclasses
 import inspect
-from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Annotated
 
 import pytest
-from conductor import NodeRegistry
+from conductor import NodeRegistry, node
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
 from conductor.graph.binding import From, Static, static_values
@@ -15,7 +14,6 @@ from conductor.graph.topology import dependencies_of
 from conductor.graph.views import derive_interface, lock_problems
 from conductor.interface import FromRun, Interface
 from conductor.metadata import Output, Param, Result
-from conductor.node import NodeDefinition
 from conductor.ref import Ref
 from conductor.widgets import Textarea
 from pydantic import TypeAdapter
@@ -71,7 +69,7 @@ def test_a_slash_is_the_namespace_separator():
 
 
 def test_a_node_stores_bindings_and_derives_data():
-    node = GraphNode(
+    graph_node = GraphNode(
         id="n1",
         type="translate",
         version=1,
@@ -80,7 +78,7 @@ def test_a_node_stores_bindings_and_derives_data():
             "source": From("n0.result"),
         },
     )
-    assert static_values(node.bindings) == {"text": "hi"}
+    assert static_values(graph_node.bindings) == {"text": "hi"}
 
 
 def test_a_node_is_behaviour_content_and_chrome():
@@ -97,9 +95,9 @@ def test_a_graph_is_nodes_and_display():
 
 
 def test_chrome_is_opaque():
-    node = GraphNode(id="n", type="t", version=1, display={"x": 10, "y": 20, "anything": [1]})
+    graph_node = GraphNode(id="n", type="t", version=1, display={"x": 10, "y": 20, "anything": [1]})
 
-    assert node.display == {"x": 10, "y": 20, "anything": [1]}
+    assert graph_node.display == {"x": 10, "y": 20, "anything": [1]}
 
 
 def test_the_record_is_the_schema():
@@ -171,53 +169,30 @@ class Clock:
     """Something the run supplies, not the graph (`FromRun`)."""
 
 
-class TextInput(NodeDefinition):
+@node("text-input", title="Text", description="A value the caller supplies", category="test")
+def text_input(value: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")
+) -> Annotated[Txt, Result(title="Text")]:
     """An ordinary node. Nothing marks it as one the graph exposes."""
-
-    id = "text-input"
-    title = "Text"
-    description = "A value the caller supplies"
-    category = "test"
-
-    def run(
-        self, value: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")
-    ) -> Annotated[Txt, Result(title="Text")]:
-        return value
+    return value
 
 
-class Summarise(NodeDefinition):
-    id = "summarise"
-    title = "Opsummering"
-    description = "An ordinary node — neither end of what the graph exposes"
-    category = "test"
-
-    def run(
-        self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")
-    ) -> Annotated[Txt, Result(title="Result")]:
-        return text
+@node("summarise", title="Opsummering", description="An ordinary node — neither end of what the graph exposes", category="test")
+def summarise(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")
+) -> Annotated[Txt, Result(title="Result")]:
+    return text
 
 
-class Stamped(NodeDefinition):
+@node("stamped", title="Stemplet", description="d", category="test")
+def stamped(
+    clock: FromRun[Clock],
+    text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt(""),
+) -> Annotated[Txt, Result(title="Result")]:
     """A node with a need: the run must provide a `Clock`."""
-
-    id = "stamped"
-    title = "Stemplet"
-    description = "d"
-    category = "test"
-
-    def run(
-        self,
-        clock: Annotated[Clock, FromRun()],
-        text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt(""),
-    ) -> Annotated[Txt, Result(title="Result")]:
-        return text
+    return text
 
 
 def _registry():
-    reg = NodeRegistry()
-    reg.register(TextInput)
-    reg.register(Summarise)
-    reg.register(Stamped)
+    reg = NodeRegistry([text_input, summarise, stamped])
     return reg
 
 
@@ -229,10 +204,10 @@ def _resolved(graph, registry=None):
     registry = registry or _registry()
     interfaces = {}
     versions = {}
-    for node in graph.nodes:
-        version = registry[node.type].versions[node.version]
-        versions[node.id] = version
-        interfaces[node.id] = version.interface
+    for graph_node in graph.nodes:
+        version = registry[graph_node.type].versions[graph_node.version]
+        versions[graph_node.id] = version
+        interfaces[graph_node.id] = version.interface
     return interfaces, versions
 
 
@@ -287,7 +262,6 @@ def test_the_interface_is_the_record_a_node_version_declares():
     interface = _interface(_graph())
 
     assert isinstance(interface, Interface)
-    assert interface.returns is Mapping
     assert interface.needs == {}
 
 
@@ -372,19 +346,13 @@ def test_a_field_with_no_handle_is_never_an_input():
     """A field with no handle has no way in, for an edge or a caller.
     No lock is needed to say so; the field is simply not on the surface."""
 
-    class Script(NodeDefinition):
-        id = "script"
-        title = "Python"
-        description = "d"
-        category = "test"
-
-        def run(
-            self, code: Annotated[Txt, Param(title="Kode", show_handle=False, widget=Textarea())] = Txt("")
-        ) -> Annotated[Txt, Result(title="Result")]:
-            return code
+    @node("script", title="Python", description="d", category="test")
+    def script(code: Annotated[Txt, Param(title="Kode", connectable=False, widget=Textarea())] = Txt("")
+    ) -> Annotated[Txt, Result(title="Result")]:
+        return code
 
     reg = _registry()
-    reg.register(Script)
+    reg = reg.extended_with([script])
     graph = Graph(
         nodes=[GraphNode(id="s", type="script", version=1, title="Python",
                          fields={"code": FieldContent(title="Kode"), "result": FieldContent(title="Result")})],
@@ -413,8 +381,8 @@ def test_a_stale_lock_reports_on_a_connected_node_too():
     sits, so it reports there as it would anywhere."""
     graph = _graph(language_bindings={"value": From("application.result")})
     graph = Graph(nodes=[
-        node.model_copy(update={"locked": ("ghost",)}) if node.id == "language" else node
-        for node in graph.nodes
+        graph_node.model_copy(update={"locked": ("ghost",)}) if graph_node.id == "language" else graph_node
+        for graph_node in graph.nodes
     ])
 
     assert [(p.type, p.loc[0], p.fatal) for p in _locks(graph)] == [("unknown_locked_field", "language", False)]
@@ -428,14 +396,14 @@ def test_a_column_a_node_computed_is_derivable():
     # authored entry.
     graph = _graph()
     graph = Graph(nodes=[
-        node.model_copy(update={"fields": {**node.fields, "name": FieldContent(title="Name")}})
-        if node.id == "summary" else node
-        for node in graph.nodes
+        graph_node.model_copy(update={"fields": {**graph_node.fields, "name": FieldContent(title="Name")}})
+        if graph_node.id == "summary" else graph_node
+        for graph_node in graph.nodes
     ])
     interfaces, versions = _resolved(graph)
     declared = interfaces["summary"]
     interfaces["summary"] = dataclasses.replace(
-        declared, outputs=(*declared.outputs, Output(name="name", dtype=Txt, title="Name")),
+        declared, outputs=(*declared.outputs, Output("name", Txt, title="Name")),
     )
 
     interface = derive_interface(graph, interfaces, dependencies_of(graph.nodes), frozenset())
@@ -469,17 +437,11 @@ def test_an_unauthored_field_reads_the_declarations_title():
 
 
 def _echo_registry():
-    class Echo(NodeDefinition):
-        id = "echo"
-        title = "Echo"
-        description = "d"
-        category = "test"
+    @node("echo", title="Echo", description="d", category="test")
+    def echo(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="Result")]:
+        return Txt(x.upper())
 
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="Result")]:
-            return Txt(x.upper())
-
-    registry = NodeRegistry()
-    registry.register(Echo)
+    registry = NodeRegistry([echo])
     return registry
 
 
@@ -514,19 +476,13 @@ def test_a_branch_not_taken_is_skipped_downstream():
         yes: Annotated[Txt, Result(title="Yes", choice="answer")]
         no: Annotated[Txt, Result(title="No", choice="answer")]
 
-    class Gate(NodeDefinition):
-        id = "gate"
-        title = "Gate"
-        description = "d"
-        category = "test"
-
-        def run(
-            self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")
-        ) -> Answer:
-            return Answer(yes=x, no=SKIPPED) if x else Answer(yes=SKIPPED, no=x)
+    @node("gate", title="Gate", description="d", category="test")
+    def gate(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")
+    ) -> Answer:
+        return Answer(yes=x, no=SKIPPED) if x else Answer(yes=SKIPPED, no=x)
 
     registry = _echo_registry()
-    registry.register(Gate)
+    registry = registry.extended_with([gate])
     graph = Graph(
         nodes=[
             GraphNode(id="g", type="gate", version=1, bindings={"x": Static("hi")}),

@@ -5,10 +5,11 @@ import threading
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Annotated, Any
 
 import pytest
-from conductor import InvalidCallError, NodeRegistry
+from conductor import InvalidCallError, NodeRegistry, node
 from conductor._sentinel import SKIPPED, AskPerson
 from conductor.dtype import DType
 from conductor.errors import (
@@ -18,7 +19,7 @@ from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.metadata import Input, Output, Param, Result
-from conductor.node import NodeDefinition, Policy, version
+from conductor.node_decorator import Policy
 from conductor.ref import Ref
 from conductor.series import Index, Series
 from conductor.widgets import Textarea
@@ -47,143 +48,89 @@ class Length:
     short: Annotated[Txt, Result(title="If short")]
 
 
-class Docs(NodeDefinition):
-    id = "docs"
-    title = "Docs"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Texts", widget=Textarea())] = Txt("")) -> Documents:
-        parts = [Txt(p) for p in text.split(",")] if text else []
-        return Documents(texts=parts, names=[Txt(f"doc{i}") for i in range(len(parts))])
+@node("docs", title="Docs", description="d", category="test")
+def docs(text: Annotated[Txt, Param(title="Texts", widget=Textarea())] = Txt("")) -> Documents:
+    parts = [Txt(p) for p in text.split(",")] if text else []
+    return Documents(texts=parts, names=[Txt(f"doc{i}") for i in range(len(parts))])
 
 
-class Upper(NodeDefinition):
-    id = "upper"
-    title = "Upper"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
-        return Txt(text.upper())
+@node("upper", title="Upper", description="d", category="test")
+def upper_node(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
+    return Txt(text.upper())
 
 
-class Pair(NodeDefinition):
-    id = "pair"
-    title = "Pair"
-    description = "d"
-    category = "test"
-
-    def run(self, a: Annotated[Txt, Param(title="A", widget=Textarea())] = Txt(""), b: Annotated[Txt, Param(title="B", widget=Textarea())] = Txt("")) -> Out:
-        return Txt(f"{a}:{b}")
+@node("pair", title="Pair", description="d", category="test")
+def pair(a: Annotated[Txt, Param(title="A", widget=Textarea())] = Txt(""), b: Annotated[Txt, Param(title="B", widget=Textarea())] = Txt("")) -> Out:
+    return Txt(f"{a}:{b}")
 
 
-class Lines(NodeDefinition):
-    id = "lines"
-    title = "Lines"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Lines")]:
-        return [Txt(p) for p in text.split("/")]
+@node("lines", title="Lines", description="d", category="test")
+def lines_node(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Lines")]:
+    return [Txt(p) for p in text.split("/")]
 
 
-class Join(NodeDefinition):
-    id = "join"
-    title = "Join"
-    description = "d"
-    category = "test"
-
-    def run(self, texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
-        return Txt("+".join(texts))
+@node("join", title="Join", description="d", category="test")
+def join_node(texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
+    return Txt("+".join(texts))
 
 
-class LongOnly(NodeDefinition):
+@node("long-only", title="Long only", description="d", category="test")
+def long_only(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Length:
     """A decision: keeps a text on `If long` when it has more than two characters."""
-
-    id = "long-only"
-    title = "Long only"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Length:
-        return Length(long=text, short=SKIPPED) if len(text) > 2 else Length(long=SKIPPED, short=text)
+    return Length(long=text, short=SKIPPED) if len(text) > 2 else Length(long=SKIPPED, short=text)
 
 
-class FailsOn(NodeDefinition):
-    id = "fails-on"
-    title = "Fails on"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
-        if text == "boom":
-            raise NodeExecutionError("kunne ikke", code="boom")
-        return text
+@node("fails-on", title="Fails on", description="d", category="test")
+def fails_on(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
+    if text == "boom":
+        raise NodeExecutionError("kunne ikke", code="boom")
+    return text
 
 
-class Slow(NodeDefinition):
-    id = "slow"
-    title = "Slow"
-    description = "d"
-    category = "test"
-    seen: list = []
-    lock = threading.Lock()
-    active = 0
-    peak = 0
-
-    @version(1, policy=Policy(concurrency=1))
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
-        with Slow.lock:
-            Slow.active += 1
-            Slow.peak = max(Slow.peak, Slow.active)
-        time.sleep(0.02)
-        with Slow.lock:
-            Slow.active -= 1
-            Slow.seen.append(text)
-        return text
+slow_state = SimpleNamespace(lock=threading.Lock(), active=0, peak=0, seen=[], calls=0)
 
 
-class Wide(NodeDefinition):
-    id = "wide"
-    title = "Wide"
-    description = "d"
-    category = "test"
-    lock = threading.Lock()
-    active = 0
-    peak = 0
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
-        with Wide.lock:
-            Wide.active += 1
-            Wide.peak = max(Wide.peak, Wide.active)
-        time.sleep(0.02)
-        with Wide.lock:
-            Wide.active -= 1
-        return text
+@node("slow", title="Slow", description="d", category="test", policy=Policy(concurrency=1))
+def slow(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
+    with slow_state.lock:
+        slow_state.active += 1
+        slow_state.peak = max(slow_state.peak, slow_state.active)
+    time.sleep(0.02)
+    with slow_state.lock:
+        slow_state.active -= 1
+        slow_state.seen.append(text)
+    return text
 
 
-class Columns(NodeDefinition):
+wide_state = SimpleNamespace(lock=threading.Lock(), active=0, peak=0, seen=[], calls=0)
+
+
+@node("wide", title="Wide", description="d", category="test")
+def wide(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
+    with wide_state.lock:
+        wide_state.active += 1
+        wide_state.peak = max(wide_state.peak, wide_state.active)
+    time.sleep(0.02)
+    with wide_state.lock:
+        wide_state.active -= 1
+    return text
+
+
+def columns_outputs(spec=""):
+    spec = spec
+    return tuple(Output(name, Txt, title=name.title()) for name in spec.split(",") if name)
+
+@node("columns", title="Columns", description="d", category="test", compute_outputs=columns_outputs)
+def columns(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt(""), spec: Annotated[Txt, Param(title="Kolonner", widget=Textarea())] = Txt("")) -> Mapping[str, Any]:
     """The unfold shape: the author names the columns; each is an output
     on the interface and nothing else. run hands them back by name."""
-
-    id = "columns"
-    title = "Columns"
-    description = "d"
-    category = "test"
-
-    def compute_outputs(self, declared, values, arriving):
-        spec = values.get("spec", "")
-        return tuple(Output(name=name, dtype=Txt, title=name.title()) for name in spec.split(",") if name)
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt(""), spec: Annotated[Txt, Param(title="Kolonner", widget=Textarea())] = Txt("")) -> Mapping[str, Any]:
-        return {name: Txt(f"{name}:{text}") for name in spec.split(",") if name}
+    return {name: Txt(f"{name}:{text}") for name in spec.split(",") if name}
 
 
 def _registry():
     registry = NodeRegistry()
-    for node_cls in (Docs, Upper, Pair, Lines, Join, LongOnly, FailsOn, Slow, Wide, Columns):
-        registry.register(node_cls)
+    for node_cls in (docs, upper_node, pair, lines_node, join_node, long_only, fails_on, slow, wide, columns):
+        registry = registry.extended_with([node_cls])
     return registry
 
 
@@ -461,18 +408,18 @@ def test_a_graph_compile_rejected_is_refused_with_its_problems():
 
 
 def test_rows_run_concurrently_under_the_engines_cap():
-    Wide.peak = 0
+    wide_state.peak = 0
     _run([_docs("a,b,c,d"), GraphNode(id="w", type="wide", version=1, bindings={"text": _edge(("docs", "texts"))})])
 
-    assert Wide.peak > 1
+    assert wide_state.peak > 1
 
 
 def test_a_policy_of_one_runs_rows_one_at_a_time():
-    Slow.peak, Slow.seen = 0, []
+    slow_state.peak, slow_state.seen = 0, []
     _run([_docs("a,b,c"), GraphNode(id="s", type="slow", version=1, bindings={"text": _edge(("docs", "texts"))})])
 
-    assert Slow.peak == 1
-    assert sorted(Slow.seen) == ["a", "b", "c"]
+    assert slow_state.peak == 1
+    assert sorted(slow_state.seen) == ["a", "b", "c"]
 
 
 def test_progress_is_per_row_and_the_total_is_known_once_the_index_is_sealed():
@@ -505,21 +452,16 @@ def test_computed_inputs_reach_the_node_as_keywords():
 
     from conductor.widgets import TextWidget
 
-    class Template(NodeDefinition):
-        id = "template"
-        title = "Template"
-        description = "d"
-        category = "test"
+    def template_node_inputs(template=""):
+        names = re.findall(r"\{(\w+)\}", str(template))
+        return tuple(Input(n, Txt, widget=TextWidget()) for n in dict.fromkeys(names))
 
-        def run(self, template: Annotated[Txt, Param(title="Template", show_handle=False, widget=Textarea())] = Txt(""), **values: Txt) -> Out:
-            return Txt(re.sub(r"\{(\w+)\}", lambda m: str(values[m.group(1)]), template))
-
-        def compute_inputs(self, declared, values):
-            names = re.findall(r"\{(\w+)\}", str(values.get("template", "")))
-            return (*declared, *(Input(name=n, dtype=Txt, title=n, widget=TextWidget()) for n in dict.fromkeys(names)))
+    @node("template", title="Template", description="d", category="test", compute_inputs=template_node_inputs)
+    def template_node(template: Annotated[Txt, Param(title="Template", connectable=False, widget=Textarea())] = Txt(""), **values: Txt) -> Out:
+        return Txt(re.sub(r"\{(\w+)\}", lambda m: str(values[m.group(1)]), template))
 
     registry = _registry()
-    registry.register(Template)
+    registry = registry.extended_with([template_node])
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             _docs("Ida,Bo"),
@@ -575,31 +517,24 @@ def test_a_cancelled_leg_carries_its_state():
 # --- a leg ends pending ---------------------------------------------------
 
 
-class AskNode(NodeDefinition):
+@node("asks", title="Ask", description="d", category="test")
+def ask_node(proposal: Annotated[Txt, Param(title="Proposal", widget=Textarea())] = Txt("")) -> Out | AskPerson:
     """An asking node: packages its proposal into the question and
     returns AskPerson. Its output is what the person supplies."""
-
-    id = "asks"
-    title = "Ask"
-    description = "d"
-    category = "test"
-
-    def run(self, proposal: Annotated[Txt, Param(title="Proposal", widget=Textarea())] = Txt("")) -> Out | AskPerson:
-        return AskPerson(defaults={"result": proposal}, widgets={"result": Textarea()})
+    return AskPerson(defaults={"result": proposal}, widgets={"result": Textarea()})
 
 
 def test_a_run_that_may_ask_says_so_and_still_declares_its_outputs():
     """`-> Out | AskPerson` is the truthful annotation: the pause is read past, the
     record declares the one output the person's answer lands on."""
-    interface = AskNode.versions[1].interface
+    interface = ask_node.versions[1].interface
     assert [(out.name, out.dtype) for out in interface.outputs] == [("result", Txt)]
-    assert interface.returns is Txt  # `Out` is one Txt output; the union declared nothing
 
 
 def _registry_with_asks(*extra):
     registry = _registry()
-    for node_cls in (AskNode, *extra):
-        registry.register(node_cls)
+    for node_cls in (ask_node, *extra):
+        registry = registry.extended_with([node_cls])
     return registry
 
 
@@ -676,18 +611,12 @@ def test_an_iterating_asking_node_pends_once_per_row_and_is_answered_as_a_series
     assert list(compiled.results(second[-1].state)["up"]["result"]) == ["X", "Y"]
 
 
-class AsksIfLong(NodeDefinition):
+@node("asks-if-long", title="Ask if long", description="d", category="test")
+def asks_if_long(proposal: Annotated[Txt, Param(title="Proposal", widget=Textarea())] = Txt("")) -> Out | AskPerson:
     """AskPerson about a text longer than two characters, and passes a short one through."""
-
-    id = "asks-if-long"
-    title = "Ask if long"
-    description = "d"
-    category = "test"
-
-    def run(self, proposal: Annotated[Txt, Param(title="Proposal", widget=Textarea())] = Txt("")) -> Out | AskPerson:
-        if len(proposal) <= 2:
-            return proposal
-        return AskPerson(defaults={"result": proposal}, widgets={"result": Textarea()})
+    if len(proposal) <= 2:
+        return proposal
+    return AskPerson(defaults={"result": proposal}, widgets={"result": Textarea()})
 
 
 def _asks_if_long(texts):
@@ -697,7 +626,7 @@ def _asks_if_long(texts):
             GraphNode(id="ask", type="asks-if-long", version=1, bindings={"proposal": _edge(("docs", "texts"))}),
             GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("ask", "result"))}),
         ]),
-        _registry_with_asks(AsksIfLong),
+        _registry_with_asks(asks_if_long),
     )
 
 

@@ -26,7 +26,7 @@ are the fatal ``misaligned``.
 Before those questions, inputs with no type of their own are typed from
 their edges: a parameter declared ``Any`` takes the element type of what
 arrives, and the node runs once per row if a series arrives; a
-``**inputs`` parameter takes what arrives per edge — ``**inputs: Single``
+``**inputs`` parameter takes what arrives per edge — ``**inputs: AsItArrives``
 receives each value whole, series and all, and never makes the node run
 per row; ``**inputs: Series`` treats each as a series to reduce. Once
 every input is typed, ``compute_outputs`` is asked with the arriving
@@ -74,7 +74,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
-from conductor.dtype import description_of, is_untyped, name_of
+from conductor.dtype import _ReceivedAsItArrives, description_of, is_untyped, name_of
 from conductor.errors import CompileProblem, Problem, problem
 from conductor.graph.binding import From
 from conductor.graph.embedding import SEPARATOR, address, as_drawn, under
@@ -83,7 +83,6 @@ from conductor.graph.receive import Broadcast, Gather, Merge, PerRow, Receive, R
 from conductor.graph.views import field_problems
 from conductor.interface import Interface
 from conductor.metadata import Input, Output
-from conductor.node import NodeDefinition
 from conductor.ref import Ref
 from conductor.series import Index, Series
 from conductor.table import Table, column_type, columns_of, holds_tables
@@ -129,7 +128,6 @@ def derive(
     nodes: Sequence[GraphNode],
     interfaces: Mapping[str, Interface],
     versions: Mapping[str, Any],
-    definitions: Mapping[str, type[NodeDefinition]],
     statics: Mapping[str, Mapping[str, Any]],
     listed: Mapping[str, frozenset[str]],
     graphs: frozenset[str],
@@ -160,7 +158,7 @@ def derive(
     one node with that graph's interface; ``Compilation.embed_graphs`` embeds
     the graph under the row the walk decides for it.
     """
-    walk = _Walk(nodes, interfaces, versions, definitions, statics, listed, graphs)
+    walk = _Walk(nodes, interfaces, versions, statics, listed, graphs)
     for node in nodes:
         walk.visit(node)
     return walk.result()
@@ -220,7 +218,6 @@ class _Walk:
         nodes: Sequence[GraphNode],
         interfaces: Mapping[str, Interface],
         versions: Mapping[str, Any],
-        definitions: Mapping[str, type[NodeDefinition]],
         statics: Mapping[str, Mapping[str, Any]],
         listed: Mapping[str, frozenset[str]],
         graphs: frozenset[str],
@@ -230,8 +227,6 @@ class _Walk:
         #: before the walk types them.
         self.asked = interfaces
         self.versions = versions
-        #: The class each node resolved to, which ``compute_outputs`` is asked of.
-        self.definitions = definitions
         self.statics = statics
         self.listed = listed
         #: The nodes whose version is a compiled graph (``Layout.graphs``).
@@ -327,7 +322,7 @@ class _Walk:
                 found.broken = True
                 return found
             sources = [self.carried[source] for source in binding.refs]
-            if self._whole(node.id, inp):
+            if inp.dtype is _ReceivedAsItArrives:
                 # A `**inputs` parameter takes what arrives, whole. It is passed
                 # as a keyword argument, so its name must be an identifier.
                 if not inp.name.isidentifier():
@@ -413,7 +408,7 @@ class _Walk:
             # from it, so no reader is told the output is missing.
             self.problems.extend(faults)
             return
-        if not outputs:
+        if not outputs and getattr(self.versions[node.id], "returns", Mapping) is not None:
             self.problems.append(problem("no_outputs", node.id))
         runs_per_row_of, disagreeing = self._runs_per_row_of(arrived.demands or self._row_above_reductions(arrived.reductions))
         if disagreeing is not None:
@@ -675,15 +670,11 @@ class _Walk:
         version = self.versions[node.id]
         if node.id in self.graphs:
             return version.interface.outputs  # a compiled graph embedded as a node: it has no hooks
-        declared = (*version.interface.inputs, *self.asked[node.id].inputs)
-        values = {**{i.name: i.default for i in declared if i.optional}, **self.statics[node.id]}
-        return self.definitions[node.id]().compute_outputs(version.interface.outputs, values, arriving)
-
-    def _whole(self, node_id: str, inp: Input) -> bool:
-        """Is ``inp`` a ``**inputs: Single`` parameter — a connected name the
-        version did not declare, received whole?"""
-        version = self.versions[node_id]
-        return version.interface.open == "single" and inp.name not in {i.name for i in version.interface.inputs}
+        values = {**{i.name: i.default for i in version.interface.inputs if not i.required}, **self.statics[node.id]}
+        if version.compute_outputs is None:
+            return version.interface.outputs
+        answered = version.compute_outputs.answer(values, arriving)
+        return version.interface.outputs if answered is None else answered
 
     @staticmethod
     def _typed(field: Any, bound: Mapping[str, Any]) -> Any:

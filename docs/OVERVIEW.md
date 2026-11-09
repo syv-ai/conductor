@@ -8,7 +8,7 @@ A node's `run` signature is read once into `Input` and `Output` records. Executi
 
 ## Declare, compile, run
 
-- **Declare.** A class is checked when it is defined: a missing `id`, `title`, `description` or `category`, a widget written bare instead of on a `Param`, or an `async def run` fails at import. `NodeRegistry.register` adds the catalogue's rules, such as versions numbered from 1 with no holes.
+- **Declare.** `@node` checks a function when it is decorated: a widget written bare instead of on a `Param`, an `async def`, or an `Any` or `Mapping` return with no hook fails at import. `NodeRegistry` is built whole and adds the catalogue's rules, such as an alternative that exists.
 - **Compile.** `CompiledGraph.from_graph(graph, registry)` resolves each node's version, validates the bindings, types each field from its edges, decides which nodes run once per row, asks the field hooks and puts each embedded graph's nodes in its place. Everything wrong is a `Problem`; `is_runnable` says whether a run may start.
 - **Run.** `async with compiled.stream() as events:` yields the events of one leg; `await compiled.run()` returns the state it ended on, and `compiled.run_sync()` does the same from a script.
 

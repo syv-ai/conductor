@@ -10,14 +10,13 @@ compile did.
 from typing import Annotated
 
 import pytest
-from conductor import NodeRegistry
+from conductor import NodeRegistry, node
 from conductor.dtype import AsItArrives, DType
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.graph.receive import Broadcast, Gather, PerRow, RowsUnder, Whole
 from conductor.metadata import Param, Result
-from conductor.node import NodeDefinition
 from conductor.ref import Ref
 from conductor.series import Index, Series
 from conductor.widgets import Textarea
@@ -33,74 +32,42 @@ class Txt(DType, str):
 Out = Annotated[Txt, Result(title="Result")]
 
 
-class Docs(NodeDefinition):
-    id = "docs"
-    title = "Documents"
-    description = "d"
-    category = "test"
-
-    def run(self, folder: Annotated[Txt, Param(title="Folder", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Texts")]:
-        return [Txt(t) for t in folder.split(",") if t]
+@node("docs", title="Documents", description="d", category="test")
+def docs(folder: Annotated[Txt, Param(title="Folder", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Texts")]:
+    return [Txt(t) for t in folder.split(",") if t]
 
 
-class Upper(NodeDefinition):
-    id = "upper"
-    title = "Upper case"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
-        return Txt(text.upper())
+@node("upper", title="Upper case", description="d", category="test")
+def upper_node(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
+    return Txt(text.upper())
 
 
-class Lines(NodeDefinition):
-    id = "lines"
-    title = "Lines"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Lines")]:
-        return text.splitlines()
+@node("lines", title="Lines", description="d", category="test")
+def lines(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Lines")]:
+    return text.splitlines()
 
 
-class Join(NodeDefinition):
-    id = "join"
-    title = "Join"
-    description = "d"
-    category = "test"
-
-    def run(self, texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
-        return Txt("+".join(texts))
+@node("join", title="Join", description="d", category="test")
+def join_node(texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
+    return Txt("+".join(texts))
 
 
-class Script(NodeDefinition):
+@node("script", title="Script", description="d", category="test")
+def script(**inputs: AsItArrives) -> Out:
     """An open interface: every connected name is received whole."""
-
-    id = "script"
-    title = "Script"
-    description = "d"
-    category = "test"
-
-    def run(self, **inputs: AsItArrives) -> Out:
-        return Txt(",".join(f"{name}={list(value) if isinstance(value, Series) else value}" for name, value in sorted(inputs.items())))
+    return Txt(",".join(f"{name}={list(value) if isinstance(value, Series) else value}" for name, value in sorted(inputs.items())))
 
 
-class Tags(NodeDefinition):
+@node("tags", title="Tags", description="d", category="test")
+def tags_node(tags: Annotated[list[str], Param(title="Tags", connectable=False)] = ["x"]) -> Out:
     """A closed input typed as a list: one value that happens to be a list."""
-
-    id = "tags"
-    title = "Tags"
-    description = "d"
-    category = "test"
-
-    def run(self, tags: Annotated[list[str], Param(title="Tags", show_handle=False)] = ["x"]) -> Out:
-        return Txt("|".join(tags))
+    return Txt("|".join(tags))
 
 
 def _registry(*extra):
     registry = NodeRegistry()
-    for node_cls in (Docs, Upper, Lines, Join, Script, Tags, *extra):
-        registry.register(node_cls)
+    for node_cls in (docs, upper_node, lines, join_node, script, tags_node, *extra):
+        registry = registry.extended_with([node_cls])
     return registry
 
 

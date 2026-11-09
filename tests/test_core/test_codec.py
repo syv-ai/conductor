@@ -11,7 +11,7 @@ import json
 from typing import Annotated, Any
 
 import pytest
-from conductor import CompiledGraph, GraphNode, NodeRegistry, Param
+from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, node
 from conductor.codec import from_wire, to_wire
 from conductor.dtype import DType
 from conductor.execution.live_run_values import LiveRunValues
@@ -19,7 +19,7 @@ from conductor.execution.run_state import RunState
 from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
 from conductor.metadata import Result
-from conductor.node import NodeDefinition
+from conductor.node_decorator import NodeDefinition
 from conductor.series import Index, Series
 from conductor.widgets import Textarea
 from conductor_nodes.types import Flag, Json, Number, Text
@@ -93,35 +93,25 @@ def test_a_series_still_reads_a_plain_list_as_dense_rows_on_a_fresh_index():
 # -- the ledger's values --------------------------------------------------------------
 
 
-class Split(NodeDefinition):
-    id = "split"
-    title = "Split"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="In", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Parts")]:
-        return [Txt(part) for part in text.split(",")]
+@node("split", title="Split", description="d", category="test")
+def split_node(text: Annotated[Txt, Param(title="In", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Parts")]:
+    return [Txt(part) for part in text.split(",")]
 
 
-class Upper(NodeDefinition):
-    id = "upper"
-    title = "Upper"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="In", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="Out")]:
-        return Txt(text.upper())
+@node("upper", title="Upper", description="d", category="test")
+def upper_node(text: Annotated[Txt, Param(title="In", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="Out")]:
+    return Txt(text.upper())
 
 
 def _compiled(*classes: type[NodeDefinition], nodes: list[GraphNode]) -> CompiledGraph:
     reg = NodeRegistry()
     for cls in classes:
-        reg.register(cls)
+        reg = reg.extended_with([cls])
     return CompiledGraph.from_graph(Graph(nodes=nodes), reg)
 
 
 def test_a_text_that_spells_the_old_skip_marker_is_a_text_after_a_round_trip():
-    compiled = _compiled(Split, Upper, nodes=[
+    compiled = _compiled(split_node, upper_node, nodes=[
         GraphNode(id="split", type="split", version=1, bindings={"text": Static("__skipped__,x")}),
         GraphNode(id="up", type="upper", version=1, bindings={"text": From("split.result")}),
     ])
@@ -142,7 +132,7 @@ def test_a_text_that_spells_the_old_skip_marker_is_a_text_after_a_round_trip():
 def test_a_skip_is_listed_beside_the_values():
     from conductor import SKIPPED
 
-    compiled = _compiled(Split, Upper, nodes=[
+    compiled = _compiled(split_node, upper_node, nodes=[
         GraphNode(id="split", type="split", version=1, bindings={"text": Static("a,b")}),
         GraphNode(id="up", type="upper", version=1, bindings={"text": From("split.result")}),
     ])
@@ -166,16 +156,11 @@ def test_a_value_with_no_json_form_raises_naming_the_field():
         def __init__(self, handle: object) -> None:
             self.handle = handle
 
-    class Opens(NodeDefinition):
-        id = "opens"
-        title = "Opens"
-        description = "d"
-        category = "test"
+    @node("opens", title="Opens", description="d", category="test")
+    def opens(text: Annotated[Txt, Param(title="In", widget=Textarea())] = Txt("")) -> Annotated[Opaque, Result(title="Handle")]:
+        return Opaque(object())
 
-        def run(self, text: Annotated[Txt, Param(title="In", widget=Textarea())] = Txt("")) -> Annotated[Opaque, Result(title="Handle")]:
-            return Opaque(object())
-
-    compiled = _compiled(Opens, nodes=[GraphNode(id="o", type="opens", version=1, bindings={"text": Static("x")})])
+    compiled = _compiled(opens, nodes=[GraphNode(id="o", type="opens", version=1, bindings={"text": Static("x")})])
     ledger = LiveRunValues(compiled)
     ledger.record(("o", ()), {"result": Opaque(object())})
 

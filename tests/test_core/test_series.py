@@ -118,7 +118,7 @@ def test_a_series_of_any_is_a_reduction_typed_later():
     assert Series[Any].element.id == "any"
     assert Series[Any].describe() == {"id": "series", "of": {"id": "any"}}
     with pytest.raises(TypeError, match="element"):
-        NodeRegistry().add_types(Series[Any])
+        NodeRegistry(types=[Series[Any]])
 
 
 # --- a parameterised series is a real type ----------------------------------

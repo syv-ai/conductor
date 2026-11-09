@@ -1,142 +1,160 @@
 """The records that describe a node's fields — what an author writes, and what the node carries.
 
 An author says what a person should read about a field inside
-``Annotated`` on ``run``: ``Param`` on a parameter, ``Result`` on the
-return. Both are a ``Field`` — a title and a description — and each adds
-what only its side has. A ``Param`` says how the value gets there: the
-``widget`` a person edits it with, if any, and whether an edge can reach
-it. A ``Result`` says which ``choice`` group the output belongs to::
+``Annotated``: ``Param`` on a parameter, ``Result`` on the return. A
+parameter or a return with neither is titled by its name::
 
-    def run(
-        self,
+    @node("summarise")
+    def summarise(
         text: Annotated[Text, Param(title="Text", widget=Textarea())],
-        rows: Annotated[Series[Text], Param(title="Rows")],
+        rows: Series[Text],
     ) -> Annotated[Text, Result(title="Summary")]:
         ...
 
 The node ends up with an ``Input`` per parameter and an ``Output`` per
-declared result: the author's record plus the ``name`` edges and bindings
-refer to and the declared ``dtype``. ``Interface.of`` writes them when a
-node class is defined; the compiler, the engine and an editor read them.
+declared result. A ``compute_inputs`` or ``compute_outputs`` hook builds
+more of them, written the way a signature is: ``Input("amount", Number)``.
+
 A ``Param`` with a widget is edited in place and reachable by an edge; a
-``Param`` with no widget is filled by an edge only; ``show_handle=False``
-closes the input to edges, so its type may be any static type. A
-parameter with no ``Param`` at all is ``Param()``: titled by its name,
-no widget, reachable.
+``Param`` with no widget is filled by an edge only; ``connectable=False``
+closes the input to edges. A parameter whose type is not a ``DType`` is
+closed by itself, since nothing could travel on it.
 
 These records are their own schema: ``dtype`` is a ``DTypeRef``, so a
 dump gives the type's ``describe()``, and a palette is these records
 dumped. A dump does not read back into one of these records: ``dtype``
-takes a ``DType`` class or ``Any``, never a description, and the
-class itself lives on the signature.
+is a ``DType`` class, never a description, and the class itself lives on
+the signature.
 """
 
 from __future__ import annotations
 
-from typing import Annotated, Any, get_args, get_origin
+from typing import Any, Final
 
-from conductor.dtype import DTypeRef
+from conductor.dtype import DTypeRef, _UntypedValue, dtype_of, setting_type
 from conductor.model import ConductorModel
 from conductor.widgets import AnyWidget
 
 
-class Field(ConductorModel):
-    """What a person reads about one part of a node: a ``title`` and a ``description``.
+class _Required:
+    """The default of an input that has none."""
 
-    The half an input and an output share. ``title`` is optional on the
-    author's records, ``Param`` and ``Result``, where it falls back to the
-    parameter's or the output's name; the node's records, ``Input`` and
-    ``Output``, always carry one. Nobody writes a bare ``Field``.
+    def __repr__(self) -> str:
+        return "REQUIRED"
+
+
+_REQUIRED: Final = _Required()
+
+
+class Param(ConductorModel):
+    """What the author says about an input, inside ``Annotated`` on a parameter.
+
+    ``title`` falls back to the parameter's name. ``widget`` is the control a
+    person edits it with, or ``None`` for an input only an edge fills.
+    ``connectable`` is whether an edge can reach the input. Its twin on the
+    return is ``Result``.
     """
 
     title: str | None = None
     description: str | None = None
-
-    @classmethod
-    def on(cls, hint: Any) -> Any:
-        """The record of this class written inside ``Annotated`` on ``hint``, or ``None``."""
-        if get_origin(hint) is not Annotated:
-            return None
-        return next((extra for extra in get_args(hint)[1:] if isinstance(extra, cls)), None)
-
-
-class Param(Field):
-    """What the author says about an input, inside ``Annotated`` on a ``run`` parameter.
-
-    Adds to ``Field`` how the value gets there. ``widget`` is the control a
-    person edits it with, or ``None`` for an input only an edge fills (a
-    ``Series[X]`` gathered from other nodes, an ``Any`` passed through).
-    ``show_handle`` is whether an edge can reach the input; ``False``
-    closes it, so the parameter may declare a static type nothing travels
-    on (a schema an author builds). Its twin on the return is ``Result``.
-    ``Interface.of`` reads it once into an ``Input``; the ``Param`` itself
-    is not kept.
-    """
-
     widget: AnyWidget | None = None
-    show_handle: bool = True
+    connectable: bool = True
 
 
-class Result(Field):
-    """What the author says about an output, inside ``Annotated`` on ``run``'s return or on a field of the returned record.
+class Result(ConductorModel):
+    """What the author says about an output, inside ``Annotated`` on the return or on a field of the returned record.
 
-    Adds ``choice`` to ``Field``: outputs of one node that share a
+    ``name`` is what other nodes edge to, for a one-output return; it
+    defaults to ``"result"``, and a record's field is named by the field.
+    ``title`` falls back to the name. Outputs of one node that share a
     ``choice`` are exclusive alternatives, exactly one of them produced per
     run, as with the two branches of an if/else node::
 
         if_true: Annotated[Text, Result(title="If true", choice="branches")]
         if_false: Annotated[Text, Result(title="If false", choice="branches")]
 
-    Its twin on a parameter is ``Param``. ``outputs_of`` reads it once
-    into an ``Output``; the ``Result`` itself is not kept.
+    Its twin on a parameter is ``Param``.
     """
 
+    name: str | None = None
+    title: str | None = None
+    description: str | None = None
     choice: str | None = None
 
-    def output(self, name: str, dtype: Any) -> Output:
-        """The ``Output`` this declares for the field ``name`` of type ``dtype``."""
-        return Output(name=name, dtype=dtype, title=self.title or name, description=self.description, choice=self.choice)
 
+class Input(ConductorModel):
+    """One input of a node, as the node carries it.
 
-class Input(Param):
-    """One parameter of ``run``, as the node carries it.
+    ``name`` is what edges and bindings refer to (the ``field`` half of a
+    ``Ref``). ``dtype`` is always a ``DType``: ``Any`` is held as a private
+    untyped type, and a plain Python type (a schema, a list of branches)
+    closes the input and is held wrapped, so its value reads as the plain
+    type. A signature gives one per parameter; a ``compute_inputs`` hook
+    builds more::
 
-    A ``Param`` plus the ``name`` edges and bindings refer to (the ``field``
-    half of a ``Ref``), the declared ``dtype``, and the parameter's
-    ``default``. ``dtype`` is a ``DType`` or ``Any`` where the input has a
-    handle, and any pydantic-validatable type where it has none (it
-    serialises as ``null``). ``widget`` is typed as the union of every
-    widget so the record's JSON schema is discriminated per control.
+        Input("amount", Number, title="Amount", widget=TextWidget())
 
-    ``Interface.of`` builds one per parameter; ``compute_inputs`` may build
-    more for a node whose fields depend on its values. Read by ``model_of`` to
-    validate a call, by the compiler to type a typed-in value and to decide
-    whether an edge may land, and by an editor to draw the row.
+    With no ``default`` the input is ``required``.
     """
 
     name: str
     dtype: DTypeRef
     title: str
-
-    #: What the value is when nothing binds the input.
+    description: str | None = None
+    widget: AnyWidget | None = None
+    connectable: bool = True
+    #: What the value is when nothing binds the input; ``None`` on a required one.
     default: Any = None
+    required: bool = True
 
-    #: Whether the parameter has a default at all. Kept separately because
-    #: ``None`` is a legitimate default value.
-    optional: bool = False
+    def __init__(
+        self,
+        name: str,
+        dtype: Any,
+        /,
+        *,
+        title: str | None = None,
+        description: str | None = None,
+        widget: AnyWidget | None = None,
+        connectable: bool = True,
+        default: Any = _REQUIRED,
+    ) -> None:
+        declared = dtype_of(dtype)
+        if declared is None or (not connectable and declared is _UntypedValue):
+            # Nothing can travel here, so what is typed in is read as the plain type.
+            declared, connectable = setting_type(dtype), False
+        required = default is _REQUIRED
+        super().__init__(
+            name=name, dtype=declared, title=title or name, description=description, widget=widget,
+            connectable=connectable, default=None if required else default, required=required,
+        )
 
 
-class Output(Result):
-    """One declared output of ``run``, as the node carries it.
+class Output(ConductorModel):
+    """One output of a node, as the node carries it.
 
-    A ``Result`` plus the ``name`` other nodes edge to and the declared
-    ``dtype``. Derived by ``outputs_of`` from the return annotation. It
-    carries no widget, default or ``optional``: those are facts about how
-    a person supplies a value, and nobody supplies a result. ``choice`` is
-    read by the compiler and the editor, never by the engine, which only
-    propagates the skip.
+    A signature gives one per declared result; a ``compute_outputs`` hook
+    builds them for a node whose outputs depend on its values or on what
+    arrives. ``dtype`` is a ``DType`` or ``Any`` (typed by a hook once it
+    knows what arrives). It carries no widget or default: nobody supplies a
+    result. ``choice`` is read by the compiler and the editor, never by the
+    engine, which only propagates the skip.
     """
 
     name: str
     dtype: DTypeRef
     title: str
+    description: str | None = None
+    choice: str | None = None
+
+    def __init__(
+        self,
+        name: str,
+        dtype: Any,
+        /,
+        *,
+        title: str | None = None,
+        description: str | None = None,
+        choice: str | None = None,
+    ) -> None:
+        super().__init__(name=name, dtype=dtype, title=title or name, description=description, choice=choice)

@@ -9,9 +9,8 @@ One box per node the author drew, titled by its id and its type. A
 node whose version is a graph is a subgraph holding its inner nodes under
 their paths (``emb/up``), nested as deep as the graphs are embedded.
 One arrow per ref on every connected input, labelled with how the reading
-input receives it: ``per row of <index>`` (``PerRow``), nothing
-(``Broadcast``), ``whole`` (``Whole``), ``grouped by <index>``
-(``RowsUnder``), ``gathered`` (``Gather``). A node with a fatal problem
+input receives it: ``per row of <index>``, nothing for one value,
+``whole``, ``grouped by <index>``, ``gathered`` or ``merged``. A node with a fatal problem
 carries the ``fault`` class — the one piece of styling — and an edge from
 a node that is not there is not drawn; an arrow into a node compile could
 not derive has no label, since how it receives is not known. The
@@ -21,17 +20,13 @@ Any graph draws, however broken. No layout: Mermaid lays it out.
 
 from __future__ import annotations
 
+from typing import Any
+
 from conductor import (
-    Broadcast,
     CompiledGraph,
     From,
-    Gather,
     GraphNode,
-    PerRow,
-    Receive,
     Ref,
-    RowsUnder,
-    Whole,
 )
 
 _FAULT = "classDef fault stroke:#c62828,stroke-width:2px"
@@ -82,18 +77,20 @@ def _node_lines(
     return lines
 
 
-def _label(receives: Receive) -> str | None:
-    """How an arrow's reading input receives it, in a few words; ``None`` for a broadcast."""
-    match receives:
-        case PerRow(index=index):
-            return f"per row of {index.id}"
-        case RowsUnder(index=index):
-            return f"grouped by {index.id}"
-        case Whole():
+def _label(receives: Any) -> str | None:
+    """How an arrow's reading input receives it, in a few words; ``None`` where there is nothing to say."""
+    match type(receives).__name__:
+        case "PerRow":
+            return f"per row of {receives.index.id}"
+        case "RowsUnder":
+            return f"grouped by {receives.index.id}"
+        case "Whole":
             return "whole"
-        case Gather():
+        case "Gather":
             return "gathered"
-        case Broadcast():
+        case "Merge":
+            return "merged"
+        case "Broadcast":
             return None
     raise TypeError(f"no label for {receives!r}")
 

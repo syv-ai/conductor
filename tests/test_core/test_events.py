@@ -13,7 +13,7 @@ import json
 from typing import Annotated
 
 import pytest
-from conductor import AskPerson, GraphNode, NodeRegistry, Param
+from conductor import AskPerson, GraphNode, NodeRegistry, Param, node
 from conductor.dtype import DType
 from conductor.execution.events import (
     Event,
@@ -27,7 +27,6 @@ from conductor.graph.binding import Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph
 from conductor.metadata import Result
-from conductor.node import NodeDefinition
 from conductor.series import Index, Series
 from conductor.widgets import Textarea
 from pydantic import TypeAdapter, ValidationError
@@ -38,29 +37,18 @@ class Txt(DType, str):
     title = "Text"
 
 
-class Split(NodeDefinition):
-    id = "split"
-    title = "Split"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="In", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Parts")]:
-        return [Txt(part) for part in text.split(",")]
+@node("split", title="Split", description="d", category="test")
+def split_node(text: Annotated[Txt, Param(title="In", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Parts")]:
+    return [Txt(part) for part in text.split(",")]
 
 
-class Ask(NodeDefinition):
-    id = "ask"
-    title = "Ask"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="In", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="Answer")] | AskPerson:
-        return AskPerson()
+@node("ask", title="Ask", description="d", category="test")
+def ask(text: Annotated[Txt, Param(title="In", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="Answer")] | AskPerson:
+    return AskPerson()
 
 
 def _compiled(text: str) -> CompiledGraph:
-    registry = NodeRegistry()
-    registry.register(Split)
+    registry = NodeRegistry([split_node])
     return CompiledGraph.from_graph(
         Graph(nodes=(GraphNode(id="s", type="split", version=1, bindings={"text": Static(text)}),)), registry
     )
@@ -152,8 +140,7 @@ def test_a_frame_is_the_json_the_dict_was():
 
 
 def test_a_pending_unit_is_a_record_too():
-    registry = NodeRegistry()
-    registry.register(Ask)
+    registry = NodeRegistry([ask])
     compiled = CompiledGraph.from_graph(
         Graph(nodes=(GraphNode(id="q", type="ask", version=1, bindings={"text": Static("x")}),)), registry
     )

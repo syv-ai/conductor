@@ -9,18 +9,17 @@ from typing import Annotated
 
 from conductor import (
     Deprecation,
-    NodeDefinition,
     NodeRegistry,
+    OlderVersion,
     Policy,
     Result,
     Series,
-    deprecated,
-    version,
+    Upgrade,
+    node,
 )
 from conductor.dtype import DType
 from conductor.errors import Problem
 from conductor.metadata import Input, Param
-from conductor.node import upgrade
 from conductor.series import Index
 from conductor.widgets import Textarea, TextWidget
 
@@ -30,35 +29,18 @@ class Txt(DType, str):
     title = "Text"
 
 
-class Greet(NodeDefinition):
-    id = "greet"
-    title = "Greeting"
-    description = "Greets someone"
-    category = "text"
-
-    def run(self, name: Annotated[Txt, Param(title="Name", widget=TextWidget())]) -> Annotated[Txt, Result(title="Greeting")]:
-        return Txt(f"hello {name}")
+@node("greet", title="Greeting", description="Greets someone", category="text")
+def greet(name: Annotated[Txt, Param(title="Name", widget=TextWidget())]) -> Annotated[Txt, Result(title="Greeting")]:
+    return Txt(f"hello {name}")
 
 
-class Truncate(NodeDefinition):
-    id = "truncate"
-    title = "Truncate"
-    description = "Cuts a text short"
-    category = "text"
+def truncate_v1(text: Annotated[Txt, Param(title="Text", widget=Textarea())]) -> Annotated[Txt, Result(title="Short")]:
+    return text
 
-    @upgrade(1, 2)
-    def _v1_to_v2(values):
-        return values
-
-    @version(1)
-    def run_v1(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())]) -> Annotated[Txt, Result(title="Short")]:
-        return text
-
-    @version(2, policy=Policy(retries=2))
-    def run(
-        self, text: Annotated[Txt, Param(title="Text", widget=Textarea())], limit: Annotated[Txt, Param(title="Limit", widget=TextWidget())] = Txt("10")
-    ) -> Annotated[Txt, Result(title="Short")]:
-        return text
+@node("truncate", title="Truncate", description="Cuts a text short", category="text", policy=Policy(retries=2), older=[OlderVersion(truncate_v1, upgrade=Upgrade())])
+def truncate(text: Annotated[Txt, Param(title="Text", widget=Textarea())], limit: Annotated[Txt, Param(title="Limit", widget=TextWidget())] = Txt("10")
+) -> Annotated[Txt, Result(title="Short")]:
+    return text
 
 
 def test_a_type_prints_as_its_name():
@@ -67,54 +49,39 @@ def test_a_type_prints_as_its_name():
 
 
 def test_a_node_prints_what_it_declares():
-    assert repr(Greet) == "Greet(id='greet', title='Greeting', category='text', versions=(1,))"
-    assert repr(Truncate) == "Truncate(id='truncate', title='Truncate', category='text', versions=(1, 2))"
+    assert repr(greet) == "NodeDefinition(id='greet', title='Greeting', category='text', versions=(1,))"
+    assert repr(truncate) == "NodeDefinition(id='truncate', title='Truncate', category='text', versions=(1, 2))"
 
 
 def test_a_node_prints_its_deprecation_and_tags_only_when_it_has_them():
-    @deprecated(header="Gone")
-    class Old(NodeDefinition):
-        id = "old"
-        title = "Old"
-        description = "d"
-        category = "text"
-        tags = ("legacy",)
+    @node("old", title="Old", description="d", category="text", tags=("legacy",), deprecation=Deprecation(header="Gone"))
+    def old(name: Annotated[Txt, Param(title="Name", widget=TextWidget())]) -> Annotated[Txt, Result(title="R")]:
+        return name
 
-        def run(self, name: Annotated[Txt, Param(title="Name", widget=TextWidget())]) -> Annotated[Txt, Result(title="R")]:
-            return name
-
-    assert repr(Old) == (
-        "Old(id='old', title='Old', category='text', tags=('legacy',), versions=(1,), "
+    assert repr(old) == (
+        "NodeDefinition(id='old', title='Old', category='text', tags=('legacy',), versions=(1,), "
         "deprecation=Deprecation(header='Gone'))"
     )
-
-
-def test_a_class_that_declares_no_node_prints_as_a_class():
-    class Shared(NodeDefinition):
-        category = "io"
-
-    assert repr(NodeDefinition) == "<class 'conductor.node.NodeDefinition'>"
-    assert repr(Shared).startswith("<class '")
 
 
 def test_a_registry_prints_its_nodes():
     registry = NodeRegistry()
     assert repr(registry) == "NodeRegistry(nodes=())"
 
-    registry.register(Greet)
-    registry.register(Truncate)
+    registry = registry.extended_with([greet])
+    registry = registry.extended_with([truncate])
     assert repr(registry) == (
         "NodeRegistry(nodes=(\n"
-        "    Greet(id='greet', title='Greeting', category='text', versions=(1,)),\n"
-        "    Truncate(id='truncate', title='Truncate', category='text', versions=(1, 2)),\n"
+        "    NodeDefinition(id='greet', title='Greeting', category='text', versions=(1,)),\n"
+        "    NodeDefinition(id='truncate', title='Truncate', category='text', versions=(1, 2)),\n"
         "))"
     )
 
 
 def test_a_record_prints_only_what_is_not_at_its_default():
-    text = Input(name="text", dtype=Txt, title="Text", widget=Textarea())
+    text = Input("text", Txt, title="Text", widget=Textarea())
 
-    assert repr(text) == "Input(title='Text', widget=Textarea(), name='text', dtype=Txt)"
+    assert repr(text) == "Input(name='text', dtype=Txt, title='Text', widget=Textarea())"
     assert repr(Policy()) == "Policy()"
     assert repr(Policy(retries=2)) == "Policy(retries=2)"
     assert repr(Deprecation()) == "Deprecation()"

@@ -32,31 +32,22 @@ uv run pytest tests/ -q
 
 ```python
 from typing import Annotated
-from conductor import CompiledGraph, From, Graph, GraphNode, NodeDefinition, NodeRegistry, Param, Result, Static
-from conductor.widgets import Textarea, TextWidget
+from conductor import CompiledGraph, From, Graph, GraphNode, NodeRegistry, Param, Static, node
+from conductor.widgets import Textarea
 from conductor_nodes.types import Text
 
-class Echo(NodeDefinition):
-    id = "echo"
-    title = "Echo"
-    description = "Returns the input unchanged"
-    category = "text"
+@node("echo", title="Echo", description="Returns the input unchanged", category="text")
+def echo(text: Annotated[Text, Param(title="Input", widget=Textarea())]) -> Text:
+    return text
 
-    def run(self, text: Annotated[Text, Param(title="Input", widget=Textarea())]) -> Annotated[Text, Result(title="Output")]:
-        return text
+@node("uppercase", category="text")
+def uppercase(text: Text) -> Text:
+    """Converts to uppercase."""
+    return Text(text.upper())
 
-class Uppercase(NodeDefinition):
-    id = "uppercase"
-    title = "Uppercase"
-    description = "Converts to uppercase"
-    category = "text"
+assert uppercase(Text("a")) == "A"          # a node is called like its function
 
-    def run(self, text: Annotated[Text, Param(title="Input", widget=TextWidget())]) -> Annotated[Text, Result(title="Result")]:
-        return Text(text.upper())
-
-registry = NodeRegistry()
-registry.register(Echo)
-registry.register(Uppercase)
+registry = NodeRegistry([echo, uppercase])
 
 graph = Graph(nodes=[
     GraphNode(id="n1", type="echo", version=1, bindings={"text": Static("hello world")}),
@@ -80,9 +71,9 @@ To watch a run, `async with compiled.stream() as events:`. It yields `run_start`
 
 ## Concepts
 
-**Nodes.** A node is a `NodeDefinition` subclass with `id`, `title`, `description` and `category`. Each `run` parameter is `Annotated[DType, Param(title=..., widget=...)]`; a default makes it optional. One output is `Annotated[DType, Result(title=...)]` and is named `result`. Several outputs are a frozen dataclass whose fields are the outputs. `run` is a plain function that the engine calls in a worker thread. The class is checked when it is defined, so a mistake fails at import.
+**Nodes.** `@node("id")` wraps a plain function and returns a frozen, callable `NodeDefinition`. It registers nothing, so `upper(Text("a"))` is the unit test. The title defaults to the function's name and the description to its docstring. Each parameter is `text: Text`, with `Annotated[Text, Param(title=..., widget=...)]` when a person needs to read more; a default makes it optional, and a parameter of a plain Python type is closed to edges by itself. `-> Text` is one output named `result`, several outputs are a frozen dataclass whose fields are the outputs, and `-> None` declares none. The engine calls the function in a worker thread. It is checked by `@node`, so a mistake fails at import.
 
-**Types.** Every value on an edge has a `DType`, a real class such as `class Text(DType, str)` with an `id` and a `title`. Conductor ships the mechanism and no vocabulary: a registry holds the types its nodes declare plus what the host adds with `registry.add_types(...)`. `target.accepts(source)` decides whether an edge may land. `Series[X]` is the one collection.
+**Types.** Every value on an edge has a `DType`, a real class such as `class Text(DType, str)` with an `id`. Conductor ships the mechanism and no vocabulary: a registry holds the types its nodes declare plus the `types` a host names. `target.accepts(source)` decides whether an edge may land. `Series[X]` is the one collection, a plain sequence to a type checker, and `Table[Contact]` a whole table whose columns a `TypedDict` names.
 
 **Graphs and bindings.** A graph is its nodes. Each input holds at most one binding: `From("node.output")` is an edge, `Static(value)` is a typed-in value, and no binding means the declared default. A `Graph` saves itself with `to_path` / `from_path` as YAML or JSON.
 
@@ -94,17 +85,17 @@ To watch a run, `async with compiled.stream() as events:`. It yields `run_start`
 
 **A person in the loop.** A node returns `AskPerson`, annotated `-> X | AskPerson`, and its declared outputs are what is asked. The rest of the graph runs on and the state ends `waiting`, each waiting unit and its questions in `state.waiting`. `compiled.answer(state, {unit.id: {output: answer}})` checks the answers and returns a new state; `compiled.run_sync(state)` goes on from it.
 
-**Versions and retries.** Several versions live in one class as `@version(n)` methods, each with a `Policy` (`retries`, `delay`, `timeout`, `concurrency`, `retry_on`). `@upgrade(1, 2)` rewrites values saved against version 1, and `@deprecated` retires a node or a version. Only an `ExternalFailure`, or an exception class named in `retry_on`, is retried.
+**Versions and retries.** A node lists its older versions, oldest first: `@node("split", older=[OlderVersion(split_v1, upgrade=Upgrade(renamed_inputs={"sep": "separator"}))])`. Each version has its own `Policy` (`retries`, `delay`, `timeout`, `concurrency`, `retry_on`) and hooks. `upgrade_node(graph, node_id, registry)` moves a node forward, and `Deprecation(...)` retires a node or a version. Only an `ExternalFailure`, or an exception class named in `retry_on`, is retried.
 
 **Failures.** Every run-time failure is a `Problem` (`type`, `loc`, `msg`, `ctx`), the same record a compile reports, on the event and `state.failure`. A call that cannot be acted on raises `InvalidCallError`, every fault listed. All exceptions inherit from `ConductorError`.
 
-**Values the host supplies.** A parameter marked `Annotated[T, FromRun()]` is filled by type from `compiled.run_sync(from_run={T: value})`, not from an edge.
+**Values the host supplies.** A parameter marked `FromRun[T]` is filled by type from `compiled.run_sync(from_run={T: value})`, not from an edge.
 
 **Widgets.** A widget is the control a person edits an input with: `TextWidget`, `Textarea`, `Dropdown`, `NumberWidget`, `Switch`, `FileUpload` and more. Each is a pydantic model with a `kind`. There is no default widget for any type, so every input declares its own.
 
 ## Standard nodes and providers
 
-`conductor_nodes.registry(categories=[...])` builds a registry of the standard nodes (`text`, `math`, `logic`, `control`, `json`, `regex`), declared in the types `conductor_nodes.types` ships: `Text`, `Number`, `Flag`, `Json`. `conductor_nodes.register_all(registry)` adds them to a registry you already have.
+`conductor_nodes.registry(categories=[...])` builds a registry of the standard nodes (`text`, `math`, `logic`, `control`, `json`, `regex`), declared in the types `conductor_nodes.types` ships: `Text`, `Number`, `Flag`, `Json`. `conductor_nodes.nodes()` lists them for a registry of your own.
 
 `conductor_providers.react` turns a graph into ReactFlow JSON and back. `conductor_providers.fastapi.conductor_router(registry)` mounts `/nodes`, `/compile`, `/run` and `/run-stream`. `conductor_providers.mermaid.flowchart(compiled)` draws a compiled graph.
 

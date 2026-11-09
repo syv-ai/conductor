@@ -13,12 +13,12 @@ import threading
 import time
 from typing import Annotated
 
-from conductor import CompiledGraph, GraphNode, NodeRegistry, Param
+from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, node
 from conductor.dtype import DType
 from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
 from conductor.metadata import Result
-from conductor.node import NodeDefinition, Policy, version
+from conductor.node_decorator import NodeDefinition, Policy
 from conductor.series import Series
 from conductor.widgets import Textarea
 from helpers import stream_of
@@ -34,16 +34,10 @@ Out = Annotated[Txt, Result(title="Out")]
 Parts = Annotated[Series[Txt], Result(title="Parts")]
 
 
-class Split(NodeDefinition):
+@node("split", title="Split", description="d", category="test")
+def split_node(text: In = Txt("")) -> Parts:
     """``n`` rows, so a node fed by it runs ``n`` times."""
-
-    id = "split"
-    title = "Split"
-    description = "d"
-    category = "test"
-
-    def run(self, text: In = Txt("")) -> Parts:
-        return [Txt(part) for part in text.split(",")]
+    return [Txt(part) for part in text.split(",")]
 
 
 def _rows(count: int) -> str:
@@ -53,8 +47,8 @@ def _rows(count: int) -> str:
 def _per_row(slow_cls: type[NodeDefinition], rows: int, *more: type[NodeDefinition]) -> CompiledGraph:
     """``split`` feeding ``rows`` rows into ``slow_cls`` as ``slow``, plus ``more`` as root nodes."""
     reg = NodeRegistry()
-    for cls in (Split, slow_cls, *more):
-        reg.register(cls)
+    for cls in (split_node, slow_cls, *more):
+        reg = reg.extended_with([cls])
     nodes = [
         GraphNode(id="split", type="split", version=1, bindings={"text": Static(_rows(rows))}),
         GraphNode(id="slow", type=slow_cls.id, version=1, bindings={"text": From("split.result")}),
@@ -64,8 +58,7 @@ def _per_row(slow_cls: type[NodeDefinition], rows: int, *more: type[NodeDefiniti
 
 
 def _single(cls: type[NodeDefinition]) -> CompiledGraph:
-    reg = NodeRegistry()
-    reg.register(cls)
+    reg = NodeRegistry([cls])
     return CompiledGraph.from_graph(
         Graph(nodes=[GraphNode(id="n1", type=cls.id, version=1, bindings={"text": Static("x")})]), reg
     )
@@ -82,19 +75,13 @@ def _events(compiled: CompiledGraph, **kw) -> list[dict]:
 
 
 def _sleeper(seconds: float, calls: list[str], concurrency: int = 1) -> type[NodeDefinition]:
-    class Sleeper(NodeDefinition):
-        id = "sleeper"
-        title = "Sleeper"
-        description = "d"
-        category = "test"
+    @node("sleeper", title="Sleeper", description="d", category="test", policy=Policy(concurrency=concurrency))
+    def sleeper(text: In = Txt("")) -> Out:
+        calls.append(str(text))
+        time.sleep(seconds)
+        return Txt(text.upper())
 
-        @version(1, policy=Policy(concurrency=concurrency))
-        def run(self, text: In = Txt("")) -> Out:
-            calls.append(str(text))
-            time.sleep(seconds)
-            return Txt(text.upper())
-
-    return Sleeper
+    return sleeper
 
 
 def test_closing_the_stream_after_one_event_stops_the_rest():
@@ -156,19 +143,13 @@ def test_an_instant_node_beside_forty_slow_rows_does_not_time_out():
     at once, so its clock never counts time spent waiting for a worker."""
     calls: list[str] = []
 
-    class Instant(NodeDefinition):
-        id = "instant"
-        title = "Instant"
-        description = "d"
-        category = "test"
-
-        @version(1, policy=Policy(timeout=0.1))
-        def run(self, texts: Annotated[Series[Txt], Param(title="In", widget=Textarea())]) -> Out:
-            return Txt("now")
+    @node("instant", title="Instant", description="d", category="test", policy=Policy(timeout=0.1))
+    def instant(texts: Annotated[Series[Txt], Param(title="In", widget=Textarea())]) -> Out:
+        return Txt("now")
 
     reg = NodeRegistry()
-    for cls in (Split, _sleeper(0.5, calls, concurrency=40), Instant):
-        reg.register(cls)
+    for cls in (split_node, _sleeper(0.5, calls, concurrency=40), instant):
+        reg = reg.extended_with([cls])
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         GraphNode(id="split", type="split", version=1, bindings={"text": Static(_rows(40))}),
         GraphNode(id="slow", type="sleeper", version=1, bindings={"text": From("split.result")}),
@@ -194,26 +175,20 @@ def test_concurrency_one_with_a_timeout_never_has_two_calls_in_flight():
     most = 0
     lock = threading.Lock()
 
-    class Slow(NodeDefinition):
-        id = "slow-rows"
-        title = "Slow"
-        description = "d"
-        category = "test"
-
-        @version(1, policy=Policy(concurrency=1, timeout=0.2, retries=2, delay=0.01))
-        def run(self, text: In = Txt("")) -> Out:
-            nonlocal in_flight, most
+    @node("slow-rows", title="Slow", description="d", category="test", policy=Policy(concurrency=1, timeout=0.2, retries=2, delay=0.01))
+    def slow(text: In = Txt("")) -> Out:
+        nonlocal in_flight, most
+        with lock:
+            in_flight += 1
+            most = max(most, in_flight)
+        try:
+            time.sleep(0.5)
+        finally:
             with lock:
-                in_flight += 1
-                most = max(most, in_flight)
-            try:
-                time.sleep(0.5)
-            finally:
-                with lock:
-                    in_flight -= 1
-            return Txt(text)
+                in_flight -= 1
+        return Txt(text)
 
-    compiled = _per_row(Slow, 3)
+    compiled = _per_row(slow, 3)
 
     start = time.monotonic()
     events = _events(compiled)
@@ -230,19 +205,13 @@ def test_concurrency_one_with_a_timeout_never_has_two_calls_in_flight():
 def test_a_timed_out_attempt_is_final_and_its_cause_is_timeout():
     calls: list[str] = []
 
-    class Slow(NodeDefinition):
-        id = "slow-once"
-        title = "Slow"
-        description = "d"
-        category = "test"
+    @node("slow-once", title="Slow", description="d", category="test", policy=Policy(timeout=0.1, retries=3, delay=0.01))
+    def slow(text: In = Txt("")) -> Out:
+        calls.append(str(text))
+        time.sleep(0.3)
+        return Txt("late")
 
-        @version(1, policy=Policy(timeout=0.1, retries=3, delay=0.01))
-        def run(self, text: In = Txt("")) -> Out:
-            calls.append(str(text))
-            time.sleep(0.3)
-            return Txt("late")
-
-    events = _events(_single(Slow))
+    events = _events(_single(slow))
     time.sleep(0.4)
 
     assert len(calls) == 1
@@ -257,35 +226,25 @@ def test_a_timed_out_attempt_is_final_and_its_cause_is_timeout():
 
 
 def test_execute_has_no_deadline_by_default_and_runs_a_slow_node_to_the_end():
-    class Slow(NodeDefinition):
-        id = "slow-second"
-        title = "Slow"
-        description = "d"
-        category = "test"
-
-        def run(self, text: In = Txt("")) -> Out:
-            time.sleep(1.0)
-            return Txt("done")
+    @node("slow-second", title="Slow", description="d", category="test")
+    def slow(text: In = Txt("")) -> Out:
+        time.sleep(1.0)
+        return Txt("done")
 
     assert inspect.signature(CompiledGraph.run).parameters["timeout"].default is None
 
-    compiled = _single(Slow)
+    compiled = _single(slow)
     assert compiled.results(compiled.run_sync())["n1"]["result"] == "done"
 
 
 def test_a_leg_deadline_ends_the_leg_at_once_timed_out():
-    class Slow(NodeDefinition):
-        id = "slow-second"
-        title = "Slow"
-        description = "d"
-        category = "test"
-
-        def run(self, text: In = Txt("")) -> Out:
-            time.sleep(1.0)
-            return Txt("done")
+    @node("slow-second", title="Slow", description="d", category="test")
+    def slow(text: In = Txt("")) -> Out:
+        time.sleep(1.0)
+        return Txt("done")
 
     start = time.monotonic()
-    events = _events(_single(Slow), timeout=0.2)
+    events = _events(_single(slow), timeout=0.2)
     elapsed = time.monotonic() - start
 
     assert events[-1].state.status == "timed_out"
@@ -324,14 +283,9 @@ def test_a_ready_unit_nobody_started_stops_the_leg_loudly(monkeypatch):
     import pytest
     from conductor.execution.live_run_values import LiveRunValues
 
-    class Echo(NodeDefinition):
-        id = "echo-wake"
-        title = "Echo"
-        description = "d"
-        category = "test"
-
-        def run(self, text: In = Txt("")) -> Out:
-            return text
+    @node("echo-wake", title="Echo", description="d", category="test")
+    def echo(text: In = Txt("")) -> Out:
+        return text
 
     record = LiveRunValues.record
 
@@ -345,4 +299,4 @@ def test_a_ready_unit_nobody_started_stops_the_leg_loudly(monkeypatch):
         GraphNode(id="b", type="echo-wake", version=1, bindings={"text": From("a.result")}),
     ])
     with pytest.raises(RuntimeError, match="missed wake"):
-        CompiledGraph.from_graph(graph, NodeRegistry(nodes=(Echo,))).run_sync()
+        CompiledGraph.from_graph(graph, NodeRegistry((echo,))).run_sync()

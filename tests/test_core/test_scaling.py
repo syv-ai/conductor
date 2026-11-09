@@ -12,14 +12,13 @@ import time
 from dataclasses import dataclass
 from typing import Annotated
 
-from conductor import NodeRegistry, Param
+from conductor import NodeRegistry, Param, node
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.metadata import Result
-from conductor.node import NodeDefinition
 from conductor.series import Series
 from conductor.widgets import Textarea
 from helpers import stream_of
@@ -45,55 +44,30 @@ class Length:
     short: Annotated[Txt, Result(title="If short")]
 
 
-class Docs(NodeDefinition):
-    id = "docs"
-    title = "Docs"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Texts", widget=Textarea())] = Txt("")) -> Documents:
-        parts = [Txt(p) for p in text.split(",")]
-        return Documents(texts=parts, names=[Txt(f"doc{i}") for i in range(len(parts))])
+@node("docs", title="Docs", description="d", category="test")
+def docs(text: Annotated[Txt, Param(title="Texts", widget=Textarea())] = Txt("")) -> Documents:
+    parts = [Txt(p) for p in text.split(",")]
+    return Documents(texts=parts, names=[Txt(f"doc{i}") for i in range(len(parts))])
 
 
-class Upper(NodeDefinition):
-    id = "upper"
-    title = "Upper"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
-        return Txt(text.upper())
+@node("upper", title="Upper", description="d", category="test")
+def upper_node(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
+    return Txt(text.upper())
 
 
-class Pair(NodeDefinition):
-    id = "pair"
-    title = "Pair"
-    description = "d"
-    category = "test"
-
-    def run(self, a: Annotated[Txt, Param(title="A", widget=Textarea())] = Txt(""), b: Annotated[Txt, Param(title="B", widget=Textarea())] = Txt("")) -> Out:
-        return Txt(f"{a}:{b}")
+@node("pair", title="Pair", description="d", category="test")
+def pair(a: Annotated[Txt, Param(title="A", widget=Textarea())] = Txt(""), b: Annotated[Txt, Param(title="B", widget=Textarea())] = Txt("")) -> Out:
+    return Txt(f"{a}:{b}")
 
 
-class Join(NodeDefinition):
-    id = "join"
-    title = "Join"
-    description = "d"
-    category = "test"
-
-    def run(self, texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
-        return Txt("+".join(texts))
+@node("join", title="Join", description="d", category="test")
+def join_node(texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
+    return Txt("+".join(texts))
 
 
-class LongOnly(NodeDefinition):
-    id = "long-only"
-    title = "Long only"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Length:
-        return Length(long=text, short=SKIPPED) if len(text) > 4 else Length(long=SKIPPED, short=text)
+@node("long-only", title="Long only", description="d", category="test")
+def long_only(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Length:
+    return Length(long=text, short=SKIPPED) if len(text) > 4 else Length(long=SKIPPED, short=text)
 
 
 def _edge(node_id: str, field: str) -> From:
@@ -103,8 +77,8 @@ def _edge(node_id: str, field: str) -> From:
 def _compiled(rows: int) -> CompiledGraph:
     """Ten nodes over ``rows`` rows; every third row takes the short branch."""
     registry = NodeRegistry()
-    for node_cls in (Docs, Upper, Pair, Join, LongOnly):
-        registry.register(node_cls)
+    for node_cls in (docs, upper_node, pair, join_node, long_only):
+        registry = registry.extended_with([node_cls])
     text = ",".join(f"row{i}" if i % 3 else "r" for i in range(rows))
     graph = Graph(nodes=[
         GraphNode(id="docs", type="docs", version=1, bindings={"text": Static(text)}),

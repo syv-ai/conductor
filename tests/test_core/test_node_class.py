@@ -1,21 +1,20 @@
-from typing import Annotated, ClassVar
+from collections.abc import Mapping
+from dataclasses import FrozenInstanceError
+from typing import Annotated, Any, ClassVar
 
 import pytest
-from conductor import NodeRegistry
+from conductor import AsItArrives, Input, NodeRegistry, OlderVersion, Upgrade, node
 from conductor.dtype import DType
 from conductor.errors import NodeDeclarationError
 from conductor.graph.binding import Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.metadata import Output, Param, Result
-from conductor.node import (
+from conductor.node_decorator import (
     Deprecation,
     NodeDefinition,
     NodeDescription,
     Policy,
-    deprecated,
-    upgrade,
-    version,
 )
 from conductor.series import Series
 from conductor.widgets import Choice, Dropdown, Textarea
@@ -33,73 +32,32 @@ Out = Annotated[Txt, Result(title="R")]
 
 
 def test_a_node_declares_its_identity_and_implements_run():
-    class Greeter(NodeDefinition):
-        id = "greeter"
-        title = "Greeter"
-        description = "Says hello"
-        category = "test"
+    @node("greeter", title="Greeter", description="Says hello", category="test")
+    def greeter(name: Annotated[Txt, Param(title="Name", widget=Textarea())] = Txt("")) -> Out:
+        return Txt(f"hi {name}")
 
-        def run(self, name: Annotated[Txt, Param(title="Name", widget=Textarea())] = Txt("")) -> Out:
-            return Txt(f"hi {name}")
-
-    assert Greeter().run(name=Txt("ida")) == "hi ida"
+    assert greeter(name=Txt("ida")) == "hi ida"
 
 
 def test_the_interface_is_derived_when_the_class_is_defined():
     """Subclassing is the trigger, so it cannot be forgotten."""
 
-    class Greeter(NodeDefinition):
-        id = "greeter-2"
-        title = "Greeter"
-        description = "d"
-        category = "test"
+    @node("greeter-2", title="Greeter", description="d", category="test")
+    def greeter(name: Annotated[Txt, Param(title="Name", widget=Textarea())] = Txt("")) -> Out:
+        return name
 
-        def run(self, name: Annotated[Txt, Param(title="Name", widget=Textarea())] = Txt("")) -> Out:
-            return name
-
-    iface = Greeter.versions[Greeter.current].interface
+    iface = greeter.versions[greeter.current].interface
     assert [i.name for i in iface.inputs] == ["name"]
     assert [h.name for h in iface.outputs] == ["result"]
-
-
-def test_a_node_without_an_id_fails_at_import_not_at_run():
-    with pytest.raises(TypeError, match="id"):
-
-        class Nameless(NodeDefinition):
-            title = "No id"
-            description = "d"
-            category = "test"
-
-            def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-                return x
-
-
-def test_a_node_without_a_category_fails_at_import():
-    """Where the palette files a node is a fact the author states, not
-    one a default answers for them."""
-    with pytest.raises(TypeError, match="category"):
-
-        class Unfiled(NodeDefinition):
-            id = "unfiled"
-            title = "Unfiled"
-            description = "d"
-
-            def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-                return x
 
 
 def test_a_bare_widget_fails_at_import():
     """The widget goes on the ``Param``; a bare one is an error, not a fallback."""
     with pytest.raises(TypeError, match="Param"):
 
-        class Bare(NodeDefinition):
-            id = "bare"
-            title = "Bare"
-            description = "d"
-            category = "test"
-
-            def run(self, x: Annotated[Txt, Textarea()] = Txt("")) -> Out:
-                return x
+        @node("bare", title="Bare", description="d", category="test")
+        def bare(x: Annotated[Txt, Textarea()] = Txt("")) -> Out:
+            return x
 
 
 def test_a_class_says_nothing_about_what_the_engine_must_do():
@@ -107,17 +65,12 @@ def test_a_class_says_nothing_about_what_the_engine_must_do():
     ``run`` returns, and the engine acts on the value. A flag per
     capability is the same fact under another name."""
 
-    class Greeter(NodeDefinition):
-        id = "greeter-3"
-        title = "Greeter"
-        description = "d"
-        category = "test"
-
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return x
+    @node("greeter-3", title="Greeter", description="d", category="test")
+    def greeter(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
+        return x
 
     for gone in ("role", "is_decision", "is_signal", "is_input", "asks", "dynamic_handles"):
-        assert not hasattr(Greeter, gone), gone
+        assert not hasattr(greeter, gone), gone
 
 
 def test_an_intermediate_base_declares_nothing():
@@ -134,518 +87,108 @@ def test_a_node_may_be_deprecated_and_the_notice_is_content():
     """The record's presence is the fact. Nothing is wrong with a
     graph that uses a deprecated node — it is not a Problem."""
 
-    @deprecated(header="Retired", alternative="greeter", migration="Use Greeter instead.")
-    class Old(NodeDefinition):
-        id = "old"
-        title = "Old"
-        description = "d"
-        category = "test"
+    @node("old", title="Old", description="d", category="test", deprecation=Deprecation(header="Retired", alternative="greeter", migration="Use Greeter instead."))
+    def old_node(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
+        return x
 
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return x
+    @node("live", title="Live", description="d", category="test")
+    def live(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
+        return x
 
-    class Live(NodeDefinition):
-        id = "live"
-        title = "Live"
-        description = "d"
-        category = "test"
-
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return x
-
-    assert Old.deprecation == Deprecation(header="Retired", alternative="greeter", migration="Use Greeter instead.")
-    assert Live.deprecation is None
-    assert not hasattr(Old, "deprecated"), "no boolean beside the record"
+    assert old_node.deprecation == Deprecation(header="Retired", alternative="greeter", migration="Use Greeter instead.")
+    assert live.deprecation is None
+    assert not hasattr(old_node, "deprecated"), "no boolean beside the record"
 
 
 def test_a_bare_deprecated_means_going_away_with_no_details_yet():
-    @deprecated()
-    class Old(NodeDefinition):
-        id = "old-bare"
-        title = "Old"
-        description = "d"
-        category = "test"
+    @node("old-bare", title="Old", description="d", category="test", deprecation=Deprecation())
+    def old_node(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
+        return x
 
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return x
-
-    assert Old.deprecation == Deprecation()
+    assert old_node.deprecation == Deprecation()
 
 
-
-
-def test_an_undecorated_run_is_version_one():
-    class Once(NodeDefinition):
-        id = "once"
-        title = "Once"
-        description = "d"
-        category = "test"
-
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return x
-
-    assert set(Once.versions) == {1}
-    assert Once.current == 1
-    assert Once.versions[1].run.__name__ == "run"
-
-
-def test_versions_live_together_in_one_class():
-    class Two(NodeDefinition):
-        id = "two"
-        title = "Two"
-        description = "d"
-        category = "test"
-
-        @upgrade(1, 2)
-        def _v1_to_v2(values):
-            return values
-
-        @version(1)
-        def run_v1(self, old: Annotated[Txt, Param(title="Old", widget=Textarea())] = Txt("")) -> Out:
-            return old
-
-        @version(2)
-        def run(self, new: Annotated[Txt, Param(title="New", widget=Textarea())] = Txt("")) -> Out:
-            return new
-
-    assert set(Two.versions) == {1, 2}
-    assert Two.current == 2
-    assert [i.name for i in Two.versions[1].interface.inputs] == ["old"]
-    assert [i.name for i in Two.versions[2].interface.inputs] == ["new"]
-
-
-def test_the_current_version_is_the_one_called_run():
-    class Two(NodeDefinition):
-        id = "two-b"
-        title = "Two"
-        description = "d"
-        category = "test"
-
-        @upgrade(1, 2)
-        def _v1_to_v2(values):
-            return values
-
-        @version(1)
-        def run_v1(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return x
-
-        @version(2)
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return Txt(x.upper())
-
-    assert Two.versions[Two.current].run.__name__ == "run"
 
 
 def test_a_version_with_no_policy_gets_the_default():
-    class Plain(NodeDefinition):
-        id = "plain-policy"
-        title = "Plain"
-        description = "d"
-        category = "test"
+    @node("plain-policy", title="Plain", description="d", category="test")
+    def plain(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
+        return x
 
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return x
-
-    assert Plain.versions[1].policy == Policy()
-    assert Plain.versions[1].policy.retries == 0
-    assert Plain.versions[1].policy.concurrency == 8
+    assert plain.versions[1].policy == Policy()
+    assert plain.versions[1].policy.retries == 0
+    assert plain.versions[1].policy.concurrency == 8
 
 
 def test_policy_is_declared_per_version():
-    class Fetch(NodeDefinition):
-        id = "fetch"
-        title = "Fetch"
-        description = "d"
-        category = "test"
+    def fetch_v1(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
+        return x
 
-        @upgrade(1, 2)
-        def _v1_to_v2(values):
-            return values
+    @node("fetch", title="Fetch", description="d", category="test", policy=Policy(timeout=30.0, concurrency=1), older=[OlderVersion(fetch_v1, upgrade=Upgrade(), policy=Policy(retries=3, delay=1.0))])
+    def fetch(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
+        return x
 
-        @version(1, policy=Policy(retries=3, delay=1.0))
-        def run_v1(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return x
-
-        @version(2, policy=Policy(timeout=30.0, concurrency=1))
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return x
-
-    assert Fetch.versions[1].policy.retries == 3
-    assert Fetch.versions[2].policy.retries == 0
-    assert Fetch.versions[2].policy.timeout == 30.0
-    assert Fetch.versions[2].policy.concurrency == 1
-
-
-def test_a_gap_in_the_versions_is_the_catalogs_rule_not_the_classs():
-    """Defining {1, 3} is legal — a loaded definition (an embedded graph whose
-    approved versions skip one) is whole as it is. Registering it is not:
-    the catalog promises every version up to the current one."""
-
-    class Gapped(NodeDefinition):
-        id = "gapped"
-        title = "Gapped"
-        description = "d"
-        category = "test"
-
-        @version(1)
-        def run_v1(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return x
-
-        @version(3)
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return x
-
-    assert set(Gapped.versions) == {1, 3}
-    from conductor import NodeRegistry
-
-    with pytest.raises(NodeDeclarationError, match="numbers from 1 with no hole"):
-        NodeRegistry().register(Gapped)
-
-
-def test_an_async_run_is_refused():
-    """The engine calls ``run`` in a worker thread and never awaits it, so an
-    async version would complete with a coroutine for its result."""
-    with pytest.raises(TypeError, match="async"):
-
-        class Waits(NodeDefinition):
-            id = "waits"
-            title = "Waits"
-            description = "d"
-            category = "test"
-
-            async def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-                return x
-
-    with pytest.raises(TypeError, match="version 2 is async"):
-
-        class WaitsLater(NodeDefinition):
-            id = "waits-later"
-            title = "Waits"
-            description = "d"
-            category = "test"
-
-            @upgrade(1, 2)
-            def _v1_to_v2(values):
-                return values
-
-            @version(1)
-            def run_v1(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-                return x
-
-            @version(2)
-            async def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-                return x
-
-
-def test_an_undecorated_run_beside_versions_is_refused():
-    """Once any method carries ``@version``, every version says its number:
-    a plain ``run`` beside them would otherwise be dropped without a word."""
-    with pytest.raises(TypeError, match="run has no @version"):
-
-        class Forgot(NodeDefinition):
-            id = "forgot"
-            title = "Forgot"
-            description = "d"
-            category = "test"
-
-            @version(1)
-            def run_v1(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-                return x
-
-            def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-                return x
-
-    class Versioned(NodeDefinition):
-        id = "versioned"
-        title = "Versioned"
-        description = "d"
-        category = "test"
-
-        @version(1)
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return x
-
-    with pytest.raises(TypeError, match="run has no @version"):
-
-        class Overrides(Versioned):
-            id = "overrides"
-
-            def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-                return x
-
-
-def test_two_methods_claiming_one_version_are_refused():
-    with pytest.raises(TypeError, match="version 1"):
-
-        class Twice(NodeDefinition):
-            id = "twice"
-            title = "Twice"
-            description = "d"
-            category = "test"
-
-            @version(1)
-            def run_a(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-                return x
-
-            @version(1)
-            def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-                return x
-
-
-def test_a_version_record_does_not_restate_its_number():
-    import dataclasses
-
-    from conductor.node import NodeVersion
-
-    assert [f.name for f in dataclasses.fields(NodeVersion)] == ["run", "interface", "policy", "deprecation"]
-
-
-def test_a_version_may_be_deprecated_on_its_own():
-    """Where the decorator sits is the scope. On a run method the
-    notice rides on that NodeVersion, beside its signature and policy —
-    a per-version fact filed with the version, not keyed by its number on
-    the class."""
-
-    class Two(NodeDefinition):
-        id = "two-dep"
-        title = "Two"
-        description = "d"
-        category = "test"
-
-        @upgrade(1, 2)
-        def _v1_to_v2(values):
-            return values
-
-        @deprecated(header="Use v2", migration="The field 'old' is now 'new'.")
-        @version(1)
-        def run_v1(self, old: Annotated[Txt, Param(title="Old", widget=Textarea())] = Txt("")) -> Out:
-            return old
-
-        @version(2)
-        def run(self, new: Annotated[Txt, Param(title="New", widget=Textarea())] = Txt("")) -> Out:
-            return new
-
-    assert Two.versions[1].deprecation == Deprecation(header="Use v2", migration="The field 'old' is now 'new'.")
-    assert Two.versions[2].deprecation is None
-    assert Two.deprecation is None
-    assert Two.current == 2, "deprecation never moves which version runs"
-
-
-def test_an_undecorated_run_may_carry_a_deprecation():
-    class Once(NodeDefinition):
-        id = "once-dep"
-        title = "Once"
-        description = "d"
-        category = "test"
-
-        @deprecated()
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return x
-
-    assert Once.versions[1].deprecation == Deprecation()
-
-
+    assert fetch.versions[1].policy.retries == 3
+    assert fetch.versions[2].policy.retries == 0
+    assert fetch.versions[2].policy.timeout == 30.0
+    assert fetch.versions[2].policy.concurrency == 1
 
 
 def test_the_registry_gives_back_the_class():
-    class Translate(NodeDefinition):
-        id = "translate"
-        title = "Translation"
-        description = "Translates text"
-        category = "test"
+    @node("translate", title="Translation", description="Translates text", category="test")
+    def translate(
+        text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt(""),
+        language: Annotated[Txt, Param(title="Language", widget=Dropdown(choices=(Choice(id="da", title="Danish"), Choice(id="en", title="English"))))] = Txt("da"),
+    ) -> Out:
+        return Txt(f"{language}:{text}")
 
-        def run(
-            self,
-            text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt(""),
-            language: Annotated[Txt, Param(title="Language", widget=Dropdown(choices=(Choice(id="da", title="Danish"), Choice(id="en", title="English"))))] = Txt("da"),
-        ) -> Out:
-            return Txt(f"{language}:{text}")
+    registry = NodeRegistry([translate])
 
-    registry = NodeRegistry()
-    registry.register(Translate)
-
-    assert registry["translate"] is Translate
+    assert registry["translate"] is translate
 
 
 def test_a_caller_asks_the_class_rather_than_a_copy_of_it():
     """There is no record, so there is nothing to keep in step."""
 
-    class Translate(NodeDefinition):
-        id = "translate-2"
-        title = "Translation"
-        description = "d"
-        category = "test"
+    @node("translate-2", title="Translation", description="d", category="test")
+    def translate(
+        text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt(""),
+        language: Annotated[Txt, Param(title="Language", widget=Dropdown(choices=(Choice(id="da", title="Danish"), Choice(id="en", title="English"))))] = Txt("da"),
+    ) -> Out:
+        return text
 
-        def run(
-            self,
-            text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt(""),
-            language: Annotated[Txt, Param(title="Language", widget=Dropdown(choices=(Choice(id="da", title="Danish"), Choice(id="en", title="English"))))] = Txt("da"),
-        ) -> Out:
-            return text
-
-    registry = NodeRegistry()
-    registry.register(Translate)
+    registry = NodeRegistry([translate])
     found = registry["translate-2"]
 
     assert found.title == "Translation"
     iface = found.versions[1].interface
     assert [i.name for i in iface.inputs] == ["text", "language"]
-    assert iface.inputs[0].show_handle is True
+    assert iface.inputs[0].connectable is True
 
 
 def test_every_declared_version_is_registered():
-    class Two(NodeDefinition):
-        id = "two-reg"
-        title = "Two"
-        description = "d"
-        category = "test"
+    def two_v1(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
+        return x
 
-        @upgrade(1, 2)
-        def _v1_to_v2(values):
-            return values
+    @node("two-reg", title="Two", description="d", category="test", older=[OlderVersion(two_v1, upgrade=Upgrade())])
+    def two(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
+        return x
 
-        @version(1)
-        def run_v1(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return x
-
-        @version(2)
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return x
-
-    registry = NodeRegistry()
-    registry.register(Two)
+    registry = NodeRegistry([two])
 
     assert set(registry["two-reg"].versions) == {1, 2}
 
 
 def test_the_registry_keys_on_the_id():
-    class Echo(NodeDefinition):
-        id = "echo-key"
-        title = "Echo"
-        description = "d"
-        category = "test"
+    @node("echo-key", title="Echo", description="d", category="test")
+    def echo(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
+        return x
 
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return x
-
-    registry = NodeRegistry()
-    registry.register(Echo)
+    registry = NodeRegistry([echo])
 
     assert "echo-key" in registry
     assert "echo-nothing" not in registry
-    assert registry.nodes == (Echo,)
-
-
-def test_registering_the_same_id_twice_is_refused():
-    class A(NodeDefinition):
-        id = "dupe"
-        title = "A"
-        description = "d"
-        category = "test"
-
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return x
-
-    class B(NodeDefinition):
-        id = "dupe"
-        title = "B"
-        description = "d"
-        category = "test"
-
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return x
-
-    registry = NodeRegistry()
-    registry.register(A)
-    with pytest.raises(NodeDeclarationError, match="dupe"):
-        registry.register(B)
-
-
-def test_a_registered_node_numbers_from_one():
-    class Late(NodeDefinition):
-        id = "late"
-        title = "Late"
-        description = "d"
-        category = "test"
-
-        @version(3)
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return x
-
-    assert set(Late.versions) == {3}, "a class may declare any contiguous range"
-    with pytest.raises(NodeDeclarationError, match="numbers from 1"):
-        NodeRegistry().register(Late)
-
-
-def test_registering_something_that_is_not_a_node_is_refused():
-    registry = NodeRegistry()
-    with pytest.raises(TypeError, match="NodeDefinition"):
-        registry.register(object)
-
-
-def test_the_current_version_may_not_retire_alone():
-    """A palette offering a version that announces its own death with
-    no newer one to move to is incoherent. The class carrying a notice too
-    is what makes it coherent."""
-
-    class Dying(NodeDefinition):
-        id = "dying"
-        title = "Dying"
-        description = "d"
-        category = "test"
-
-        @deprecated(header="Retired")
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return x
-
-    with pytest.raises(NodeDeclarationError, match="current"):
-        NodeRegistry().register(Dying)
-
-    @deprecated(header="Whole node retired")
-    class Retiring(NodeDefinition):
-        id = "retiring"
-        title = "Retiring"
-        description = "d"
-        category = "test"
-
-        @deprecated(header="Retired")
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return x
-
-    NodeRegistry().register(Retiring)
-
-
-def test_an_alternative_names_a_node_in_the_same_catalog():
-    """An alternative resolved to nothing in the editor is a silent failure,
-    so the registry refuses it — which means the replacement is
-    registered before the node it replaces."""
-
-    class New(NodeDefinition):
-        id = "new-node"
-        title = "New"
-        description = "d"
-        category = "test"
-
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return x
-
-    @deprecated(alternative="new-node")
-    class Old(NodeDefinition):
-        id = "old-node"
-        title = "Old"
-        description = "d"
-        category = "test"
-
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return x
-
-    with pytest.raises(NodeDeclarationError, match="new-node"):
-        NodeRegistry().register(Old)
-
-    registry = NodeRegistry()
-    registry.register(New)
-    registry.register(Old)
-    assert registry["old-node"].deprecation.alternative == "new-node"
+    assert registry.nodes == (echo,)
 
 
 def test_the_flattened_record_is_gone():
@@ -655,101 +198,6 @@ def test_the_flattened_record_is_gone():
         importlib.import_module("conductor.registry.definition")
 
 
-
-
-def test_a_node_shapes_its_own_outputs_from_its_values():
-    """The columns come from the value the node holds."""
-
-    class OpenSheet(NodeDefinition):
-        id = "open-sheet"
-        title = "Open sheet"
-        description = "Exposes a header row as outputs"
-        category = "test"
-
-        def run(self, header: Annotated[Txt, Param(title="Header", widget=Textarea())] = Txt("")) -> Out:
-            return header
-
-        def compute_outputs(self, declared, values, arriving):
-            return tuple(
-                Output(name=col, dtype=Txt, title=col)
-                for col in str(values.get("header", "")).split(",")
-                if col
-            )
-
-    declared = OpenSheet.versions[1].interface.outputs
-    outputs = OpenSheet().compute_outputs(declared, {"header": "name,email"}, {})
-    assert [o.name for o in outputs] == ["name", "email"]
-
-
-def test_a_node_shapes_its_own_inputs_from_its_values():
-    """An interface that depends on a value is the node's own answer."""
-
-    class Modes(NodeDefinition):
-        id = "modes"
-        title = "Modes"
-        description = "A second field only in one mode"
-        category = "test"
-
-        def run(
-            self,
-            mode: Annotated[Txt, Param(title="Mode", widget=Dropdown(choices=(Choice(id="a", title="A"), Choice(id="b", title="B"))))] = Txt("a"),
-            extra: Annotated[Txt, Param(title="Extra", widget=Textarea())] = Txt(""),
-        ) -> Out:
-            return mode
-
-        def compute_inputs(self, declared, values):
-            if values.get("mode") == "b":
-                return declared
-            return tuple(i for i in declared if i.name != "extra")
-
-    declared = Modes.versions[1].interface.inputs
-    assert [i.name for i in Modes().compute_inputs(declared, {"mode": "a"})] == ["mode"]
-    assert [i.name for i in Modes().compute_inputs(declared, {"mode": "b"})] == ["mode", "extra"]
-
-
-def test_a_hook_shapes_the_version_the_node_pins_not_the_newest():
-    """A fresh instance knows no version. The caller hands the hook the
-    declaration of the version it is asking about, so an old node keeps
-    its old interface."""
-    from conductor.node import version
-
-    class Two(NodeDefinition):
-        id = "two-hook"
-        title = "Two"
-        description = "d"
-        category = "test"
-
-        @upgrade(1, 2)
-        def _v1_to_v2(values):
-            return values
-
-        @version(1)
-        def run_v1(self, old: Annotated[Txt, Param(title="Old", widget=Textarea())] = Txt("")) -> Out:
-            return old
-
-        @version(2)
-        def run(self, new: Annotated[Txt, Param(title="New", widget=Textarea())] = Txt("")) -> Out:
-            return new
-
-    pinned = Two.versions[1].interface.inputs
-    assert [i.name for i in Two().compute_inputs(pinned, {})] == ["old"]
-
-
-def test_a_node_with_no_shaping_declares_none():
-    """The default hooks answer with the declaration, so nothing branches."""
-
-    class Simple(NodeDefinition):
-        id = "simple"
-        title = "Simple"
-        description = "No shaping"
-        category = "test"
-
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return x
-
-    current = Simple.versions[Simple.current].interface
-    assert Simple().compute_inputs(current.inputs, {}) == current.inputs
-    assert Simple().compute_outputs(current.outputs, {}, {}) == current.outputs
 
 
 def test_a_hook_that_cannot_answer_raises_refuses():
@@ -766,46 +214,28 @@ def test_a_hook_that_cannot_answer_raises_refuses():
 def test_a_reduction_declares_a_series_input():
     """The dtype is the only thing that says 'do not broadcast me'."""
 
-    class Join(NodeDefinition):
-        id = "join"
-        title = "Join text"
-        description = "d"
-        category = "test"
+    @node("join", title="Join text", description="d", category="test")
+    def join_node(texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
+        return Txt("\n".join(texts))
 
-        def run(self, texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
-            return Txt("\n".join(texts))
-
-    (texts,) = Join.versions[1].interface.inputs
+    (texts,) = join_node.versions[1].interface.inputs
     assert texts.dtype is Series[Txt]
 
 
 
 
 def test_describe_is_the_class_as_a_record():
-    class Translate(NodeDefinition):
-        id = "describe-translate"
-        title = "Translation"
-        description = "Translates"
-        category = "test"
-        tags = ("Language model",)
+    def translate_v1(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
+        return text
 
-        @upgrade(1, 2)
-        def _v1_to_v2(values):
-            return values
+    @node("describe-translate", title="Translation", description="Translates", category="test", tags=("Language model",), policy=Policy(retries=2), older=[OlderVersion(translate_v1, upgrade=Upgrade())])
+    def translate(
+        text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt(""),
+        language: Annotated[Txt, Param(title="Language", widget=Dropdown(choices=(Choice(id="da", title="Danish"), Choice(id="en", title="English"))))] = Txt("da"),
+    ) -> Out:
+        return text
 
-        @version(1)
-        def run_v1(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
-            return text
-
-        @version(2, policy=Policy(retries=2))
-        def run(
-            self,
-            text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt(""),
-            language: Annotated[Txt, Param(title="Language", widget=Dropdown(choices=(Choice(id="da", title="Danish"), Choice(id="en", title="English"))))] = Txt("da"),
-        ) -> Out:
-            return text
-
-    d = Translate.describe()
+    d = translate.describe()
 
     assert isinstance(d, NodeDescription)
     assert (d.id, d.title, d.tags) == ("describe-translate", "Translation", ("Language model",))
@@ -821,27 +251,14 @@ def test_describe_carries_both_notices():
     """Two scopes, two true things. The palette renders both when both
     exist, node first — a precedence rule would show strictly less."""
 
-    @deprecated(header="Node retired")
-    class Old(NodeDefinition):
-        id = "describe-old"
-        title = "Old"
-        description = "d"
-        category = "test"
+    def old_node_v1(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
+        return x
 
-        @upgrade(1, 2)
-        def _v1_to_v2(values):
-            return values
+    @node("describe-old", title="Old", description="d", category="test", deprecation=Deprecation(header="Node retired"), older=[OlderVersion(old_node_v1, upgrade=Upgrade(), deprecation=Deprecation(header="v1 retired", migration="Use v2."))])
+    def old_node(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
+        return x
 
-        @deprecated(header="v1 retired", migration="Use v2.")
-        @version(1)
-        def run_v1(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return x
-
-        @version(2)
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return x
-
-    d = Old.describe()
+    d = old_node.describe()
 
     assert d.deprecation == Deprecation(header="Node retired")
     assert d.versions[1].deprecation == Deprecation(header="v1 retired", migration="Use v2.")
@@ -852,16 +269,11 @@ def test_describe_carries_both_notices():
 
 
 def test_describe_dumps_as_the_palette_payload():
-    class Echo(NodeDefinition):
-        id = "describe-echo"
-        title = "Echo"
-        description = "d"
-        category = "test"
+    @node("describe-echo", title="Echo", description="d", category="test")
+    def echo(x: Annotated[Txt, Param(title="X", widget=Textarea(rows=2))] = Txt("")) -> Out:
+        return x
 
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea(rows=2))] = Txt("")) -> Out:
-            return x
-
-    data = TypeAdapter(NodeDescription).dump_python(Echo.describe(), mode="json")
+    data = TypeAdapter(NodeDescription).dump_python(echo.describe(), mode="json")
 
     assert data["id"] == "describe-echo"
     assert data["category"] == "test"
@@ -885,17 +297,12 @@ def test_describe_publishes_a_json_schema():
 
 
 def test_describe_is_computed_not_stored():
-    class Echo(NodeDefinition):
-        id = "describe-echo-2"
-        title = "Echo"
-        description = "d"
-        category = "test"
+    @node("describe-echo-2", title="Echo", description="d", category="test")
+    def echo(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
+        return x
 
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return x
-
-    assert Echo.describe() == Echo.describe()
-    assert "description_record" not in vars(Echo)
+    assert echo.describe() == echo.describe()
+    assert "description_record" not in vars(echo)
 
 
 
@@ -913,95 +320,30 @@ class Flag(DType):
         return isinstance(other, Flag) and other.value == self.value
 
 
-def test_an_upgrade_takes_values_and_not_an_instance():
-    """It rewrites data. There is no node in a graph to consult and no state."""
-
-    class Docs2(NodeDefinition):
-        id = "docs-2"
-        title = "Docs"
-        description = "d"
-        category = "test"
-
-        @version(1)
-        def run_v1(self, a: Annotated[Txt, Param(title="A", widget=Textarea())] = Txt("")) -> Out:
-            return a
-
-        @version(2)
-        def run(self, b: Annotated[Txt, Param(title="B", widget=Textarea())] = Txt("")) -> Out:
-            return b
-
-        @upgrade(1, 2)
-        def _v1_to_v2(values):
-            return {"b": values["a"]}
-
-    assert isinstance(vars(Docs2)["_v1_to_v2"], staticmethod)
-    assert Docs2._v1_to_v2({"a": Txt("x")}) == {"b": "x"}
-
-
-def test_a_class_that_sets_its_own_upgrades_is_refused():
-    """``upgrades`` is collected from ``@upgrade`` methods, never given, so a
-    class body that sets it would be silently overwritten; it is refused."""
-    with pytest.raises(TypeError, match="upgrades"):
-
-        class Given(NodeDefinition):
-            id = "given"
-            title = "Given"
-            description = "d"
-            category = "test"
-            upgrades = {}
-
-            def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-                return x
-
-
 def test_a_category_is_a_string_on_the_definition():
     """A category is presentation: where the palette files the node. No
     object, no registration side-channel."""
     import conductor
 
-    class Echo(NodeDefinition):
-        id = "echo-cat"
-        title = "Echo"
-        description = "Returns input"
-        category = "tools"
+    @node("echo-cat", title="Echo", description="Returns input", category="tools")
+    def echo(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
+        return text
 
-        def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
-            return text
-
-    assert Echo.category == "tools"
-    assert Echo.describe().category == "tools"
+    assert echo.category == "tools"
+    assert echo.describe().category == "tools"
     assert not hasattr(conductor, "NodeCategory")
     assert not hasattr(NodeRegistry, "include")
 
 
-def test_the_contract_is_importable_from_the_package_root():
-    import conductor
-
-    for name in (
-        "NodeDefinition", "NodeVersion", "Policy", "Deprecation",
-        "NodeDescription", "Input", "Interface", "FromRun",
-    ):
-        assert getattr(conductor, name) is not None
-    assert callable(conductor.version)
-    assert callable(conductor.upgrade)
-    assert callable(conductor.deprecated)
-
-
 def test_a_class_node_executes_in_a_graph():
-    class Shout(NodeDefinition):
-        id = "shout"
-        title = "Shout"
-        description = "d"
-        category = "test"
+    def _decorate(text: str) -> str:
+        return text.upper() + "!"
 
-        def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
-            return Txt(self._decorate(text))
+    @node("shout", title="Shout", description="d", category="test")
+    def shout(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
+        return Txt(_decorate(text))
 
-        def _decorate(self, text: str) -> str:
-            return text.upper() + "!"
-
-    registry = NodeRegistry()
-    registry.register(Shout)
+    registry = NodeRegistry([shout])
 
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="shout", version=1, bindings={"text": Static("hi")})]), registry)
     results = compiled.results(compiled.run_sync())
@@ -1009,30 +351,17 @@ def test_a_class_node_executes_in_a_graph():
 
 
 def test_two_versions_of_one_class_execute_independently():
-    class Suffix(NodeDefinition):
-        id = "suffix"
-        title = "Suffix"
-        description = "d"
-        category = "test"
+    def suffix_v1(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
+        return text
 
-        @upgrade(1, 2)
-        def _v1_to_v2(values):
-            return values
+    @node("suffix", title="Suffix", description="d", category="test", older=[OlderVersion(suffix_v1, upgrade=Upgrade())])
+    def suffix(
+        text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt(""),
+        mark: Annotated[Txt, Param(title="Mark", widget=Textarea())] = Txt("?"),
+    ) -> Out:
+        return Txt(text + mark)
 
-        @version(1)
-        def run_v1(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
-            return text
-
-        @version(2)
-        def run(
-            self,
-            text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt(""),
-            mark: Annotated[Txt, Param(title="Mark", widget=Textarea())] = Txt("?"),
-        ) -> Out:
-            return Txt(text + mark)
-
-    registry = NodeRegistry()
-    registry.register(Suffix)
+    registry = NodeRegistry([suffix])
 
     for pinned, expected in ((1, "hi"), (2, "hi?")):
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="suffix", version=pinned, bindings={"text": Static("hi")})]), registry)
@@ -1043,17 +372,11 @@ def test_a_version_a_class_does_not_declare_is_refused():
     """The pin is what a graph selects with, so a graph naming a version
     that is not there must not resolve to the nearest one."""
 
-    class Once(NodeDefinition):
-        id = "once-exec"
-        title = "Once"
-        description = "d"
-        category = "test"
+    @node("once-exec", title="Once", description="d", category="test")
+    def once(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
+        return x
 
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            return x
-
-    registry = NodeRegistry()
-    registry.register(Once)
+    registry = NodeRegistry([once])
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         GraphNode(id="a", type="once-exec", version=2),
         GraphNode(id="b", type="never-registered", version=1),
@@ -1063,66 +386,267 @@ def test_a_version_a_class_does_not_declare_is_refused():
     assert not hasattr(NodeRegistry, "runner_for")
 
 
-def test_each_call_gets_a_fresh_instance():
-    """Stateless by contract."""
-    seen = []  # holds the instances, so CPython cannot reuse an id
+# --- a node is a function ---------------------------------------------------------
 
-    class Counting(NodeDefinition):
-        id = "counting"
-        title = "Counting"
-        description = "d"
-        category = "test"
 
-        def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
-            seen.append(self)
+def _x(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
+    return x
+
+
+def test_a_node_is_called_like_its_function():
+    @node("upper")
+    def upper(text: Txt) -> Txt:
+        """Upper-cases a text."""
+        return Txt(text.upper())
+
+    assert upper(Txt("a")) == "A"
+    assert (upper.id, upper.title, upper.description, upper.category, upper.current) == ("upper", "Upper", "Upper-cases a text.", "", 1)
+    (inp,) = upper.versions[1].interface.inputs
+    (out,) = upper.versions[1].interface.outputs
+    assert (inp.name, inp.dtype, inp.title, inp.required) == ("text", Txt, "text", True)
+    assert (out.name, out.dtype, out.title) == ("result", Txt, "result")
+
+
+def test_a_title_defaults_to_the_function_name_read_as_words():
+    @node("x-y")
+    def split_lines(x: Txt) -> Txt:
+        return x
+
+    assert split_lines.title == "Split lines"
+
+
+def test_a_sink_node_declares_no_outputs_and_runs():
+    seen = []
+
+    @node("sink")
+    def sink(text: Txt) -> None:
+        seen.append(text)
+
+    registry = NodeRegistry([sink])
+    assert sink.versions[1].interface.outputs == ()
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="s", type="sink", version=1, bindings={"text": Static("hi")})]), registry)
+    assert compiled.problems == ()
+    assert compiled.run_sync().status == "complete" and seen == ["hi"]
+
+
+def test_a_result_can_name_the_output():
+    @node("n")
+    def named(x: Txt) -> Annotated[Txt, Result(name="summary")]:
+        return x
+
+    assert [o.name for o in named.versions[1].interface.outputs] == ["summary"]
+
+
+def test_a_version_number_is_its_place_and_each_keeps_its_policy():
+    @node("two", older=[OlderVersion(_x, policy=Policy(retries=2)), OlderVersion(_x)], policy=Policy(retries=5))
+    def two(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
+        return Txt(x + "!")
+
+    assert set(two.versions) == {1, 2, 3} and two.current == 3
+    assert [two.versions[n].policy.retries for n in (1, 2, 3)] == [2, 0, 5]
+    assert two.versions[1].run is _x and two(Txt("a")) == "a!"
+
+
+def test_an_older_version_carries_its_own_notice():
+    @node("two", older=[OlderVersion(_x, deprecation=Deprecation(header="Old"))], deprecation=None)
+    def two(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
+        return x
+
+    assert two.versions[1].deprecation.header == "Old" and two.versions[2].deprecation is None
+
+
+def test_an_async_function_is_refused():
+    with pytest.raises(NodeDeclarationError, match="async") as raised:
+        @node("waits")
+        async def waits(x: Txt) -> Txt:
             return x
-
-    registry = NodeRegistry()
-    registry.register(Counting)
-    runner = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="c", type="counting", version=1)]), registry).node("c").runner
-    runner(x=Txt("a"))
-    runner(x=Txt("b"))
-
-    assert seen[0] is not seen[1]
+    assert raised.value.code == "async_run" and raised.value.node_id == "waits"
 
 
-def test_a_definition_may_carry_its_versions_by_value():
-    """A definition built from data (an embedded graph) sets ``versions`` in
-    the class body, each the stored graph compiled once by its host.
-    ``register()`` checks the numbering and ``describe()`` reads its
-    interface; nothing runs it as one unit, since compile embeds its nodes."""
-    from conductor.interface import model_of
+def test_a_definition_is_frozen():
+    @node("fixed")
+    def fixed(x: Txt) -> Txt:
+        return x
 
-    class Shout(NodeDefinition):
-        id = "shout"
-        title = "Shout"
-        description = "d"
-        category = "test"
+    with pytest.raises(FrozenInstanceError):
+        fixed.title = "Other"
 
-        def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())]) -> Out:
-            return text
 
-    inner = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="inner", type="shout", version=1)]), NodeRegistry(nodes=(Shout,)))
+# --- the registry is built whole --------------------------------------------------
 
-    class Wrapped(NodeDefinition):
-        id = "wrapped"
-        title = "Embedded"
-        description = "d"
-        category = "test"
 
-        versions: ClassVar[dict[int, CompiledGraph]] = {3: inner}
+def test_two_definitions_with_one_id_are_refused():
+    @node("same")
+    def first(x: Txt) -> Txt:
+        return x
 
-    assert set(Wrapped.versions) == {3} and Wrapped.current == 3
-    assert [i.name for i in Wrapped.versions[3].interface.inputs] == ["inner.text"]
-    assert isinstance(model_of(Wrapped.versions[3].interface.inputs)({"inner.text": "hi"})["inner.text"], Txt)
-    described = Wrapped.describe().versions[3]
+    @node("same")
+    def second(x: Txt) -> Txt:
+        return x
+
+    with pytest.raises(NodeDeclarationError, match="declared twice"):
+        NodeRegistry([first, second])
+
+
+def test_something_that_is_not_a_node_is_refused():
+    with pytest.raises(NodeDeclarationError, match="declare one with @node"):
+        NodeRegistry([_x])
+
+
+def test_an_alternative_may_come_later_in_the_list_and_must_exist():
+    @node("old", deprecation=Deprecation(alternative="new"))
+    def old(x: Txt) -> Txt:
+        return x
+
+    @node("new")
+    def new(x: Txt) -> Txt:
+        return x
+
+    assert len(NodeRegistry([old, new])) == 2
+    with pytest.raises(NodeDeclarationError, match="alternative"):
+        NodeRegistry([old])
+
+
+# --- hooks read what their signature names ----------------------------------------
+
+
+def test_a_hook_gets_the_typed_value_the_declared_default_included():
+    def header_outputs(header: Txt) -> list[Output]:
+        return [Output(name, Txt) for name in header.split(",")]
+
+    @node("sheet", compute_outputs=header_outputs)
+    def sheet(header: Annotated[Txt, Param(connectable=False)] = Txt("a,b")) -> Mapping[str, Any]:
+        return {name: Txt(name) for name in header.split(",")}
+
+    registry = NodeRegistry([sheet])
+    default = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="s", type="sheet", version=1)]), registry)
+    typed = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="s", type="sheet", version=1, bindings={"header": Static("c")})]), registry)
+    assert [o.name for o in default.node("s").interface.outputs] == ["a", "b"]
+    assert [o.name for o in typed.node("s").interface.outputs] == ["c"]
+
+
+def test_a_hook_is_not_called_when_a_value_it_needs_has_none():
+    def names_outputs(names: Txt) -> list[Output]:
+        raise AssertionError("not called")
+
+    @node("n", compute_outputs=names_outputs)
+    def needs_names(names: Txt) -> Annotated[Any, Result(title="R")]:
+        return names
+
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n", type="n", version=1)]), NodeRegistry([needs_names]))
+    assert [o.name for o in compiled.node("n").interface.outputs] == ["result"]
+
+
+def test_compute_inputs_adds_to_what_the_node_declares():
+    def more_inputs(mode: Txt) -> list[Input]:
+        return [] if mode == "a" else [Input("extra", Txt, widget=Textarea(), default=Txt(""))]
+
+    @node("n", compute_inputs=more_inputs)
+    def modes(mode: Txt = Txt("a"), **more: Txt) -> Txt:
+        return mode
+
+    registry = NodeRegistry([modes])
+    def inputs(mode):
+        graph = Graph(nodes=[GraphNode(id="n", type="n", version=1, bindings={"mode": Static(mode)})])
+        return [i.name for i in CompiledGraph.from_graph(graph, registry).node("n").interface.inputs]
+
+    assert inputs("a") == ["mode"] and inputs("b") == ["mode", "extra"]
+
+
+def test_each_version_has_its_own_hooks():
+    def v1_outputs() -> list[Output]:
+        return [Output("one", Txt)]
+
+    def v2_outputs() -> list[Output]:
+        return [Output("two", Txt)]
+
+    def older_run(x: Txt) -> Mapping[str, Any]:
+        return {"one": x}
+
+    @node("n", compute_outputs=v2_outputs, older=[OlderVersion(older_run, compute_outputs=v1_outputs, upgrade=Upgrade(renamed_outputs={"one": "two"}))])
+    def newer(x: Txt) -> Mapping[str, Any]:
+        return {"two": x}
+
+    registry = NodeRegistry([newer])
+    def outs(v):
+        graph = Graph(nodes=[GraphNode(id="n", type="n", version=v, bindings={"x": Static("a")})])
+        return [o.name for o in CompiledGraph.from_graph(graph, registry).node("n").interface.outputs]
+
+    assert outs(1) == ["one"] and outs(2) == ["two"]
+
+
+@pytest.mark.parametrize("hook, code", [
+    (lambda nope: [], "hook_parameter_unknown"),
+    (lambda *a: [], "hook_parameter_unknown"),
+    (lambda **k: [], "hook_parameter_unknown"),
+])
+def test_a_hook_parameter_must_name_an_input(hook, code):
+    with pytest.raises(NodeDeclarationError) as raised:
+        def run(x: Txt) -> Mapping[str, Any]:
+            return {}
+        node("n", compute_outputs=hook)(run)
+    assert raised.value.code == code
+
+
+def test_a_mapping_or_an_any_output_needs_a_hook():
+    def mapping(x: Txt) -> Mapping[str, Any]:
+        return {}
+
+    def anything(x: Txt) -> Any:
+        return x
+
+    with pytest.raises(NodeDeclarationError) as raised:
+        node("n")(mapping)
+    assert raised.value.code == "mapping_return_without_hook"
+    with pytest.raises(NodeDeclarationError) as raised:
+        node("n")(anything)
+    assert raised.value.code == "any_output_without_hook"
+
+
+def test_compute_inputs_needs_somewhere_for_its_inputs_to_land():
+    with pytest.raises(NodeDeclarationError) as raised:
+        node("n", compute_inputs=lambda: [])(_x)
+    assert raised.value.code == "compute_inputs_without_var_keyword"
+
+
+def test_as_it_arrives_beside_compute_inputs_is_refused():
+    def run(**inputs: AsItArrives) -> Txt:
+        return Txt("")
+
+    with pytest.raises(NodeDeclarationError) as raised:
+        node("n", compute_inputs=lambda: [])(run)
+    assert raised.value.code == "as_it_arrives_beside_compute_inputs"
+
+
+def test_an_unknown_annotation_extra_is_refused():
+    def run(x: Annotated[Txt, object()]) -> Txt:
+        return x
+
+    with pytest.raises(NodeDeclarationError) as raised:
+        node("n")(run)
+    assert raised.value.code == "annotated_extra_unknown"
+
+
+def test_a_definition_may_hold_graphs_by_number_with_holes():
+    @node("shout")
+    def shout(text: Annotated[Txt, Param(widget=Textarea())] = Txt("")) -> Out:
+        return text
+
+    inner = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="inner", type="shout", version=1)]), NodeRegistry([shout]))
+    wrapped = NodeDefinition.from_compiled_graphs("wrapped", title="Embedded", description="d", versions={3: inner})
+
+    assert set(wrapped.versions) == {3} and wrapped.current == 3
+    assert [i.name for i in wrapped.versions[3].interface.inputs] == ["inner.text"]
+    described = wrapped.describe().versions[3]
     assert [i.name for i in described.inputs] == ["inner.text"]
     assert described.policy is None and described.deprecation is None
-    with pytest.raises(NodeDeclarationError, match="numbers from 1"):
-        NodeRegistry().register(Wrapped)
+    assert "wrapped" in NodeRegistry([wrapped])
+    with pytest.raises(TypeError, match="graph"):
+        wrapped()
 
-    class Loaded(Wrapped):
-        id = "loaded"
-        versions: ClassVar[dict[int, CompiledGraph]] = {1: Wrapped.versions[3]}
 
-    NodeRegistry().register(Loaded)
+def test_the_contract_is_importable_from_the_package_root():
+    import conductor
+
+    for name in ("node", "NodeDefinition", "OlderVersion", "Upgrade", "Policy", "Deprecation", "NodeRegistry", "upgrade_node", "Arriving", "AsItArrives", "FromRun"):
+        assert hasattr(conductor, name)

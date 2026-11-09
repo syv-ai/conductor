@@ -8,70 +8,51 @@ from typing import Annotated, Any
 from conductor import Param, Result
 from conductor.widgets import Range, Switch, Textarea, TextWidget
 
-from conductor_nodes.types import Flag, Json, Number, StdlibNode, Text
+from conductor_nodes.types import Flag, Json, Number, Text, stdlib_node
 
 
-class Parse(StdlibNode):
-    id = "json-parse"
-    title = "JSON Parse"
-    description = "Parses a JSON string into a value"
-    category = "json"
-
-    def run(
-        self, text: Annotated[Text, Param(title="JSON text", widget=Textarea())]
-    ) -> Annotated[Json, Result(title="Parsed")]:
-        return Json(json.loads(text))
+@stdlib_node("json-parse", title="JSON Parse", description="Parses a JSON string into a value", category="json")
+def parse(text: Annotated[Text, Param(title="JSON text", widget=Textarea())]
+) -> Annotated[Json, Result(title="Parsed")]:
+    return Json(json.loads(text))
 
 
-class Stringify(StdlibNode):
-    id = "json-stringify"
-    title = "JSON Stringify"
-    description = "Serializes a value to a JSON string"
-    category = "json"
-
-    def run(
-        self,
-        value: Annotated[Json, Param(title="Value", widget=Textarea())],
-        indent: Annotated[
-            Number, Param(title="Indent", widget=Range(min_val=0, max_val=8, step=1))
-        ] = Number(0),
-        sort_keys: Annotated[Flag, Param(title="Sort keys", widget=Switch())] = Flag(False),
-    ) -> Annotated[Text, Result(title="JSON")]:
-        return Text(json.dumps(value.value, indent=int(indent) or None, sort_keys=bool(sort_keys)))
+@stdlib_node("json-stringify", title="JSON Stringify", description="Serializes a value to a JSON string", category="json")
+def stringify(
+    value: Annotated[Json, Param(title="Value", widget=Textarea())],
+    indent: Annotated[
+        Number, Param(title="Indent", widget=Range(min_val=0, max_val=8, step=1))
+    ] = Number(0),
+    sort_keys: Annotated[Flag, Param(title="Sort keys", widget=Switch())] = Flag(False),
+) -> Annotated[Text, Result(title="JSON")]:
+    return Text(json.dumps(value.value, indent=int(indent) or None, sort_keys=bool(sort_keys)))
 
 
-class GetPath(StdlibNode):
-    id = "json-get"
-    title = "JSON Get"
-    description = "Reads a dotted path from a JSON value (e.g. 'user.name', 'items.0.id')"
-    category = "json"
-
-    def run(
-        self,
-        value: Annotated[Json, Param(title="Value", widget=Textarea())],
-        path: Annotated[Text, Param(title="Path", widget=TextWidget())],
-    ) -> Annotated[Json, Result(title="Extracted")]:
-        return Json(self._get_path(value.value, path))
-
-    @staticmethod
-    def _get_path(value: Any, path: str) -> Any:
-        """Walk a dotted path — each segment indexes a dict by key or a list by integer."""
-        if not path:
-            return value
-        current = value
-        for raw in path.split("."):
-            segment = raw.strip()
-            if isinstance(current, dict):
-                current = current.get(segment)
-            elif isinstance(current, list):
-                try:
-                    current = current[int(segment)]
-                except (ValueError, IndexError):
-                    return None
-            else:
+def _get_path(value: Any, path: str) -> Any:
+    """Walk a dotted path — each segment indexes a dict by key or a list by integer."""
+    if not path:
+        return value
+    current = value
+    for raw in path.split("."):
+        segment = raw.strip()
+        if isinstance(current, dict):
+            current = current.get(segment)
+        elif isinstance(current, list):
+            try:
+                current = current[int(segment)]
+            except (ValueError, IndexError):
                 return None
-        return current
+        else:
+            return None
+    return current
+
+@stdlib_node("json-get", title="JSON Get", description="Reads a dotted path from a JSON value (e.g. 'user.name', 'items.0.id')", category="json")
+def get_path(
+    value: Annotated[Json, Param(title="Value", widget=Textarea())],
+    path: Annotated[Text, Param(title="Path", widget=TextWidget())],
+) -> Annotated[Json, Result(title="Extracted")]:
+    return Json(_get_path(value.value, path))
 
 
 #: Every node this module defines, in palette order.
-NODES: tuple[type[StdlibNode], ...] = (Parse, Stringify, GetPath)
+NODES = (parse, stringify, get_path)

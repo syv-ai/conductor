@@ -19,9 +19,8 @@ import pytest
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
-from conductor import AskPerson, NodeRegistry  # noqa: E402
+from conductor import AskPerson, NodeRegistry, node  # noqa: E402
 from conductor.metadata import Param, Result  # noqa: E402
-from conductor.node import NodeDefinition  # noqa: E402
 from conductor.series import Series  # noqa: E402
 from conductor.widgets import Switch, Textarea  # noqa: E402
 from conductor_nodes.types import Flag, Text  # noqa: E402
@@ -37,29 +36,17 @@ def calls() -> list[str]:
 
 @pytest.fixture
 def client(calls: list[str]) -> TestClient:
-    class Words(NodeDefinition):
-        id = "words"
-        title = "Words"
-        description = "splits a text into words"
-        category = "test"
+    @node("words", title="Words", description="splits a text into words", category="test")
+    def words(text: Annotated[Text, Param(title="Text", widget=Textarea())]) -> Annotated[Series[Text], Result(title="Words")]:
+        calls.append("words")
+        return [Text(word) for word in text.split()]
 
-        def run(self, text: Annotated[Text, Param(title="Text", widget=Textarea())]) -> Annotated[Series[Text], Result(title="Words")]:
-            calls.append("words")
-            return [Text(word) for word in text.split()]
+    @node("approve", title="Approve", description="asks a person", category="test")
+    def approve(text: Annotated[Text, Param(title="Text", widget=Textarea())]) -> Annotated[Flag, Result(title="Approved")] | AskPerson:
+        calls.append("approve")
+        return AskPerson(widgets={"result": Switch()})
 
-    class Approve(NodeDefinition):
-        id = "approve"
-        title = "Approve"
-        description = "asks a person"
-        category = "test"
-
-        def run(self, text: Annotated[Text, Param(title="Text", widget=Textarea())]) -> Annotated[Flag, Result(title="Approved")] | AskPerson:
-            calls.append("approve")
-            return AskPerson(widgets={"result": Switch()})
-
-    registry = NodeRegistry()
-    registry.register(Words)
-    registry.register(Approve)
+    registry = NodeRegistry([words, approve])
     app = FastAPI()
     app.include_router(conductor_router(registry))
     return TestClient(app)

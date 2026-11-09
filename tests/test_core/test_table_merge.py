@@ -3,12 +3,12 @@
 from typing import Annotated
 
 import polars as pl
-from conductor import SKIPPED, CompiledGraph, GraphNode, NodeRegistry, Param, Static, Table
+from conductor import SKIPPED, CompiledGraph, GraphNode, NodeRegistry, Param, Static, Table, node
 from conductor.graph.binding import From
 from conductor.graph.model import Graph
 from conductor.graph.receive import Broadcast, Merge, PerRow, RowsUnder, Whole
 from conductor.metadata import Result
-from conductor.node import NodeDefinition
+from conductor.node_decorator import NodeDefinition
 from conductor.ref import Ref
 from conductor.series import Index, Series
 from conductor.table import ROW_ID, MergeSource, merge
@@ -19,34 +19,22 @@ from test_core.test_table import Num, Txt
 from test_core.test_table_runs import CSV, Contacts, Invoices, _leg, _registry
 
 
-class Export(NodeDefinition):
+@node("export", title="Export", description="d", category="test")
+def export(table: Annotated[Table, Param(title="Table")]) -> Annotated[Table, Result(title="Sheet")]:
     """«Til Excel»: takes whatever is wired in as one table, and hands it back."""
-
-    id = "export"
-    title = "Export"
-    description = "d"
-    category = "test"
-
-    def run(self, table: Annotated[Table, Param(title="Table")]) -> Annotated[Table, Result(title="Sheet")]:
-        return table.frame
+    return table.frame
 
 
-class OnlyWithEmail(NodeDefinition):
+@node("with-email", title="With email", description="d", category="test")
+def only_with_email(contacts: Annotated[Contacts, Param(title="Contacts")]) -> Annotated[Contacts, Result(title="Contacts")]:
     """A filter: keeps the contacts with an email, rows and ids as they were."""
-
-    id = "with-email"
-    title = "With email"
-    description = "d"
-    category = "test"
-
-    def run(self, contacts: Annotated[Contacts, Param(title="Contacts")]) -> Annotated[Contacts, Result(title="Contacts")]:
-        return contacts.frame.filter(pl.col("email").is_not_null())
+    return contacts.frame.filter(pl.col("email").is_not_null())
 
 
 def _registry_with(*extra: type[NodeDefinition]) -> NodeRegistry:
     registry = _registry()
-    for node in (Export, OnlyWithEmail, *extra):
-        registry.register(node)
+    for graph_node in (export, only_with_email, *extra):
+        registry = registry.extended_with([graph_node])
     return registry
 
 
@@ -54,9 +42,9 @@ def _compiled(*nodes: GraphNode, registry: NodeRegistry | None = None) -> Compil
     return CompiledGraph.from_graph(Graph(nodes=list(nodes)), registry or _registry_with())
 
 
-def _sheet(compiled: CompiledGraph, node: str = "excel") -> pl.DataFrame:
+def _sheet(compiled: CompiledGraph, graph_node: str = "excel") -> pl.DataFrame:
     assert compiled.is_runnable, compiled.problems
-    return compiled.results(compiled.run_sync())[node]["result"].frame.drop(ROW_ID)
+    return compiled.results(compiled.run_sync())[graph_node]["result"].frame.drop(ROW_ID)
 
 
 SEND = GraphNode(id="send", type="send", version=1, bindings={"email": From("csv.result.email")})
@@ -200,42 +188,25 @@ def test_a_single_value_into_a_table_input_is_refused():
 
 
 
-class Words(NodeDefinition):
-    id = "words"
-    title = "Words"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Words")]:
-        return [Txt(word) for word in text.split(",") if word]
+@node("words", title="Words", description="d", category="test")
+def words(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Words")]:
+    return [Txt(word) for word in text.split(",") if word]
 
 
 NamesSent = Table.with_columns({"name": Txt, "sent": Txt})
 NamesAsNumbers = Table.with_columns({"name": Num})
 
 
-class Sheet(NodeDefinition):
+@node("sheet", title="Sheet", description="d", category="test")
+def sheet_node(table: Annotated[NamesSent, Param(title="Table")]) -> Annotated[Txt, Result(title="Rows")]:
     """A sheet that needs a name and a sent column."""
-
-    id = "sheet"
-    title = "Sheet"
-    description = "d"
-    category = "test"
-
-    def run(self, table: Annotated[NamesSent, Param(title="Table")]) -> Annotated[Txt, Result(title="Rows")]:
-        return Txt(str(table.frame.height))
+    return Txt(str(table.frame.height))
 
 
-class Scores(NodeDefinition):
+@node("scores", title="Scores", description="d", category="test")
+def scores(table: Annotated[NamesAsNumbers, Param(title="Table")]) -> Annotated[Txt, Result(title="Rows")]:
     """A sheet whose name column is a number, which no contact's name reads as."""
-
-    id = "scores"
-    title = "Scores"
-    description = "d"
-    category = "test"
-
-    def run(self, table: Annotated[NamesAsNumbers, Param(title="Table")]) -> Annotated[Txt, Result(title="Rows")]:
-        return Txt(str(table.frame.height))
+    return Txt(str(table.frame.height))
 
 
 DOCS = GraphNode(id="docs", type="docs", version=1, bindings={"text": Static("acme:10,beta:5|gamma:7")})
@@ -260,7 +231,7 @@ def test_a_parent_is_copied_down_onto_the_rows_of_every_child_and_has_no_row_of_
         GraphNode(id="read", type="structured", version=1, bindings={"text": From("docs.result")}),
         GraphNode(id="words", type="words", version=1, bindings={"text": From("docs.result")}),
         GraphNode(id="excel", type="export", version=1, bindings={"table": From("docs.result", "read.result.vendor", "words.result")}),
-        registry=_registry_with(Words),
+        registry=_registry_with(words),
     )
     sheet = _sheet(compiled)
 
@@ -307,14 +278,14 @@ def test_two_tables_made_per_document_share_no_rows_and_the_author_is_told():
 
 
 def test_a_declared_table_input_missing_a_column_is_refused_when_checked():
-    compiled = _compiled(CSV, SEND, GraphNode(id="s", type="sheet", version=1, bindings={"table": From("csv.result", "send.result")}), registry=_registry_with(Sheet))
+    compiled = _compiled(CSV, SEND, GraphNode(id="s", type="sheet", version=1, bindings={"table": From("csv.result", "send.result")}), registry=_registry_with(sheet_node))
 
     (missing,) = compiled.problems
     assert (missing.type, missing.fatal, missing.loc[1], missing.ctx) == ("table_column_missing", True, "table", {"column": "sent"})
 
 
 def test_a_merged_table_that_wont_read_as_the_input_fails_that_node():
-    compiled = _compiled(CSV, GraphNode(id="s", type="scores", version=1, bindings={"table": From("csv.result")}), registry=_registry_with(Scores))
+    compiled = _compiled(CSV, GraphNode(id="s", type="scores", version=1, bindings={"table": From("csv.result")}), registry=_registry_with(scores))
     assert compiled.is_runnable, compiled.problems
 
     events = list(_events(compiled))
@@ -327,7 +298,7 @@ def test_a_column_two_levels_down_is_received_under_the_nodes_row():
         DOCS, READ,
         GraphNode(id="words", type="words", version=1, bindings={"text": From("read.result.vendor")}),
         GraphNode(id="excel", type="export", version=1, bindings={"table": From("read.result", "words.result")}),
-        registry=_registry_with(Words),
+        registry=_registry_with(words),
     )
 
     parts = dict(compiled.field(Ref("excel", "table")).receives.parts)
@@ -338,52 +309,28 @@ def _events(compiled: CompiledGraph):
     return _leg(compiled)
 
 
-class Splits(NodeDefinition):
+@node("paragraphs", title="Paragraphs", description="d", category="test")
+def splits(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Paragraphs")]:
     """Splits on ``;``, leaving out empty parts."""
-
-    id = "paragraphs"
-    title = "Paragraphs"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Paragraphs")]:
-        return [Txt(part) for part in text.split(";") if part]
+    return [Txt(part) for part in text.split(";") if part]
 
 
-class Labelled(NodeDefinition):
+@node("labelled", title="Labelled", description="d", category="test")
+def labelled(label: Annotated[Txt, Param(title="Label", widget=Textarea())] = Txt(""), texts: Annotated[Series[Txt], Param(title="Texts")] = (),
+) -> Annotated[Txt, Result(title="Said")]:
     """A value and a column read together: what it says shows which rows it got."""
-
-    id = "labelled"
-    title = "Labelled"
-    description = "d"
-    category = "test"
-
-    def run(
-        self, label: Annotated[Txt, Param(title="Label", widget=Textarea())] = Txt(""), texts: Annotated[Series[Txt], Param(title="Texts")] = (),
-    ) -> Annotated[Txt, Result(title="Said")]:
-        return Txt(f"{label}={','.join(texts)}")
+    return Txt(f"{label}={','.join(texts)}")
 
 
-class LabelledTable(NodeDefinition):
-    id = "labelled-table"
-    title = "Labelled table"
-    description = "d"
-    category = "test"
-
-    def run(
-        self, label: Annotated[Txt, Param(title="Label", widget=Textarea())], table: Annotated[Table, Param(title="Table")],
-    ) -> Annotated[Txt, Result(title="Said")]:
-        return Txt(f"{label}={','.join(table.frame['result'].to_list())}")
+@node("labelled-table", title="Labelled table", description="d", category="test")
+def labelled_table(label: Annotated[Txt, Param(title="Label", widget=Textarea())], table: Annotated[Table, Param(title="Table")],
+) -> Annotated[Txt, Result(title="Said")]:
+    return Txt(f"{label}={','.join(table.frame['result'].to_list())}")
 
 
-class TwoColumns(NodeDefinition):
-    id = "two-columns"
-    title = "Two columns"
-    description = "d"
-    category = "test"
-
-    def run(self, a: Annotated[Series[Txt], Param(title="A")], b: Annotated[Series[Txt], Param(title="B")]) -> Annotated[Txt, Result(title="Said")]:
-        return Txt(f"{','.join(a)}+{','.join(b)}")
+@node("two-columns", title="Two columns", description="d", category="test")
+def two_columns(a: Annotated[Series[Txt], Param(title="A")], b: Annotated[Series[Txt], Param(title="B")]) -> Annotated[Txt, Result(title="Said")]:
+    return Txt(f"{','.join(a)}+{','.join(b)}")
 
 
 def _three_levels(text: str) -> tuple[GraphNode, GraphNode, GraphNode]:
@@ -396,12 +343,12 @@ def _three_levels(text: str) -> tuple[GraphNode, GraphNode, GraphNode]:
 
 
 def _deep_registry() -> NodeRegistry:
-    return _registry_with(Words, Splits, Labelled, LabelledTable, TwoColumns)
+    return _registry_with(words, splits, labelled, labelled_table, two_columns)
 
 
-def _said(compiled: CompiledGraph, node: str = "n") -> list[str]:
+def _said(compiled: CompiledGraph, graph_node: str = "n") -> list[str]:
     assert compiled.is_runnable, compiled.problems
-    return list(compiled.results(compiled.run_sync())[node]["result"].values)
+    return list(compiled.results(compiled.run_sync())[graph_node]["result"].values)
 
 
 def test_wiring_the_parent_as_well_adds_no_row():
@@ -455,7 +402,7 @@ def test_a_child_table_a_branch_skipped_gives_no_rows_and_the_sheet_keeps_its_co
         GraphNode(id="docs", type="docs", version=1, bindings={"text": Static("acme:10|skip")}),
         GraphNode(id="read", type="skip-or-read", version=1, bindings={"text": From("docs.result")}),
         GraphNode(id="excel", type="export", version=1, bindings={"table": From("docs.result", "read.result")}),
-        registry=_registry_with(SkipOrRead),
+        registry=_registry_with(skip_or_read),
     )
     sheets = compiled.results(compiled.run_sync())["excel"]["result"]
 
@@ -515,40 +462,23 @@ def test_two_series_under_unrelated_rows_are_misaligned():
     assert [problem.type for problem in compiled.problems] == ["misaligned"]
 
 
-class SkipOrRead(NodeDefinition):
+@node("skip-or-read", title="Skip or read", description="d", category="test")
+def skip_or_read(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Invoices, Result(title="Invoices")]:
     """A branch per document: the word ``skip`` takes it out."""
-
-    id = "skip-or-read"
-    title = "Skip or read"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Invoices, Result(title="Invoices")]:
-        if text == "skip":
-            return SKIPPED
-        return pl.DataFrame({"vendor": ["acme"], "amount": [10.0]})
+    if text == "skip":
+        return SKIPPED
+    return pl.DataFrame({"vendor": ["acme"], "amount": [10.0]})
 
 
-class Picks(NodeDefinition):
+@node("picks", title="Picks", description="d", category="test")
+def picks(contacts: Annotated[Contacts, Param(title="Contacts")]) -> Annotated[Contacts, Result(title="Contacts")]:
     """A select that names columns, the natural way to lose ``__row``."""
-
-    id = "picks"
-    title = "Picks"
-    description = "d"
-    category = "test"
-
-    def run(self, contacts: Annotated[Contacts, Param(title="Contacts")]) -> Annotated[Contacts, Result(title="Contacts")]:
-        return contacts.frame.select("name", "email")
+    return contacts.frame.select("name", "email")
 
 
-class Empty(NodeDefinition):
-    id = "empties"
-    title = "Empties"
-    description = "d"
-    category = "test"
-
-    def run(self, contacts: Annotated[Contacts, Param(title="Contacts")]) -> Annotated[Contacts, Result(title="Contacts")]:
-        return contacts.frame.select("name", "email").clear()
+@node("empties", title="Empties", description="d", category="test")
+def empty(contacts: Annotated[Contacts, Param(title="Contacts")]) -> Annotated[Contacts, Result(title="Contacts")]:
+    return contacts.frame.select("name", "email").clear()
 
 
 def _rebuilt(node_type: str = "picks") -> tuple[GraphNode, GraphNode]:
@@ -559,7 +489,7 @@ def _rebuilt(node_type: str = "picks") -> tuple[GraphNode, GraphNode]:
 
 
 def test_a_table_that_lost_every_rows_id_fails_when_merged_with_the_table_it_was_built_from():
-    compiled = _compiled(CSV, *_rebuilt(), GraphNode(id="excel", type="export", version=1, bindings={"table": From("csv.result", "mail.result")}), registry=_registry_with(Picks))
+    compiled = _compiled(CSV, *_rebuilt(), GraphNode(id="excel", type="export", version=1, bindings={"table": From("csv.result", "mail.result")}), registry=_registry_with(picks))
 
     assert compiled.is_runnable, compiled.problems
     state = compiled.run_sync()
@@ -568,7 +498,7 @@ def test_a_table_that_lost_every_rows_id_fails_when_merged_with_the_table_it_was
 
 
 def test_a_table_built_from_another_used_on_its_own_gets_fresh_ids():
-    compiled = _compiled(CSV, *_rebuilt(), GraphNode(id="excel", type="export", version=1, bindings={"table": From("keep.result", "mail.result")}), registry=_registry_with(Picks))
+    compiled = _compiled(CSV, *_rebuilt(), GraphNode(id="excel", type="export", version=1, bindings={"table": From("keep.result", "mail.result")}), registry=_registry_with(picks))
 
     assert _sheet(compiled)["result"].to_list() == ["sent to ida@x", "no address", "sent to nina@x"]
 
@@ -577,14 +507,14 @@ def test_a_table_with_no_ids_merged_with_an_unrelated_table_is_not_stopped():
     other = GraphNode(id="other", type="csv", version=1, bindings={"text": Static("Ole,ole@x")})
     compiled = _compiled(
         CSV, other, GraphNode(id="keep", type="picks", version=1, bindings={"contacts": From("other.result")}),
-        GraphNode(id="excel", type="export", version=1, bindings={"table": From("csv.result", "keep.result")}), registry=_registry_with(Picks),
+        GraphNode(id="excel", type="export", version=1, bindings={"table": From("csv.result", "keep.result")}), registry=_registry_with(picks),
     )
 
     assert _sheet(compiled).height == 4
 
 
 def test_a_table_of_no_rows_has_lost_no_ids():
-    compiled = _compiled(CSV, *_rebuilt("empties"), GraphNode(id="excel", type="export", version=1, bindings={"table": From("csv.result", "mail.result")}), registry=_registry_with(Empty))
+    compiled = _compiled(CSV, *_rebuilt("empties"), GraphNode(id="excel", type="export", version=1, bindings={"table": From("csv.result", "mail.result")}), registry=_registry_with(empty))
 
     assert compiled.run_sync().status == "complete"
 

@@ -4,19 +4,17 @@ from dataclasses import dataclass
 from typing import Annotated, Any
 
 import pytest
-from conductor import NodeRegistry
-from conductor.dtype import AsItArrives, DType, _UntypedValue
+from conductor import Arriving, NodeRegistry, node
+from conductor.dtype import AsItArrives, DType
 from conductor.errors import NodeReadError
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.graph.receive import PerRow
 from conductor.metadata import Input, Output, Param, Result
-from conductor.node import NodeDefinition
 from conductor.ref import Ref
 from conductor.series import Index, Series
 from conductor.widgets import Textarea
-from pydantic import ValidationError
 
 
 class Txt(DType, str):
@@ -38,141 +36,83 @@ class Documents:
     filenames: Annotated[Series[Txt], Result(title="Filenames")]
 
 
-class Docs(NodeDefinition):
+@node("docs", title="Documents", description="d", category="test")
+def docs(folder: Annotated[Txt, Param(title="Folder", widget=Textarea())] = Txt("")) -> Documents:
     """A series is made here: one text per document."""
-
-    id = "docs"
-    title = "Documents"
-    description = "d"
-    category = "test"
-
-    def run(self, folder: Annotated[Txt, Param(title="Folder", widget=Textarea())] = Txt("")) -> Documents:
-        return Documents(texts=(), filenames=())
+    return Documents(texts=(), filenames=())
 
 
-class Upper(NodeDefinition):
-    id = "upper"
-    title = "Upper case"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
-        return Txt(text.upper())
+@node("upper", title="Upper case", description="d", category="test")
+def upper_node(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
+    return Txt(text.upper())
 
 
-class Pair(NodeDefinition):
-    id = "pair"
-    title = "Pair"
-    description = "d"
-    category = "test"
-
-    def run(
-        self,
-        a: Annotated[Txt, Param(title="A", widget=Textarea())] = Txt(""),
-        b: Annotated[Txt, Param(title="B", widget=Textarea())] = Txt(""),
-    ) -> Out:
-        return Txt(a + b)
+@node("pair", title="Pair", description="d", category="test")
+def pair(
+    a: Annotated[Txt, Param(title="A", widget=Textarea())] = Txt(""),
+    b: Annotated[Txt, Param(title="B", widget=Textarea())] = Txt(""),
+) -> Out:
+    return Txt(a + b)
 
 
-class Triple(NodeDefinition):
-    id = "triple"
-    title = "Triple"
-    description = "d"
-    category = "test"
-
-    def run(
-        self,
-        a: Annotated[Txt, Param(title="A", widget=Textarea())] = Txt(""),
-        b: Annotated[Txt, Param(title="B", widget=Textarea())] = Txt(""),
-        c: Annotated[Txt, Param(title="C", widget=Textarea())] = Txt(""),
-    ) -> Out:
-        return Txt(a + b + c)
+@node("triple", title="Triple", description="d", category="test")
+def triple(
+    a: Annotated[Txt, Param(title="A", widget=Textarea())] = Txt(""),
+    b: Annotated[Txt, Param(title="B", widget=Textarea())] = Txt(""),
+    c: Annotated[Txt, Param(title="C", widget=Textarea())] = Txt(""),
+) -> Out:
+    return Txt(a + b + c)
 
 
-class Join(NodeDefinition):
+@node("join", title="Join", description="d", category="test")
+def join_node(texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
     """A reduction: declares the whole series."""
-
-    id = "join"
-    title = "Join"
-    description = "d"
-    category = "test"
-
-    def run(self, texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
-        return Txt("\n".join(texts))
+    return Txt("\n".join(texts))
 
 
-class Lines(NodeDefinition):
+@node("lines", title="Lines", description="d", category="test")
+def lines(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Lines")]:
     """Opens one text into many: iterating, it is an unfold."""
-
-    id = "lines"
-    title = "Lines"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Lines")]:
-        return text.splitlines()
+    return text.splitlines()
 
 
-class Count(NodeDefinition):
-    id = "count"
-    title = "Count"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Num, Result(title="Count")]:
-        return Num(len(text))
+@node("count", title="Count", description="d", category="test")
+def count(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Num, Result(title="Count")]:
+    return Num(len(text))
 
 
-class Route(NodeDefinition):
+def route_outputs(value: Arriving):
+    dtype = value
+    return (Output("result", dtype, title="Pass on"),)
+
+@node("route", title="Pass on", description="d", category="test", compute_outputs=route_outputs)
+def route(value: Annotated[Any, Param(title="Value")]) -> Annotated[Any, Result(title="Pass on")]:
     """A pass-through: it routes what it does not read, so it declares
     ``Any``, and its hook types the output from what arrives."""
-
-    id = "route"
-    title = "Pass on"
-    description = "d"
-    category = "test"
-
-    def run(self, value: Annotated[Any, Param(title="Value")]) -> Annotated[Any, Result(title="Pass on")]:
-        return value
-
-    def compute_outputs(self, declared, values, arriving):
-        dtype = arriving.get("value", _UntypedValue)
-        return tuple(out.model_copy(update={"dtype": dtype}) for out in declared)
+    return value
 
 
-class Only(NodeDefinition):
+def only_outputs(**arriving: Arriving):
+    series = arriving.get("values")
+    dtype = series.element if series is not None else Any
+    return (Output("result", dtype, title="The value"),)
+
+@node("only", title="Only one", description="d", category="test", compute_outputs=only_outputs)
+def only(values: Annotated[Series[Any], Param(title="Values")]) -> Annotated[Any, Result(title="The value")]:
     """A reduction over whatever arrives: `Series[Any] -> Any`."""
-
-    id = "only"
-    title = "Only one"
-    description = "d"
-    category = "test"
-
-    def run(self, values: Annotated[Series[Any], Param(title="Values")]) -> Annotated[Any, Result(title="The value")]:
-        return values[0]
-
-    def compute_outputs(self, declared, values, arriving):
-        series = arriving.get("values")
-        dtype = series.element if series is not None else Any
-        return tuple(out.model_copy(update={"dtype": dtype}) for out in declared)
+    return values[0]
 
 
-class Script(NodeDefinition):
+@node("script", title="Python", description="d", category="test")
+def script(code: Annotated[Txt, Param(title="Code", connectable=False, widget=Textarea())] = Txt(""), **inputs: AsItArrives) -> Out:
     """An open interface: every connected name is a parameter, received whole."""
-
-    id = "script"
-    title = "Python"
-    description = "d"
-    category = "test"
-
-    def run(self, code: Annotated[Txt, Param(title="Code", show_handle=False, widget=Textarea())] = Txt(""), **inputs: AsItArrives) -> Out:
-        return Txt(",".join(sorted(inputs)))
+    return Txt(",".join(sorted(inputs)))
 
 
 def _registry():
     registry = NodeRegistry()
-    for node_cls in (Docs, Upper, Pair, Triple, Join, Lines, Count, Route, Only, Script):
-        registry.register(node_cls)
+    for node_cls in (docs, upper_node, pair, triple, join_node, lines, count, route, only, script):
+        registry = registry.extended_with([node_cls])
     return registry
 
 
@@ -415,24 +355,19 @@ def test_a_node_with_no_outputs_yet_is_the_ordinary_mid_edit_state():
     non-fatal, the graph still runs, the node is still derived — there is
     simply nothing to edge from it yet."""
 
-    class Sheet(NodeDefinition):
-        id = "sheet"
-        title = "Sheet"
-        description = "d"
-        category = "test"
+    def sheet_outputs(header=""):
+        return tuple(
+            Output(col, Txt)
+            for col in str(header).split(",")
+            if col
+        )
 
-        def run(self, header: Annotated[Txt, Param(title="Header", widget=Textarea())] = Txt("")) -> Out:
-            return header
-
-        def compute_outputs(self, declared, values, arriving):
-            return tuple(
-                Output(name=col, dtype=Txt, title=col)
-                for col in str(values.get("header", "")).split(",")
-                if col
-            )
+    @node("sheet", title="Sheet", description="d", category="test", compute_outputs=sheet_outputs)
+    def sheet(header: Annotated[Txt, Param(title="Header", widget=Textarea())] = Txt("")) -> Out:
+        return header
 
     registry = _registry()
-    registry.register(Sheet)
+    registry = registry.extended_with([sheet])
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="s", type="sheet", version=1)]), registry)
 
     (problem,) = compiled.problems
@@ -448,22 +383,17 @@ def test_a_node_with_no_outputs_yet_is_the_ordinary_mid_edit_state():
 def test_compute_outputs_sees_the_dtype_each_connected_input_receives():
     """An opener's columns come from what arrives, per unit — the element of a series."""
 
-    class Opener(NodeDefinition):
-        id = "opener"
-        title = "Opener"
-        description = "d"
-        category = "test"
+    def opener_outputs(value: Arriving):
+        if value.id == "any":
+            return (Output("result", Txt, title="R"),)
+        return (Output(f"from_{value.id}", Txt, title="Opened"),)
 
-        def run(self, value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
-            return value
-
-        def compute_outputs(self, declared, values, arriving):
-            if "value" not in arriving:
-                return declared
-            return (Output(name=f"from_{arriving['value'].id}", dtype=Txt, title="Opened"),)
+    @node("opener", title="Opener", description="d", category="test", compute_outputs=opener_outputs)
+    def opener(value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
+        return value
 
     registry = _registry()
-    registry.register(Opener)
+    registry = registry.extended_with([opener])
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         GraphNode(id="docs", type="docs", version=1),
         GraphNode(id="o", type="opener", version=1, bindings={"value": _edge(("docs", "texts"))}),
@@ -483,20 +413,15 @@ def test_a_hook_that_cannot_answer_refuses_and_the_refusal_is_the_nodes_problem(
     there is no `no_outputs` echo beside it."""
     from conductor.errors import CompileProblem
 
-    class Fussy(NodeDefinition):
-        id = "fussy"
-        title = "Fussy"
-        description = "d"
-        category = "test"
+    def fussy_outputs():
+        raise CompileProblem("wrong_shape", "What arrives does not fit.")
 
-        def run(self, value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
-            return value
-
-        def compute_outputs(self, declared, values, arriving):
-            raise CompileProblem("wrong_shape", "What arrives does not fit.")
+    @node("fussy", title="Fussy", description="d", category="test", compute_outputs=fussy_outputs)
+    def fussy(value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
+        return value
 
     registry = _registry()
-    registry.register(Fussy)
+    registry = registry.extended_with([fussy])
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         GraphNode(id="docs", type="docs", version=1),
         GraphNode(id="f", type="fussy", version=1, bindings={"value": _edge(("docs", "texts"))}),
@@ -514,20 +439,15 @@ def test_an_inputs_hook_that_cannot_answer_refuses_and_compile_does_not_raise():
     in the graph, and a node reading the refused one carries no echo."""
     from conductor.errors import CompileProblem
 
-    class Fussy(NodeDefinition):
-        id = "fussy-inputs"
-        title = "Fussy"
-        description = "d"
-        category = "test"
+    def fussy_inputs():
+        raise CompileProblem("wrong_mode", "That mode is not one this node has.")
 
-        def run(self, value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
-            return value
-
-        def compute_inputs(self, declared, values):
-            raise CompileProblem("wrong_mode", "That mode is not one this node has.")
+    @node("fussy-inputs", title="Fussy", description="d", category="test", compute_inputs=fussy_inputs)
+    def fussy(value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt(""), **more: Any) -> Out:
+        return value
 
     registry = _registry()
-    registry.register(Fussy)
+    registry = registry.extended_with([fussy])
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         GraphNode(id="f", type="fussy-inputs", version=1, bindings={"value": Static("x")}),
         GraphNode(id="u", type="upper", version=1, bindings={"text": _edge(("f", "result"))}),
@@ -545,20 +465,15 @@ def test_a_hook_reads_a_defaulted_static_nothing_bound():
     guard and an unbound defaulted field means what the declaration
     states."""
 
-    class Suffixer(NodeDefinition):
-        id = "suffixer"
-        title = "Suffixes"
-        description = "d"
-        category = "test"
+    def suffixer_outputs(suffix):
+        return (Output(str(suffix), Txt, title="Out"),)
 
-        def run(self, suffix: Annotated[Txt, Param(title="Suffix", widget=Textarea())] = Txt("out")) -> Out:
-            return suffix
-
-        def compute_outputs(self, declared, values, arriving):
-            return (Output(name=str(values["suffix"]), dtype=Txt, title="Out"),)
+    @node("suffixer", title="Suffixes", description="d", category="test", compute_outputs=suffixer_outputs)
+    def suffixer(suffix: Annotated[Txt, Param(title="Suffix", widget=Textarea())] = Txt("out")) -> Out:
+        return suffix
 
     registry = _registry()
-    registry.register(Suffixer)
+    registry = registry.extended_with([suffixer])
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="s", type="suffixer", version=1)]), registry)
 
     assert compiled.is_runnable, compiled.problems
@@ -785,80 +700,46 @@ def test_compile_stores_no_rows_and_no_mask():
 # --- what a hook may answer ---------------------------------------------------------
 
 
-def test_a_hook_that_adds_an_input_with_no_type_an_edge_can_carry_is_a_bug_in_the_hook():
-    """A record's ``dtype`` is a ``DType``, so a hook writing anything else raises where it writes it."""
+def test_a_hook_that_adds_an_input_of_a_plain_type_closes_it():
+    """A plain Python type cannot travel on an edge, so the input it makes is closed."""
 
-    class Adds(NodeDefinition):
-        id = "adds"
-        title = "Adds"
-        description = "d"
-        category = "test"
+    def adds_inputs():
+        return (Input("raw", int, title="Raw"),)
 
-        def run(self, value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
-            return value
-
-        def compute_inputs(self, declared, values):
-            return (*declared, Input(name="raw", dtype=int, title="Raw"))
+    @node("adds", title="Adds", description="d", category="test", compute_inputs=adds_inputs)
+    def adds(value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt(""), **more: Any) -> Out:
+        return value
 
     registry = _registry()
-    registry.register(Adds)
-    with pytest.raises(ValidationError, match="dtype"):
-        CompiledGraph.from_graph(Graph(nodes=[
-            GraphNode(id="n", type="count", version=1, bindings={"text": Static("hi")}),
-            GraphNode(id="a", type="adds", version=1, bindings={"raw": _edge(("n", "result"))}),
-        ]), registry)
+    registry = registry.extended_with([adds])
+    compiled = CompiledGraph.from_graph(Graph(nodes=[
+        GraphNode(id="n", type="count", version=1, bindings={"text": Static("hi")}),
+        GraphNode(id="a", type="adds", version=1, bindings={"raw": _edge(("n", "result"))}),
+    ]), registry)
+
+    assert [(p.type, p.loc[1]) for p in compiled.problems] == [("edge_into_unconnectable_input", "raw")]
 
 
 def test_a_hook_that_leaves_a_connected_output_untyped_is_a_problem_not_a_crash():
     """An output typed ``Any`` after the hook has answered can carry nothing
     on an edge. Reading it is a problem, not a crash of the walk."""
 
-    class Vague(NodeDefinition):
-        id = "vague"
-        title = "Vague"
-        description = "d"
-        category = "test"
+    def vague_outputs():
+        return (Output("result", Any, title="Out"),)  # never types it
 
-        def run(self, value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Annotated[Any, Result(title="Out")]:
-            return value
-
-        def compute_outputs(self, declared, values, arriving):
-            return declared  # never types it
+    @node("vague", title="Vague", description="d", category="test", compute_outputs=vague_outputs)
+    def vague(value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Annotated[Any, Result(title="Out")]:
+        return value
 
     registry = _registry()
-    registry.register(Vague)
+    registry = registry.extended_with([vague])
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         GraphNode(id="v", type="vague", version=1, bindings={"value": Static("hi")}),
         GraphNode(id="u", type="upper", version=1, bindings={"text": _edge(("v", "result"))}),
     ]), registry)
 
-    assert [(p.type, p.fatal, p.loc[0], p.loc[1]) for p in compiled.problems] == [("handle_needs_dtype", True, "v", "result")]
+    assert [(p.type, p.fatal, p.loc[0], p.loc[1]) for p in compiled.problems] == [("output_has_no_type", True, "v", "result")]
     assert not compiled.is_runnable
-
-
-def test_a_static_is_typed_against_the_interface_the_hook_returned():
-    """A hook that retypes an input from text to number makes the value the
-    author typed as text an ``invalid_static``, not a failure at run time."""
-
-    class Retypes(NodeDefinition):
-        id = "retypes"
-        title = "Retypes"
-        description = "d"
-        category = "test"
-
-        def run(self, value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
-            return value
-
-        def compute_inputs(self, declared, values):
-            return tuple(i.model_copy(update={"dtype": Num, "default": Num(0)}) for i in declared)
-
-    registry = _registry()
-    registry.register(Retypes)
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="r", type="retypes", version=1, bindings={"value": Static("abc")})]), registry)
-    numeric = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="r", type="retypes", version=1, bindings={"value": Static("2")})]), registry)
-
-    assert [(p.type, p.loc[1]) for p in compiled.problems] == [("invalid_static", "value")]
-    assert numeric.is_runnable and numeric.node("r").statics == {"value": Num(2)}
 
 
 def test_a_refusal_from_a_node_whose_source_is_broken_is_dropped_for_the_sources_fault():
@@ -867,19 +748,14 @@ def test_a_refusal_from_a_node_whose_source_is_broken_is_dropped_for_the_sources
     interface an editor can draw, with no outputs."""
     from conductor.errors import CompileProblem
 
-    class Fussy(NodeDefinition):
-        id = "fussy"
-        title = "Fussy"
-        description = "d"
-        category = "test"
+    def fussy_outputs():
+        raise CompileProblem("wrong_shape", "What arrives does not fit.")
 
-        def run(self, value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
-            return value
+    @node("fussy", title="Fussy", description="d", category="test", compute_outputs=fussy_outputs)
+    def fussy(value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
+        return value
 
-        def compute_outputs(self, declared, values, arriving):
-            raise CompileProblem("wrong_shape", "What arrives does not fit.")
-
-    registry = _registry().extended_with([Fussy])
+    registry = _registry().extended_with([fussy])
 
     def codes(source_field):
         compiled = CompiledGraph.from_graph(Graph(nodes=[
@@ -888,9 +764,9 @@ def test_a_refusal_from_a_node_whose_source_is_broken_is_dropped_for_the_sources
         ]), registry)
         return [p.type for p in compiled.problems if p.loc[0] == "f"], compiled.node("f")
 
-    broken, node = codes("nope")
+    broken, graph_node = codes("nope")
     assert broken == ["unknown_ref_output"]
-    assert (node.state, node.interface.outputs) == ("wiring_failed", ())
+    assert (graph_node.state, graph_node.interface.outputs) == ("wiring_failed", ())
     assert codes("texts")[0] == ["wrong_shape"]
 
 

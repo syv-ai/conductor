@@ -15,15 +15,14 @@ from conductor import CompiledGraph, GraphNode, NodeRegistry
 from conductor._sentinel import SKIPPED
 from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
-from conductor_nodes.decision import Decision
+from conductor_nodes.decision import decision
 from conductor_nodes.types import Flag, Json, Text
 from helpers import stream_of
 
 
 @pytest.fixture
 def full_registry() -> NodeRegistry:
-    reg = NodeRegistry()
-    conductor_nodes.register_all(reg)
+    reg = conductor_nodes.registry()
     return reg
 
 
@@ -50,7 +49,7 @@ class TestPackageSurface:
 
     def test_register_all_respects_categories_filter(self):
         reg = NodeRegistry()
-        conductor_nodes.register_all(reg, categories=["text", "math"])
+        reg = conductor_nodes.registry(categories=["text", "math"])
         ids = {c.id for c in reg.nodes}
         assert "text-uppercase" in ids
         assert "math-add" in ids
@@ -58,9 +57,8 @@ class TestPackageSurface:
         assert "logic-if-empty" not in ids
 
     def test_register_all_rejects_unknown_category(self):
-        reg = NodeRegistry()
         with pytest.raises(KeyError, match="Unknown category"):
-            conductor_nodes.register_all(reg, categories=["doesnt-exist"])
+            conductor_nodes.registry(categories=["doesnt-exist"])
 
     def test_each_module_lists_its_own_nodes(self):
         ids = {c.id for c in conductor_nodes.text.NODES}
@@ -290,12 +288,12 @@ class TestDecision:
     """The gate's body: ``value`` lands on the branch ``when`` picks, ``SKIPPED`` on the other."""
 
     def test_true_routes_to_if_true(self):
-        branches = Decision().run(value=Text("x"), when=Flag(True))
+        branches = decision(value=Text("x"), when=Flag(True))
         assert branches.if_true == Text("x")
         assert branches.if_false is SKIPPED
 
     def test_false_routes_to_if_false(self):
-        branches = Decision().run(value=Text("x"), when=Flag(False))
+        branches = decision(value=Text("x"), when=Flag(False))
         assert branches.if_true is SKIPPED
         assert branches.if_false == Text("x")
 
@@ -449,7 +447,7 @@ def test_a_catastrophic_pattern_answers_at_once():
 
     started = time.monotonic()
     seen = asyncio.run(events())
-    assert time.monotonic() - started < conductor_nodes.regex_ops.Match.timeout
+    assert time.monotonic() - started < conductor_nodes.regex_ops.TIMEOUT
     assert "node_start" in [e.type for e in seen]
     assert compiled.results(seen[-1].state)["m"]["result"] == Flag(False)
 
@@ -471,7 +469,7 @@ def test_a_pattern_that_times_out_fails_its_node_with_a_sentence_for_people(monk
 def test_a_grouped_extract_that_times_out_fails_with_the_same_code(monkeypatch):
     """With groups, Extract walks the matches one by one, and the timeout
     fires during the walk rather than when the search starts."""
-    monkeypatch.setattr(conductor_nodes.regex_ops.Extract, "timeout", 0.05)
+    monkeypatch.setattr(conductor_nodes.regex_ops, "TIMEOUT", 0.05)
     graph = Graph(nodes=[GraphNode(id="x", type="regex-extract", version=1, bindings={
         "text": Static("a" * 40), "pattern": Static("((?:(?:a|aa)+)+b)"),
     })])

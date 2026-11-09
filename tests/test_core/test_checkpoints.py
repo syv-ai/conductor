@@ -13,14 +13,13 @@ from conductor import (
     Graph,
     GraphNode,
     InvalidCallError,
-    NodeDefinition,
     NodeRegistry,
     Param,
     Policy,
     Result,
     RunState,
     Series,
-    version,
+    node,
 )
 from conductor.events import Event, RunCheckpoint, RunEnd, UnitWaiting
 
@@ -40,48 +39,32 @@ def called(what: str) -> None:
     calls[what] = calls.get(what, 0) + 1
 
 
-class Lines(NodeDefinition):
-    id = "lines"
-    title = "Lines"
-    description = "d"
-    category = "test"
-
-    def run(self) -> Annotated[Series[Txt], Result(title="Linjer")]:
-        called("lines")
-        return [Txt(line) for line in LINES]
+@node("lines", title="Lines", description="d", category="test")
+def lines_node() -> Annotated[Series[Txt], Result(title="Linjer")]:
+    called("lines")
+    return [Txt(line) for line in LINES]
 
 
-class Work(NodeDefinition):
-    id = "work"
-    title = "Work"
-    description = "d"
-    category = "test"
-
-    @version(1, policy=Policy(concurrency=8))
-    def run(self, line: Annotated[Txt, Param(title="L")]) -> Out | AskPerson:
-        called(line)
-        if line.startswith("hold"):
-            release.wait(10)
-        if line.startswith("ask"):
-            return AskPerson(prompt="?")
-        return Txt(line.upper())
+@node("work", title="Work", description="d", category="test", policy=Policy(concurrency=8))
+def work(line: Annotated[Txt, Param(title="L")]) -> Out | AskPerson:
+    called(line)
+    if line.startswith("hold"):
+        release.wait(10)
+    if line.startswith("ask"):
+        return AskPerson(prompt="?")
+    return Txt(line.upper())
 
 
-class Count(NodeDefinition):
-    id = "count"
-    title = "Count"
-    description = "d"
-    category = "test"
-
-    def run(self, lines: Annotated[Series[Txt], Param(title="L")]) -> Annotated[Txt, Result(title="N")]:
-        called("count")
-        return Txt(",".join(sorted(lines)))
+@node("count", title="Count", description="d", category="test")
+def count(lines: Annotated[Series[Txt], Param(title="L")]) -> Annotated[Txt, Result(title="N")]:
+    called("count")
+    return Txt(",".join(sorted(lines)))
 
 
 LINES = ["a", "b", "hold", "c"]
 REGISTRY = NodeRegistry()
-for cls in (Lines, Work, Count):
-    REGISTRY.register(cls)
+for cls in (lines_node, work, count):
+    REGISTRY = REGISTRY.extended_with([cls])
 
 
 def compiled() -> CompiledGraph:
@@ -119,7 +102,7 @@ def events_until(graph: CompiledGraph, stop: Any, **kwargs: Any) -> list[Event]:
 
 
 def all_but_hold_finished(event: Event) -> bool:
-    return isinstance(event, RunCheckpoint) and sum(len(rows) for node, rows in event.state.finished_rows.items() if node == "work") == 3
+    return isinstance(event, RunCheckpoint) and sum(len(rows) for graph_node, rows in event.state.finished_rows.items() if graph_node == "work") == 3
 
 
 def test_a_stream_gives_no_checkpoint_unless_asked():
@@ -148,7 +131,7 @@ def test_a_checkpoint_does_not_change_when_the_run_goes_on():
     release.set()
     seen = events_until(compiled(), lambda e: False, checkpoint_every=0)
     first = next(e.state for e in seen if isinstance(e, RunCheckpoint))
-    finished = {node: list(rows) for node, rows in first.finished_rows.items()}
+    finished = {graph_node: list(rows) for graph_node, rows in first.finished_rows.items()}
 
     assert isinstance(seen[-1], RunEnd)
     assert first.finished_rows == finished and first.status == "running"

@@ -37,21 +37,21 @@ from conductor.graph.compiled import CompiledGraph
 from conductor.graph.compiled_node import CompiledField, CompiledNode
 from conductor.graph.conditions import ALWAYS, NEVER, Atom, Condition
 from conductor.graph.model import FieldContent, Graph, GraphNode
-from conductor.graph.receive import Broadcast, Gather, PerRow, Receive, RowsUnder, Whole
 from conductor.graph.topology import dependencies_of
+from conductor.graph.upgrade import upgrade_node
 from conductor.interface import FromRun, Interface, model_of
 from conductor.metadata import Input, Output, Param, Result
-from conductor.node import (
+from conductor.node_decorator import (
+    Arriving,
     Deprecation,
     NodeDefinition,
     NodeDescription,
     NodeVersion,
+    OlderVersion,
     Policy,
     Upgrade,
     VersionDescription,
-    deprecated,
-    upgrade,
-    version,
+    node,
 )
 from conductor.ref import Ref
 from conductor.registry import NodeRegistry, RegistryDescription, TypeDescription
@@ -70,11 +70,11 @@ __all__ = [
     "PROBLEM_CODES",
     "SKIPPED",
     "Answers",
+    "Arriving",
     "AsItArrives",
     "AskPerson",
     "Atom",
     "Binding",
-    "Broadcast",
     "CompileProblem",
     "CompiledField",
     "CompiledGraph",
@@ -87,7 +87,6 @@ __all__ = [
     "FieldContent",
     "From",
     "FromRun",
-    "Gather",
     "Graph",
     "GraphNode",
     "Index",
@@ -104,17 +103,15 @@ __all__ = [
     "NodeValidationError",
     "NodeVersion",
     "Output",
+    "OlderVersion",
     "OutputColumn",
     "Param",
-    "PerRow",
     "Policy",
     "Problem",
     "Question",
-    "Receive",
     "Ref",
     "RegistryDescription",
     "Result",
-    "RowsUnder",
     "RunState",
     "RunStatus",
     "Series",
@@ -124,13 +121,11 @@ __all__ = [
     "Upgrade",
     "VersionDescription",
     "WaitingUnit",
-    "Whole",
     "dependencies_of",
-    "deprecated",
     "from_wire",
     "is_skipped",
     "model_of",
+    "node",
     "to_wire",
-    "upgrade",
-    "version",
+    "upgrade_node",
 ]

@@ -21,12 +21,12 @@ import time
 from typing import Annotated
 
 import pytest
-from conductor import CompiledGraph, GraphNode, NodeRegistry, Param
+from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, node
 from conductor.errors import ExternalFailure
 from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
 from conductor.metadata import Result
-from conductor.node import NodeDefinition, Policy, version
+from conductor.node_decorator import Policy
 from conductor.widgets import Textarea
 from conductor_nodes.types import Text
 from helpers import stream_of
@@ -34,14 +34,9 @@ from helpers import stream_of
 Out = Annotated[Text, Result(title="Output")]
 
 
-class Upper(NodeDefinition):
-    id = "upper"
-    title = "Upper"
-    description = "Uppercases its input"
-    category = "test"
-
-    def run(self, text: Annotated[Text, Param(title="Input", widget=Textarea())] = Text("")) -> Out:
-        return Text(text.upper())
+@node("upper", title="Upper", description="Uppercases its input", category="test")
+def upper_node(text: Annotated[Text, Param(title="Input", widget=Textarea())] = Text("")) -> Out:
+    return Text(text.upper())
 
 
 @pytest.mark.slow
@@ -57,8 +52,7 @@ def test_500_node_linear_chain_compile_and_execute() -> None:
                         the chain completes in a couple of seconds; the
                         bound leaves headroom for slow runners.)
     """
-    registry = NodeRegistry()
-    registry.register(Upper)
+    registry = NodeRegistry([upper_node])
 
     n = 500
     nodes: list[GraphNode] = []
@@ -102,23 +96,16 @@ async def test_cancellation_honored_during_retry_sleep() -> None:
     """
     call_count = 0
 
-    class AlwaysFlaky(NodeDefinition):
-        id = "always-flaky"
-        title = "Always Flaky"
-        description = "Always fails (would succeed only after >5 tries)"
-        category = "test"
+    @node("always-flaky", title="Always Flaky", description="Always fails (would succeed only after >5 tries)", category="test", policy=Policy(retries=5, delay=2.0))
+    def always_flaky(text: Annotated[Text, Param(title="In", widget=Textarea())] = Text("")) -> Out:
+        nonlocal call_count
+        call_count += 1
+        raise ExternalFailure(
+            f"transient (attempt {call_count})",
+            node_id="n1",
+        )
 
-        @version(1, policy=Policy(retries=5, delay=2.0))
-        def run(self, text: Annotated[Text, Param(title="In", widget=Textarea())] = Text("")) -> Out:
-            nonlocal call_count
-            call_count += 1
-            raise ExternalFailure(
-                f"transient (attempt {call_count})",
-                node_id="n1",
-            )
-
-    registry = NodeRegistry()
-    registry.register(AlwaysFlaky)
+    registry = NodeRegistry([always_flaky])
 
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="always-flaky", version=1, bindings={"text": Static("x")})]), registry)
 

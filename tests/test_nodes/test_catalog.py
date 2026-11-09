@@ -9,7 +9,6 @@ from typing import get_args
 
 import conductor_nodes
 import pytest
-from conductor.node import NodeDefinition
 from conductor_nodes.types import Flag, Json, Number, Text
 
 #: Every node id the catalog is expected to hold, checked in both directions
@@ -141,13 +140,10 @@ def test_no_stdlib_node_overrides_a_shaping_hook(registry):
     its dtype's constructor rules.
     """
     for node_cls in registry.nodes:
-        assert getattr(node_cls, "compute_inputs") is getattr(NodeDefinition, "compute_inputs"), (
-            f"{node_cls.id} overrides compute_inputs — record why it must"
-        )
+        version = node_cls.versions[node_cls.current]
+        assert version.compute_inputs is None, f"{node_cls.id} has compute_inputs — record why it must"
         if node_cls.id != "decision":
-            assert getattr(node_cls, "compute_outputs") is getattr(NodeDefinition, "compute_outputs"), (
-                f"{node_cls.id} overrides compute_outputs — record why it must"
-            )
+            assert version.compute_outputs is None, f"{node_cls.id} has compute_outputs — record why it must"
         assert not hasattr(node_cls, "validate"), f"{node_cls.id} has a validate hook; there is none"
 
 

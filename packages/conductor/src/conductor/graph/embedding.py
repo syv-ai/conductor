@@ -65,7 +65,7 @@ from conductor.series import Index, Series
 if TYPE_CHECKING:
     from conductor.graph.compiled import CompiledGraph
     from conductor.interface import Interface
-    from conductor.node import NodeDefinition
+    from conductor.node_decorator import NodeDefinition
 
 
 SEPARATOR = "/"
@@ -124,7 +124,7 @@ class Embedded:
     #: The graph nodes inside, nested ones included, by their id in the outer graph.
     graphs: frozenset[str]
     versions: dict[str, Any]
-    definitions: dict[str, type[NodeDefinition]]
+    definitions: dict[str, NodeDefinition[..., Any]]
     interfaces: dict[str, Interface]
     statics: dict[str, dict[str, Any]]
     listed: dict[str, frozenset[str]]

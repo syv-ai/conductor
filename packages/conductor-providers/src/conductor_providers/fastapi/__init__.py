@@ -23,7 +23,7 @@ Usage::
     )
 
 Values the run supplies to nodes by type, per request (a node's ``run``
-parameter annotated ``Annotated[User, FromRun()]`` receives the ``User``)::
+parameter annotated ``FromRun[User]`` receives the ``User``)::
 
     def supplied(request: Request) -> dict[type, Any]:
         return {User: request.state.user}

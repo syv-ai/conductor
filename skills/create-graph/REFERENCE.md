@@ -7,7 +7,7 @@ import asyncio
 from typing import Annotated
 
 import conductor_nodes
-from conductor import AskPerson, CompiledGraph, From, Graph, GraphNode, NodeDefinition, Param, Result, RunState, Static
+from conductor import AskPerson, CompiledGraph, From, Graph, GraphNode, Param, Result, RunState, Static, node
 from conductor.widgets import Textarea
 from conductor_nodes.types import Text
 
@@ -21,17 +21,12 @@ broken = CompiledGraph.from_graph(
 assert [p.code for p in broken.problems] == ["unknown_ref_node"]
 
 
-class Approve(NodeDefinition):
-    id = "approve"
-    title = "Approve"
-    description = "Asks a person to approve a proposal."
-    category = "review"
-
-    def run(self, proposal: Annotated[Text, Param(title="Proposal", widget=Textarea())]) -> Annotated[Text, Result(title="Decision")] | AskPerson:
-        return AskPerson(defaults={"result": proposal}, widgets={"result": Textarea()})
+@node("approve", title="Approve", description="Asks a person to approve a proposal.", category="review")
+def approve(proposal: Annotated[Text, Param(title="Proposal", widget=Textarea())]) -> Annotated[Text, Result(title="Decision")] | AskPerson:
+    return AskPerson(defaults={"result": proposal}, widgets={"result": Textarea()})
 
 
-registry.register(Approve)
+registry = registry.extended_with([approve])
 asking = CompiledGraph.from_graph(
     Graph(nodes=[
         GraphNode(id="drafts", type="text-split", version=1, bindings={"text": Static("first,second")}),

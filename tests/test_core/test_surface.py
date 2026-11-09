@@ -10,13 +10,12 @@ from collections.abc import Mapping
 from typing import Annotated, Any, NewType
 
 import pytest
-from conductor import NodeRegistry
+from conductor import NodeRegistry, node
 from conductor.dtype import DType
 from conductor.graph.binding import Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.metadata import Input, Param, Result
-from conductor.node import NodeDefinition
 from conductor.widgets import Textarea
 
 
@@ -28,39 +27,25 @@ class Txt(DType, str):
 Out = Annotated[Txt, Result(title="Result")]
 
 
-class Scale(NodeDefinition):
-    id = "scale"
-    title = "Scale"
-    description = "d"
-    category = "test"
-
-    def run(
-        self,
-        value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt(""),
-        factor: Annotated[Txt, Param(title="Factor", widget=Textarea())] = Txt("2"),
-    ) -> Out:
-        return Txt(value * int(factor))
+@node("scale", title="Scale", description="d", category="test")
+def scale(
+    value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt(""),
+    factor: Annotated[Txt, Param(title="Factor", widget=Textarea())] = Txt("2"),
+) -> Out:
+    return Txt(value * int(factor))
 
 
-class Shaped(NodeDefinition):
+def shaped_inputs():
+    return ()
+
+@node("shaped", title="Shaped", description="d", category="test", compute_inputs=shaped_inputs)
+def shaped(mode: Annotated[Txt, Param(title="Mode", widget=Textarea())] = Txt("a"), **more: Txt) -> Out:
     """Its inputs depend on a mode, so a binding can outlive its field."""
-
-    id = "shaped"
-    title = "Shaped"
-    description = "d"
-    category = "test"
-
-    def run(self, mode: Annotated[Txt, Param(title="Mode", widget=Textarea())] = Txt("a")) -> Out:
-        return mode
-
-    def compute_inputs(self, declared: tuple[Input, ...], values: Mapping[str, Any]) -> tuple[Input, ...]:
-        return declared
+    return mode
 
 
 def _registry() -> NodeRegistry:
-    registry = NodeRegistry()
-    registry.register(Scale)
-    registry.register(Shaped)
+    registry = NodeRegistry([scale, shaped])
     return registry
 
 
@@ -117,8 +102,8 @@ def test_a_widget_refuses_a_key_it_does_not_have():
 
 
 def test_display_is_the_canvas_own_and_takes_any_key():
-    node = GraphNode(id="s", type="scale", version=1, display={"position": {"x": 1}, "colour": "red"})
-    assert node.display["colour"] == "red"
+    graph_node = GraphNode(id="s", type="scale", version=1, display={"position": {"x": 1}, "colour": "red"})
+    assert graph_node.display["colour"] == "red"
 
 
 # --- a repr is the call that makes the object ----------------------------------------
@@ -134,7 +119,7 @@ def test_a_series_prints_as_its_constructor():
 
 
 def test_a_node_version_prints_its_run_by_name():
-    assert repr(Scale.versions[1]).startswith("NodeVersion(run=Scale.run, ")
+    assert repr(scale.versions[1]).startswith("NodeVersion(run=scale, ")
 
 
 def test_a_compiled_graph_prints_a_one_line_summary():
@@ -143,10 +128,10 @@ def test_a_compiled_graph_prints_a_one_line_summary():
 
 
 def test_a_registry_prints_a_call_its_constructor_accepts():
-    registry = NodeRegistry(nodes=(Scale, Shaped))
+    registry = NodeRegistry((scale, shaped))
 
-    assert registry.nodes == (Scale, Shaped)
-    assert repr(registry).startswith("NodeRegistry(nodes=(\n    Scale(id='scale'")
+    assert registry.nodes == (scale, shaped)
+    assert repr(registry).startswith("NodeRegistry(nodes=(\n    NodeDefinition(id='scale'")
 
 
 # --- an error's text names what went wrong --------------------------------------------
@@ -169,8 +154,8 @@ def test_a_compilation_error_lists_its_fatal_problems():
 # --- a declaration mistake is refused where it is written -----------------------------
 
 
-def _declare(**body):
-    return type("Bad", (NodeDefinition,), {"id": "bad", "title": "Bad", "description": "d", "category": "test", **body})
+def _declare(*, run):
+    return node("bad", title="Bad", description="d", category="test")(run)
 
 
 def _run(annotations: dict, **kinds):
@@ -178,13 +163,8 @@ def _run(annotations: dict, **kinds):
     parameter kind (``*args``, ``**inputs``) can be spelled."""
     params = ", ".join(kinds.get(name, name) + f": A_{name}" for name in annotations)
     scope = {f"A_{name}": annotation for name, annotation in annotations.items()} | {"Out": Out, "Txt": Txt}
-    exec(f"def run(self, {params}) -> Out:\n    return Txt('')", scope)
+    exec(f"def run({params}) -> Out:\n    return Txt('')", scope)
     return scope["run"]
-
-
-def test_a_misspelled_run_is_refused_naming_what_the_class_does_define():
-    with pytest.raises(TypeError, match=r"Bad declares an id but no run.*rnu"):
-        _declare(rnu=lambda self: None)
 
 
 def test_a_bare_series_parameter_is_a_series_of_anything():
@@ -196,11 +176,9 @@ def test_a_bare_series_parameter_is_a_series_of_anything():
     assert declared.versions[1].interface.inputs[0].dtype is Series[Any]
 
 
-def test_an_open_interface_typed_as_one_series_is_refused():
-    from conductor.series import Series
-
-    with pytest.raises(TypeError, match=r"\*\*inputs: Series\[Txt\].*\*\*inputs: Series"):
-        _declare(run=_run({"inputs": Series[Txt]}, inputs="**inputs"))
+def test_a_plain_type_on_an_open_interface_is_refused():
+    with pytest.raises(TypeError, match=r"\*\*inputs"):
+        _declare(run=_run({"inputs": str}, inputs="**inputs"))
 
 
 def test_an_underscore_parameter_is_refused():
@@ -216,8 +194,8 @@ def test_a_parameter_named_like_a_pydantic_model_attribute_validates_without_a_w
     import warnings
 
 
-    node = _declare(run=_run({name: Annotated[Txt, Param(title="X", widget=Textarea())]}))
-    registry = NodeRegistry(nodes=(node,))
+    graph_node = _declare(run=_run({name: Annotated[Txt, Param(title="X", widget=Textarea())]}))
+    registry = NodeRegistry((graph_node,))
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n", type="bad", version=1, bindings={name: Static("x")})]), registry)
@@ -228,8 +206,8 @@ def test_a_parameter_named_like_a_pydantic_model_attribute_validates_without_a_w
 def test_an_aliased_input_and_an_input_named_like_its_field_both_arrive():
     """``json`` and ``json_`` are two inputs, and neither value may drop the other."""
     text = Annotated[Txt, Param(title="X", widget=Textarea())]
-    node = _declare(run=_run({"json_": text, "json": text}))
-    registry = NodeRegistry(nodes=(node,))
+    graph_node = _declare(run=_run({"json_": text, "json": text}))
+    registry = NodeRegistry((graph_node,))
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[GraphNode(id="n", type="bad", version=1, bindings={"json_": Static("a"), "json": Static("b")})]),
         registry,
@@ -275,7 +253,7 @@ def test_a_field_refuses_a_dtype_that_is_not_a_type(bogus):
     from pydantic import ValidationError
 
     with pytest.raises(ValidationError, match="dtype"):
-        Output(name="result", dtype=bogus, title="R")
+        Output("result", bogus, title="R")
 
 
 Mode = NewType("Mode", str)
@@ -283,10 +261,9 @@ type Modes = list[str]
 
 
 def test_a_field_takes_a_dtype_or_any():
-    from conductor.metadata import Input
 
-    assert Input(name="x", dtype=Txt, title="X").dtype is Txt
-    assert Input(name="x", dtype=Any, title="X").dtype.id == "any"
+    assert Input("x", Txt, title="X").dtype is Txt
+    assert Input("x", Any, title="X").dtype.id == "any"
 
 
 # --- the registry is a container, and a compiled graph's facts are properties ---------
@@ -297,14 +274,14 @@ def test_a_registry_is_a_container_of_its_nodes_by_id():
 
     assert "scale" in registry and "nope" not in registry
     assert len(registry) == 2
-    assert registry["scale"] is Scale
+    assert registry["scale"] is scale
     assert list(registry) == ["scale", "shaped"]
 
 
 def test_a_registry_is_a_container_and_not_a_mapping():
     """It answers ``in``, ``[]``, ``len`` and iteration over its ids, and
     nothing more: no ``get`` returning ``None`` for a typo, no ``items``."""
-    from collections.abc import Container, Mapping
+    from collections.abc import Container
 
     registry = _registry()
 

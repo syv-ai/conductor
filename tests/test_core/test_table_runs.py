@@ -20,11 +20,11 @@ from conductor import (
     Param,
     Static,
     Table,
+    node,
 )
 from conductor.graph.binding import From
 from conductor.graph.model import Graph
 from conductor.metadata import Result
-from conductor.node import NodeDefinition
 from conductor.ref import Ref
 from conductor.series import Index, Series
 from conductor.table import ROW_ID
@@ -39,82 +39,44 @@ Invoices = Table.with_columns({"vendor": Txt, "amount": Num})
 Text = Annotated[Txt, Param(title="Text", widget=Textarea())]
 
 
-class ReadCsv(NodeDefinition):
+@node("csv", title="CSV", description="d", category="test")
+def read_csv(text: Text = Txt("")) -> Annotated[Contacts, Result(title="Rows")]:
     """``name,email`` per line, lines split by ``;``; an empty email is a blank cell."""
-
-    id = "csv"
-    title = "CSV"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Text = Txt("")) -> Annotated[Contacts, Result(title="Rows")]:
-        rows = [line.split(",") for line in text.split(";")]
-        return pl.DataFrame({"name": [name for name, _ in rows], "email": [email or None for _, email in rows]})
+    rows = [line.split(",") for line in text.split(";")]
+    return pl.DataFrame({"name": [name for name, _ in rows], "email": [email or None for _, email in rows]})
 
 
-class SendMail(NodeDefinition):
-    id = "send"
-    title = "Send mail"
-    description = "d"
-    category = "test"
-
-    def run(self, email: Annotated[Txt, Param(title="Email", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="Sent")]:
-        return Txt("no address" if email is None else f"sent to {email}")
+@node("send", title="Send mail", description="d", category="test")
+def send_mail(email: Annotated[Txt, Param(title="Email", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="Sent")]:
+    return Txt("no address" if email is None else f"sent to {email}")
 
 
-class Docs(NodeDefinition):
-    id = "docs"
-    title = "Docs"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Text = Txt("")) -> Annotated[Series[Txt], Result(title="Documents")]:
-        return [Txt(part) for part in text.split("|")]
+@node("docs", title="Docs", description="d", category="test")
+def docs(text: Text = Txt("")) -> Annotated[Series[Txt], Result(title="Documents")]:
+    return [Txt(part) for part in text.split("|")]
 
 
-class Structured(NodeDefinition):
+@node("structured", title="Structured", description="d", category="test")
+def structured(text: Text = Txt("")) -> Annotated[Invoices, Result(title="Invoices")]:
     """``vendor:amount`` pairs, comma-separated: the invoices in one document."""
-
-    id = "structured"
-    title = "Structured"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Text = Txt("")) -> Annotated[Invoices, Result(title="Invoices")]:
-        pairs = [part.split(":") for part in text.split(",") if part]
-        return pl.DataFrame({"vendor": [v for v, _ in pairs], "amount": [float(a) for _, a in pairs]}, schema={"vendor": pl.String, "amount": pl.Float64})
+    pairs = [part.split(":") for part in text.split(",") if part]
+    return pl.DataFrame({"vendor": [v for v, _ in pairs], "amount": [float(a) for _, a in pairs]}, schema={"vendor": pl.String, "amount": pl.Float64})
 
 
-class Check(NodeDefinition):
+@node("check", title="Check vendor", description="d", category="test")
+def check(vendor: Annotated[Txt, Param(title="Vendor", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="Approved")]:
     """Approves a vendor, or skips one it has no word on (``unknown``)."""
-
-    id = "check"
-    title = "Check vendor"
-    description = "d"
-    category = "test"
-
-    def run(self, vendor: Annotated[Txt, Param(title="Vendor", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="Approved")]:
-        return SKIPPED if vendor == "unknown" else Txt(f"{vendor} ok")
+    return SKIPPED if vendor == "unknown" else Txt(f"{vendor} ok")
 
 
-class Total(NodeDefinition):
-    id = "total"
-    title = "Total"
-    description = "d"
-    category = "test"
-
-    def run(self, amounts: Annotated[Series[Num], Param(title="Amounts")] = ()) -> Annotated[Num, Result(title="Total")]:
-        return Num(sum(amounts))
+@node("total", title="Total", description="d", category="test")
+def total_node(amounts: Annotated[Series[Num], Param(title="Amounts")] = ()) -> Annotated[Num, Result(title="Total")]:
+    return Num(sum(amounts))
 
 
-class JoinTexts(NodeDefinition):
-    id = "join"
-    title = "Join"
-    description = "d"
-    category = "test"
-
-    def run(self, texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Annotated[Txt, Result(title="Joined")]:
-        return Txt("+".join(texts))
+@node("join", title="Join", description="d", category="test")
+def join_texts(texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Annotated[Txt, Result(title="Joined")]:
+    return Txt("+".join(texts))
 
 
 @dataclass(frozen=True)
@@ -123,44 +85,26 @@ class Known:
     unknown: Annotated[Txt, Result(title="Unknown")]
 
 
-class Route(NodeDefinition):
+@node("route", title="Route", description="d", category="test")
+def route(name: Annotated[Txt, Param(title="Name", widget=Textarea())] = Txt(""), email: Annotated[Txt, Param(title="Email", widget=Textarea())] = Txt("")) -> Known:
     """A branch per row: a contact with an email goes one way, one without the other."""
-
-    id = "route"
-    title = "Route"
-    description = "d"
-    category = "test"
-
-    def run(self, name: Annotated[Txt, Param(title="Name", widget=Textarea())] = Txt(""), email: Annotated[Txt, Param(title="Email", widget=Textarea())] = Txt("")) -> Known:
-        return Known(known=Txt(f"Dear {name}"), unknown=SKIPPED) if email is not None else Known(known=SKIPPED, unknown=Txt(f"Call {name}"))
+    return Known(known=Txt(f"Dear {name}"), unknown=SKIPPED) if email is not None else Known(known=SKIPPED, unknown=Txt(f"Call {name}"))
 
 
-class Approve(NodeDefinition):
+@node("approve", title="Approve", description="d", category="test")
+def approve(vendor: Annotated[Txt, Param(title="Vendor", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="Approved by")] | AskPerson:
     """A person approves each invoice."""
-
-    id = "approve"
-    title = "Approve"
-    description = "d"
-    category = "test"
-
-    def run(self, vendor: Annotated[Txt, Param(title="Vendor", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="Approved by")] | AskPerson:
-        return AskPerson()
+    return AskPerson()
 
 
-class Gate(NodeDefinition):
+@node("gate", title="Gate", description="d", category="test")
+def gate(text: Text = Txt("")) -> Annotated[Txt, Result(title="Passed")]:
     """Passes a document on, or skips it when it says ``skip``."""
-
-    id = "gate"
-    title = "Gate"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Text = Txt("")) -> Annotated[Txt, Result(title="Passed")]:
-        return SKIPPED if text == "skip" else text
+    return SKIPPED if text == "skip" else text
 
 
 def _registry() -> NodeRegistry:
-    return NodeRegistry(nodes=(ReadCsv, SendMail, Docs, Structured, Check, Total, JoinTexts, Route, Approve, Gate))
+    return NodeRegistry((read_csv, send_mail, docs, structured, check, total_node, join_texts, route, approve, gate))
 
 
 def _compiled(*nodes: GraphNode, registry: NodeRegistry | None = None) -> CompiledGraph:

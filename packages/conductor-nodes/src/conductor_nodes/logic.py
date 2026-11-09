@@ -12,7 +12,7 @@ from typing import Annotated
 from conductor import SKIPPED, Param, Result
 from conductor.widgets import Switch, Textarea, TextWidget
 
-from conductor_nodes.types import Flag, StdlibNode, Text
+from conductor_nodes.types import Flag, Text, stdlib_node
 
 
 @dataclass(frozen=True)
@@ -38,50 +38,32 @@ class Equality:
     not_equal: Annotated[Text, Result(title="Not equal", choice="equality")]
 
 
-class IfEmpty(StdlibNode):
-    id = "logic-if-empty"
-    title = "If Empty"
-    description = "Routes text based on whether it is empty (after strip)"
-    category = "control"
-
-    def run(
-        self, text: Annotated[Text, Param(title="Text", widget=Textarea())]
-    ) -> Emptiness:
-        if text.strip():
-            return Emptiness(not_empty=text, empty=SKIPPED)
-        return Emptiness(not_empty=SKIPPED, empty=text)
+@stdlib_node("logic-if-empty", title="If Empty", description="Routes text based on whether it is empty (after strip)", category="control")
+def if_empty(text: Annotated[Text, Param(title="Text", widget=Textarea())]
+) -> Emptiness:
+    if text.strip():
+        return Emptiness(not_empty=text, empty=SKIPPED)
+    return Emptiness(not_empty=SKIPPED, empty=text)
 
 
-class IfEquals(StdlibNode):
-    id = "logic-if-equals"
-    title = "If Equals"
-    description = "Routes based on whether two strings are equal"
-    category = "control"
-
-    def run(
-        self,
-        a: Annotated[Text, Param(title="A", widget=TextWidget())],
-        b: Annotated[Text, Param(title="B", widget=TextWidget())],
-        case_sensitive: Annotated[Flag, Param(title="Case sensitive", widget=Switch())] = Flag(True),
-    ) -> Equality:
-        left = a if case_sensitive else a.lower()
-        right = b if case_sensitive else b.lower()
-        if left == right:
-            return Equality(equal=a, not_equal=SKIPPED)
-        return Equality(equal=SKIPPED, not_equal=a)
+@stdlib_node("logic-if-equals", title="If Equals", description="Routes based on whether two strings are equal", category="control")
+def if_equals(
+    a: Annotated[Text, Param(title="A", widget=TextWidget())],
+    b: Annotated[Text, Param(title="B", widget=TextWidget())],
+    case_sensitive: Annotated[Flag, Param(title="Case sensitive", widget=Switch())] = Flag(True),
+) -> Equality:
+    left = a if case_sensitive else a.lower()
+    right = b if case_sensitive else b.lower()
+    if left == right:
+        return Equality(equal=a, not_equal=SKIPPED)
+    return Equality(equal=SKIPPED, not_equal=a)
 
 
-class Not(StdlibNode):
-    id = "logic-not"
-    title = "Not"
-    description = "Logical negation of a boolean"
-    category = "logic"
-
-    def run(
-        self, value: Annotated[Flag, Param(title="Value", widget=Switch())]
-    ) -> Annotated[Flag, Result(title="Negated")]:
-        return Flag(not value)
+@stdlib_node("logic-not", title="Not", description="Logical negation of a boolean", category="logic")
+def not_node(value: Annotated[Flag, Param(title="Value", widget=Switch())]
+) -> Annotated[Flag, Result(title="Negated")]:
+    return Flag(not value)
 
 
 #: Every node this module defines, in palette order.
-NODES: tuple[type[StdlibNode], ...] = (IfEmpty, IfEquals, Not)
+NODES = (if_empty, if_equals, not_node)

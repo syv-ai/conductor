@@ -15,11 +15,10 @@ from importlib.resources import files
 from typing import Annotated
 
 import pytest
-from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, Result
+from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, Result, node
 from conductor.dtype import DType
 from conductor.graph.binding import Static
 from conductor.graph.model import Graph
-from conductor.node import NodeDefinition
 from conductor.widgets import Textarea
 
 
@@ -28,19 +27,13 @@ class Txt(DType, str):
     title = "Text"
 
 
-class Upper(NodeDefinition):
-    id = "upper"
-    title = "Upper"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="Out")]:
-        return Txt(text.upper())
+@node("upper", title="Upper", description="d", category="test")
+def upper_node(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="Out")]:
+    return Txt(text.upper())
 
 
 def _compiled() -> CompiledGraph:
-    registry = NodeRegistry()
-    registry.register(Upper)
+    registry = NodeRegistry([upper_node])
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[GraphNode(id="u", type="upper", version=1, bindings={"text": Static("hi")})]), registry
     )

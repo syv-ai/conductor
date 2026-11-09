@@ -47,11 +47,10 @@ from conductor.graph.receive import Merge, Receive
 from conductor.graph.topology import dependencies_of, order_of
 from conductor.graph.views import derive_interface, field_problems, lock_problems
 from conductor.interface import Interface
-from conductor.metadata import Input
-from conductor.node import NodeDefinition, NodeVersion
+from conductor.node_decorator import NodeDefinition, NodeVersion
 from conductor.ref import Ref
 from conductor.registry import NodeRegistry
-from conductor.series import Index, Series
+from conductor.series import Index
 from conductor.table import columns_of
 
 if TYPE_CHECKING:
@@ -77,7 +76,7 @@ class Layout:
     #: The version each node uses: a ``NodeVersion``, or a compiled graph.
     versions: dict[str, Any]
     #: The class each node resolved to: what its hooks and its runner are made from.
-    definitions: dict[str, type[NodeDefinition]]
+    definitions: dict[str, NodeDefinition[..., Any]]
     #: Every node whose version is a compiled graph, embedded or not, nested
     #: ones included: the one answer to "is this a graph node?", read by
     #: every step after ``order``, the last one included.
@@ -140,7 +139,7 @@ class Compilation:
         #: The ids the author wrote with a ``/``, refused (``nodes_by_id``): never nodes of this graph.
         self.refused: set[str] = set()
         #: The class each authored node resolved to and the version it uses (set by ``pin``).
-        self.pinned: dict[str, tuple[type[NodeDefinition], Any]] = {}
+        self.pinned: dict[str, tuple[NodeDefinition[..., Any], Any]] = {}
         #: Who waits for whom, and an execution order, over the authored graph (set by ``order``).
         self.authored_dependencies: dict[str, frozenset[str]] = {}
         self.authored_order: tuple[str, ...] = ()
@@ -246,7 +245,7 @@ class Compilation:
             self.pinned[node.id] = definition, version
 
     def _refuse_if_broken(
-        self, node_id: str, definition: type[NodeDefinition], graph: CompiledGraph, stored: CompiledGraph,
+        self, node_id: str, definition: NodeDefinition[..., Any], graph: CompiledGraph, stored: CompiledGraph,
         typed: Mapping[str, Any],
     ) -> None:
         """A compiled graph can be embedded only when nothing in it is fatal but
@@ -309,61 +308,53 @@ class Compilation:
         )
 
     def ask_inputs(self) -> None:
-        """Ask each node which inputs it has, once, on a fresh instance.
+        """Work out which inputs each node has, once, and read what the author typed on them.
 
         A node's inputs may depend on the values the author typed into it (a
-        mode dropdown that adds fields), so ``compute_inputs`` is called with
-        those values, each read through its declared type by ``_typed_statics``
-        and laid over the declaration's defaults, so a hook that reads a table's
-        columns or a schema's fields gets the typed value and never parses JSON
-        itself. That reading is the hook's argument and nothing more: once the
-        hook has answered, every value is read once, against the inputs the
-        hook returned — a hook may retype an input, and the value the author
-        typed has to be read as that type — and that is what ``statics`` and
-        ``listed`` keep, and where ``invalid_static`` is reported. Both hold
+        mode dropdown that adds fields), so its ``compute_inputs`` hook is
+        called with those values, each read through its declared type and
+        laid over the declared defaults, so a hook gets the typed value and
+        never parses JSON itself. What the hook adds is read after it has
+        answered, as the type the hook gave. ``statics`` and ``listed`` hold
         only what the author typed: a default is the declaration's and applies
         wherever nothing is bound. Only the inputs are asked here. The outputs
         stay as declared until the walk over the edges, which can tell
         ``compute_outputs`` what type arrives on each connected input.
 
         A hook that cannot answer for these values raises ``CompileProblem``;
-        it is the node's one fatal ``Problem``, and the node is
-        left out of every later pass, as a node whose type is unknown is.
+        it is the node's one fatal ``Problem``, and the node is left out of
+        every later pass, as a node whose type is unknown is.
 
-        On a version that takes ``**inputs``, every connected name that is not
-        a declared parameter becomes an ``Input`` of its own: typed ``Any`` or
-        ``Series[Any]`` until the edge walk types it, titled by its name.
+        On a version that takes ``**inputs`` no hook owns, every connected
+        name that is not a declared parameter becomes an ``Input`` of its
+        own, declared as the parameter says, titled by its name.
 
-        Nothing else is asked of the node. Two inputs sharing a name, or a
-        handle without a type an edge can carry, is ``check_bindings``'s to
-        report.
+        Nothing else is asked of the node. Two inputs sharing a name is
+        ``check_bindings``'s to report.
         """
         for node_id, node in self.layout.nodes.items():
             version = self.layout.versions[node_id]
-            if node_id not in self.layout.graphs:
-                instance = self.layout.definitions[node_id]()
-                defaults = {i.name: i.default for i in version.interface.inputs if i.optional}
-                for_hook, _, _ = self._typed_statics(version.interface.inputs, node)
+            inputs = version.interface.inputs
+            typed, listed, invalid = self._typed_statics(inputs, node)
+            added: tuple[Any, ...] = ()
+            if node_id not in self.layout.graphs and version.compute_inputs is not None:
+                defaults = {i.name: i.default for i in inputs if not i.required}
                 try:
-                    inputs = instance.compute_inputs(version.interface.inputs, {**defaults, **for_hook})
+                    added = version.compute_inputs.answer({**defaults, **typed}, {}) or ()
                 except CompileProblem as refusal:
                     self.problems.append(refusal.at(node_id))
                     continue
-            else:
-                inputs = version.interface.inputs  # a compiled graph embedded as a node: it has no hooks
-            typed, listed, invalid = self._typed_statics(inputs, node)
+                inputs = (*inputs, *added)
+                typed_added, listed_added, invalid_added = self._typed_statics(added, node)
+                typed, listed, invalid = {**typed, **typed_added}, listed | listed_added, [*invalid, *invalid_added]
             self.problems.extend(invalid)
             if node_id in self.layout.graphs:
                 version = self._as_embedded(node_id, node, version, typed, listed)
                 listed = frozenset()
-            if version.interface.open is not None:
-                # One Input per edge: `Series[Any]` when the node reduces each
-                # ("series"), `Any` when it receives each whole ("single"). The
-                # edge walk types it from what arrives.
-                shape = Series[Any] if version.interface.open == "series" else Any
+            elif version.open_input is not None:
                 named = {i.name for i in inputs}
                 inputs = (*inputs, *(
-                    Input(name=name, dtype=shape, title=name)
+                    version.open_input.model_copy(update={"name": name, "title": name})
                     for name, binding in node.bindings.items()
                     if name not in named and isinstance(binding, From)
                 ))
@@ -401,12 +392,10 @@ class Compilation:
 
     @staticmethod
     def _read_by_a_hook(graph: CompiledGraph, name: str) -> bool:
-        """Does the node inside ``graph`` that input ``name`` lands on have a hook, which reads the values typed on it?"""
-        definition = graph._compilation.layout.definitions[Ref(name).node_id]
-        return (
-            definition.compute_inputs is not NodeDefinition.compute_inputs
-            or definition.compute_outputs is not NodeDefinition.compute_outputs
-        )
+        """Does a hook of the node inside ``graph`` that input ``name`` lands on read it?"""
+        ref = Ref(name)
+        version = graph._compilation.layout.versions[ref.node_id]
+        return isinstance(version, NodeVersion) and ref.field in version.hook_reads
 
     @staticmethod
     def _listed_inside(graph: CompiledGraph, name: str) -> bool:
@@ -422,12 +411,11 @@ class Compilation:
         fatal, a typo that would otherwise run with the default; ``unused_binding``,
         not fatal, when the node's ``compute_inputs`` makes its fields come
         and go), an edge into an input that cannot be connected
-        (``show_handle=False``), an edge from a node that does not exist, and a required
+        (``connectable=False``), an edge from a node that does not exist, and a required
         input nothing binds (``unbound_required``). A parameter typed ``Any``,
         or ``Series[Any]``, gets its type from its edge and nothing else, so
         with no edge it is ``unbound_required`` as well, and its node can't be
-        worked out. Two inputs sharing a name, or a handle
-        without a type an edge can carry (``field_problems``), and an input
+        worked out. Two inputs sharing a name (``field_problems``), and an input
         named with a leading underscore (``parameter_name_invalid``), are
         checked here on the inputs the hook answered, before the walk reads
         them.
@@ -459,15 +447,15 @@ class Compilation:
 
             for name, binding in node.bindings.items():
                 if name not in declared:
-                    hook_decides_inputs = self.layout.definitions[node_id].compute_inputs is not NodeDefinition.compute_inputs
+                    hook_decides_inputs = getattr(self.layout.versions[node_id], "compute_inputs", None) is not None
                     self.problems.append(problem("unused_binding" if hook_decides_inputs else "stale_binding", node_id, name, inputs=", ".join(sorted(declared)) or "none"))
                     continue
                 if not isinstance(binding, From):
                     continue
                 target = declared[name]
-                if not target.show_handle:
+                if not target.connectable:
                     broken.add(node_id)
-                    self.problems.append(problem("edge_into_closed_handle", node_id, name))
+                    self.problems.append(problem("edge_into_unconnectable_input", node_id, name))
                 for ref in binding.refs:
                     # An edge out of an embedded graph reads from the graph node the
                     # author drew; an id the author wrote, even a refused one, is its own.
@@ -485,7 +473,7 @@ class Compilation:
                     if not isinstance(node.bindings.get(inp.name), From):
                         broken.add(node_id)
                         self.problems.append(problem("unbound_required", node_id, inp.name))
-                elif not inp.optional and inp.name not in node.bindings and not (
+                elif inp.required and inp.name not in node.bindings and not (
                     node_id in self.layout.graphs and self._filled_inside(self.layout.versions[node_id], inp.name)
                 ):
                     # Not broken: its type is declared, so the walk still works the node out, as a value that arrives at run time.
@@ -512,7 +500,7 @@ class Compilation:
                 for node_id in layout.order
                 if node_id in self.interfaces and node_id not in self.broken
             ],
-            self.interfaces, layout.versions, layout.definitions, self.statics, self.listed, layout.graphs,
+            self.interfaces, layout.versions, self.statics, self.listed, layout.graphs,
         )
         self.problems.extend(self.iteration.problems)
         self.interfaces = {**self.interfaces, **self.iteration.interfaces}

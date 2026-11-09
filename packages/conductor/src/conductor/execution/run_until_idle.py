@@ -77,7 +77,7 @@ from conductor.execution.live_run_values import LiveRunValues, Skip, Unit
 from conductor.execution.run_state import RunState
 from conductor.execution.validate_unit_outputs import validate_unit_outputs
 from conductor.execution.waiting_units import waiting_unit_for
-from conductor.returns import unpack
+from conductor.interface import unpack
 
 if TYPE_CHECKING:
     from conductor.graph.compiled import CompiledGraph
@@ -376,7 +376,7 @@ class Leg:
                 await queue.put(UnitWaiting(unit=asked))
                 await queue.put(_UnitDone(unit))
                 return
-            cells, faults = validate_unit_outputs(node, row, unpack(version.interface.returns, value, node.interface.outputs))
+            cells, faults = validate_unit_outputs(node, row, unpack(version.returns, value, node.interface.outputs, version.interface.outputs))
         except ValueError as invalid:  # the wrong shape of return, or an ask naming no output
             await queue.put(_UnitDone(unit, error=self._invalid_output(node_id, row, str(invalid), invalid, code="invalid_output")))
             return

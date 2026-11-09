@@ -3,14 +3,13 @@
 from typing import Annotated
 
 import pytest
-from conductor import NodeRegistry
-from conductor.dtype import DType, _UntypedValue
+from conductor import Arriving, NodeRegistry, node
+from conductor.dtype import DType
 from conductor.errors import Problem
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.metadata import Output, Param, Result
-from conductor.node import NodeDefinition
 from conductor.ref import Ref
 from conductor.series import Series
 from conductor.widgets import Textarea
@@ -74,85 +73,52 @@ class Nonempty(DType, str):
 Out = Annotated[Txt, Result(title="Result")]
 
 
-class Echo(NodeDefinition):
-    id = "echo"
-    title = "Echo"
-    description = "d"
-    category = "test"
-
-    def run(
-        self,
-        x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt(""),
-        y: Annotated[Txt, Param(title="Y", widget=Textarea())] = Txt(""),
-    ) -> Out:
-        return Txt(x + y)
+@node("echo", title="Echo", description="d", category="test")
+def echo(
+    x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt(""),
+    y: Annotated[Txt, Param(title="Y", widget=Textarea())] = Txt(""),
+) -> Out:
+    return Txt(x + y)
 
 
-class Script(NodeDefinition):
-    id = "script"
-    title = "Python"
-    description = "d"
-    category = "test"
-
-    def run(self, code: Annotated[Txt, Param(title="Code", show_handle=False, widget=Textarea())] = Txt("")) -> Out:
-        return code
+@node("script", title="Python", description="d", category="test")
+def script(code: Annotated[Txt, Param(title="Code", connectable=False, widget=Textarea())] = Txt("")) -> Out:
+    return code
 
 
-class Needs(NodeDefinition):
-    id = "needs"
-    title = "Needs"
-    description = "d"
-    category = "test"
-
-    def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())]) -> Out:
-        return x
+@node("needs", title="Needs", description="d", category="test")
+def needs(x: Annotated[Txt, Param(title="X", widget=Textarea())]) -> Out:
+    return x
 
 
-class Join(NodeDefinition):
-    id = "join"
-    title = "Join"
-    description = "d"
-    category = "test"
-
-    def run(self, texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
-        return Txt("\n".join(texts))
+@node("join", title="Join", description="d", category="test")
+def join_node(texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
+    return Txt("\n".join(texts))
 
 
-class Picky(NodeDefinition):
+@node("picky", title="Picky", description="d", category="test")
+def picky(x: Annotated[Nonempty, Param(title="X", widget=Textarea())] = Nonempty("x")) -> Out:
     """Its constraint is its type's: `x` must be a `Nonempty`."""
-
-    id = "picky"
-    title = "Picky"
-    description = "d"
-    category = "test"
-
-    def run(self, x: Annotated[Nonempty, Param(title="X", widget=Textarea())] = Nonempty("x")) -> Out:
-        return Txt(x)
+    return Txt(x)
 
 
-class Twice(NodeDefinition):
+def twice_outputs():
+    return (
+        Output("x", Txt, title="X"),
+        Output("x", Txt, title="X again"),
+        Output("value", Txt, title="Value"),
+    )
+
+@node("twice", title="Twice", description="d", category="test", compute_outputs=twice_outputs)
+def twice(value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
     """An interface naming one field twice: one name on two outputs, and one on both sides."""
-
-    id = "twice"
-    title = "Twice"
-    description = "d"
-    category = "test"
-
-    def run(self, value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
-        return value
-
-    def compute_outputs(self, declared, values, arriving):
-        return (
-            Output(name="x", dtype=Txt, title="X"),
-            Output(name="x", dtype=Txt, title="X again"),
-            Output(name="value", dtype=Txt, title="Value"),
-        )
+    return value
 
 
 def _registry():
     registry = NodeRegistry()
-    for node_cls in (Echo, Script, Needs, Join, Picky, Twice):
-        registry.register(node_cls)
+    for node_cls in (echo, script, needs, join_node, picky, twice):
+        registry = registry.extended_with([node_cls])
     return registry
 
 
@@ -219,20 +185,15 @@ def test_a_computed_roster_naming_one_field_twice_is_fatal():
 def test_a_hook_writing_an_output_of_no_dtype_is_a_bug_in_the_hook():
     """A record's ``dtype`` is a ``DType``, so the record refuses anything else where the hook writes it."""
 
-    class Odd(NodeDefinition):
-        id = "odd"
-        title = "Odd"
-        description = "d"
-        category = "test"
+    def odd_outputs():
+        return (Output("raw", dict, title="Raw"))
 
-        def run(self, value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
-            return value
-
-        def compute_outputs(self, declared, values, arriving):
-            return (*declared, Output(name="raw", dtype=dict, title="Raw"))
+    @node("odd", title="Odd", description="d", category="test", compute_outputs=odd_outputs)
+    def odd(value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
+        return value
 
     registry = _registry()
-    registry.register(Odd)
+    registry = registry.extended_with([odd])
     with pytest.raises(ValidationError, match="dtype"):
         CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="o", type="odd", version=1)]), registry)
 
@@ -254,14 +215,14 @@ def test_a_binding_on_an_input_the_placement_does_not_have_is_stale():
 
 
 def test_an_edge_into_a_closed_handle_is_fatal():
-    """`show_handle=False` is the one wireability question, and the
+    """`connectable=False` is the one wireability question, and the
     integrity it protects is structural — nothing upstream reaches `code`."""
     (problem,) = _problems([
         GraphNode(id="a", type="echo", version=1),
         GraphNode(id="s", type="script", version=1, bindings={"code": From("a.result")}),
     ])
 
-    assert (problem.type, problem.fatal, problem.loc[1]) == ("edge_into_closed_handle", True, "code")
+    assert (problem.type, problem.fatal, problem.loc[1]) == ("edge_into_unconnectable_input", True, "code")
 
 
 def test_two_scalar_refs_into_a_scalar_input_is_fatal():
@@ -316,21 +277,16 @@ def test_an_any_input_with_no_edge_is_unbound_required():
     an untyped field."""
     from typing import Any
 
-    class Route(NodeDefinition):
-        id = "route-p"
-        title = "Pass on"
-        description = "d"
-        category = "test"
+    def route_outputs(value: Arriving):
+        dtype = value
+        return (Output("result", dtype, title="R"),)
 
-        def run(self, value: Annotated[Any, Param(title="Value")]) -> Annotated[Any, Result(title="R")]:
-            return value
-
-        def compute_outputs(self, declared, values, arriving):
-            dtype = arriving.get("value", _UntypedValue)
-            return tuple(out.model_copy(update={"dtype": dtype}) for out in declared)
+    @node("route-p", title="Pass on", description="d", category="test", compute_outputs=route_outputs)
+    def route(value: Annotated[Any, Param(title="Value")]) -> Annotated[Any, Result(title="R")]:
+        return value
 
     registry = _registry()
-    registry.register(Route)
+    registry = registry.extended_with([route])
     problems = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="r", type="route-p", version=1)]), registry).problems
 
     assert [(p.type, p.fatal, p.loc[1]) for p in problems] == [("unbound_required", True, "value")]

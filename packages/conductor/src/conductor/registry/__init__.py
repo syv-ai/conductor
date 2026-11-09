@@ -1,16 +1,14 @@
-"""``NodeRegistry`` — the node classes a host offers, by id, and the type vocabulary they speak.
+"""``NodeRegistry`` — the nodes a host offers, by id, and the type vocabulary they speak.
 
-Defining a node (subclassing ``NodeDefinition``) and offering it are two
-acts. A registry is the second: ``register(cls)`` files the class under
-its ``id`` and checks the rules that only make sense for a catalogue —
-versions numbered from 1 with no holes, a deprecated current version
-pointing somewhere, an alternative that exists. Compile resolves each
-node in a graph against it once; the engine then runs what compile resolved.
+Defining a node (``@node``) and offering it are two acts. A registry is the
+second: it is built whole, ``NodeRegistry([upper, *text.NODES])``, never
+changes, and checks what only makes sense for a catalogue — one definition
+per id, an alternative that exists. Compile resolves each node in a graph
+against it once; the engine then runs what compile resolved.
 
 The registry also owns the **vocabulary**: which value types exist. A
 registry's types are the ones its nodes declare on their inputs and
-outputs plus what the host adds with ``add_types``, each filed under its
-``id``. Nothing about a type is process-wide, so two registries in one
+outputs plus the ``types`` a host names, each filed under its ``id``. Nothing about a type is process-wide, so two registries in one
 process may each hold a ``text`` of their own; one id claimed by two
 classes on one registry is refused where the second arrives, naming
 both. ``accepted_as`` — every type in the vocabulary that admits a given
@@ -20,18 +18,14 @@ palette an editor reads: every node's record and every type's, once.
 
 from __future__ import annotations
 
-import inspect
 from collections.abc import Iterable, Iterator, Mapping
 from types import MappingProxyType
-from typing import Any, Callable
+from typing import Any
 
 from conductor.dtype import DType, _Setting, _UntypedValue
 from conductor.errors import NodeDeclarationError
-from conductor.graph.binding import From, Static, static_values
-from conductor.graph.model import Graph, GraphNode
 from conductor.model import ConductorModel
-from conductor.node import NodeDefinition, NodeDescription, NodeVersion
-from conductor.ref import Ref
+from conductor.node_decorator import NodeDefinition, NodeDescription, NodeVersion
 from conductor.series import Series
 
 
@@ -65,91 +59,56 @@ class RegistryDescription(ConductorModel):
 
 
 class NodeRegistry:
-    """Maps a node id to the node class itself, and a type id to the type.
+    """Maps a node id to its definition, and a type id to the type. Immutable.
 
-    One entry per node id, not per (id, version): the class knows which
-    versions it declares, and a caller picks one with
-    ``registry[node.type].versions[node.version]``. It is a container of
-    classes by id — ``"upper" in registry``, ``registry["upper"]``,
-    ``len(registry)``, and iteration over the ids — and not a ``Mapping``:
-    there is no ``get`` to answer a misspelled id with ``None``. One entry per
-    type id: the vocabulary, read through ``types``.
+    It is a container of definitions by id — ``"upper" in registry``,
+    ``registry["upper"]``, ``len(registry)``, and iteration over the ids —
+    and not a ``Mapping``: there is no ``get`` to answer a misspelled id with
+    ``None``. One entry per type id: the vocabulary, read through ``types``.
     """
 
-    def __init__(self, nodes: Iterable[type[NodeDefinition]] = ()) -> None:
-        """A registry holding ``nodes``, each registered in order — the form its repr prints."""
-        #: The classes, by id, in registration order.
-        self._nodes: dict[str, type[NodeDefinition]] = {}
+    def __init__(self, nodes: Iterable[NodeDefinition[..., Any]] = (), *, types: Iterable[type[DType]] = ()) -> None:
+        """A registry holding ``nodes`` and the words in ``types``, checked whole."""
+        given = list(nodes)
+        for definition in given:
+            _refuse_unless_definition(definition)
+        #: The definitions, by id, in the order given.
+        self._nodes: dict[str, NodeDefinition[..., Any]] = {}
         #: The vocabulary, by id, in the order the words arrived.
         self._types: dict[str, type[DType]] = {}
-        for node_cls in nodes:
-            self.register(node_cls)
+        self._file(given)
+        self._types.update(self._admitted([_word_of(dtype, adding=True) for dtype in types]))
 
     def __repr__(self) -> str:
-        """Its nodes, each as its own repr, one per line: ``NodeRegistry(nodes=(Greet(...),))``."""
+        """Its nodes, each as its own repr, one per line: ``NodeRegistry(nodes=(NodeDefinition(...),))``."""
         if not self._nodes:
             return "NodeRegistry(nodes=())"
-        lines = "".join(f"    {cls!r},\n" for cls in self._nodes.values())
+        lines = "".join(f"    {definition!r},\n" for definition in self._nodes.values())
         return f"NodeRegistry(nodes=(\n{lines}))"
 
-    # -- nodes -------------------------------------------------------------------
-
-    def register(self, node_cls: type[NodeDefinition]) -> None:
-        """File ``node_cls`` under its id, and its declared types under theirs.
-
-        Nothing is filed if anything is refused: a version numbering with a
-        hole, a deprecation pointing nowhere, or a declared type whose id
-        another class already holds here.
-        """
-        _refuse_unless_node_class(node_cls)
-        declared = set(node_cls.versions)
-        if declared != set(range(1, max(declared) + 1)):
-            raise NodeDeclarationError(
-                f"{node_cls.id!r} declares versions {sorted(declared)}; a registered node numbers "
-                "from 1 with no hole, since a graph can pin any version up to the current one",
-                code="versions_with_hole", node_id=node_cls.id,
-            )
-        self._file(node_cls)
-
-    def _file(self, node_cls: type[NodeDefinition]) -> None:
-        """File a node class and the types it declares, after the checks every
-        node passes: its id is free and its deprecations point somewhere."""
-        existing = self._nodes.get(node_cls.id)
-        if existing is not None and existing is not node_cls:
-            raise NodeDeclarationError(
-                f"{node_cls.id!r} is already registered by {existing.__name__}; ids are unique.",
-                code="duplicate_node_id", node_id=node_cls.id,
-            )
-        current = node_cls.versions[node_cls.current]
-        if (
-            isinstance(current, NodeVersion)
-            and current.deprecation is not None
-            and node_cls.deprecation is None
-        ):
-            raise NodeDeclarationError(
-                f"{node_cls.id!r} deprecates its current version {node_cls.current} with no "
-                "newer one to move to; retire the node (@deprecated on the class) or add a version",
-                code="current_version_deprecated", node_id=node_cls.id,
-            )
-        notices = [node_cls.deprecation] + [
-            v.deprecation for v in node_cls.versions.values() if isinstance(v, NodeVersion)
-        ]
-        for notice in notices:
-            if notice is not None and notice.alternative is not None and notice.alternative not in self:
-                raise NodeDeclarationError(
-                    f"{node_cls.id!r} names {notice.alternative!r} as its alternative, which is not "
-                    "registered here; register the replacement before the node it replaces",
-                code="alternative_missing", node_id=node_cls.id,
-                )
-        words = self._admitted(_declared_words(node_cls))
-        self._nodes[node_cls.id] = node_cls
-        self._types.update(words)
+    def _file(self, definitions: list[NodeDefinition[..., Any]]) -> None:
+        """File these, after the checks every node passes: one definition per id,
+        each deprecation pointing at something that is here."""
+        for definition in definitions:
+            existing = self._nodes.get(definition.id)
+            if existing is not None and existing is not definition:
+                raise NodeDeclarationError(f"{definition.id!r} is declared twice; ids are unique.", code="duplicate_node_id", node_id=definition.id)
+            self._nodes[definition.id] = definition
+            self._types.update(self._admitted(_declared_words(definition)))
+        for definition in definitions:
+            notices = [definition.deprecation] + [v.deprecation for v in definition.versions.values() if isinstance(v, NodeVersion)]
+            for notice in notices:
+                if notice is not None and notice.alternative is not None and notice.alternative not in self._nodes:
+                    raise NodeDeclarationError(
+                        f"{definition.id!r} names {notice.alternative!r} as its alternative, which is not here",
+                        code="alternative_missing", node_id=definition.id,
+                    )
 
     def __contains__(self, node_id: object) -> bool:
         return node_id in self._nodes
 
-    def __getitem__(self, node_id: str) -> type[NodeDefinition]:
-        """The class registered under ``node_id``; an unknown id is a ``KeyError`` naming the ids there are."""
+    def __getitem__(self, node_id: str) -> NodeDefinition[..., Any]:
+        """The definition registered under ``node_id``; an unknown id is a ``KeyError`` naming the ids there are."""
         try:
             return self._nodes[node_id]
         except KeyError:
@@ -163,74 +122,23 @@ class NodeRegistry:
         return iter(self._nodes)
 
     @property
-    def nodes(self) -> tuple[type[NodeDefinition], ...]:
-        """Every registered node class, in registration order."""
+    def nodes(self) -> tuple[NodeDefinition[..., Any], ...]:
+        """Every definition, in the order given."""
         return tuple(self._nodes.values())
 
-    def upgraded(self, graph: Graph, node_id: str, *, to: int | None = None) -> Graph:
-        """``graph`` with one node moved from the version it was saved at to ``to``, the current one by default.
+    def extended_with(self, definitions: Iterable[NodeDefinition[..., Any]]) -> NodeRegistry:
+        """A new registry holding these definitions beside everything here.
 
-        Runs the node's ``@upgrade`` steps in order and sets its version.
-        Each step first moves the inputs it renames — binding, lock and
-        content — then rewrites the bindings, then moves the content of the
-        outputs it renames; every edge elsewhere in the graph that read a
-        renamed output now reads the new name. A node already at ``to``
-        returns ``graph`` itself. A definition that declares no steps at
-        all — one a host handed over by value, such as an embedded graph —
-        only has its version set: its bindings stay as saved, and compile
-        reports any the new version does not have. A downgrade, or a gap
-        in a class's chain, is a ``ValueError``; a node the graph does not
-        have, or a type this registry does not, is a ``KeyError``. The
-        graph is not compiled here: a host compiles the result to show the
-        author what the new version makes of it.
-        """
-        node = next((n for n in graph.nodes if n.id == node_id), None)
-        if node is None:
-            raise KeyError(f"{node_id!r} is not a node of this graph; it has {[n.id for n in graph.nodes]}")
-        node_cls = self[node.type]
-        target = node_cls.current if to is None else to
-        if target == node.version:
-            return graph
-        if target < node.version:
-            raise ValueError(f"{node.type!r} has no upgrade from version {node.version} to {target}")
-        if not node_cls.upgrades:
-            if target not in node_cls.versions:
-                raise ValueError(f"{node.type!r} has no version {target}; it has {sorted(node_cls.versions)}")
-            return graph.model_copy(update={
-                "nodes": tuple(n.model_copy(update={"version": target}) if n is node else n for n in graph.nodes),
-            })
-        steps = [node_cls.upgrades.get((n, n + 1)) for n in range(node.version, target)]
-        if None in steps:
-            raise ValueError(f"{node.type!r} has no upgrade from version {node.version} to {target}")
-        bindings, locked, fields = dict(node.bindings), node.locked, dict(node.fields)
-        for step in steps:
-            bindings, locked, fields = _renamed(bindings, step.inputs), _renamed_all(locked, step.inputs), _renamed(fields, step.inputs)
-            values = step.rewrite({**bindings, **static_values(bindings)})
-            bindings = {name: v if isinstance(v, From) else Static(v) for name, v in values.items()}
-            fields = _renamed(fields, step.outputs)
-        moved = node.model_copy(update={"version": target, "bindings": bindings, "locked": locked, "fields": fields})
-        output_steps = [step.outputs for step in steps]
-        return graph.model_copy(update={
-            "nodes": tuple(moved if n is node else _reading_renamed(n, node_id, output_steps) for n in graph.nodes),
-        })
-
-    def extended_with(self, definitions: Iterable[type[NodeDefinition]]) -> NodeRegistry:
-        """A new registry holding these definitions plus everything a host loaded.
-
-        A new object rather than a mutation: the registry is process-wide
-        and the loaded definitions are per run. Each is filed under its own
-        id with ``register``'s checks, but not its numbering: a version loaded
-        because a graph pinned it may be the only one. A definition whose id
-        this registry already holds adds nothing, its types included, so a
-        host cannot redefine a built-in node by loading something under its
-        name. Two loaded definitions with one id are refused.
+        A definition whose id this registry already holds adds nothing, its
+        types included, so a host cannot redefine a built-in node by loading
+        something under its name. Two loaded definitions with one id are refused.
         """
         extended = NodeRegistry()
         extended._nodes, extended._types = dict(self._nodes), dict(self._types)
-        for definition in definitions:
-            _refuse_unless_node_class(definition)
-            if definition.id not in self._nodes:
-                extended._file(definition)
+        fresh = list(definitions)
+        for definition in fresh:
+            _refuse_unless_definition(definition)
+        extended._file([definition for definition in fresh if definition.id not in self._nodes])
         return extended
 
     # -- the vocabulary ----------------------------------------------------------
@@ -239,15 +147,6 @@ class NodeRegistry:
     def types(self) -> Mapping[str, type[DType]]:
         """The vocabulary: every type by its id, in the order the words arrived. Read-only."""
         return MappingProxyType(self._types)
-
-    def add_types(self, *types: type[DType]) -> None:
-        """Add the host's own words: types no node here declares, or all of them, stated once.
-
-        Each is a concrete scalar ``DType``; a ``Series[X]`` is refused,
-        since the word is ``X``. The same class twice is nothing; the same
-        id from another class is a collision, refused naming both.
-        """
-        self._types.update(self._admitted([_word_of(dtype, adding=True) for dtype in types]))
 
     def accepted_as(self, dtype: type[DType]) -> tuple[str, ...]:
         """The ids of every type in this vocabulary a value of ``dtype`` may land on, its own included.
@@ -264,7 +163,7 @@ class NodeRegistry:
     def describe(self) -> RegistryDescription:
         """This registry as the palette: every node's record and the vocabulary, each type once."""
         return RegistryDescription(
-            nodes=tuple(cls.describe() for cls in self._nodes.values()),
+            nodes=tuple(definition.describe() for definition in self._nodes.values()),
             types=tuple(
                 TypeDescription(id=word.id, title=word.title, accepted_as=self.accepted_as(word))
                 for word in self._types.values()
@@ -285,12 +184,10 @@ class NodeRegistry:
             admitted[word.id] = word
         return admitted
 
-    # -- running -------------------------------------------------------------------
 
-
-def _refuse_unless_node_class(node_cls: Any) -> None:
-    if not (isinstance(node_cls, type) and issubclass(node_cls, NodeDefinition)):
-        raise NodeDeclarationError(f"{node_cls!r} must be a NodeDefinition subclass", code="not_a_node_definition")
+def _refuse_unless_definition(definition: Any) -> None:
+    if not isinstance(definition, NodeDefinition):
+        raise NodeDeclarationError(f"{definition!r} is not a node; declare one with @node", code="not_a_node_definition")
 
 
 def _word_of(declared: Any, *, adding: bool = False) -> type[DType] | None:
@@ -321,50 +218,15 @@ def _word_of(declared: Any, *, adding: bool = False) -> type[DType] | None:
     return declared
 
 
-def _declared_words(node_cls: type[NodeDefinition]) -> list[type[DType]]:
+def _declared_words(definition: NodeDefinition[..., Any]) -> list[type[DType]]:
     """Every word a node's versions declare on their inputs and outputs, each once, in declaration order."""
     words: list[type[DType]] = []
-    fields: Iterable[Any] = (
-        field
-        for version in node_cls.versions.values()
-        for field in (*version.interface.inputs, *version.interface.outputs)
-    )
-    for field in fields:
-        word = _word_of(field.dtype)
-        if word is not None and word not in words:
-            words.append(word)
+    for version in definition.versions.values():
+        for field in (*version.interface.inputs, *version.interface.outputs):
+            word = _word_of(field.dtype)
+            if word is not None and word not in words:
+                words.append(word)
     return words
-
-
-def _renamed(by_name: Mapping[str, Any], renames: Mapping[str, str]) -> dict[str, Any]:
-    """``by_name`` with each key a step renames under its new name."""
-    return {renames.get(name, name): value for name, value in by_name.items()}
-
-
-def _renamed_all(names: tuple[str, ...], renames: Mapping[str, str]) -> tuple[str, ...]:
-    """``names`` with each one a step renames replaced by its new name."""
-    return tuple(renames.get(name, name) for name in names)
-
-
-def _reading_renamed(node: GraphNode, source: str, output_steps: list[Mapping[str, str]]) -> GraphNode:
-    """``node`` with every edge it has from ``source`` pointing at the output's name after every step.
-
-    Each ref is taken through the steps one by one, so a later step that
-    reuses a name an earlier one renamed away does not catch it."""
-
-    def through(field: str) -> str:
-        for renames in output_steps:
-            field = renames.get(field, field)
-        return field
-
-    bindings = {
-        name: From(*(
-            Ref(source, through(ref.field)) if ref.node_id == source else ref
-            for ref in binding.refs
-        )) if isinstance(binding, From) else binding
-        for name, binding in node.bindings.items()
-    }
-    return node if bindings == dict(node.bindings) else node.model_copy(update={"bindings": bindings})
 
 
 def _where(dtype: type[DType]) -> str:

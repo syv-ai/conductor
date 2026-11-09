@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Annotated
 
 import pytest
-from conductor import NodeRegistry, Param, WaitingUnit
+from conductor import NodeRegistry, Param, WaitingUnit, node
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
 from conductor.errors import NodeExecutionError
@@ -13,7 +13,6 @@ from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.metadata import Result
-from conductor.node import NodeDefinition
 from conductor.ref import Ref
 from conductor.series import Index, Series
 from conductor.widgets import Textarea
@@ -39,82 +38,46 @@ class Column:
     empty: Annotated[Series[Txt], Result(title="Empty")]
 
 
-class Docs(NodeDefinition):
-    id = "docs"
-    title = "Docs"
-    description = "d"
-    category = "test"
-
-    def run(self, folder: Annotated[Txt, Param(title="Folder", widget=Textarea())] = Txt("")) -> Documents:
-        return Documents(texts=(), names=())
+@node("docs", title="Docs", description="d", category="test")
+def docs(folder: Annotated[Txt, Param(title="Folder", widget=Textarea())] = Txt("")) -> Documents:
+    return Documents(texts=(), names=())
 
 
-class Upper(NodeDefinition):
-    id = "upper"
-    title = "Upper"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
-        return Txt(text.upper())
+@node("upper", title="Upper", description="d", category="test")
+def upper_node(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
+    return Txt(text.upper())
 
 
-class Pair(NodeDefinition):
-    id = "pair"
-    title = "Pair"
-    description = "d"
-    category = "test"
-
-    def run(self, a: Annotated[Txt, Param(title="A", widget=Textarea())] = Txt(""), b: Annotated[Txt, Param(title="B", widget=Textarea())] = Txt("")) -> Out:
-        return Txt(a + b)
+@node("pair", title="Pair", description="d", category="test")
+def pair(a: Annotated[Txt, Param(title="A", widget=Textarea())] = Txt(""), b: Annotated[Txt, Param(title="B", widget=Textarea())] = Txt("")) -> Out:
+    return Txt(a + b)
 
 
-class Lines(NodeDefinition):
-    id = "lines"
-    title = "Lines"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Lines")]:
-        return text.splitlines()
+@node("lines", title="Lines", description="d", category="test")
+def lines_node(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Lines")]:
+    return text.splitlines()
 
 
-class Join(NodeDefinition):
-    id = "join"
-    title = "Join"
-    description = "d"
-    category = "test"
-
-    def run(self, texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
-        return Txt("+".join(texts))
+@node("join", title="Join", description="d", category="test")
+def join_node(texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
+    return Txt("+".join(texts))
 
 
-class JoinPerText(NodeDefinition):
-    id = "join-per-text"
-    title = "Join per text"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text")], texts: Annotated[Series[Txt], Param(title="Texts")]) -> Out:
-        return Txt(text + "+".join(texts))
+@node("join-per-text", title="Join per text", description="d", category="test")
+def join_per_text(text: Annotated[Txt, Param(title="Text")], texts: Annotated[Series[Txt], Param(title="Texts")]) -> Out:
+    return Txt(text + "+".join(texts))
 
 
-class Gate(NodeDefinition):
+@node("decide", title="Gate", description="d", category="test")
+def gate(texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Column:
     """A decision over a whole column: the column goes out on ``full`` or ``empty``."""
-
-    id = "decide"
-    title = "Gate"
-    description = "d"
-    category = "test"
-
-    def run(self, texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Column:
-        return Column(full=texts, empty=SKIPPED) if len(texts) else Column(full=SKIPPED, empty=texts)
+    return Column(full=texts, empty=SKIPPED) if len(texts) else Column(full=SKIPPED, empty=texts)
 
 
 def _registry():
     registry = NodeRegistry()
-    for node_cls in (Docs, Upper, Pair, Lines, Join, JoinPerText, Gate):
-        registry.register(node_cls)
+    for node_cls in (docs, upper_node, pair, lines_node, join_node, join_per_text, gate):
+        registry = registry.extended_with([node_cls])
     return registry
 
 

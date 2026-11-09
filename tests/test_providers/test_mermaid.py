@@ -10,13 +10,12 @@ reading input receives it. A node with a fatal problem carries the
 from textwrap import dedent
 from typing import Annotated
 
-from conductor import GraphNode, NodeRegistry, Param
+from conductor import GraphNode, NodeRegistry, Param, node
 from conductor.dtype import DType
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph
 from conductor.metadata import Result
-from conductor.node import NodeDefinition
 from conductor.series import Series
 from conductor.widgets import Textarea
 from conductor_providers.mermaid import flowchart
@@ -31,40 +30,25 @@ class Txt(DType, str):
 Out = Annotated[Txt, Result(title="Result")]
 
 
-class Docs(NodeDefinition):
-    id = "docs"
-    title = "Documents"
-    description = "d"
-    category = "test"
-
-    def run(self, folder: Annotated[Txt, Param(title="Folder", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Texts")]:
-        return [Txt("a"), Txt("b")]
+@node("docs", title="Documents", description="d", category="test")
+def docs(folder: Annotated[Txt, Param(title="Folder", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Texts")]:
+    return [Txt("a"), Txt("b")]
 
 
-class Upper(NodeDefinition):
-    id = "upper"
-    title = "Upper"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
-        return Txt(text.upper())
+@node("upper", title="Upper", description="d", category="test")
+def upper_node(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
+    return Txt(text.upper())
 
 
-class Join(NodeDefinition):
-    id = "join"
-    title = "Join"
-    description = "d"
-    category = "test"
-
-    def run(self, texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
-        return Txt("+".join(texts))
+@node("join", title="Join", description="d", category="test")
+def join_node(texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
+    return Txt("+".join(texts))
 
 
 def _compiled(*nodes: GraphNode) -> CompiledGraph:
     registry = NodeRegistry()
-    for node_cls in (Docs, Upper, Join):
-        registry.register(node_cls)
+    for node_cls in (docs, upper_node, join_node):
+        registry = registry.extended_with([node_cls])
     # A stored graph embedded as a node: upper-case each text, then join them.
     registry = registry.extended_with([embedded_graph_node("shout", (
         GraphNode(id="up", type="upper", version=1),

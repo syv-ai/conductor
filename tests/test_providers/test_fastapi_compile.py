@@ -9,9 +9,8 @@ import pytest
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
-from conductor import NodeRegistry, Param  # noqa: E402
+from conductor import NodeRegistry, Param, node  # noqa: E402
 from conductor.metadata import Result  # noqa: E402
-from conductor.node import NodeDefinition  # noqa: E402
 from conductor.widgets import Textarea  # noqa: E402
 from conductor_nodes.types import Text  # noqa: E402
 from conductor_providers.fastapi import conductor_router  # noqa: E402
@@ -21,17 +20,11 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 @pytest.fixture
 def client() -> TestClient:
-    class Shout(NodeDefinition):
-        id = "shout"
-        title = "Shout"
-        description = "uppercases input"
-        category = "test"
+    @node("shout", title="Shout", description="uppercases input", category="test")
+    def shout(text: Annotated[Text, Param(title="Text", widget=Textarea())]) -> Annotated[Text, Result(title="Loud")]:
+        return Text(text.upper())
 
-        def run(self, text: Annotated[Text, Param(title="Text", widget=Textarea())]) -> Annotated[Text, Result(title="Loud")]:
-            return Text(text.upper())
-
-    registry = NodeRegistry()
-    registry.register(Shout)
+    registry = NodeRegistry([shout])
     app = FastAPI()
     app.include_router(conductor_router(registry))
     return TestClient(app)

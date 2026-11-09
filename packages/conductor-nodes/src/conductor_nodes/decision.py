@@ -19,14 +19,13 @@ arrives on ``value`` onto both outputs. The two outputs share the
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Annotated, Any
 
-from conductor import SKIPPED, DType, Output, Param, Result
+from conductor import SKIPPED, Arriving, Output, Param, Result
 from conductor.widgets import Switch
 
-from conductor_nodes.types import Flag, StdlibNode
+from conductor_nodes.types import Flag, stdlib_node
 
 
 @dataclass(frozen=True)
@@ -41,31 +40,20 @@ class Branches:
     if_false: Annotated[Any, Result(title="If false", choice="when")]
 
 
-class Decision(StdlibNode):
-    id = "decision"
-    title = "Decision"
-    description = "Routes a value to one of two branches according to `when`."
-    category = "control"
+def decision_outputs(value: Arriving) -> tuple[Output, Output]:
+    """Give both outputs the type that arrives on ``value`` (``Any`` until connected)."""
+    return Output("if_true", value, title="If true", choice="when"), Output("if_false", value, title="If false", choice="when")
 
-    def run(
-        self,
-        value: Annotated[Any, Param(title="Value")],
-        when: Annotated[Flag, Param(title="When", widget=Switch())] = Flag(True),
-    ) -> Branches:
-        if when:
-            return Branches(if_true=value, if_false=SKIPPED)
-        return Branches(if_true=SKIPPED, if_false=value)
 
-    def compute_outputs(
-        self,
-        declared: tuple[Output, ...],
-        values: Mapping[str, Any],
-        arriving: Mapping[str, "type[DType]"],
-    ) -> tuple[Output, ...]:
-        """Give both outputs the type that arrives on ``value`` (``Any`` until connected)."""
-        dtype = arriving.get("value", Any)
-        return tuple(Output(name=out.name, dtype=dtype, title=out.title, choice=out.choice) for out in declared)
+@stdlib_node("decision", title="Decision", description="Routes a value to one of two branches according to `when`.", category="control", compute_outputs=decision_outputs)
+def decision(
+    value: Annotated[Any, Param(title="Value")],
+    when: Annotated[Flag, Param(title="When", widget=Switch())] = Flag(True),
+) -> Branches:
+    if when:
+        return Branches(if_true=value, if_false=SKIPPED)
+    return Branches(if_true=SKIPPED, if_false=value)
 
 
 #: Every node this module defines, in palette order.
-NODES: tuple[type[StdlibNode], ...] = (Decision,)
+NODES = (decision,)

@@ -9,14 +9,13 @@ by address. The two are the graph's interface, used from each side.
 from typing import Annotated
 
 import pytest
-from conductor import GraphNode, InvalidCallError, NodeRegistry, Param
+from conductor import GraphNode, InvalidCallError, NodeRegistry, Param, node
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph
 from conductor.metadata import Result
-from conductor.node import NodeDefinition
 from conductor.series import Series
 from conductor.widgets import Textarea
 
@@ -32,52 +31,31 @@ Text = Annotated[Txt, Param(title="Text", widget=Textarea())]
 Out = Annotated[Txt, Result(title="Result")]
 
 
-class Upper(NodeDefinition):
-    id = "upper"
-    title = "Upper"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Text = Txt("")) -> Out:
-        return Txt(text.upper())
+@node("upper", title="Upper", description="d", category="test")
+def upper_node(text: Text = Txt("")) -> Out:
+    return Txt(text.upper())
 
 
-class Needs(NodeDefinition):
+@node("needs", title="Needs", description="d", category="test")
+def needs(text: Annotated[Txt, Param(title="Text", widget=Textarea())]) -> Out:
     """An input with no default: the graph cannot run until it is filled."""
-
-    id = "needs"
-    title = "Needs"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())]) -> Out:
-        return text
+    return text
 
 
-class Fails(NodeDefinition):
-    id = "fails"
-    title = "Fails"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Text = Txt("")) -> Out:
-        raise ValueError("no")
+@node("fails", title="Fails", description="d", category="test")
+def fails(text: Text = Txt("")) -> Out:
+    raise ValueError("no")
 
 
-class Skips(NodeDefinition):
-    id = "skips"
-    title = "Skips"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Text = Txt("")) -> Out:
-        return SKIPPED
+@node("skips", title="Skips", description="d", category="test")
+def skips(text: Text = Txt("")) -> Out:
+    return SKIPPED
 
 
 def _compiled(*nodes: GraphNode) -> CompiledGraph:
     registry = NodeRegistry()
-    for node_cls in (Upper, Needs, Fails, Skips):
-        registry.register(node_cls)
+    for node_cls in (upper_node, needs, fails, skips):
+        registry = registry.extended_with([node_cls])
     registry = registry.extended_with([embedded_graph_node("shout", (GraphNode(id="up", type="upper", version=1),), registry, "Shout")])
     return CompiledGraph.from_graph(Graph(nodes=nodes), registry)
 

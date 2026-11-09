@@ -27,18 +27,18 @@ compiled again with it, as if typed inside (``value_on_the_graph_node``,
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Any, ClassVar
+from typing import Annotated, Any
 
 import pytest
-from conductor import NodeRegistry
+from conductor import Arriving, NodeRegistry, node
 from conductor._sentinel import SKIPPED
-from conductor.dtype import DType, _UntypedValue
+from conductor.dtype import DType
 from conductor.errors import CompileProblem
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
-from conductor.metadata import Param, Result
-from conductor.node import NodeDefinition
+from conductor.metadata import Output, Param, Result
+from conductor.node_decorator import NodeDefinition
 from conductor.ref import Ref
 from conductor.series import Series
 from conductor.widgets import Switch, Textarea
@@ -60,115 +60,64 @@ class Flag(DType, int):
 Out = Annotated[Txt, Result(title="Result")]
 
 
-class Holder(NodeDefinition):
-    id = "holder"
-    title = "Text"
-    description = "d"
-    category = "test"
-
-    def run(self, value: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
-        return value
+@node("holder", title="Text", description="d", category="test")
+def holder(value: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
+    return value
 
 
-class Upper(NodeDefinition):
-    id = "upper"
-    title = "Upper case"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
-        return Txt(text.upper())
+@node("upper", title="Upper case", description="d", category="test")
+def upper_node(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
+    return Txt(text.upper())
 
 
-class Join(NodeDefinition):
+@node("join", title="Join", description="d", category="test")
+def join_node(texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
     """A reduction."""
-
-    id = "join"
-    title = "Join"
-    description = "d"
-    category = "test"
-
-    def run(self, texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
-        return Txt("+".join(texts))
+    return Txt("+".join(texts))
 
 
-class Docs(NodeDefinition):
-    id = "docs"
-    title = "Documents"
-    description = "d"
-    category = "test"
-
-    def run(self, folder: Annotated[Txt, Param(title="Folder", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Texts")]:
-        return [Txt("a"), Txt("b")]
+@node("docs", title="Documents", description="d", category="test")
+def docs(folder: Annotated[Txt, Param(title="Folder", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Texts")]:
+    return [Txt("a"), Txt("b")]
 
 
-class Lines(NodeDefinition):
-    id = "lines"
-    title = "Lines"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Lines")]:
-        return text.splitlines()
+@node("lines", title="Lines", description="d", category="test")
+def lines(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Lines")]:
+    return text.splitlines()
 
 
-class Pair(NodeDefinition):
-    id = "pair"
-    title = "Pair"
-    description = "d"
-    category = "test"
-
-    def run(
-        self,
-        a: Annotated[Txt, Param(title="A", widget=Textarea())] = Txt(""),
-        b: Annotated[Txt, Param(title="B", widget=Textarea())] = Txt(""),
-    ) -> Out:
-        return Txt(f"{a}:{b}")
+@node("pair", title="Pair", description="d", category="test")
+def pair(
+    a: Annotated[Txt, Param(title="A", widget=Textarea())] = Txt(""),
+    b: Annotated[Txt, Param(title="B", widget=Textarea())] = Txt(""),
+) -> Out:
+    return Txt(f"{a}:{b}")
 
 
-class Need(NodeDefinition):
+@node("need", title="Need", description="d", category="test")
+def need(text: Annotated[Txt, Param(title="Text", widget=Textarea())]) -> Out:
     """A required input with a type and no default."""
-
-    id = "need"
-    title = "Need"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())]) -> Out:
-        return text
+    return text
 
 
-class Both(NodeDefinition):
+@node("both", title="Both", description="d", category="test")
+def both(
+    a: Annotated[Txt, Param(title="A", widget=Textarea())],
+    b: Annotated[Txt, Param(title="B", widget=Textarea())],
+) -> Out:
     """Two required inputs with a type and no default."""
-
-    id = "both"
-    title = "Both"
-    description = "d"
-    category = "test"
-
-    def run(
-        self,
-        a: Annotated[Txt, Param(title="A", widget=Textarea())],
-        b: Annotated[Txt, Param(title="B", widget=Textarea())],
-    ) -> Out:
-        return Txt(f"{a}:{b}")
+    return Txt(f"{a}:{b}")
 
 
-class Picky(NodeDefinition):
+def picky_inputs(mode):
+    if mode == "bad":
+        raise CompileProblem("picky_refuses", "Not that mode.")
+    return ()
+
+@node("picky", title="Picky", description="d", category="test", compute_inputs=picky_inputs)
+def picky(mode: Annotated[Txt, Param(title="Mode", widget=Textarea())] = Txt("ok"), **more: Txt) -> Out:
     """CompileProblem the mode ``bad`` in its hook."""
-
-    id = "picky"
-    title = "Picky"
-    description = "d"
-    category = "test"
-
-    def run(self, mode: Annotated[Txt, Param(title="Mode", widget=Textarea())] = Txt("ok")) -> Out:
-        return mode
-
-    def compute_inputs(self, declared, values):
-        if values.get("mode") == "bad":
-            raise CompileProblem("picky_refuses", "Not that mode.")
-        return declared
+    return mode
 
 
 @dataclass(frozen=True)
@@ -177,42 +126,30 @@ class Branches:
     if_false: Annotated[Any, Result(title="If false", choice="branches")]
 
 
-class Gate(NodeDefinition):
-    id = "gate"
-    title = "If/else"
-    description = "d"
-    category = "test"
+def gate_outputs(value: Arriving):
+    dtype = value
+    return (Output("if_true", dtype, title="If true", choice="branches"), Output("if_false", dtype, title="If false", choice="branches"))
 
-    def run(
-        self,
-        value: Annotated[Any, Param(title="Value")],
-        when: Annotated[Flag, Param(title="When", widget=Switch())] = Flag(1),
-    ) -> Branches:
-        return Branches(if_true=value, if_false=SKIPPED) if when else Branches(if_true=SKIPPED, if_false=value)
-
-    def compute_outputs(self, declared, values, arriving):
-        dtype = arriving.get("value", _UntypedValue)
-        return tuple(out.model_copy(update={"dtype": dtype}) for out in declared)
+@node("gate", title="If/else", description="d", category="test", compute_outputs=gate_outputs)
+def gate(
+    value: Annotated[Any, Param(title="Value")],
+    when: Annotated[Flag, Param(title="When", widget=Switch())] = Flag(1),
+) -> Branches:
+    return Branches(if_true=value, if_false=SKIPPED) if when else Branches(if_true=SKIPPED, if_false=value)
 
 
-class Single(NodeDefinition):
+def single_outputs(**arriving: Arriving):
+    series = arriving.get("values")
+    dtype = series.element if series is not None else Any
+    return (Output("result", dtype, title="The value"),)
+
+@node("single", title="Only one", description="d", category="test", compute_outputs=single_outputs)
+def single(values: Annotated[Series[Any], Param(title="Values")]) -> Annotated[Any, Result(title="The value")]:
     """The merge for scalars: whichever branch fired is the one value it receives."""
-
-    id = "single"
-    title = "Only one"
-    description = "d"
-    category = "test"
-
-    def run(self, values: Annotated[Series[Any], Param(title="Values")]) -> Annotated[Any, Result(title="The value")]:
-        return values[0]
-
-    def compute_outputs(self, declared, values, arriving):
-        series = arriving.get("values")
-        dtype = series.element if series is not None else Any
-        return tuple(out.model_copy(update={"dtype": dtype}) for out in declared)
+    return values[0]
 
 
-PLAIN = (Holder, Upper, Join, Docs, Lines, Pair, Need, Both, Picky, Gate, Single)
+PLAIN = (holder, upper_node, join_node, docs, lines, pair, need, both, picky, gate, single)
 N = GraphNode
 
 
@@ -477,19 +414,12 @@ SCENARIOS: dict[str, Scenario] = {
 def _plain_registry() -> NodeRegistry:
     registry = NodeRegistry()
     for node_cls in PLAIN:
-        registry.register(node_cls)
+        registry = registry.extended_with([node_cls])
     return registry
 
 
-def _definition(type_id: str, version: Any) -> type[NodeDefinition]:
-    class Embedded(NodeDefinition):
-        id = type_id
-        title = f"Graph {type_id}"
-        description = "d"
-        category = "test"
-        versions: ClassVar[dict[int, Any]] = {1: version}
-
-    return Embedded
+def _definition(type_id: str, version: Any) -> NodeDefinition:
+    return NodeDefinition.from_compiled_graphs(type_id, title=f"Graph {type_id}", description="d", category="test", versions={1: version})
 
 
 def _registry(scenario: Scenario) -> NodeRegistry:
@@ -521,10 +451,10 @@ def _what_the_engine_reads(compiled: CompiledGraph) -> dict[str, Any]:
     assert compiled.is_runnable, compiled.problems
     nodes: dict[str, Any] = {}
     for node_id in compiled.execution_order:
-        node = compiled.node(node_id)
-        inputs = {inp.name for inp in node.interface.inputs}
+        graph_node = compiled.node(node_id)
+        inputs = {inp.name for inp in graph_node.interface.inputs}
         fields: dict[str, Any] = {}
-        for declared in (*node.interface.inputs, *node.interface.outputs):
+        for declared in (*graph_node.interface.inputs, *graph_node.interface.outputs):
             found = compiled.field(Ref(node_id, declared.name))
             fields[declared.name] = {
                 "type": repr(found.type),
@@ -534,8 +464,8 @@ def _what_the_engine_reads(compiled: CompiledGraph) -> dict[str, Any]:
                 } if declared.name in inputs else {"condition": _condition(found.condition)}),
             }
         nodes[node_id] = {
-            "runs_per_row_of": repr(node.runs_per_row_of),
-            "statics": repr(dict(sorted(node.statics.items()))),
+            "runs_per_row_of": repr(graph_node.runs_per_row_of),
+            "statics": repr(dict(sorted(graph_node.statics.items()))),
             "fields": fields,
         }
     return {"order": list(compiled.execution_order), "nodes": nodes}
@@ -580,10 +510,10 @@ def test_the_pinned_results_are_the_run_scenarios():
 
 def test_the_placed_node_is_a_graph_whose_version_is_the_compiled_graph():
     compiled = _compiled("read_from_outside")
-    node = compiled.node("emb")
+    graph_node = compiled.node("emb")
 
-    assert (node.state, node.kind) == ("ready", "graph")
-    assert isinstance(node.version, CompiledGraph)
+    assert (graph_node.state, graph_node.kind) == ("ready", "graph")
+    assert isinstance(graph_node.version, CompiledGraph)
     assert compiled.node("emb/join").embedded_in == "emb"
     assert compiled.field(Ref("emb/join", "result")) is compiled.field(Ref("emb/join", "result"))
 
@@ -735,8 +665,8 @@ def test_a_graph_the_walk_leaves_out_is_one_node_with_nothing_inside():
     unembeddable = CompiledGraph.from_graph(Graph(nodes=[N(id="emb", type="broken", version=1)]), registry)
 
     for compiled, cause in ((upstream_broken, "unknown_node_type"), (unembeddable, "embedded_graph_broken")):
-        node = compiled.node("emb")
-        assert (node.state, node.kind, node._cause.type) == ("wiring_failed", "graph", cause)
+        graph_node = compiled.node("emb")
+        assert (graph_node.state, graph_node.kind, graph_node._cause.type) == ("wiring_failed", "graph", cause)
         with pytest.raises(KeyError):
             compiled.node("emb/holder" if compiled is upstream_broken else "emb/a")
     assert unembeddable.node("emb").version.node("a").state == "ready"

@@ -71,8 +71,8 @@ CATALOGUE: Mapping[str, tuple[str, bool]] = {
     "duplicate_field_name": ("The node has two fields named '{field}'.", True),
     "duplicate_node_id": ("Two nodes have the id '{node_id}'.", True),
     "embedded_graph_broken": ("The graph '{graph}' has {problems} problem(s) to fix before it can be used here.", True),
-    "edge_into_closed_handle": ("Field '{field}' has no handle, so nothing can be connected to it.", True),
-    "handle_needs_dtype": ("Field '{field}' has a handle but no type that can travel on an edge.", True),
+    "edge_into_unconnectable_input": ("Nothing can be connected to the field '{field}'.", True),
+    "output_has_no_type": ("The output '{field}' has no type that can travel on an edge.", True),
     "invalid_node_id": ("'{node_id}' cannot be a node id: '/' names the nodes of an embedded graph.", True),
     "invalid_static": ("The value in '{field}' cannot be read as the field's type. {reason}", True),
     "lists_on_a_per_row_node": (
@@ -110,9 +110,11 @@ CATALOGUE: Mapping[str, tuple[str, bool]] = {
         "Field '{field}' is not an input of the node as it is set up, so its value is not used; it has {inputs}.", False,
     ),
     # -- what a call to a compiled graph is refused for ------------------------
+    "cannot_move_to_version": ("'{node_type}' cannot move from version {version} to {target}; it has {versions}.", True),
     "choice_unanswered": ("Answer exactly one of {alternatives}; {answered} answered.", True),
     "invalid_value": ("{reason}", True),
     "missing": ("'{name}' was not answered.", True),
+    "node_not_in_graph": ("'{node}' is not a node of this graph; it has {nodes}.", True),
     "not_asked": ("'{name}' was not asked.", True),
     "not_offered": ("{reason}", True),
     "not_waiting": ("Nothing is waiting on an answer as {waiting_id!r}.", True),
@@ -264,8 +266,8 @@ class CompileProblem(ConductorError):
 class InvalidCallError(ConductorError, ValueError):
     """A verb on a compiled graph was given what it cannot act on; nothing happened.
 
-    Raised by ``run``, ``stream``, ``answer``, ``outputs``, ``results`` and
-    ``with_inputs`` from the call that caused it, before anything runs, and
+    Raised by ``run``, ``stream``, ``answer``, ``outputs``, ``results``,
+    ``with_inputs`` and ``upgrade_node`` from the call that caused it, before anything runs, and
     listing every fault at once. The state the caller holds is untouched. A
     ``ValueError`` too, as pydantic's error is.
     """

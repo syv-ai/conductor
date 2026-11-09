@@ -17,7 +17,7 @@ import re
 from typing import Annotated, Any
 
 import pytest
-from conductor import NodeDefinition, NodeRegistry, Param, Result
+from conductor import NodeRegistry, Param, Result, node
 from conductor.dtype import DType
 from conductor.errors import NodeDeclarationError
 from conductor.registry import RegistryDescription, TypeDescription
@@ -53,22 +53,15 @@ class Score(DType, float):
         return super().accepts(source) or issubclass(source, Number)
 
 
-class Shout(NodeDefinition):
+@node("shout", title="Shout", description="Uppercases", category="test")
+def shout(
+    text: Annotated[Text, Param(title="Text", widget=Textarea())],
+    weights: Annotated[Series[Number], Param(title="Weights", widget=Textarea())],
+    anything: Annotated[Any, Param(title="Anything", widget=Textarea())],
+    tags: Annotated[list[str], Param(title="Tags", connectable=False, widget=Textarea())] = [],
+) -> Annotated[Text, Result(title="Loud")]:
     """Declares ``Text`` per row, ``Number`` whole, a pass-through and a closed plain-typed input."""
-
-    id = "shout"
-    title = "Shout"
-    description = "Uppercases"
-    category = "test"
-
-    def run(
-        self,
-        text: Annotated[Text, Param(title="Text", widget=Textarea())],
-        weights: Annotated[Series[Number], Param(title="Weights", widget=Textarea())],
-        anything: Annotated[Any, Param(title="Anything", widget=Textarea())],
-        tags: Annotated[list[str], Param(title="Tags", show_handle=False, widget=Textarea())] = [],
-    ) -> Annotated[Text, Result(title="Loud")]:
-        return Text(text.upper())
+    return Text(text.upper())
 
 
 def _declare_text() -> type[DType]:
@@ -88,9 +81,7 @@ def test_a_type_declared_twice_registers_on_two_registries():
     first, second = _declare_text(), _declare_text()
     assert first is not second and first.id == second.id == "text"
 
-    a, b = NodeRegistry(), NodeRegistry()
-    a.add_types(first)
-    b.add_types(second)
+    a, b = NodeRegistry(types=[first]), NodeRegistry(types=[second])
 
     assert a.types == {"text": first}
     assert b.types == {"text": second}
@@ -110,63 +101,45 @@ def test_declaring_your_own_text_beside_the_standard_librarys_is_fine():
 def test_one_id_from_two_classes_on_one_registry_is_refused_naming_both():
     from conductor_nodes.types import Text as StandardText
 
-    registry = NodeRegistry()
-    registry.add_types(Text)
-    registry.add_types(Text)  # the same class again is not a collision
+    assert NodeRegistry(types=[Text, Text]).types == {"text": Text}  # the same class twice is not a collision
 
     with pytest.raises(NodeDeclarationError) as refused:
-        registry.add_types(StandardText)
+        NodeRegistry(types=[Text, StandardText])
 
     message = str(refused.value)
     assert "'text'" in message
     assert "conductor_nodes.types.Text" in message
     assert f"{Text.__module__}.Text" in message
-    assert registry.types == {"text": Text}
 
 
 def test_two_classes_with_one_id_in_one_call_are_refused_together():
     """A batch is checked against itself as well as against what is filed."""
-    registry = NodeRegistry()
     with pytest.raises(NodeDeclarationError, match="'text'"):
-        registry.add_types(Text, AnotherText)
-    assert registry.types == {}
+        NodeRegistry(types=[Text, AnotherText])
 
-    class Echo(NodeDefinition):
-        id = "echo"
-        title = "Echo"
-        description = "Returns its input"
-        category = "test"
-
-        def run(self, text: Annotated[Text, Param(title="Text", widget=Textarea())]) -> Annotated[AnotherText, Result(title="Same")]:
-            return AnotherText(text)
+    @node("echo", title="Echo", description="Returns its input", category="test")
+    def echo(text: Annotated[Text, Param(title="Text", widget=Textarea())]) -> Annotated[AnotherText, Result(title="Same")]:
+        return AnotherText(text)
 
     with pytest.raises(NodeDeclarationError, match="'text'"):
-        registry.register(Echo)
-    assert registry.types == {} and "echo" not in registry
+        NodeRegistry([echo])
 
 
 def test_register_adds_the_types_a_node_declares():
     """A scalar is a word, a ``Series[X]`` contributes ``X``, and ``Any`` and a closed input's plain type contribute nothing."""
-    registry = NodeRegistry()
-    registry.register(Shout)
+    registry = NodeRegistry([shout])
 
     assert registry.types == {"text": Text, "number": Number}
 
 
 def test_a_collision_through_register_names_both_classes_and_files_nothing():
-    class Whisper(NodeDefinition):
-        id = "whisper"
-        title = "Whisper"
-        description = "Lowercases"
-        category = "test"
+    @node("whisper", title="Whisper", description="Lowercases", category="test")
+    def whisper(text: Annotated[AnotherText, Param(title="Text", widget=Textarea())]) -> Annotated[AnotherText, Result(title="Quiet")]:
+        return AnotherText(text.lower())
 
-        def run(self, text: Annotated[AnotherText, Param(title="Text", widget=Textarea())]) -> Annotated[AnotherText, Result(title="Quiet")]:
-            return AnotherText(text.lower())
-
-    registry = NodeRegistry()
-    registry.register(Shout)
+    registry = NodeRegistry([shout])
     with pytest.raises(NodeDeclarationError) as refused:
-        registry.register(Whisper)
+        registry = registry.extended_with([whisper])
 
     assert f"{Text.__module__}.Text" in str(refused.value)
     assert f"{AnotherText.__module__}.AnotherText" in str(refused.value)
@@ -176,21 +149,20 @@ def test_a_collision_through_register_names_both_classes_and_files_nothing():
 
 def test_a_series_is_not_a_word():
     """A series is many of something; the something is the word."""
-    registry = NodeRegistry()
     with pytest.raises(TypeError, match="element"):
-        registry.add_types(Series[Text])
+        NodeRegistry(types=[Series[Text]])
     with pytest.raises(TypeError, match="element"):
-        registry.add_types(Series)
+        NodeRegistry(types=[Series])
     with pytest.raises(TypeError, match="concrete"):
-        registry.add_types(DType)
+        NodeRegistry(types=[DType])
+    registry = NodeRegistry()
 
-    registry.register(Shout)
+    registry = registry.extended_with([shout])
     assert Series not in registry.types.values()
 
 
 def test_the_vocabulary_is_read_only_and_kept_by_extended_with():
-    registry = NodeRegistry()
-    registry.register(Shout)
+    registry = NodeRegistry([shout])
 
     with pytest.raises(TypeError):
         registry.types["score"] = Score  # type: ignore[index]
@@ -202,14 +174,12 @@ def test_the_vocabulary_is_read_only_and_kept_by_extended_with():
 
 
 def test_accepted_as_is_answered_over_the_registrys_words_self_included():
-    both = NodeRegistry()
-    both.add_types(Number, Score)
+    both = NodeRegistry([], types=[Number, Score])
     assert both.accepted_as(Number) == ("number", "score")
     assert both.accepted_as(Score) == ("score",)
     assert both.accepted_as(Series[Number]) == ("number", "score")
 
-    alone = NodeRegistry()
-    alone.add_types(Number)
+    alone = NodeRegistry([], types=[Number])
     assert alone.accepted_as(Number) == ("number",)
 
 
@@ -222,8 +192,7 @@ def test_a_bug_in_a_types_accepts_is_not_swallowed():
         def accepts(cls, source: Any) -> bool:
             raise TypeError("a bug in accepts")
 
-    registry = NodeRegistry()
-    registry.add_types(Text, Broken)
+    registry = NodeRegistry([], types=[Text, Broken])
     with pytest.raises(TypeError, match="a bug in accepts"):
         registry.accepted_as(Text)
 
@@ -238,14 +207,12 @@ def test_a_type_record_is_its_id():
 
 
 def test_describe_is_the_palette_nodes_and_vocabulary():
-    registry = NodeRegistry()
-    registry.register(Shout)
-    registry.add_types(Score)
+    registry = NodeRegistry([shout], types=[Score])
 
     described = registry.describe()
 
     assert isinstance(described, RegistryDescription)
-    assert described.nodes == (Shout.describe(),)
+    assert described.nodes == (shout.describe(),)
     assert described.types == (
         TypeDescription(id="text", title="Text", accepted_as=("text",)),
         TypeDescription(id="number", title="Number", accepted_as=("number", "score")),

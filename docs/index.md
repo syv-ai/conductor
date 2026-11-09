@@ -9,23 +9,18 @@ A host-agnostic Python engine that compiles and runs graphs of typed nodes. A no
 ```python
 from typing import Annotated
 
-from conductor import CompiledGraph, Graph, GraphNode, NodeDefinition, NodeRegistry, Param, Result, Static
+from conductor import CompiledGraph, Graph, GraphNode, NodeRegistry, Param, Static, node
 from conductor.widgets import TextWidget
 from conductor_nodes.types import Number, Text
 
 
-class Length(NodeDefinition):
-    id = "length"
-    title = "Length"
-    description = "Counts characters"
-    category = "text"
-
-    def run(self, text: Annotated[Text, Param(title="Text", widget=TextWidget())]) -> Annotated[Number, Result(title="Length")]:
-        return Number(len(text))
+@node("length", category="text")
+def length(text: Annotated[Text, Param(title="Text", widget=TextWidget())]) -> Number:
+    """Counts characters."""
+    return Number(len(text))
 
 
-registry = NodeRegistry()
-registry.register(Length)
+registry = NodeRegistry([length])
 
 compiled = CompiledGraph.from_graph(
     Graph(nodes=[GraphNode(id="size", type="length", version=1, bindings={"text": Static(["a", "bcd"])})]),

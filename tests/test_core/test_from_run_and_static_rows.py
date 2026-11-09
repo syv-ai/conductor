@@ -3,14 +3,13 @@
 from typing import Annotated
 
 import pytest
-from conductor import FromRun, NodeRegistry, Param
+from conductor import FromRun, NodeRegistry, Param, node
 from conductor.dtype import DType
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
-from conductor.interface import Interface
+from conductor.interface import read_signature
 from conductor.metadata import Result
-from conductor.node import NodeDefinition
 from conductor.ref import Ref
 from conductor.series import Index, Series
 from conductor.widgets import ListWidget, TextWidget
@@ -26,45 +25,30 @@ class Who:
         self.name = name
 
 
-class Greet(NodeDefinition):
-    id = "greet"
-    title = "Greet"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="T", widget=TextWidget())], who: Annotated[Who, FromRun()]) -> Annotated[Txt, Result(title="R")]:
-        return Txt(f"{text} {who.name}")
+@node("greet", title="Greet", description="d", category="test")
+def greet(text: Annotated[Txt, Param(title="T", widget=TextWidget())], who: FromRun[Who]) -> Annotated[Txt, Result(title="R")]:
+    return Txt(f"{text} {who.name}")
 
 
-class Upper(NodeDefinition):
-    id = "upper"
-    title = "Upper"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="T", widget=ListWidget())] = Txt("")) -> Annotated[Txt, Result(title="R")]:
-        return Txt(text.upper())
+@node("upper", title="Upper", description="d", category="test")
+def upper_node(text: Annotated[Txt, Param(title="T", widget=ListWidget())] = Txt("")) -> Annotated[Txt, Result(title="R")]:
+    return Txt(text.upper())
 
 
-class JoinAll(NodeDefinition):
-    id = "joinall"
-    title = "Join"
-    description = "d"
-    category = "test"
-
-    def run(self, texts: Annotated[Series[Txt], Param(title="T")] = ()) -> Annotated[Txt, Result(title="R")]:
-        return Txt("-".join(texts))
+@node("joinall", title="Join", description="d", category="test")
+def join_all(texts: Annotated[Series[Txt], Param(title="T")] = ()) -> Annotated[Txt, Result(title="R")]:
+    return Txt("-".join(texts))
 
 
 def _registry():
     r = NodeRegistry()
-    for c in (Greet, Upper, JoinAll):
-        r.register(c)
+    for c in (greet, upper_node, join_all):
+        r = r.extended_with([c])
     return r
 
 
 def test_a_from_run_parameter_is_a_need_not_an_input():
-    iface = Interface.of(Greet.run)
+    iface = read_signature(greet.versions[1].run).interface
     assert [i.name for i in iface.inputs] == ["text"]
     assert iface.needs == {"who": Who}
 

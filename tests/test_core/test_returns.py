@@ -6,10 +6,14 @@ from typing import Annotated, Any
 
 import pytest
 from conductor.dtype import DType
-from conductor.metadata import Field, Output, Result
-from conductor.returns import outputs_of, unpack
+from conductor.interface import _read_return, unpack
+from conductor.metadata import Output, Result
 from conductor.series import Series
 from pydantic import TypeAdapter
+
+
+def _read_return_hint(hint):
+    return _read_return({"return": hint})
 
 
 class Text(DType, str):
@@ -21,26 +25,14 @@ def test_an_output_is_a_field_and_adds_one_contract_fact():
     """``choice`` names the group of exclusive alternatives an output
     belongs to. Compile's contract derivation and the editor read it; the
     engine never does."""
-    output = Output(name="result", dtype=Text, title="Resultat")
+    output = Output("result", Text, title="Resultat")
 
-    assert isinstance(output, Result) and isinstance(output, Field)
-    assert set(Result.model_fields) == set(Field.model_fields) | {"choice"}
-    assert set(Output.model_fields) == set(Result.model_fields) | {"name", "dtype"}
     assert output.choice is None
-    assert Output(name="if_true", dtype=Text, title="If true", choice="branches").choice == "branches"
-
-
-def test_a_field_is_title_and_description():
-    """What a person reads is the half an input and an output share; a
-    name and a type are the node's records' (``Input``, ``Output``), and
-    `optional` is an `Input` fact alone."""
-    assert list(Field.model_fields) == ["title", "description"]
+    assert Output("if_true", Text, title="If true", choice="branches").choice == "branches"
 
 
 def test_an_output_carries_what_both_sides_of_a_node_have():
-    output = Output(
-        name="result", dtype=Text, title="Resultat", description="Svaret"
-    )
+    output = Output("result", Text, title="Resultat", description="Svaret")
 
     assert (output.name, output.dtype, output.title) == ("result", Text, "Resultat")
     assert output.description == "Svaret"
@@ -48,7 +40,7 @@ def test_an_output_carries_what_both_sides_of_a_node_have():
 
 def test_an_output_has_no_widget_no_default_no_optional():
     """Not blank there — meaningless there. Nobody supplies a result."""
-    output = Output(name="result", dtype=Text, title="R")
+    output = Output("result", Text, title="R")
 
     assert not hasattr(output, "widget")
     assert not hasattr(output, "default")
@@ -57,7 +49,7 @@ def test_an_output_has_no_widget_no_default_no_optional():
 
 def test_an_output_says_nothing_about_downloading():
     """The dtype decides, and a file carries its own name."""
-    output = Output(name="result", dtype=Text, title="R")
+    output = Output("result", Text, title="R")
 
     assert not hasattr(output, "download")
     assert not hasattr(output, "filename")
@@ -66,7 +58,7 @@ def test_an_output_says_nothing_about_downloading():
 def test_a_field_is_frozen_and_keyword_only():
     """`kw_only` is load-bearing, not style: it is what lets `Input` add a
     *required* `widget` after this parent's defaulted fields."""
-    output = Output(name="result", dtype=Text, title="R")
+    output = Output("result", Text, title="R")
 
     with pytest.raises(Exception):
         output.name = "other"
@@ -76,7 +68,7 @@ def test_a_field_is_frozen_and_keyword_only():
 
 def test_the_record_is_the_schema():
     """Dumping an Output yields the wire, with the dtype as its description."""
-    output = Output(name="result", dtype=Series[Text], title="R")
+    output = Output("result", Series[Text], title="R")
 
     assert TypeAdapter(Output).dump_python(output, mode="json") == {
         "name": "result",
@@ -107,7 +99,7 @@ class Pair:
 
 
 def test_a_dtype_return_declares_one_output_named_result():
-    returns, outputs = outputs_of(Annotated[Text, Result(title="Opsummering")])
+    returns, outputs = _read_return_hint(Annotated[Text, Result(title="Opsummering")])
 
     assert returns is Text
     assert [(o.name, o.title, o.dtype) for o in outputs] == [("result", "Opsummering", Text)]
@@ -115,14 +107,14 @@ def test_a_dtype_return_declares_one_output_named_result():
 
 def test_a_declaration_says_nothing_about_downloading():
     """A value is downloadable because of its type, not because of a flag."""
-    _, outputs = outputs_of(Annotated[Text, Result(title="Rapport")])
+    _, outputs = _read_return_hint(Annotated[Text, Result(title="Rapport")])
 
     assert not hasattr(outputs[0], "download")
     assert not hasattr(outputs[0], "filename")
 
 
 def test_a_record_return_declares_one_output_per_field_named_by_the_field():
-    returns, outputs = outputs_of(Pair)
+    returns, outputs = _read_return_hint(Pair)
 
     assert returns is Pair
     assert [(o.name, o.title, o.dtype) for o in outputs] == [("text", "Text", Text), ("number", "Number", Num)]
@@ -136,7 +128,7 @@ def test_a_record_field_declares_its_choice():
         if_true: Annotated[Text, Result(title="If true", choice="branches")]
         if_false: Annotated[Text, Result(title="If false", choice="branches")]
 
-    _, outputs = outputs_of(Branches)
+    _, outputs = _read_return_hint(Branches)
 
     assert [(o.name, o.choice) for o in outputs] == [("if_true", "branches"), ("if_false", "branches")]
 
@@ -144,7 +136,7 @@ def test_a_record_field_declares_its_choice():
 def test_a_pass_through_return_declares_any():
     """A node that routes what it does not read returns ``Any``; the
     output carries it until the node's hook types it from what arrives."""
-    returns, outputs = outputs_of(Annotated[Any, Result(title="Videre")])
+    returns, outputs = _read_return_hint(Annotated[Any, Result(title="Videre")])
 
     assert returns.id == "any"
     assert outputs[0].dtype.id == "any"
@@ -152,42 +144,37 @@ def test_a_pass_through_return_declares_any():
 
 def test_a_mapping_return_declares_no_outputs():
     """The interface is computed; the declaration only says 'by name'."""
-    assert outputs_of(Mapping[str, Any]) == (Mapping, ())
-
-
-def test_a_dtype_return_without_a_result_is_refused():
-    with pytest.raises(TypeError, match="Result"):
-        outputs_of(Text)
+    assert _read_return_hint(Mapping[str, Any]) == (Mapping, ())
 
 
 def test_a_return_that_is_none_of_the_three_is_refused():
     with pytest.raises(TypeError, match="DType, a dataclass"):
-        outputs_of(tuple[Text, Text])
+        _read_return_hint(tuple[Text, Text])
 
 
 def test_unpack_puts_a_dtype_return_on_its_one_output():
-    _, outputs = outputs_of(Annotated[Text, Result(title="R")])
+    _, outputs = _read_return_hint(Annotated[Text, Result(title="R")])
 
-    assert unpack(Text, "hello", outputs) == {"result": "hello"}
+    assert unpack(Text, "hello", outputs, outputs) == {"result": "hello"}
 
 
 def test_unpack_reads_a_record_by_field():
-    _, outputs = outputs_of(Pair)
+    _, outputs = _read_return_hint(Pair)
 
-    assert unpack(Pair, Pair(text=Text("a"), number=Num(1)), outputs) == {"text": "a", "number": 1}
+    assert unpack(Pair, Pair(text=Text("a"), number=Num(1)), outputs, outputs) == {"text": "a", "number": 1}
 
 
 def test_unpack_refuses_a_value_that_is_not_the_record():
     """The node is broken, and it says so here rather than downstream."""
-    _, outputs = outputs_of(Pair)
+    _, outputs = _read_return_hint(Pair)
 
     with pytest.raises(ValueError, match="must return a Pair"):
-        unpack(Pair, ("a", 1), outputs)
+        unpack(Pair, ("a", 1), outputs, outputs)
 
 
 def test_unpack_reads_a_mapping_against_the_roster():
-    interface = (Output(name="name", dtype=Text, title="Name"), Output(name="age", dtype=Num, title="Age"))
+    interface = (Output("name", Text, title="Name"), Output("age", Num, title="Age"))
 
-    assert unpack(Mapping, {"name": "Ida", "age": 3}, interface) == {"name": "Ida", "age": 3}
+    assert unpack(Mapping, {"name": "Ida", "age": 3}, interface, interface) == {"name": "Ida", "age": 3}
     with pytest.raises(ValueError, match="exactly the outputs"):
-        unpack(Mapping, {"name": "Ida"}, interface)
+        unpack(Mapping, {"name": "Ida"}, interface, interface)

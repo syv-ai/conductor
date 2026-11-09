@@ -6,7 +6,7 @@ import sys
 
 import polars as pl
 import pytest
-from conductor import Table
+from conductor import Table, node
 from conductor.codec import from_wire, to_wire
 from conductor.dtype import DType
 from conductor.series import Index
@@ -156,19 +156,13 @@ def test_a_node_returns_a_frame_and_its_output_holds_the_table_type():
     from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, Static
     from conductor.graph.model import Graph
     from conductor.metadata import Result
-    from conductor.node import NodeDefinition
     from conductor.widgets import Textarea
 
-    class Read(NodeDefinition):
-        id = "read"
-        title = "Read"
-        description = "d"
-        category = "test"
+    @node("read", title="Read", description="d", category="test")
+    def read(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Contacts, Result(title="Contacts")]:
+        return pl.DataFrame({"name": text.split(","), "score": [1.0] * len(text.split(","))})
 
-        def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Contacts, Result(title="Contacts")]:
-            return pl.DataFrame({"name": text.split(","), "score": [1.0] * len(text.split(","))})
-
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="r", type="read", version=1, bindings={"text": Static("Ida,Bo")})]), NodeRegistry(nodes=(Read,)))
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="r", type="read", version=1, bindings={"text": Static("Ida,Bo")})]), NodeRegistry((read,)))
     contacts = compiled.results(compiled.run_sync())["r"]["result"]
 
     assert type(contacts) is Contacts

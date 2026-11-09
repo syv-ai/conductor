@@ -55,15 +55,12 @@ def field_problems(
     A field name is unique within a node across inputs and outputs, because
     a ``Ref(node, field)`` must name one field: a name repeated in ``fields``,
     or already in ``taken`` (the names on the other side), is
-    ``duplicate_field_name``. And every field that can be connected — every
-    output, and every input not closed with ``show_handle=False`` — must
-    carry a ``DType``, or nothing could connect it: ``handle_needs_dtype``.
-    ``Any`` is allowed with ``untyped_ok``: an input typed ``Any`` takes its
-    type from its edge and, unconnected, is ``unbound_required`` already; an
-    output a hook left ``Any`` once the edges are known can carry nothing,
-    so compile asks with ``untyped_ok=False`` there.
+    ``duplicate_field_name``. And a field left untyped once its edges are
+    known can carry nothing: with ``untyped_ok=False`` it is
+    ``output_has_no_type``. An input typed ``Any`` takes its type from its
+    edge and, unconnected, is ``unbound_required`` already.
 
-    A declaration is checked for both when the class is defined; a hook can
+    A declaration is checked for both when ``@node`` runs; a hook can
     compute a set of fields that breaks either, so compile asks again on
     what the hooks answered — the inputs before the walk over the edges,
     the outputs as the walk completes them.
@@ -74,10 +71,8 @@ def field_problems(
         if declared.name in seen:
             found.append(problem("duplicate_field_name", node_id, declared.name))
         seen.add(declared.name)
-        if not getattr(declared, "show_handle", True):
-            continue
         if declared.dtype.id == "any" and not untyped_ok:
-            found.append(problem("handle_needs_dtype", node_id, declared.name))
+            found.append(problem("output_has_no_type", node_id, declared.name))
     return found
 
 
@@ -97,8 +92,7 @@ def derive_interface(
 
     Each ``Input`` / ``Output`` returned is the node's own record, named by
     its address ``Ref(node_id, field)`` and carrying the title the author
-    gave that field on that node. ``returns`` is ``Mapping``: a graph
-    returns its outputs by address. ``needs`` is the union of what the
+    gave that field on that node. ``needs`` is the union of what the
     nodes need, by parameter name.
 
     ``interfaces`` holds each node's actual fields (its computed
@@ -124,11 +118,11 @@ def derive_interface(
             inputs.extend(
                 _as_offered(node, declared, graphs)
                 for declared in interface.inputs
-                if declared.show_handle and declared.name not in node.locked
+                if declared.connectable and declared.name not in node.locked
             )
         if node.id not in consumed:
             outputs.extend(_as_offered(node, declared, graphs) for declared in interface.outputs)
-    return Interface(inputs=tuple(inputs), outputs=tuple(outputs), returns=Mapping, needs=needs)
+    return Interface(inputs=tuple(inputs), outputs=tuple(outputs), needs=needs)
 
 
 def _as_offered(node: GraphNode, declared, graphs: Collection[str]):

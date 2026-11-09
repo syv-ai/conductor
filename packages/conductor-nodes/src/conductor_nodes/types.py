@@ -6,26 +6,24 @@ its own. Four cover this catalog: ``Text``, ``Number``, ``Flag`` and
 and does not need these.
 
 ``Category`` is the closed set of category names this package uses, and
-``StdlibNode`` is the base every node here subclasses: it narrows
-``category`` from the ``str`` conductor leaves open to that ``Literal``,
-so a misspelled category is a type error rather than a new, accidental
-palette section.
+``stdlib_node`` is ``@node`` with ``category`` narrowed to it, so a
+misspelled category is a type error rather than a new, accidental palette
+section.
 """
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, Literal
+from typing import Any, Literal
 
-from conductor import DType, NodeDefinition
+from conductor import DType, node
 from pydantic_core import core_schema
 
 Category = Literal["control", "json", "logic", "math", "regex", "text"]
 
 
-class StdlibNode(NodeDefinition):
-    """Base of every node in this package; pins ``category`` to ``Category``."""
-
-    category: ClassVar[Category]
+def stdlib_node(id: str, *, category: Category, **declared: Any) -> Any:
+    """``@node`` with ``category`` pinned to ``Category``."""
+    return node(id, category=category, **declared)
 
 
 class Text(DType, str):

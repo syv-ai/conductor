@@ -4,14 +4,13 @@ from collections.abc import Mapping
 from typing import Annotated, Any
 
 import pytest
-from conductor import NodeRegistry
+from conductor import NodeRegistry, node
 from conductor.dtype import DType
 from conductor.errors import NodeReadError
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.metadata import Output, Param, Result
-from conductor.node import NodeDefinition
 from conductor.ref import Ref
 from conductor.series import Index, Series
 from conductor.widgets import Textarea
@@ -27,56 +26,30 @@ class Txt(DType, str):
 Out = Annotated[Txt, Result(title="Result")]
 
 
-class Holder(NodeDefinition):
-    id = "holder"
-    title = "Text"
-    description = "d"
-    category = "test"
-
-    def run(self, value: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
-        return value
+@node("holder", title="Text", description="d", category="test")
+def holder(value: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
+    return value
 
 
-class Upper(NodeDefinition):
-    id = "upper"
-    title = "Upper case"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
-        return Txt(text.upper())
+@node("upper", title="Upper case", description="d", category="test")
+def upper_node(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
+    return Txt(text.upper())
 
 
-class Join(NodeDefinition):
+@node("join", title="Join", description="d", category="test")
+def join_node(texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
     """A reduction."""
-
-    id = "join"
-    title = "Join"
-    description = "d"
-    category = "test"
-
-    def run(self, texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
-        return Txt("+".join(texts))
+    return Txt("+".join(texts))
 
 
-class Docs(NodeDefinition):
-    id = "docs"
-    title = "Documents"
-    description = "d"
-    category = "test"
-
-    def run(self, folder: Annotated[Txt, Param(title="Folder", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Texts")]:
-        return [Txt("a"), Txt("b")]
+@node("docs", title="Documents", description="d", category="test")
+def docs(folder: Annotated[Txt, Param(title="Folder", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Texts")]:
+    return [Txt("a"), Txt("b")]
 
 
-class Lines(NodeDefinition):
-    id = "lines"
-    title = "Lines"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Lines")]:
-        return text.splitlines()
+@node("lines", title="Lines", description="d", category="test")
+def lines(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Lines")]:
+    return text.splitlines()
 
 
 def _inner_graph():
@@ -91,8 +64,8 @@ def _inner_graph():
 
 def _registry(*extra):
     registry = NodeRegistry()
-    for node_cls in (Holder, Upper, Join, Docs, *extra):
-        registry.register(node_cls)
+    for node_cls in (holder, upper_node, join_node, docs, *extra):
+        registry = registry.extended_with([node_cls])
     return registry
 
 
@@ -189,19 +162,13 @@ def test_a_field_inside_a_placement_has_one_address():
         compiled.field(Ref("emb", "join.result"))
 
 
-class Sheet(NodeDefinition):
+def sheet_outputs():
+    return (Output("excl. VAT", Txt),)
+
+@node("sheet", title="Sheet", description="d", category="t", compute_outputs=sheet_outputs)
+def sheet() -> Mapping[str, Any]:
     """One output named after a column, as a table's fold names them: free text, dots and all."""
-
-    id = "sheet"
-    title = "Sheet"
-    description = "d"
-    category = "t"
-
-    def run(self) -> Mapping[str, Any]:
-        return {"excl. VAT": Txt("net")}
-
-    def compute_outputs(self, declared, values, arriving):
-        return (Output(name="excl. VAT", dtype=Txt, title="excl. VAT"),)
+    return {"excl. VAT": Txt("net")}
 
 
 def test_a_field_name_with_a_dot_beside_an_embedded_graph_is_a_plain_field():
@@ -211,7 +178,7 @@ def test_a_field_name_with_a_dot_beside_an_embedded_graph_is_a_plain_field():
         GraphNode(id="sheet", type="sheet", version=1),
         GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.value": From(Ref("sheet", "excl. VAT"))}),
         GraphNode(id="after", type="upper", version=1, bindings={"text": From("emb.join.result")}),
-    ], Sheet)
+    ], sheet)
 
     assert compiled.is_runnable, compiled.problems
     assert compiled.field(Ref("sheet", "excl. VAT")).type is Txt
@@ -278,13 +245,13 @@ def test_a_series_made_inside_reduces_to_the_outer_row_by_lineage_alone():
             GraphNode(id="holder", type="holder", version=1, bindings={"value": Static("a\nb")}),
             GraphNode(id="lines", type="lines", version=1, bindings={"text": From("holder.result")}),
             GraphNode(id="join", type="join", version=1, bindings={"texts": From("lines.result")}),
-        ), _registry(Lines))
+        ), _registry(lines))
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="docs", type="docs", version=1),
             GraphNode(id="emb", type="splitter", version=1, bindings={"holder.value": From("docs.result")}),
         ]),
-        _registry(inner, Lines),
+        _registry(inner, lines),
     )
 
     assert compiled.is_runnable, compiled.problems
@@ -300,13 +267,13 @@ def test_a_series_made_inside_reduces_to_the_outer_row_by_lineage_alone():
             GraphNode(id="entered", type="holder", version=1),
             GraphNode(id="lines", type="lines", version=1, bindings={"text": From("holder.result")}),
             GraphNode(id="join", type="join", version=1, bindings={"texts": From("lines.result")}),
-        ), _registry(Lines))
+        ), _registry(lines))
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="docs", type="docs", version=1),
             GraphNode(id="emb", type="splitter-unfed", version=1, bindings={"entered.value": From("docs.result")}),
         ]),
-        _registry(unfed, Lines),
+        _registry(unfed, lines),
     )
     assert compiled.is_runnable, compiled.problems
     made = compiled.field(Ref("emb/lines", "result")).index
@@ -336,7 +303,7 @@ def test_two_crossings_on_one_lineage_make_the_whole_block_iterate_on_the_deeper
                 "b.value": From("lines.result"),
             }),
         ]),
-        _registry(inner, Lines),
+        _registry(inner, lines),
     )
 
     assert compiled.is_runnable, compiled.problems
@@ -430,11 +397,11 @@ def test_a_broken_graph_inside_a_graph_breaks_the_graph_around_it():
     top = compiled.node("top")
     assert [(p.type, p.loc[0]) for p in top.version.problems] == [("embedded_graph_broken", "mid")]
     assert [(p.type, p.loc[0]) for p in top.version.node("mid").version.problems] == [("unknown_node_type", "x")]
-    for node in (top, top.version.node("mid")):
-        assert (node.state, node.kind) == ("wiring_failed", "graph")
-        assert node.interface is not None  # the box and its handles still draw
+    for graph_node in (top, top.version.node("mid")):
+        assert (graph_node.state, graph_node.kind) == ("wiring_failed", "graph")
+        assert graph_node.interface is not None  # the box and its handles still draw
         with pytest.raises(NodeReadError) as raised:
-            node.runs_per_row_of
+            graph_node.runs_per_row_of
         assert raised.value.problem.type == "embedded_graph_broken"
 
 
@@ -494,27 +461,21 @@ def test_misaligned_inside_an_embedded_graph_is_reported_once_with_the_authors_a
     graph node, with the addresses the author sees, in the shape every
     ``misaligned`` has."""
 
-    class Pair(NodeDefinition):
-        id = "pair"
-        title = "Pair"
-        description = "d"
-        category = "test"
+    @node("pair", title="Pair", description="d", category="test")
+    def pair(
+        a: Annotated[Txt, Param(title="A", widget=Textarea())] = Txt(""),
+        b: Annotated[Txt, Param(title="B", widget=Textarea())] = Txt(""),
+    ) -> Out:
+        return Txt(a + b)
 
-        def run(
-            self,
-            a: Annotated[Txt, Param(title="A", widget=Textarea())] = Txt(""),
-            b: Annotated[Txt, Param(title="B", widget=Textarea())] = Txt(""),
-        ) -> Out:
-            return Txt(a + b)
-
-    inner = embedded_graph_node("pairs", (GraphNode(id="p", type="pair", version=1),), _registry(Pair))
+    inner = embedded_graph_node("pairs", (GraphNode(id="p", type="pair", version=1),), _registry(pair))
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="d1", type="docs", version=1),
             GraphNode(id="d2", type="docs", version=1),
             GraphNode(id="emb", type="pairs", version=1, bindings={"p.a": From("d1.result"), "p.b": From("d2.result")}),
         ]),
-        _registry(inner, Pair),
+        _registry(inner, pair),
     )
 
     (problem,) = compiled.problems

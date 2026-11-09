@@ -5,13 +5,12 @@ from dataclasses import dataclass
 from typing import Annotated
 
 import pytest
-from conductor import SKIPPED, Param
+from conductor import SKIPPED, Param, node
 from conductor.dtype import DType
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.metadata import Result
-from conductor.node import NodeDefinition
 from conductor.widgets import Textarea
 from helpers import stream_of
 
@@ -24,68 +23,42 @@ class Txt(DType, str):
 Out = Annotated[Txt, Result(title="Out")]
 
 
-class Echo(NodeDefinition):
-    id = "echo"
-    title = "Echo"
-    description = "Returns input"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
-        return text
+@node("echo", title="Echo", description="Returns input", category="test")
+def echo(text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
+    return text
 
 
-class Upper(NodeDefinition):
-    id = "upper"
-    title = "Upper"
-    description = "Uppercases"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
-        return Txt(text.upper())
+@node("upper", title="Upper", description="Uppercases", category="test")
+def upper_node(text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
+    return Txt(text.upper())
 
 
-class Combine(NodeDefinition):
-    id = "combine"
-    title = "Combine"
-    description = "Joins two strings"
-    category = "test"
-
-    def run(
-        self,
-        a: Annotated[Txt, Param(title="A", widget=Textarea())],
-        b: Annotated[Txt, Param(title="B", widget=Textarea())],
-    ) -> Out:
-        return Txt(f"{a} {b}")
+@node("combine", title="Combine", description="Joins two strings", category="test")
+def combine(
+    a: Annotated[Txt, Param(title="A", widget=Textarea())],
+    b: Annotated[Txt, Param(title="B", widget=Textarea())],
+) -> Out:
+    return Txt(f"{a} {b}")
 
 
-class Fail(NodeDefinition):
-    id = "fail"
-    title = "Fail"
-    description = "Always fails"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
-        raise RuntimeError("boom")
+@node("fail", title="Fail", description="Always fails", category="test")
+def fail(text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
+    raise RuntimeError("boom")
 
 
 @pytest.fixture
 def three_node_registry(registry):
     """Registry with echo, upper, and combine nodes."""
-    registry.register(Echo)
-    registry.register(Upper)
-    registry.register(Combine)
+    registry = registry.extended_with([echo])
+    registry = registry.extended_with([upper_node])
+    registry = registry.extended_with([combine])
     return registry
 
 
-class Slow(NodeDefinition):
-    id = "slow"
-    title = "Slow"
-    description = "Sleeps 0.3s, then uppercases"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
-        time.sleep(0.3)
-        return Txt(text.upper())
+@node("slow", title="Slow", description="Sleeps 0.3s, then uppercases", category="test")
+def slow(text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
+    time.sleep(0.3)
+    return Txt(text.upper())
 
 
 # ---------------------------------------------------------------------------
@@ -98,8 +71,8 @@ class TestStreamingExecution:
         # A(0.3s) -> C(0.3s) --+
         #                      +--> E
         # B(0.3s) -> D(0.3s) --+
-        registry.register(Slow)
-        registry.register(Combine)
+        registry = registry.extended_with([slow])
+        registry = registry.extended_with([combine])
         compiled = CompiledGraph.from_graph(Graph(nodes=[
             GraphNode(id="a", type="slow", version=1, bindings={"text": Static("hello")}),
             GraphNode(id="b", type="slow", version=1, bindings={"text": Static("world")}),
@@ -187,7 +160,7 @@ class TestSyncExecution:
 
 class TestErrorHandling:
     async def test_a_node_error_ends_the_graph_in_error(self, registry):
-        registry.register(Fail)
+        registry = registry.extended_with([fail])
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="fail", version=1, bindings={"text": Static("hello")})]), registry)
 
         events = []
@@ -199,7 +172,7 @@ class TestErrorHandling:
         assert "node_failed" in event_types
 
     def test_run_sync_returns_the_error_ending(self, registry):
-        registry.register(Fail)
+        registry = registry.extended_with([fail])
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="fail", version=1, bindings={"text": Static("hello")})]), registry)
 
         assert compiled.run_sync().status == "failed"
@@ -211,17 +184,12 @@ class TestErrorHandling:
 
 class TestTimeout:
     async def test_timeout_produces_event(self, registry):
-        class Slow(NodeDefinition):
-            id = "slow"
-            title = "Slow"
-            description = "Sleeps"
-            category = "test"
+        @node("slow", title="Slow", description="Sleeps", category="test")
+        def slow(text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
+            time.sleep(2)
+            return text
 
-            def run(self, text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
-                time.sleep(2)
-                return text
-
-        registry.register(Slow)
+        registry = registry.extended_with([slow])
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="slow", version=1, bindings={"text": Static("hello")})]), registry)
 
         events = []
@@ -248,17 +216,12 @@ class TestSkipPropagation:
     async def test_skipped_input_skips_downstream(self, registry):
         """If all inputs to a node are SKIPPED, the node itself is skipped."""
 
-        class Conditional(NodeDefinition):
-            id = "conditional"
-            title = "Cond"
-            description = "Returns SKIPPED on one branch"
-            category = "test"
+        @node("conditional", title="Cond", description="Returns SKIPPED on one branch", category="test")
+        def conditional(text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Branches:
+            return Branches(taken=text, not_taken=SKIPPED)
 
-            def run(self, text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Branches:
-                return Branches(taken=text, not_taken=SKIPPED)
-
-        registry.register(Echo)
-        registry.register(Conditional)
+        registry = registry.extended_with([echo])
+        registry = registry.extended_with([conditional])
         compiled = CompiledGraph.from_graph(Graph(nodes=[
                 GraphNode(id="n1", type="conditional", version=1, bindings={"text": Static("hello")}),
                 GraphNode(id="n2", type="echo", version=1, bindings={"text": From('n1.not_taken')}),  # connected to the branch not taken

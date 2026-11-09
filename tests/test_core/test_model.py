@@ -11,9 +11,9 @@ from conductor.graph.compiled import CompiledGraph
 from conductor.graph.compiled_node import CompiledField, CompiledNode
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.interface import Interface
-from conductor.metadata import Field, Input, Output, Param, Result
+from conductor.metadata import Input, Output, Param, Result
 from conductor.model import ConductorModel
-from conductor.node import (
+from conductor.node_decorator import (
     Deprecation,
     NodeDescription,
     NodeVersion,
@@ -136,20 +136,20 @@ def test_a_description_does_not_read_back_as_a_type():
     description, and the class the signature holds is not rebuilt from it —
     a description in the type's place is refused, never carried as a dict.
     The widget reads back as written."""
-    text = Input(name="text", dtype=Txt, title="Text", widget=Textarea())
+    text = Input("text", Txt, title="Text", widget=Textarea())
     dumped = text.model_dump(mode="json")
 
     assert dumped["dtype"] == Txt.describe()
     assert "title" not in dumped["widget"]
     assert Textarea.model_validate(dumped["widget"]) == Textarea()
-    with pytest.raises(ValidationError, match="dtype"):
+    with pytest.raises(TypeError):
         Input.model_validate(dumped)
 
 
 SAVED = (
     Graph, GraphNode, FieldContent, From, Static, Problem,
     Deprecation, Policy, VersionDescription, NodeDescription,
-    Field, Param, Result, Input, Output, Widget, Textarea, Dropdown, Choice, OperatorChoice, Index,
+    Param, Result, Input, Output, Widget, Textarea, Dropdown, Choice, OperatorChoice, Index,
 )
 BUILT_PER_CALL = (CompiledGraph, CompiledNode, CompiledField, NodeVersion, Interface, Skip)
 

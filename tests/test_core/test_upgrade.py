@@ -9,16 +9,24 @@ version runs that version.
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Annotated, ClassVar
+from typing import Annotated
 
 import pytest
-from conductor import NodeRegistry
+from conductor import (
+    InvalidCallError,
+    NodeDeclarationError,
+    NodeRegistry,
+    OlderVersion,
+    Upgrade,
+    node,
+    upgrade_node,
+)
 from conductor.dtype import DType
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.metadata import Param, Result
-from conductor.node import NodeDefinition, upgrade, version
+from conductor.node_decorator import NodeDefinition
 from conductor.widgets import Textarea
 
 
@@ -36,59 +44,36 @@ class Named:
     text: Annotated[Txt, Result(title="Text")]
 
 
-class Rename(NodeDefinition):
+def rename_upgrade_1(values):
+    first, _, last = values.pop("name", "").partition(" ")
+    return {**values, "first": first, "last": last}
+
+def rename_v1(name: Annotated[Txt, _param("Name")] = Txt("")) -> Annotated[Txt, Result(title="R")]:
+    return name
+
+def rename_v2(
+    first: Annotated[Txt, _param("First")] = Txt(""),
+    last: Annotated[Txt, _param("Last")] = Txt(""),
+) -> Annotated[Txt, Result(title="R")]:
+    return Txt(f"{first} {last}")
+
+@node("rename", title="Rename", description="d", category="test", older=[OlderVersion(rename_v1, upgrade=Upgrade(rewrite=rename_upgrade_1)), OlderVersion(rename_v2, upgrade=Upgrade(renamed_outputs={"result": "text"}))])
+def rename(
+    first: Annotated[Txt, _param("First")] = Txt(""),
+    last: Annotated[Txt, _param("Last")] = Txt(""),
+) -> Named:
     """Version 1 took ``name``; 2 splits it into ``first`` and ``last``; 3
     renames the output ``result`` to ``text``."""
-
-    id = "rename"
-    title = "Rename"
-    description = "d"
-    category = "test"
-
-    @version(1)
-    def run_v1(self, name: Annotated[Txt, _param("Name")] = Txt("")) -> Annotated[Txt, Result(title="R")]:
-        return name
-
-    @version(2)
-    def run_v2(
-        self,
-        first: Annotated[Txt, _param("First")] = Txt(""),
-        last: Annotated[Txt, _param("Last")] = Txt(""),
-    ) -> Annotated[Txt, Result(title="R")]:
-        return Txt(f"{first} {last}")
-
-    @version(3)
-    def run(
-        self,
-        first: Annotated[Txt, _param("First")] = Txt(""),
-        last: Annotated[Txt, _param("Last")] = Txt(""),
-    ) -> Named:
-        return Named(text=Txt(f"{first} {last}"))
-
-    @upgrade(1, 2)
-    def _split(values):
-        first, _, last = values.pop("name", "").partition(" ")
-        return {**values, "first": first, "last": last}
-
-    @upgrade(2, 3, outputs={"result": "text"})
-    def _rename_output(values):
-        return values
+    return Named(text=Txt(f"{first} {last}"))
 
 
-class Echo(NodeDefinition):
-    id = "echo"
-    title = "Echo"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, _param("Text")] = Txt("")) -> Annotated[Txt, Result(title="R")]:
-        return text
+@node("echo", title="Echo", description="d", category="test")
+def echo(text: Annotated[Txt, _param("Text")] = Txt("")) -> Annotated[Txt, Result(title="R")]:
+    return text
 
 
 def _registry() -> NodeRegistry:
-    registry = NodeRegistry()
-    registry.register(Rename)
-    registry.register(Echo)
+    registry = NodeRegistry([rename, echo])
     return registry
 
 
@@ -99,63 +84,51 @@ def _graph(version: int = 1) -> Graph:
     ])
 
 
-# --- the steps, checked when the class is defined ------------------------------
+# --- a field name gone from the next version needs an upgrade -------------------
 
 
-def _two_versions(**upgrades):
-    """A class body with versions 1 and 2 and the given upgrade functions."""
-    body = {
-        "id": "two",
-        "title": "Two",
-        "description": "d",
-        "category": "test",
-        "run_v1": version(1)(lambda self, x: x),
-        "run": version(2)(lambda self, x: x),
-        **upgrades,
-    }
-    for method in ("run_v1", "run"):
-        body[method].__annotations__ = {"x": Annotated[Txt, _param("X")], "return": Annotated[Txt, Result(title="R")]}
-    return type("Two", (NodeDefinition,), body)
+def _older_x(x: Annotated[Txt, _param("X")]) -> Annotated[Txt, Result(title="R")]:
+    return x
 
 
-def test_a_gap_in_the_upgrade_chain_is_refused_naming_it():
-    with pytest.raises(TypeError, match=r"no @upgrade\(1, 2\)"):
-        _two_versions()
+def _newer_y(y: Annotated[Txt, _param("Y")]) -> Annotated[Txt, Result(title="R")]:
+    return y
 
 
-def test_a_backwards_step_is_refused():
-    with pytest.raises(TypeError, match=r"@upgrade\(2, 1\)"):
-        _two_versions(up=upgrade(1, 2)(lambda v: v), down=upgrade(2, 1)(lambda v: v))
+def test_an_input_gone_from_the_next_version_needs_an_upgrade():
+    with pytest.raises(NodeDeclarationError) as raised:
+        node("two", older=[OlderVersion(_older_x)])(_newer_y)
+    assert raised.value.code == "upgrade_missing" and raised.value.node_id == "two"
 
 
-def test_a_step_that_skips_a_version_is_refused():
-    with pytest.raises(TypeError, match=r"@upgrade\(1, 3\)"):
-        _two_versions(up=upgrade(1, 2)(lambda v: v), skip=upgrade(1, 3)(lambda v: v))
+def test_an_upgrade_must_say_where_a_gone_input_went():
+    with pytest.raises(NodeDeclarationError, match="upgrade|Upgrade"):
+        node("two", older=[OlderVersion(_older_x, upgrade=Upgrade(renamed_outputs={}))])(_newer_y)
 
 
-def test_two_steps_for_one_pair_are_refused():
-    with pytest.raises(TypeError, match=r"two methods declare @upgrade\(1, 2\)"):
-        _two_versions(one=upgrade(1, 2)(lambda v: v), other=upgrade(1, 2)(lambda v: v))
+def test_a_rename_or_a_rewrite_says_where_it_went():
+    assert node("two", older=[OlderVersion(_older_x, upgrade=Upgrade(renamed_inputs={"x": "y"}))])(_newer_y).current == 2
+    assert node("two", older=[OlderVersion(_older_x, upgrade=Upgrade(rewrite=lambda v: {"y": v["x"]}))])(_newer_y).current == 2
 
 
-def test_a_one_version_node_needs_no_upgrade():
-    assert Echo.upgrades == {}
+def test_a_version_keeping_its_fields_needs_no_upgrade():
+    assert node("two", older=[OlderVersion(_older_x)])(_older_x).current == 2
 
 
 # --- registry.upgraded -----------------------------------------------------------
 
 
 def test_a_two_step_chain_rewrites_the_typed_in_values_and_the_version():
-    upgraded = _registry().upgraded(_graph(), "r")
+    upgraded = upgrade_node(_graph(), "r", _registry())
 
-    node = next(n for n in upgraded.nodes if n.id == "r")
-    assert node.version == 3
-    assert node.bindings == {"first": Static("Ada"), "last": Static("Lovelace")}
+    graph_node = next(n for n in upgraded.nodes if n.id == "r")
+    assert graph_node.version == 3
+    assert graph_node.bindings == {"first": Static("Ada"), "last": Static("Lovelace")}
 
 
 def test_a_renamed_output_rewrites_the_readers_edges_and_the_graph_compiles_clean():
     registry = _registry()
-    upgraded = registry.upgraded(_graph(), "r")
+    upgraded = upgrade_node(_graph(), "r", registry)
 
     reader = next(n for n in upgraded.nodes if n.id == "e")
     assert reader.bindings["text"] == From("r.text")
@@ -164,7 +137,7 @@ def test_a_renamed_output_rewrites_the_readers_edges_and_the_graph_compiles_clea
 
 
 def test_to_stops_the_chain_early():
-    upgraded = _registry().upgraded(_graph(), "r", to=2)
+    upgraded = upgrade_node(_graph(), "r", _registry(), to=2)
 
     assert next(n for n in upgraded.nodes if n.id == "r").version == 2
     assert next(n for n in upgraded.nodes if n.id == "e").bindings["text"] == From("r.result")
@@ -172,7 +145,7 @@ def test_to_stops_the_chain_early():
 
 def test_a_node_already_there_returns_the_graph_unchanged():
     graph = _graph(version=3)
-    assert _registry().upgraded(graph, "r") is graph
+    assert upgrade_node(graph, "r", _registry()) is graph
 
 
 def test_an_edge_into_an_input_the_step_renames_moves_with_it():
@@ -181,75 +154,53 @@ def test_an_edge_into_an_input_the_step_renames_moves_with_it():
         GraphNode(id="r", type="rename", version=1, bindings={"name": From("src.result")}),
     ])
 
-    class Carry(NodeDefinition):
-        id = "carry"
-        title = "Carry"
-        description = "d"
-        category = "test"
+    def carry_upgrade_1(values):
+        return {"full": values["name"]}
 
-        @version(1)
-        def run_v1(self, name: Annotated[Txt, _param("Name")] = Txt("")) -> Annotated[Txt, Result(title="R")]:
-            return name
+    def carry_v1(name: Annotated[Txt, _param("Name")] = Txt("")) -> Annotated[Txt, Result(title="R")]:
+        return name
 
-        @version(2)
-        def run(self, full: Annotated[Txt, _param("Full")] = Txt("")) -> Annotated[Txt, Result(title="R")]:
-            return full
+    @node("carry", title="Carry", description="d", category="test", older=[OlderVersion(carry_v1, upgrade=Upgrade(rewrite=carry_upgrade_1))])
+    def carry(full: Annotated[Txt, _param("Full")] = Txt("")) -> Annotated[Txt, Result(title="R")]:
+        return full
 
-        @upgrade(1, 2)
-        def _rename(values):
-            return {"full": values["name"]}
-
-    registry = NodeRegistry()
-    registry.register(Echo)
-    registry.register(Carry)
+    registry = NodeRegistry([echo, carry])
     graph = Graph(nodes=[graph.nodes[0], GraphNode(id="r", type="carry", version=1, bindings=graph.nodes[1].bindings)])
 
-    upgraded = registry.upgraded(graph, "r")
+    upgraded = upgrade_node(graph, "r", registry)
     assert next(n for n in upgraded.nodes if n.id == "r").bindings == {"full": From("src.result")}
 
 
 def test_a_downgrade_or_an_unknown_node_raises():
     registry = _registry()
-    with pytest.raises(ValueError, match="no upgrade from version 3 to 1"):
-        registry.upgraded(_graph(version=3), "r", to=1)
-    with pytest.raises(KeyError, match="nope"):
-        registry.upgraded(_graph(), "nope")
+    with pytest.raises(InvalidCallError, match="cannot move from version 3 to 1"):
+        upgrade_node(_graph(version=3), "r", registry, to=1)
+    with pytest.raises(InvalidCallError, match="nope"):
+        upgrade_node(_graph(), "nope", registry)
 
 
 def test_compile_leaves_a_pinned_version_alone():
     registry = _registry()
     compiled = CompiledGraph.from_graph(_graph(), registry)
 
-    assert compiled.node("r").version == Rename.versions[1]
+    assert compiled.node("r").version == rename.versions[1]
     assert compiled.is_runnable, compiled.problems
 
 
 # --- what moves with a renamed field ---------------------------------------------
 
 
-class Renames(NodeDefinition):
+def renames_v1(name: Annotated[Txt, _param("Name")] = Txt("")) -> Annotated[Txt, Result(title="R")]:
+    return name
+
+@node("renames", title="Renames", description="d", category="test", older=[OlderVersion(renames_v1, upgrade=Upgrade(renamed_inputs={"name": "full"}, renamed_outputs={"result": "text"}))])
+def renames(full: Annotated[Txt, _param("Full")] = Txt("")) -> Named:
     """Version 2 renames the input ``name`` to ``full`` and the output ``result`` to ``text``."""
-
-    id = "renames"
-    title = "Renames"
-    description = "d"
-    category = "test"
-
-    @version(1)
-    def run_v1(self, name: Annotated[Txt, _param("Name")] = Txt("")) -> Annotated[Txt, Result(title="R")]:
-        return name
-
-    @version(2)
-    def run(self, full: Annotated[Txt, _param("Full")] = Txt("")) -> Named:
-        return Named(text=full)
-
-    @upgrade(1, 2, inputs={"name": "full"}, outputs={"result": "text"})
-    def _rename(values):
-        return values
+    return Named(text=full)
 
 
 def test_a_renamed_input_takes_its_binding_lock_and_content_with_it():
-    registry = NodeRegistry([Echo, Renames])
+    registry = NodeRegistry([echo, renames])
     graph = Graph(nodes=[
         GraphNode(
             id="r", type="renames", version=1, bindings={"name": Static("Ada")}, locked=("name",),
@@ -258,12 +209,12 @@ def test_a_renamed_input_takes_its_binding_lock_and_content_with_it():
         GraphNode(id="e", type="echo", version=1, bindings={"text": From("r.result")}),
     ])
 
-    upgraded = registry.upgraded(graph, "r")
+    upgraded = upgrade_node(graph, "r", registry)
 
-    node = upgraded.nodes[0]
-    assert node.bindings == {"full": Static("Ada")}
-    assert node.locked == ("full",)
-    assert node.fields == {"full": FieldContent(title="Navn"), "text": FieldContent(title="Resultat")}
+    graph_node = upgraded.nodes[0]
+    assert graph_node.bindings == {"full": Static("Ada")}
+    assert graph_node.locked == ("full",)
+    assert graph_node.fields == {"full": FieldContent(title="Navn"), "text": FieldContent(title="Resultat")}
     assert CompiledGraph.from_graph(upgraded, registry).problems == ()
 
 
@@ -272,42 +223,26 @@ def test_a_later_step_reusing_a_renamed_away_name_does_not_catch_an_older_edge()
     named ``result`` and renames it to ``second``. An edge saved at version 1
     read the output that is ``first`` now."""
 
-    class Reuse(NodeDefinition):
-        id = "reuse"
-        title = "Reuse"
-        description = "d"
-        category = "test"
+    def reuse_outputs():
+        return ()
 
-        @version(1)
-        def run_v1(self) -> Annotated[Txt, Result(title="R")]:
-            return Txt("")
+    def reuse_v1() -> Annotated[Txt, Result(title="R")]:
+        return Txt("")
 
-        @version(2)
-        def run_v2(self) -> Mapping[str, Txt]:
-            return {}
+    def reuse_v2() -> Mapping[str, Txt]:
+        return {}
 
-        @version(3)
-        def run(self) -> Mapping[str, Txt]:
-            return {}
+    @node("reuse", title="Reuse", description="d", category="test", compute_outputs=reuse_outputs, older=[OlderVersion(reuse_v1, upgrade=Upgrade(renamed_outputs={"result": "first"})), OlderVersion(reuse_v2, compute_outputs=reuse_outputs, upgrade=Upgrade(renamed_outputs={"result": "second"}))])
+    def reuse() -> Mapping[str, Txt]:
+        return {}
 
-        @upgrade(1, 2, outputs={"result": "first"})
-        def _one(values):
-            return values
-
-        @upgrade(2, 3, outputs={"result": "second"})
-        def _two(values):
-            return values
-
-        def compute_outputs(self, values, receives):
-            return ()
-
-    registry = NodeRegistry([Echo, Reuse])
+    registry = NodeRegistry([echo, reuse])
     graph = Graph(nodes=[
         GraphNode(id="u", type="reuse", version=1),
         GraphNode(id="e", type="echo", version=1, bindings={"text": From("u.result")}),
     ])
 
-    upgraded = registry.upgraded(graph, "u")
+    upgraded = upgrade_node(graph, "u", registry)
 
     assert upgraded.nodes[1].bindings["text"] == From("u.first")
 
@@ -320,19 +255,12 @@ def test_a_definition_with_no_steps_only_has_its_version_set():
     def embedded(inner_id: str) -> CompiledGraph:
         return CompiledGraph.from_graph(Graph(nodes=[GraphNode(id=inner_id, type="echo", version=1)]), _registry())
 
-    class Embedded(NodeDefinition):
-        id = "embedded"
-        title = "Embedded"
-        description = "d"
-        category = "test"
-        versions: ClassVar[dict[int, CompiledGraph]] = {1: embedded("inner"), 2: embedded("renamed")}
-
-    registry = NodeRegistry().extended_with([Embedded])
+    registry = NodeRegistry([NodeDefinition.from_compiled_graphs("embedded", title="Embedded", description="d", versions={1: embedded("inner"), 2: embedded("renamed")})])
     graph = Graph(nodes=[GraphNode(id="f", type="embedded", version=1, bindings={"inner.text": Static("x")})])
 
-    upgraded = registry.upgraded(graph, "f")
+    upgraded = upgrade_node(graph, "f", registry)
 
     assert upgraded.nodes[0].version == 2
     assert upgraded.nodes[0].bindings == {"inner.text": Static("x")}
-    with pytest.raises(ValueError, match="no version 5"):
-        registry.upgraded(graph, "f", to=5)
+    with pytest.raises(InvalidCallError, match="it has 1, 2"):
+        upgrade_node(graph, "f", registry, to=5)

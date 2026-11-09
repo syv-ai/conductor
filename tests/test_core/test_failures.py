@@ -13,7 +13,7 @@ import json
 from typing import Annotated
 
 import pytest
-from conductor import CompiledGraph, GraphNode, NodeRegistry, Param
+from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, node
 from conductor.dtype import DType
 from conductor.errors import (
     CATALOGUE,
@@ -26,7 +26,7 @@ from conductor.execution.run_until_idle import Leg
 from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
 from conductor.metadata import Result
-from conductor.node import NodeDefinition, Policy, version
+from conductor.node_decorator import NodeDefinition, Policy
 from conductor.series import Series
 from conductor.widgets import Textarea
 from helpers import stream_of
@@ -45,7 +45,7 @@ def _compiled(node_cls: type[NodeDefinition], *more: type[NodeDefinition]) -> Co
     """One node of ``node_cls`` as ``n1``, its text typed in."""
     reg = NodeRegistry()
     for cls in (node_cls, *more):
-        reg.register(cls)
+        reg = reg.extended_with([cls])
     return CompiledGraph.from_graph(
         Graph(nodes=[GraphNode(id="n1", type=node_cls.id, version=1, bindings={"text": Static("x")})]), reg
     )
@@ -70,18 +70,12 @@ def test_a_foreign_exception_runs_once_and_is_execution_failed():
     call, no retry, and the event says only that the node failed."""
     calls: list[int] = []
 
-    class Buggy(NodeDefinition):
-        id = "buggy"
-        title = "Buggy"
-        description = "d"
-        category = "test"
+    @node("buggy", title="Buggy", description="d", category="test", policy=Policy(retries=3, delay=0.01))
+    def buggy(text: In = Txt("")) -> Out:
+        calls.append(1)
+        return {}["missing"]
 
-        @version(1, policy=Policy(retries=3, delay=0.01))
-        def run(self, text: In = Txt("")) -> Out:
-            calls.append(1)
-            return {}["missing"]
-
-    events = _events(_compiled(Buggy))
+    events = _events(_compiled(buggy))
 
     assert len(calls) == 1
     assert [e.type for e in events if e.type == "node_retry"] == []
@@ -95,20 +89,14 @@ def test_a_foreign_exception_runs_once_and_is_execution_failed():
 def test_a_foreign_exception_named_in_retry_on_is_external_and_retries():
     calls: list[int] = []
 
-    class Flaky(NodeDefinition):
-        id = "flaky"
-        title = "Flaky"
-        description = "d"
-        category = "test"
+    @node("flaky", title="Flaky", description="d", category="test", policy=Policy(retries=2, delay=0.01, retry_on=(ConnectionError,)))
+    def flaky(text: In = Txt("")) -> Out:
+        calls.append(1)
+        if len(calls) < 3:
+            raise ConnectionError("socket closed")
+        return Txt("ok")
 
-        @version(1, policy=Policy(retries=2, delay=0.01, retry_on=(ConnectionError,)))
-        def run(self, text: In = Txt("")) -> Out:
-            calls.append(1)
-            if len(calls) < 3:
-                raise ConnectionError("socket closed")
-            return Txt("ok")
-
-    compiled = _compiled(Flaky)
+    compiled = _compiled(flaky)
     events = _events(compiled)
 
     assert len(calls) == 3
@@ -122,18 +110,12 @@ def test_a_foreign_exception_named_in_retry_on_is_external_and_retries():
 def test_an_exhausted_external_failure_is_external_failed():
     calls: list[int] = []
 
-    class Down(NodeDefinition):
-        id = "down"
-        title = "Down"
-        description = "d"
-        category = "test"
+    @node("down", title="Down", description="d", category="test", policy=Policy(retries=2, delay=0.01, retry_on=(ConnectionError,)))
+    def down(text: In = Txt("")) -> Out:
+        calls.append(1)
+        raise ConnectionError("socket closed")
 
-        @version(1, policy=Policy(retries=2, delay=0.01, retry_on=(ConnectionError,)))
-        def run(self, text: In = Txt("")) -> Out:
-            calls.append(1)
-            raise ConnectionError("socket closed")
-
-    compiled = _compiled(Down)
+    compiled = _compiled(down)
     events = _events(compiled)
 
     assert len(calls) == 3
@@ -149,18 +131,12 @@ def test_an_external_failure_the_node_raised_retries_and_keeps_its_message():
     the message it wrote is what people read, and the code is the family's."""
     calls: list[int] = []
 
-    class Bank(NodeDefinition):
-        id = "bank"
-        title = "Bank"
-        description = "d"
-        category = "test"
+    @node("bank", title="Bank", description="d", category="test", policy=Policy(retries=1, delay=0.01))
+    def bank(text: In = Txt("")) -> Out:
+        calls.append(1)
+        raise ExternalFailure("Nationalbanken svarede ikke.")
 
-        @version(1, policy=Policy(retries=1, delay=0.01))
-        def run(self, text: In = Txt("")) -> Out:
-            calls.append(1)
-            raise ExternalFailure("Nationalbanken svarede ikke.")
-
-    error = _error(_events(_compiled(Bank)))
+    error = _error(_events(_compiled(bank)))
 
     assert len(calls) == 2
     assert error.cause.type == "external_failed"
@@ -170,40 +146,29 @@ def test_an_external_failure_the_node_raised_retries_and_keeps_its_message():
 def test_a_node_error_the_node_raised_runs_once_and_keeps_its_message():
     calls: list[int] = []
 
-    class Reader(NodeDefinition):
-        id = "reader"
-        title = "Reader"
-        description = "d"
-        category = "test"
+    @node("reader", title="Reader", description="d", category="test", policy=Policy(retries=3, delay=0.01))
+    def reader(text: In = Txt("")) -> Out:
+        calls.append(1)
+        if len(calls) == 1:
+            raise NodeError("Dokumentet kunne ikke læses.")
+        raise NodeExecutionError(
+            "unreadable", code="unreadable"
+        )
 
-        @version(1, policy=Policy(retries=3, delay=0.01))
-        def run(self, text: In = Txt("")) -> Out:
-            calls.append(1)
-            if len(calls) == 1:
-                raise NodeError("Dokumentet kunne ikke læses.")
-            raise NodeExecutionError(
-                "unreadable", code="unreadable"
-            )
-
-    error = _error(_events(_compiled(Reader)))
+    error = _error(_events(_compiled(reader)))
 
     assert len(calls) == 1
     assert (error.cause.type, error.cause.msg) == ("failed", "Dokumentet kunne ikke læses.")
 
 
 def test_a_nodes_own_cause_streams_as_written():
-    class Reader(NodeDefinition):
-        id = "reader"
-        title = "Reader"
-        description = "d"
-        category = "test"
+    @node("reader", title="Reader", description="d", category="test")
+    def reader(text: In = Txt("")) -> Out:
+        raise NodeExecutionError(
+            "unreadable", code="unreadable"
+        )
 
-        def run(self, text: In = Txt("")) -> Out:
-            raise NodeExecutionError(
-                "unreadable", code="unreadable"
-            )
-
-    error = _error(_events(_compiled(Reader)))
+    error = _error(_events(_compiled(reader)))
 
     assert (error.cause.type, error.cause.msg) == ("unreadable", "unreadable")
 
@@ -211,18 +176,12 @@ def test_a_nodes_own_cause_streams_as_written():
 def test_a_validation_error_the_node_raised_is_never_retried():
     calls: list[int] = []
 
-    class Picky(NodeDefinition):
-        id = "picky"
-        title = "Picky"
-        description = "d"
-        category = "test"
+    @node("picky", title="Picky", description="d", category="test", policy=Policy(retries=3, delay=0.01))
+    def picky(text: In = Txt("")) -> Out:
+        calls.append(1)
+        raise NodeValidationError("intentionally invalid input")
 
-        @version(1, policy=Policy(retries=3, delay=0.01))
-        def run(self, text: In = Txt("")) -> Out:
-            calls.append(1)
-            raise NodeValidationError("intentionally invalid input")
-
-    assert _compiled(Picky).run_sync().status == "failed"
+    assert _compiled(picky).run_sync().status == "failed"
 
     assert len(calls) == 1
 
@@ -234,16 +193,11 @@ def test_a_foreign_exceptions_text_is_on_original_and_nowhere_else():
     """The wrapped exception keeps the foreign one on ``original`` (and as its
     ``__cause__``) for a log; its own text and its cause are the generic line."""
 
-    class Buggy(NodeDefinition):
-        id = "buggy"
-        title = "Buggy"
-        description = "d"
-        category = "test"
+    @node("buggy", title="Buggy", description="d", category="test")
+    def buggy(text: In = Txt("")) -> Out:
+        raise KeyError("secret-token")
 
-        def run(self, text: In = Txt("")) -> Out:
-            raise KeyError("secret-token")
-
-    compiled = _compiled(Buggy)
+    compiled = _compiled(buggy)
     leg = Leg(compiled, state=None, from_run={}, timeout=None, cancel=asyncio.Event())
 
     with pytest.raises(NodeExecutionError) as caught:
@@ -296,31 +250,18 @@ def test_a_failed_row_is_retried_alone():
     completed are not run again."""
     calls: list[str] = []
 
-    class Split(NodeDefinition):
-        id = "split"
-        title = "Split"
-        description = "d"
-        category = "test"
+    @node("split", title="Split", description="d", category="test")
+    def split_node(text: In = Txt("")) -> Annotated[Series[Txt], Result(title="Parts")]:
+        return [Txt(part) for part in text.split(",")]
 
-        def run(self, text: In = Txt("")) -> Annotated[Series[Txt], Result(title="Parts")]:
-            return [Txt(part) for part in text.split(",")]
+    @node("flaky-on-b", title="Flaky on b", description="d", category="test", policy=Policy(retries=2, delay=0.01))
+    def flaky_on_b(text: In = Txt("")) -> Out:
+        calls.append(str(text))
+        if text == "b" and calls.count("b") == 1:
+            raise ExternalFailure("transient")
+        return Txt(text.upper())
 
-    class FlakyOnB(NodeDefinition):
-        id = "flaky-on-b"
-        title = "Flaky on b"
-        description = "d"
-        category = "test"
-
-        @version(1, policy=Policy(retries=2, delay=0.01))
-        def run(self, text: In = Txt("")) -> Out:
-            calls.append(str(text))
-            if text == "b" and calls.count("b") == 1:
-                raise ExternalFailure("transient")
-            return Txt(text.upper())
-
-    reg = NodeRegistry()
-    reg.register(Split)
-    reg.register(FlakyOnB)
+    reg = NodeRegistry([split_node, flaky_on_b])
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="split", type="split", version=1, bindings={"text": Static("a,b,c")}),
@@ -338,41 +279,25 @@ def test_a_failed_row_is_retried_alone():
 def test_a_flaky_node_in_one_branch_retries_while_the_other_branch_completes():
     calls = {"a": 0, "b": 0}
 
-    class FlakyA(NodeDefinition):
-        id = "flaky-a"
-        title = "Flaky A"
-        description = "d"
-        category = "test"
+    @node("flaky-a", title="Flaky A", description="d", category="test", policy=Policy(retries=2, delay=0.01))
+    def flaky_a(text: In = Txt("")) -> Out:
+        calls["a"] += 1
+        if calls["a"] == 1:
+            raise ExternalFailure("first try")
+        return Txt(f"A:{text}")
 
-        @version(1, policy=Policy(retries=2, delay=0.01))
-        def run(self, text: In = Txt("")) -> Out:
-            calls["a"] += 1
-            if calls["a"] == 1:
-                raise ExternalFailure("first try")
-            return Txt(f"A:{text}")
+    @node("fast-b", title="Fast B", description="d", category="test")
+    def fast_b(text: In = Txt("")) -> Out:
+        calls["b"] += 1
+        return Txt(f"B:{text}")
 
-    class FastB(NodeDefinition):
-        id = "fast-b"
-        title = "Fast B"
-        description = "d"
-        category = "test"
-
-        def run(self, text: In = Txt("")) -> Out:
-            calls["b"] += 1
-            return Txt(f"B:{text}")
-
-    class Join(NodeDefinition):
-        id = "join"
-        title = "Join"
-        description = "d"
-        category = "test"
-
-        def run(self, a: Annotated[Txt, Param(title="A", widget=Textarea())] = Txt(""), b: Annotated[Txt, Param(title="B", widget=Textarea())] = Txt("")) -> Out:
-            return Txt(f"{a}+{b}")
+    @node("join", title="Join", description="d", category="test")
+    def join(a: Annotated[Txt, Param(title="A", widget=Textarea())] = Txt(""), b: Annotated[Txt, Param(title="B", widget=Textarea())] = Txt("")) -> Out:
+        return Txt(f"{a}+{b}")
 
     reg = NodeRegistry()
-    for cls in (FlakyA, FastB, Join):
-        reg.register(cls)
+    for cls in (flaky_a, fast_b, join):
+        reg = reg.extended_with([cls])
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="n1", type="flaky-a", version=1, bindings={"text": Static("x")}),
@@ -417,17 +342,11 @@ def test_a_type_whose_validator_does_not_return_the_type_fails_loud():
     rather than leaving a value on the field that its type would not build.
     The error is the engine's kind, ``engine_error``: the node did nothing wrong."""
 
-    class Draws(NodeDefinition):
-        id = "draws"
-        title = "Draws"
-        description = "d"
-        category = "test"
+    @node("draws", title="Draws", description="d", category="test")
+    def draws() -> Annotated[Square, Result(title="Square")]:
+        return Shape(side=2)
 
-        def run(self) -> Annotated[Square, Result(title="Square")]:
-            return Shape(side=2)
-
-    registry = NodeRegistry()
-    registry.register(Draws)
+    registry = NodeRegistry([draws])
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="d", type="draws", version=1)]), registry)
 
     ending = compiled.run_sync()

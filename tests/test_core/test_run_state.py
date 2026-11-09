@@ -14,13 +14,12 @@ import json
 from typing import Annotated
 
 import pytest
-from conductor import AskPerson, CompiledGraph, GraphNode, NodeRegistry
+from conductor import AskPerson, CompiledGraph, GraphNode, NodeRegistry, OlderVersion, Upgrade, node
 from conductor.dtype import DType
 from conductor.execution.run_state import RunState
 from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
 from conductor.metadata import Param, Result
-from conductor.node import NodeDefinition, upgrade, version
 from conductor.series import Series
 from conductor.widgets import Textarea
 from helpers import stream_of
@@ -38,75 +37,44 @@ Out = Annotated[Txt, Result(title="Out")]
 calls: list[str] = []
 
 
-class Split(NodeDefinition):
-    id = "split"
-    title = "Split"
-    description = "d"
-    category = "test"
-
-    def run(self, text: In = Txt("")) -> Annotated[Series[Txt], Result(title="Parts")]:
-        calls.append("split")
-        return [Txt(part) for part in text.split(",")]
+@node("split", title="Split", description="d", category="test")
+def split_node(text: In = Txt("")) -> Annotated[Series[Txt], Result(title="Parts")]:
+    calls.append("split")
+    return [Txt(part) for part in text.split(",")]
 
 
-class Upper(NodeDefinition):
-    id = "upper"
-    title = "Upper"
-    description = "d"
-    category = "test"
-
-    def run(self, text: In = Txt("")) -> Out:
-        calls.append(f"upper:{text}")
-        return Txt(text.upper())
+@node("upper", title="Upper", description="d", category="test")
+def upper_node(text: In = Txt("")) -> Out:
+    calls.append(f"upper:{text}")
+    return Txt(text.upper())
 
 
-class Wrap(NodeDefinition):
-    id = "wrap"
-    title = "Wrap"
-    description = "d"
-    category = "test"
+def wrap_v1(text: In = Txt("")) -> Out:
+    calls.append(f"wrap:{text}")
+    return Txt(f"[{text}]")
 
-    @upgrade(1, 2)
-    def _v1_to_v2(values):
-        return values
-
-    @version(1)
-    def run_v1(self, text: In = Txt("")) -> Out:
-        calls.append(f"wrap:{text}")
-        return Txt(f"[{text}]")
-
-    @version(2)
-    def run(self, text: In = Txt("")) -> Out:
-        calls.append(f"wrap2:{text}")
-        return Txt(f"<{text}>")
+@node("wrap", title="Wrap", description="d", category="test", older=[OlderVersion(wrap_v1, upgrade=Upgrade())])
+def wrap(text: In = Txt("")) -> Out:
+    calls.append(f"wrap2:{text}")
+    return Txt(f"<{text}>")
 
 
-class Echo(NodeDefinition):
-    id = "echo"
-    title = "Echo"
-    description = "d"
-    category = "test"
-
-    def run(self, text: In = Txt("")) -> Out:
-        calls.append(f"echo:{text}")
-        return text
+@node("echo", title="Echo", description="d", category="test")
+def echo(text: In = Txt("")) -> Out:
+    calls.append(f"echo:{text}")
+    return text
 
 
-class Ask(NodeDefinition):
-    id = "ask"
-    title = "Ask"
-    description = "d"
-    category = "test"
-
-    def run(self, text: In = Txt("")) -> Out | AskPerson:
-        calls.append(f"ask:{text}")
-        return AskPerson(defaults={"result": text}, widgets={"result": Textarea()})
+@node("ask", title="Ask", description="d", category="test")
+def ask(text: In = Txt("")) -> Out | AskPerson:
+    calls.append(f"ask:{text}")
+    return AskPerson(defaults={"result": text}, widgets={"result": Textarea()})
 
 
 def _registry() -> NodeRegistry:
     reg = NodeRegistry()
-    for cls in (Split, Upper, Wrap, Echo, Ask):
-        reg.register(cls)
+    for cls in (split_node, upper_node, wrap, echo, ask):
+        reg = reg.extended_with([cls])
     return reg
 
 
@@ -123,8 +91,8 @@ def _leg(compiled: CompiledGraph, **kw) -> list[dict]:
     return asyncio.run(run())
 
 
-def _edge(node: str, field: str = "result") -> From:
-    return From(f"{node}.{field}")
+def _edge(graph_node: str, field: str = "result") -> From:
+    return From(f"{graph_node}.{field}")
 
 
 def _through_json(state: RunState) -> RunState:
@@ -263,18 +231,13 @@ def test_a_return_of_the_wrong_type_fails_the_returning_node_with_invalid_output
     output, and nothing is written."""
     calls.clear()
 
-    class Wrong(NodeDefinition):
-        id = "wrong"
-        title = "Wrong"
-        description = "d"
-        category = "test"
-
-        def run(self, text: In = Txt("")) -> Out:
-            return 42  # type: ignore[return-value]
+    @node("wrong", title="Wrong", description="d", category="test")
+    def wrong(text: In = Txt("")) -> Out:
+        return 42  # type: ignore[return-value]
 
     reg = NodeRegistry()
-    for cls in (Wrong, Upper):
-        reg.register(cls)
+    for cls in (wrong, upper_node):
+        reg = reg.extended_with([cls])
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         GraphNode(id="w", type="wrong", version=1, bindings={"text": Static("x")}),
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge("w")}),
@@ -376,17 +339,11 @@ def test_a_unit_whose_second_output_is_invalid_writes_nothing():
         head: Annotated[Txt, Result(title="Head")]
         parts: Annotated[Series[Txt], Result(title="Parts")]
 
-    class Splits(NodeDefinition):
-        id = "splits"
-        title = "Splits"
-        description = "d"
-        category = "test"
+    @node("splits", title="Splits", description="d", category="test")
+    def splits(text: In = Txt("")) -> Both:
+        return Both(head=Txt("h"), parts=3)  # type: ignore[arg-type]
 
-        def run(self, text: In = Txt("")) -> Both:
-            return Both(head=Txt("h"), parts=3)  # type: ignore[arg-type]
-
-    reg = NodeRegistry()
-    reg.register(Splits)
+    reg = NodeRegistry([splits])
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="s", type="splits", version=1, bindings={"text": Static("x")})]), reg)
 
     state = compiled.run_sync()
@@ -425,18 +382,12 @@ def test_a_static_hashes_as_its_type_writes_it_not_as_the_author_spelled_it():
         id = "state-test-number"
         title = "Number"
 
-    class Half(NodeDefinition):
-        id = "half"
-        title = "Half"
-        description = "d"
-        category = "test"
-
-        def run(self, n: Annotated[Num, Param(title="N", widget=Textarea())] = Num(0)) -> Annotated[Num, Result(title="Out")]:
-            return Num(n / 2)
+    @node("half", title="Half", description="d", category="test")
+    def half(n: Annotated[Num, Param(title="N", widget=Textarea())] = Num(0)) -> Annotated[Num, Result(title="Out")]:
+        return Num(n / 2)
 
     def fingerprint(value):
-        reg = NodeRegistry()
-        reg.register(Half)
+        reg = NodeRegistry([half])
         return CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="h", type="half", version=1, bindings={"n": Static(value)})]), reg).node("h").fingerprint
 
     assert fingerprint(2) == fingerprint(2.0) == fingerprint(Num(2))
@@ -451,17 +402,11 @@ def test_series_outputs_of_two_lengths_both_land_each_on_its_own_index():
         a: Annotated[Series[Txt], Result(title="A")]
         b: Annotated[Series[Txt], Result(title="B")]
 
-    class Uneven(NodeDefinition):
-        id = "uneven"
-        title = "Uneven"
-        description = "d"
-        category = "test"
+    @node("uneven", title="Uneven", description="d", category="test")
+    def uneven(text: In = Txt("")) -> Both:
+        return Both(a=[Txt("x")], b=[Txt("y"), Txt("z")])
 
-        def run(self, text: In = Txt("")) -> Both:
-            return Both(a=[Txt("x")], b=[Txt("y"), Txt("z")])
-
-    reg = NodeRegistry()
-    reg.register(Uneven)
+    reg = NodeRegistry([uneven])
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="u", type="uneven", version=1, bindings={"text": Static("x")})]), reg)
 
     ending = list(_leg(compiled))[-1].state

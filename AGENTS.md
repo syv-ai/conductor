@@ -26,11 +26,11 @@ CI runs ruff and pytest on every PR. Tests marked `slow` time the wall clock and
 ## Rules
 
 - **Conductor stands alone.** No host's words ("flow", "app", an access model), no host's imports, and no concrete type declared by the core. The library's word is graph.
-- **One node contract.** A node is a `NodeDefinition` subclass; its typed `run` signature is its interface. Every parameter an edge can reach declares a `DType` (or `Any`) inside `Annotated[..., Param(title=..., widget=...)]`. The return annotation declares the outputs. Don't add a second place to declare anything a signature already says.
+- **One node contract.** A node is a function under `@node`, its typed signature its interface, and `@node` returns a frozen `NodeDefinition` that registers nothing. A parameter of a plain Python type is closed to edges by itself; every field an edge can reach is a `DType` or `Any`.
 - **Behaviour is a value, not a flag.** A branch not taken returns `SKIPPED`; a node that needs a person returns `AskPerson`. There is no role or marker on a class that tells the engine what to do.
-- **Placement shape lives in the hooks.** `compute_inputs(declared, values)` and `compute_outputs(declared, values, arriving)` are the only home for inputs or outputs that depend on configuration. A hook that cannot answer raises `Refuses`.
-- **Compile reports, it does not raise.** A fault in a graph is a `Problem` with a stable `code`, anchored on a node. Only running a graph that is not runnable raises (`CompilationError`).
-- **Retries belong to the version's `Policy`.** Only an `ExternalFailure`, or an exception class named in `retry_on`, is retried. Every run-time failure carries an `ErrorCause`; a foreign exception's text stays on `original` and never reaches an event.
+- **Placement shape lives in the hooks.** `compute_inputs` and `compute_outputs` are plain functions, given per version, whose parameters name the inputs they read; `Arriving` gives the type on an edge. They are the only home for fields that depend on configuration.
+- **Compile reports, it does not raise.** A fault in a graph is a `Problem` with a stable `code`, anchored on a node. Only running a graph that is not runnable raises (`InvalidCallError`).
+- **Retries belong to the version's `Policy`.** Only an `ExternalFailure`, or an exception class named in `retry_on`, is retried. Every run-time failure carries a `Problem`; a foreign exception's text stays on `original` and never reaches an event.
 - **Streaming is the only execution path.** `compiled.stream` is the leg; `run` and `run_sync` drain it.
 - **Records are pydantic models** on `ConductorModel` and save themselves (`to_yaml`, `to_path`). What compile and the engine build per call stays a frozen dataclass.
 - **The widget set is closed.** `AnyWidget` is built from the subclasses in `widgets.py`. A new control is a class there, a test, and a component the host's frontend owes.
