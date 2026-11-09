@@ -84,7 +84,7 @@ from conductor.graph.run_plan import RunPlan
 from conductor.ref import Ref
 
 if TYPE_CHECKING:
-    from conductor.graph.model import Graph
+    from conductor.graph.graph_records import Graph
     from conductor.interface import Interface
     from conductor.registry import NodeRegistry
 

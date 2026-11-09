@@ -11,11 +11,11 @@ from typing import Annotated
 
 from conductor import NodeRegistry, node
 from conductor.dtype import AsItArrives, DType
+from conductor.field_records import Param, Result
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
-from conductor.graph.model import Graph, GraphNode
-from conductor.graph.receive import Broadcast, Gather, PerRow, RowsUnder, Whole
-from conductor.metadata import Param, Result
+from conductor.graph.graph_records import Graph, GraphNode
+from conductor.graph.receive import Broadcast, EntireValue, Gather, PerRow, RowsUnder
 from conductor.ref import Ref
 from conductor.series import Index, Series
 from conductor.widgets import Textarea
@@ -110,7 +110,7 @@ def test_a_series_input_fed_one_series_on_a_root_receives_it_whole():
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("docs", "result"))}),
     ])
 
-    assert _receives(compiled, "j", "texts") == Whole()
+    assert _receives(compiled, "j", "texts") == EntireValue()
     assert compiled.node("j").wiring._runs_per_row_of is None
 
 
@@ -143,7 +143,7 @@ def test_an_open_parameter_receives_its_edge_whole_even_when_a_series_arrives():
         GraphNode(id="s", type="script", version=1, bindings={"v": _edge(("docs", "result"))}),
     ])
 
-    assert _receives(compiled, "s", "v") == Whole()
+    assert _receives(compiled, "s", "v") == EntireValue()
     assert compiled.node("s").wiring._runs_per_row_of is None
 
 
@@ -169,9 +169,9 @@ def test_a_series_input_with_a_typed_in_list_or_a_default_receives_it_whole_on_i
         GraphNode(id="default", type="join", version=1),
     ])
 
-    assert _receives(compiled, "typed", "texts") == Whole()
+    assert _receives(compiled, "typed", "texts") == EntireValue()
     assert compiled.field(Ref("typed", "texts"))._index == Index(Ref("typed", "texts"))
-    assert _receives(compiled, "default", "texts") == Whole()
+    assert _receives(compiled, "default", "texts") == EntireValue()
 
 
 def test_a_closed_input_typed_as_a_list_holds_one_value_and_the_node_runs_once():

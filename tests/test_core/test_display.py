@@ -19,7 +19,7 @@ from conductor import (
 )
 from conductor.dtype import DType
 from conductor.errors import Problem
-from conductor.metadata import Input, Param
+from conductor.field_records import Input, Param
 from conductor.series import Index
 from conductor.widgets import Textarea, TextWidget
 

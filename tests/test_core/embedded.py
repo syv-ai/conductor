@@ -2,7 +2,7 @@
 
 
 from conductor.graph.compiled import CompiledGraph
-from conductor.graph.model import Graph, GraphNode
+from conductor.graph.graph_records import Graph, GraphNode
 from conductor.node_decorator import NodeDefinition
 from conductor.registry import NodeRegistry
 

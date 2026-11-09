@@ -42,11 +42,19 @@ from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from conductor.dtype import _ReceivedAsItArrives, description_of, is_untyped, name_of
 from conductor.errors import Problem, problem
+from conductor.field_records import Input
 from conductor.graph.binding import From
 from conductor.graph.embedding import address, as_drawn
-from conductor.graph.model import GraphNode
-from conductor.graph.receive import Broadcast, Gather, Merge, PerRow, Receive, RowsUnder, Whole
-from conductor.metadata import Input
+from conductor.graph.graph_records import GraphNode
+from conductor.graph.receive import (
+    Broadcast,
+    EntireValue,
+    Gather,
+    Merge,
+    PerRow,
+    Receive,
+    RowsUnder,
+)
 from conductor.ref import Ref
 from conductor.series import Index, Series
 from conductor.table import Table, column_type, columns_of, holds_tables
@@ -128,7 +136,7 @@ def read_inputs(
                 return found
             found.bound[name] = found.arriving[name] = sources[0].type
             found.arrivals[name] = Arrival(sources[0].type, sources[0]._index)
-            found.receives[name] = Whole()
+            found.receives[name] = EntireValue()
             continue
         if _is_table_type(target):
             for source_ref, source in zip(binding.refs, sources, strict=True):
@@ -165,7 +173,7 @@ def read_inputs(
             if arriving._index.parent is not None:
                 found.reductions.append((arriving._index, name))
             else:
-                found.receives[name] = Whole()
+                found.receives[name] = EntireValue()
             found.arrivals[name] = Arrival(arriving.type, arriving._index)
         else:
             own = Index(address(node.id, name, graphs) if graphs else Ref(node.id, name))
@@ -299,7 +307,7 @@ def _depth_shared_with_row(index: Index, runs_on: Index | None) -> int | None:
     return next((step.depth for step in reversed(index.lineage[:-1]) if step in lineage), None)
 
 
-def _part(source: CompiledField, runs_on: Index | None) -> PerRow | Broadcast | Whole | RowsUnder:
+def _part(source: CompiledField, runs_on: Index | None) -> PerRow | Broadcast | EntireValue | RowsUnder:
     """How a call receives one source of a ``Table`` input: a table at its row
     or the one there is; a column's rows under its row; or all of them."""
     index = source._index
@@ -308,7 +316,7 @@ def _part(source: CompiledField, runs_on: Index | None) -> PerRow | Broadcast | 
     if runs_on is not None and index in runs_on.lineage:
         return PerRow(index)
     depth = _depth_shared_with_row(index, runs_on)
-    return Whole() if depth is None else RowsUnder(index, depth)
+    return EntireValue() if depth is None else RowsUnder(index, depth)
 
 
 def _one_index(sources: Sequence[CompiledField]) -> bool:
@@ -320,7 +328,7 @@ def _originates(inp: Input, node_id: str, graphs: Collection[str]) -> tuple[Arri
     """What an input carries when no edge feeds it: one value copied to every
     call, or for a ``Series[X]`` input a column of its own, received whole."""
     if inp.dtype.element is not None:
-        return Arrival(inp.dtype, Index(address(node_id, inp.name, graphs) if graphs else Ref(node_id, inp.name))), Whole()
+        return Arrival(inp.dtype, Index(address(node_id, inp.name, graphs) if graphs else Ref(node_id, inp.name))), EntireValue()
     return Arrival(inp.dtype, None), Broadcast()
 
 

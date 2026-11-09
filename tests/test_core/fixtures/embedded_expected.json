@@ -152,7 +152,7 @@
       "binding": "From(refs=('emb/up.result',))",
       "index": "Index('docs.result')",
       "listed": false,
-      "receives": "Whole()",
+      "receives": "EntireValue()",
       "type": "Series[Txt]"
      }
     },
@@ -709,7 +709,7 @@
       "binding": "From(refs=('top/s.result',))",
       "index": "Index('docs.result')",
       "listed": false,
-      "receives": "Whole()",
+      "receives": "EntireValue()",
       "type": "Series[Txt]"
      }
     },
@@ -2415,7 +2415,7 @@
       "binding": "From(refs=('emb/up.result',))",
       "index": "Index('emb/holder.value')",
       "listed": false,
-      "receives": "Whole()",
+      "receives": "EntireValue()",
       "type": "Series[Txt]"
      }
     },
@@ -3359,7 +3359,7 @@
       "binding": "From(refs=('top/join.result',))",
       "index": "Index('docs.result')",
       "listed": false,
-      "receives": "Whole()",
+      "receives": "EntireValue()",
       "type": "Series[Txt]"
      }
     },
@@ -3728,7 +3728,7 @@
       "binding": "From(refs=('emb/join.result',))",
       "index": "Index('docs.result')",
       "listed": false,
-      "receives": "Whole()",
+      "receives": "EntireValue()",
       "type": "Series[Txt]"
      }
     },
@@ -4537,7 +4537,7 @@
       "binding": "From(refs=('docs.result',))",
       "index": "Index('docs.result')",
       "listed": false,
-      "receives": "Whole()",
+      "receives": "EntireValue()",
       "type": "Series[Txt]"
      }
     },

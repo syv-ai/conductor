@@ -12,10 +12,10 @@ from typing import Annotated, Any, NewType
 import pytest
 from conductor import NodeRegistry, node
 from conductor.dtype import DType
+from conductor.field_records import Input, Param, Result
 from conductor.graph.binding import Static
 from conductor.graph.compiled import CompiledGraph
-from conductor.graph.model import Graph, GraphNode
-from conductor.metadata import Input, Param, Result
+from conductor.graph.graph_records import Graph, GraphNode
 from conductor.widgets import Textarea
 
 
@@ -249,7 +249,7 @@ def test_compile_problem_is_a_conductor_error_at_the_root():
 def test_a_field_refuses_a_dtype_that_is_not_a_type(bogus):
     """A value is not a type: ``Output(dtype=42)`` would dump ``dtype: null``,
     and a dumped ``{"id": ...}`` read back would set the dtype to a dict."""
-    from conductor.metadata import Output
+    from conductor.field_records import Output
     from pydantic import ValidationError
 
     with pytest.raises(ValidationError, match="dtype"):

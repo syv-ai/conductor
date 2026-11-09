@@ -34,9 +34,9 @@ from uuid import uuid4
 
 from pydantic_core import core_schema
 
+from conductor.conductor_model import ConductorModel
 from conductor.dtype import DType, _UntypedValue, description_of, read_blank
 from conductor.errors import NodeDeclarationError
-from conductor.model import ConductorModel
 
 #: The element type, for the ``Sequence`` protocol: ``Series[Text]`` yields ``Text``.
 T = TypeVar("T")

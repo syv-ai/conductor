@@ -32,8 +32,8 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from conductor.field_records import Output
 from conductor.graph.binding import From
-from conductor.metadata import Output
 from conductor.ref import Ref
 
 

@@ -6,10 +6,10 @@ import pytest
 from conductor import Arriving, NodeRegistry, node
 from conductor.dtype import DType
 from conductor.errors import Problem
+from conductor.field_records import Output, Param, Result
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
-from conductor.graph.model import Graph, GraphNode
-from conductor.metadata import Output, Param, Result
+from conductor.graph.graph_records import Graph, GraphNode
 from conductor.ref import Ref
 from conductor.series import Series
 from conductor.widgets import Textarea

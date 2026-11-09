@@ -22,9 +22,9 @@ from conductor import (
     Table,
     node,
 )
+from conductor.field_records import Result
 from conductor.graph.binding import From
-from conductor.graph.model import Graph
-from conductor.metadata import Result
+from conductor.graph.graph_records import Graph
 from conductor.ref import Ref
 from conductor.series import Index, Series
 from conductor.table import ROW_ID

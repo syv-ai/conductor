@@ -4,10 +4,10 @@ from typing import Annotated
 
 import polars as pl
 from conductor import SKIPPED, CompiledGraph, GraphNode, NodeRegistry, Param, Static, Table, node
+from conductor.field_records import Result
 from conductor.graph.binding import From
-from conductor.graph.model import Graph
-from conductor.graph.receive import Broadcast, Merge, PerRow, RowsUnder, Whole
-from conductor.metadata import Result
+from conductor.graph.graph_records import Graph
+from conductor.graph.receive import Broadcast, EntireValue, Merge, PerRow, RowsUnder
 from conductor.node_decorator import NodeDefinition
 from conductor.ref import Ref
 from conductor.series import Index, Series
@@ -54,7 +54,7 @@ def test_send_mail_per_contact_then_excel_has_name_email_and_sent():
     compiled = _compiled(CSV, SEND, GraphNode(id="excel", type="export", version=1, bindings={"table": From("csv.result", "send.result")}))
 
     assert compiled.field(Ref("excel", "table"))._receives == Merge((
-        (Ref("csv", "result"), Broadcast()), (Ref("send", "result"), Whole()),
+        (Ref("csv", "result"), Broadcast()), (Ref("send", "result"), EntireValue()),
     ))
     assert compiled.problems == ()
     assert _sheet(compiled).to_dicts() == [

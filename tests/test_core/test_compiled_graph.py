@@ -7,12 +7,12 @@ import pytest
 from conductor import NodeRegistry, OlderVersion, Upgrade, node
 from conductor.dtype import AsItArrives, DType
 from conductor.errors import CompileProblem, Problem
+from conductor.field_records import Input, Output, Param, Result
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
-from conductor.graph.model import FieldContent, Graph, GraphNode
+from conductor.graph.graph_records import FieldContent, Graph, GraphNode
 from conductor.graph.receive import Broadcast
-from conductor.interface import FromRun, Interface, model_of
-from conductor.metadata import Input, Output, Param, Result
+from conductor.interface import FromRun, Interface, build_call_validator
 from conductor.node_decorator import Policy
 from conductor.ref import Ref
 from conductor.series import Series
@@ -546,12 +546,12 @@ def test_the_derived_interface_comes_through_compiled():
 
 def test_the_interface_is_an_interface_and_types_a_call_by_address():
     """The graph's surface is the record a node version declares, one
-    scale out; a graph returns a computed interface by address, and `model_of`
+    scale out; a graph returns a computed interface by address, and `build_call_validator`
     types a caller's answers under the addresses, a dotted name as any other key."""
     compiled = _compiled([_exposed()])
 
     assert isinstance(compiled.interface, Interface)
-    answers = model_of(compiled.interface.inputs)({"besked.value": "hej"})
+    answers = build_call_validator(compiled.interface.inputs)({"besked.value": "hej"})
     assert answers["besked.value"] == "hej"
 
 

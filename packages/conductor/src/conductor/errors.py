@@ -54,7 +54,7 @@ from typing import Any
 
 from pydantic import ConfigDict, Field, computed_field
 
-from conductor.model import ConductorModel
+from conductor.conductor_model import ConductorModel
 
 #: Every code conductor itself writes, on one row each: its English, with
 #: the ``ctx`` keys as slots, and whether it stops what it is about. A

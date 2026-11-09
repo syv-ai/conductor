@@ -83,7 +83,7 @@ class DType(ABC, metaclass=_DTypeMeta):
     base itself has no ``id`` and is never on an edge.
 
     A subclass is a type of its own and names itself: a class that leaves
-    ``id`` to its parent is refused at definition, since a ``Whole`` that
+    ``id`` to its parent is refused at definition, since a ``EntireValue`` that
     quietly travels as ``number`` is the mistake nobody sees.
     """
 

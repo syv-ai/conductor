@@ -46,11 +46,11 @@ from typing import TYPE_CHECKING, Annotated, Any, Generic, ParamSpec, TypeVar, g
 from pydantic import Field
 from pydantic.json_schema import SkipJsonSchema
 
+from conductor.conductor_model import ConductorModel
 from conductor.dtype import DType, DTypeRef, _AsItArrivesMark, _UntypedValue, is_untyped
 from conductor.errors import NodeDeclarationError
+from conductor.field_records import Input, Output
 from conductor.interface import Interface, open_input_of, read_signature
-from conductor.metadata import Input, Output
-from conductor.model import ConductorModel
 
 if TYPE_CHECKING:
     from conductor.graph.compiled import CompiledGraph

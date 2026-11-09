@@ -23,8 +23,8 @@ from typing import Any
 
 from pydantic import Field, field_validator
 
+from conductor.conductor_model import ConductorModel
 from conductor.graph.binding import Binding
-from conductor.model import ConductorModel
 
 
 class FieldContent(ConductorModel):

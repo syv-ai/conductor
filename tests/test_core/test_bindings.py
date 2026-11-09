@@ -5,16 +5,16 @@ from typing import Annotated
 
 import pytest
 from conductor import NodeRegistry, node
-from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
+from conductor.field_records import Output, Param, Result
 from conductor.graph.binding import From, Static, static_values
 from conductor.graph.compiled import CompiledGraph
-from conductor.graph.model import FieldContent, Graph, GraphNode
+from conductor.graph.graph_interface import derive_interface
+from conductor.graph.graph_records import FieldContent, Graph, GraphNode
 from conductor.graph.topology import dependencies_of
-from conductor.graph.views import derive_interface
 from conductor.interface import FromRun, Interface
-from conductor.metadata import Output, Param, Result
 from conductor.ref import Ref
+from conductor.skip_and_ask import SKIPPED
 from conductor.widgets import Textarea
 from pydantic import TypeAdapter
 

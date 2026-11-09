@@ -23,9 +23,9 @@ from typing import Annotated
 import pytest
 from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, node
 from conductor.errors import ExternalFailure
+from conductor.field_records import Result
 from conductor.graph.binding import From, Static
-from conductor.graph.model import Graph
-from conductor.metadata import Result
+from conductor.graph.graph_records import Graph
 from conductor.node_decorator import Policy
 from conductor.widgets import Textarea
 from conductor_nodes.types import Text

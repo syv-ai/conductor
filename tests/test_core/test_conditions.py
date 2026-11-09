@@ -4,15 +4,15 @@ from dataclasses import dataclass
 from typing import Annotated, Any
 
 from conductor import Arriving, NodeRegistry, Param, node
-from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
+from conductor.field_records import Output, Result
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.conditions import ALWAYS, Atom
-from conductor.graph.model import Graph, GraphNode
-from conductor.metadata import Output, Result
+from conductor.graph.graph_records import Graph, GraphNode
 from conductor.ref import Ref
 from conductor.series import Series
+from conductor.skip_and_ask import SKIPPED
 from conductor.widgets import Switch, Textarea
 
 

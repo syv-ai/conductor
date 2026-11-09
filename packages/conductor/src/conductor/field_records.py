@@ -31,9 +31,9 @@ from __future__ import annotations
 
 from typing import Any, Final
 
+from conductor.conductor_model import ConductorModel
 from conductor.dtype import DTypeRef, _UntypedValue, dtype_of, is_untyped, read_blank, setting_type
 from conductor.errors import NodeDeclarationError
-from conductor.model import ConductorModel
 from conductor.widgets import AnyWidget
 
 

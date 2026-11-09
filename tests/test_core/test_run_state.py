@@ -17,9 +17,9 @@ import pytest
 from conductor import AskPerson, CompiledGraph, GraphNode, NodeRegistry, OlderVersion, Upgrade, node
 from conductor.dtype import DType
 from conductor.execution.run_state import RunState
+from conductor.field_records import Param, Result
 from conductor.graph.binding import From, Static
-from conductor.graph.model import Graph
-from conductor.metadata import Param, Result
+from conductor.graph.graph_records import Graph
 from conductor.series import Series
 from conductor.widgets import Textarea
 from helpers import stream_of

@@ -17,9 +17,9 @@ from typing import Annotated, Any, Literal
 
 from pydantic import ConfigDict, Field
 
+from conductor.conductor_model import ConductorModel
 from conductor.errors import Problem
 from conductor.execution.run_state import RunState, WaitingUnit
-from conductor.model import ConductorModel
 from conductor.series import Row
 
 

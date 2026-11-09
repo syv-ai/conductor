@@ -14,7 +14,7 @@ from collections import deque
 from collections.abc import Iterable, Mapping
 
 from conductor.graph.binding import From
-from conductor.graph.model import GraphNode
+from conductor.graph.graph_records import GraphNode
 
 
 def dependencies_of(nodes: Iterable[GraphNode]) -> dict[str, frozenset[str]]:

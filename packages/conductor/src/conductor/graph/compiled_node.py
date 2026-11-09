@@ -24,20 +24,20 @@ from pydantic_core import to_jsonable_python
 from conductor.codec import reader_of, to_wire
 from conductor.dtype import description_of
 from conductor.graph.run_plan import NodeRunPlan, plan_of_node
-from conductor.interface import model_of
+from conductor.interface import build_call_validator
 from conductor.node_decorator import NodeVersion
 from conductor.series import Series
 from conductor.table import holds_tables
 
 if TYPE_CHECKING:
     from conductor.errors import Problem
+    from conductor.field_records import Input
     from conductor.graph.binding import Binding
     from conductor.graph.compiled import CompiledGraph
     from conductor.graph.conditions import Condition
-    from conductor.graph.model import GraphNode
+    from conductor.graph.graph_records import GraphNode
     from conductor.graph.receive import Receive
     from conductor.interface import Interface
-    from conductor.metadata import Input
     from conductor.node_decorator import NodeDefinition
     from conductor.ref import Ref
     from conductor.series import Index
@@ -185,9 +185,9 @@ class CompiledNode:
 
     @cached_property
     def _check(self) -> Callable[[Mapping[str, Any]], dict[str, Any]]:
-        """The check a call goes through (``model_of``), built on first use. An
+        """The check a call goes through (``build_call_validator``), built on first use. An
         input that takes a blank is read as its type or ``None``."""
-        return model_of(tuple(
+        return build_call_validator(tuple(
             inp.model_copy(update={"dtype": _or_blank(inp.dtype)}) if inp.takes_blank else inp for inp in self._inputs
         ))
 

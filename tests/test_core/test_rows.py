@@ -10,18 +10,18 @@ from typing import Annotated, Any
 
 import pytest
 from conductor import InvalidCallError, NodeRegistry, node
-from conductor._sentinel import SKIPPED, AskPerson
 from conductor.dtype import DType
 from conductor.errors import (
     NodeExecutionError,
 )
+from conductor.field_records import Input, Output, Param, Result
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
-from conductor.graph.model import Graph, GraphNode
-from conductor.metadata import Input, Output, Param, Result
+from conductor.graph.graph_records import Graph, GraphNode
 from conductor.node_decorator import Policy
 from conductor.ref import Ref
 from conductor.series import Index, Series
+from conductor.skip_and_ask import SKIPPED, AskPerson
 from conductor.widgets import Textarea
 from helpers import stream_of
 

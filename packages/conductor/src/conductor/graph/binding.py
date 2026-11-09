@@ -20,7 +20,7 @@ both claim the same input.
 The editor writes both: connecting two handles writes an ``From``,
 editing a control writes a ``Static``. Compile reads them: the
 dependency map, the engine's maps and the graph's own inputs and outputs
-are all derived from the bindings (``topology``, ``views``); nothing
+are all derived from the bindings (``topology``, ``graph_interface``); nothing
 stores an edge as a record of its own.
 
 There is deliberately no third kind for "the caller supplies this": a
@@ -36,7 +36,7 @@ from typing import Any, Mapping, TypeAlias
 
 from pydantic import Field
 
-from conductor.model import ConductorModel
+from conductor.conductor_model import ConductorModel
 from conductor.ref import Ref
 
 

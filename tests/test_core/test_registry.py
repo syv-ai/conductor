@@ -12,7 +12,7 @@ import pytest
 from conductor import OlderVersion, Upgrade, node
 from conductor.dtype import DType
 from conductor.errors import NodeDeclarationError
-from conductor.metadata import Param, Result
+from conductor.field_records import Param, Result
 from conductor.registry import NodeRegistry
 from conductor.widgets import Textarea
 

@@ -29,7 +29,7 @@ same way, for other
 callers: the engine runs only a graph whose every node is ready. Every
 input carries a receive record (``CompiledField.receives``, from
 ``conductor.graph.receive``). ``PerRow`` takes the value at the unit's own
-row, ``Broadcast`` the one value there is, ``Whole`` everything on the
+row, ``Broadcast`` the one value there is, ``EntireValue`` everything on the
 field, ``RowsUnder`` the rows under the unit's row cut to a depth, and
 ``Gather`` unrelated sources collected onto the input's own index. The
 this module switches on the record to say when a unit is ready and what to
@@ -66,12 +66,20 @@ from typing import TYPE_CHECKING, Any, Iterator
 
 from pydantic import ValidationError
 
-from conductor._sentinel import SKIPPED
 from conductor.errors import CATALOGUE, InvalidCallError, NodeExecutionError, Problem, problem
 from conductor.execution.run_state import OutputColumn, RunState, RunStatus, WaitingUnit
-from conductor.graph.receive import Broadcast, Gather, Merge, PerRow, Receive, RowsUnder, Whole
+from conductor.graph.receive import (
+    Broadcast,
+    EntireValue,
+    Gather,
+    Merge,
+    PerRow,
+    Receive,
+    RowsUnder,
+)
 from conductor.ref import Ref
 from conductor.series import Index, Row, Series
+from conductor.skip_and_ask import SKIPPED
 from conductor.table import (
     ROW_ID,
     MergeSource,
@@ -87,9 +95,9 @@ from conductor.table import (
 if TYPE_CHECKING:
     import polars as pl
 
+    from conductor.field_records import Output
     from conductor.graph.compiled import CompiledGraph
     from conductor.graph.compiled_node import CompiledField
-    from conductor.metadata import Output
 
 #: One run of one node: the node id and the row it runs on — ``()`` for
 #: a node that runs once; a row shorter than the index the node runs per row of, for the one
@@ -355,7 +363,7 @@ class LiveRunValues:
     def _read_ready(self, ref: Ref, received: Receive, row: Row) -> bool:
         """Is what a unit at ``row`` reads of ``ref``, received as ``received``,
         written? Per row: the value at its row. Grouped: every row of the
-        group under it. Whole or gathered: everything on the ref."""
+        group under it. EntireValue or gathered: everything on the ref."""
         if _per_row(received):
             return self._present(ref, self._key(ref, row))
         return self._written(ref, row[: _rows_under_depth(received)])
@@ -449,7 +457,7 @@ class LiveRunValues:
             binding = self._fields[own].binding
             received = self._fields[own]._receives
             if binding is None:
-                if isinstance(received, Whole):
+                if isinstance(received, EntireValue):
                     values[inp.name] = self._typed(received, inp.default, own)
                 continue  # a scalar default is the node's own; the call applies it
             if inp.name in statics:
@@ -565,7 +573,7 @@ class LiveRunValues:
         and the unit takes the value at its row; broadcast, it is the one
         value.
         """
-        if isinstance(received, Whole):
+        if isinstance(received, EntireValue):
             return Series(self._fields[own]._index, value.values if isinstance(value, Series) else list(value))
         if isinstance(received, PerRow):
             return list(value)[row[received.index.depth - 1]]

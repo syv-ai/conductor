@@ -3,16 +3,16 @@
 import dataclasses
 
 import pytest
+from conductor.conductor_model import ConductorModel
 from conductor.dtype import DType
 from conductor.errors import Problem
 from conductor.execution.live_run_values import Skip
+from conductor.field_records import Input, Output, Param, Result
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.compiled_node import CompiledField, CompiledNode
-from conductor.graph.model import FieldContent, Graph, GraphNode
+from conductor.graph.graph_records import FieldContent, Graph, GraphNode
 from conductor.interface import Interface
-from conductor.metadata import Input, Output, Param, Result
-from conductor.model import ConductorModel
 from conductor.node_decorator import (
     Deprecation,
     NodeDescription,

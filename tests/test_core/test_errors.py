@@ -27,7 +27,7 @@ from conductor.errors import (
     NodeExecutionError,
     problem,
 )
-from conductor.graph.model import Graph
+from conductor.graph.graph_records import Graph
 
 
 class Txt(DType, str):

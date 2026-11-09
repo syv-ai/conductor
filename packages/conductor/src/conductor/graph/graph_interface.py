@@ -19,12 +19,12 @@ from typing import TYPE_CHECKING
 
 from conductor.errors import Problem, problem
 from conductor.graph.embedding import address
-from conductor.graph.model import GraphNode
+from conductor.graph.graph_records import GraphNode
 from conductor.interface import Interface
 
 if TYPE_CHECKING:
-    from conductor.graph.model import Graph
-    from conductor.metadata import Input, Output
+    from conductor.field_records import Input, Output
+    from conductor.graph.graph_records import Graph
 
 
 def field_problems(

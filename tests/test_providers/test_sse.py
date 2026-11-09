@@ -71,7 +71,7 @@ def test_a_branch_nodes_completion_streams_with_only_the_branch_taken():
     import conductor_nodes
     from conductor import CompiledGraph, GraphNode
     from conductor.graph.binding import Static
-    from conductor.graph.model import Graph
+    from conductor.graph.graph_records import Graph
 
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[GraphNode(id="d", type="logic-if-empty", version=1, bindings={"text": Static("x")})]),

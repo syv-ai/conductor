@@ -6,8 +6,8 @@ from typing import Annotated, Any
 
 import pytest
 from conductor.dtype import DType
+from conductor.field_records import Output, Result
 from conductor.interface import _read_return, unpack
-from conductor.metadata import Output, Result
 from conductor.series import Series
 from pydantic import TypeAdapter
 

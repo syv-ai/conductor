@@ -14,7 +14,7 @@ Embedding, rule by rule:
 2. When the node runs per row, a value that ran once inside becomes a series
    on that row: ``Txt`` becomes ``Series[Txt]``, no index becomes the row,
    and an edge-fed ``Broadcast`` becomes ``PerRow``.
-3. ``Whole`` becomes ``RowsUnder`` at the row's depth; a ``Gather`` whose
+3. ``EntireValue`` becomes ``RowsUnder`` at the row's depth; a ``Gather`` whose
    every source carries one value becomes ``RowsUnder`` on the row, since
    per row the sources line up; a ``RowsUnder`` goes as many levels deeper
    as the row is deep.
@@ -47,7 +47,15 @@ from typing import TYPE_CHECKING, Any
 from conductor.graph.binding import Binding, From, Static
 from conductor.graph.compiled_node import CompiledField, CompiledNode, Wiring
 from conductor.graph.conditions import ALWAYS, Condition, condition_at_node, output_condition
-from conductor.graph.receive import Broadcast, Gather, Merge, PerRow, Receive, RowsUnder, Whole
+from conductor.graph.receive import (
+    Broadcast,
+    EntireValue,
+    Gather,
+    Merge,
+    PerRow,
+    Receive,
+    RowsUnder,
+)
 from conductor.node_decorator import NodeVersion
 from conductor.ref import Ref
 from conductor.series import Index, Series
@@ -319,6 +327,6 @@ def _received_under(receipt: Receive, index: Index | None, prefix: str, row: Ind
         return RowsUnder(under(receipt.index, prefix, row), receipt.depth + (0 if row is None else row.depth))
     if isinstance(receipt, Gather):
         return Gather(under(receipt.index, prefix, row))
-    if isinstance(receipt, Whole):
+    if isinstance(receipt, EntireValue):
         return receipt if row is None else RowsUnder(under(index, prefix, row), row.depth)
     return receipt

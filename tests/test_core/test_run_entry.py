@@ -18,7 +18,7 @@ import pytest
 from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, Result, node
 from conductor.dtype import DType
 from conductor.graph.binding import Static
-from conductor.graph.model import Graph
+from conductor.graph.graph_records import Graph
 from conductor.widgets import Textarea
 
 

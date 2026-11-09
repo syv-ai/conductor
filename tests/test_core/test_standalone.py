@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
-from conductor.graph.model import Graph, GraphNode
+from conductor.graph.graph_records import Graph, GraphNode
 
 PACKAGES = Path(__file__).resolve().parents[2] / "packages"
 SOURCES = sorted(

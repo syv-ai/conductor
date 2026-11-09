@@ -16,8 +16,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
-from conductor.graph.receive import Broadcast, Gather, Merge, PerRow, RowsUnder, Whole
-from conductor.model import ConductorModel
+from conductor.conductor_model import ConductorModel
+from conductor.graph.receive import Broadcast, EntireValue, Gather, Merge, PerRow, RowsUnder
 from conductor.ref import Ref
 
 if TYPE_CHECKING:
@@ -29,10 +29,10 @@ if TYPE_CHECKING:
 #: ``value_at_row``: the value at the call's own row. ``same_value_every_row``:
 #: one value, copied to every call; also a value typed in or a default.
 #: ``all_rows_under_row``: every row of a column under the call's row, however
-#: deep, flat. ``whole``: everything on the field, once. ``collected``: unrelated
+#: deep, flat. ``entire_value``: everything on the field, once. ``collected``: unrelated
 #: sources gathered into one series. ``merged``: tables and columns matched on
 #: their rows' ids into one table (``parts`` says how each arrives).
-InputArrival = Literal["value_at_row", "same_value_every_row", "all_rows_under_row", "whole", "collected", "merged"]
+InputArrival = Literal["value_at_row", "same_value_every_row", "all_rows_under_row", "entire_value", "collected", "merged"]
 
 
 class InputPlan(ConductorModel):
@@ -64,7 +64,7 @@ class InputPlan(ConductorModel):
             case "all_rows_under_row":
                 level = "" if self.grouped_under in (None, self.rows_of) else f" (grouped under {self.grouped_under})"
                 return f"all rows of {self.rows_of} under my row{level}; none under it: called with an empty list"
-            case "whole":
+            case "entire_value":
                 return f"all of {source}" if source else "the whole list typed in"
             case "collected":
                 return f"collected into one list: {source}"
@@ -112,8 +112,8 @@ def _plan_of_receipt(sources: tuple[Ref, ...], received: object, takes_blank: bo
             return InputPlan.model_construct(sources=sources, arrives="value_at_row", rows_of=_level(index), grouped_under=None, takes_blank=takes_blank, parts=(), copied_down=False)
         case Broadcast():
             return InputPlan.model_construct(sources=sources, arrives="same_value_every_row", rows_of=None, grouped_under=None, takes_blank=takes_blank, parts=(), copied_down=False)
-        case Whole():
-            return InputPlan.model_construct(sources=sources, arrives="whole", rows_of=None, grouped_under=None, takes_blank=takes_blank, parts=(), copied_down=False)
+        case EntireValue():
+            return InputPlan.model_construct(sources=sources, arrives="entire_value", rows_of=None, grouped_under=None, takes_blank=takes_blank, parts=(), copied_down=False)
         case RowsUnder(index=index, depth=depth):
             return InputPlan.model_construct(sources=sources, arrives="all_rows_under_row", rows_of=_level(index), grouped_under=Ref(index.lineage[depth - 1].id), takes_blank=takes_blank, parts=(), copied_down=False)
         case Gather():

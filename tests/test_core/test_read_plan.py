@@ -5,11 +5,11 @@ from typing import Annotated
 
 from conductor import NodeRegistry, node
 from conductor.dtype import DType
+from conductor.field_records import Param, Result
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
-from conductor.graph.model import Graph, GraphNode
-from conductor.graph.receive import PerRow, Whole
-from conductor.metadata import Param, Result
+from conductor.graph.graph_records import Graph, GraphNode
+from conductor.graph.receive import EntireValue, PerRow
 from conductor.ref import Ref
 from conductor.series import Index, Series
 from conductor.widgets import Textarea
@@ -74,8 +74,8 @@ def test_a_node_with_series_outputs_owns_the_index_they_make_rows_of():
     assert plan.carried_by["docs.texts"] == (Ref("docs", "texts"), Ref("up", "result"))
     assert plan.carried_by["docs.names"] == (Ref("docs", "names"),)
     assert plan.read_by[texts.ref] == ((Ref("up", "text"), PerRow(Index("docs.texts"))),)
-    assert plan.read_by[up.ref] == ((Ref("join", "texts"), Whole()),)
-    assert plan.reads["join"] == ((Ref("up", "result"), Whole()),)
+    assert plan.read_by[up.ref] == ((Ref("join", "texts"), EntireValue()),)
+    assert plan.reads["join"] == ((Ref("up", "result"), EntireValue()),)
     assert up._makes_rows is None
     assert plan.owners["docs.texts"] is texts
 

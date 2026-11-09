@@ -22,9 +22,9 @@ from collections.abc import Iterable, Iterator, Mapping
 from types import MappingProxyType
 from typing import Any
 
+from conductor.conductor_model import ConductorModel
 from conductor.dtype import DType, _Setting, _UntypedValue
 from conductor.errors import NodeDeclarationError
-from conductor.model import ConductorModel
 from conductor.node_decorator import NodeDefinition, NodeDescription, NodeVersion
 from conductor.series import Series
 

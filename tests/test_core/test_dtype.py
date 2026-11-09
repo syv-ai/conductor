@@ -141,7 +141,7 @@ def test_the_base_type_itself_cannot_be_a_target():
         DType.accepts(Text)
 
 
-# --- Any: the unconstrained input, and Single ------------------------
+# --- Any: the unconstrained input, and AsItArrives---------------------
 
 
 def test_any_is_read_as_a_type_of_its_own():

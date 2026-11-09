@@ -27,8 +27,8 @@ from typing import Any, Literal, Self
 from pydantic import Field, field_serializer, model_validator
 
 from conductor.codec import values_to_wire
+from conductor.conductor_model import ConductorModel
 from conductor.errors import Problem
-from conductor.model import ConductorModel
 from conductor.ref import Ref
 from conductor.series import Row
 

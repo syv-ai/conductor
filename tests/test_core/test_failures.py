@@ -23,9 +23,9 @@ from conductor.errors import (
     NodeValidationError,
 )
 from conductor.execution.run_until_idle import Leg
+from conductor.field_records import Result
 from conductor.graph.binding import From, Static
-from conductor.graph.model import Graph
-from conductor.metadata import Result
+from conductor.graph.graph_records import Graph
 from conductor.node_decorator import NodeDefinition, Policy
 from conductor.series import Series
 from conductor.widgets import Textarea

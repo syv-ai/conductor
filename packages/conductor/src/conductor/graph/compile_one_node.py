@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 from conductor.dtype import is_untyped
 from conductor.errors import CompileProblem, Problem, problem
+from conductor.field_records import Input, Output
 from conductor.graph.binding import From
 from conductor.graph.compiled_node import CompiledField, CompiledNode, Wiring
 from conductor.graph.conditions import ALWAYS, Condition, condition_at_node, output_condition
@@ -26,13 +27,12 @@ from conductor.graph.embedding import (
     lift_embedded_nodes,
     table_rows_inside,
 )
-from conductor.graph.model import GraphNode
+from conductor.graph.graph_interface import field_problems
+from conductor.graph.graph_records import GraphNode
 from conductor.graph.row_origins import origins_taken_in
 from conductor.graph.typed_in_values import read_typed_in_values
-from conductor.graph.views import field_problems
 from conductor.graph.wire_inputs import InputsRead, decide_rows, read_inputs
 from conductor.interface import Interface
-from conductor.metadata import Input, Output
 from conductor.node_decorator import NodeVersion
 from conductor.ref import Ref
 from conductor.registry import NodeRegistry

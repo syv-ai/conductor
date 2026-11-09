@@ -49,7 +49,6 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
-from conductor._sentinel import AskPerson
 from conductor.errors import (
     CATALOGUE,
     ExternalFailure,
@@ -78,6 +77,7 @@ from conductor.execution.run_state import RunState
 from conductor.execution.validate_unit_outputs import validate_unit_outputs
 from conductor.execution.waiting_units import waiting_unit_for
 from conductor.interface import unpack
+from conductor.skip_and_ask import AskPerson
 
 if TYPE_CHECKING:
     from conductor.graph.compiled import CompiledGraph

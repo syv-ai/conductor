@@ -5,8 +5,8 @@ from typing import Annotated
 
 import pytest
 from conductor.dtype import AsItArrives, DType
-from conductor.interface import model_of, read_signature
-from conductor.metadata import Param, Result
+from conductor.field_records import Param, Result
+from conductor.interface import build_call_validator, read_signature
 from conductor.series import Series
 from conductor.widgets import (
     AnyWidget,
@@ -40,12 +40,12 @@ def test_one_pass_yields_inputs_outputs_and_the_validator():
 
     assert [i.name for i in iface.inputs] == ["text", "language"]
     assert [o.title for o in iface.outputs] == ["Result"]
-    assert model_of(iface.inputs)({"text": "hi"})["language"] == "da"
+    assert build_call_validator(iface.inputs)({"text": "hi"})["language"] == "da"
 
 
 def test_the_validator_coerces_into_the_dtype():
     """A str subclass validates into the subclass."""
-    validated = model_of(read_signature(sample).interface.inputs)({"text": "hi"})
+    validated = build_call_validator(read_signature(sample).interface.inputs)({"text": "hi"})
 
     assert isinstance(validated["text"], Text)
 
@@ -183,7 +183,7 @@ def test_a_plain_python_type_closes_the_input_by_itself():
 def test_a_closed_param_may_declare_a_static_type():
     """A parameter no edge can reach may declare any type pydantic
     can validate — an authored schema, a set of branches. It is the
-    `Input`'s `dtype`, read by `model_of` and by the compiler when it
+    `Input`'s `dtype`, read by `build_call_validator` and by the compiler when it
     validates a typed-in value, and it has no JSON form."""
     from dataclasses import dataclass as dc
 
@@ -198,7 +198,7 @@ def test_a_closed_param_may_declare_a_static_type():
 
     (inp,) = read_signature(structured).interface.inputs
     assert inp.dtype.plain is Schema
-    assert isinstance(model_of((inp,))({"schema": {"fields": ("a",)}})["schema"], Schema)
+    assert isinstance(build_call_validator((inp,))({"schema": {"fields": ("a",)}})["schema"], Schema)
     assert TypeAdapter(type(inp)).dump_python(inp, mode="json")["dtype"] == {"id": "setting", "of": "Schema"}
 
 
@@ -242,7 +242,7 @@ def test_an_any_roster_validates_a_call():
     def route(x: Annotated[Any, Param(title="X", widget=Textarea())]) -> Annotated[Any, Result(title="R")]:
         return x
 
-    check = model_of(read_signature(route).interface.inputs)
+    check = build_call_validator(read_signature(route).interface.inputs)
     assert check({"x": Text("hi")})["x"] == Text("hi")
 
 
@@ -293,14 +293,14 @@ def test_a_plain_return_needs_no_result():
 def test_computed_inputs_arrive_as_keyword_arguments():
     """A node whose interface is computed takes the computed inputs as
     ``**values``. The signature declares nothing about them."""
-    from conductor.metadata import Input
+    from conductor.field_records import Input
 
     def templated(template: Annotated[Text, Param(title="Template", widget=Textarea())] = Text(""), **values: Text) -> Annotated[Text, Result(title="R")]:
         return Text(template.format(**values))
 
     assert [i.name for i in read_signature(templated).interface.inputs] == ["template"]
     interface = (*read_signature(templated).interface.inputs, Input("name", Text, widget=Textarea()))
-    validated = model_of(interface)({"template": "Hi {name}", "name": "Ida"})
+    validated = build_call_validator(interface)({"template": "Hi {name}", "name": "Ida"})
     assert isinstance(validated["name"], Text)
 
 
@@ -325,7 +325,7 @@ def test_the_wire_carries_presentation_on_the_field_not_inside_the_widget():
     """The contract test the field/widget split needs: what a person reads
     about the input is on the ``Input``, and the widget's dump is the
     control's configuration and nothing else."""
-    from conductor.metadata import Input
+    from conductor.field_records import Input
 
     data = TypeAdapter(Input).dump_python(read_signature(sample).interface.inputs[1], mode="json")
 
@@ -336,7 +336,7 @@ def test_the_wire_carries_presentation_on_the_field_not_inside_the_widget():
 
 
 def test_the_input_record_publishes_a_json_schema_per_widget():
-    from conductor.metadata import Input
+    from conductor.field_records import Input
 
     schema = TypeAdapter(Input).json_schema(mode="serialization")
     (widget,) = [member for member in schema["properties"]["widget"]["anyOf"] if "discriminator" in member]
@@ -361,7 +361,7 @@ def test_a_from_run_parameter_is_a_need_not_an_input():
 
     assert [i.name for i in iface.inputs] == ["text"]
     assert iface.needs == {Who}
-    assert "who" not in model_of(iface.inputs)({"text": "hi", "who": "Ida"})
+    assert "who" not in build_call_validator(iface.inputs)({"text": "hi", "who": "Ida"})
 
 
 def test_a_name_on_both_sides_is_refused():

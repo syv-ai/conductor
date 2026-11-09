@@ -10,13 +10,13 @@ from typing import Annotated
 
 import pytest
 from conductor import GraphNode, InvalidCallError, NodeRegistry, Param, node
-from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
+from conductor.field_records import Result
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
-from conductor.graph.model import Graph
-from conductor.metadata import Result
+from conductor.graph.graph_records import Graph
 from conductor.series import Series
+from conductor.skip_and_ask import SKIPPED
 from conductor.widgets import Textarea
 
 from test_core.embedded import embedded_graph_node

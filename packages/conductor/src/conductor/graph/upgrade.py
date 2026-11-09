@@ -13,7 +13,7 @@ from typing import Any
 
 from conductor.errors import InvalidCallError, problem
 from conductor.graph.binding import From, Static, static_values
-from conductor.graph.model import Graph, GraphNode
+from conductor.graph.graph_records import Graph, GraphNode
 from conductor.node_decorator import NodeVersion, Upgrade
 from conductor.ref import Ref
 from conductor.registry import NodeRegistry

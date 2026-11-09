@@ -16,10 +16,10 @@ from typing import Annotated, Any
 import pytest
 from conductor import SKIPPED, AskPerson, CompiledGraph, GraphNode, NodeRegistry, node
 from conductor.dtype import DType
+from conductor.field_records import Input, Param, Result
 from conductor.graph.binding import From, Static
-from conductor.graph.model import Graph
+from conductor.graph.graph_records import Graph
 from conductor.interface import read_signature
-from conductor.metadata import Input, Param, Result
 from conductor.series import Index, Series
 from conductor.widgets import NumberWidget, Textarea
 from helpers import stream_of
@@ -91,7 +91,7 @@ def test_a_parameter_without_a_param_is_titled_by_its_name():
     assert (texts.title, texts.widget, texts.connectable) == ("texts", None, True)
 
 
-def test_show_handle_false_closes_the_input_and_admits_a_static_type():
+def test_connectable_false_closes_the_input_and_admits_a_static_type():
     def run(tags: Annotated[list[str], Param(title="Tags", connectable=False, widget=Textarea())] = []) -> Out: ...
 
     (tags,) = read_signature(run).interface.inputs

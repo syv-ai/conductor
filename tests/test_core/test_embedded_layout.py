@@ -6,10 +6,10 @@ from typing import Annotated, Any
 import pytest
 from conductor import NodeRegistry, node
 from conductor.dtype import DType
+from conductor.field_records import Output, Param, Result
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
-from conductor.graph.model import FieldContent, Graph, GraphNode
-from conductor.metadata import Output, Param, Result
+from conductor.graph.graph_records import FieldContent, Graph, GraphNode
 from conductor.ref import Ref
 from conductor.series import Index, Series
 from conductor.widgets import Textarea

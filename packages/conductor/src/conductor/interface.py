@@ -40,10 +40,10 @@ from typing import Annotated, Any, TypedDict, TypeVar, Union, get_args, get_orig
 
 from pydantic import ConfigDict, TypeAdapter, with_config
 
-from conductor._sentinel import AskPerson
 from conductor.dtype import DType, _AsItArrivesMark, _ReceivedAsItArrives, dtype_of, read_blank
 from conductor.errors import NodeDeclarationError
-from conductor.metadata import Input, Output, Param, Result
+from conductor.field_records import Input, Output, Param, Result
+from conductor.skip_and_ask import AskPerson
 from conductor.widgets import Widget
 
 _T = TypeVar("_T")
@@ -269,7 +269,7 @@ def unpack(returns: Any, value: Any, outputs: tuple[Output, ...], declared: tupl
     return {each.name: getattr(value, each.name) for each in fields(returns)}
 
 
-def model_of(inputs: tuple[Input, ...]) -> Callable[[Mapping[str, Any]], dict[str, Any]]:
+def build_call_validator(inputs: tuple[Input, ...]) -> Callable[[Mapping[str, Any]], dict[str, Any]]:
     """The check a call of ``inputs`` goes through: values in, keyword arguments out.
 
     The function it returns takes the values a call was given, by input

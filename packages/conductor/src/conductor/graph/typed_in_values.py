@@ -17,9 +17,9 @@ from typing import Any
 from pydantic import TypeAdapter, ValidationError
 
 from conductor.errors import Problem, problem
+from conductor.field_records import Input
 from conductor.graph.binding import static_values
-from conductor.graph.model import GraphNode
-from conductor.metadata import Input
+from conductor.graph.graph_records import GraphNode
 
 
 def read_typed_in_values(inputs: Iterable[Input], node: GraphNode) -> tuple[dict[str, Any], frozenset[str], list[Problem]]:

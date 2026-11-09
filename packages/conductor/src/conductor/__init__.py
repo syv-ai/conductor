@@ -8,7 +8,6 @@ Every other module is the library's own and may move.
 
 from typing import TYPE_CHECKING
 
-from conductor._sentinel import SKIPPED, AskPerson
 from conductor.codec import to_wire
 from conductor.dtype import AsItArrives, DType
 from conductor.errors import (
@@ -23,15 +22,15 @@ from conductor.errors import (
     Problem,
 )
 from conductor.execution.run_state import RunState
+from conductor.field_records import Input, Output, Param, Result
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.conditions import ALWAYS, NEVER, Atom
-from conductor.graph.model import FieldContent, Graph, GraphNode
+from conductor.graph.graph_records import FieldContent, Graph, GraphNode
 from conductor.graph.run_plan import InputPlan, RunPlan
 from conductor.graph.topology import dependencies_of
 from conductor.graph.upgrade import upgrade_node
 from conductor.interface import FromRun, Interface
-from conductor.metadata import Input, Output, Param, Result
 from conductor.node_decorator import (
     Arriving,
     Deprecation,
@@ -44,6 +43,7 @@ from conductor.node_decorator import (
 )
 from conductor.ref import Ref
 from conductor.registry import NodeRegistry, TypeDescription
+from conductor.skip_and_ask import SKIPPED, AskPerson
 from conductor.table import ROW_ID, Table
 
 if TYPE_CHECKING:

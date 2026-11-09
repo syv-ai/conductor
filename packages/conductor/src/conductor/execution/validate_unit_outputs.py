@@ -20,8 +20,8 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
-from conductor._sentinel import SKIPPED
 from conductor.series import Row, Series
+from conductor.skip_and_ask import SKIPPED
 from conductor.table import Table, frame_with_no_rows, no_row_kept_its_id, with_row_ids
 
 if TYPE_CHECKING:

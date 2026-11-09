@@ -12,9 +12,9 @@ from __future__ import annotations
 import conductor_nodes
 import pytest
 from conductor import CompiledGraph, GraphNode, NodeRegistry
-from conductor._sentinel import SKIPPED
 from conductor.graph.binding import From, Static
-from conductor.graph.model import Graph
+from conductor.graph.graph_records import Graph
+from conductor.skip_and_ask import SKIPPED
 from conductor_nodes.decision import decision
 from conductor_nodes.types import Flag, Json, Text
 from helpers import stream_of

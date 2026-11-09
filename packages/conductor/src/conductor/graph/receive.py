@@ -12,7 +12,7 @@ Six records, one per input, named for what happens to the value on its
 way in. ``PerRow`` takes a series one row at a time: a scalar input fed
 a series, so the node runs once per row and each unit takes the value at
 its own row. ``Broadcast`` copies one value to every unit: a scalar fed by a
-node that ran once, a typed-in value, a default. ``Whole`` leaves the
+node that ran once, a typed-in value, a default. ``EntireValue`` leaves the
 value as it sits on the field: a ``Series[X]`` input fed one series on a
 root index takes it entire, and a ``**inputs`` name takes whatever its
 edge carries. ``RowsUnder`` takes all the rows under the unit's own row, flat: a
@@ -61,7 +61,7 @@ class Broadcast:
 
 
 @dataclass(frozen=True)
-class Whole:
+class EntireValue:
     """The unit receives everything on the field, as it sits there.
 
     A ``**inputs`` parameter takes whatever its one edge carries, series
@@ -108,7 +108,7 @@ class Merge:
     Several tables or columns into one ``Table`` input: each source is read
     as its part says — a table value at the unit's row (``PerRow``) or the
     one there is (``Broadcast``), a column's rows under the unit's row
-    (``RowsUnder``) or all of them (``Whole``) — and the pieces are merged on
+    (``RowsUnder``) or all of them (``EntireValue``) — and the pieces are merged on
     their rows' ids: the rows are the deepest sources', a parent's value
     copied down onto each of them, and a parent row nothing sits under is not
     in the table. A ``Table`` input never makes its node run per row by itself, and its
@@ -116,9 +116,9 @@ class Merge:
     """
 
     #: Per source, in wiring order: the source and how the unit receives it.
-    parts: tuple[tuple[Ref, PerRow | Broadcast | Whole | RowsUnder], ...]
+    parts: tuple[tuple[Ref, PerRow | Broadcast | EntireValue | RowsUnder], ...]
     #: The sources whose rows sit above another source's: copied down onto those rows.
     copied_down: frozenset[Ref] = frozenset()
 
 
-Receive = PerRow | Broadcast | Whole | RowsUnder | Gather | Merge
+Receive = PerRow | Broadcast | EntireValue | RowsUnder | Gather | Merge

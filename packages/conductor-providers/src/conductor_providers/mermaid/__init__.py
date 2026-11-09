@@ -85,7 +85,7 @@ def _label(input_plan: InputPlan) -> str | None:
             return f"per row of {input_plan.rows_of}"
         case "all_rows_under_row":
             return f"grouped by {input_plan.rows_of}"
-        case "whole":
+        case "entire_value":
             return "whole"
         case "collected":
             return "gathered"

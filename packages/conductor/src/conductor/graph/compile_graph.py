@@ -16,10 +16,10 @@ from conductor.errors import Problem, problem
 from conductor.graph.compile_one_node import compile_one_node
 from conductor.graph.compiled_node import CompiledNode
 from conductor.graph.embedding import SEPARATOR
-from conductor.graph.model import Graph, GraphNode
+from conductor.graph.graph_interface import derive_interface
+from conductor.graph.graph_records import Graph, GraphNode
 from conductor.graph.row_origins import RowOriginsSoFar
 from conductor.graph.topology import dependencies_of, order_of
-from conductor.graph.views import derive_interface
 from conductor.interface import Interface
 from conductor.ref import Ref
 from conductor.registry import NodeRegistry

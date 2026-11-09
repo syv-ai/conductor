@@ -5,17 +5,17 @@ from typing import Annotated
 
 import pytest
 from conductor import NodeRegistry, Param, node
-from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
 from conductor.errors import NodeExecutionError
 from conductor.execution.live_run_values import LiveRunValues, Skip
 from conductor.execution.run_state import WaitingUnit
+from conductor.field_records import Result
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
-from conductor.graph.model import Graph, GraphNode
-from conductor.metadata import Result
+from conductor.graph.graph_records import Graph, GraphNode
 from conductor.ref import Ref
 from conductor.series import Index, Series
+from conductor.skip_and_ask import SKIPPED
 from conductor.widgets import Textarea
 
 

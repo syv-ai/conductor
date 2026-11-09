@@ -14,7 +14,7 @@ Which scenario pins which embedding rule:
 
 1. an index renamed and hung under the row: ``rows_made_inside``, ``nested_iterating``;
 2. a value that ran once becomes a series on the row: ``entering_scalar``, ``gather_two_inside``;
-3. ``Whole`` → ``RowsUnder``, a ``Gather`` of single values → ``RowsUnder``: ``rows_made_inside``, ``gather_two_inside``;
+3. ``EntireValue`` → ``RowsUnder``, a ``Gather`` of single values → ``RowsUnder``: ``rows_made_inside``, ``gather_two_inside``;
 4. a crossing takes the outer walk's record: ``two_crossings``, ``series_field``, ``gathered_into_the_graph_node``;
 5. an output read outside takes the inner field's index: ``rows_made_inside_exposed``, ``read_from_outside``, ``rows_made_under_a_row_inside``;
 6. conditions put in place: every ``cond_`` scenario.
@@ -31,16 +31,16 @@ from typing import Annotated, Any
 
 import pytest
 from conductor import Arriving, NodeRegistry, node
-from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
 from conductor.errors import CompileProblem
+from conductor.field_records import Output, Param, Result
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
-from conductor.graph.model import Graph, GraphNode
-from conductor.metadata import Output, Param, Result
+from conductor.graph.graph_records import Graph, GraphNode
 from conductor.node_decorator import NodeDefinition
 from conductor.ref import Ref
 from conductor.series import Series
+from conductor.skip_and_ask import SKIPPED
 from conductor.widgets import Switch, Textarea
 
 FIXTURE = Path(__file__).parent / "fixtures" / "embedded_expected.json"

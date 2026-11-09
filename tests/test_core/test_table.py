@@ -155,8 +155,8 @@ def test_a_node_returns_a_frame_and_its_output_holds_the_table_type():
     from typing import Annotated
 
     from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, Static
-    from conductor.graph.model import Graph
-    from conductor.metadata import Result
+    from conductor.field_records import Result
+    from conductor.graph.graph_records import Graph
     from conductor.widgets import Textarea
 
     @node("read", title="Read", description="d", category="test")

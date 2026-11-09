@@ -23,10 +23,10 @@ from conductor.execution.events import (
     RunEnd,
 )
 from conductor.execution.run_state import RunState
+from conductor.field_records import Result
 from conductor.graph.binding import Static
 from conductor.graph.compiled import CompiledGraph
-from conductor.graph.model import Graph
-from conductor.metadata import Result
+from conductor.graph.graph_records import Graph
 from conductor.series import Index, Series
 from conductor.widgets import Textarea
 from pydantic import TypeAdapter, ValidationError

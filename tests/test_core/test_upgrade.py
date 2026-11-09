@@ -22,10 +22,10 @@ from conductor import (
     upgrade_node,
 )
 from conductor.dtype import DType
+from conductor.field_records import Param, Result
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
-from conductor.graph.model import FieldContent, Graph, GraphNode
-from conductor.metadata import Param, Result
+from conductor.graph.graph_records import FieldContent, Graph, GraphNode
 from conductor.node_decorator import NodeDefinition
 from conductor.widgets import Textarea
 

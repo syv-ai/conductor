@@ -16,9 +16,9 @@ from conductor.codec import to_wire
 from conductor.dtype import DType
 from conductor.execution.live_run_values import LiveRunValues
 from conductor.execution.run_state import RunState
+from conductor.field_records import Result
 from conductor.graph.binding import From, Static
-from conductor.graph.model import Graph
-from conductor.metadata import Result
+from conductor.graph.graph_records import Graph
 from conductor.node_decorator import NodeDefinition
 from conductor.series import Index, Series
 from conductor.widgets import Textarea
