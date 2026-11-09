@@ -214,7 +214,7 @@ def _reading_of_a_value_set_on_it(input_: Input, statics: Mapping[str, Any]) -> 
 def _reading_of_a_list_on_the_node(input_: Input, node_id: str) -> ReadingOfInput:
     """A list set on an input that takes one value: a column of its own, on the row it makes."""
     own_ref = Ref(node_id, input_.name)
-    return ReadingOfInput(input_, lambda row: ReceivedAtTheRow(input_.dtype, row, cell_at_the_row((own_ref,), row)), is_list_on_node=True)
+    return ReadingOfInput(input_, lambda runs_per_row_of: ReceivedAtTheRow(input_.dtype, runs_per_row_of, cell_at_the_row((own_ref,), runs_per_row_of)), is_list_on_node=True)
 
 
 def _reading_of_as_it_arrives(node_id: str, input_: Input, refs: tuple[Ref, ...], sources: list[CompiledField], progress: CompileProgress, problems: list[Problem]) -> ReadingOfInput | None:
@@ -229,8 +229,8 @@ def _reading_of_as_it_arrives(node_id: str, input_: Input, refs: tuple[Ref, ...]
     source = sources[0]
     one_value_per_run_of_a_graph = _sits_on_the_row_of_a_graph_around_both(node_id, source, progress)
 
-    def received_at_the_row(row: Index | None) -> ReceivedAtTheRow:
-        mode = cell_at_the_row(refs, source._index) if source._index is None or one_value_per_run_of_a_graph else _read_of_source_at_the_row(refs[0], source, row)
+    def received_at_the_row(runs_per_row_of: Index | None) -> ReceivedAtTheRow:
+        mode = cell_at_the_row(refs, source._index) if source._index is None or one_value_per_run_of_a_graph else _read_of_source_at_the_row(refs[0], source, runs_per_row_of)
         return ReceivedAtTheRow(source.dtype, source._index, mode)
 
     return ReadingOfInput(input_, received_at_the_row, arriving_type=source.dtype, given_by_edge={"dtype": source.dtype, "many": source.many and not one_value_per_run_of_a_graph})
@@ -247,9 +247,9 @@ def _reading_of_a_table(node_id: str, input_: Input, refs: tuple[Ref, ...], sour
     carried = _table_a_call_receives(target, merged)
     _check_columns(node_id, name, target, merged, problems)
 
-    def received_at_the_row(row: Index | None) -> ReceivedAtTheRow:
+    def received_at_the_row(runs_per_row_of: Index | None) -> ReceivedAtTheRow:
         problems.extend(progress.row_origins.check_merge(node_id, name, places))
-        return ReceivedAtTheRow(carried, row, _receive_mode_of_table_input(places, row))
+        return ReceivedAtTheRow(carried, runs_per_row_of, _receive_mode_of_table_input(places, runs_per_row_of))
 
     return ReadingOfInput(input_, received_at_the_row, arriving_type=carried, requires_rows_of=tuple(source._index for source in sources if is_table_type(source.dtype) and source._index is not None))
 
@@ -268,8 +268,8 @@ def _reading_of_a_series_on_one_index(input_: Input, refs: tuple[Ref, ...], sour
         received = ReceivedAtTheRow(source.dtype, index, rows_under_the_row(refs, index, 0))
         return ReadingOfInput(input_, lambda _: received, arriving_type=source.dtype, given_by_edge=given_by_edge)
 
-    def received_at_the_row(row: Index | None) -> ReceivedAtTheRow:
-        return ReceivedAtTheRow(source.dtype, index, rows_under_the_row(refs, index, _depth_shared_with_row(index.parent, row)))  # type: ignore[arg-type]  # checked once the row is known
+    def received_at_the_row(runs_per_row_of: Index | None) -> ReceivedAtTheRow:
+        return ReceivedAtTheRow(source.dtype, index, rows_under_the_row(refs, index, _depth_shared_with_row(index.parent, runs_per_row_of)))  # type: ignore[arg-type]  # checked once the row is known
 
     return ReadingOfInput(input_, received_at_the_row, arriving_type=source.dtype, given_by_edge=given_by_edge, reduces=index)
 
@@ -277,8 +277,8 @@ def _reading_of_a_series_on_one_index(input_: Input, refs: tuple[Ref, ...], sour
 def _reading_of_a_collected_series(input_: Input, refs: tuple[Ref, ...], sources: list[CompiledField], target: Any, given_by_edge: Mapping[str, Any] | None) -> ReadingOfInput:
     """Anything else into a ``Series[X]`` input: each source read at the call's row on its own, collected into one list."""
 
-    def received_at_the_row(row: Index | None) -> ReceivedAtTheRow:
-        return ReceivedAtTheRow(target, None, Gather(tuple(_read_of_source_at_the_row(ref, source, row) for ref, source in zip(refs, sources, strict=True))))
+    def received_at_the_row(runs_per_row_of: Index | None) -> ReceivedAtTheRow:
+        return ReceivedAtTheRow(target, None, Gather(tuple(_read_of_source_at_the_row(ref, source, runs_per_row_of) for ref, source in zip(refs, sources, strict=True))))
 
     return ReadingOfInput(input_, received_at_the_row, arriving_type=target, given_by_edge=given_by_edge)
 

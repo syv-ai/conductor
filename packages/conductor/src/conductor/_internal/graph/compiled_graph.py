@@ -22,7 +22,7 @@ for an editor. ``node(node_id)`` returns a ``CompiledNode``, everything
 compile knows about one node, and ``field(ref)`` a ``CompiledField``, the same
 for one input or output of a node compile fully worked out. Both hand back the
 same value on every call. A node compile couldn't fully work out says so by
-its ``state``, and its ``cause`` says why. The graph stores a ``GraphNode`` (a node as the author
+its ``status``, and its ``cause`` says why. The graph stores a ``GraphNode`` (a node as the author
 saved it) and addresses fields by ``Ref``; what compile learned about that
 node or field lives on its ``CompiledNode`` and ``CompiledField``.
 

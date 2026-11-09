@@ -2,7 +2,7 @@
 
 A node compile could not fully work out says so by what it lacks, never by
 raising: ``interface`` is ``None`` when compile doesn't know what fields it
-has, and ``state`` says whether it worked out its connections.
+has, and ``status`` says whether it worked out its connections.
 ``cause`` then names the one problem behind it.
 
 This module knows nothing of the compiler or of ``CompiledGraph``: it holds
@@ -58,7 +58,7 @@ if TYPE_CHECKING:
 #: version is unknown, it sits on a cycle, its id can't name a node or its
 #: ``compute_added_inputs`` raised on the statics set on it. An editor draws a bare
 #: box with its problem.
-NodeState = Literal["ready", "wiring_failed", "resolution_failed"]
+NodeStatus = Literal["ready", "wiring_failed", "resolution_failed"]
 
 
 
@@ -101,8 +101,8 @@ class CompiledNode:
     _runs_per_row_of: Index | None = field(repr=False)
 
     @property
-    def state(self) -> NodeState:
-        """How far compile got with this node (``NodeState``)."""
+    def status(self) -> NodeStatus:
+        """How far compile got with this node (``NodeStatus``)."""
         if self._fields is not None:
             return "ready"
         return "wiring_failed" if self.interface is not None else "resolution_failed"

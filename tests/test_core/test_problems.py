@@ -493,4 +493,4 @@ def test_an_edge_from_a_refused_id_beside_an_embedded_graph_does_not_read_inside
     )
 
     assert [(p.type, p.loc[0]) for p in compiled.problems] == [("invalid_node_id", "e/inner")]
-    assert compiled.node("u").state == "wiring_failed"
+    assert compiled.node("u").status == "wiring_failed"

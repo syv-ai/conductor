@@ -32,7 +32,7 @@ from conductor._internal.execution.run_state import (
 from conductor._internal.field_records import Input, Output, Param, Result
 from conductor._internal.graph.binding import OPEN, Binding, From, Static
 from conductor._internal.graph.compiled_graph import CompiledGraph
-from conductor._internal.graph.compiled_node import CompiledField, CompiledNode, NodeState
+from conductor._internal.graph.compiled_node import CompiledField, CompiledNode, NodeStatus
 from conductor._internal.graph.graph_description import (
     CompiledNodeDescription,
     FieldDescription,
@@ -106,7 +106,7 @@ __all__ = [
     "NodeError",
     "NodeRegistry",
     "NodeRunPlan",
-    "NodeState",
+    "NodeStatus",
     "NodeVersion",
     "Output",
     "EarlierUnit",

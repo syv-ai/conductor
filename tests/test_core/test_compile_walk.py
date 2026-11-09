@@ -199,9 +199,9 @@ def test_a_graph_with_faults_says_so_by_what_each_node_lacks():
         _node("after", "split", text=From("gone.result")),
     )
 
-    assert compiled.node("gone").interface is None and compiled.node("gone").state == "resolution_failed"
+    assert compiled.node("gone").interface is None and compiled.node("gone").status == "resolution_failed"
     assert compiled.node("after").interface is not None and compiled.node("after")._fields is None
-    assert compiled.node("after").state == "wiring_failed"
+    assert compiled.node("after").status == "wiring_failed"
     assert compiled.node("after").cause.type == "unknown_node_type"
     with pytest.raises(KeyError, match="no fields compile could work out"):
         compiled.field(Ref("after", "text"))

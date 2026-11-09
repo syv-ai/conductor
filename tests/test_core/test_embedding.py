@@ -512,7 +512,7 @@ def test_the_placed_node_is_a_graph_whose_version_is_the_compiled_graph():
     compiled = _compiled("read_from_outside")
     graph_node = compiled.node("emb")
 
-    assert (graph_node.state, graph_node.embedded_graph is not None) == ("ready", True)
+    assert (graph_node.status, graph_node.embedded_graph is not None) == ("ready", True)
     assert isinstance(graph_node.embedded_graph, CompiledGraph)
     assert compiled.node("emb/join").embedded_in == "emb"
     assert compiled.field(Ref("emb/join", "result")) is compiled.field(Ref("emb/join", "result"))
@@ -546,8 +546,8 @@ def test_a_broken_graph_is_one_problem_on_the_graph_node():
     (found,) = compiled.problems
     assert (found.type, found.fatal, found.loc) == ("embedded_graph_broken", True, ("emb",))
     assert found.ctx == {"graph": "Graph broken", "problems": 1}
-    assert compiled.node("emb").state == "wiring_failed"
-    assert compiled.node("after").state == "wiring_failed"
+    assert compiled.node("emb").status == "wiring_failed"
+    assert compiled.node("after").status == "wiring_failed"
     assert compiled.node("emb").embedded_graph is broken
     assert [p.type for p in compiled.node("emb").embedded_graph.problems] == ["unknown_ref_output"]
 
@@ -628,7 +628,7 @@ def test_a_value_typed_on_a_placed_graph_that_a_hook_inside_refuses_is_the_outer
     assert [(p.type, p.msg, p.loc[0], p.loc[1]) for p in compiled.problems] == [
         ("picky_refuses", "Not that mode.", "emb", "mode"),
     ]
-    assert compiled.node("emb").state == "wiring_failed"
+    assert compiled.node("emb").status == "wiring_failed"
 
 
 def test_an_input_filled_inside_is_offered_as_not_required():
@@ -696,10 +696,10 @@ def test_a_graph_the_walk_leaves_out_is_one_node_with_nothing_inside():
 
     for compiled, cause in ((upstream_broken, "unknown_node_type"), (unembeddable, "embedded_graph_broken")):
         graph_node = compiled.node("emb")
-        assert (graph_node.state, graph_node.embedded_graph is not None, graph_node.cause.type) == ("wiring_failed", True, cause)
+        assert (graph_node.status, graph_node.embedded_graph is not None, graph_node.cause.type) == ("wiring_failed", True, cause)
         with pytest.raises(KeyError):
             compiled.node("emb/holder" if compiled is upstream_broken else "emb/a")
-    assert unembeddable.node("emb").embedded_graph.node("a").state == "ready"
+    assert unembeddable.node("emb").embedded_graph.node("a").status == "ready"
 
 
 def test_a_value_on_a_field_the_graph_does_not_offer_is_a_stale_binding():

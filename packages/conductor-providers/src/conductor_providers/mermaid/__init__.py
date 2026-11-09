@@ -67,7 +67,7 @@ def _node_lines(
     title = _quoted(f"{node_id} · {node.type}")
     fault = ":::fault" if node_id in faulty else ""
     found = compiled.node(node_id)
-    if found.state != "ready" or found.embedded_graph is None:
+    if found.status != "ready" or found.embedded_graph is None:
         return [f"{indent}{name}[{title}]{fault}"]  # a graph that couldn't be embedded has nothing inside
     lines = [f"{indent}subgraph {name} [{title}]"]
     for inner in found.embedded_graph.graph.nodes:

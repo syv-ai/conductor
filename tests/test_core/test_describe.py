@@ -103,7 +103,7 @@ def test_a_node_compile_could_not_resolve_is_there_with_its_state_alone():
     described = _compiled().describe()
 
     assert list(described.nodes) == ["emb", "words", "hook", "gone"]
-    assert described.nodes["gone"].state == "resolution_failed"
+    assert described.nodes["gone"].status == "resolution_failed"
     assert described.nodes["gone"].interface is None
     assert not any(address.node_id == "gone" for address in described.fields)
 
@@ -114,5 +114,5 @@ def test_a_node_says_whether_the_graph_takes_inputs_on_it_and_a_hook_changes_its
     assert described.nodes["emb"].takes_graph_inputs is True
     assert described.nodes["words"].takes_graph_inputs is False
     hook = described.nodes["hook"]
-    assert hook.state == "ready" and [input_.name for input_ in hook.interface.inputs] == ["language", "en"]
+    assert hook.status == "ready" and [input_.name for input_ in hook.interface.inputs] == ["language", "en"]
     assert described.nodes["emb"].interface.needs == {Caller}

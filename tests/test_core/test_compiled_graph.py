@@ -197,7 +197,7 @@ def test_every_node_the_author_wrote_has_a_state():
     """``node`` answers for every node compile met, however far it got; ``KeyError`` is only for an id the graph lacks."""
     compiled = _half_finished()
 
-    assert {node_id: compiled.node(node_id).state for node_id in "abcx"} == {
+    assert {node_id: compiled.node(node_id).status for node_id in "abcx"} == {
         "a": "ready", "b": "wiring_failed", "c": "wiring_failed", "x": "resolution_failed",
     }
     with pytest.raises(KeyError):
@@ -234,8 +234,8 @@ def test_a_node_downstream_of_a_cycle_carries_the_cycle():
         GraphNode(id="c", type="echo", version=1, bindings={"x": From("b.result")}),
     ])
 
-    assert (compiled.node("a").state, compiled.node("b").state) == ("resolution_failed", "resolution_failed")
-    assert compiled.node("c").state == "wiring_failed"
+    assert (compiled.node("a").status, compiled.node("b").status) == ("resolution_failed", "resolution_failed")
+    assert compiled.node("c").status == "wiring_failed"
     assert compiled.node("c")._fields is None
     raised = compiled.node("c").cause
     assert raised.type == "cycle"
@@ -247,10 +247,10 @@ def test_a_painter_reads_every_node_of_a_broken_graph():
 
     for drawn in compiled.graph.nodes:
         graph_node = compiled.node(drawn.id)
-        if graph_node.state == "resolution_failed":
+        if graph_node.status == "resolution_failed":
             continue
         assert graph_node.interface.inputs
-        if graph_node.state == "ready":
+        if graph_node.status == "ready":
             assert compiled.run_plan.nodes[drawn.id].runs_per_row_of is None
             assert all(compiled.field(Ref(drawn.id, i.name)).dtype is Txt for i in graph_node.interface.inputs)
 
@@ -274,14 +274,14 @@ def test_an_input_named_with_a_leading_underscore_is_refused_at_compile():
     ], _registry(open_inputs))
 
     assert [(p.type, p.loc[0], p.loc[1]) for p in compiled.problems] == [("parameter_name_invalid", "s", "_x")]
-    assert compiled.node("s").state == "wiring_failed"
+    assert compiled.node("s").status == "wiring_failed"
 
 
 def test_a_hook_that_adds_an_input_named_with_a_leading_underscore_is_refused_at_compile():
     compiled = _compiled([GraphNode(id="h", type="hidden", version=1)], _registry(adds_hidden))
 
     assert [(p.type, p.loc[1]) for p in compiled.problems] == [("parameter_name_invalid", "_x")]
-    assert compiled.node("h").state == "wiring_failed"
+    assert compiled.node("h").status == "wiring_failed"
 
 
 @node("needs", title="Needs", description="d", category="test")
@@ -301,7 +301,7 @@ def test_an_empty_typed_input_is_a_value_that_arrives_later():
 
     assert not compiled.is_runnable
     assert [p.type for p in compiled.problems] == ["unbound_required"]
-    assert (compiled.node("n").state, compiled.node("e").state) == ("ready", "ready")
+    assert (compiled.node("n").status, compiled.node("e").status) == ("ready", "ready")
     assert compiled.run_plan.nodes["n"].inputs["text"].receive_mode == "same_value_every_row"
     assert compiled.field(Ref("e", "result")).dtype is Txt
 
@@ -336,7 +336,7 @@ def test_an_empty_list_of_anything_breaks_its_node_like_anything():
     compiled = _compiled([GraphNode(id="n", type="gathers", version=1)], _registry(gathers))
 
     assert [p.type for p in compiled.problems] == ["unbound_required"]
-    assert compiled.node("n").state == "wiring_failed"
+    assert compiled.node("n").status == "wiring_failed"
 
 
 #: A stored graph embedded as a node: one echo inside.
@@ -464,7 +464,7 @@ def test_a_node_type_the_registry_lacks_is_a_fatal_problem():
     (make_problem,) = compiled.problems
     assert (make_problem.type, make_problem.fatal, make_problem.loc[0]) == ("unknown_node_type", True, "a")
     assert not compiled.is_runnable
-    assert compiled.node("a").state == "resolution_failed"
+    assert compiled.node("a").status == "resolution_failed"
     assert compiled.node("a").interface is None
     raised = compiled.node("a").cause
     assert raised == make_problem

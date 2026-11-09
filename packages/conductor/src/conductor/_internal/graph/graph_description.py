@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.dtype import DTypeField
 from conductor._internal.errors import Problem
-from conductor._internal.graph.compiled_node import NodeState
+from conductor._internal.graph.compiled_node import NodeStatus
 from conductor._internal.graph.run_plan import RunPlan
 from conductor._internal.node_signature import Interface
 from conductor._internal.ref import Ref
@@ -40,7 +40,7 @@ class FieldDescription(ConductorModel):
 class CompiledNodeDescription(ConductorModel):
     """One node the author drew, as compile left it."""
 
-    state: NodeState
+    status: NodeStatus
     #: Its inputs and outputs, with the types its edges gave them; ``None`` on a ``resolution_failed`` node.
     interface: Interface | None
     #: Whether any of the graph's inputs is on this node.
@@ -71,11 +71,11 @@ def describe_graph(compiled: CompiledGraph) -> GraphDescription:
     for drawn in compiled.graph.nodes:
         node = compiled.node(drawn.id)
         nodes[drawn.id] = CompiledNodeDescription(
-            state=node.state,
+            status=node.status,
             interface=node.interface,
             takes_graph_inputs=drawn.id in nodes_taking_graph_inputs,
         )
-        if node.state == "ready":
+        if node.status == "ready":
             assert node.interface is not None
             names = [input_.name for input_ in node.interface.inputs] + [output.name for output in node.interface.outputs]
             for name in names:

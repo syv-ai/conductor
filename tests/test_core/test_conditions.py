@@ -166,7 +166,7 @@ def test_a_decision_on_a_node_whose_wiring_failed_is_not_one_a_run_makes():
     ])
 
     assert compiled.decisions == {}
-    assert compiled.node("g").state == "wiring_failed"
+    assert compiled.node("g").status == "wiring_failed"
     assert compiled.node("g")._fields is None
     raised = compiled.node("g").cause
     assert raised.type == "unknown_ref_output"
