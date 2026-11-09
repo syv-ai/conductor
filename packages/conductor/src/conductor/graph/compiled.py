@@ -15,19 +15,16 @@ one, ``answer`` writes a person's answers into one, and ``outputs``,
 
 The questions come at three scales. The graph itself answers what it
 takes and returns (``interface``), what is wrong with it (``problems``,
-``is_runnable``), in what order its nodes run (``execution_order``) and
-which decisions a run makes (``decisions``). ``node(node_id)`` returns a
-``CompiledNode``, everything the compiler knows about one node, whether it
-runs as one unit or its version is a graph (its ``kind``), and each says
-its ``state``: how far compile got with it. ``field(ref)`` returns a
-``CompiledField``, everything it knows about one input or output; both
-live in ``conductor.graph.compiled_node``.
-Compile builds each once, holding its own answers, and these two
-hand back the same value on every call. The graph stores a ``GraphNode``
-(a node as the author saved it) and addresses fields by ``Ref``; what
-compile learned about that node or field lives on its ``CompiledNode`` and
-``CompiledField``, and a ``CompiledNode`` hands back the stored node as
-``graph_node``.
+``is_runnable``), in what order its nodes run (``execution_order``), where
+each runs and what its inputs receive (``run_plan``) and which decisions a run
+makes (``decisions``). ``node(node_id)`` returns a ``CompiledNode``, everything
+compile knows about one node, and ``field(ref)`` a ``CompiledField``, the same
+for one input or output of a node compile fully worked out. Both hand back the
+same value on every call. A node compile couldn't fully work out says so by
+what it lacks: its ``interface`` or its ``wiring`` is ``None``, and its
+``cause`` says why. The graph stores a ``GraphNode`` (a node as the author
+saved it) and addresses fields by ``Ref``; what compile learned about that
+node or field lives on its ``CompiledNode`` and ``CompiledField``.
 
 The words this module uses throughout, each defined once here.
 
@@ -42,8 +39,7 @@ value. A node that receives a series on a scalar input runs once per row
 of the series; we say the node runs per row of that index.
 
 Some nodes have a version that is itself a graph, which the host compiled
-on its own; that graph is an embedded graph, and the node is a ``graph``
-(its ``kind``). Compile embeds the graph's nodes in place of that
+on its own; that graph is an embedded graph, the node's ``embedded_graph``. Compile embeds the graph's nodes in place of that
 node (``conductor.graph.embedding``), so the graph the author drew (the
 authored graph) differs from the graph that runs. In the authored graph the
 embedded graph is one node, ``approve``; in the graph that runs its inner
@@ -105,10 +101,8 @@ class CompiledGraph:
 
     Three attributes are public, ``graph``, ``interface`` and ``problems``; every other
     attribute is private and read through the methods here and through
-    ``node`` and ``field``. ``node`` answers for every node compile met, in
-    one of three states (``NodeState``), and raises ``KeyError`` only for
-    an id the graph does not have; an editor asks each node its ``state``
-    and paints what that state has.
+    ``node`` and ``field``. ``node`` answers for every node compile met and
+    raises ``KeyError`` only for an id the graph does not have.
     """
 
     #: The registry the graph was compiled against, kept so a compiled
@@ -120,8 +114,7 @@ class CompiledGraph:
     #: declares: ``inputs`` are the unlocked, connectable fields of the nodes
     #: nothing feeds into (each declaration whole, titled as the author
     #: titled it on that node), ``outputs`` every field of the nodes nothing
-    #: reads from, both named by address (``"node.field"``); ``returns`` is
-    #: ``Mapping``.
+    #: reads from, both named by address (``"node.field"``).
     interface: Interface
     #: The graph as the author saved it — with the values ``with_inputs``
     #: filled, on a copy it made — which a host stores as what ran. Not read

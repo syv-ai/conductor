@@ -59,16 +59,13 @@ if TYPE_CHECKING:
 NodeState = Literal["ready", "wiring_failed", "resolution_failed"]
 
 
-def _written(value: Any, dtype: Any, listed: bool) -> Any:
-    """A static as its declared type writes it, for ``CompiledNode.fingerprint``:
-    each of many typed-in values (``listed``) through the scalar type, a
-    series through its element type, one value through its own."""
+def _written(value: Any, dtype: Any) -> Any:
+    """A static as its field's type writes it, for ``CompiledNode.fingerprint``:
+    each of many values through the element type, one value through its own."""
     if value is None:
         return None
     if dtype.element is not None:
         return [to_wire(item, dtype.element) for item in (value.values if isinstance(value, Series) else value)]
-    if listed:
-        return [to_wire(item, dtype) for item in value]
     return to_wire(value, dtype)
 
 
@@ -174,7 +171,7 @@ class CompiledNode:
                 # The value as its type writes it, never as the author spelled
                 # it: ``2`` and ``2.0`` on a number are one value, and a graph
                 # built in Python hashes like the stored graph with its JSON.
-                bindings[name] = {"static": _written(self.statics[name], fields[name].type if name in fields else None, fields[name]._listed if name in fields else False)}
+                bindings[name] = {"static": _written(self.statics[name], fields[name].type)}
             else:
                 bindings[name] = binding.model_dump()
         used = {

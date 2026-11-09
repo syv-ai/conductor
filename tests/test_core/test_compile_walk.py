@@ -97,11 +97,6 @@ def from_any(t: Any) -> Mapping[str, Any]:
     return {"result": Table(pl.DataFrame({"y": [1, 2]}))}
 
 
-@node("needs-a-file")
-def needs(name: Annotated[Txt, Param(connectable=False)] = Txt("")) -> Txt:
-    return name
-
-
 @node("hooked", compute_inputs=lambda: [Input("extra", Txt)])
 def hooked(**more: Any) -> Txt:
     return Txt("x")

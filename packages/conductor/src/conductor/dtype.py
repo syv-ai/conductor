@@ -54,9 +54,9 @@ the second reaches a registry, never at class definition.
 
 from __future__ import annotations
 
-from functools import cache
 from abc import ABC, ABCMeta
 from dataclasses import dataclass
+from functools import cache
 from types import NoneType, UnionType
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Union, get_args, get_origin
 

@@ -36,10 +36,10 @@ Polars is imported the first time a table is built, never at
 
 from __future__ import annotations
 
-from functools import cache
 import datetime
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from functools import cache
 from itertools import count
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, get_type_hints, is_typeddict
 
