@@ -4,9 +4,9 @@ A general-purpose Python library that compiles and runs graphs of typed nodes. I
 
 ## Layout
 
-- `packages/conductor/` (`syv-conductor`, import `conductor`): the engine. `node.py` is the node contract, `interface.py` reads a `run` signature, `dtype.py` / `series.py` / `ref.py` are the type mechanism, `widgets.py` the controls, `errors.py` the exceptions, `registry/`, `graph/` (the record, compile, `CompiledGraph`) and `execution/` (the engine, events, `RunState`).
-- `packages/conductor-nodes/` (`conductor_nodes`): the standard nodes and their four types.
-- `packages/conductor-providers/` (`conductor_providers`): `react`, `fastapi` and `mermaid` adapters, one subpackage each, with no shared base class.
+- `packages/conductor/` (`syv-conductor`, import `conductor`): the engine. Three public modules, `__init__.py`, `widgets.py` (the controls) and `events.py`, plus `about/` and `_internal/`, which holds everything else: `node_definition.py` is the node contract, `node_signature.py` reads a signature, `field_records.py` the records of a field, `dtype.py` / `table.py` / `ref.py` the types, `errors.py` the exceptions, `registry.py`, `graph/` (the record, compile, `CompiledGraph`) and `execution/` (the engine, events, `RunState`).
+- `packages/conductor-nodes/` (`conductor_nodes`): the standard nodes and the one type of their own, `Json`.
+- `packages/conductor-providers/` (`conductor_providers`): the `mermaid` adapter.
 - `tests/`: `test_core`, `test_nodes`, `test_providers`, `test_stress`.
 - `examples/`: Jupyter notebooks. `skills/`: agent skills for adding a node and building a graph.
 
@@ -25,23 +25,22 @@ CI runs ruff and pytest on every PR. Tests marked `slow` time the wall clock and
 
 ## Rules
 
-- **Conductor stands alone.** No host's words ("flow", "app", an access model), no host's imports, and no concrete type declared by the core. `tests/test_core/test_standalone.py` enforces this. The library's word is graph.
-- **One node contract.** A node is a `NodeDefinition` subclass; its typed `run` signature is its interface. Every parameter an edge can reach declares a `DType` (or `Any`) inside `Annotated[..., Param(title=..., widget=...)]`. The return annotation declares the outputs. Don't add a second place to declare anything a signature already says.
-- **Behaviour is a value, not a flag.** A branch not taken returns `SKIPPED`; a node that needs a person returns `Asks`. There is no role or marker on a class that tells the engine what to do.
-- **Placement shape lives in the hooks.** `compute_inputs(declared, values)` and `compute_outputs(declared, values, arriving)` are the only home for inputs or outputs that depend on configuration. A hook that cannot answer raises `Refuses`.
-- **Compile reports, it does not raise.** A fault in a graph is a `Problem` with a stable `code`, anchored on a node. Only `execute` on a graph that is not runnable raises (`CompilationError`).
-- **Retries belong to the version's `Policy`.** Only an `ExternalFailure`, or an exception class named in `retry_on`, is retried. Every run-time failure carries an `ErrorCause`; a foreign exception's text stays on `original` and never reaches an event.
-- **Streaming is the only execution path.** `execute` is an async generator; `run` and `run_sync` drain it.
+- **Conductor stands alone.** No host's words ("flow", "app", an access model), no host's imports, and no concrete type declared by the core. The library's word is graph.
+- **One node contract.** A node is a function under `@node`, its typed signature its interface, and `@node` returns a frozen `NodeDefinition` that registers nothing. A plain Python type travels on edges as it is; a type no edge can carry (`list[X]`, a `Literal`) closes its input by itself.
+- **Behaviour is a value, not a flag.** A branch not taken returns `SKIPPED`; a node that needs a person returns `AskPerson`. There is no role or marker on a class that tells the engine what to do.
+- **Placement shape lives in the hooks.** `compute_added_inputs` and `compute_outputs` are plain functions, given per version, whose parameters name the inputs they read; `ArrivingType` gives the type on an edge. They are the only home for fields that depend on configuration.
+- **Compile reports, it does not raise.** A fault in a graph is a `Problem` with a stable `type`, anchored on a node. Only running a graph that is not runnable raises (`InvalidCallError`).
+- **Retries belong to the version's `Policy`.** Only an `ExternalFailure`, or an exception class named in `retry_on`, is retried. Every run-time failure carries a `Problem`; a node's own exception goes to the `conductor` logger, and only its class name reaches an event.
+- **Streaming is the only execution path.** `compiled.stream` is the leg; `run` and `run_sync` drain it.
 - **Records are pydantic models** on `ConductorModel` and save themselves (`to_yaml`, `to_path`). What compile and the engine build per call stays a frozen dataclass.
-- **The widget set is closed.** `AnyWidget` is built from the subclasses in `widgets.py`. A new control is a class there, a test, and a component the host's frontend owes.
-- **A `run` returns its declared types** (`Text(...)`, never a bare `str`).
-- **Registering two classes under one id raises**; so does one type id from two classes on one registry.
+- **The widget set is open.** Conductor ships the common controls; a host subclasses `Widget` for its own. Compile and the engine never read a widget. What a value must satisfy goes on `Param` (`ge`, `le`, `max_length`, ...), where it is enforced.
+- **Two definitions under one id raise** when a registry is built; so does one type id from two classes.
 - **Fail loud.** No defensive `None` checks or silent defaults where the state means a bug.
-- **Imports.** No `__all__` in a module; a reader imports a name from the module that defines it. A package `__init__` may declare one for its re-exports.
-- **Identifiers are English.** A host's language lives in titles, descriptions and messages.
+- **Imports.** Code outside the core library imports only from the three public modules: `conductor`, `conductor.widgets` and `conductor.events`. Inside the core, import a name from the module that defines it. Only those three and `conductor.about` declare `__all__`.
+- **Identifiers are English.**
 - **Notebook outputs are stripped on commit.** Run the cells to see values.
-- **Keep the docs true.** A change to public API updates `README.md`, `docs/`, `llms.txt` and the skills in the same change, and adds a `CHANGELOG.md` line under `[Unreleased]`. The README's Python blocks run as a test (`tests/test_core/test_vocabulary.py`), so keep them runnable top to bottom. Docs describe what the code does; where a commit message and the code disagree, trust the code.
+- **Keep the docs true.** A change to public API updates `README.md`, `docs/`, `llms.txt` and the skills in the same change, and adds a `CHANGELOG.md` line under `[Unreleased]`. Keep every Python block in the docs runnable. Docs describe what the code does; where a commit message and the code disagree, trust the code.
 
 ## Public API
 
-The public API is what each package's `__init__` exports plus `conductor.widgets`, `conductor.errors`, `conductor.metadata`, `conductor.model` and `conductor.execution.events`. Anything else, including `_`-prefixed names, is internal. A breaking change to the public API needs a major version.
+The public API is what the three public modules list in `__all__`, plus `conductor_nodes` and `conductor_providers`. Everything in `conductor._internal`, including anything with a leading underscore, is internal. A breaking change to the public API needs a major version.
