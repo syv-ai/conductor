@@ -23,6 +23,8 @@ its stored graphs itself. What a 1.x user must change:
   pydantic's words (`ge`, `le`, `min_length`, `max_length`, `pattern`), and are enforced at compile
   and on every call; they are gone from the widgets.
 - `ComputeHookError(message, code=, ctx=, field=)` is written as every author error is.
+- A default is checked where it is written: `x: int = "abc"` is a `NodeDeclarationError` at import.
+- A failure no longer quotes what a validator said about a value. A type whose message is meant for people raises `PydanticCustomError`.
   `Result(exclusive_group=)` replaces `choice=`. A field nobody titled reads as its name in everyday
   words. `Table.with_columns` is `table_with_columns(columns)`, which a type checker accepts.
 - A notice lives on a version only; the newest version's notice is the node's.
