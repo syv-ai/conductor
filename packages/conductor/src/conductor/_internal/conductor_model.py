@@ -49,6 +49,17 @@ class ConductorModel(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    @classmethod
+    def _built_from_checked_fields(cls, **fields: Any) -> Self:
+        """A record from values that already passed, every field given: what ``model_construct``
+        does without its walk over the fields, for records built once per node on a leg's path."""
+        record = cls.__new__(cls)
+        object.__setattr__(record, "__dict__", fields)
+        object.__setattr__(record, "__pydantic_fields_set__", set(fields))
+        object.__setattr__(record, "__pydantic_extra__", None)
+        object.__setattr__(record, "__pydantic_private__", None)
+        return record
+
     def __repr_args__(self) -> Iterator[tuple[str | None, Any]]:
         """Pydantic's repr arguments without the fields at their default, as scikit-learn prints an estimator.
 

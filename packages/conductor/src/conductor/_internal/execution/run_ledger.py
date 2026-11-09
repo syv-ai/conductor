@@ -39,8 +39,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from itertools import chain
-from operator import itemgetter
+from itertools import chain, groupby
+from operator import attrgetter, itemgetter
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, NamedTuple
 
@@ -848,9 +848,7 @@ class RunLedger:
         answered: dict[str, list[Row]] = {}
         for node_id, row in sorted(self._answered):
             answered.setdefault(node_id, []).append(row)
-        waiting: dict[str, list[WaitingUnit]] = {}
-        for waiting_unit in self.waiting():
-            waiting.setdefault(waiting_unit.node_id, []).append(waiting_unit)
+        waiting = {node_id: tuple(units) for node_id, units in groupby(self.waiting(), key=attrgetter("node_id"))}
         interfaces = self._lookups.interfaces
         nodes: dict[str, WorkOfNode] = {}
         for node_id in compiled.execution_order:
@@ -861,15 +859,15 @@ class RunLedger:
                 units = []  # a node complete on no rows: the state says it finished
             outputs: dict[str, OutputColumn] = {}
             for out in interfaces[node_id].outputs:
-                ref = Ref(node_id, out.name)
+                ref = Ref._from_checked_parts(node_id, out.name)
                 if ref in self._values:
                     outputs[out.name] = _output_column_of(self._values[ref], is_many_cells=self._fields[ref]._unit_writes_many_cells)
-            nodes[node_id] = WorkOfNode.model_construct(
+            nodes[node_id] = WorkOfNode._built_from_checked_fields(
                 fingerprint=compiled.node(node_id).fingerprint,
                 finished_units=units,
                 answered_rows=answered.get(node_id, []),
                 outputs=outputs,
-                waiting=tuple(waiting.get(node_id, ())),
+                waiting=waiting.get(node_id, ()),
                 rows_not_called=dict(sorted(self._rows_not_called[node_id].items())) if node_id in self._rows_not_called else {},
                 reused_units=self._reused_units.get(node_id, 0),
                 earlier_units=self._earlier_units_still_unclaimed(node_id) if self.earlier_units else [],
@@ -1107,7 +1105,7 @@ def _output_column_of(by_row: Mapping[Row, Any], is_many_cells: bool) -> OutputC
                     skipped.append((*row, position))
         values.append(value)
     skipped.sort()
-    return OutputColumn.model_construct(rows=rows, values=values, skipped=skipped)
+    return OutputColumn._built_from_checked_fields(rows=rows, values=values, skipped=skipped)
 
 
 def read_output_columns(compiled: CompiledGraph, state: RunState, dropped: set[str]) -> tuple[dict[Ref, dict[Row, Any]], list[Problem]]:
