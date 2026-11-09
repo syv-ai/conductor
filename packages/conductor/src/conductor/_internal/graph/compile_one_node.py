@@ -280,12 +280,6 @@ def _with_types_from_their_edges(inputs: tuple[Input, ...], inputs_read: WhatArr
     return tuple(input_.model_copy(update=given[input_.name]) if input_.name in given else input_ for input_ in inputs)
 
 
-def _field_above(progress: CompileProgress, ref: Ref) -> CompiledField | None:
-    """The field ``ref`` names on a node compiled so far, if it was worked out."""
-    node = progress.compiled.get(ref.node_id)
-    return None if node is None or node._fields is None else node._fields.get(ref.field)
-
-
 def _fields_of_function_node(
     node: GraphNode, interface: Interface, received: Mapping[str, ReceivedAtTheRow], tables_taken_in: tuple[CompiledField, ...], lists_set_on_inputs: Mapping[str, Sequence[Any]], runs_per_row_of: Index | None, progress: CompileProgress, problems: list[Problem],
 ) -> dict[str, CompiledField]:
@@ -318,7 +312,8 @@ def _fields_of_function_node(
     rows_of_this_node = frozenset() if runs_per_row_of is None else frozenset(step.id for step in runs_per_row_of.lineage)
 
     def condition_at_this_nodes_row(ref: Ref) -> Condition:
-        field = _field_above(progress, ref)
+        fields_above = progress.fields_of(ref.node_id)
+        field = None if fields_above is None else fields_above.get(ref.field)
         condition = None if field is None else field._condition_with_rows
         return ALWAYS if condition is None or condition is ALWAYS else condition_for_reader_on_rows(condition, rows_of_this_node)
 

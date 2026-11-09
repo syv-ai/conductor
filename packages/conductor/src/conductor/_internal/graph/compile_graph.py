@@ -10,11 +10,12 @@ node, and that exception leaves here as it is.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from conductor._internal.errors import Problem, make_problem
 from conductor._internal.graph.compile_one_node import compile_one_node
-from conductor._internal.graph.compiled_node import CompiledNode
+from conductor._internal.graph.compiled_node import CompiledField, CompiledNode
 from conductor._internal.graph.graph_interface import derive_interface
 from conductor._internal.graph.graph_records import Graph, GraphNode
 from conductor._internal.graph.row_origins import RowOriginsSeen
@@ -39,6 +40,11 @@ class CompileProgress:
     row_origins: RowOriginsSeen = field(default_factory=RowOriginsSeen)
     #: Every problem so far, in the order the nodes were compiled.
     problems: list[Problem] = field(default_factory=list)
+
+    def fields_of(self, node_id: str) -> Mapping[str, CompiledField] | None:
+        """The fields of a node compiled so far; ``None`` when it isn't one, or compile couldn't work out its connections."""
+        node = self.compiled.get(node_id)
+        return None if node is None else node._fields
 
 
 @dataclass(frozen=True)

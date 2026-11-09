@@ -163,7 +163,7 @@ def read_what_arrives_on_inputs(
             problems.extend(
                 make_problem("unknown_ref_output", node.id, name, source=str(ref_), outputs=_outputs_offered_by(ref_.node_id, progress))
                 for ref_, source in zip(binding.refs, feeding, strict=True)
-                if source is None and _source_node_is_wired(ref_, progress)
+                if source is None and progress.fields_of(ref_.node_id) is not None
             )
             return WhatArrivesOnInputs(tuple(readings), tables_taken_in, True)
         sources: list[CompiledField] = cast("list[CompiledField]", feeding)
@@ -300,10 +300,10 @@ def _source_output(ref: Ref, reader_id: str, progress: CompileProgress) -> Compi
 
     An id an author wrote with a ``/`` in it is no source; the same id on a node placed inside a graph is one."""
     source_id = ref.node_id
-    node = progress.compiled.get(source_id)
-    if node is None or node._fields is None or (source_id in progress.invalid_node_ids and NODE_PATH_SEPARATOR not in reader_id):
+    fields = progress.fields_of(source_id)
+    if fields is None or (source_id in progress.invalid_node_ids and NODE_PATH_SEPARATOR not in reader_id):
         return None
-    found = node._fields.get(ref.field)
+    found = fields.get(ref.field)
     return found if found is not None and holds_values(found) else None
 
 
@@ -315,11 +315,6 @@ def _outputs_offered_by(node_id: str, progress: CompileProgress) -> str:
     else:
         names = sorted(name for name, field in node._fields.items() if holds_values(field))  # type: ignore[union-attr]
     return ", ".join(names) or "none"
-
-
-def _source_node_is_wired(ref: Ref, progress: CompileProgress) -> bool:
-    node = progress.compiled.get(ref.node_id)
-    return node is not None and node._fields is not None
 
 
 def decide_runs_per_row_of(node_id: str, readings: tuple[ReadingOfInput, ...], problems: list[Problem], runs_under: Index | None) -> tuple[bool, Index | None]:
