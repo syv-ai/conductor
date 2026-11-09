@@ -43,9 +43,7 @@ def bare(text: Text = Txt("")) -> Annotated[Table, Result(title="Anything")]:
 
 
 def _compiled(*nodes: GraphNode, extra: tuple[type[NodeDefinition], ...] = ()) -> CompiledGraph:
-    registry = _registry()
-    for graph_node in extra:
-        registry = registry.extended_with([graph_node])
+    registry = _registry().extended_with(extra)
     return CompiledGraph.from_graph(Graph(nodes=list(nodes)), registry)
 
 

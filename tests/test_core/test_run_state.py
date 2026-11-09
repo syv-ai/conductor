@@ -81,10 +81,7 @@ def ask(text: In = Txt("")) -> Out | AskPerson:
 
 
 def _registry() -> NodeRegistry:
-    reg = NodeRegistry()
-    for cls in (split_node, upper_node, wrap, echo, ask):
-        reg = reg.extended_with([cls])
-    return reg
+    return NodeRegistry([split_node, upper_node, wrap, echo, ask])
 
 
 def _compiled(nodes: list[GraphNode]) -> CompiledGraph:
@@ -245,9 +242,7 @@ def test_a_return_of_the_wrong_type_fails_the_returning_node_with_invalid_output
     def wrong(text: In = Txt("")) -> Out:
         return 42  # type: ignore[return-value]
 
-    reg = NodeRegistry()
-    for cls in (wrong, upper_node):
-        reg = reg.extended_with([cls])
+    reg = NodeRegistry([wrong, upper_node])
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         GraphNode(id="w", type="wrong", version=1, bindings={"text": Static("x")}),
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge("w")}),

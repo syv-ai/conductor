@@ -125,10 +125,7 @@ def adds_hidden(value: Annotated[Txt, Param(title="Value", widget=Textarea())] =
 
 
 def _registry(*extra):
-    registry = NodeRegistry()
-    for node_cls in (echo, text_input, modes, open_sheet, renamed, *extra):
-        registry = registry.extended_with([node_cls])
-    return registry
+    return NodeRegistry([echo, text_input, modes, open_sheet, renamed, *extra])
 
 
 def _compiled(nodes, registry=None, **kw):

@@ -70,10 +70,7 @@ def tags_node(tags: Annotated[list[str], Param(title="Tags", connectable=False)]
 
 
 def _registry(*extra):
-    registry = NodeRegistry()
-    for node_cls in (docs, upper_node, lines, join_node, script, tags_node, *extra):
-        registry = registry.extended_with([node_cls])
-    return registry
+    return NodeRegistry([docs, upper_node, lines, join_node, script, tags_node, *extra])
 
 
 def _compiled(nodes, *extra):

@@ -82,9 +82,7 @@ def _edge(node_id: str, field: str) -> From:
 
 def _compiled(rows: int) -> CompiledGraph:
     """Ten nodes over ``rows`` rows; every third row takes the short branch."""
-    registry = NodeRegistry()
-    for node_cls in (docs, upper_node, pair, join_node, long_only):
-        registry = registry.extended_with([node_cls])
+    registry = NodeRegistry([docs, upper_node, pair, join_node, long_only])
     text = ",".join(f"row{i}" if i % 3 else "r" for i in range(rows))
     graph = Graph(nodes=[
         GraphNode(id="docs", type="docs", version=1, bindings={"text": Static(text)}),

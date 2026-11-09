@@ -43,10 +43,7 @@ def only_with_email(contacts: Annotated[Contacts, Param(title="Contacts")]) -> A
 
 
 def _registry_with(*extra: type[NodeDefinition]) -> NodeRegistry:
-    registry = _registry()
-    for graph_node in (export, only_with_email, *extra):
-        registry = registry.extended_with([graph_node])
-    return registry
+    return _registry().extended_with([export, only_with_email, *extra])
 
 
 def _compiled(*nodes: GraphNode, registry: NodeRegistry | None = None) -> CompiledGraph:

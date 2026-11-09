@@ -59,9 +59,7 @@ def skips(text: Text = Txt("")) -> Out:
 
 
 def _compiled(*nodes: GraphNode) -> CompiledGraph:
-    registry = NodeRegistry()
-    for node_cls in (upper_node, needs, fails, skips):
-        registry = registry.extended_with([node_cls])
+    registry = NodeRegistry([upper_node, needs, fails, skips])
     registry = registry.extended_with([embedded_graph_node("shout", (GraphNode(id="up", type="upper", version=1),), registry, "Shout")])
     return CompiledGraph.from_graph(Graph(nodes=nodes), registry)
 

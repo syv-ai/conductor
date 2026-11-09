@@ -124,10 +124,7 @@ def twice(value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("
 
 
 def _registry():
-    registry = NodeRegistry()
-    for node_cls in (echo, script, needs, join_node, picky, twice):
-        registry = registry.extended_with([node_cls])
-    return registry
+    return NodeRegistry([echo, script, needs, join_node, picky, twice])
 
 
 def _problems(nodes, **kw):
@@ -200,8 +197,7 @@ def test_a_hook_writing_an_output_of_no_dtype_is_a_bug_in_the_hook():
     def odd(value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
         return value
 
-    registry = _registry()
-    registry = registry.extended_with([odd])
+    registry = _registry().extended_with([odd])
     with pytest.raises(ValidationError, match="dtype"):
         CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="o", type="odd", version=1)]), registry)
 
@@ -293,8 +289,7 @@ def test_an_any_input_with_no_edge_is_unbound_required():
     def route(value: Annotated[Any, Param(title="Value")]) -> Annotated[Any, Result(title="R")]:
         return value
 
-    registry = _registry()
-    registry = registry.extended_with([route])
+    registry = _registry().extended_with([route])
     problems = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="r", type="route-p", version=1)]), registry).problems
 
     assert [(p.type, p.fatal, p.loc[1]) for p in problems] == [("unbound_required", True, "value")]

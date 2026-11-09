@@ -70,10 +70,7 @@ def _inner_graph():
 
 
 def _registry(*extra):
-    registry = NodeRegistry()
-    for node_cls in (holder, upper_node, join_node, docs, *extra):
-        registry = registry.extended_with([node_cls])
-    return registry
+    return NodeRegistry([holder, upper_node, join_node, docs, *extra])
 
 
 def _inner_definition():

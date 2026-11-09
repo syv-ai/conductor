@@ -136,10 +136,7 @@ def columns(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("
 
 
 def _registry():
-    registry = NodeRegistry()
-    for node_cls in (docs, upper_node, pair, lines_node, join_node, long_only, fails_on, slow, wide, columns):
-        registry = registry.extended_with([node_cls])
-    return registry
+    return NodeRegistry([docs, upper_node, pair, lines_node, join_node, long_only, fails_on, slow, wide, columns])
 
 
 def _edge(*refs):
@@ -484,8 +481,7 @@ def test_computed_inputs_reach_the_node_as_keywords():
     def template_node(template: Annotated[Txt, Param(title="Template", connectable=False, widget=Textarea())] = Txt(""), **values: Txt) -> Out:
         return Txt(re.sub(r"\{(\w+)\}", lambda m: str(values[m.group(1)]), template))
 
-    registry = _registry()
-    registry = registry.extended_with([template_node])
+    registry = _registry().extended_with([template_node])
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             _docs("Ida,Bo"),
@@ -556,10 +552,7 @@ def test_a_run_that_may_ask_says_so_and_still_declares_its_outputs():
 
 
 def _registry_with_asks(*extra):
-    registry = _registry()
-    for node_cls in (ask_node, *extra):
-        registry = registry.extended_with([node_cls])
-    return registry
+    return _registry().extended_with([ask_node, *extra])
 
 
 def _leg(compiled, **kwargs):

@@ -67,9 +67,7 @@ def count(lines: Annotated[Series[Txt], Param(title="L")]) -> Annotated[Txt, Res
 
 
 LINES = ["a", "b", "hold", "c"]
-REGISTRY = NodeRegistry()
-for cls in (lines_node, work, count):
-    REGISTRY = REGISTRY.extended_with([cls])
+REGISTRY = NodeRegistry([lines_node, work, count])
 
 
 def compiled() -> CompiledGraph:

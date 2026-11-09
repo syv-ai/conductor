@@ -102,10 +102,7 @@ def gate(texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Column:
 
 
 def _registry():
-    registry = NodeRegistry()
-    for node_cls in (docs, upper_node, pair, lines_node, join_node, join_per_text, gate):
-        registry = registry.extended_with([node_cls])
-    return registry
+    return NodeRegistry([docs, upper_node, pair, lines_node, join_node, join_per_text, gate])
 
 
 def _ledger(nodes):

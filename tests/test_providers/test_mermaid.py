@@ -52,9 +52,7 @@ def join_node(texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
 
 
 def _compiled(*nodes: GraphNode) -> CompiledGraph:
-    registry = NodeRegistry()
-    for node_cls in (docs, upper_node, join_node):
-        registry = registry.extended_with([node_cls])
+    registry = NodeRegistry([docs, upper_node, join_node])
     # A stored graph embedded as a node: upper-case each text, then join them.
     registry = registry.extended_with([embedded_graph_node("shout", (
         GraphNode(id="up", type="upper", version=1),

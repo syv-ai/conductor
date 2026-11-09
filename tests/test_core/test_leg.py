@@ -58,9 +58,7 @@ def _rows(count: int) -> str:
 
 def _per_row(slow_cls: type[NodeDefinition], rows: int, *more: type[NodeDefinition]) -> CompiledGraph:
     """``split`` feeding ``rows`` rows into ``slow_cls`` as ``slow``, plus ``more`` as root nodes."""
-    reg = NodeRegistry()
-    for cls in (split_node, slow_cls, *more):
-        reg = reg.extended_with([cls])
+    reg = NodeRegistry([split_node, slow_cls, *more])
     nodes = [
         GraphNode(id="split", type="split", version=1, bindings={"text": Static(_rows(rows))}),
         GraphNode(id="slow", type=slow_cls.id, version=1, bindings={"text": From("split.result")}),
@@ -164,9 +162,7 @@ def test_an_instant_node_beside_forty_slow_rows_does_not_time_out():
     def instant(texts: Annotated[Series[Txt], Param(title="In", widget=Textarea())]) -> Out:
         return Txt("now")
 
-    reg = NodeRegistry()
-    for cls in (split_node, _sleeper(0.5, calls, concurrency=40), instant):
-        reg = reg.extended_with([cls])
+    reg = NodeRegistry([split_node, _sleeper(0.5, calls, concurrency=40), instant])
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         GraphNode(id="split", type="split", version=1, bindings={"text": Static(_rows(40))}),
         GraphNode(id="slow", type="sleeper", version=1, bindings={"text": From("split.result")}),

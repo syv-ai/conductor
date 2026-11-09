@@ -72,10 +72,7 @@ def flaky(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")
 
 
 def _registry():
-    registry = NodeRegistry()
-    for node_cls in (upper_node, gate, join_node, flaky):
-        registry = registry.extended_with([node_cls])
-    return registry
+    return NodeRegistry([upper_node, gate, join_node, flaky])
 
 
 def _run(nodes):

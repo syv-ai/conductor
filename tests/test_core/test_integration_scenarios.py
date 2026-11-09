@@ -88,10 +88,7 @@ def decide(
 
 
 def _registry(*extra: type[NodeDefinition]) -> NodeRegistry:
-    reg = NodeRegistry()
-    for node_cls in (echo, record, always_fail, decide, tally, *extra):
-        reg = reg.extended_with([node_cls])
-    return reg
+    return NodeRegistry([echo, record, always_fail, decide, tally, *extra])
 
 
 async def _events(compiled) -> list[dict]:

@@ -100,9 +100,7 @@ def upper_node(text: Annotated[Txt, Param(title="In", widget=Textarea())] = Txt(
 
 
 def _compiled(*classes: type[NodeDefinition], nodes: list[GraphNode]) -> CompiledGraph:
-    reg = NodeRegistry()
-    for cls in classes:
-        reg = reg.extended_with([cls])
+    reg = NodeRegistry(classes)
     return CompiledGraph.from_graph(Graph(nodes=nodes), reg)
 
 

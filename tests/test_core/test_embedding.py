@@ -418,10 +418,7 @@ SCENARIOS: dict[str, Scenario] = {
 
 
 def _plain_registry() -> NodeRegistry:
-    registry = NodeRegistry()
-    for node_cls in PLAIN:
-        registry = registry.extended_with([node_cls])
-    return registry
+    return NodeRegistry(PLAIN)
 
 
 def _definition(type_id: str, version: Any) -> NodeDefinition:

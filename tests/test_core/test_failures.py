@@ -46,9 +46,7 @@ Out = Annotated[Txt, Result(title="Out")]
 
 def _compiled(node_cls: type[NodeDefinition], *more: type[NodeDefinition]) -> CompiledGraph:
     """One node of ``node_cls`` as ``n1``, its text typed in."""
-    reg = NodeRegistry()
-    for cls in (node_cls, *more):
-        reg = reg.extended_with([cls])
+    reg = NodeRegistry([node_cls, *more])
     return CompiledGraph.from_graph(
         Graph(nodes=[GraphNode(id="n1", type=node_cls.id, version=1, bindings={"text": Static("x")})]), reg
     )
@@ -284,9 +282,7 @@ def test_a_flaky_node_in_one_branch_retries_while_the_other_branch_completes():
     def join(a: Annotated[Txt, Param(title="A", widget=Textarea())] = Txt(""), b: Annotated[Txt, Param(title="B", widget=Textarea())] = Txt("")) -> Out:
         return Txt(f"{a}+{b}")
 
-    reg = NodeRegistry()
-    for cls in (flaky_a, fast_b, join):
-        reg = reg.extended_with([cls])
+    reg = NodeRegistry([flaky_a, fast_b, join])
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="n1", type="flaky-a", version=1, bindings={"text": Static("x")}),

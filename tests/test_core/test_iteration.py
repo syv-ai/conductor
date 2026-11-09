@@ -118,10 +118,7 @@ def script(code: Annotated[Txt, Param(title="Code", connectable=False, widget=Te
 
 
 def _registry():
-    registry = NodeRegistry()
-    for node_cls in (docs, upper_node, pair, triple, join_node, lines, count, route, only, script):
-        registry = registry.extended_with([node_cls])
-    return registry
+    return NodeRegistry([docs, upper_node, pair, triple, join_node, lines, count, route, only, script])
 
 
 def _compiled(nodes, **kw):
@@ -368,8 +365,7 @@ def test_a_node_with_no_outputs_yet_is_the_ordinary_mid_edit_state():
     def sheet(header: Annotated[Txt, Param(title="Header", widget=Textarea())] = Txt("")) -> Out:
         return header
 
-    registry = _registry()
-    registry = registry.extended_with([sheet])
+    registry = _registry().extended_with([sheet])
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="s", type="sheet", version=1)]), registry)
 
     (make_problem,) = compiled.problems
@@ -394,8 +390,7 @@ def test_compute_outputs_sees_the_dtype_each_connected_input_receives():
     def opener(value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
         return value
 
-    registry = _registry()
-    registry = registry.extended_with([opener])
+    registry = _registry().extended_with([opener])
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         GraphNode(id="docs", type="docs", version=1),
         GraphNode(id="o", type="opener", version=1, bindings={"value": _edge(("docs", "texts"))}),
@@ -422,8 +417,7 @@ def test_a_hook_that_cannot_answer_refuses_and_the_refusal_is_the_nodes_problem(
     def fussy(value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
         return value
 
-    registry = _registry()
-    registry = registry.extended_with([fussy])
+    registry = _registry().extended_with([fussy])
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         GraphNode(id="docs", type="docs", version=1),
         GraphNode(id="f", type="fussy", version=1, bindings={"value": _edge(("docs", "texts"))}),
@@ -448,8 +442,7 @@ def test_an_inputs_hook_that_cannot_answer_refuses_and_compile_does_not_raise():
     def fussy(value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt(""), **more: Any) -> Out:
         return value
 
-    registry = _registry()
-    registry = registry.extended_with([fussy])
+    registry = _registry().extended_with([fussy])
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         GraphNode(id="f", type="fussy-inputs", version=1, bindings={"value": Static("x")}),
         GraphNode(id="u", type="upper", version=1, bindings={"text": _edge(("f", "result"))}),
@@ -474,8 +467,7 @@ def test_a_hook_reads_a_defaulted_static_nothing_bound():
     def suffixer(suffix: Annotated[Txt, Param(title="Suffix", widget=Textarea())] = Txt("out")) -> Out:
         return suffix
 
-    registry = _registry()
-    registry = registry.extended_with([suffixer])
+    registry = _registry().extended_with([suffixer])
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="s", type="suffixer", version=1)]), registry)
 
     assert compiled.is_runnable, compiled.problems
@@ -703,8 +695,7 @@ def test_a_hook_that_adds_an_input_of_a_type_no_edge_can_carry_closes_it():
     def adds(value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt(""), **more: Any) -> Out:
         return value
 
-    registry = _registry()
-    registry = registry.extended_with([adds])
+    registry = _registry().extended_with([adds])
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         GraphNode(id="n", type="count", version=1, bindings={"text": Static("hi")}),
         GraphNode(id="a", type="adds", version=1, bindings={"raw": _edge(("n", "result"))}),
@@ -724,8 +715,7 @@ def test_a_hook_that_leaves_a_connected_output_untyped_is_a_problem_not_a_crash(
     def vague(value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Annotated[Any, Result(title="Out")]:
         return value
 
-    registry = _registry()
-    registry = registry.extended_with([vague])
+    registry = _registry().extended_with([vague])
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         GraphNode(id="v", type="vague", version=1, bindings={"value": Static("hi")}),
         GraphNode(id="u", type="upper", version=1, bindings={"text": _edge(("v", "result"))}),

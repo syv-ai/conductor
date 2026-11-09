@@ -84,9 +84,7 @@ def docs(folder: Annotated[Txt, Param(title="Folder", widget=Textarea())] = Txt(
 
 
 def _compiled(nodes):
-    registry = NodeRegistry()
-    for node_cls in (gate, holder, upper_node, docs, single):
-        registry = registry.extended_with([node_cls])
+    registry = NodeRegistry([gate, holder, upper_node, docs, single])
     return CompiledGraph.from_graph(Graph(nodes=nodes), registry)
 
 

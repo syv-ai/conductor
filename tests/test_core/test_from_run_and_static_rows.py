@@ -49,10 +49,7 @@ def join_all(texts: Annotated[Series[Txt], Param(title="T")] = ()) -> Annotated[
 
 
 def _registry():
-    r = NodeRegistry()
-    for c in (greet, upper_node, join_all):
-        r = r.extended_with([c])
-    return r
+    return NodeRegistry([greet, upper_node, join_all])
 
 
 def test_a_from_run_parameter_is_a_need_not_an_input():

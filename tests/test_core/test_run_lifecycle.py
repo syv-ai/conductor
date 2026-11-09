@@ -135,9 +135,7 @@ def slow() -> Out:
     return Txt("late")
 
 
-REGISTRY = NodeRegistry()
-for cls in (split_node, words, upper_node, approve, decide, ask_table, ask_many, read_emails, boom, wrong_type, ask_stray, slow):
-    REGISTRY = REGISTRY.extended_with([cls])
+REGISTRY = NodeRegistry([split_node, words, upper_node, approve, decide, ask_table, ask_many, read_emails, boom, wrong_type, ask_stray, slow])
 
 
 def compiled_of(*nodes: GraphNode) -> CompiledGraph:
@@ -586,9 +584,7 @@ def test_a_signature_that_moves_a_node_to_other_rows_changes_its_fingerprint():
         return Whole(len(text))
 
     per_row = compiled_of(*LINES)
-    registry = NodeRegistry()
-    for cls in (split_node, whole_):
-        registry = registry.extended_with([cls])
+    registry = NodeRegistry([split_node, whole_])
     whole = CompiledGraph.from_graph(Graph(nodes=LINES), registry)
     assert per_row.node("count").fingerprint != whole.node("count").fingerprint
     assert whole._nodes_changed_since(per_row.run_sync()) == ["count"]
