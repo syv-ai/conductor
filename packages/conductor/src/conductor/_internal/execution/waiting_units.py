@@ -40,7 +40,7 @@ def waiting_unit_for(node: CompiledNode, row: Row, ask_person: AskPerson, inputs
     called with; or what is wrong when ``ask_person`` names an output the node does
     not have or proposes a default that is not its output's type: the node's
     own doing, not the person's."""
-    assert node.interface is not None and node.wiring is not None  # the engine runs only a runnable graph
+    assert node.interface is not None and node._wiring is not None  # the engine runs only a runnable graph
     questions = node._questions
     if ask_person.defaults or ask_person.widgets:
         asked = _with_defaults_and_widgets(node, row, ask_person)
@@ -96,7 +96,7 @@ def _why_default_has_no_json_form(cell: Any) -> Exception | None:
 
 def apply_answers(compiled: CompiledGraph, state: RunState, answers: Answers) -> RunState:
     """``state`` with these units answered; see the module docstring."""
-    changed = set(compiled.nodes_changed_since(state))
+    changed = set(compiled._nodes_changed_since(state))
     waiting = {waiting_unit.id: waiting_unit for waiting_unit in state.waiting}
     problems: list[Problem] = []
     finished: list[tuple[WaitingUnit, dict[str, Any] | None]] = []

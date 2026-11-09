@@ -88,7 +88,7 @@ def compile_graph(graph: Graph, registry: NodeRegistry) -> CompileResult:
     )
     execution_order = tuple(
         node_id for node_id, node in compiled.items()
-        if node.version is not None and (node.embedded_graph is None or node.wiring is None)
+        if node.version is not None and (node.embedded_graph is None or node._wiring is None)
     )
     return CompileResult(compiled, execution_order, interface, tuple(progress.problems), frozenset(progress.row_origins.must_survive))
 

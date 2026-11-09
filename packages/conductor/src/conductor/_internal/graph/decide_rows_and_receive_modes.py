@@ -239,7 +239,7 @@ def _sits_on_the_row_of_a_graph_around_both(node_id: str, source: CompiledField,
         return False
     graph_id = parent_graph_of_node_id(source.ref.node_id)
     while graph_id is not None:
-        if node_id.startswith(f"{graph_id}{NODE_PATH_SEPARATOR}") and progress.compiled[graph_id].wiring._runs_per_row_of == source._index:  # type: ignore[union-attr]
+        if node_id.startswith(f"{graph_id}{NODE_PATH_SEPARATOR}") and progress.compiled[graph_id]._wiring._runs_per_row_of == source._index:  # type: ignore[union-attr]
             return True
         graph_id = parent_graph_of_node_id(graph_id)
     return False
@@ -251,9 +251,9 @@ def _source_output(ref: Ref, reader_id: str, progress: CompileProgress) -> Compi
     An id an author wrote with a ``/`` in it is no source; the same id on a node placed inside a graph is one."""
     source_id = ref.node_id
     node = progress.compiled.get(source_id)
-    if node is None or node.wiring is None or (source_id in progress.invalid_node_ids and NODE_PATH_SEPARATOR not in reader_id):
+    if node is None or node._wiring is None or (source_id in progress.invalid_node_ids and NODE_PATH_SEPARATOR not in reader_id):
         return None
-    found = node.wiring.fields.get(ref.field)
+    found = node._wiring.fields.get(ref.field)
     return found if found is not None and (found._is_output or found._is_list_on_node) else None
 
 
@@ -263,13 +263,13 @@ def _outputs_offered_by(node_id: str, progress: CompileProgress) -> str:
     if node.embedded_graph is not None:
         names = sorted(node.embedded_graph._embeddable.outputs)
     else:
-        names = sorted(name for name, field in node.wiring.fields.items() if field._is_output or field._is_list_on_node)  # type: ignore[union-attr]
+        names = sorted(name for name, field in node._wiring.fields.items() if field._is_output or field._is_list_on_node)  # type: ignore[union-attr]
     return ", ".join(names) or "none"
 
 
 def _source_node_is_wired(ref: Ref, progress: CompileProgress) -> bool:
     node = progress.compiled.get(ref.node_id)
-    return node is not None and node.wiring is not None
+    return node is not None and node._wiring is not None
 
 
 def decide_runs_per_row_of_and_receive_modes(node: GraphNode, found: WhatArrivesOnInputs, problems: list[Problem], row_origins: Any, runs_under: Index | None) -> tuple[bool, Index | None]:

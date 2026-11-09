@@ -1,6 +1,6 @@
 # Architecture at a glance
 
-Conductor compiles and runs graphs of typed nodes. It ships as three packages: `conductor` (the engine), `conductor_nodes` (standard nodes) and `conductor_providers` (ReactFlow, FastAPI and Mermaid adapters). Plain Python types travel on edges as they are. A host declares a `DType` class only for a type of its own.
+Conductor compiles and runs graphs of typed nodes. It ships as three packages: `conductor` (the engine), `conductor_nodes` (standard nodes) and `conductor_providers` (FastAPI and Mermaid adapters). Plain Python types travel on edges as they are. A host declares a `DType` class only for a type of its own.
 
 ## One declaration, three readers
 

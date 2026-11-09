@@ -6,7 +6,7 @@ A general-purpose Python library that compiles and runs graphs of typed nodes. I
 
 - `packages/conductor/` (`syv-conductor`, import `conductor`): the engine. Three doors, `__init__.py`, `widgets.py` (the controls) and `events.py`, plus `about/` and `_internal/`, which holds everything else: `node_definition.py` is the node contract, `node_signature.py` reads a signature, `field_records.py` the records of a field, `dtype.py` / `series.py` / `table.py` / `ref.py` the types, `errors.py` the exceptions, `registry.py`, `graph/` (the record, compile, `CompiledGraph`) and `execution/` (the engine, events, `RunState`).
 - `packages/conductor-nodes/` (`conductor_nodes`): the standard nodes and the one type of their own, `Json`.
-- `packages/conductor-providers/` (`conductor_providers`): `react`, `fastapi` and `mermaid` adapters, one subpackage each, with no shared base class.
+- `packages/conductor-providers/` (`conductor_providers`): `fastapi` and `mermaid` adapters, one subpackage each, with no shared base class.
 - `tests/`: `test_core`, `test_nodes`, `test_providers`, `test_stress`.
 - `examples/`: Jupyter notebooks. `skills/`: agent skills for adding a node and building a graph.
 

@@ -644,8 +644,8 @@ class RunLedger:
         """
         node_id, row = unit
         node = self._compiled.node(node_id)
-        assert node.wiring is not None  # the engine runs only a runnable graph
-        fields = node.wiring.fields
+        assert node._wiring is not None  # the engine runs only a runnable graph
+        fields = node._wiring.fields
         rows_made: list[tuple[str, Row, int]] = []
         skip_row = outputs.row if isinstance(outputs, SkippedAtRow) else None
         not_called = outputs if isinstance(outputs, BlankInputsStopCall) else None
@@ -876,7 +876,7 @@ class RunLedger:
     def restore(cls, compiled: CompiledGraph, state: RunState) -> RunLedger:
         """A ledger holding what an earlier leg recorded, over the graph being run.
 
-        Every node ``compiled.nodes_changed_since(state)`` names is re-planned:
+        Every node ``compiled._nodes_changed_since(state)`` names is re-planned:
         its units run again, each one reusing an earlier result whose inputs
         matched, what the state holds of them read here; a node gone from the
         graph drops with them. The rest is restored, each value through its
@@ -893,7 +893,7 @@ class RunLedger:
         blank is a legal value in a state.
         """
         restored = cls(compiled)
-        changed = set(compiled.nodes_changed_since(state))
+        changed = set(compiled._nodes_changed_since(state))
         values, problems = read_output_columns(compiled, state, changed)
         if problems:
             raise InvalidCallError(problems)
@@ -1101,7 +1101,7 @@ def read_output_columns(compiled: CompiledGraph, state: RunState, dropped: set[s
     read through its output's check, and every problem found.
 
     The one reader of ``state.output_columns``: a leg restores from it and
-    ``compiled.results`` reads from it. ``dropped`` (``nodes_changed_since``)
+    ``compiled.results`` reads from it. ``dropped`` (``_nodes_changed_since``)
     is left out."""
     values: dict[Ref, dict[Row, Any]] = {}
     problems: list[Problem] = []

@@ -43,7 +43,7 @@ Python 3.12+. Three packages, released together at one version:
 ```bash
 uv add syv-conductor                # the engine: import conductor
 uv add syv-conductor-nodes          # standard nodes: import conductor_nodes
-uv add syv-conductor-providers      # ReactFlow, FastAPI and Mermaid adapters: import conductor_providers
+uv add syv-conductor-providers      # FastAPI and Mermaid adapters: import conductor_providers
 ```
 
 To work on the repository:
@@ -123,7 +123,7 @@ print(results["how_many"]["result"])            # 2
 
 **Graphs and bindings.** A graph is its nodes. Each input holds at most one binding: `From("node.output")` is an edge, `Static(value)` is a typed-in value, and no binding means the declared default. A saved graph embedded as a node is wired by the names it offers, the bare name where unique and the address on a clash; what's inside stays private. A `Graph` saves itself with `to_path` / `from_path` as YAML or JSON.
 
-**Compile.** `CompiledGraph.from_graph(graph, registry)` never raises for a fault in the graph. Everything wrong is a `Problem` with a stable `type`, anchored on a node, and `is_runnable` says whether a run may start. Ask the result about the graph with `compiled.node(id)`, `compiled.field(ref)` or `compiled.run_plan`. Every node has a `state` (`ready`, `wiring_failed` or `resolution_failed`) and its own `problems`, so an editor can draw a half-finished graph node by node.
+**Compile.** `CompiledGraph.from_graph(graph, registry)` never raises for a fault in the graph. Everything wrong is a `Problem` with a stable `type`, anchored on a node, and `is_runnable` says whether a run may start. Ask the result about the graph with `compiled.node(id)`, `compiled.field(ref)` or `compiled.run_plan`. Every node has a `state` (`ready`, `wiring_failed` or `resolution_failed`) and its own `problems`, so an editor can draw a half-finished graph node by node. `compiled.describe()` is all of that as one JSON-ready record, the twin of `registry.describe()`.
 
 **Rows.** A series arriving on an input declared for one value runs the node once per row, up to its policy's `concurrency` at a time. A `Series[X]` input receives every value under the node's row, flat, however many levels down. When nothing else says where the node runs, it runs once per row of the level right above the series.
 
@@ -149,7 +149,7 @@ print(results["how_many"]["result"])            # 2
 
 `conductor_nodes.registry(categories=[...])` builds a registry of the standard nodes (`text`, `math`, `logic`, `control`, `json`, `regex`), declared in plain Python types and `conductor_nodes.types.Json`. `conductor_nodes.nodes()` lists them for a registry of your own.
 
-`conductor_providers.react` turns a graph into ReactFlow JSON and back. `conductor_providers.fastapi.conductor_router(registry)` mounts `/nodes`, `/compile`, `/run` and `/run-stream`. `conductor_providers.mermaid.flowchart(compiled)` draws a compiled graph.
+`conductor_providers.fastapi.conductor_router(registry)` mounts `/nodes`, `/compile`, `/run` and `/run-stream`. `conductor_providers.mermaid.flowchart(compiled)` draws a compiled graph.
 
 ## Learn more
 

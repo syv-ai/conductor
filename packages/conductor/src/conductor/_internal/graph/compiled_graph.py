@@ -10,19 +10,19 @@ what is wrong. The engine is one more caller.
 
 It also owns every step and question of a run, and holds no run itself:
 ``run``, ``run_sync`` and ``stream`` take a ``RunState`` and return or end on
-one, ``answer`` writes a person's answers into one, and ``outputs``,
-``results`` and ``nodes_changed_since`` read one.
+one, ``answer`` writes a person's answers into one, and ``outputs`` and
+``results`` read one.
 
 The questions come at three scales. The graph itself answers what it
 takes and returns (``interface``), what is wrong with it (``problems``,
 ``is_runnable``), in what order its nodes run (``execution_order``), where
 each runs and what its inputs receive (``run_plan``) and which decisions a run
-makes (``decisions``). ``node(node_id)`` returns a ``CompiledNode``, everything
+makes (``decisions``). ``describe()`` is all of that as one JSON-ready record,
+for an editor. ``node(node_id)`` returns a ``CompiledNode``, everything
 compile knows about one node, and ``field(ref)`` a ``CompiledField``, the same
 for one input or output of a node compile fully worked out. Both hand back the
 same value on every call. A node compile couldn't fully work out says so by
-what it lacks: its ``interface`` or its ``wiring`` is ``None``, and its
-``cause`` says why. The graph stores a ``GraphNode`` (a node as the author
+its ``state``, and its ``cause`` says why. The graph stores a ``GraphNode`` (a node as the author
 saved it) and addresses fields by ``Ref``; what compile learned about that
 node or field lives on its ``CompiledNode`` and ``CompiledField``.
 
@@ -45,7 +45,8 @@ authored graph) differs from the graph that runs. In the authored graph the
 embedded graph is one node, ``approve``; in the graph that runs its inner
 nodes are nodes of the run, at their path, ``approve/check``. An embedded
 graph is reached from outside only by the names it offers (``embedding``);
-``interface`` names its fields ``approve.amount``, as any node's.
+``interface`` names its fields ``approve.amount``, as any node's, and ``field``
+reads that address through to the field inside.
 ``execution_order`` and ``decisions`` speak of the graph that runs;
 ``problems`` speak of the authored one, on the node and field the author
 drew. ``node`` answers for both graphs: an inner node by its path
@@ -74,8 +75,14 @@ from conductor._internal.execution.waiting_units import apply_answers
 from conductor._internal.graph.binding import Static
 from conductor._internal.graph.compile_graph import compile_graph
 from conductor._internal.graph.compiled_node import CompiledField, CompiledNode
-from conductor._internal.graph.embedding import EmbeddableGraph, embeddable_view_of, offered_names
+from conductor._internal.graph.embedding import (
+    NODE_PATH_SEPARATOR,
+    EmbeddableGraph,
+    embeddable_view_of,
+    offered_names,
+)
 from conductor._internal.graph.engine_lookups import EngineLookups, build_engine_lookups
+from conductor._internal.graph.graph_description import GraphDescription, describe_graph
 from conductor._internal.graph.run_plan import RunPlan
 from conductor._internal.ref import Ref
 
@@ -85,14 +92,21 @@ if TYPE_CHECKING:
     from conductor._internal.registry import NodeRegistry
 
 
+def _place_of_offered_field(handle: Ref, graph: CompiledGraph) -> Ref:
+    """Where the field ``handle`` names on a node that is ``graph`` is in the run: inside, at the node's path."""
+    inside = graph._embeddable.inputs.get(handle.field) or graph._embeddable.outputs.get(handle.field)
+    if inside is None:
+        raise KeyError(f"{handle.node_id!r} offers no field {handle.field!r}")
+    return Ref(f"{handle.node_id}{NODE_PATH_SEPARATOR}{inside.node_id}", inside.field)
+
+
 @dataclass(frozen=True, repr=False)
 class CompiledGraph:
     """The result of compiling one graph. Ask it; do not read through it.
 
     Built by ``from_graph`` and read by the engine (``execution_order``,
     then ``node`` and ``field`` for each node it runs), an editor's
-    compile endpoint (``problems``, ``interface``, and ``node`` and
-    ``field`` for everything it draws), and anything deciding whether a
+    compile endpoint (``describe``), and anything deciding whether a
     run may start (``is_runnable``).
 
     Three attributes are public, ``graph``, ``interface`` and ``problems``; every other
@@ -166,7 +180,7 @@ class CompiledGraph:
         compare (``conductor._internal.graph.run_plan``). ``str(compiled.run_plan)`` is
         that as text. A node that isn't ready is absent."""
         return RunPlan.model_construct(nodes={
-            node_id: node._run_plan for node_id in self._execution_order if (node := self._nodes[node_id]).wiring is not None
+            node_id: node._run_plan for node_id in self._execution_order if (node := self._nodes[node_id])._wiring is not None
         })
 
     def node(self, node_id: str) -> CompiledNode:
@@ -179,17 +193,18 @@ class CompiledGraph:
     def field(self, ref: Ref | str) -> CompiledField:
         """One compiled input or output by its address, a ``Ref`` or the string.
 
-        A field inside an embedded graph is at its path: ``Ref("emb/all",
-        "result")``. Anything the graph has no such field for raises
-        ``KeyError``, naming the problem behind it when a node compile
+        An address on a node that is a graph reads the field that name offers,
+        ``Ref("emb", "result")``, the same field as its place in the run,
+        ``Ref("emb/all", "result")``. Anything the graph has no such field for
+        raises ``KeyError``, naming the problem behind it when a node compile
         couldn't work out is why."""
         ref = ref if isinstance(ref, Ref) else Ref(ref)
         node = self.node(ref.node_id)
-        if node.wiring is None:
+        if node._wiring is None:
             raise KeyError(f"{ref.node_id!r} has no fields compile could work out: {node.cause.msg if node.cause else ''}")
         if node.embedded_graph is not None:
-            raise KeyError(f"{ref.node_id!r} is a graph; its fields are on the nodes inside it")
-        compiled_field = node.wiring.fields.get(ref.field)
+            return self.field(_place_of_offered_field(ref, node.embedded_graph))
+        compiled_field = node._wiring.fields.get(ref.field)
         if compiled_field is None:
             raise KeyError(f"{ref.node_id!r} has no field {ref.field!r} on this node")
         return compiled_field
@@ -257,6 +272,12 @@ class CompiledGraph:
         drawn = tuple(node.id for node in self.graph.nodes)
         return f"CompiledGraph(nodes={drawn!r}, is_runnable={self.is_runnable}, problems={len(self.problems)})"
 
+    def describe(self) -> GraphDescription:
+        """This compiled graph as an editor reads it: whether it runs, what is
+        wrong, what it takes and returns, where each node runs, and per node
+        the node's fields with the type on each (``GraphDescription``)."""
+        return describe_graph(self)
+
     @property
     def execution_order(self) -> tuple[str, ...]:
         """The ids of the nodes that run, in an order where every edge's source precedes
@@ -275,7 +296,7 @@ class CompiledGraph:
         groups_by_node: dict[str, dict[str, tuple[str, ...]]] = {}
         for node_id in self._execution_order:
             node = self._nodes[node_id]
-            if node.wiring is None or node.wiring._runs_per_row_of is not None:
+            if node._wiring is None or node._wiring._runs_per_row_of is not None:
                 continue
             groups: dict[str, list[str]] = {}
             for out in node.interface.outputs:
@@ -390,7 +411,7 @@ class CompiledGraph:
         in as people answer. A node the graph has changed since, and whatever
         reads it, is left out.
         """
-        dropped = set(self.nodes_changed_since(state))
+        dropped = set(self._nodes_changed_since(state))
         values, problems = read_output_columns(self, state, dropped)
         if problems:
             raise InvalidCallError(problems)
@@ -421,7 +442,7 @@ class CompiledGraph:
                 failure=None if failure is None else failure.model_dump(mode="json"),
             )])
         where = self._where_each_output_is_in_the_run
-        changed = set(self.nodes_changed_since(state)).intersection(output_address.node_id for output_address in where.values())
+        changed = set(self._nodes_changed_since(state)).intersection(output_address.node_id for output_address in where.values())
         if changed:
             raise InvalidCallError([make_problem(
                 "run_not_complete", "state", "status", status="stale",
@@ -435,7 +456,7 @@ class CompiledGraph:
                 returned[str(output.name)] = results[output_address.node_id][output_address.field]
         return returned
 
-    def nodes_changed_since(self, state: RunState, /) -> list[str]:
+    def _nodes_changed_since(self, state: RunState, /) -> list[str]:
         """Every node ``state`` holds nothing current for, in execution order,
         then the nodes it names that the graph doesn't have.
 
@@ -469,7 +490,7 @@ class CompiledGraph:
                 frontier.append(node_id)
 
         while frontier:
-            for compiled_field in self._nodes[frontier.pop()].wiring.fields.values():
+            for compiled_field in self._nodes[frontier.pop()]._wiring.fields.values():
                 for reader in lookups.read_by[compiled_field.ref]:
                     add(reader.node_id)
                 rows_made = compiled_field._makes_rows or (compiled_field._index if compiled_field._is_list_on_node else None)

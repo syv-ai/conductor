@@ -88,6 +88,13 @@ its stored graphs itself. What a 1.x user must change:
 - `conductor.flow_format` is `graph.to_path(...)` / `Graph.from_path(...)`.
 - CEL guards on edges, shared references, compensation and `on_error` are gone.
 
+- `compiled.describe()` is a compiled graph as one JSON-ready `GraphDescription`, the twin of
+  `registry.describe()`. `compiled.field` reads an address on a node that is a graph (`emb.result`).
+- What a public call hands back is importable from `conductor`: `WaitingUnit`, `Question`, `RunStatus`,
+  `Answers`, `OutputColumn`, `CompiledNode`, `CompiledField`, `NodeState`, `NodeRunPlan`, `NodeVersion`,
+  `VersionDescription`, `RegistryDescription`, `Binding`, `Condition`; `Widget` from `conductor.widgets`.
+  `nodes_changed_since` and `CompiledNode.wiring` are private: `RunStart.changed_nodes` and `state` say it.
+
 ### Running
 
 - `execute`, `execute_sync` and `collect` are `compiled.stream()`, `compiled.run()` and
@@ -134,7 +141,10 @@ its stored graphs itself. What a 1.x user must change:
   `from_run`, `extension_resolver` and `palette_from_registry` are gone (the palette is
   `registry.describe()`).
 - `run_end` on `/run-stream` carries no `results`; a value goes out in its `node_complete`. `/run`
-  keeps `results`. `sse_frame` writes the event as pydantic writes it.
+  keeps `results`. An event writes itself with `event.model_dump_json()`.
+- `conductor_providers.react` is gone, and so are `/entities/{kind}`, `entity_resolver`, `sse_frame` and
+  `RunRequest` on the door. `GET /nodes` answers `registry.describe()`; `POST /compile` takes a `Graph` and
+  answers `compiled.describe()`.
 
 ## [1.12.2]
 

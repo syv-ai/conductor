@@ -141,14 +141,12 @@ def test_the_union_reads_an_event_back_by_its_type():
 
 
 def test_a_frame_is_the_json_the_dict_was():
-    """The provider's frame of a model is the dict's frame; a series keeps its index and rows."""
-    from conductor_providers.fastapi.sse import sse_frame
-
+    """An event's JSON is the dict's JSON; a series keeps its index and rows."""
     event = NodeComplete(
         type="node_complete", node_id="s", result={"result": {"rows": [(0,)], "values": [Txt("a")]}}
     )
 
-    assert json.loads(sse_frame(event).removeprefix("data: ")) == {
+    assert json.loads(event.model_dump_json()) == {
         "type": "node_complete",
         "rows_not_called": {},
         "reused_units": 0,

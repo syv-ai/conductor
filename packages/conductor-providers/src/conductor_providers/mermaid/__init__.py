@@ -1,9 +1,9 @@
 """A compiled graph as a Mermaid flowchart: ``flowchart(compiled)``.
 
 For a person reading a graph — in a notebook, a pull request, a bug
-report — rather than for an editor, which draws from ``node`` and
-``field`` itself. Everything here is read through those two and the
-authored graph; nothing is worked out that compile did not already say.
+report — rather than for an editor, which draws from ``compiled.describe()``.
+Everything here is read through ``node``, ``run_plan`` and the authored
+graph; nothing is worked out that compile did not already say.
 
 One box per node the author drew, titled by its id and its type. A
 node whose version is a graph is a subgraph holding its inner nodes under
@@ -67,7 +67,7 @@ def _node_lines(
     title = _quoted(f"{node_id} · {node.type}")
     fault = ":::fault" if node_id in faulty else ""
     found = compiled.node(node_id)
-    if found.wiring is None or found.embedded_graph is None:
+    if found.state != "ready" or found.embedded_graph is None:
         return [f"{indent}{name}[{title}]{fault}"]  # a graph that couldn't be embedded has nothing inside
     lines = [f"{indent}subgraph {name} [{title}]"]
     for inner in found.embedded_graph.graph.nodes:

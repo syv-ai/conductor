@@ -4,7 +4,7 @@ Find its definition and version; read the statics; ask
 ``compute_added_inputs``; check its bindings; wire each input from the nodes above;
 ask ``compute_outputs``; build its fields. It returns at the first stage that
 can't go on, with what it has, and the node says so by what it lacks
-(``interface``, ``wiring``). A node a graph stands for then compiles each node
+(``interface``, ``_wiring``). A node a graph stands for then compiles each node
 of that graph the same way, under the row it runs on.
 """
 
@@ -161,7 +161,7 @@ def _why_node_is_unwired(node: GraphNode, problems: list[Problem], progress: Com
             if ref.node_id in progress.invalid_node_ids:
                 return progress.invalid_node_ids[ref.node_id]
             source = progress.compiled.get(ref.node_id) or _refused_graph_around(ref.node_id, progress)
-            if source is not None and source.wiring is None:
+            if source is not None and source._wiring is None:
                 return source.cause
     raise AssertionError(f"compile left {node.id!r} unwired with nothing fatal to say why")
 
@@ -181,7 +181,7 @@ def _with_edges_out_of_embedded_graphs_resolved(node: GraphNode, progress: Compi
     doesn't offer stays as written, and wiring reports it (``unknown_ref_output``)."""
     def resolved(ref: Ref) -> Ref:
         source = progress.compiled.get(ref.node_id)
-        inner_address = None if source is None or source.wiring is None or source.embedded_graph is None else source.embedded_graph._embeddable.outputs.get(ref.field)
+        inner_address = None if source is None or source._wiring is None or source.embedded_graph is None else source.embedded_graph._embeddable.outputs.get(ref.field)
         return ref if inner_address is None else Ref(f"{ref.node_id}{NODE_PATH_SEPARATOR}{inner_address.node_id}", inner_address.field)
 
     if not any(isinstance(binding, From) and any(ref.node_id in progress.embedded_graph_node_ids for ref in binding.refs) for binding in node.bindings.values()):
@@ -275,7 +275,7 @@ def _with_type_from_its_edge(field: Input, given_by_edge: dict[str, dict[str, An
 def _field_above(progress: CompileProgress, ref: Ref) -> CompiledField | None:
     """The field ``ref`` names on a node compiled so far, if it was worked out."""
     node = progress.compiled.get(ref.node_id)
-    return None if node is None or node.wiring is None else node.wiring.fields.get(ref.field)
+    return None if node is None or node._wiring is None else node._wiring.fields.get(ref.field)
 
 
 def _condition_lookup_for_sources(progress: CompileProgress) -> Any:

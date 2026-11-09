@@ -191,7 +191,7 @@ def test_a_node_that_is_not_ready_is_absent_from_the_run_plan():
     compiled = _compiled(_node("a", "split", text=From("ghost.x")))
 
     assert "a" not in compiled.run_plan.nodes
-    assert compiled.node("a").wiring is None and compiled.node("a").cause.type == "unknown_ref_node"
+    assert compiled.node("a")._wiring is None and compiled.node("a").cause.type == "unknown_ref_node"
 
 
 def test_a_graph_with_faults_says_so_by_what_each_node_lacks():
@@ -201,7 +201,7 @@ def test_a_graph_with_faults_says_so_by_what_each_node_lacks():
     )
 
     assert compiled.node("gone").interface is None and compiled.node("gone").state == "resolution_failed"
-    assert compiled.node("after").interface is not None and compiled.node("after").wiring is None
+    assert compiled.node("after").interface is not None and compiled.node("after")._wiring is None
     assert compiled.node("after").state == "wiring_failed"
     assert compiled.node("after").cause.type == "unknown_node_type"
     with pytest.raises(KeyError, match="no fields compile could work out"):
@@ -314,7 +314,7 @@ def test_an_untyped_input_left_empty_inside_a_graph_cant_be_embedded():
     compiled = _compiled(_node("s", "split", text=Static("t")), _node("e", "emb", **{"value": From("s.result")}), registry=extended)
 
     assert [p.type for p in compiled.problems] == ["embedded_graph_broken"]
-    assert compiled.node("e").wiring is None
+    assert compiled.node("e")._wiring is None
 
 
 def test_a_hook_refusing_leaves_a_node_that_is_only_known_by_its_problem():

@@ -7,17 +7,18 @@ from typing import Any
 
 from conductor import (
     CompiledGraph,
+    Graph,
+    GraphDescription,
     InvalidCallError,
-    NodeDescription,
     NodeRegistry,
+    RegistryDescription,
     RunState,
     to_jsonable,
 )
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from conductor_providers.fastapi.models import CompileResult, RunRequest, RunResult
-from conductor_providers.fastapi.sse import sse_frame
+from conductor_providers.fastapi.models import RunRequest, RunResult
 
 
 def conductor_router(
@@ -27,15 +28,12 @@ def conductor_router(
     tags: list[str] | None = None,
     dependencies: Sequence[Any] | None = None,
     from_run: Callable[[Request], Mapping[type, Any]] | None = None,
-    entity_resolver: (
-        Callable[[str, Request], list[dict[str, Any]]] | None
-    ) = None,
 ) -> APIRouter:
     """Build a FastAPI ``APIRouter`` serving conductor's standard endpoints.
 
     Mounts:
 
-    - ``GET  {prefix}/nodes``           — every definition's ``describe()``
+    - ``GET  {prefix}/nodes``           — ``registry.describe()``: every node and type
     - ``POST {prefix}/run``             — one leg; returns ``state`` and every
       node's ``results``, however the leg ended. ``inputs`` in the body fills the
       graph's inputs, by name or address, as ``with_inputs`` does
@@ -43,8 +41,8 @@ def conductor_router(
 
     A run that asks goes on in legs: send its ``state`` back with the
     ``answers`` (``RunRequest``).
-    - ``POST {prefix}/compile``         — compile without executing; returns
-      every ``Problem`` the graph has
+    - ``POST {prefix}/compile``         — takes a ``Graph``, compiles without
+      executing, and answers ``compiled.describe()``
 
     Args:
         registry: The populated ``NodeRegistry`` to serve.
@@ -57,11 +55,6 @@ def conductor_router(
             the values the run supplies by type, ``run(from_run=...)``: a
             parameter annotated ``FromRun[X]`` receives
             the value keyed by ``X``.
-        entity_resolver: Optional hook backing a host's entity dropdown widget.
-            Receives the entity kind (e.g. ``"document"``) and the FastAPI
-            ``Request``; returns a list of ``{"id": ..., "label": ...}``
-            dicts the frontend renders as choices. ``GET {prefix}/entities/{kind}``
-            is mounted only when one is given.
 
     A request the run cannot start from is the caller's fault and a 422,
     with ``detail`` the ``InvalidCallError``'s ``errors()``: a graph with a
@@ -83,10 +76,10 @@ def conductor_router(
             return compiled, req.state
         return compiled, compiled.answer(req.state or RunState(status="waiting"), req.answers)
 
-    @router.get("/nodes", response_model=list[NodeDescription])
-    def list_nodes() -> list[NodeDescription]:
-        """Every registered definition as a record — the palette."""
-        return [cls.describe() for cls in registry.nodes]
+    @router.get("/nodes", response_model=RegistryDescription)
+    def list_nodes() -> RegistryDescription:
+        """Every node and every type of the registry: what a palette and an edge check read."""
+        return registry.describe()
 
     @router.post("/run", response_model=RunResult)
     async def run_graph(req: RunRequest, request: Request) -> RunResult:
@@ -114,36 +107,22 @@ def conductor_router(
         async def event_stream() -> Any:
             async with leg as events:
                 async for event in events:
-                    yield sse_frame(event)
+                    yield f"data: {event.model_dump_json()}\n\n"
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
 
-    if entity_resolver is not None:
-
-        @router.get("/entities/{kind}")
-        def list_entities(kind: str, request: Request) -> list[dict[str, Any]]:
-            """Return candidate entities of ``kind`` for the current request.
-
-            Backs an entity dropdown widget in a host's frontend.
-            The exact shape of each entry is host-defined, but the frontend
-            convention is ``{"id": "...", "label": "..."}``.
-            """
-            return entity_resolver(kind, request)
-
-    @router.post("/compile", response_model=CompileResult)
-    def compile_only(req: RunRequest) -> CompileResult:
-        """Compile a graph without executing it. Returns every problem the
-        graph has, fatal or not, each anchored on a node (none means the graph
-        runs), and the run plan: where each node runs and what its inputs receive.
+    @router.post("/compile", response_model=GraphDescription)
+    def compile_only(graph: Graph) -> GraphDescription:
+        """Compile a graph without executing it, and describe it for an editor:
+        every problem, each anchored on a node (none means the graph runs),
+        where each node runs, and the fields each node has.
 
         Debounce-friendly (~10-30 ms): hosts can poll this on every graph
         edit to paint type mismatches and cycles in real time.
         """
-        compiled = CompiledGraph.from_graph(req.graph, registry)
-        return CompileResult(problems=compiled.problems, run_plan=compiled.run_plan)
+        return CompiledGraph.from_graph(graph, registry).describe()
 
     return router
-
 
 
 def _unprocessable(invalid_call: InvalidCallError) -> HTTPException:

@@ -44,7 +44,7 @@ An input holds one binding: `From("node.output")` over an edge, `Static(value)` 
 | A service or the caller inside a node | `compiled.run(from_run={Caller: caller})` |
 | A bound on the leg | `compiled.run(timeout=60, cancel=asyncio.Event())` |
 | To save | `graph.to_path("g.yaml")`, `Graph.from_path("g.yaml")` |
-| A drawing, HTTP routes, a ReactFlow canvas | `conductor_providers.mermaid`, `.fastapi`, `.react` |
+| A drawing, HTTP routes, a record an editor draws from | `conductor_providers.mermaid`, `.fastapi`, `compiled.describe()` |
 
 ## Common mistakes
 

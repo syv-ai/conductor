@@ -255,7 +255,7 @@ def _static_only_inside(values: list[str]) -> CompiledGraph:
 
 def test_a_node_with_only_statics_under_a_graphs_row_is_stale_with_that_row():
     state = _static_only_inside(["x", "y", "z"]).run_sync()
-    assert "e/b" in _static_only_inside(["x", "y"]).nodes_changed_since(state)
+    assert "e/b" in _static_only_inside(["x", "y"])._nodes_changed_since(state)
 
 
 @pytest.mark.parametrize("values", [["x", "y"], ["x", "y", "z", "w"], ["p", "q", "r"]], ids=["fewer", "more", "same count"])

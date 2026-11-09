@@ -34,12 +34,6 @@ Requires ``fastapi`` installed (declared as an optional extra:
 ``uv add "syv-conductor-providers[fastapi]"``).
 """
 
-from conductor_providers.fastapi.models import RunRequest
 from conductor_providers.fastapi.router import conductor_router
-from conductor_providers.fastapi.sse import sse_frame
 
-__all__ = [
-    "conductor_router",
-    "RunRequest",
-    "sse_frame",
-]
+__all__ = ["conductor_router"]

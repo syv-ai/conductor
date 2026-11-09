@@ -87,7 +87,7 @@ def test_a_bare_table_offers_no_columns():
     compiled = _compiled(GraphNode(id="b", type="bare", version=1), extra=(bare,))
 
     assert compiled.is_runnable, compiled.problems
-    assert set(compiled.node("b").wiring.fields) == {"text", "result"}
+    assert set(compiled.node("b")._wiring.fields) == {"text", "result"}
 
 
 def test_an_output_named_like_a_column_is_refused():

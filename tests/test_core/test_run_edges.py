@@ -276,7 +276,7 @@ def test_a_static_table_is_the_same_after_a_run_so_a_later_compile_finds_nothing
     ran = graph()
     state = ran.run_sync()
     assert ROW_ID_COLUMN not in ran.node("h").statics["t"].columns
-    assert graph().nodes_changed_since(through_json(state)) == []
+    assert graph()._nodes_changed_since(through_json(state)) == []
 
 
 def test_a_frame_a_node_shares_with_its_module_is_left_as_it_was():

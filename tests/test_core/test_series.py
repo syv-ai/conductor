@@ -137,7 +137,7 @@ def test_a_field_on_rows_is_many_and_its_type_is_one_value():
         Graph(nodes=[GraphNode(id="s", type="split-series", version=1, bindings={"text": Static("a")}), GraphNode(id="c", type="collect", version=1, bindings={"parts": From("s.result")})]),
         REGISTRY,
     )
-    field = compiled.node("s").wiring.fields["result"]
+    field = compiled.node("s")._wiring.fields["result"]
     assert (field.type, field.many) == (Text, True)
 
 

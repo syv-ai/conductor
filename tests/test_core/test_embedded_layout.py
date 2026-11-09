@@ -150,9 +150,9 @@ def test_a_graph_node_is_a_node_in_the_interface_named_by_what_it_offers():
     assert [i.name for i in compiled.node("emb").interface.inputs] == ["value"]
 
 
-def test_a_field_inside_a_placement_has_one_address():
-    """``emb/join.result`` is the field; the author's spelling of it,
-    ``emb.join.result``, names a field of the graph node, which has none."""
+def test_a_field_inside_a_placement_is_reached_by_its_place_or_the_name_it_is_offered_under():
+    """``emb/join.result`` is the field and ``emb.result`` the name the graph offers it by;
+    ``emb.join.result`` names a field the graph node doesn't offer."""
     compiled = _compiled([
         GraphNode(id="src", type="holder", version=1, bindings={"value": Static("outer")}),
         GraphNode(id="emb", type="inner-graph", version=1, bindings={"value": From("src.result")}),
@@ -160,7 +160,8 @@ def test_a_field_inside_a_placement_has_one_address():
 
     assert compiled.field(Ref("emb/join", "result")).type is Txt
     assert compiled.field(Ref("emb/holder", "value")).binding == From("src.result")
-    with pytest.raises(KeyError, match="'emb' is a graph"):
+    assert compiled.field(Ref("emb", "result")) is compiled.field(Ref("emb/join", "result"))
+    with pytest.raises(KeyError, match="'emb' offers no field"):
         compiled.field(Ref("emb", "join.result"))
 
 
@@ -351,7 +352,7 @@ def test_two_unrelated_series_entering_one_placement_are_its_misaligned():
     graph_node = compiled.node("emb")
     assert graph_node.state == "wiring_failed"
     assert graph_node.problems == compiled.problems
-    assert graph_node.wiring is None
+    assert graph_node._wiring is None
     raised = graph_node.cause
     assert raised == misaligned
     assert "emb" not in compiled.decisions
@@ -397,7 +398,7 @@ def test_a_broken_graph_inside_a_graph_breaks_the_graph_around_it():
     for graph_node in (top, top.embedded_graph.node("mid")):
         assert (graph_node.state, graph_node.embedded_graph is not None) == ("wiring_failed", True)
         assert graph_node.interface is not None  # the box and its handles still draw
-        assert graph_node.wiring is None
+        assert graph_node._wiring is None
         raised = graph_node.cause
         assert raised.type == "embedded_graph_broken"
 

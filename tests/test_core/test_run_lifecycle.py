@@ -428,7 +428,7 @@ def test_a_changed_input_runs_it_and_what_reads_it_and_nothing_else():
     earlier = compiled.run_sync()
     calls.clear()
     edited = compiled_of(n("a", "upper", text=Static("z")), CHAIN[1], n("other", "upper", text=Static("y")))
-    assert edited.nodes_changed_since(earlier) == ["a", "b"]
+    assert edited._nodes_changed_since(earlier) == ["a", "b"]
     state = edited.run_sync(earlier)
     assert calls["upper"] == 2 and edited.outputs(state)["b.result"] == "Z"
 
@@ -450,7 +450,7 @@ def test_without_runs_one_node_again_though_nothing_changed():
     compiled = compiled_of(*CHAIN)
     state = compiled.run_sync()
     calls.clear()
-    assert compiled.nodes_changed_since(state) == []
+    assert compiled._nodes_changed_since(state) == []
     compiled.run_sync(state.without_nodes("b"))
     assert calls["upper"] == 1
 
@@ -458,7 +458,7 @@ def test_without_runs_one_node_again_though_nothing_changed():
 def test_a_node_gone_from_the_graph_is_named_and_dropped():
     state = compiled_of(*CHAIN).run_sync()
     shorter = compiled_of(CHAIN[0])
-    assert shorter.nodes_changed_since(state) == ["b"]
+    assert shorter._nodes_changed_since(state) == ["b"]
     assert shorter.run_sync(state).status == "complete"
 
 
@@ -560,7 +560,7 @@ def test_a_change_above_a_column_reader_drops_its_answer_and_it_asks_again():
     calls.clear()
 
     edited = graph("b")
-    assert edited.nodes_changed_since(state) == ["x", "ask"]
+    assert edited._nodes_changed_since(state) == ["x", "ask"]
     again = edited.run_sync(state)
     assert again.status == "waiting" and calls["approve"] == 1 and again.waiting[0].prompt == "ok? b"
 
@@ -591,4 +591,4 @@ def test_a_signature_that_moves_a_node_to_other_rows_changes_its_fingerprint():
         registry = registry.extended_with([cls])
     whole = CompiledGraph.from_graph(Graph(nodes=LINES), registry)
     assert per_row.node("count").fingerprint != whole.node("count").fingerprint
-    assert whole.nodes_changed_since(per_row.run_sync()) == ["count"]
+    assert whole._nodes_changed_since(per_row.run_sync()) == ["count"]

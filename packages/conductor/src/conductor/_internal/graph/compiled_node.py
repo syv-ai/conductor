@@ -2,7 +2,7 @@
 
 A node compile could not fully work out says so by what it lacks, never by
 raising: ``interface`` is ``None`` when compile doesn't know what fields it
-has, and ``wiring`` is ``None`` when it couldn't work out its connections.
+has, and ``state`` says whether it worked out its connections.
 ``cause`` then names the one problem behind it.
 
 This module knows nothing of the compiler or of ``CompiledGraph``: it holds
@@ -44,7 +44,7 @@ if TYPE_CHECKING:
 
 #: How far compile got with a node, read off what it holds, for the wire.
 #:
-#: ``ready``: compile worked out its connections (``wiring``). A graph can
+#: ``ready``: compile worked out its connections. A graph can
 #: run only when every node in it is ready.
 #:
 #: ``wiring_failed``: compile knows its inputs and outputs (``interface``) but
@@ -92,7 +92,7 @@ class CompiledNode:
     embedded_in: str | None = field(repr=False)
     #: Every problem about this node or one of its fields, in ``CompiledGraph.problems`` order.
     problems: tuple[Problem, ...] = field(repr=False)
-    #: The fatal problem that explains a node with no ``wiring``: its own, or the one upstream of it.
+    #: The fatal problem that explains a node that isn't ``ready``: its own, or the one upstream of it.
     cause: Problem | None = field(repr=False)
     #: The definition its type resolved to, and the version of it it uses; ``None`` when neither could be found.
     definition: NodeDefinition[..., Any] | None = field(repr=False)
@@ -105,7 +105,7 @@ class CompiledNode:
     #: compile couldn't read them. On a graph: by inner address (``check.amount``).
     statics: Mapping[str, Any] = field(repr=False)
     #: What its connections decided; ``None`` when compile couldn't work them out.
-    wiring: Wiring | None = field(repr=False)
+    _wiring: Wiring | None = field(repr=False)
 
     def __init__(
         self, id: str, graph_node: GraphNode, embedded_in: str | None, problems: tuple[Problem, ...], cause: Problem | None,
@@ -114,13 +114,13 @@ class CompiledNode:
     ) -> None:
         self.__dict__.update(
             id=id, graph_node=graph_node, embedded_in=embedded_in, problems=problems, cause=cause, definition=definition,
-            version=version, interface=interface, statics=statics, wiring=wiring,
+            version=version, interface=interface, statics=statics, _wiring=wiring,
         )
 
     @property
     def state(self) -> NodeState:
         """How far compile got with this node (``NodeState``)."""
-        if self.wiring is not None:
+        if self._wiring is not None:
             return "ready"
         return "wiring_failed" if self.interface is not None else "resolution_failed"
 
@@ -147,7 +147,7 @@ class CompiledNode:
         edge moved or a signature that moves the node to other rows all
         change it; a title or a position does not. ``None`` on a node that
         doesn't run as one unit."""
-        if self.wiring is None or self.embedded_graph is not None:
+        if self._wiring is None or self.embedded_graph is not None:
             return None
         node, interface = self.graph_node, self.interface
         assert interface is not None

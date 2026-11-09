@@ -127,7 +127,7 @@ def _problems_blocking_embedding(graph: CompiledGraph, nodes: Mapping[str, Compi
         if problem.type != "unbound_required":
             return False
         node = nodes.get(str(problem.loc[0]))
-        return node is not None and node.wiring is not None and Ref(str(problem.loc[0]), str(problem.loc[1])) in offered_addresses
+        return node is not None and node._wiring is not None and Ref(str(problem.loc[0]), str(problem.loc[1])) in offered_addresses
 
     return [problem for problem in graph.problems if problem.fatal and not a_value_from_outside_fills_it(problem)]
 

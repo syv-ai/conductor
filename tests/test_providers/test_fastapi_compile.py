@@ -1,4 +1,4 @@
-"""``POST /compile`` answers with the graph's problems, anchored, as a list."""
+"""``POST /compile`` takes a graph and answers ``compiled.describe()``; ``GET /nodes`` answers ``registry.describe()``."""
 
 from __future__ import annotations
 
@@ -29,20 +29,21 @@ def client() -> TestClient:
 
 
 def test_a_graph_that_runs_answers_an_empty_list(client):
-    resp = client.post("/compile", json={"graph": {"nodes": [
+    resp = client.post("/compile", json={"nodes": [
         {"id": "n1", "type": "shout", "version": 1, "bindings": {"text": {"value": "hi"}}},
-    ]}})
+    ]})
 
     assert resp.status_code == 200
+    assert resp.json()["is_runnable"] is True
     assert resp.json()["problems"] == []
     assert resp.json()["run_plan"]["nodes"]["n1"]["runs_per_row_of"] is None
 
 
 def test_every_problem_comes_back_anchored(client):
-    resp = client.post("/compile", json={"graph": {"nodes": [
+    resp = client.post("/compile", json={"nodes": [
         {"id": "n1", "type": "gone", "version": 1},
         {"id": "n2", "type": "shout", "version": 1, "bindings": {"text": {"refs": ["ghost.result"]}}},
-    ]}})
+    ]})
 
     assert resp.status_code == 200
     assert [(p["type"], p["fatal"], *p["loc"]) for p in resp.json()["problems"]] == [
@@ -95,13 +96,18 @@ def test_an_error_that_is_not_a_refusal_stays_the_servers(client, monkeypatch):
     assert resp.status_code == 500
 
 
-def test_the_entities_route_exists_only_with_a_resolver(client):
-    assert client.get("/entities/document").status_code == 404
+def test_a_described_graph_comes_back_with_its_nodes_and_fields_and_the_schema_is_published(client):
+    resp = client.post("/compile", json={"nodes": [
+        {"id": "n1", "type": "shout", "version": 1, "bindings": {"text": {"value": "hi"}}},
+    ]})
+
+    assert resp.json()["nodes"]["n1"]["state"] == "ready"
+    assert resp.json()["fields"]["n1.result"] == {"dtype": {"id": "str"}, "many": False}
+    assert client.get("/openapi.json").status_code == 200
 
 
-def test_the_dead_provider_bits_are_gone():
-    import conductor_providers
-    import conductor_providers.react as react
+def test_the_palette_has_the_registrys_types(client):
+    described = client.get("/nodes").json()
 
-    assert not hasattr(conductor_providers, "PROVIDERS")
-    assert not hasattr(react, "palette_from_registry")
+    assert [entry["id"] for entry in described["nodes"]] == ["shout"]
+    assert "str" in {entry["id"] for entry in described["types"]}

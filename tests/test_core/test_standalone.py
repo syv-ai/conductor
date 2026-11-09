@@ -65,8 +65,7 @@ HOST_WORDS = {
     "a host's domain": r"\b(risikovurdering\w*|godkend\w*)\b",
     # The library's record is a graph; "flow" and "workflow" are a host's
     # words for one. "data flow" and "control flow" are English, and
-    # ReactFlow is the name of the library the React provider speaks.
-    "a host's word for a graph": r"(?<!data )(?<!control )(?<!react )\b(work)?flows?\b",
+    "a host's word for a graph": r"(?<!data )(?<!control )\b(work)?flows?\b",
 }
 
 #: A host's words that only its spelling gives away, matched against the
@@ -128,7 +127,7 @@ def test_each_package_declares_only_the_dependencies_listed_here(package):
         ("conductor", "import fastapi"),
         ("conductor", "from conductor_nodes.types import Json"),
         ("conductor-nodes", "import yaml"),
-        ("conductor-nodes", "from conductor_providers.react import graph_to_react"),
+        ("conductor-nodes", "from conductor_providers.mermaid import flowchart"),
         ("conductor-providers", "from app.models import Flow"),
     ],
 )
@@ -164,7 +163,7 @@ def test_a_host_word_is_found_in_any_spelling(line):
 @pytest.mark.parametrize(
     "line",
     [
-        "data flow and control flow", "ReactFlow positions", "app = FastAPI()",
+        "data flow and control flow", "app = FastAPI()",
         "app.include_router(conductor_router(registry))", "append the rows", "Mapping[str, Any]",
         "require_admin", "what a developer wrote", "overflow", "the first group of each",
     ],

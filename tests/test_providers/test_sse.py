@@ -1,25 +1,19 @@
-"""A frame is an event as pydantic writes it: every value by its own type, a float that isn't finite as text."""
+"""An event is what pydantic writes: every value by its own type, a float that isn't finite as text."""
 
 from __future__ import annotations
 
 import json
 
 import pytest
-
-pytest.importorskip("fastapi")
-
 from conductor import Problem, RunState
 from conductor._internal.execution.run_state import OutputColumn, Question, WaitingUnit
 from conductor.events import Event, NodeComplete, NodeFailed, RunEnd, UnitWaiting
-from conductor_nodes.types import Json  # noqa: E402
-from conductor_providers.fastapi.sse import sse_frame  # noqa: E402
+from conductor_nodes.types import Json
 from helpers import stream_of
 
 
 def _payload(event: Event) -> dict:
-    frame = sse_frame(event)
-    assert frame.startswith("data: ") and frame.endswith("\n\n")
-    return json.loads(frame[len("data: "):])
+    return json.loads(event.model_dump_json())
 
 
 def test_many_values_keep_their_rows_and_an_ending_dumps_its_state():
@@ -54,7 +48,7 @@ def test_a_typed_value_dumps_through_its_own_type_and_one_with_no_form_raises():
     assert _payload(NodeComplete(type="node_complete", node_id="parse", result={"result": parsed}))["result"]["result"]["values"] == [{"a": 1}, [2]]
     assert _payload(NodeComplete(type="node_complete", node_id="n", result={"n": float("nan")}))["result"] == {"n": "NaN"}
     with pytest.raises(Exception, match="object"):
-        sse_frame(NodeComplete(type="node_complete", node_id="n", result={"x": object()}))
+        NodeComplete(type="node_complete", node_id="n", result={"x": object()}).model_dump_json()
 
 
 def test_a_branch_nodes_completion_streams_with_only_the_branch_taken():

@@ -1,22 +1,18 @@
-"""The pydantic payload for conductor's HTTP surface.
+"""The body of ``/run`` and ``/run-stream``, and what ``/run`` answers.
 
-The long-lived contract between any conductor-backed server and the
-clients that talk to it; bumping it is a breaking change for every host
-using ``conductor_router``. The graph half of the payload is the ``Graph``
-record itself — ``Graph`` is the schema, so nothing here
-restates a field of it.
+The graph half of the body is the ``Graph`` record itself, so nothing here restates a field of it.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from conductor import Graph, Problem, RunPlan, RunState
+from conductor import Graph, RunState
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class RunRequest(BaseModel):
-    """The POST body shared by ``/run``, ``/run-stream``, and ``/compile``, which reads only ``graph``."""
+    """The POST body of ``/run`` and ``/run-stream``."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -36,10 +32,3 @@ class RunResult(BaseModel):
 
     state: RunState
     results: dict[str, dict[str, Any]]
-
-
-class CompileResult(BaseModel):
-    """What ``/compile`` returns: every problem, and where each node runs and what its inputs receive."""
-
-    problems: tuple[Problem, ...]
-    run_plan: RunPlan

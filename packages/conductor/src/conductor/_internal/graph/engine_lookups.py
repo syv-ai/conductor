@@ -94,7 +94,7 @@ def build_engine_lookups(nodes: Iterable[CompiledNode], row_ids_must_survive: fr
         lists_on_nodes_under_index.setdefault(index_id, [])
 
     for node in nodes:
-        wiring = node.wiring
+        wiring = node._wiring
         if wiring is None or node.embedded_graph is not None or node.interface is None:
             continue
         node_receive_modes = receive_modes_of_node.setdefault(node.id, [])

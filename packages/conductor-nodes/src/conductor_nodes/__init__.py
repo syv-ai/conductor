@@ -35,7 +35,7 @@ from conductor_nodes import (
 from conductor_nodes.types import Category
 
 #: Every module of the library, each listing its nodes in ``NODES``.
-MODULES = (text, math, logic, json_ops, regex_ops, decision)
+_MODULES = (text, math, logic, json_ops, regex_ops, decision)
 
 
 def nodes(*, categories: Sequence[Category] | None = None) -> tuple[NodeDefinition[..., Any], ...]:
@@ -50,7 +50,7 @@ def nodes(*, categories: Sequence[Category] | None = None) -> tuple[NodeDefiniti
     if unknown:
         raise KeyError(f"Unknown category {', '.join(map(repr, unknown))}. Known: {list(known)}")
     return tuple(
-        definition for module in MODULES for definition in module.NODES if categories is None or definition.category in categories
+        definition for module in _MODULES for definition in module.NODES if categories is None or definition.category in categories
     )
 
 
