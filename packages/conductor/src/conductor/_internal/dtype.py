@@ -233,6 +233,16 @@ class DType(ABC, metaclass=_DTypeMeta):
         return None
 
 
+class _FloatThatIsNotFinite(DType, float):
+    """A NaN or an infinity on an output declared ``float``, as it is held in a run.
+
+    A plain ``float`` in a state says nothing of what declared it, and JSON has
+    no literal for these, so one that an output's ``float`` will read back is
+    held as this: still a ``float``, and written the way a type built on ``float`` is."""
+
+    id = "float_not_finite"
+
+
 class _UntypedValue(DType):
     """What a record holds where an author wrote ``Any``: whatever arrives,
     until compile types it from the edge. A host asking "is this untyped?"

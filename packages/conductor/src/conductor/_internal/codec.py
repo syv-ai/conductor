@@ -27,12 +27,14 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping, Sequence
-from functools import cache
+from functools import cache, partial
+from math import isfinite
 from types import NoneType
 from typing import Any
 
 from pydantic import ConfigDict, PydanticUserError, TypeAdapter
 
+from conductor._internal.dtype import _FloatThatIsNotFinite
 from conductor._internal.series import Index, Series
 from conductor._internal.table import Table, holds_tables, is_frame_type
 
@@ -67,6 +69,8 @@ def reader_of(dtype: Any) -> Callable[[Any], Any]:
     if holds_tables(dtype):  # a frame says nothing about its columns, so every one is read
         return validate
     instance_type = dtype._instance_type()
+    if instance_type is float:
+        return partial(_read_float, validate)
 
     def read(value: Any) -> Any:
         if type(value) is instance_type:
@@ -79,6 +83,12 @@ def reader_of(dtype: Any) -> Callable[[Any], Any]:
     return read
 
 
+def _read_float(validate: Callable[[Any], float], value: Any) -> float:
+    """One value of an output declared ``float``; one that isn't finite is held so that a state can write it."""
+    made = value if type(value) is float else validate(value)
+    return made if isfinite(made) else _FloatThatIsNotFinite(made)
+
+
 def _unchanged(value: Any) -> Any:
     return value
 
@@ -88,9 +98,10 @@ def values_to_wire(values: list[Any]) -> list[Any]:
     one type, the usual case, are written through one adapter in one call.
 
     A float that isn't finite comes out as JSON can hold it where its type
-    reads it back (a type built on ``float``, a table's column). Anywhere else,
-    a plain ``float`` in a field typed ``Any`` or one inside a record, nothing
-    would, and this raises rather than let it come back as something else.
+    reads it back (a type built on ``float``, an output declared ``float``, a
+    table's column). Anywhere else, a plain ``float`` in a field typed ``Any`` or
+    one inside a record, nothing would, and this raises rather than let it come
+    back as something else.
     """
     kinds = {type(value) for value in values}
     if len(kinds) == 1:

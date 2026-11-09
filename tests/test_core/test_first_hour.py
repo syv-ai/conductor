@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from datetime import date, timedelta
 from typing import TypedDict
 
@@ -472,3 +473,93 @@ def test_a_question_falls_back_to_the_nodes_title_not_result():
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="ask", version=1)]), NodeRegistry([ask]))
     (waiting,) = compiled.run_sync().waiting
     assert waiting.questions[0].title == "Approve the invoice"
+
+
+# -- a float that is not finite ------------------------------------------------------------
+
+
+NOT_FINITE: dict[str, float] = {}
+
+
+@node("not-finite")
+def _not_finite() -> float:
+    return NOT_FINITE["value"]
+
+
+@node("not-finite-many")
+def _not_finite_many() -> Series[float]:
+    return [1.5, NOT_FINITE["value"]]
+
+
+@node("not-finite-per-row")
+def _not_finite_per_row(text: str) -> float:
+    return NOT_FINITE["value"] if text == "b" else 1.5
+
+
+@node("passes-on")
+def _passes_on(value: float) -> float:
+    return value
+
+
+@node("int-of-not-finite")
+def _int_of_not_finite() -> int:
+    return NOT_FINITE["value"]  # type: ignore[return-value]
+
+
+_FLOATS = NodeRegistry([_words, _not_finite, _not_finite_many, _not_finite_per_row, _passes_on, _half, _int_of_not_finite])
+
+
+def _same_float(got: float, wanted: float) -> bool:
+    return isinstance(got, float) and (math.isnan(got) if math.isnan(wanted) else got == wanted)
+
+
+def _through_json(state: RunState) -> RunState:
+    written = state.model_dump_json()
+    json.loads(written, parse_constant=lambda bad: pytest.fail(f"{bad} is not JSON"))
+    return RunState.model_validate_json(written)
+
+
+@pytest.mark.parametrize(("value", "spelled"), [(math.nan, "NaN"), (math.inf, "Infinity"), (-math.inf, "-Infinity")])
+def test_a_float_output_that_is_not_finite_survives_json_as_the_float(value, spelled):
+    NOT_FINITE["value"] = value
+    compiled = CompiledGraph.from_graph(Graph(nodes=[_n("n", "not-finite"), _n("p", "passes-on", value=From("n.result"))]), _FLOATS)
+
+    state = compiled.run_sync()
+
+    assert state.status == "complete"
+    assert state.model_dump(mode="json")["output_columns"]["n.result"]["values"] == [spelled]
+    back = _through_json(state)
+    assert _same_float(compiled.results(back)["n"]["result"], value)
+    assert _same_float(compiled.results(compiled.run_sync(back.without("p")))["p"]["result"], value)
+
+
+@pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])
+def test_a_series_of_floats_keeps_one_that_is_not_finite_through_json(value):
+    NOT_FINITE["value"] = value
+    compiled = CompiledGraph.from_graph(Graph(nodes=[_n("n", "not-finite-many")]), _FLOATS)
+
+    back = compiled.results(_through_json(compiled.run_sync()))["n"]["result"]
+
+    assert back[0] == 1.5 and _same_float(back[1], value)
+
+
+@pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])
+def test_an_output_per_row_keeps_a_float_that_is_not_finite_through_json(value):
+    NOT_FINITE["value"] = value
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[_n("w", "words", text=Static("a b")), _n("n", "not-finite-per-row", text=From("w.result"))]), _FLOATS,
+    )
+
+    back = compiled.results(_through_json(compiled.run_sync()))["n"]["result"]
+
+    assert back[0] == 1.5 and _same_float(back[1], value)
+
+
+def test_a_not_finite_float_is_refused_on_an_int_output_so_none_reaches_a_float_input_that_way():
+    NOT_FINITE["value"] = math.nan
+    compiled = CompiledGraph.from_graph(Graph(nodes=[_n("i", "int-of-not-finite"), _n("h", "half", value=From("i.result"))]), _FLOATS)
+
+    assert compiled.is_runnable, compiled.problems
+    state = compiled.run_sync()
+
+    assert state.status == "failed" and state.failure.type == "invalid_output"
