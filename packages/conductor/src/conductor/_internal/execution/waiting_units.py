@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from conductor._internal.codec import to_jsonable
 from conductor._internal.errors import InvalidCallError, Problem, make_problem
-from conductor._internal.execution.run_ledger import RunLedger, SkippedAtRow
+from conductor._internal.execution.run_ledger import RunLedger
 from conductor._internal.execution.run_state import (
     Answers,
     Question,
@@ -103,9 +103,7 @@ def apply_answers(compiled: CompiledGraph, state: RunState, answers: Answers) ->
         raise InvalidCallError(problems)
     ledger = RunLedger.restore(compiled, state)
     for waiting_unit, cells in finished:
-        unit = (waiting_unit.node_id, waiting_unit.row)
-        ledger.record(unit, SkippedAtRow(waiting_unit.row) if cells is None else cells)
-        ledger.mark_answered(unit)
+        ledger.record_answer((waiting_unit.node_id, waiting_unit.row), cells)
     return ledger.state(state.status, state.failure)
 
 

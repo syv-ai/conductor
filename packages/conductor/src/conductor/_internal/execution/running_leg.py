@@ -87,13 +87,9 @@ from conductor._internal.execution.events import (
 )
 from conductor._internal.execution.run_ledger import (
     CallTheNode,
-    CouldNotReadInputs,
-    FinishedWithoutACall,
     RunLedger,
-    SkippedWithoutACall,
     Unit,
     UnitRecorded,
-    WaitsOnAPersonAgain,
 )
 from conductor._internal.execution.run_state import RunState, WaitingUnit
 
@@ -367,18 +363,14 @@ class RunningLeg:
             case CallTheNode(inputs):
                 self._announce_node_started(node_id)
                 self._hand_to_a_thread(unit, attempt, inputs)
-            case SkippedWithoutACall(recorded):
+            case UnitRecorded() as recorded:
                 self._free_slot(node_id)
                 self._report_recorded(unit, recorded)
-            case FinishedWithoutACall(recorded):
-                self._announce_node_started(node_id)
-                self._free_slot(node_id)
-                self._report_recorded(unit, recorded)
-            case WaitsOnAPersonAgain(waiting_unit):
+            case WaitingUnit() as waiting_unit:
                 self._announce_node_started(node_id)
                 self._free_slot(node_id)
                 self._report_waiting(waiting_unit)
-            case CouldNotReadInputs(problem):
+            case Problem() as problem:
                 self._fail_unit(unit, problem)
 
     def _announce_node_started(self, node_id: str) -> None:
@@ -483,6 +475,8 @@ class RunningLeg:
         """Report this unit's progress and every node its record completed, and queue what it made ready."""
         node_id, _ = unit
         self.a_unit_finished = True
+        if recorded.node_started:
+            self._announce_node_started(node_id)
         if self.runs_per_row_of[node_id] is not None:
             self._report_progress_when_due(node_id)
         for event in recorded.node_events:

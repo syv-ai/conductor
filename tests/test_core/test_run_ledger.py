@@ -22,16 +22,15 @@ from conductor import (
     Table,
     node,
 )
+from conductor._internal.errors import Problem
 from conductor._internal.execution.run_ledger import (
     CallTheNode,
-    CouldNotReadInputs,
-    FinishedWithoutACall,
     RunLedger,
     SkippedAtRow,
-    SkippedWithoutACall,
     Unit,
-    WaitsOnAPersonAgain,
+    UnitRecorded,
 )
+from conductor._internal.execution.run_state import WaitingUnit
 from conductor._internal.execution.validate_unit_outputs import validate_unit_outputs
 from conductor._internal.execution.waiting_units import waiting_unit_for
 from conductor._internal.node_signature import split_return_into_outputs
@@ -367,7 +366,7 @@ def _drive_graph(seed: int, check_after_each_record) -> None:
             in_flight.discard(unit)
             started = ledger.start_unit(unit)
             if not isinstance(started, CallTheNode):
-                recorded = started.recorded
+                recorded = started
             else:
                 outputs = _unit_outputs(ledger, compiled, unit, started.inputs)
                 if isinstance(outputs, AskPerson):
@@ -447,8 +446,8 @@ def test_a_unit_a_skip_reaches_is_recorded_skipped():
 
     started = ledger.start_unit(("empty", ()))
 
-    assert isinstance(started, SkippedWithoutACall)
-    assert [event.type for event in started.recorded.node_events] == ["node_skipped"]
+    assert isinstance(started, UnitRecorded) and not started.node_started
+    assert [event.type for event in started.node_events] == ["node_skipped"]
     assert ("empty", ()) in ledger._done
 
 
@@ -470,9 +469,9 @@ def test_a_unit_a_blank_stops_is_recorded_without_a_call():
 
     started = ledger.start_unit(("up", (0,)))
 
-    assert isinstance(started, FinishedWithoutACall)
-    assert [event.type for event in started.recorded.node_events] == ["node_complete"]
-    assert started.recorded.node_events[0].rows_not_called == {"text": 1}
+    assert isinstance(started, UnitRecorded) and started.node_started
+    assert [event.type for event in started.node_events] == ["node_complete"]
+    assert started.node_events[0].rows_not_called == {"text": 1}
 
 
 def test_a_unit_covered_twice_could_not_read_its_inputs():
@@ -487,8 +486,8 @@ def test_a_unit_covered_twice_could_not_read_its_inputs():
 
     started = ledger.start_unit(("both", (0,)))
 
-    assert isinstance(started, CouldNotReadInputs) and started.problem.type == "row_covered_twice"
-    assert started.problem.loc == ("both", 0)
+    assert isinstance(started, Problem) and started.type == "row_covered_twice"
+    assert started.loc == ("both", 0)
 
 
 @node("asks", title="Asks", description="d", category="test")
@@ -517,9 +516,9 @@ def test_a_unit_whose_inputs_match_earlier_work_is_recorded_without_a_call():
 
     started = ledger.start_unit(("reader", (0,)))
 
-    assert isinstance(started, FinishedWithoutACall)
-    assert started.recorded.node_events[0].outputs["result"]["values"] == ["A"]
-    assert started.recorded.node_events[0].reused_units == 1
+    assert isinstance(started, UnitRecorded) and started.node_started
+    assert started.node_events[0].outputs["result"]["values"] == ["A"]
+    assert started.node_events[0].reused_units == 1
 
 
 def test_a_unit_whose_inputs_match_an_earlier_question_waits_on_it_again():
@@ -527,5 +526,5 @@ def test_a_unit_whose_inputs_match_an_earlier_question_waits_on_it_again():
 
     started = ledger.start_unit(("reader", (0,)))
 
-    assert isinstance(started, WaitsOnAPersonAgain)
-    assert ledger.waiting() == (started.waiting_unit,)
+    assert isinstance(started, WaitingUnit)
+    assert ledger.waiting() == (started,)
