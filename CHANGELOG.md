@@ -142,9 +142,14 @@ its stored graphs itself. What a 1.x user must change:
   `registry.describe()`).
 - `run_end` on `/run-stream` carries no `results`; a value goes out in its `node_complete`. `/run`
   keeps `results`. An event writes itself with `event.model_dump_json()`.
-- `conductor_providers.react` is gone, and so are `/entities/{kind}`, `entity_resolver`, `sse_frame` and
-  `RunRequest` on the door. `GET /nodes` answers `registry.describe()`; `POST /compile` takes a `Graph` and
-  answers `compiled.describe()`.
+- `conductor_providers.react` is gone: `graph_to_react`, `react_to_graph` and `topological_positions`.
+  A canvas stores the `Graph` as it is. Its edges are one per ref of each `From` binding, source
+  `ref.node_id`/`ref.field`, target the node and input; give each an id that includes the ref's
+  position in `binding.refs`, since a ref may be wired twice. A node's position is
+  `node.display["position"]`. To lay out nodes that have none, use the canvas's own layout engine
+  (elk, dagre), or `dependencies_of(graph.nodes)` for the order.
+- `/entities/{kind}`, `entity_resolver`, `sse_frame` and `RunRequest` on the door are gone. `GET /nodes`
+  answers `registry.describe()`; `POST /compile` takes a `Graph` and answers `compiled.describe()`.
 
 ## [1.12.2]
 
