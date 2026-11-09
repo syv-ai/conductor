@@ -35,7 +35,7 @@ A level belongs to the field that makes its rows and is named after it.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from functools import cache
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
@@ -44,7 +44,6 @@ from conductor._internal.dtype import _ReceivedAsItArrives, description_of, is_u
 from conductor._internal.errors import Problem, problem
 from conductor._internal.field_records import Input
 from conductor._internal.graph.binding import From
-from conductor._internal.graph.embedding import address, as_drawn
 from conductor._internal.graph.graph_records import GraphNode
 from conductor._internal.graph.receive import (
     Broadcast,
@@ -101,7 +100,6 @@ def read_inputs(
 ) -> InputsRead:
     """What arrives on each of ``inputs``. Stops at the first input that can't be read and says so in ``broken``."""
     found = InputsRead()
-    graphs = walk.graph_nodes if node.id in walk.graph_nodes else ()
     for inp in inputs:
         name = inp.name
         binding = node.bindings.get(name)
@@ -109,7 +107,7 @@ def read_inputs(
             if name in listed:
                 found.listed.append((name, inp.dtype))
                 continue
-            found.arrivals[name], found.receives[name] = _originates(inp, node.id, graphs)
+            found.arrivals[name], found.receives[name] = _originates(inp, node.id)
             continue
         feeding = [_source(source, walk) for source in binding.refs]
         if None in feeding:
@@ -176,7 +174,7 @@ def read_inputs(
                 found.receives[name] = EntireValue()
             found.arrivals[name] = Arrival(arriving.type, arriving._index)
         else:
-            own = Index(address(node.id, name, graphs) if graphs else Ref(node.id, name))
+            own = Index(Ref(node.id, name))
             found.arriving[name] = target
             found.receives[name] = Gather(own)
             found.arrivals[name] = Arrival(target, own)
@@ -200,19 +198,15 @@ def _source(ref: Ref, walk: WalkSoFar) -> CompiledField | None:
 
 def _source_node_is_wired(ref: Ref, walk: WalkSoFar) -> bool:
     node = walk.compiled.get(ref.node_id)
-    if node is None:
-        node = walk.compiled.get(as_drawn(ref, walk.graph_nodes)[0])
     return node is not None and node.wiring is not None
 
 
-def decide_rows(
-    node: GraphNode, found: InputsRead, problems: list[Problem], row_origins: Any, graphs: Collection[str],
-) -> tuple[bool, Index | None]:
+def decide_rows(node: GraphNode, found: InputsRead, problems: list[Problem], row_origins: Any) -> tuple[bool, Index | None]:
     """The level ``node_id`` runs once per row of, with every input's receive record settled.
 
     ``False`` when its inputs disagree, with the fault in ``problems``."""
     node_id = node.id
-    where = (lambda name: address(node_id, name, graphs)) if node_id in graphs else (lambda name: Ref(node_id, name))
+    where = lambda name: Ref(node_id, name)  # noqa: E731
     demands = found.demands or _row_above_reductions(found.reductions)
     runs_on, disagreeing = _deepest(demands)
     if disagreeing is not None:
@@ -324,11 +318,11 @@ def _one_index(sources: Sequence[CompiledField]) -> bool:
     return all(s._index is not None for s in sources) and len({s._index for s in sources}) == 1
 
 
-def _originates(inp: Input, node_id: str, graphs: Collection[str]) -> tuple[Arrival, Receive]:
+def _originates(inp: Input, node_id: str) -> tuple[Arrival, Receive]:
     """What an input carries when no edge feeds it: one value copied to every
     call, or for a ``Series[X]`` input a column of its own, received whole."""
     if inp.dtype.element is not None:
-        return Arrival(inp.dtype, Index(address(node_id, inp.name, graphs) if graphs else Ref(node_id, inp.name))), EntireValue()
+        return Arrival(inp.dtype, Index(Ref(node_id, inp.name))), EntireValue()
     return Arrival(inp.dtype, None), Broadcast()
 
 

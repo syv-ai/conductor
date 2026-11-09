@@ -14,13 +14,13 @@ surface being rebuilt.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING
 
 from conductor._internal.errors import Problem, problem
-from conductor._internal.graph.embedding import address
 from conductor._internal.graph.graph_records import GraphNode
 from conductor._internal.interface import Interface
+from conductor._internal.ref import Ref
 
 if TYPE_CHECKING:
     from conductor._internal.field_records import Input, Output
@@ -60,7 +60,6 @@ def derive_interface(
     graph: Graph,
     interfaces: Mapping[str, Interface],
     dependencies: Mapping[str, frozenset[str]],
-    graphs: Collection[str],
 ) -> Interface:
     """What this graph takes and returns, read off its nodes.
 
@@ -95,18 +94,18 @@ def derive_interface(
         needs |= interface.needs
         if not dependencies[node.id]:
             inputs.extend(
-                _as_offered(node, declared, graphs)
+                _as_offered(node, declared)
                 for declared in interface.inputs
                 if declared.connectable and declared.name not in node.locked
             )
         if node.id not in consumed:
-            outputs.extend(_as_offered(node, declared, graphs) for declared in interface.outputs)
+            outputs.extend(_as_offered(node, declared) for declared in interface.outputs)
     return Interface(inputs=tuple(inputs), outputs=tuple(outputs), needs=frozenset(needs))
 
 
-def _as_offered(node: GraphNode, declared, graphs: Collection[str]):
-    """``declared`` under its address, with the title the author gave it on this node where there is one."""
-    at = address(node.id, declared.name, graphs)
+def _as_offered(node: GraphNode, declared):
+    """``declared`` under its address, ``node.field``, an embedded graph's fields under the names it offers; with the title the author gave it on this node where there is one."""
+    at = Ref(node.id, declared.name)
     content = node.fields.get(declared.name)
     if content is None:
         return declared.model_copy(update={"name": at})

@@ -363,21 +363,22 @@ class NodeDefinition(Generic[_P, _R]):
         cls,
         id: str,
         *,
-        title: str,
-        description: str,
+        title: str | None = None,
+        description: str = "",
         category: str = "",
         tags: Sequence[str] = (),
         docs: str | None = None,
         deprecation: Deprecation | None = None,
         versions: CompiledGraph | Mapping[int, CompiledGraph],
     ) -> NodeDefinition[..., Any]:
-        """A node whose versions are graphs a host compiled, by number; its numbers may have holes. One graph alone is version 1."""
+        """A node whose versions are graphs a host compiled, by number; its numbers may have holes. One graph alone is
+        version 1. The title defaults to the id, as ``@node``'s does to the function's name."""
         if not isinstance(versions, Mapping):
             versions = {1: versions}
         if not versions:
             raise NodeDeclarationError(f"{id!r} has no versions; a definition declares at least one", code="versions_empty", node_id=id)
         return NodeDefinition(
-            id=id, title=title, description=description, category=category, tags=tuple(tags), docs=docs,
+            id=id, title=title or id.replace("-", " ").replace("_", " ").strip().capitalize(), description=description, category=category, tags=tuple(tags), docs=docs,
             deprecation=deprecation, versions=MappingProxyType(dict(versions)), current=max(versions),
         )
 
@@ -388,8 +389,8 @@ class NodeDefinition(Generic[_P, _R]):
             docs=self.docs, deprecation=self.deprecation,
             versions={
                 number: VersionDescription(
-                    inputs=version.interface.inputs,
-                    outputs=version.interface.outputs,
+                    inputs=(version.interface if isinstance(version, NodeVersion) else version._for_embedding.interface).inputs,
+                    outputs=(version.interface if isinstance(version, NodeVersion) else version._for_embedding.interface).outputs,
                     policy=version.policy if isinstance(version, NodeVersion) else None,
                     open=version.open_input.dtype if isinstance(version, NodeVersion) and version.open_input is not None else None,
                     deprecation=version.deprecation if isinstance(version, NodeVersion) else None,

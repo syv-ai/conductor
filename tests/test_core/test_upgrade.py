@@ -260,11 +260,11 @@ def test_a_definition_with_no_steps_only_has_its_version_set():
         return CompiledGraph.from_graph(Graph(nodes=[GraphNode(id=inner_id, type="echo", version=1)]), _registry())
 
     registry = NodeRegistry([NodeDefinition.from_compiled_graphs("embedded", title="Embedded", description="d", versions={1: embedded("inner"), 2: embedded("renamed")})])
-    graph = Graph(nodes=[GraphNode(id="f", type="embedded", version=1, bindings={"inner.text": Static("x")})])
+    graph = Graph(nodes=[GraphNode(id="f", type="embedded", version=1, bindings={"text": Static("x")})])
 
     upgraded = upgrade_node(graph, "f", registry)
 
     assert upgraded.nodes[0].version == 2
-    assert upgraded.nodes[0].bindings == {"inner.text": Static("x")}
+    assert upgraded.nodes[0].bindings == {"text": Static("x")}
     with pytest.raises(InvalidCallError, match="it has 1, 2"):
         upgrade_node(graph, "f", registry, to=5)

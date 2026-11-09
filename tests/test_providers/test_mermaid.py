@@ -90,7 +90,7 @@ def test_every_arrow_says_how_its_input_receives_it():
 def test_an_embedded_graph_is_a_subgraph_of_its_inner_nodes():
     compiled = _compiled(
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="emb", type="shout", version=1, bindings={"up.text": From("docs.result")}),
+        GraphNode(id="emb", type="shout", version=1, bindings={"text": From("docs.result")}),
     )
 
     assert flowchart(compiled) == dedent("""\

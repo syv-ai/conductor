@@ -43,17 +43,13 @@ on its own; that graph is an embedded graph, the node's ``embedded_graph``. Comp
 node (``conductor._internal.graph.embedding``), so the graph the author drew (the
 authored graph) differs from the graph that runs. In the authored graph the
 embedded graph is one node, ``approve``; in the graph that runs its inner
-nodes are nodes of the run, at their path, ``approve/check``. Only the
-fields the embedded graph offers can be reached from outside.
-
-An address means one thing: a node's path and a field,
-``approve/check.amount``. The author draws an edge to the field
-``check.amount`` of ``approve``; compile reads that spelling once and every
-answer here, ``interface`` included, uses the address. ``execution_order``
-and ``decisions`` speak of the graph that runs; ``problems`` speak of the
-authored one, on the node and field the author drew. ``node`` answers for
-both graphs: an inner node by its path (``approve/check``) and the node that
-embeds it by its own id (``approve``).
+nodes are nodes of the run, at their path, ``approve/check``. An embedded
+graph is reached from outside only by the names it offers (``embedding``);
+``interface`` names its fields ``approve.amount``, as any node's.
+``execution_order`` and ``decisions`` speak of the graph that runs;
+``problems`` speak of the authored one, on the node and field the author
+drew. ``node`` answers for both graphs: an inner node by its path
+(``approve/check``) and the node that embeds it by its own id (``approve``).
 
 It is a plain value: immutable, no I/O, no session. The same graph and
 the same registry always give the same ``CompiledGraph``, so it can be
@@ -78,7 +74,7 @@ from conductor._internal.execution.waiting_units import apply_answers
 from conductor._internal.graph.binding import Static
 from conductor._internal.graph.compile_graph import compile_graph
 from conductor._internal.graph.compiled_node import CompiledField, CompiledNode
-from conductor._internal.graph.embedding import EmbeddableGraph, as_drawn, read_embeddable
+from conductor._internal.graph.embedding import EmbeddableGraph, offered_names, read_embeddable
 from conductor._internal.graph.engine_read_plan import EngineReadPlan, build_engine_read_plan
 from conductor._internal.graph.run_plan import RunPlan
 from conductor._internal.ref import Ref
@@ -159,6 +155,11 @@ class CompiledGraph:
         return read_embeddable(self)
 
     @cached_property
+    def _where_each_output_is_in_the_run(self) -> dict[Ref, Ref]:
+        names = offered_names(Ref(out.name) for out in self.interface.outputs)
+        return {at: self._for_embedding.outputs[name] for at, name in names.items()}
+
+    @cached_property
     def run_plan(self) -> RunPlan:
         """Where every ready node runs and what each of its inputs receives,
         in execution order: the shape compile decided, for a host to show and
@@ -199,9 +200,8 @@ class CompiledGraph:
 
             compiled.with_inputs({"a.text": "hello"}, count=3)
 
-        ``inputs`` is keyed by address (``a.text``, or ``emb/up.text`` inside
-        an embedded graph); a keyword is a field name when no other input has
-        that name. A name the interface does not offer is refused with
+        ``inputs`` is keyed by address (``a.text``, ``emb.text`` on a node that
+        is a graph); a keyword is a field name when no other input has that name. A name the interface does not offer is refused with
         ``InvalidCallError``, code ``not_offered``, every such name at once.
         Each value becomes a ``Static`` on its input in a copy of the graph,
         which compiles against the same registry: a list on an input for one
@@ -223,14 +223,12 @@ class CompiledGraph:
         for name, value in values.items():
             ref = self._offered(name, offered, faults)
             if ref is not None:
-                node_id, key = as_drawn(ref, self._for_embedding.graph_ids)
-                filled.setdefault(node_id, {})[key] = Static(value)
+                filled.setdefault(ref.node_id, {})[ref.field] = Static(value)
         taken: dict[str, set[str]] = {}
         for name in cleared:
             ref = self._offered(name, offered, faults)
             if ref is not None:
-                node_id, key = as_drawn(ref, self._for_embedding.graph_ids)
-                taken.setdefault(node_id, set()).add(key)
+                taken.setdefault(ref.node_id, set()).add(ref.field)
         if faults:
             raise InvalidCallError(faults)
         graph = self.graph.model_copy(update={"nodes": tuple(
@@ -244,11 +242,13 @@ class CompiledGraph:
 
     def _offered(self, name: str, offered: list[Ref], faults: list[Problem]) -> Ref | None:
         """The input a keyword to ``with_inputs`` names; or ``None``, and the fault that lists what is offered."""
-        matches = [ref for ref in offered if ref == name] or [ref for ref in offered if ref.field == name]
-        if len(matches) == 1:
-            return matches[0]
+        names = offered_names(offered)
+        matches = [ref for ref in offered if ref == name or names[ref] == name]
         if matches:
-            both = ", ".join(str(ref) for ref in matches)
+            return matches[0]
+        clashing = [ref for ref in offered if ref.field == name]
+        if clashing:
+            both = ", ".join(str(ref) for ref in clashing)
             reason = f"{name!r} is an input of several nodes ({both}); name one by its address"
         elif offered:
             reason = f"{name!r} is not an input this graph offers; it offers {', '.join(str(ref) for ref in offered)}"
@@ -426,7 +426,8 @@ class CompiledGraph:
                 reason="" if failure is None else failure.msg,
                 failure=None if failure is None else failure.model_dump(mode="json"),
             )])
-        changed = set(self.nodes_changed_since(state)).intersection(out.name.node_id for out in self.interface.outputs)
+        where = self._where_each_output_is_in_the_run
+        changed = set(self.nodes_changed_since(state)).intersection(at.node_id for at in where.values())
         if changed:
             raise InvalidCallError([problem(
                 "run_not_complete", "state", "status", status="stale",
@@ -435,9 +436,9 @@ class CompiledGraph:
         results = self.results(state)
         returned: dict[str, Any] = {}
         for output in self.interface.outputs:
-            at = output.name
+            at = where[Ref(output.name)]
             if at.field in results.get(at.node_id, {}):
-                returned[str(at)] = results[at.node_id][at.field]
+                returned[str(output.name)] = results[at.node_id][at.field]
         return returned
 
     def nodes_changed_since(self, state: RunState, /) -> list[str]:

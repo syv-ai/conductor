@@ -648,7 +648,7 @@ def test_a_definition_may_hold_graphs_by_number_with_holes():
     assert set(wrapped.versions) == {3} and wrapped.current == 3
     assert [i.name for i in wrapped.versions[3].interface.inputs] == ["inner.text"]
     described = wrapped.describe().versions[3]
-    assert [i.name for i in described.inputs] == ["inner.text"]
+    assert [i.name for i in described.inputs] == ["text"]
     assert described.policy is None and described.deprecation is None
     assert "wrapped" in NodeRegistry([wrapped])
     with pytest.raises(TypeError, match="graph"):

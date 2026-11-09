@@ -15,6 +15,7 @@ from conductor import (
     From,
     Graph,
     GraphNode,
+    NodeDefinition,
     NodeRegistry,
     RunState,
     Series,
@@ -234,3 +235,92 @@ def test_a_table_parameter_is_a_frame_and_a_node_returns_a_frame():
 def test_table_is_only_a_type():
     with pytest.raises(TypeError, match="polars.DataFrame"):
         Table({"a": [1]})  # type: ignore[call-arg]
+
+
+# -- an embedded graph has its own interface -------------------------------------------
+
+
+@node("trim")
+def _trim(text: str) -> str:
+    return text.strip()
+
+
+@node("up")
+def _up(text: str) -> str:
+    return text.upper()
+
+
+def _clean() -> tuple[NodeRegistry, NodeDefinition]:
+    base = NodeRegistry([_trim, _up])
+    inner = CompiledGraph.from_graph(
+        Graph(nodes=[GraphNode(id="t", type="trim", version=1), GraphNode(id="u", type="up", version=1, bindings={"text": From("t.result")})]), base,
+    )
+    clean = NodeDefinition.from_compiled_graphs("clean-text", versions=inner)
+    return base.extended_with([clean]), clean
+
+
+def test_an_embedded_graph_is_wired_by_its_own_names_and_titled_like_a_node():
+    registry, clean = _clean()
+    assert clean.title == "Clean text"
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[
+            GraphNode(id="c", type="clean-text", version=1, bindings={"text": Static("  hi ")}),
+            GraphNode(id="v", type="up", version=1, bindings={"text": From("c.result")}),
+        ]),
+        registry,
+    )
+    assert compiled.is_runnable, compiled.problems
+    state = compiled.run_sync()
+    assert compiled.results(state)["c/u"]["result"] == "HI"          # a run is read by the inner address
+    assert compiled.outputs(state) == {"v.result": "HI"}
+
+
+def test_renaming_a_node_inside_breaks_no_caller():
+    def graph_with_inner_id(inner_id: str) -> CompiledGraph:
+        base = NodeRegistry([_trim])
+        inner = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id=inner_id, type="trim", version=1)]), base)
+        wrapped = NodeDefinition.from_compiled_graphs("wrapped", versions=inner)
+        return CompiledGraph.from_graph(
+            Graph(nodes=[GraphNode(id="w", type="wrapped", version=1, bindings={"text": Static(" x ")})]), base.extended_with([wrapped]),
+        )
+
+    assert graph_with_inner_id("before").is_runnable and graph_with_inner_id("after-rename").is_runnable
+
+
+def test_an_inner_address_never_wires_into_or_out_of_an_embedded_graph():
+    registry, _ = _clean()
+    binding = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="c", type="clean-text", version=1, bindings={"t.text": Static("x")})]), registry)
+    assert [(p.type, p.loc[1]) for p in binding.problems if p.type == "stale_binding"] == [("stale_binding", "t.text")]
+
+    edge = CompiledGraph.from_graph(
+        Graph(nodes=[
+            GraphNode(id="c", type="clean-text", version=1, bindings={"text": Static("x")}),
+            GraphNode(id="v", type="up", version=1, bindings={"text": From("c.u.result")}),
+        ]),
+        registry,
+    )
+    assert [p.type for p in edge.problems] == ["unknown_ref_output"]
+
+    slash = CompiledGraph.from_graph(
+        Graph(nodes=[
+            GraphNode(id="c", type="clean-text", version=1, bindings={"text": Static("x")}),
+            GraphNode(id="v", type="up", version=1, bindings={"text": From("c/u.result")}),
+        ]),
+        registry,
+    )
+    assert [p.type for p in slash.problems] == ["unknown_ref_node"]
+
+
+def test_a_clash_is_named_by_address_and_only_then():
+    @node("join-two")
+    def _join_two(a: str, b: str) -> str:
+        return a + b
+
+    base = NodeRegistry([_trim, _join_two])
+    inner = CompiledGraph.from_graph(
+        Graph(nodes=[GraphNode(id="x", type="trim", version=1), GraphNode(id="y", type="trim", version=1)]), base,
+    )
+    clashing = NodeDefinition.from_compiled_graphs("two", versions=inner)
+    described = clashing.describe().versions[1]
+    assert [i.name for i in described.inputs] == ["x.text", "y.text"]
+    assert [o.name for o in described.outputs] == ["x.result", "y.result"]

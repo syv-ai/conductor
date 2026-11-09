@@ -2303,9 +2303,9 @@
      },
      "texts": {
       "binding": "From(refs=('h1.result', 'h2.result'))",
-      "index": "Index('emb/join.texts')",
+      "index": "Index('emb.texts')",
       "listed": false,
-      "receives": "Gather(index=Index('emb/join.texts'))",
+      "receives": "Gather(index=Index('emb.texts'))",
       "type": "Series[Txt]"
      }
     },

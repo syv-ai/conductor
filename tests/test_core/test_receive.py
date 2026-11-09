@@ -220,7 +220,7 @@ def test_an_inner_reduction_over_the_entering_series_reduces_to_its_own_row():
         ), _registry())
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.text": _edge(("docs", "result"))}),
+        GraphNode(id="emb", type="inner-graph", version=1, bindings={"text": _edge(("docs", "result"))}),
     ], inner)
 
     assert compiled.is_runnable, compiled.problems
@@ -241,7 +241,7 @@ def test_unrelated_rows_inside_an_embedded_graph_are_misaligned_not_paired():
         GraphNode(id="a", type="docs", version=1),
         GraphNode(id="b", type="docs", version=1),
         GraphNode(id="lb", type="lines", version=1, bindings={"text": _edge(("b", "result"))}),
-        GraphNode(id="e", type="pair-graph", version=1, bindings={"up.text": _edge(("a", "result")), "j.texts": _edge(("lb", "result"))}),
+        GraphNode(id="e", type="pair-graph", version=1, bindings={"text": _edge(("a", "result")), "texts": _edge(("lb", "result"))}),
     ], inner)
 
     assert [(p.type, p.loc[0]) for p in compiled.problems] == [("misaligned", "e")]
@@ -267,10 +267,10 @@ def test_an_open_parameter_inside_an_embedded_graph_is_not_an_input_it_offers():
     inner = embedded_graph_node("script-graph", (GraphNode(id="s", type="script", version=1),), _registry())
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="emb", type="script-graph", version=1, bindings={"s.v": _edge(("docs", "result"))}),
+        GraphNode(id="emb", type="script-graph", version=1, bindings={"v": _edge(("docs", "result"))}),
     ], inner)
 
-    assert [(p.type, p.loc[0], p.loc[1]) for p in compiled.problems] == [("stale_binding", "emb", "s.v")]
+    assert [(p.type, p.loc[0], p.loc[1]) for p in compiled.problems] == [("stale_binding", "emb", "v")]
 
 
 # --- the ledger reads the record -----------------------------------------------------

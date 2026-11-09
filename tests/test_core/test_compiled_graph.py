@@ -364,7 +364,7 @@ def test_compile_looks_each_node_up_once():
     CompiledGraph.from_graph(Graph(nodes=[
         GraphNode(id="a", type="echo", version=1),
         GraphNode(id="b", type="echo", version=1, bindings={"x": From("a.result")}),
-        GraphNode(id="emb", type="wrapped", version=1, bindings={"inner.x": From("b.result")}),
+        GraphNode(id="emb", type="wrapped", version=1, bindings={"x": From("b.result")}),
     ]), registry)
 
     assert registry.counts == {"echo": 2, "wrapped": 1}

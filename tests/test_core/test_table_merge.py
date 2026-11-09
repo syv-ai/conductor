@@ -96,8 +96,8 @@ def test_an_embedded_graph_given_the_whole_table_lands_its_result_on_the_contact
     registry = registry.extended_with([inner])
     compiled = _compiled(
         CSV,
-        GraphNode(id="emb", type="mailer", version=1, bindings={"keep.contacts": From("csv.result")}),
-        GraphNode(id="excel", type="export", version=1, bindings={"table": From("csv.result", "emb.send.result")}),
+        GraphNode(id="emb", type="mailer", version=1, bindings={"contacts": From("csv.result")}),
+        GraphNode(id="excel", type="export", version=1, bindings={"table": From("csv.result", "emb.result")}),
         registry=registry,
     )
 
@@ -268,8 +268,8 @@ def test_an_embedded_graphs_table_rows_carry_ids_in_so_nothing_is_told():
     inner = embedded_graph_node("filter", (GraphNode(id="keep", type="with-email", version=1),), registry, "Filter")
     compiled = _compiled(
         CSV,
-        GraphNode(id="emb", type="filter", version=1, bindings={"keep.contacts": From("csv.result")}),
-        GraphNode(id="send", type="send", version=1, bindings={"email": From("emb.keep.result.email")}),
+        GraphNode(id="emb", type="filter", version=1, bindings={"contacts": From("csv.result")}),
+        GraphNode(id="send", type="send", version=1, bindings={"email": From("emb.result.email")}),
         GraphNode(id="excel", type="export", version=1, bindings={"table": From("csv.result", "send.result")}),
         registry=registry.extended_with([inner]),
     )

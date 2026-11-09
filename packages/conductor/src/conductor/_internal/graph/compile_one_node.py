@@ -27,7 +27,6 @@ from conductor._internal.graph.embedding import (
     SEPARATOR,
     Crossing,
     EmbeddableGraph,
-    as_drawn,
     embedded_in,
     lift_embedded_nodes,
     table_rows_inside,
@@ -64,13 +63,14 @@ def compile_one_node(node: GraphNode, walk: WalkSoFar, registry: NodeRegistry) -
     if version is None:
         problems.append(problem("unknown_node_version", node.id, node_type=node.type, version=node.version))
         return _add(walk, node, problems)
+    drawn = node
     if walk.graph_nodes:
         node = _with_edges_out_of_embedded_graphs_resolved(node, walk)
     is_graph = not isinstance(version, NodeVersion)
     if is_graph:
         walk.graph_nodes.add(node.id)
 
-    declared = version.interface
+    declared = _interface_it_declares(version)
     typed, listed, invalid = read_typed_in_values(declared.inputs, node)
     inputs = declared.inputs
     if not is_graph and version.compute_inputs is not None:
@@ -99,9 +99,9 @@ def compile_one_node(node: GraphNode, walk: WalkSoFar, registry: NodeRegistry) -
             if name not in named and isinstance(binding, From)
         ))
 
-    can_be_wired = _check_bindings(node, inputs, version, embeddable, walk, problems) and can_be_wired
+    can_be_wired = _check_bindings(drawn, inputs, version, embeddable, walk, problems) and can_be_wired
     if not can_be_wired:
-        return _add(walk, node, problems, definition, version, _replaced(version.interface, inputs, version.interface.outputs), typed)
+        return _add(walk, node, problems, definition, version, _replaced(declared, inputs, declared.outputs), typed)
 
     found = read_inputs(node, inputs, listed, walk, problems)
     if found.broken:
@@ -120,7 +120,7 @@ def compile_one_node(node: GraphNode, walk: WalkSoFar, registry: NodeRegistry) -
         return _add(walk, node, problems, definition, version, interface, typed)
     if not outputs and (is_graph or version.returns is not None):
         problems.append(problem("no_outputs", node.id))
-    settled, row = decide_rows(node, found, problems, walk.row_origins, walk.graph_nodes)
+    settled, row = decide_rows(node, found, problems, walk.row_origins)
     if not settled:
         return _add(walk, node, problems, definition, version, interface, typed)
     if is_graph:
@@ -143,6 +143,11 @@ def _add(
     walk.problems.extend(problems)
 
 
+def _interface_it_declares(version: Any) -> Interface:
+    """The fields a version offers the graph it is placed in: a compiled graph offers its own, under its offered names."""
+    return version.interface if isinstance(version, NodeVersion) else version._for_embedding.interface
+
+
 def _cause_of(node: GraphNode, problems: list[Problem], walk: WalkSoFar) -> Problem:
     """Why a node isn't wired: its own first fatal problem, or else the cause of the first source that isn't."""
     own = next((p for p in problems if p.fatal), None)
@@ -154,7 +159,7 @@ def _cause_of(node: GraphNode, problems: list[Problem], walk: WalkSoFar) -> Prob
         for ref in binding.refs:
             if ref.node_id in walk.refused:
                 return walk.refused[ref.node_id]
-            source = walk.compiled.get(ref.node_id) or walk.compiled.get(as_drawn(ref, walk.graph_nodes)[0])
+            source = walk.compiled.get(ref.node_id)
             if source is not None and source.wiring is None:
                 return source.cause
     raise AssertionError(f"compile left {node.id!r} unwired with nothing fatal to say why")
@@ -162,15 +167,13 @@ def _cause_of(node: GraphNode, problems: list[Problem], walk: WalkSoFar) -> Prob
 
 def _with_edges_out_of_embedded_graphs_resolved(node: GraphNode, walk: WalkSoFar) -> GraphNode:
     """``node`` with every edge out of an embedded graph pointed at the field
-    inside it that the author's address names (``approve.check.amount`` at
-    ``approve/check.amount``): the one place compile reads an address as the
-    author wrote it. An edge naming an output it doesn't offer stays as written,
-    and wiring reports it (``unknown_ref_output``)."""
+    inside it that the name offers (``approve.total`` at ``approve/check.total``):
+    the one place compile reads an offered name. An edge naming an output it
+    doesn't offer stays as written, and wiring reports it (``unknown_ref_output``)."""
     def resolved(ref: Ref) -> Ref:
         source = walk.compiled.get(ref.node_id)
-        if source is not None and source.embedded_graph is not None and ref.field in source.embedded_graph._for_embedding.outputs:
-            return Ref(f"{ref.node_id}{SEPARATOR}{ref.field}")
-        return ref
+        inside = None if source is None or source.wiring is None or source.embedded_graph is None else source.embedded_graph._for_embedding.outputs.get(ref.field)
+        return ref if inside is None else Ref(f"{ref.node_id}{SEPARATOR}{inside.node_id}", inside.field)
 
     if not any(isinstance(b, From) and any(r.node_id in walk.graph_nodes for r in b.refs) for b in node.bindings.values()):
         return node
@@ -208,7 +211,7 @@ def _graph_as_this_node_fills_it(
     had = {(found.type, found.loc) for found in embeddable.faults} if filled is not stored else None
     brought = [found for found in faults if had is not None and (found.type, found.loc) not in had]
     for found in brought:
-        where = next((name for name in refill if as_drawn(Ref(name), embeddable.graph_ids)[0] == found.loc[0]), None)
+        where = next((name for name in refill if embeddable.inputs[name].drawn.node_id == found.loc[0]), None)
         problems.append(found.model_copy(update={"loc": (node.id,) if where is None else (node.id, where)}))
     if len(brought) < len(faults):
         problems.append(problem("embedded_graph_broken", node.id, graph=title, problems=len(faults) - len(brought)))
@@ -246,7 +249,7 @@ def _check_bindings(
             source_id = ref.node_id
             if source_id in walk.refused:
                 can_wire = False
-            elif source_id not in walk.compiled and as_drawn(ref, walk.graph_nodes)[0] not in walk.compiled:
+            elif SEPARATOR in source_id or source_id not in walk.compiled:
                 can_wire = False
                 problems.append(problem("unknown_ref_node", node.id, name, source_node=source_id))
     for inp in inputs:
@@ -279,7 +282,7 @@ def _interface_without_wiring(
 def _ask_outputs(version: Any, arriving: dict[str, Any], typed: dict[str, Any]) -> tuple[Output, ...]:
     """What ``compute_outputs`` answers now that it can be told what arrives; a compiled graph has no hooks."""
     if not isinstance(version, NodeVersion) or version.compute_outputs is None:
-        return version.interface.outputs
+        return _interface_it_declares(version).outputs
     values = {**{i.name: i.default for i in version.interface.inputs if not i.required}, **typed}
     answered = version.compute_outputs.answer(values, arriving, typed)
     return version.interface.outputs if answered is None else answered
@@ -367,12 +370,13 @@ def _place_embedded_graph(
     found: InputsRead, walk: WalkSoFar, problems: list[Problem],
 ) -> None:
     """The graph node's record, and every node inside it under ``row``."""
-    offered = {str(inp.name) for inp in graph.interface.inputs}
-    edges = {name: binding for name, binding in node.bindings.items() if isinstance(binding, From) and name in offered}
-    crossings = {name: Crossing(type=found.arrivals[name].dtype, index=found.arrivals[name].rows, receives=found.receives[name]) for name in edges}
-    lifted = lift_embedded_nodes(embeddable, node.id, edges, typed, row, crossings, _condition_of_source_above(walk))
+    offered = embeddable.inputs
+    connected = [name for name, binding in node.bindings.items() if isinstance(binding, From) and name in offered]
+    edges: dict[Ref, From] = {offered[name].runs_at: node.bindings[name] for name in connected}  # type: ignore[misc]
+    crossings = {offered[name].runs_at: Crossing(type=found.arrivals[name].dtype, index=found.arrivals[name].rows, receives=found.receives[name]) for name in connected}
+    values = {offered[name].runs_at: value for name, value in typed.items()}
+    lifted = lift_embedded_nodes(embeddable, node.id, edges, values, row, crossings, _condition_of_source_above(walk))
     _add(walk, node, problems, definition, graph, interface, typed, Wiring({}, row))
     walk.compiled.update(lifted)
-    walk.graph_nodes.update(f"{node.id}{SEPARATOR}{inner}" for inner in embeddable.graph_ids)
     walk.row_origins.of_table_rows.update(dict.fromkeys(table_rows_inside(lifted)))
     walk.row_origins.must_survive.update(Ref(f"{node.id}{SEPARATOR}{ref.node_id}", ref.field) for ref in embeddable.row_ids_must_survive)

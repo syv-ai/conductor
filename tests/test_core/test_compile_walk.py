@@ -311,7 +311,7 @@ def test_an_untyped_input_left_empty_inside_a_graph_cant_be_embedded():
     emb = NodeDefinition.from_compiled_graphs("emb", title="e", description="", versions=inner)
     extended = registry.extended_with([emb])
 
-    compiled = _compiled(_node("s", "split", text=Static("t")), _node("e", "emb", **{"x.value": From("s.result")}), registry=extended)
+    compiled = _compiled(_node("s", "split", text=Static("t")), _node("e", "emb", **{"value": From("s.result")}), registry=extended)
 
     assert [p.type for p in compiled.problems] == ["embedded_graph_broken"]
     assert compiled.node("e").wiring is None

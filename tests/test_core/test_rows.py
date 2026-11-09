@@ -714,7 +714,7 @@ def test_a_typed_in_list_inside_an_iterating_embedded_graph_is_a_child_row_under
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             _docs(texts),
-            GraphNode(id="emb", type="typed-inside", version=1, bindings={"h.text": _edge(("docs", "texts"))}),
+            GraphNode(id="emb", type="typed-inside", version=1, bindings={"text": _edge(("docs", "texts"))}),
         ]),
         _registry_with_asks(TypedInside),
     )
@@ -733,7 +733,7 @@ def test_a_restore_leaves_a_list_set_on_a_node_under_a_skipped_outer_row_complet
     from conductor._internal.execution.live_run_values import LiveRunValues, Skip
 
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[_docs("a,b"), GraphNode(id="emb", type="typed-inside", version=1, bindings={"h.text": _edge(("docs", "texts"))})]),
+        Graph(nodes=[_docs("a,b"), GraphNode(id="emb", type="typed-inside", version=1, bindings={"text": _edge(("docs", "texts"))})]),
         _registry_with_asks(TypedInside),
     )
     live = LiveRunValues(compiled)
@@ -760,8 +760,8 @@ def test_an_inner_reduction_over_the_entering_series_runs_once_per_outer_row():
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             _docs("a,b,c"),
-            GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.text": _edge(("docs", "texts"))}),
-            GraphNode(id="after", type="join", version=1, bindings={"texts": _edge(("emb", "gather.result"))}),
+            GraphNode(id="emb", type="inner-graph", version=1, bindings={"text": _edge(("docs", "texts"))}),
+            GraphNode(id="after", type="join", version=1, bindings={"texts": _edge(("emb", "result"))}),
         ]),
         _registry_with_asks(embedded),
     )

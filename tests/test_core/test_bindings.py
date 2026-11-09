@@ -249,7 +249,7 @@ def _graph(application_locked=(), language_bindings=None):
 
 
 def _interface(graph, registry=None):
-    return derive_interface(graph, _resolved(graph, registry)[0], dependencies_of(graph.nodes), frozenset())
+    return derive_interface(graph, _resolved(graph, registry)[0], dependencies_of(graph.nodes))
 
 
 def _locks(graph, registry=None):
@@ -416,7 +416,7 @@ def test_a_column_a_node_computed_is_derivable():
         declared, outputs=(*declared.outputs, Output("name", Txt, title="Name")),
     )
 
-    interface = derive_interface(graph, interfaces, dependencies_of(graph.nodes), frozenset())
+    interface = derive_interface(graph, interfaces, dependencies_of(graph.nodes))
 
     assert [o.name for o in interface.outputs] == ["language.result", "summary.result", "summary.name"]
 
@@ -429,7 +429,7 @@ def test_a_field_on_a_node_compile_could_not_resolve_contributes_nothing():
     interfaces, versions = _resolved(graph)
     del interfaces["application"], versions["application"]
 
-    interface = derive_interface(graph, interfaces, dependencies_of(graph.nodes), frozenset())
+    interface = derive_interface(graph, interfaces, dependencies_of(graph.nodes))
 
     assert [i.name for i in interface.inputs] == ["language.value"]
 

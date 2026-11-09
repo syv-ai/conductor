@@ -33,7 +33,7 @@ class WalkSoFar:
     compiled: dict[str, CompiledNode] = field(default_factory=dict)
     #: The ids written that can't name a node (``/`` or ``.`` in them), each with its problem.
     refused: dict[str, Problem] = field(default_factory=dict)
-    #: The nodes that are a compiled graph, nested ones included.
+    #: The nodes that are a compiled graph.
     graph_nodes: set[str] = field(default_factory=set)
     #: Problems found before a node's turn (its id was used twice).
     found_before: dict[str, list[Problem]] = field(default_factory=dict)
@@ -85,7 +85,7 @@ def compile_graph(graph: Graph, registry: NodeRegistry) -> CompiledRecords:
         compile_one_node(authored[node_id], walk, registry)
     compiled = walk.compiled
     interface = derive_interface(
-        graph, {node_id: compiled[node_id].interface for node_id in authored if compiled[node_id].interface is not None}, dependencies, walk.graph_nodes,
+        graph, {node_id: compiled[node_id].interface for node_id in authored if compiled[node_id].interface is not None}, dependencies,
     )
     execution_order = tuple(
         node_id for node_id, node in compiled.items()
