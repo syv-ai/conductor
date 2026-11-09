@@ -300,13 +300,13 @@ def _condition_lookup_for_sources(progress: CompileProgress) -> Any:
 
 def _branches_read_at_the_row(receive_modes: Mapping[str, ReceiveMode], runs_per_row_of: Index | None, progress: CompileProgress) -> frozenset[BranchTaken]:
     """The per-row decisions this node runs only one way of: those of a source read alone at the node's own row, whose skip skips the unit."""
-    branches: set[BranchTaken] = set()
+    branches: frozenset[BranchTaken] = frozenset()
     for receive_mode in receive_modes.values():
-        if isinstance(receive_mode, Cell) and len(receive_mode.sources) == 1:
-            source = _field_above(progress, receive_mode.sources[0])
-            if source is not None and source._index == runs_per_row_of:
+        if receive_mode.__class__ is Cell and len(receive_mode.sources) == 1:  # type: ignore[union-attr]  # a Cell has sources
+            source = _field_above(progress, receive_mode.sources[0])  # type: ignore[union-attr]
+            if source is not None and source._branches_on_its_row and source._index == runs_per_row_of:
                 branches |= source._branches_on_its_row
-    return frozenset(branches)
+    return branches
 
 
 def _branches_of_output(node_id: str, out: Output, branches_read: frozenset[BranchTaken]) -> frozenset[BranchTaken]:

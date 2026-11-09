@@ -332,7 +332,10 @@ def decide_runs_per_row_of_and_receive_modes(node: GraphNode, found: WhatArrives
 def series_inputs_that_never_share_a_row(node_id: str, inputs: Sequence[Input], receive_modes: Mapping[str, ReceiveMode], progress: CompileProgress) -> list[Problem]:
     """Two inputs of many values, neither taking a blank, reading opposite branches on one index:
     a row either has skipped is a blank the other way, so every row would leave them both and the node would get nothing."""
-    readers = [(input_.name, [field for ref in mode.sources if (field := _source_output(ref, node_id, progress)) is not None]) for input_ in inputs if input_.many and not input_.takes_blank and isinstance(mode := receive_modes[input_.name], RowsUnder)]
+    taking_no_blank = [input_ for input_ in inputs if input_.many and not input_.takes_blank]
+    if len(taking_no_blank) < 2:
+        return []
+    readers = [(input_.name, [field for ref in mode.sources if (field := _source_output(ref, node_id, progress)) is not None]) for input_ in taking_no_blank if isinstance(mode := receive_modes[input_.name], RowsUnder)]
     for position, (a, sources_of_a) in enumerate(readers):
         for b, sources_of_b in readers[position + 1:]:
             if all(_never_hold_a_value_on_one_row(left, right) for left in sources_of_a for right in sources_of_b):
