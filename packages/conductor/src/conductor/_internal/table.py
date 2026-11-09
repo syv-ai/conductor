@@ -265,7 +265,7 @@ class Table(DType, Generic[RowsOf]):
     """
 
     id = "table"
-    title = "Table"
+    display_title = "Table"
     #: The columns this type declares, each ``(name, scalar DType)``; ``()`` on bare ``Table``.
     columns: ClassVar[tuple[Column, ...]] = ()
 
@@ -344,7 +344,7 @@ class Table(DType, Generic[RowsOf]):
         for name, dtype in cls.columns:
             if name not in frame.columns:
                 raise ValueError(f"the table has no column '{name}'")
-            read.append(_cast(frame[name], column_type(dtype), dtype.title))  # type: ignore[arg-type]
+            read.append(_cast(frame[name], column_type(dtype), dtype.display_title))  # type: ignore[arg-type]
         if ROW_ID in frame.columns:
             read.insert(0, frame[ROW_ID])
         return pl.DataFrame(read)

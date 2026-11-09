@@ -33,12 +33,12 @@ from conductor.widgets import Textarea
 
 class Txt(DType, str):
     id = "lifecycle-txt"
-    title = "Tekst"
+    display_title = "Tekst"
 
 
 class Whole(DType, int):
     id = "lifecycle-int"
-    title = "Tal"
+    display_title = "Tal"
 
 
 Contacts = Table.with_columns({"name": Txt, "email": Txt})
@@ -503,7 +503,7 @@ def test_a_node_returning_none_on_a_typed_output_still_fails():
 def test_a_dump_of_a_value_with_no_json_form_names_the_output():
     class Opaque(DType):
         id = "lifecycle-opaque"
-        title = "x"
+        display_title = "x"
 
     @node("makes-opaque", title="x", description="d", category="test")
     def makes_opaque() -> Annotated[Opaque, Result(title="O")]:

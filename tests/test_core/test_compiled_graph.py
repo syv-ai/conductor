@@ -39,12 +39,12 @@ from test_core.embedded import embedded_graph_node
 
 class Txt(DType, str):
     id = "compiled-test-txt"
-    title = "Text"
+    display_title = "Text"
 
 
 class Num(DType, float):
     id = "compiled-test-num"
-    title = "Number"
+    display_title = "Number"
 
 
 Out = Annotated[Txt, Result(title="Result")]

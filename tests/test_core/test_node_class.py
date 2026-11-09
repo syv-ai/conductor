@@ -32,7 +32,7 @@ from pydantic import TypeAdapter
 
 class Txt(DType, str):
     id = "node-class-test-txt"
-    title = "Text"
+    display_title = "Text"
 
 
 #: The single-output return, spelled once so the fixtures below do not each
@@ -321,7 +321,7 @@ class Flag(DType):
     """A boolean dtype for the test — conductor ships none."""
 
     id = "node-class-test-flag"
-    title = "Yes/No"
+    display_title = "Yes/No"
 
     def __init__(self, value: bool = False) -> None:
         self.value = bool(value)

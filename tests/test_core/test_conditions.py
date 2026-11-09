@@ -27,12 +27,12 @@ from conductor.widgets import Switch, Textarea
 
 class Txt(DType, str):
     id = "conditions-test-txt"
-    title = "Text"
+    display_title = "Text"
 
 
 class Flag(DType, int):
     id = "conditions-test-flag"
-    title = "Yes/No"
+    display_title = "Yes/No"
 
 
 Out = Annotated[Txt, Result(title="Result")]

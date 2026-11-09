@@ -7,12 +7,12 @@ from pydantic import BaseModel
 
 class Text(DType, str):
     id = "series-test-text"
-    title = "Text"
+    display_title = "Text"
 
 
 class Num(DType, float):
     id = "series-test-num"
-    title = "Number"
+    display_title = "Number"
 
 
 # --- a series reads as its values -----------------------------------------
@@ -233,7 +233,7 @@ def test_a_series_of_wire_formed_values_dumps_each_through_its_own_schema():
 
     class Blob(DType):
         id = "series-test-blob"
-        title = "Blob"
+        display_title = "Blob"
         __slots__ = ("data",)
 
         def __init__(self, data: str) -> None:

@@ -38,7 +38,7 @@ from pydantic import ValidationError
 
 class Txt(DType, str):
     id = "state-test-text"
-    title = "Text"
+    display_title = "Text"
 
 
 In = Annotated[Txt, Param(title="In", widget=Textarea())]
@@ -390,7 +390,7 @@ def test_a_list_set_on_a_node_edited_between_legs_reruns_on_the_new_rows():
 def test_a_static_hashes_as_its_type_writes_it_not_as_the_author_spelled_it():
     class Num(DType, float):
         id = "state-test-number"
-        title = "Number"
+        display_title = "Number"
 
     @node("half", title="Half", description="d", category="test")
     def half(n: Annotated[Num, Param(title="N", widget=Textarea())] = Num(0)) -> Annotated[Num, Result(title="Out")]:

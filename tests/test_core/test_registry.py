@@ -24,7 +24,7 @@ from conductor.widgets import Textarea
 
 class Txt(DType, str):
     id = "registry-test-text"
-    title = "Text"
+    display_title = "Text"
 
 
 Out = Annotated[Txt, Result(title="Output")]

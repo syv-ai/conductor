@@ -37,7 +37,7 @@ from helpers import stream_of
 
 class Txt(DType, str):
     id = "leg-test-text"
-    title = "Text"
+    display_title = "Text"
 
 
 In = Annotated[Txt, Param(title="In", widget=Textarea())]

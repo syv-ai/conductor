@@ -16,7 +16,7 @@ def _read_return_hint(hint):
 
 class Text(DType, str):
     id = "returns-test-text"
-    title = "Text"
+    display_title = "Text"
 
 
 def test_an_output_is_a_field_and_adds_one_contract_fact():
@@ -88,7 +88,7 @@ def test_the_record_publishes_a_json_schema():
 
 class Num(DType, float):
     id = "returns-test-num"
-    title = "Number"
+    display_title = "Number"
 
 
 @dataclasses.dataclass(frozen=True)

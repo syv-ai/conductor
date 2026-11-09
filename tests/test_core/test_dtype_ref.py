@@ -11,7 +11,7 @@ class Text(DType, str):
     """A host-side type; the id is test-scoped because the registry is process-global."""
 
     id = "dtype-ref-test-text"
-    title = "Text"
+    display_title = "Text"
 
 
 def test_a_dtype_ref_dumps_as_the_description():

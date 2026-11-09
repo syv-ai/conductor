@@ -31,7 +31,7 @@ from helpers import stream_of
 
 class Txt(DType, str):
     id = "exec-test-txt"
-    title = "Text"
+    display_title = "Text"
 
 
 Out = Annotated[Txt, Result(title="Result")]

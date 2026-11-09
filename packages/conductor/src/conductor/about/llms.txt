@@ -166,7 +166,7 @@ The classes are exported from `conductor`. What is wrong is always one record, `
 NodeDeclarationError    a node or type declared wrong, at import; a TypeError, with code and node_id
 CompileProblem          a hook cannot answer; field= says where
 InvalidCallError        a verb was given what it cannot act on, every fault listed
-NodeError               code, ctx, node_id, original
+NodeError               code, ctx, node_id
 ├── ExternalFailure         retried
 ├── NodeValidationError
 └── NodeExecutionError

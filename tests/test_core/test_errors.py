@@ -29,7 +29,7 @@ from conductor._internal.errors import ConductorError, problem
 
 class Txt(DType, str):
     id = "errors_txt"
-    title = "Txt"
+    display_title = "Txt"
 
 
 @node("echo", title="Echo", description="d", category="c")
@@ -209,7 +209,7 @@ def test_a_wrong_declaration_is_a_type_error_with_a_code_and_the_node():
 def test_a_wrong_type_has_a_code_and_no_node():
     with pytest.raises(NodeDeclarationError) as wrong:
         class NoId(DType, str):
-            title = "x"
+            display_title = "x"
 
     assert (wrong.value.code, wrong.value.node_id) == ("type_without_id", None)
 

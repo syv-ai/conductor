@@ -29,12 +29,12 @@ from conductor.widgets import Textarea
 
 class Txt(DType, str):
     id = "iteration-test-txt"
-    title = "Text"
+    display_title = "Text"
 
 
 class Num(DType, float):
     id = "iteration-test-num"
-    title = "Number"
+    display_title = "Number"
 
 
 Out = Annotated[Txt, Result(title="Result")]

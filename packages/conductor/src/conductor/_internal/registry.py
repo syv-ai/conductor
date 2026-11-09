@@ -165,7 +165,7 @@ class NodeRegistry:
         return RegistryDescription(
             nodes=tuple(definition.describe() for definition in self._nodes.values()),
             types=tuple(
-                TypeDescription(id=word.id, title=word.title, accepted_as=self.accepted_as(word))
+                TypeDescription(id=word.id, title=word.display_title, accepted_as=self.accepted_as(word))
                 for word in self._types.values()
             ),
         )

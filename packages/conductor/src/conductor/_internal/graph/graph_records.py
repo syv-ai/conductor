@@ -93,11 +93,12 @@ class Graph(ConductorModel):
     compiled (``derive_interface``), never stored.
     """
 
-    nodes: tuple[GraphNode, ...]
+    #: Any sequence going in; a tuple once built.
+    nodes: Sequence[GraphNode]
     #: Chrome, at graph level.
     display: Mapping[str, Any] = Field(default_factory=dict)
 
-    @field_validator("nodes", mode="before")
+    @field_validator("nodes")
     @classmethod
-    def _a_sequence_of_nodes(cls, nodes: Any) -> Any:
-        return tuple(nodes) if isinstance(nodes, Sequence) and not isinstance(nodes, str) else nodes
+    def _nodes_as_tuple(cls, nodes: Sequence[GraphNode]) -> tuple[GraphNode, ...]:
+        return tuple(nodes)

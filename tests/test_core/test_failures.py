@@ -4,8 +4,8 @@ A node's failure is internal unless the outside world caused it. An
 ``ExternalFailure`` — raised by the node itself, or a foreign exception the
 version's ``Policy(retry_on=...)`` names — retries under the policy; any
 other failure runs once. A cause carries a generic message per code unless
-the node wrote one for people; a foreign exception's text stays on the
-exception's ``original`` and never reaches an event.
+the node wrote one for people; a foreign exception's text goes to the
+log and never reaches an event.
 """
 
 import asyncio
@@ -40,7 +40,7 @@ from helpers import stream_of
 
 class Txt(DType, str):
     id = "failures-test-text"
-    title = "Text"
+    display_title = "Text"
 
 
 In = Annotated[Txt, Param(title="In", widget=Textarea())]
@@ -194,9 +194,8 @@ def test_a_validation_error_the_node_raised_is_never_retried():
 # -- the foreign exception's text -----------------------------------------------
 
 
-def test_a_foreign_exceptions_text_is_on_original_and_nowhere_else():
-    """The wrapped exception keeps the foreign one on ``original`` (and as its
-    ``__cause__``) for a log; its own text and its cause are the generic line."""
+def test_a_foreign_exceptions_text_is_its_cause_and_nowhere_else():
+    """The wrapped exception keeps the foreign one as its ``__cause__``; its own text is the generic line."""
 
     @node("buggy", title="Buggy", description="d", category="test")
     def buggy(text: In = Txt("")) -> Out:
@@ -209,8 +208,7 @@ def test_a_foreign_exceptions_text_is_on_original_and_nowhere_else():
         leg._call(("n1", ()), {"text": "x"})
 
     wrapped = caught.value
-    assert isinstance(wrapped.original, KeyError)
-    assert wrapped.__cause__ is wrapped.original
+    assert isinstance(wrapped.__cause__, KeyError)
     assert str(wrapped) == "The node failed."
     assert wrapped.code == "execution_failed" and str(wrapped) == "The node failed."
     assert "secret-token" not in str(wrapped)
@@ -320,7 +318,7 @@ def test_a_flaky_node_in_one_branch_retries_while_the_other_branch_completes():
 
 class Shape(DType, dict):
     id = "failures-shape"
-    title = "Shape"
+    display_title = "Shape"
 
 
 class Square(Shape):
@@ -329,7 +327,7 @@ class Square(Shape):
     build from JSON."""
 
     id = "failures-square"
-    title = "Square"
+    display_title = "Square"
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source_type, handler):

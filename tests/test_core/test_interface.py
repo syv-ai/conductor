@@ -23,7 +23,7 @@ class Text(DType, str):
     """Conductor ships no domain types, so the test declares one."""
 
     id = "interface-test-text"
-    title = "Text"
+    display_title = "Text"
 
 
 def sample(
@@ -155,7 +155,7 @@ def test_each_of_several_outputs_carries_its_own_dtype():
 
     class Num(DType, float):
         id = "interface-test-num-2"
-        title = "Number"
+        display_title = "Number"
 
     @dataclass(frozen=True)
     class Both:

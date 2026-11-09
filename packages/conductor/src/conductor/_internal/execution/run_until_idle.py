@@ -40,6 +40,7 @@ is on ``state.failure``.
 from __future__ import annotations
 
 import asyncio
+import logging
 import queue
 import threading
 import time
@@ -79,6 +80,8 @@ from conductor._internal.execution.validate_unit_outputs import took_a_row_in, v
 from conductor._internal.execution.waiting_units import waiting_unit_for
 from conductor._internal.interface import unpack
 from conductor._internal.skip_and_ask import AskPerson
+
+logger = logging.getLogger("conductor")
 
 if TYPE_CHECKING:
     from conductor._internal.graph.compiled import CompiledGraph
@@ -368,12 +371,10 @@ class Leg:
             raise
         except BaseException as raised:
             # The exception's text can hold a value the node returned, so
-            # the event carries the generic line and the class name; the
-            # exception itself is on ``original`` for a log.
+            # the event carries the generic line and the class name; the log has the rest.
             node_id, row = unit
-            failure = NodeExecutionError(
-                CATALOGUE["engine_error"][0], node_id=node_id, original=raised, code="engine_error", ctx={"exception": type(raised).__name__},
-            )
+            logger.error("the engine failed on node %r", node_id, exc_info=raised)
+            failure = NodeExecutionError(CATALOGUE["engine_error"][0], node_id=node_id, code="engine_error", ctx={"exception": type(raised).__name__})
             self.queue.put_nowait(_UnitDone(unit, error=self._error_event(node_id, failure, row)))
 
     async def _unit(self, unit: Unit, attempt: int) -> None:
@@ -439,11 +440,11 @@ class Leg:
                 must_survive = frozenset()
             cells, faults = validate_unit_outputs(node, row, unpack(version.returns, value, node.interface.outputs, version.interface.outputs), must_survive)
         except ValueError as invalid:  # the wrong shape of return, or an ask that isn't sound
-            queue.put_nowait(_UnitDone(unit, error=self._invalid_output(node_id, row, str(invalid), invalid, code="invalid_output")))
+            queue.put_nowait(_UnitDone(unit, error=self._invalid_output(node_id, row, str(invalid), code="invalid_output")))
             return
         if faults:
             reason = "; ".join(fault.message for fault in faults)
-            queue.put_nowait(_UnitDone(unit, error=self._invalid_output(node_id, row, reason, None, [e for fault in faults for e in fault.errors], code=next((fault.code for fault in faults if fault.code != "invalid_output"), "invalid_output"))))
+            queue.put_nowait(_UnitDone(unit, error=self._invalid_output(node_id, row, reason, [e for fault in faults for e in fault.errors], code=next((fault.code for fault in faults if fault.code != "invalid_output"), "invalid_output"))))
             return
         ready = ledger.record(unit, cells)
         self._after(unit)
@@ -461,8 +462,8 @@ class Leg:
         else a node or an input's type raises, ``SystemExit`` and a stray
         ``CancelledError`` included, is the unit's failure: wrapped as an
         ``ExternalFailure`` when the policy's ``retry_on`` names its class, as a
-        ``NodeExecutionError`` otherwise, with the exception itself on
-        ``original`` and its text on no event.
+        ``NodeExecutionError`` otherwise, with the exception in the log, its
+        class name in ``ctx`` and its text on no event.
         """
         node_id, row = unit
         node = self.compiled.node(node_id)
@@ -472,7 +473,7 @@ class Leg:
         except ValidationError as invalid:
             reason = self._describe(invalid, node.interface.inputs)
             raise NodeValidationError(
-                reason, node_id=node_id, original=invalid, code="invalid_input", ctx={"reason": reason},
+                reason, node_id=node_id, code="invalid_input", ctx={"reason": reason},
             ) from invalid
         except BaseException as raised:
             raise self._node_failed(node_id, raised) from raised
@@ -483,15 +484,17 @@ class Leg:
         except NodeError:
             raise
         except version.policy.retry_on as raised:
+            logger.warning("node %r: an outside service failed", node_id, exc_info=raised)
             raise ExternalFailure(
-                CATALOGUE["external_failed"][0], node_id=node_id, original=raised, code="external_failed",
+                CATALOGUE["external_failed"][0], node_id=node_id, code="external_failed", ctx={"exception": type(raised).__name__},
             ) from raised
         except BaseException as raised:
             raise self._node_failed(node_id, raised) from raised
 
     @staticmethod
     def _node_failed(node_id: str, raised: BaseException) -> NodeExecutionError:
-        return NodeExecutionError(CATALOGUE["execution_failed"][0], node_id=node_id, original=raised, code="execution_failed")
+        logger.error("node %r failed", node_id, exc_info=raised)
+        return NodeExecutionError(CATALOGUE["execution_failed"][0], node_id=node_id, code="execution_failed", ctx={"exception": type(raised).__name__})
 
     def _after(self, unit: Unit) -> None:
         """Report progress, and completion when this was the node's last unit."""
@@ -511,12 +514,12 @@ class Leg:
 
     # -- failures ----------------------------------------------------------------
 
-    def _invalid_output(self, node_id: str, row: Any, reason: str, original: Exception | None, errors: list[Any] | None = None, *, code: str) -> NodeFailed:
+    def _invalid_output(self, node_id: str, row: Any, reason: str, errors: list[Any] | None = None, *, code: str) -> NodeFailed:
         """The failure of a node that returned what it did not declare."""
         details: dict[str, Any] = {"reason": reason}
         if errors:
             details["errors"] = errors
-        failure = NodeExecutionError(CATALOGUE[code][0], node_id=node_id, original=original, code=code, ctx=details)
+        failure = NodeExecutionError(CATALOGUE[code][0], node_id=node_id, code=code, ctx=details)
         return self._error_event(node_id, failure, row)
 
     @staticmethod

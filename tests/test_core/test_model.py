@@ -32,7 +32,7 @@ from pydantic import ValidationError
 
 class Txt(DType, str):
     id = "model-test-txt"
-    title = "Text"
+    display_title = "Text"
 
 
 def _graph() -> Graph:

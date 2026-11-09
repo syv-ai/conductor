@@ -121,7 +121,7 @@ class Series(DType, Sequence[T]):
     """
 
     id = "series"
-    title = "Series"
+    display_title = "Series"
 
     __slots__ = ("index", "rows", "values")
 

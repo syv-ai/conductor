@@ -43,12 +43,12 @@ from conductor.widgets import Textarea
 
 class Txt(DType, str):
     id = "edges-txt"
-    title = "Text"
+    display_title = "Text"
 
 
 class Num(DType, float):
     id = "edges-num"
-    title = "Number"
+    display_title = "Number"
 
 
 class Contact(TypedDict):

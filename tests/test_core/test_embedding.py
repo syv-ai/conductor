@@ -57,12 +57,12 @@ RESULTS = Path(__file__).parent / "fixtures" / "embedded_expected_results.json"
 
 class Txt(DType, str):
     id = "embedding-test-txt"
-    title = "Text"
+    display_title = "Text"
 
 
 class Flag(DType, int):
     id = "embedding-test-flag"
-    title = "Yes/No"
+    display_title = "Yes/No"
 
 
 Out = Annotated[Txt, Result(title="Result")]

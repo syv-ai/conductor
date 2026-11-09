@@ -26,7 +26,7 @@ from conductor.events import Event, RunCheckpoint, RunEnd, UnitWaiting
 
 class Txt(DType, str):
     id = "checkpoint-txt"
-    title = "Tekst"
+    display_title = "Tekst"
 
 
 Out = Annotated[Txt, Result(title="Svar")]

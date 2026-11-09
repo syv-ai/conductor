@@ -36,7 +36,7 @@ from conductor.widgets import Textarea
 
 class Txt(DType, str):
     id = "upgrade-test-txt"
-    title = "Text"
+    display_title = "Text"
 
 
 def _param(title: str):

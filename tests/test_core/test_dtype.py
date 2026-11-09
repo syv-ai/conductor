@@ -10,14 +10,14 @@ class Text(DType, str):
     """A host-side type, defined here because conductor ships none."""
 
     id = "dtype-test-text"
-    title = "Text"
+    display_title = "Text"
 
 
 class Colour(DType):
     """A type built on nothing — validated by instance, not by a builtin."""
 
     id = "dtype-test-colour"
-    title = "Colour"
+    display_title = "Colour"
 
     def __init__(self, name):
         self.name = name
@@ -25,7 +25,7 @@ class Colour(DType):
 
 def test_a_dtype_declares_its_id_and_its_title():
     assert Text.id == "dtype-test-text"
-    assert Text.title == "Text"
+    assert Text.display_title == "Text"
 
 
 def test_a_type_renders_its_own_text():
@@ -66,7 +66,7 @@ def test_a_dtype_must_declare_an_id_and_a_title():
     with pytest.raises(TypeError, match="id"):
 
         class Nameless(DType, str):
-            title = "No id"
+            display_title = "No id"
 
 
 def test_declaring_a_type_has_no_side_effect():
@@ -74,7 +74,7 @@ def test_declaring_a_type_has_no_side_effect():
 
     class Duplicate(DType, str):
         id = "dtype-test-text"
-        title = "Another text"
+        display_title = "Another text"
 
     assert Duplicate.id == Text.id
 
@@ -98,7 +98,7 @@ def test_the_base_has_no_id():
     with pytest.raises(TypeError, match="id"):
 
         class Inherits(DType, str):
-            title = "Arver"
+            display_title = "Arver"
 
 
 def test_a_subclass_names_itself():
@@ -107,7 +107,7 @@ def test_a_subclass_names_itself():
     with pytest.raises(TypeError, match="own"):
 
         class Nameless(Text):
-            title = "Kort"
+            display_title = "Kort"
 
 
 # --- accepts: the one question ------------------------------------------
@@ -116,7 +116,7 @@ def test_a_subclass_names_itself():
 def test_a_type_accepts_itself_and_its_subclasses():
     class Kort(Text):
         id = "dtype-test-kort"
-        title = "Kort"
+        display_title = "Kort"
 
     assert Text.accepts(Text) is True
     assert Text.accepts(Kort) is True

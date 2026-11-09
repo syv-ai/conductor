@@ -28,12 +28,12 @@ from helpers import stream_of
 
 class Txt(DType, str):
     id = "integration-scenarios-test-text"
-    title = "Text"
+    display_title = "Text"
 
 
 class Num(DType, float):
     id = "integration-scenarios-test-number"
-    title = "Number"
+    display_title = "Number"
 
 
 Out = Annotated[Txt, Result(title="Out")]

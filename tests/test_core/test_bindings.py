@@ -173,7 +173,7 @@ def test_two_edges_from_the_same_node_are_one_dependency():
 
 class Txt(DType, str):
     id = "bindings-test-txt"
-    title = "Text"
+    display_title = "Text"
 
 
 class Clock:

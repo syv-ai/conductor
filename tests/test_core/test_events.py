@@ -35,7 +35,7 @@ from pydantic import TypeAdapter, ValidationError
 
 class Txt(DType, str):
     id = "events-test-text"
-    title = "Text"
+    display_title = "Text"
 
 
 @node("split", title="Split", description="d", category="test")

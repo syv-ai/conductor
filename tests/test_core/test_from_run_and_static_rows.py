@@ -25,7 +25,7 @@ from conductor.widgets import ListWidget, TextWidget
 
 class Txt(DType, str):
     id = "txt"
-    title = "Txt"
+    display_title = "Txt"
 
 
 class Who:

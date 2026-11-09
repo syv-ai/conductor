@@ -28,12 +28,12 @@ def stdlib_node(id: str, *, category: Category, **declared: Any) -> Any:
 
 class Text(DType, str):
     id = "text"
-    title = "Text"
+    display_title = "Text"
 
 
 class Number(DType, float):
     id = "number"
-    title = "Number"
+    display_title = "Number"
 
 
 class Flag(DType, int):
@@ -44,7 +44,7 @@ class Flag(DType, int):
     """
 
     id = "flag"
-    title = "Flag"
+    display_title = "Flag"
     column = "Boolean"
 
     def __repr__(self) -> str:
@@ -65,7 +65,7 @@ class Json(DType):
     """
 
     id = "json"
-    title = "JSON"
+    display_title = "JSON"
 
     __slots__ = ("value",)
 

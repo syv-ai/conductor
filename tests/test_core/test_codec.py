@@ -36,7 +36,7 @@ from pydantic import TypeAdapter
 
 class Txt(DType, str):
     id = "codec-test-text"
-    title = "Text"
+    display_title = "Text"
 
 
 # -- the shipped types -------------------------------------------------------------
@@ -159,7 +159,7 @@ def test_a_skip_is_listed_beside_the_values():
 def test_a_value_with_no_json_form_raises_naming_the_field():
     class Opaque(DType):
         id = "codec-test-opaque"
-        title = "Opaque"
+        display_title = "Opaque"
 
         def __init__(self, handle: object) -> None:
             self.handle = handle

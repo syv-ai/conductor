@@ -40,8 +40,9 @@ no flag beside it to disagree with.
 **What people are told.** A problem the engine writes carries the English
 for its code, from ``CATALOGUE``; a ``NodeError`` the node raised keeps
 the message the node chose, since the node wrote it for people. The text
-of a foreign exception is on the wrapping error's ``original`` for a log and
-never in a problem, because a host streams problems to a browser.
+of a foreign exception goes to ``logging.getLogger("conductor")``, with its
+traceback, and never in a problem, because a host streams problems to a browser;
+the problem's ``ctx`` has its class name.
 
 A pause is not an error and nothing raises for one: a node returns
 ``AskPerson`` and the leg ends with the status ``waiting``.
@@ -288,9 +289,6 @@ class NodeError(ConductorError):
     a code of the node's own and what the host needs beyond the text.
     The engine adds the node and the row. It never retries a ``NodeError``;
     a failure the outside world caused is an ``ExternalFailure``.
-
-    ``original`` is the foreign exception the engine wrapped, when there
-    was one, for a log; its text is not in ``message`` or the problem.
     """
 
     def __init__(
@@ -300,12 +298,10 @@ class NodeError(ConductorError):
         code: str | None = None,
         ctx: Mapping[str, Any] | None = None,
         node_id: str | None = None,
-        original: Exception | None = None,
     ) -> None:
         self.code = code
         self.ctx = ctx or {}
         self.node_id = node_id
-        self.original = original
         super().__init__(message)
 
 
@@ -329,7 +325,7 @@ class NodeExecutionError(NodeError):
     """The node's body raised something that is not a ``NodeError``.
 
     The engine's wrapping of a foreign exception the policy does not name
-    (code ``execution_failed``); the exception itself is on ``original``.
+    (code ``execution_failed``); the exception itself is in the log, with ``__cause__`` to reach it.
     A node may raise it directly with a code of its own.
     """
 

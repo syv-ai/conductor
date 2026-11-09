@@ -11,8 +11,8 @@ A ``DType`` is a real Python class, usually built on a builtin::
 so ``Text("hello")`` is both a ``str`` and a ``Text``, a type checker sees
 ``Text`` where ``Text`` is meant, and a pydantic model with a ``Text``
 field gives back a ``Text`` (see ``__get_pydantic_core_schema__``). ``id``
-is the stable name the persisted graph and the frontend use; ``title`` is
-what a person reads and defaults to the class name.
+is the stable name the persisted graph and the frontend use; ``display_title``
+is what a person reads and defaults to the class name.
 
 A type answers one question about edges — ``target.accepts(source)``:
 may a value of type ``source`` land on an input declared as ``target``?
@@ -91,7 +91,7 @@ class DType(ABC, metaclass=_DTypeMeta):
     """Base class for every type a value on an edge can have.
 
     Subclass it together with the builtin the type is built on and declare
-    ``id`` in the class body; ``title`` defaults to the class name. The
+    ``id`` in the class body; ``display_title`` defaults to the class name. The
     base itself has no ``id`` and is never on an edge.
 
     A subclass is a type of its own and names itself: a class that leaves
@@ -102,7 +102,7 @@ class DType(ABC, metaclass=_DTypeMeta):
     #: Stable identifier, used by the persisted graph and the frontend.
     id: ClassVar[str]
     #: The name a person reads; the class name unless the class says otherwise.
-    title: ClassVar[str]
+    display_title: ClassVar[str]
     #: For a collection, the type of its elements; ``None`` for a scalar.
     element: ClassVar[Any] = None
     #: The Polars type a table column of these values is stored as, by name
@@ -126,8 +126,8 @@ class DType(ABC, metaclass=_DTypeMeta):
                 f"{cls.__name__} declares no 'id' of its own. A subclass is a type of its own and names itself",
                 code="type_without_id",
             )
-        if "title" not in vars(cls):
-            cls.title = cls.__name__
+        if "display_title" not in vars(cls):
+            cls.display_title = cls.__name__
 
     # -- the description --------------------------------------------------
 
@@ -228,7 +228,7 @@ class _UntypedValue(DType):
     reads ``dtype.id == "any"``, the word on the wire."""
 
     id = "any"
-    title = "Any"
+    display_title = "Any"
 
     @classmethod
     def accepts(cls, source: Any) -> bool:

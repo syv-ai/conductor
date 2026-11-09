@@ -38,12 +38,12 @@ from helpers import stream_of
 
 class Txt(DType, str):
     id = "params-test-text"
-    title = "Text"
+    display_title = "Text"
 
 
 class Num(DType, float):
     id = "params-test-number"
-    title = "Number"
+    display_title = "Number"
 
 
 Out = Annotated[Txt, Result(title="Answer")]

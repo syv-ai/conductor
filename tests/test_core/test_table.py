@@ -14,32 +14,32 @@ from pydantic import TypeAdapter
 
 class Txt(DType, str):
     id = "txt"
-    title = "Text"
+    display_title = "Text"
 
 
 class Num(DType, float):
     id = "num"
-    title = "Number"
+    display_title = "Number"
 
 
 class Flag(DType, int):
     """Built on int, since bool can't be subclassed: it says its column itself."""
 
     id = "flag"
-    title = "Flag"
+    display_title = "Flag"
     column = "Boolean"
 
 
 class Day(DType, datetime.date):
     id = "day"
-    title = "Date"
+    display_title = "Date"
 
 
 class Blob(DType):
     """Built on no builtin a column holds, and stating no column."""
 
     id = "blob"
-    title = "Blob"
+    display_title = "Blob"
 
 
 Contacts = Table.with_columns({"name": Txt, "score": Num})

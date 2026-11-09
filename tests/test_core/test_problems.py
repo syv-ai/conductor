@@ -63,14 +63,14 @@ def test_details_carry_what_the_message_names():
 
 class Txt(DType, str):
     id = "problems-test-txt"
-    title = "Text"
+    display_title = "Text"
 
 
 class Nonempty(DType, str):
     """A type with a constructor rule: a value is one only when it has text."""
 
     id = "problems-test-nonempty"
-    title = "Non-empty text"
+    display_title = "Non-empty text"
 
     def __new__(cls, value=""):
         if not value:

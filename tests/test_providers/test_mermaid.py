@@ -30,7 +30,7 @@ from test_core.embedded import embedded_graph_node
 
 class Txt(DType, str):
     id = "render-test-text"
-    title = "Text"
+    display_title = "Text"
 
 
 Out = Annotated[Txt, Result(title="Result")]

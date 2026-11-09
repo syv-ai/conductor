@@ -27,7 +27,7 @@ from conductor.widgets import Textarea, TextWidget
 
 class Txt(DType, str):
     id = "display-test-text"
-    title = "Text"
+    display_title = "Text"
 
 
 @node("greet", title="Greeting", description="Greets someone", category="text")

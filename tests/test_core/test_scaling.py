@@ -32,7 +32,7 @@ from helpers import stream_of
 
 class Txt(DType, str):
     id = "scaling-test-txt"
-    title = "Tekst"
+    display_title = "Tekst"
 
 
 Out = Annotated[Txt, Result(title="Result")]

@@ -33,7 +33,7 @@ def _results_of(ledger: LiveRunValues) -> dict:
 
 class Txt(DType, str):
     id = "ledger-test-txt"
-    title = "Tekst"
+    display_title = "Tekst"
 
 
 Out = Annotated[Txt, Result(title="Result")]

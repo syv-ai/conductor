@@ -33,26 +33,26 @@ from conductor.widgets import Textarea
 
 class Text(DType, str):
     id = "text"
-    title = "Text"
+    display_title = "Text"
 
 
 class Number(DType, float):
     id = "number"
-    title = "Number"
+    display_title = "Number"
 
 
 class AnotherText(DType, str):
     """A second class claiming ``text`` — what a second library, or a re-run cell, produces."""
 
     id = "text"
-    title = "Text"
+    display_title = "Text"
 
 
 class Score(DType, float):
     """Admits a ``Number`` too, so its answer differs from the default."""
 
     id = "score"
-    title = "Score"
+    display_title = "Score"
 
     @classmethod
     def accepts(cls, source: Any) -> bool:
@@ -75,7 +75,7 @@ def _declare_text() -> type[DType]:
 
     class Text(DType, str):
         id = "text"
-        title = "Text"
+        display_title = "Text"
 
     return Text
 
@@ -99,7 +99,7 @@ def test_declaring_your_own_text_beside_the_standard_librarys_is_fine():
 
     class Text(DType, str):
         id = "text"
-        title = "Text"
+        display_title = "Text"
 
     assert Text.id == StandardText.id
 
@@ -192,7 +192,7 @@ def test_accepted_as_is_answered_over_the_registrys_words_self_included():
 def test_a_bug_in_a_types_accepts_is_not_swallowed():
     class Broken(DType, str):
         id = "broken"
-        title = "Broken"
+        display_title = "Broken"
 
         @classmethod
         def accepts(cls, source: Any) -> bool:
@@ -234,11 +234,11 @@ def test_a_subclass_without_its_own_id_is_refused():
     with pytest.raises(TypeError, match="own"):
 
         class Whole(Number):
-            title = "Whole"
+            display_title = "Whole"
 
     class Whole(Number):  # noqa: F811 — the corrected declaration
         id = "whole"
-        title = "Whole"
+        display_title = "Whole"
 
     assert Whole.id == "whole"
 

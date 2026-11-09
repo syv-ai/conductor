@@ -31,7 +31,7 @@ from conductor.widgets import Textarea
 
 class Txt(DType, str):
     id = "run-entry-test-text"
-    title = "Text"
+    display_title = "Text"
 
 
 @node("upper", title="Upper", description="d", category="test")

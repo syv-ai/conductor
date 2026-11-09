@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 class Txt(DType, str):
     id = "graph-test-text"
-    title = "Text"
+    display_title = "Text"
 
 
 Out = Annotated[Txt, Result(title="Out")]

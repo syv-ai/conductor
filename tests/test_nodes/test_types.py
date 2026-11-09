@@ -17,7 +17,7 @@ def test_the_vocabulary_is_four_dtypes():
     ):
         assert issubclass(dtype, DType)
         assert dtype.id == dtype_id
-        assert dtype.title == title
+        assert dtype.display_title == title
         assert vocabulary[dtype_id] is dtype
 
 
