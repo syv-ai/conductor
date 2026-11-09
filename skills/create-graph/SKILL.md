@@ -43,7 +43,7 @@ An input holds one binding: `From("node.output")` over an edge, `Static(value)` 
 | To answer a node that asked | `state = compiled.answer(state, {unit.id: {output: answer}})`, then `compiled.run(state)` |
 | A service or the caller inside a node | `compiled.run(from_run={Caller: caller})` |
 | A bound on the leg | `compiled.run(timeout=60, cancel=asyncio.Event())` |
-| To save | `graph.to_path("g.yaml")`, `Graph.from_path("g.yaml")` |
+| To save | `graph.model_dump_json()`, `Graph.model_validate_json(text)` |
 | A drawing, a record an editor draws from | `conductor_providers.mermaid`, `compiled.describe()` |
 | HTTP routes | `docs/serving-runs.md`, a page to copy onto your own FastAPI application |
 

@@ -44,34 +44,8 @@ def _graph() -> Graph:
     )
 
 
-def test_a_graph_round_trips_through_yaml():
-    assert Graph.from_yaml(_graph().to_yaml()) == _graph()
-
-
 def test_a_graph_round_trips_through_json():
     assert Graph.model_validate_json(_graph().model_dump_json()) == _graph()
-
-
-@pytest.mark.parametrize("name", ["approval.yaml", "approval.yml", "approval.json"])
-def test_a_graph_reads_back_what_it_wrote_to_a_path(tmp_path, name):
-    path = tmp_path / name
-    _graph().to_path(path)
-
-    assert Graph.from_path(path) == _graph()
-
-
-def test_the_suffix_decides_the_format(tmp_path):
-    _graph().to_path(tmp_path / "approval.json")
-    assert (tmp_path / "approval.json").read_text().lstrip().startswith("{")
-
-
-@pytest.mark.parametrize("name", ["approval.txt", "approval.JSON", "approval.Yaml", "approval.yaml.bak", "approval"])
-def test_a_path_whose_suffix_is_not_exactly_json_yaml_or_yml_is_refused(tmp_path, name):
-    with pytest.raises(ValueError, match=name):
-        _graph().to_path(tmp_path / name)
-    with pytest.raises(ValueError, match=name):
-        Graph.from_path(tmp_path / name)
-    assert not (tmp_path / name).exists()
 
 
 def test_the_dump_is_the_record():
@@ -92,7 +66,7 @@ def test_a_node_without_a_type_is_refused():
 
 def test_a_node_id_with_a_dot_reads_back_and_is_for_compile_to_refuse():
     assert GraphNode(id="a.b", type="echo", version=1).id == "a.b"
-    assert Graph.from_yaml("nodes:\n- {id: a.b, type: echo, version: 1}\n").nodes[0].id == "a.b"
+    assert Graph.model_validate({"nodes": [{"id": "a.b", "type": "echo", "version": 1}]}).nodes[0].id == "a.b"
 
 
 def test_an_index_is_its_id_whatever_its_parent():
@@ -120,7 +94,6 @@ READ_BACK = (
 
 @pytest.mark.parametrize("record", READ_BACK, ids=lambda r: type(r).__name__)
 def test_a_record_a_host_saves_reads_back_what_it_wrote(record):
-    assert type(record).from_yaml(record.to_yaml()) == record
     assert type(record).model_validate_json(record.model_dump_json()) == record
 
 

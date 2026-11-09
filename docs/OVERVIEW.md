@@ -46,4 +46,4 @@ Every failure is a `Problem` (`type`, `loc`, `msg`, `ctx`) on the event and on t
 
 ## Bindings
 
-A graph is its nodes; there is no edge list. Each input holds one binding at most: `From("node.output")` is an edge, `Static(value)` is what the author typed, and no binding means the declared default. Dependencies, cycles and what the graph takes and returns are worked out from the bindings. A `Graph` saves itself with `to_path` / `from_path`.
+A graph is its nodes; there is no edge list. Each input holds one binding at most: `From("node.output")` is an edge, `Static(value)` is what the author typed, and no binding means the declared default. Dependencies, cycles and what the graph takes and returns are worked out from the bindings. A `Graph` saves as JSON with pydantic's own `model_dump_json`.

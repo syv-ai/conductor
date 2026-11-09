@@ -12,8 +12,7 @@ node's fields fall in three groups:
 * **display** — ``display`` — is stored and returned and never parsed.
 
 So a diff of the behaviour fields is the behavioural diff, and display can
-change shape without a migration. Each record is a ``ConductorModel``,
-so a graph saves and loads itself (``Graph.from_path``, ``graph.to_yaml()``).
+change shape without a migration. Each record is a ``ConductorModel``.
 """
 
 from __future__ import annotations

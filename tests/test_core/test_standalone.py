@@ -27,7 +27,7 @@ SOURCES = sorted(
 #: it builds on, and what its ``pyproject.toml`` declares (``pydantic_core``
 #: comes with pydantic). The core imports no other package of the three.
 IMPORTS = {
-    "conductor": {"conductor", "pydantic", "pydantic_core", "yaml", "polars"},
+    "conductor": {"conductor", "pydantic", "pydantic_core", "polars"},
     "conductor-nodes": {"conductor_nodes", "conductor", "pydantic", "pydantic_core", "regex"},
     "conductor-providers": {"conductor_providers", "conductor", "pydantic", "pydantic_core"},
 }
@@ -35,7 +35,7 @@ IMPORTS = {
 #: What each ``pyproject.toml`` declares, extras included. A dependency added
 #: there fails here until it is listed, so a host's package cannot arrive unseen.
 DISTRIBUTIONS = {
-    "conductor": {"pydantic", "pyyaml", "polars", "syv-conductor-nodes", "syv-conductor-providers"},
+    "conductor": {"pydantic", "polars", "syv-conductor-nodes", "syv-conductor-providers"},
     "conductor-nodes": {"syv-conductor", "pydantic", "regex"},
     "conductor-providers": {"syv-conductor"},
 }

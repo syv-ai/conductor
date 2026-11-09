@@ -95,9 +95,8 @@ def test_a_stored_graph_with_a_misspelled_key_is_refused_naming_it():
     with no bindings at all."""
     from pydantic import ValidationError
 
-    text = "nodes:\n  - id: s\n    type: scale\n    version: 1\n    bindngs: {}\n"
     with pytest.raises(ValidationError, match="bindngs"):
-        Graph.from_yaml(text)
+        Graph.model_validate({"nodes": [{"id": "s", "type": "scale", "version": 1, "bindngs": {}}]})
 
 
 def test_a_widget_refuses_a_key_it_does_not_have():

@@ -238,9 +238,8 @@ A failed unit ends the leg `failed`, its problem on `state.cause`: nothing more 
 Records are frozen pydantic models. `Graph`, `Problem` and `Policy` round-trip; descriptions and widgets are write-only. A ref is stored as `"node.field"`.
 
 ```python
-graph.to_path("approval.yaml")          # .json, .yaml or .yml
-graph = Graph.from_path("approval.yaml")
-graph = Graph.from_yaml(graph.to_yaml())
+text = graph.model_dump_json()
+graph = Graph.model_validate_json(text)
 ```
 
 ### The Palette
@@ -260,7 +259,6 @@ Three public modules: `conductor`, `conductor.widgets` and `conductor.events`. E
 - Graph: `Graph`, `GraphNode`, `FieldContent`, `Binding`, `From`, `Static`, `dependencies_of`, `CompiledGraph`, `CompiledNode`, `CompiledField`, `NodeStatus`, `GraphDescription`, `CompiledNodeDescription`, `FieldDescription`, `Problem`, `RunPlan`, `NodeRunPlan`, `ReceiveMode`, `Condition`, `BranchTaken`, `ALWAYS`, `NEVER`
 - Errors: `NodeDeclarationError`, `ComputeHookError`, `InvalidCallError`, `Problem`, `NodeError`, `ExternalFailure`, `PROBLEM_CODES`
 - A run's state: `RunStatus`, `WaitingUnit`, `Question`, `Answers`, `OutputColumn`, `WorkOfNode` (what one node did: `fingerprint`, `finished_units`, `answered_rows`, `tables_received`, `outputs`, `waiting`, `rows_not_called`, `reused_units`, `earlier_units`), `EarlierUnit`, `RunState` (`status`, `failure`, `waiting`, `nodes`, `without_nodes(...)`); dumped as JSON it is one document holding each table once, under its `tables` key by digest, and a load holds one frame per digest
-- Records (`Graph`, `GraphNode`, …) also have `to_yaml()`, `from_yaml(text)`, `to_path(path)`, `from_path(path)`, plus pydantic's.
 
 ### Running
 

@@ -32,7 +32,7 @@ CI runs ruff and pytest on every PR. Tests marked `slow` time the wall clock and
 - **Compile reports, it does not raise.** A fault in a graph is a `Problem` with a stable `type`, anchored on a node. Only running a graph that is not runnable raises (`InvalidCallError`).
 - **Retries belong to the version's `Policy`.** Only an `ExternalFailure`, or an exception class named in `retry_on`, is retried. Every run-time failure carries a `Problem`; a node's own exception goes to the `conductor` logger, and only its class name reaches an event.
 - **Streaming is the only execution path.** `compiled.stream` is the leg; `run` and `run_sync` drain it.
-- **Records are pydantic models** on `ConductorModel` and save themselves (`to_yaml`, `to_path`). What compile and the engine build per call stays a frozen dataclass.
+- **Records are pydantic models** on `ConductorModel` and cross JSON with pydantic's own `model_dump_json` and `model_validate_json`. What compile and the engine build per call stays a frozen dataclass.
 - **The widget set is open.** Conductor ships the common controls; a host subclasses `Widget` for its own. Compile and the engine never read a widget. What a value must satisfy goes on `Param` (`ge`, `le`, `max_length`, ...), where it is enforced.
 - **Two definitions under one id raise** when a registry is built; so does one type id from two classes.
 - **Fail loud.** No defensive `None` checks or silent defaults where the state means a bug.
