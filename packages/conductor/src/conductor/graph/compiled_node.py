@@ -77,7 +77,7 @@ def _or_blank(dtype: Any) -> Any:
     return Series[dtype.element | None] if dtype.element is not None else dtype | None
 
 
-@dataclass(frozen=True, eq=False)
+@dataclass(frozen=True, eq=False, slots=True)
 class Wiring:
     """What a node's connections decided. Only a node compile fully worked out has one."""
 
@@ -89,7 +89,7 @@ class Wiring:
     _runs_per_row_of: Index | None = field(repr=False)
 
 
-@dataclass(frozen=True, eq=False)
+@dataclass(frozen=True, eq=False, init=False)
 class CompiledNode:
     """What compile worked out about one node in a graph.
 
@@ -122,6 +122,16 @@ class CompiledNode:
     statics: Mapping[str, Any] = field(repr=False)
     #: What its connections decided; ``None`` when compile couldn't work them out.
     wiring: Wiring | None = field(repr=False)
+
+    def __init__(
+        self, id: str, graph_node: GraphNode, embedded_in: str | None, problems: tuple[Problem, ...], cause: Problem | None,
+        definition: NodeDefinition[..., Any] | None, version: NodeVersion | CompiledGraph | None, interface: Interface | None,
+        statics: Mapping[str, Any], wiring: Wiring | None,
+    ) -> None:
+        self.__dict__.update(
+            id=id, graph_node=graph_node, embedded_in=embedded_in, problems=problems, cause=cause, definition=definition,
+            version=version, interface=interface, statics=statics, wiring=wiring,
+        )
 
     @property
     def state(self) -> NodeState:
@@ -195,7 +205,7 @@ class CompiledNode:
         return tuple(inp.name for inp in self._inputs if inp.dtype.element is not None and not inp.takes_blank)
 
 
-@dataclass(frozen=True, eq=False)
+@dataclass(frozen=True, eq=False, init=False)
 class CompiledField:
     """One input or output of a node whose connections compile worked out.
 
@@ -231,6 +241,17 @@ class CompiledField:
     #: For an output: the indexes its rows can trace back to, ``None`` when
     #: that can't be known (``conductor.graph.row_origins``).
     _row_origins: frozenset[str] | None = field(repr=False)
+
+    def __init__(
+        self, ref: Ref, type: Any, binding: Binding | None, condition: Condition | None, problems: tuple[Problem, ...], *,
+        _index: Index | None, _receives: Receive | None, _listed: bool, _makes_rows: Index | None, _view_of: tuple[Ref, str] | None,
+        _takes_blank: bool, _row_origins: frozenset[str] | None,
+    ) -> None:
+        """Compile builds one per field of a graph, so this sets them in one step instead of one at a time."""
+        self.__dict__.update(
+            ref=ref, type=type, binding=binding, condition=condition, problems=problems, _index=_index, _receives=_receives,
+            _listed=_listed, _makes_rows=_makes_rows, _view_of=_view_of, _takes_blank=_takes_blank, _row_origins=_row_origins,
+        )
 
     @property
     def _is_output(self) -> bool:

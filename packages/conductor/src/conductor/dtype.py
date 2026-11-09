@@ -54,6 +54,7 @@ the second reaches a registry, never at class definition.
 
 from __future__ import annotations
 
+from functools import cache
 from abc import ABC, ABCMeta
 from dataclasses import dataclass
 from types import NoneType, UnionType
@@ -274,6 +275,7 @@ def setting_type(plain: Any) -> type[_Setting]:
     return made
 
 
+@cache
 def is_untyped(dtype: Any) -> bool:
     """Has this field no type of its own yet, directly or as a series' element?"""
     return issubclass(dtype.element or dtype, _UntypedValue)

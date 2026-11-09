@@ -69,6 +69,11 @@ class Ref(str):
             raise ValueError(f"{address!r} is not an address; one reads 'node.field'")
         return super().__new__(cls, address)
 
+    @classmethod
+    def _of_parts(cls, node_id: str, field: str) -> Ref:
+        """``Ref(node_id, field)`` for an id compile has already checked: read for every field of a graph."""
+        return str.__new__(cls, f"{node_id}.{field}")
+
     @property
     def node_id(self) -> str:
         """The node part — everything before the first dot."""

@@ -36,6 +36,7 @@ Polars is imported the first time a table is built, never at
 
 from __future__ import annotations
 
+from functools import cache
 import datetime
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -76,12 +77,14 @@ def column_type(dtype: type[DType]) -> pl.DataType | None:
     return None if name is None else getattr(pl, name)()
 
 
+@cache
 def holds_tables(dtype: Any) -> bool:
     """Is a field of this type a table, one or one per row?"""
     dtype = getattr(dtype, "element", None) or dtype
     return isinstance(dtype, type) and issubclass(dtype, Table)
 
 
+@cache
 def columns_of(dtype: Any) -> tuple[Column, ...]:
     """The columns a table type declares, each offered as a field of its own
     (``rows.email``); ``()`` for bare ``Table`` and for any other type."""

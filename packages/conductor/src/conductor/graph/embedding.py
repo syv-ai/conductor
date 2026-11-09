@@ -186,14 +186,18 @@ def lift_embedded_nodes(
     inner_nodes = embeddable.nodes
 
     def inside(ref: Ref) -> Ref:
-        return Ref(prefix + ref.node_id, ref.field)
+        node_part, _, field_part = ref.partition(".")
+        return Ref._of_parts(prefix + node_part, field_part)
 
-    edge_at = {Ref(name): edge for name, edge in edges.items()}
-    value_at = {Ref(name): value for name, value in values.items()}
+    edges_on: dict[str, dict[str, From]] = {}
+    for name, edge in edges.items():
+        ref = Ref(name)
+        edges_on.setdefault(ref.node_id, {})[ref.field] = edge
+    values_on: dict[str, dict[str, Any]] = {}
+    for name, value in values.items():
+        ref = Ref(name)
+        values_on.setdefault(ref.node_id, {})[ref.field] = value
     crossing_at = {Ref(name): crossing for name, crossing in crossings.items()}
-    crossed: dict[str, set[str]] = {}
-    for ref in edge_at:
-        crossed.setdefault(ref.node_id, set()).add(ref.field)
 
     lifted: dict[str, CompiledNode] = {}
 
@@ -210,13 +214,11 @@ def lift_embedded_nodes(
             name: (From(*(inside(ref) for ref in binding.refs)) if isinstance(binding, From) else binding)
             for name, binding in inner.graph_node.bindings.items()
         }
-        for ref, edge in edge_at.items():
-            if ref.node_id == inner_id:
-                bindings[ref.field] = edge
-        statics = {name: value for name, value in inner.statics.items() if name not in crossed.get(inner_id, ())}
-        for ref, value in value_at.items():
-            if ref.node_id == inner_id:
-                bindings[ref.field], statics[ref.field] = Static(value), value
+        crossed = edges_on.get(inner_id, ())
+        bindings.update(crossed)
+        statics = {name: value for name, value in inner.statics.items() if name not in crossed}
+        for name, value in values_on.get(inner_id, {}).items():
+            bindings[name], statics[name] = Static(value), value
         graph_node = inner.graph_node.model_copy(update={"id": new_id, "bindings": bindings, "locked": ()})
         assert inner.wiring is not None and inner.interface is not None  # an embeddable graph is wired throughout
         inner_row = inner.wiring._runs_per_row_of
@@ -229,17 +231,16 @@ def lift_embedded_nodes(
             outputs_of = {out.name: out for out in inner.interface.outputs}
             fields = {}
             for name, field in inner.wiring.fields.items():
-                ref = field.ref
                 condition = None
                 if field._view_of is not None:  # a column appears exactly when its table does
                     condition = fields[field._view_of[0].field].condition
                 elif field._is_output:
                     condition = output_condition(new_id, outputs_of[name], at_node, runs_once)
-                dtype, index, receives = _field_under(field, ref, crossing_at, inner_nodes, prefix, row, inside)
+                dtype, index, receives = _field_under(field, crossing_at, inner_nodes, prefix, row, inside)
                 makes = None if field._makes_rows is None else under(field._makes_rows, prefix, row)
                 fields[name] = CompiledField(
-                    ref=inside(ref), type=dtype, binding=bindings.get(name) if not field._is_output else None, condition=condition,
-                    problems=(), _index=index, _receives=receives, _listed=field._listed and name not in crossed.get(inner_id, ()),
+                    ref=Ref._of_parts(new_id, name), type=dtype, binding=bindings.get(name) if not field._is_output else None, condition=condition,
+                    problems=(), _index=index, _receives=receives, _listed=field._listed and name not in crossed,
                     _makes_rows=makes, _view_of=None if field._view_of is None else (inside(field._view_of[0]), field._view_of[1]),
                     _takes_blank=field._takes_blank, _row_origins=None,
                 )
@@ -261,11 +262,11 @@ def table_rows_inside(lifted: Mapping[str, CompiledNode]) -> list[str]:
 
 
 def _field_under(
-    field: CompiledField, ref: Ref, crossing_at: Mapping[Ref, Crossing], nodes: Mapping[str, CompiledNode], prefix: str,
+    field: CompiledField, crossing_at: Mapping[Ref, Crossing], nodes: Mapping[str, CompiledNode], prefix: str,
     row: Index | None, inside: Callable[[Ref], Ref],
 ) -> tuple[Any, Index | None, Receive | None]:
     """An inner field's type, rows and receipt, as it stands embedded (rules 2-4)."""
-    crossing = crossing_at.get(ref)
+    crossing = crossing_at.get(field.ref) if crossing_at else None
     if crossing is not None:
         return crossing.type, crossing.index, crossing.receives
     dtype, index, receipt = field.type, field._index, field._receives

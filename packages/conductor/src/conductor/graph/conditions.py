@@ -64,7 +64,8 @@ def condition_at_node(bindings: Mapping[str, Any], condition_of: Callable[[Ref],
     at_node = ALWAYS
     for binding in bindings.values():
         if isinstance(binding, From):
-            at_node = _all_of(at_node, _any_of(condition_of(ref) for ref in binding.refs))
+            refs = binding.refs
+            at_node = _all_of(at_node, condition_of(refs[0]) if len(refs) == 1 else _any_of(condition_of(ref) for ref in refs))
     return at_node
 
 

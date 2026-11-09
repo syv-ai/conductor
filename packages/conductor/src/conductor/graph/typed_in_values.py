@@ -24,11 +24,14 @@ from conductor.metadata import Input
 
 def read_typed_in_values(inputs: Iterable[Input], node: GraphNode) -> tuple[dict[str, Any], frozenset[str], list[Problem]]:
     """Every value the author typed into ``node`` on ``inputs``, typed; which of them hold many values; and the values no type could read."""
+    values = static_values(node.bindings)
+    if not values:
+        return {}, frozenset(), []
     declared = {i.name: i for i in inputs}
     typed: dict[str, Any] = {}
     listed: set[str] = set()
     invalid: list[Problem] = []
-    for name, value in static_values(node.bindings).items():
+    for name, value in values.items():
         inp = declared.get(name)
         if inp is None or inp.dtype.id == "any":
             continue
