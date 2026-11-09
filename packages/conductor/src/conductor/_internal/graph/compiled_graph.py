@@ -76,10 +76,10 @@ from conductor._internal.graph.binding import Static
 from conductor._internal.graph.compile_graph import compile_graph
 from conductor._internal.graph.compiled_node import CompiledField, CompiledNode
 from conductor._internal.graph.embedding import (
-    NODE_PATH_SEPARATOR,
     EmbeddableGraph,
     embeddable_view_of,
     offered_names,
+    place_under,
 )
 from conductor._internal.graph.engine_lookups import EngineLookups, build_engine_lookups
 from conductor._internal.graph.graph_description import GraphDescription, describe_graph
@@ -107,7 +107,7 @@ def _place_of_offered_field(handle: Ref, graph: CompiledGraph) -> Ref:
     inside = graph._embeddable.inputs.get(handle.field) or graph._embeddable.outputs.get(handle.field)
     if inside is None:
         raise KeyError(f"{handle.node_id!r} offers no field {handle.field!r}")
-    return Ref(f"{handle.node_id}{NODE_PATH_SEPARATOR}{inside.node_id}", inside.field)
+    return place_under(handle.node_id, inside)
 
 
 @dataclass(frozen=True, repr=False)
@@ -177,11 +177,6 @@ class CompiledGraph:
     def _embeddable(self) -> EmbeddableGraph:
         """What a graph that embeds this one asks of it (``conductor._internal.graph.embedding``)."""
         return embeddable_view_of(self)
-
-    @cached_property
-    def _where_each_output_is_in_the_run(self) -> dict[Ref, Ref]:
-        names = offered_names(Ref(out.name) for out in self.interface.outputs)
-        return {output_address: self._embeddable.outputs[name] for output_address, name in names.items()}
 
     @cached_property
     def run_plan(self) -> RunPlan:
@@ -443,7 +438,7 @@ class CompiledGraph:
                 reason="" if failure is None else where_it_failed(failure),
                 failure=None if failure is None else failure.model_dump(mode="json"),
             )])
-        where = self._where_each_output_is_in_the_run
+        where = self._embeddable.place_of_output
         changed = set(self._nodes_changed_since(state)).intersection(output_address.node_id for output_address in where.values())
         if changed:
             raise InvalidCallError([make_problem(

@@ -59,6 +59,11 @@ def offered_names(addresses: Iterable[Ref]) -> dict[Ref, str]:
     return {ref: ref.field if bare[ref.field] == 1 else str(ref) for ref in addresses}
 
 
+def place_under(graph_node_id: str, inside: Ref) -> Ref:
+    """Where ``inside``, an address in the graph a node stands for, is in the run."""
+    return Ref(f"{graph_node_id}{NODE_PATH_SEPARATOR}{inside.node_id}", inside.field)
+
+
 def parent_graph_of_node_id(node_id: str) -> str | None:
     """The graph a node inside sits in, read off its id: ``approve/check`` for
     ``approve/check/amount``; ``None`` for an id with no ``/``."""
@@ -76,6 +81,8 @@ class EmbeddableGraph:
     inputs: Mapping[str, Ref]
     #: The outputs it offers and each column of a table output, by offered name, each with where it is in the run.
     outputs: Mapping[str, Ref]
+    #: Where each output of the graph's own interface is in the run, by its address.
+    place_of_output: Mapping[Ref, Ref]
     #: Every fatal problem but an input it offers left empty, which a value from outside fills.
     problems: tuple[Problem, ...]
 
@@ -87,25 +94,23 @@ def embeddable_view_of(graph: CompiledGraph) -> EmbeddableGraph:
     def output_address_in_the_run(ref: Ref) -> Ref:
         """Where an output of ``graph``'s interface is in the run: on a node that is itself a graph, the place inside it."""
         embedded = nodes[ref.node_id].embedded_graph
-        if embedded is None:
-            return ref
-        inside = embedded._embeddable.outputs[ref.field]
-        return Ref(f"{ref.node_id}{NODE_PATH_SEPARATOR}{inside.node_id}", inside.field)
+        return ref if embedded is None else place_under(ref.node_id, embedded._embeddable.outputs[ref.field])
 
     # One namespace for both sides: a field name is unique within the node this graph becomes.
     names = offered_names(Ref(field.name) for field in (*graph.interface.inputs, *graph.interface.outputs))
     inputs = {names[Ref(input_.name)]: Ref(input_.name) for input_ in graph.interface.inputs}
     outputs: dict[str, Ref] = {}
+    place_of_output: dict[Ref, Ref] = {}
     for out in graph.interface.outputs:
         name, at = names[Ref(out.name)], output_address_in_the_run(Ref(out.name))
-        outputs[name] = at
+        outputs[name] = place_of_output[Ref(out.name)] = at
         outputs.update({f"{name}.{column}": Ref(at.node_id, f"{at.field}.{column}") for column, _ in columns_of(out.dtype)})
     interface = Interface(
         inputs=tuple(_as_offered(input_, names[Ref(input_.name)], nodes[Ref(input_.name).node_id]) for input_ in graph.interface.inputs),
         outputs=tuple(out.model_copy(update={"name": names[Ref(out.name)]}) for out in graph.interface.outputs),
         needs=graph.interface.needs,
     )
-    return EmbeddableGraph(interface=interface, inputs=inputs, outputs=outputs, problems=tuple(_problems_blocking_embedding(graph, nodes, inputs)))
+    return EmbeddableGraph(interface=interface, inputs=inputs, outputs=outputs, place_of_output=place_of_output, problems=tuple(_problems_blocking_embedding(graph, nodes, inputs)))
 
 
 def _as_offered(input_: Input, name: str, node: CompiledNode) -> Input:

@@ -36,6 +36,7 @@ from conductor._internal.graph.decide_rows_and_receive_modes import (
 from conductor._internal.graph.embedding import (
     inner_node_placed_at,
     parent_graph_of_node_id,
+    place_under,
 )
 from conductor._internal.graph.graph_interface import field_problems
 from conductor._internal.graph.graph_records import GraphNode
@@ -194,7 +195,7 @@ def _with_edges_out_of_embedded_graphs_resolved(node: GraphNode, progress: Compi
     def resolved(ref: Ref) -> Ref:
         source = progress.compiled.get(ref.node_id)
         inner_address = None if source is None or source._wiring is None or source.embedded_graph is None else source.embedded_graph._embeddable.outputs.get(ref.field)
-        return ref if inner_address is None else Ref(f"{ref.node_id}{NODE_PATH_SEPARATOR}{inner_address.node_id}", inner_address.field)
+        return ref if inner_address is None else place_under(ref.node_id, inner_address)
 
     if not any(isinstance(binding, From) and any(ref.node_id in progress.embedded_graph_node_ids for ref in binding.refs) for binding in node.bindings.values()):
         return node

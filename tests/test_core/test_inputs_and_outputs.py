@@ -6,6 +6,7 @@ filled, compiled again; ``run`` takes the copy like any other, and
 by address. The two are the graph's interface, used from each side.
 """
 
+from dataclasses import dataclass
 from typing import Annotated
 
 import pytest
@@ -58,8 +59,18 @@ def skips(text: Text = Txt("")) -> Out:
     return SKIPPED
 
 
+@dataclass(frozen=True)
+class _AnOutputNamedText:
+    text: Txt
+
+
+@node("gives", title="Gives", description="d", category="test")
+def gives() -> _AnOutputNamedText:
+    return _AnOutputNamedText(text=Txt("given"))
+
+
 def _compiled(*nodes: GraphNode) -> CompiledGraph:
-    registry = NodeRegistry([upper_node, needs, fails, skips])
+    registry = NodeRegistry([upper_node, needs, fails, skips, gives])
     registry = registry.extended_with([embedded_graph_node("shout", (GraphNode(id="up", type="upper", version=1),), registry, "Shout")])
     return CompiledGraph.from_graph(Graph(nodes=nodes), registry)
 
@@ -68,6 +79,11 @@ def _outputs(compiled: CompiledGraph) -> dict:
     ending = compiled.run_sync()
     assert ending.status == "complete", ending
     return compiled.outputs(ending)
+
+
+def test_outputs_reads_a_graph_where_an_input_and_an_output_share_a_field_name():
+    compiled = _compiled(GraphNode(id="giver", type="gives", version=1), GraphNode(id="up", type="upper", version=1))
+    assert _outputs(compiled)["giver.text"] == "given"
 
 
 def test_a_bare_name_fills_the_one_input_that_has_it():
