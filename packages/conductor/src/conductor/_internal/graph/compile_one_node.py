@@ -30,6 +30,7 @@ from conductor._internal.graph.decide_rows_and_receive_modes import (
     WhatArrivesOnInputs,
     decide_runs_per_row_of_and_receive_modes,
     read_what_arrives_on_inputs,
+    series_inputs_that_never_share_a_row,
 )
 from conductor._internal.graph.embedding import (
     inner_node_placed_at,
@@ -39,11 +40,13 @@ from conductor._internal.graph.graph_interface import field_problems
 from conductor._internal.graph.graph_records import GraphNode
 from conductor._internal.graph.output_conditions import (
     ALWAYS,
+    BranchTaken,
     Condition,
     condition_node_runs_under,
     output_condition,
 )
 from conductor._internal.graph.read_static_values import read_static_values
+from conductor._internal.graph.receive_modes import Cell, ReceiveMode
 from conductor._internal.graph.row_origins import origins_taken_in
 from conductor._internal.index import Index
 from conductor._internal.node_signature import Interface
@@ -138,6 +141,7 @@ def compile_one_node(node: GraphNode, progress: CompileProgress, registry: NodeR
     rows_agree, runs_per_row_of = decide_runs_per_row_of_and_receive_modes(node, inputs_read, problems, progress.row_origins, runs_under)
     if not rows_agree:
         return _record_compiled_node(progress, node, problems, definition, version, interface, statics)
+    problems.extend(series_inputs_that_never_share_a_row(node.id, interface.inputs, inputs_read.receive_modes, progress))
     if is_graph:
         return _place_embedded_graph(node, definition, version, interface, statics, runs_per_row_of, progress, problems)
     wiring = _wiring_of_function_node(node, interface, inputs_read, {name: statics[name] for name in inputs_given_a_list}, runs_per_row_of, progress, problems)
@@ -294,6 +298,22 @@ def _condition_lookup_for_sources(progress: CompileProgress) -> Any:
     return condition_of
 
 
+def _branches_read_at_the_row(receive_modes: Mapping[str, ReceiveMode], runs_per_row_of: Index | None, progress: CompileProgress) -> frozenset[BranchTaken]:
+    """The per-row decisions this node runs only one way of: those of a source read alone at the node's own row, whose skip skips the unit."""
+    branches: set[BranchTaken] = set()
+    for receive_mode in receive_modes.values():
+        if isinstance(receive_mode, Cell) and len(receive_mode.sources) == 1:
+            source = _field_above(progress, receive_mode.sources[0])
+            if source is not None and source._index == runs_per_row_of:
+                branches |= source._branches_on_its_row
+    return frozenset(branches)
+
+
+def _branches_of_output(node_id: str, out: Output, branches_read: frozenset[BranchTaken]) -> frozenset[BranchTaken]:
+    """What holds an output of a node running per row back: what its node runs under, and its own ``exclusive_group``."""
+    return branches_read if out.exclusive_group is None else branches_read | {BranchTaken(node_id, out.exclusive_group, out.name)}
+
+
 def _wiring_of_function_node(
     node: GraphNode, interface: Interface, inputs_read: WhatArrivesOnInputs, lists_set_on_inputs: Mapping[str, Sequence[Any]], runs_per_row_of: Index | None, progress: CompileProgress, problems: list[Problem],
 ) -> Wiring:
@@ -320,11 +340,12 @@ def _wiring_of_function_node(
             ref=Ref._from_checked_parts(node_id, input_.name), type=field_type.dtype, binding=node.bindings.get(input_.name), condition=None,
             problems=tuple(problems_by_field.get(input_.name, ())), _index=field_type.index, _receive_mode=inputs_read.receive_modes[input_.name],
             _held_as=ListOnNode(field_type.index, list(lists_set_on_inputs[input_.name])) if is_list_set_on_it else NotHeld(),  # type: ignore[arg-type]  # a list on a node has its index
-            _takes_blank=False,
+            _takes_blank=False, _branches_on_its_row=frozenset(),
             _row_origins=progress.row_origins.origins_of_rows_on(field_type.index) if is_list_set_on_it else None,
         )
     node_condition = condition_node_runs_under(node.bindings, _condition_lookup_for_sources(progress))
     runs_once = runs_per_row_of is None
+    branches_read = frozenset() if runs_once else _branches_read_at_the_row(inputs_read.receive_modes, runs_per_row_of, progress)
     for out in outputs:
         ref = Ref._from_checked_parts(node_id, out.name)
         condition = output_condition(node_id, out, node_condition, runs_once)
@@ -335,7 +356,7 @@ def _wiring_of_function_node(
             origins = progress.row_origins.record_table(table_rows_index, taken_in)
             fields[out.name] = CompiledField(
                 ref=ref, type=dtype, binding=None, condition=condition, problems=field_problems_here,
-                _index=runs_per_row_of, _receive_mode=None, _held_as=TableAtRow(table_rows_index), _takes_blank=takes_blank, _row_origins=origins,
+                _index=runs_per_row_of, _receive_mode=None, _held_as=TableAtRow(table_rows_index), _takes_blank=takes_blank, _branches_on_its_row=_branches_of_output(node_id, out, branches_read), _row_origins=origins,
             )
             for column, column_dtype in columns_of(dtype):
                 name = f"{out.name}.{column}"
@@ -343,13 +364,13 @@ def _wiring_of_function_node(
                     continue
                 fields[name] = CompiledField(
                     ref=Ref._from_checked_parts(node_id, name), type=column_dtype, binding=None, condition=condition, problems=(),
-                    _index=table_rows_index, _receive_mode=None, _held_as=ColumnOfTable(ref, column), _takes_blank=True, _row_origins=origins,
+                    _index=table_rows_index, _receive_mode=None, _held_as=ColumnOfTable(ref, column), _takes_blank=True, _branches_on_its_row=frozenset(), _row_origins=origins,
                 )
             continue
         index = Index(str(ref), parent=runs_per_row_of) if out.many else runs_per_row_of
         fields[out.name] = CompiledField(
             ref=ref, type=dtype, binding=None, condition=condition, problems=field_problems_here,
-            _index=index, _receive_mode=None, _held_as=CellsInAList(index) if out.many else OneValue(), _takes_blank=takes_blank,
+            _index=index, _receive_mode=None, _held_as=CellsInAList(index) if out.many else OneValue(), _takes_blank=takes_blank, _branches_on_its_row=frozenset() if out.many else _branches_of_output(node_id, out, branches_read),
             _row_origins=progress.row_origins.origins_of_rows_on(index),
         )
     return Wiring(fields, runs_per_row_of)

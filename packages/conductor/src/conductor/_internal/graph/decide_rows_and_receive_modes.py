@@ -75,7 +75,10 @@ from conductor._internal.field_records import Input
 from conductor._internal.graph.binding import From
 from conductor._internal.graph.embedding import parent_graph_of_node_id
 from conductor._internal.graph.graph_records import GraphNode
-from conductor._internal.graph.output_conditions import can_never_both_hold
+from conductor._internal.graph.output_conditions import (
+    can_never_both_hold,
+    no_decision_goes_two_ways,
+)
 from conductor._internal.graph.receive_modes import (
     Cell,
     FixedValue,
@@ -203,7 +206,7 @@ def read_what_arrives_on_inputs(
             pairs = list(zip(binding.refs, sources, strict=True))
             problems_found = [problem for source_ref, source in pairs for problem in _type_mismatch_unless_table_or_column(target, node.id, name, source_ref, source)]
             problems.extend(problems_found)
-            places = _sources_grouped_into_alternatives(pairs, progress)
+            places = _sources_grouped_into_alternatives(pairs)
             merged = None if problems_found else _merged_columns(places)
             found.rows_required_by_inputs += tuple((source._index, name) for source in sources if is_table_type(source.type) and source._index is not None)
             carried = _table_a_call_receives(target, merged)
@@ -326,6 +329,17 @@ def decide_runs_per_row_of_and_receive_modes(node: GraphNode, found: WhatArrives
     return True, runs_per_row_of
 
 
+def series_inputs_that_never_share_a_row(node_id: str, inputs: Sequence[Input], receive_modes: Mapping[str, ReceiveMode], progress: CompileProgress) -> list[Problem]:
+    """Two inputs of many values, neither taking a blank, reading opposite branches on one index:
+    a row either has skipped is a blank the other way, so every row would leave them both and the node would get nothing."""
+    readers = [(input_.name, [field for ref in mode.sources if (field := _source_output(ref, node_id, progress)) is not None]) for input_ in inputs if input_.many and not input_.takes_blank and isinstance(mode := receive_modes[input_.name], RowsUnder)]
+    for position, (a, sources_of_a) in enumerate(readers):
+        for b, sources_of_b in readers[position + 1:]:
+            if all(_never_hold_a_value_on_one_row(left, right) for left in sources_of_a for right in sources_of_b):
+                return [make_problem("series_inputs_never_share_a_row", node_id, a, a=a, b=b)]
+    return []
+
+
 def _receive_mode_read_at_the_row(read: SourcesReadAtTheRow, runs_per_row_of: Index | None) -> Cell | RowsUnder | Gather:
     """How an input that doesn't choose the node's row receives its sources on that row: each source by its own read."""
     source_reads = tuple(_read_of_source_at_the_row(ref, source, runs_per_row_of) for ref, source in read.sources)
@@ -347,11 +361,11 @@ def _copied_down(sources: list[tuple[Ref, CompiledField]]) -> list[Ref]:
     return [ref for ref, index in rows if index is not None and any(index != other and index in other.lineage for _, other in rows if other is not None)]
 
 
-def _sources_grouped_into_alternatives(pairs: list[tuple[Ref, CompiledField]], progress: CompileProgress) -> list[SourcesThatAreAlternatives]:
+def _sources_grouped_into_alternatives(pairs: list[tuple[Ref, CompiledField]]) -> list[SourcesThatAreAlternatives]:
     """The sources of a ``Table`` input, tables that are never at one row together in one place: the branch that ran is the table, with no merge."""
     places: list[SourcesThatAreAlternatives] = []
     for pair in pairs:
-        place = next((place for place in places if all(_are_alternatives(pair[1], source, progress) for _, source in place)), None)
+        place = next((place for place in places if all(_are_alternatives(pair[1], source) for _, source in place)), None)
         if place is None:
             places.append([pair])
         else:
@@ -359,20 +373,16 @@ def _sources_grouped_into_alternatives(pairs: list[tuple[Ref, CompiledField]], p
     return places
 
 
-def _are_alternatives(left: CompiledField, right: CompiledField, progress: CompileProgress) -> bool:
+def _are_alternatives(left: CompiledField, right: CompiledField) -> bool:
     """Two tables on one row where only one ever has a value: two outputs of one ``exclusive_group``, or what hangs off two branches of one decision."""
-    if not (is_table_type(left.type) and is_table_type(right.type)) or left._index != right._index:
-        return False
-    return _share_an_exclusive_group(left, right, progress) or can_never_both_hold(left.condition, right.condition)  # type: ignore[arg-type]  # an output has a condition
+    return is_table_type(left.type) and is_table_type(right.type) and _never_hold_a_value_on_one_row(left, right)
 
 
-def _share_an_exclusive_group(left: CompiledField, right: CompiledField, progress: CompileProgress) -> bool:
-    if left.ref.node_id != right.ref.node_id:
+def _never_hold_a_value_on_one_row(left: CompiledField, right: CompiledField) -> bool:
+    """Two fields on one index of which at most one ever has a value at a row: two outputs of one ``exclusive_group``, or what hangs off two branches of one decision."""
+    if left._index != right._index:
         return False
-    interface = progress.compiled[left.ref.node_id].interface
-    assert interface is not None  # the node is wired
-    group_of = {out.name: out.exclusive_group for out in interface.outputs}
-    return group_of[left.ref.field] is not None and group_of[left.ref.field] == group_of[right.ref.field]
+    return not no_decision_goes_two_ways(left._branches_on_its_row | right._branches_on_its_row) or can_never_both_hold(left.condition, right.condition)  # type: ignore[arg-type]  # a field without a condition holds nothing back
 
 
 def _columns_carried_on(places: list[SourcesThatAreAlternatives]) -> list[frozenset[int]]:

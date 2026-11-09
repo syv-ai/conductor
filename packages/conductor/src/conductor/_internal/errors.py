@@ -80,6 +80,10 @@ _PROBLEM_MESSAGES: Mapping[str, tuple[str, bool]] = {
         "'{source}' shares no rows with what else is wired into '{field}'. Unrelated tables have nothing to match on: "
         "use a node that joins them on a key column.", True,
     ),
+    "series_inputs_never_share_a_row": (
+        "'{a}' and '{b}' read branches that never both have a value on a row, so no row would reach the node. "
+        "Write Series[X | None] on them to keep every row, or take the branches through one input.", True,
+    ),
     "table_column_missing": ("'{field}' needs the column '{column}', which the table it received doesn't have.", True),
     "series_of_tables": (
         "The output '{field}' is a series of tables; a table already holds many rows, so return one table.", True,

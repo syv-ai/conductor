@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from conductor._internal.graph.binding import Binding
     from conductor._internal.graph.compiled_graph import CompiledGraph
     from conductor._internal.graph.graph_records import GraphNode
-    from conductor._internal.graph.output_conditions import Condition
+    from conductor._internal.graph.output_conditions import BranchTaken, Condition
     from conductor._internal.graph.receive_modes import ReceiveMode
     from conductor._internal.index import Index
     from conductor._internal.node_definition import NodeDefinition
@@ -247,6 +247,8 @@ class CompiledField:
     _held_as: HeldAs = field(repr=False)
     #: For an output: ``None`` is a value it may be given.
     _takes_blank: bool = field(repr=False)
+    #: The per-row decisions this field has a value only one way of, read at its own row. Empty on a field no such decision holds back.
+    _branches_on_its_row: frozenset[BranchTaken] = field(repr=False)
     #: For an output or a list set on a node: the indexes its rows can trace back to, ``None`` when
     #: that can't be known (``conductor._internal.graph.row_origins``).
     _row_origins: frozenset[str] | None = field(repr=False)
@@ -254,12 +256,12 @@ class CompiledField:
     def __init__(
         self, ref: Ref, type: Any, binding: Binding | None, condition: Condition | None, problems: tuple[Problem, ...], *,
         _index: Index | None, _receive_mode: ReceiveMode | None, _held_as: HeldAs,
-        _takes_blank: bool, _row_origins: frozenset[str] | None,
+        _takes_blank: bool, _branches_on_its_row: frozenset[BranchTaken], _row_origins: frozenset[str] | None,
     ) -> None:
         """Compile builds one per field of a graph, so this sets them in one step, not one at a time."""
         self.__dict__.update(
             ref=ref, type=type, binding=binding, condition=condition, problems=problems, _index=_index, _receive_mode=_receive_mode,
-            _held_as=_held_as, _takes_blank=_takes_blank, _row_origins=_row_origins,
+            _held_as=_held_as, _takes_blank=_takes_blank, _branches_on_its_row=_branches_on_its_row, _row_origins=_row_origins,
         )
 
     @property

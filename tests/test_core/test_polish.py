@@ -457,3 +457,90 @@ def test_a_plan_reads_like_what_a_node_was_wired_to() -> None:
     assert "c.result.name" in str(compiled.run_plan)
     once = _compiled(_open_text.graph_node("a", text="x", suffix="y"), _open_text.graph_node("b", text=From("a.result"), suffix="!"), nodes=[_open_text])
     assert "text: a.result" in str(once.run_plan)
+
+
+# -- series inputs on opposite branches -----------------------------------------------
+
+
+@dataclass(frozen=True)
+class _Parity:
+    even: Annotated[int, Result(exclusive_group="parity")]
+    odd: Annotated[int, Result(exclusive_group="parity")]
+
+
+@node("numbers")
+def _numbers() -> Series[int]:
+    return [1, 2, 3, 4]
+
+
+@node("parity")
+def _parity(n: int) -> _Parity:
+    return _Parity(n, SKIPPED) if n % 2 == 0 else _Parity(SKIPPED, n)  # type: ignore[arg-type]
+
+
+@node("add-both")
+def _add_both(a: Series[int], b: Series[int]) -> int:
+    return sum(a) + sum(b)
+
+
+@node("pair-both")
+def _pair_both(a: Series[int | None], b: Series[int | None]) -> str:
+    return ",".join(f"{x}/{y}" for x, y in zip(a, b, strict=True))
+
+
+@node("add-all")
+def _add_all(values: Series[int]) -> int:
+    return sum(values)
+
+
+_PARITY_NODES = [_numbers, _parity, _add_both, _pair_both, _add_all]
+
+
+def test_series_inputs_on_opposite_branches_are_refused_where_every_row_would_leave() -> None:
+    compiled = _compiled(_numbers.graph_node("n"), _parity.graph_node("r", n=From("n.result")), _add_both.graph_node("c", a=From("r.even"), b=From("r.odd")), nodes=_PARITY_NODES)
+    (told,) = compiled.problems
+    assert (told.type, told.fatal, told.loc) == ("series_inputs_never_share_a_row", True, ("c", "a"))
+    assert (told.ctx["a"], told.ctx["b"]) == ("a", "b")
+    assert "Series[X | None]" in told.msg and not compiled.is_runnable
+
+
+def test_series_inputs_on_opposite_branches_that_take_a_blank_keep_every_row() -> None:
+    compiled = _compiled(_numbers.graph_node("n"), _parity.graph_node("r", n=From("n.result")), _pair_both.graph_node("c", a=From("r.even"), b=From("r.odd")), nodes=_PARITY_NODES)
+    assert compiled.results(compiled.run_sync())["c"]["result"] == "None/1,2/None,None/3,4/None"
+
+
+def test_opposite_branches_through_one_input_are_one_column() -> None:
+    compiled = _compiled(_numbers.graph_node("n"), _parity.graph_node("r", n=From("n.result")), _add_all.graph_node("c", values=From("r.even", "r.odd")), nodes=_PARITY_NODES)
+    assert compiled.results(compiled.run_sync())["c"]["result"] == 10
+
+
+@node("plus-one")
+def _plus_one(x: int) -> int:
+    return x + 1
+
+
+def test_series_inputs_reading_what_hangs_off_opposite_per_row_branches_are_refused() -> None:
+    compiled = _compiled(
+        _numbers.graph_node("n"), _parity.graph_node("r", n=From("n.result")),
+        _plus_one.graph_node("x", x=From("r.even")), _plus_one.graph_node("y", x=From("r.odd")), _add_both.graph_node("c", a=From("x.result"), b=From("y.result")),
+        nodes=[*_PARITY_NODES, _plus_one],
+    )
+    assert [problem.type for problem in compiled.problems] == ["series_inputs_never_share_a_row"]
+
+
+def test_a_node_reading_both_branches_through_one_input_is_on_neither() -> None:
+    compiled = _compiled(
+        _numbers.graph_node("n"), _parity.graph_node("r", n=From("n.result")),
+        _plus_one.graph_node("x", x=From("r.even", "r.odd")), _plus_one.graph_node("y", x=From("r.odd")), _add_both.graph_node("c", a=From("x.result"), b=From("y.result")),
+        nodes=[*_PARITY_NODES, _plus_one],
+    )
+    assert compiled.is_runnable, compiled.problems
+    assert compiled.results(compiled.run_sync())["c"]["result"] == 2 + 4 + 2 + 4  # rows 0 and 2: only those have both
+
+
+def test_tables_hanging_off_per_row_branches_are_the_branch_that_ran() -> None:
+    compiled = _compiled(
+        _flags.graph_node("f"), _route_once.graph_node("r", go=From("f.result")), _copy_table.graph_node("a", table=From("r.yes")), _copy_table.graph_node("b", table=From("r.no")),
+        _show_table.graph_node("s", table=From("a.result", "b.result")), nodes=[_flags, _route_once, _copy_table, _show_table],
+    )
+    assert compiled.results(compiled.run_sync())["s"]["result"]["values"] == ["taken|name", "taken|name"]
