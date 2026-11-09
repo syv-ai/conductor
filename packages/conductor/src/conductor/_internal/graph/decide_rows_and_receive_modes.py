@@ -183,7 +183,7 @@ def read_what_arrives_on_inputs(
             found.arriving_types[name] = source.type
             found.carries[name] = InputCarries(source.type, source._index)
             if source._index is None or one_value_per_run_of_a_graph:
-                found.receive_modes[name] = cell_at_the_row(binding.refs, source._index, input_.takes_blank)
+                found.receive_modes[name] = cell_at_the_row(binding.refs, source._index)
             else:
                 found.sources_read_at_the_row += (SourcesReadAtTheRow(input_, ((binding.refs[0], source),), None),)
             continue
@@ -210,7 +210,7 @@ def read_what_arrives_on_inputs(
                 return found
             source = sources[0]
             found.arriving_types[name] = source.type
-            found.receive_modes[name] = cell_at_the_row(binding.refs, source._index, input_.takes_blank)
+            found.receive_modes[name] = cell_at_the_row(binding.refs, source._index)
             if source._index is not None:
                 found.rows_required_by_inputs += ((source._index, name),)
             found.carries[name] = InputCarries(source.type, source._index)
@@ -220,7 +220,7 @@ def read_what_arrives_on_inputs(
             if source._index.parent is not None:
                 found.child_indexes_read_by_series_inputs += ((source._index, input_, binding.refs),)
             else:
-                found.receive_modes[name] = rows_under_the_row(binding.refs, source._index, 0, input_.takes_blank)
+                found.receive_modes[name] = rows_under_the_row(binding.refs, source._index, 0)
             found.carries[name] = InputCarries(source.type, source._index)
         else:
             input_own_index = Index(Ref(node.id, name))
@@ -296,41 +296,36 @@ def decide_runs_per_row_of_and_receive_modes(node: GraphNode, found: WhatArrives
         own_ref = field_address_of(input_.name)
         input_own_index = Index(str(own_ref), parent=runs_per_row_of)
         found.carries[input_.name] = InputCarries(input_.dtype, input_own_index)
-        found.receive_modes[input_.name] = cell_at_the_row((own_ref,), input_own_index, input_.takes_blank)
+        found.receive_modes[input_.name] = cell_at_the_row((own_ref,), input_own_index)
         runs_per_row_of = input_own_index
     for index, input_, refs in found.child_indexes_read_by_series_inputs:
         depth = _depth_shared_with_row(index.parent, runs_per_row_of)  # type: ignore[arg-type]  # a reduction reads a child index
         if depth is None:
             problems.append(_misaligned(node_id, field_address_of(found.rows_required_by_inputs[0][1]), field_address_of(input_.name)))
             return False, None
-        found.receive_modes[input_.name] = rows_under_the_row(refs, index, depth, input_.takes_blank)
+        found.receive_modes[input_.name] = rows_under_the_row(refs, index, depth)
     for read in found.sources_read_at_the_row:
         found.receive_modes[read.input.name] = _receive_mode_read_at_the_row(read, runs_per_row_of)
     for input_, carried, sources in found.table_inputs_and_sources:
         found.carries[input_.name] = InputCarries(carried, runs_per_row_of)
-        found.receive_modes[input_.name] = _receive_mode_of_table_input(sources, runs_per_row_of, input_.takes_blank)
+        found.receive_modes[input_.name] = _receive_mode_of_table_input(sources, runs_per_row_of)
         problems.extend(row_origins.check_merge(node_id, input_.name, sources))
     return True, runs_per_row_of
 
 
 def _receive_mode_read_at_the_row(read: SourcesReadAtTheRow, runs_per_row_of: Index | None) -> Cell | RowsUnder | Gather:
     """How an input that doesn't choose the node's row receives its sources on that row: each source by its own read."""
-    takes_blank = read.input.takes_blank
-    source_reads = tuple(_read_of_source_at_the_row(ref, source, runs_per_row_of, takes_blank) for ref, source in read.sources)
+    source_reads = tuple(_read_of_source_at_the_row(ref, source, runs_per_row_of) for ref, source in read.sources)
     if read.collected_onto is None:
         return source_reads[0]
-    return Gather(source_reads, Ref(read.collected_onto.id), takes_blank)
+    return Gather(source_reads, Ref(read.collected_onto.id))
 
 
-def _receive_mode_of_table_input(sources: list[tuple[Ref, CompiledField]], runs_per_row_of: Index | None, takes_blank: bool) -> Cell | Merge:
+def _receive_mode_of_table_input(sources: list[tuple[Ref, CompiledField]], runs_per_row_of: Index | None) -> Cell | Merge:
     """How a ``Table`` input receives what is wired into it: one table on its own has nothing to match with."""
     if len(sources) == 1 and is_table_type(sources[0][1].type):
-        return cell_at_the_row((sources[0][0],), sources[0][1]._index, takes_blank)
-    return Merge(
-        tuple(_read_of_merge_source(ref, source, runs_per_row_of, takes_blank) for ref, source in sources),
-        tuple(_copied_down(sources)),
-        takes_blank,
-    )
+        return cell_at_the_row((sources[0][0],), sources[0][1]._index)
+    return Merge(tuple(_read_of_merge_source(ref, source, runs_per_row_of) for ref, source in sources), tuple(_copied_down(sources)))
 
 
 def _copied_down(sources: list[tuple[Ref, CompiledField]]) -> list[Ref]:
@@ -399,22 +394,22 @@ def _depth_shared_with_row(index: Index, runs_per_row_of: Index | None) -> int |
     return next((step.depth for step in reversed(index.lineage) if step in lineage), None)
 
 
-def _read_of_source_at_the_row(ref: Ref, source: CompiledField, runs_per_row_of: Index | None, takes_blank: bool) -> Cell | RowsUnder:
+def _read_of_source_at_the_row(ref: Ref, source: CompiledField, runs_per_row_of: Index | None) -> Cell | RowsUnder:
     """How a call on ``runs_per_row_of`` reads one source: the one value a source
     with no rows holds; else its rows, cut at the deepest row the two share
     (the source's own row when the call sits on or under it), all of them when they share none."""
     index = source._index
     if index is None:
-        return cell_at_the_row((ref,), None, takes_blank)
-    return rows_under_the_row((ref,), index, _depth_shared_with_row(index, runs_per_row_of) or 0, takes_blank)
+        return cell_at_the_row((ref,), None)
+    return rows_under_the_row((ref,), index, _depth_shared_with_row(index, runs_per_row_of) or 0)
 
 
-def _read_of_merge_source(ref: Ref, source: CompiledField, runs_per_row_of: Index | None, takes_blank: bool) -> Cell | RowsUnder:
+def _read_of_merge_source(ref: Ref, source: CompiledField, runs_per_row_of: Index | None) -> Cell | RowsUnder:
     """How a call reads one source of a ``Table`` input: a table is the one at its row, or the one there is; a column is read as any source."""
     if is_table_type(source.type):
         assert source._index is None or (runs_per_row_of is not None and source._index in runs_per_row_of.lineage)  # a table arriving per row put the node on its row, or was misaligned
-        return cell_at_the_row((ref,), source._index, takes_blank)
-    return _read_of_source_at_the_row(ref, source, runs_per_row_of, takes_blank)
+        return cell_at_the_row((ref,), source._index)
+    return _read_of_source_at_the_row(ref, source, runs_per_row_of)
 
 
 def _all_on_one_index(sources: Sequence[CompiledField]) -> bool:
@@ -427,8 +422,8 @@ def _what_an_unwired_input_carries(input_: Input, node_id: str, statics: Mapping
     call, or for a ``Series[X]`` input a column of its own, received whole."""
     value = statics.get(input_.name, input_.default)
     if not input_.many:
-        return InputCarries(input_.dtype, None), FixedValue("same_value_every_row", value, input_.takes_blank)
-    return InputCarries(input_.dtype, Index(Ref(node_id, input_.name))), FixedValue("entire_value", None if value is None else list(value), input_.takes_blank)
+        return InputCarries(input_.dtype, None), FixedValue("same_value_every_row", value)
+    return InputCarries(input_.dtype, Index(Ref(node_id, input_.name))), FixedValue("entire_value", None if value is None else list(value))
 
 
 def _row_above_reductions(reductions: tuple[tuple[Index, Input, tuple[Ref, ...]], ...]) -> tuple[tuple[Index, str], ...]:

@@ -592,3 +592,30 @@ def test_a_signature_that_moves_a_node_to_other_rows_changes_its_fingerprint():
     whole = CompiledGraph.from_graph(Graph(nodes=LINES), registry)
     assert per_row.node("count").fingerprint != whole.node("count").fingerprint
     assert whole._nodes_changed_since(per_row.run_sync()) == ["count"]
+
+
+def test_an_input_that_starts_taking_a_blank_changes_the_fingerprint_and_is_called_on_the_blank_it_was_not_before():
+    @node("nothing", title="x", description="d", category="test")
+    def nothing() -> Annotated[Whole | None, Result(title="N")]:
+        return None
+
+    @node("counted", title="x", description="d", category="test")
+    def refuses_a_blank(x: Annotated[Whole, Param(title="X")]) -> Annotated[Whole, Result(title="N")]:
+        _called("counted")
+        return Whole(x)
+
+    @node("counted", title="x", description="d", category="test")
+    def takes_a_blank(x: Annotated[Whole | None, Param(title="X")]) -> Annotated[Whole, Result(title="N")]:
+        _called("counted")
+        return Whole(0 if x is None else x)
+
+    nodes = [GraphNode(id="n", type="nothing", version=1), GraphNode(id="c", type="counted", version=1, bindings={"x": From("n.result")})]
+    before = CompiledGraph.from_graph(Graph(nodes=nodes), NodeRegistry().extended_with([nothing, refuses_a_blank]))
+    after = CompiledGraph.from_graph(Graph(nodes=nodes), NodeRegistry().extended_with([nothing, takes_a_blank]))
+    state = before.run_sync()
+    assert calls == {}
+
+    assert before.node("c").fingerprint != after.node("c").fingerprint
+    assert after._nodes_changed_since(state) == ["c"]
+    after.run_sync(state)
+    assert calls == {"counted": 1}

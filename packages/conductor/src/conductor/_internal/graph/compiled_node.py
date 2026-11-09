@@ -141,12 +141,12 @@ class CompiledNode:
     @cached_property
     def fingerprint(self) -> str | None:
         """A hash of how the graph uses this node: its type, version and
-        bindings, its run plan and each output's type. A run's state stores
-        one per node, and a leg restored into a graph whose fingerprint
-        differs runs the node again: a static edited, a version bumped, an
-        edge moved or a signature that moves the node to other rows all
-        change it; a title or a position does not. ``None`` on a node that
-        doesn't run as one unit."""
+        bindings, its run plan, which inputs take a blank and each output's
+        type. A run's state stores one per node, and a leg restored into a
+        graph whose fingerprint differs runs the node again: a static edited,
+        a version bumped, an edge moved or a signature that moves the node to
+        other rows or lets an input take a blank all change it; a title or a
+        position does not. ``None`` on a node that doesn't run as one unit."""
         if self._wiring is None or self.embedded_graph is not None:
             return None
         node, interface = self.graph_node, self.interface
@@ -165,6 +165,7 @@ class CompiledNode:
             "version": node.version,
             "bindings": bindings,
             "plan": self._run_plan,
+            "takes_blank": {input_.name: input_.takes_blank for input_ in interface.inputs},
             "outputs": self._outputs_described,
         }
         return hashlib.sha256(json.dumps(to_jsonable_python(used), sort_keys=True).encode("utf-8")).hexdigest()

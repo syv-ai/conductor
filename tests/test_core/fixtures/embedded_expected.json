@@ -27,8 +27,7 @@
        "rows_of": null,
        "sources": [
         "emb/up.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -77,13 +76,11 @@
        "rows_of": null,
        "sources": [
         "emb/holder.result"
-       ],
-       "takes_blank": true
+       ]
       },
       "when": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [],
@@ -111,8 +108,7 @@
      "inputs": {
       "value": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [],
@@ -147,7 +143,6 @@
        "collected_onto": "emb/single.values",
        "kind": "gather",
        "receive_mode": "collected",
-       "takes_blank": true,
        "source_reads": [
         {
          "receive_mode": "same_value_every_row",
@@ -156,7 +151,6 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "takes_blank": true,
          "kind": "cell"
         },
         {
@@ -166,7 +160,6 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "takes_blank": true,
          "kind": "cell"
         }
        ]
@@ -204,8 +197,7 @@
        "rows_of": null,
        "sources": [
         "emb/gate.if_true"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -250,8 +242,7 @@
        "rows_of": null,
        "sources": [
         "emb/up.result"
-       ],
-       "takes_blank": true
+       ]
       }
      },
      "makes_rows": [],
@@ -279,8 +270,7 @@
      "inputs": {
       "folder": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [
@@ -327,13 +317,11 @@
        "rows_of": "docs.result",
        "sources": [
         "emb/holder.result"
-       ],
-       "takes_blank": true
+       ]
       },
       "when": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [],
@@ -366,8 +354,7 @@
        "rows_of": "docs.result",
        "sources": [
         "docs.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -397,7 +384,6 @@
        "collected_onto": "emb/single.values",
        "kind": "gather",
        "receive_mode": "collected",
-       "takes_blank": true,
        "source_reads": [
         {
          "receive_mode": "all_rows_under_row",
@@ -407,7 +393,6 @@
          "rows_of": "docs.result",
          "grouped_under": "docs.result",
          "depth": 1,
-         "takes_blank": true,
          "kind": "rows_under"
         },
         {
@@ -418,7 +403,6 @@
          "rows_of": "docs.result",
          "grouped_under": "docs.result",
          "depth": 1,
-         "takes_blank": true,
          "kind": "rows_under"
         }
        ]
@@ -454,8 +438,7 @@
        "rows_of": "docs.result",
        "sources": [
         "emb/gate.if_true"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -502,8 +485,7 @@
        "rows_of": null,
        "sources": [
         "og.if_true"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -531,8 +513,7 @@
      "inputs": {
       "value": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [],
@@ -581,13 +562,11 @@
        "rows_of": null,
        "sources": [
         "emb/b.result"
-       ],
-       "takes_blank": true
+       ]
       },
       "when": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [],
@@ -622,7 +601,6 @@
        "collected_onto": "emb/single.values",
        "kind": "gather",
        "receive_mode": "collected",
-       "takes_blank": true,
        "source_reads": [
         {
          "receive_mode": "same_value_every_row",
@@ -631,7 +609,6 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "takes_blank": true,
          "kind": "cell"
         },
         {
@@ -641,7 +618,6 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "takes_blank": true,
          "kind": "cell"
         }
        ]
@@ -672,8 +648,7 @@
      "inputs": {
       "value": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [],
@@ -722,13 +697,11 @@
        "rows_of": null,
        "sources": [
         "h.result"
-       ],
-       "takes_blank": true
+       ]
       },
       "when": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [],
@@ -779,8 +752,7 @@
        "rows_of": null,
        "sources": [
         "top/s.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -831,13 +803,11 @@
        "rows_of": null,
        "sources": [
         "top/b/holder.result"
-       ],
-       "takes_blank": true
+       ]
       },
       "when": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [],
@@ -872,8 +842,7 @@
        "rows_of": null,
        "sources": [
         "top/g.if_true"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -910,7 +879,6 @@
        "collected_onto": "top/b/single.values",
        "kind": "gather",
        "receive_mode": "collected",
-       "takes_blank": true,
        "source_reads": [
         {
          "receive_mode": "same_value_every_row",
@@ -919,7 +887,6 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "takes_blank": true,
          "kind": "cell"
         },
         {
@@ -929,7 +896,6 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "takes_blank": true,
          "kind": "cell"
         }
        ]
@@ -968,8 +934,7 @@
        "rows_of": null,
        "sources": [
         "top/b/gate.if_true"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -1018,13 +983,11 @@
        "rows_of": null,
        "sources": [
         "top/h.result"
-       ],
-       "takes_blank": true
+       ]
       },
       "when": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [],
@@ -1052,8 +1015,7 @@
      "inputs": {
       "value": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [],
@@ -1089,7 +1051,6 @@
        "collected_onto": "top/s.values",
        "kind": "gather",
        "receive_mode": "collected",
-       "takes_blank": true,
        "source_reads": [
         {
          "receive_mode": "same_value_every_row",
@@ -1098,7 +1059,6 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "takes_blank": true,
          "kind": "cell"
         },
         {
@@ -1108,7 +1068,6 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "takes_blank": true,
          "kind": "cell"
         }
        ]
@@ -1159,8 +1118,7 @@
        "rows_of": null,
        "sources": [
         "top/s.result"
-       ],
-       "takes_blank": true
+       ]
       }
      },
      "makes_rows": [],
@@ -1188,8 +1146,7 @@
      "inputs": {
       "folder": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [
@@ -1236,13 +1193,11 @@
        "rows_of": "docs.result",
        "sources": [
         "top/b/holder.result"
-       ],
-       "takes_blank": true
+       ]
       },
       "when": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [],
@@ -1275,8 +1230,7 @@
        "rows_of": "docs.result",
        "sources": [
         "top/g.if_true"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -1306,7 +1260,6 @@
        "collected_onto": "top/b/single.values",
        "kind": "gather",
        "receive_mode": "collected",
-       "takes_blank": true,
        "source_reads": [
         {
          "receive_mode": "all_rows_under_row",
@@ -1316,7 +1269,6 @@
          "rows_of": "docs.result",
          "grouped_under": "docs.result",
          "depth": 1,
-         "takes_blank": true,
          "kind": "rows_under"
         },
         {
@@ -1327,7 +1279,6 @@
          "rows_of": "docs.result",
          "grouped_under": "docs.result",
          "depth": 1,
-         "takes_blank": true,
          "kind": "rows_under"
         }
        ]
@@ -1363,8 +1314,7 @@
        "rows_of": "docs.result",
        "sources": [
         "top/b/gate.if_true"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -1409,13 +1359,11 @@
        "rows_of": "docs.result",
        "sources": [
         "top/h.result"
-       ],
-       "takes_blank": true
+       ]
       },
       "when": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [],
@@ -1448,8 +1396,7 @@
        "rows_of": "docs.result",
        "sources": [
         "docs.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -1479,7 +1426,6 @@
        "collected_onto": "top/s.values",
        "kind": "gather",
        "receive_mode": "collected",
-       "takes_blank": true,
        "source_reads": [
         {
          "receive_mode": "all_rows_under_row",
@@ -1489,7 +1435,6 @@
          "rows_of": "docs.result",
          "grouped_under": "docs.result",
          "depth": 1,
-         "takes_blank": true,
          "kind": "rows_under"
         },
         {
@@ -1500,7 +1445,6 @@
          "rows_of": "docs.result",
          "grouped_under": "docs.result",
          "depth": 1,
-         "takes_blank": true,
          "kind": "rows_under"
         }
        ]
@@ -1558,8 +1502,7 @@
        "rows_of": null,
        "sources": [
         "emb/single.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -1610,13 +1553,11 @@
        "rows_of": null,
        "sources": [
         "emb/holder.result"
-       ],
-       "takes_blank": true
+       ]
       },
       "when": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [],
@@ -1651,8 +1592,7 @@
        "rows_of": null,
        "sources": [
         "og.if_false"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -1689,7 +1629,6 @@
        "collected_onto": "emb/single.values",
        "kind": "gather",
        "receive_mode": "collected",
-       "takes_blank": true,
        "source_reads": [
         {
          "receive_mode": "same_value_every_row",
@@ -1698,7 +1637,6 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "takes_blank": true,
          "kind": "cell"
         },
         {
@@ -1708,7 +1646,6 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "takes_blank": true,
          "kind": "cell"
         }
        ]
@@ -1747,8 +1684,7 @@
        "rows_of": null,
        "sources": [
         "emb/gate.if_true"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -1776,8 +1712,7 @@
      "inputs": {
       "value": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [],
@@ -1826,13 +1761,11 @@
        "rows_of": null,
        "sources": [
         "h.result"
-       ],
-       "takes_blank": true
+       ]
       },
       "when": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [],
@@ -1878,8 +1811,7 @@
        "rows_of": null,
        "sources": [
         "emb/j.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -1909,7 +1841,6 @@
        "collected_onto": "emb/j.texts",
        "kind": "gather",
        "receive_mode": "collected",
-       "takes_blank": false,
        "source_reads": [
         {
          "receive_mode": "same_value_every_row",
@@ -1918,7 +1849,6 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "takes_blank": false,
          "kind": "cell"
         }
        ]
@@ -1954,8 +1884,7 @@
        "rows_of": null,
        "sources": [
         "h.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -1983,8 +1912,7 @@
      "inputs": {
       "value": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [],
@@ -2027,8 +1955,7 @@
        "rows_of": null,
        "sources": [
         "emb/u.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -2061,8 +1988,7 @@
        "rows_of": null,
        "sources": [
         "h.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -2095,8 +2021,7 @@
        "rows_of": null,
        "sources": [
         "emb/n.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -2124,8 +2049,7 @@
      "inputs": {
       "value": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [],
@@ -2163,8 +2087,7 @@
      "inputs": {
       "folder": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [
@@ -2199,8 +2122,7 @@
        "rows_of": "docs.result",
        "sources": [
         "docs.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -2234,8 +2156,7 @@
        "rows_of": "e0/lines.result",
        "sources": [
         "e0/up.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -2268,8 +2189,7 @@
        "rows_of": "docs.result",
        "sources": [
         "e0/s7.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [
@@ -2304,8 +2224,7 @@
        "rows_of": "docs.result",
        "sources": [
         "e0/holder.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -2338,8 +2257,7 @@
        "rows_of": "docs.result",
        "sources": [
         "e0/s0.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -2372,8 +2290,7 @@
        "rows_of": "docs.result",
        "sources": [
         "e0/s1.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -2406,8 +2323,7 @@
        "rows_of": "docs.result",
        "sources": [
         "e0/s2.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -2440,8 +2356,7 @@
        "rows_of": "docs.result",
        "sources": [
         "e0/s3.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -2474,8 +2389,7 @@
        "rows_of": "docs.result",
        "sources": [
         "e0/s4.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -2508,8 +2422,7 @@
        "rows_of": "docs.result",
        "sources": [
         "e0/s5.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -2542,8 +2455,7 @@
        "rows_of": "docs.result",
        "sources": [
         "e0/s6.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -2576,8 +2488,7 @@
        "rows_of": "e0/lines.result",
        "sources": [
         "e0/lines.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -2610,8 +2521,7 @@
        "rows_of": "docs.result",
        "sources": [
         "docs.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -2645,8 +2555,7 @@
        "rows_of": "e1/lines.result",
        "sources": [
         "e1/up.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -2679,8 +2588,7 @@
        "rows_of": "docs.result",
        "sources": [
         "e1/s7.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [
@@ -2715,8 +2623,7 @@
        "rows_of": "docs.result",
        "sources": [
         "e1/holder.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -2749,8 +2656,7 @@
        "rows_of": "docs.result",
        "sources": [
         "e1/s0.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -2783,8 +2689,7 @@
        "rows_of": "docs.result",
        "sources": [
         "e1/s1.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -2817,8 +2722,7 @@
        "rows_of": "docs.result",
        "sources": [
         "e1/s2.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -2851,8 +2755,7 @@
        "rows_of": "docs.result",
        "sources": [
         "e1/s3.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -2885,8 +2788,7 @@
        "rows_of": "docs.result",
        "sources": [
         "e1/s4.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -2919,8 +2821,7 @@
        "rows_of": "docs.result",
        "sources": [
         "e1/s5.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -2953,8 +2854,7 @@
        "rows_of": "docs.result",
        "sources": [
         "e1/s6.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -2987,8 +2887,7 @@
        "rows_of": "e1/lines.result",
        "sources": [
         "e1/lines.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -3021,8 +2920,7 @@
        "rows_of": "docs.result",
        "sources": [
         "docs.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -3056,8 +2954,7 @@
        "rows_of": "e2/lines.result",
        "sources": [
         "e2/up.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -3090,8 +2987,7 @@
        "rows_of": "docs.result",
        "sources": [
         "e2/s7.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [
@@ -3126,8 +3022,7 @@
        "rows_of": "docs.result",
        "sources": [
         "e2/holder.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -3160,8 +3055,7 @@
        "rows_of": "docs.result",
        "sources": [
         "e2/s0.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -3194,8 +3088,7 @@
        "rows_of": "docs.result",
        "sources": [
         "e2/s1.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -3228,8 +3121,7 @@
        "rows_of": "docs.result",
        "sources": [
         "e2/s2.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -3262,8 +3154,7 @@
        "rows_of": "docs.result",
        "sources": [
         "e2/s3.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -3296,8 +3187,7 @@
        "rows_of": "docs.result",
        "sources": [
         "e2/s4.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -3330,8 +3220,7 @@
        "rows_of": "docs.result",
        "sources": [
         "e2/s5.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -3364,8 +3253,7 @@
        "rows_of": "docs.result",
        "sources": [
         "e2/s6.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -3398,8 +3286,7 @@
        "rows_of": "e2/lines.result",
        "sources": [
         "e2/lines.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -3470,8 +3357,7 @@
      "inputs": {
       "folder": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [
@@ -3506,8 +3392,7 @@
        "rows_of": "docs.result",
        "sources": [
         "docs.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -3537,7 +3422,6 @@
        "collected_onto": "emb/join.texts",
        "kind": "gather",
        "receive_mode": "collected",
-       "takes_blank": false,
        "source_reads": [
         {
          "receive_mode": "all_rows_under_row",
@@ -3547,7 +3431,6 @@
          "rows_of": "docs.result",
          "grouped_under": "docs.result",
          "depth": 1,
-         "takes_blank": false,
          "kind": "rows_under"
         }
        ]
@@ -3583,8 +3466,7 @@
        "rows_of": "docs.result",
        "sources": [
         "emb/holder.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -3622,8 +3504,7 @@
      "inputs": {
       "folder": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [
@@ -3658,8 +3539,7 @@
        "rows_of": "docs.result",
        "sources": [
         "docs.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -3689,7 +3569,6 @@
        "collected_onto": "emb/join.texts",
        "kind": "gather",
        "receive_mode": "collected",
-       "takes_blank": false,
        "source_reads": [
         {
          "receive_mode": "all_rows_under_row",
@@ -3699,7 +3578,6 @@
          "rows_of": "docs.result",
          "grouped_under": "docs.result",
          "depth": 1,
-         "takes_blank": false,
          "kind": "rows_under"
         },
         {
@@ -3710,7 +3588,6 @@
          "rows_of": "docs.result",
          "grouped_under": "docs.result",
          "depth": 1,
-         "takes_blank": false,
          "kind": "rows_under"
         }
        ]
@@ -3746,8 +3623,7 @@
        "rows_of": "docs.result",
        "sources": [
         "emb/holder.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -3790,8 +3666,7 @@
        "rows_of": null,
        "sources": [
         "emb/join.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -3821,7 +3696,6 @@
        "collected_onto": "emb/join.texts",
        "kind": "gather",
        "receive_mode": "collected",
-       "takes_blank": false,
        "source_reads": [
         {
          "receive_mode": "same_value_every_row",
@@ -3830,7 +3704,6 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "takes_blank": false,
          "kind": "cell"
         },
         {
@@ -3840,7 +3713,6 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "takes_blank": false,
          "kind": "cell"
         }
        ]
@@ -3871,8 +3743,7 @@
      "inputs": {
       "value": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [],
@@ -3900,8 +3771,7 @@
      "inputs": {
       "value": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [],
@@ -3941,7 +3811,6 @@
        "collected_onto": "after.texts",
        "kind": "gather",
        "receive_mode": "collected",
-       "takes_blank": false,
        "source_reads": [
         {
          "receive_mode": "same_value_every_row",
@@ -3950,7 +3819,6 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "takes_blank": false,
          "kind": "cell"
         }
        ]
@@ -3986,8 +3854,7 @@
        "rows_of": "emb/holder.value",
        "sources": [
         "emb/holder.value"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -4021,8 +3888,7 @@
        "rows_of": null,
        "sources": [
         "emb/up.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -4055,8 +3921,7 @@
        "rows_of": "emb/holder.value",
        "sources": [
         "emb/holder.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -4094,8 +3959,7 @@
      "inputs": {
       "folder": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [
@@ -4130,8 +3994,7 @@
        "rows_of": "docs.result",
        "sources": [
         "docs.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -4164,8 +4027,7 @@
        "rows_of": "docs.result",
        "sources": [
         "top/holder.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -4199,8 +4061,7 @@
        "rows_of": "top/inner/lines.result",
        "sources": [
         "top/inner/up.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -4233,8 +4094,7 @@
        "rows_of": "docs.result",
        "sources": [
         "top/inner/s7.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [
@@ -4269,8 +4129,7 @@
        "rows_of": "docs.result",
        "sources": [
         "top/inner/holder.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -4303,8 +4162,7 @@
        "rows_of": "docs.result",
        "sources": [
         "top/inner/s0.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -4337,8 +4195,7 @@
        "rows_of": "docs.result",
        "sources": [
         "top/inner/s1.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -4371,8 +4228,7 @@
        "rows_of": "docs.result",
        "sources": [
         "top/inner/s2.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -4405,8 +4261,7 @@
        "rows_of": "docs.result",
        "sources": [
         "top/inner/s3.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -4439,8 +4294,7 @@
        "rows_of": "docs.result",
        "sources": [
         "top/inner/s4.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -4473,8 +4327,7 @@
        "rows_of": "docs.result",
        "sources": [
         "top/inner/s5.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -4507,8 +4360,7 @@
        "rows_of": "docs.result",
        "sources": [
         "top/inner/s6.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -4541,8 +4393,7 @@
        "rows_of": "top/inner/lines.result",
        "sources": [
         "top/inner/lines.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -4576,8 +4427,7 @@
        "rows_of": "top/lines.result",
        "sources": [
         "top/up.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -4610,8 +4460,7 @@
        "rows_of": "docs.result",
        "sources": [
         "top/inner/join.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [
@@ -4646,8 +4495,7 @@
        "rows_of": "top/lines.result",
        "sources": [
         "top/lines.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -4698,8 +4546,7 @@
      "inputs": {
       "folder": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [
@@ -4734,8 +4581,7 @@
        "rows_of": "docs.result",
        "sources": [
         "docs.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -4768,8 +4614,7 @@
        "rows_of": "docs.result",
        "sources": [
         "top/holder.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -4802,8 +4647,7 @@
        "rows_of": "docs.result",
        "sources": [
         "top/inner/holder.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -4836,8 +4680,7 @@
        "rows_of": "docs.result",
        "sources": [
         "top/inner/inner/holder.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -4871,8 +4714,7 @@
        "rows_of": "top/inner/inner/inner/lines.result",
        "sources": [
         "top/inner/inner/inner/up.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -4905,8 +4747,7 @@
        "rows_of": "docs.result",
        "sources": [
         "top/inner/inner/inner/s7.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [
@@ -4941,8 +4782,7 @@
        "rows_of": "docs.result",
        "sources": [
         "top/inner/inner/inner/holder.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -4975,8 +4815,7 @@
        "rows_of": "docs.result",
        "sources": [
         "top/inner/inner/inner/s0.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -5009,8 +4848,7 @@
        "rows_of": "docs.result",
        "sources": [
         "top/inner/inner/inner/s1.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -5043,8 +4881,7 @@
        "rows_of": "docs.result",
        "sources": [
         "top/inner/inner/inner/s2.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -5077,8 +4914,7 @@
        "rows_of": "docs.result",
        "sources": [
         "top/inner/inner/inner/s3.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -5111,8 +4947,7 @@
        "rows_of": "docs.result",
        "sources": [
         "top/inner/inner/inner/s4.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -5145,8 +4980,7 @@
        "rows_of": "docs.result",
        "sources": [
         "top/inner/inner/inner/s5.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -5179,8 +5013,7 @@
        "rows_of": "docs.result",
        "sources": [
         "top/inner/inner/inner/s6.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -5213,8 +5046,7 @@
        "rows_of": "top/inner/inner/inner/lines.result",
        "sources": [
         "top/inner/inner/inner/lines.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -5248,8 +5080,7 @@
        "rows_of": "top/inner/inner/lines.result",
        "sources": [
         "top/inner/inner/up.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -5282,8 +5113,7 @@
        "rows_of": "docs.result",
        "sources": [
         "top/inner/inner/inner/join.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [
@@ -5318,8 +5148,7 @@
        "rows_of": "top/inner/inner/lines.result",
        "sources": [
         "top/inner/inner/lines.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -5353,8 +5182,7 @@
        "rows_of": "top/inner/lines.result",
        "sources": [
         "top/inner/up.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -5387,8 +5215,7 @@
        "rows_of": "docs.result",
        "sources": [
         "top/inner/inner/join.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [
@@ -5423,8 +5250,7 @@
        "rows_of": "top/inner/lines.result",
        "sources": [
         "top/inner/lines.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -5458,8 +5284,7 @@
        "rows_of": "top/lines.result",
        "sources": [
         "top/up.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -5492,8 +5317,7 @@
        "rows_of": "docs.result",
        "sources": [
         "top/inner/join.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [
@@ -5528,8 +5352,7 @@
        "rows_of": "top/lines.result",
        "sources": [
         "top/lines.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -5594,8 +5417,7 @@
        "rows_of": null,
        "sources": [
         "top/join.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -5623,8 +5445,7 @@
      "inputs": {
       "folder": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [
@@ -5659,8 +5480,7 @@
        "rows_of": "docs.result",
        "sources": [
         "docs.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -5694,8 +5514,7 @@
        "rows_of": "top/lines.result",
        "sources": [
         "top/leafy/join.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -5728,8 +5547,7 @@
        "rows_of": "top/lines.result",
        "sources": [
         "top/lines.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -5763,8 +5581,7 @@
        "rows_of": "top/leafy/lines.result",
        "sources": [
         "top/leafy/up.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -5797,8 +5614,7 @@
        "rows_of": "top/lines.result",
        "sources": [
         "top/leafy/s2.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [
@@ -5833,8 +5649,7 @@
        "rows_of": "top/lines.result",
        "sources": [
         "top/leafy/holder.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -5867,8 +5682,7 @@
        "rows_of": "top/lines.result",
        "sources": [
         "top/leafy/s0.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -5901,8 +5715,7 @@
        "rows_of": "top/lines.result",
        "sources": [
         "top/leafy/s1.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -5935,8 +5748,7 @@
        "rows_of": "top/leafy/lines.result",
        "sources": [
         "top/leafy/lines.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -5969,8 +5781,7 @@
        "rows_of": "docs.result",
        "sources": [
         "top/holder.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [
@@ -6024,8 +5835,7 @@
        "rows_of": "emb/lines.result",
        "sources": [
         "emb/up.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -6053,8 +5863,7 @@
      "inputs": {
       "folder": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [
@@ -6089,8 +5898,7 @@
        "rows_of": "docs.result",
        "sources": [
         "docs.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -6123,8 +5931,7 @@
        "rows_of": "docs.result",
        "sources": [
         "emb/holder.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [
@@ -6159,8 +5966,7 @@
        "rows_of": "emb/lines.result",
        "sources": [
         "emb/lines.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -6205,8 +6011,7 @@
        "rows_of": null,
        "sources": [
         "emb/join.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -6234,8 +6039,7 @@
      "inputs": {
       "folder": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [
@@ -6270,8 +6074,7 @@
        "rows_of": "docs.result",
        "sources": [
         "docs.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -6301,7 +6104,6 @@
        "collected_onto": "emb/join.texts",
        "kind": "gather",
        "receive_mode": "collected",
-       "takes_blank": false,
        "source_reads": [
         {
          "receive_mode": "all_rows_under_row",
@@ -6311,7 +6113,6 @@
          "rows_of": "docs.result",
          "grouped_under": "docs.result",
          "depth": 1,
-         "takes_blank": false,
          "kind": "rows_under"
         }
        ]
@@ -6347,8 +6148,7 @@
        "rows_of": "docs.result",
        "sources": [
         "emb/holder.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -6392,8 +6192,7 @@
        "rows_of": null,
        "sources": [
         "emb/u.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -6421,8 +6220,7 @@
      "inputs": {
       "text": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [],
@@ -6455,8 +6253,7 @@
        "rows_of": null,
        "sources": [
         "emb/n.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -6493,8 +6290,7 @@
      "inputs": {
       "folder": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [
@@ -6526,7 +6322,6 @@
        "collected_onto": "emb/join.texts",
        "kind": "gather",
        "receive_mode": "collected",
-       "takes_blank": false,
        "source_reads": [
         {
          "receive_mode": "all_rows_under_row",
@@ -6536,7 +6331,6 @@
          "rows_of": "docs.result",
          "grouped_under": "docs.result",
          "depth": 1,
-         "takes_blank": false,
          "kind": "rows_under"
         }
        ]
@@ -6572,8 +6366,7 @@
        "rows_of": "docs.result",
        "sources": [
         "docs.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -6606,8 +6399,7 @@
        "rows_of": "docs.result",
        "sources": [
         "emb/n.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -6645,8 +6437,7 @@
      "inputs": {
       "folder": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [
@@ -6681,8 +6472,7 @@
        "rows_of": "docs.result",
        "sources": [
         "docs.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -6716,8 +6506,7 @@
        "rows_of": "emb/lines.result",
        "sources": [
         "emb/lines.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -6750,8 +6539,7 @@
        "rows_of": "docs.result",
        "sources": [
         "emb/holder.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [
@@ -6797,8 +6585,7 @@
        "rows_of": "emb/lines.result",
        "sources": [
         "emb/lines.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -6826,8 +6613,7 @@
      "inputs": {
       "folder": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [
@@ -6862,8 +6648,7 @@
        "rows_of": "docs.result",
        "sources": [
         "docs.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -6896,8 +6681,7 @@
        "rows_of": "docs.result",
        "sources": [
         "emb/holder.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [
@@ -6937,8 +6721,7 @@
      "inputs": {
       "folder": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [
@@ -6973,8 +6756,7 @@
        "rows_of": "docs.result",
        "sources": [
         "docs.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -7002,8 +6784,7 @@
      "inputs": {
       "value": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [],
@@ -7037,8 +6818,7 @@
        "rows_of": "emb/lines.result",
        "sources": [
         "emb/lines.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -7071,8 +6851,7 @@
        "rows_of": "docs.result",
        "sources": [
         "emb/holder.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [
@@ -7119,8 +6898,7 @@
        "rows_of": "emb/lines.result",
        "sources": [
         "emb/lines.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -7148,8 +6926,7 @@
      "inputs": {
       "folder": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [
@@ -7184,8 +6961,7 @@
        "rows_of": "emb/docs.result",
        "sources": [
         "emb/docs.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [
@@ -7224,8 +7000,7 @@
      "inputs": {
       "value": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [],
@@ -7255,7 +7030,6 @@
        "collected_onto": "emb/join.texts",
        "kind": "gather",
        "receive_mode": "collected",
-       "takes_blank": false,
        "source_reads": [
         {
          "receive_mode": "same_value_every_row",
@@ -7264,7 +7038,6 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "takes_blank": false,
          "kind": "cell"
         }
        ]
@@ -7300,8 +7073,7 @@
        "rows_of": null,
        "sources": [
         "emb/holder.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -7343,8 +7115,7 @@
        "rows_of": null,
        "sources": [
         "h.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -7374,7 +7145,6 @@
        "collected_onto": "emb/join.texts",
        "kind": "gather",
        "receive_mode": "collected",
-       "takes_blank": false,
        "source_reads": [
         {
          "receive_mode": "same_value_every_row",
@@ -7383,7 +7153,6 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "takes_blank": false,
          "kind": "cell"
         }
        ]
@@ -7419,8 +7188,7 @@
        "rows_of": null,
        "sources": [
         "emb/holder.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -7448,8 +7216,7 @@
      "inputs": {
       "value": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [],
@@ -7487,8 +7254,7 @@
      "inputs": {
       "folder": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [
@@ -7524,8 +7290,7 @@
        "rows_of": null,
        "sources": [
         "docs.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -7561,8 +7326,7 @@
      "inputs": {
       "folder": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [
@@ -7597,8 +7361,7 @@
        "rows_of": "docs.result",
        "sources": [
         "docs.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -7631,8 +7394,7 @@
        "rows_of": "lines.result",
        "sources": [
         "lines.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -7665,8 +7427,7 @@
        "rows_of": "lines.result",
        "sources": [
         "emb/a.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -7699,8 +7460,7 @@
        "rows_of": "docs.result",
        "sources": [
         "docs.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [
@@ -7741,8 +7501,7 @@
      "inputs": {
       "folder": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [
@@ -7777,8 +7536,7 @@
        "rows_of": "docs.result",
        "sources": [
         "docs.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -7812,8 +7570,7 @@
        "rows_of": "emb/t.b",
        "sources": [
         "emb/t.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -7851,8 +7608,7 @@
        "rows_of": "docs.result",
        "sources": [
         "emb/h.result"
-       ],
-       "takes_blank": false
+       ]
       },
       "b": {
        "depth": 2,
@@ -7861,8 +7617,7 @@
        "rows_of": "emb/t.b",
        "sources": [
         "emb/t.b"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -7906,8 +7661,7 @@
        "rows_of": "emb/lines.result",
        "sources": [
         "emb/p.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -7935,8 +7689,7 @@
      "inputs": {
       "folder": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [
@@ -7971,8 +7724,7 @@
        "rows_of": "docs.result",
        "sources": [
         "docs.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -8000,8 +7752,7 @@
      "inputs": {
       "value": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [],
@@ -8034,8 +7785,7 @@
        "rows_of": "docs.result",
        "sources": [
         "emb/b.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [
@@ -8075,8 +7825,7 @@
        "rows_of": "docs.result",
        "sources": [
         "emb/ua.result"
-       ],
-       "takes_blank": false
+       ]
       },
       "b": {
        "depth": 2,
@@ -8085,8 +7834,7 @@
        "rows_of": "emb/lines.result",
        "sources": [
         "emb/lines.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -8119,8 +7867,7 @@
        "rows_of": "docs.result",
        "sources": [
         "emb/a.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -8166,8 +7913,7 @@
        "rows_of": null,
        "sources": [
         "emb/join.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],
@@ -8195,8 +7941,7 @@
      "inputs": {
       "value": {
        "kind": "fixed",
-       "receive_mode": "same_value_every_row",
-       "takes_blank": false
+       "receive_mode": "same_value_every_row"
       }
      },
      "makes_rows": [],
@@ -8226,7 +7971,6 @@
        "collected_onto": "emb/join.texts",
        "kind": "gather",
        "receive_mode": "collected",
-       "takes_blank": false,
        "source_reads": [
         {
          "receive_mode": "same_value_every_row",
@@ -8235,7 +7979,6 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "takes_blank": false,
          "kind": "cell"
         }
        ]
@@ -8271,8 +8014,7 @@
        "rows_of": null,
        "sources": [
         "emb/holder.result"
-       ],
-       "takes_blank": false
+       ]
       }
      },
      "makes_rows": [],

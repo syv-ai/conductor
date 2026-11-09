@@ -62,13 +62,11 @@ class Cell:
     #: The field whose rows it reads; ``None`` when there is one value.
     rows_of: Ref | None
     depth: int
-    #: A blank here calls the node with ``None``. If not, the row isn't called.
-    takes_blank: bool
     kind: Literal["cell"] = "cell"
 
-    def __init__(self, receive_mode: str, sources: tuple[Ref, ...], rows_of: Ref | None, depth: int, takes_blank: bool, kind: str = "cell") -> None:
+    def __init__(self, receive_mode: str, sources: tuple[Ref, ...], rows_of: Ref | None, depth: int, kind: str = "cell") -> None:
         """Compile builds one per input of a graph, so this sets them in one step, not one at a time."""
-        self.__dict__.update(receive_mode=receive_mode, sources=sources, rows_of=rows_of, depth=depth, takes_blank=takes_blank, kind=kind)
+        self.__dict__.update(receive_mode=receive_mode, sources=sources, rows_of=rows_of, depth=depth, kind=kind)
 
     @property
     def _what_is_read(self) -> str:
@@ -99,8 +97,6 @@ class RowsUnder:
     #: The index the rows are grouped under, which a call's row sits on.
     grouped_under: Ref | None
     depth: int
-    #: A blank here stays in the series. If not, its row is left out.
-    takes_blank: bool
     kind: Literal["rows_under"] = "rows_under"
 
     @property
@@ -128,13 +124,11 @@ class FixedValue:
 
     receive_mode: Literal["same_value_every_row", "entire_value"]
     value: Annotated[Any, Field(exclude=True)] = field(default=None, repr=False, compare=False)
-    #: A blank here calls the node with ``None``. If not, the row isn't called.
-    takes_blank: bool = False
     kind: Literal["fixed"] = "fixed"
 
-    def __init__(self, receive_mode: str, value: Any = None, takes_blank: bool = False, kind: str = "fixed") -> None:
+    def __init__(self, receive_mode: str, value: Any = None, kind: str = "fixed") -> None:
         """Compile builds one per input left to a value, so this sets them in one step, not one at a time."""
-        self.__dict__.update(receive_mode=receive_mode, value=value, takes_blank=takes_blank, kind=kind)
+        self.__dict__.update(receive_mode=receive_mode, value=value, kind=kind)
 
     @property
     def sources(self) -> tuple[Ref, ...]:
@@ -167,8 +161,6 @@ class Gather:
     #: One read per source, in wiring order.
     source_reads: tuple[ReadOfSource, ...]
     collected_onto: Ref
-    #: A blank here stays in the series. If not, its row is left out.
-    takes_blank: bool
     receive_mode: Literal["collected"] = "collected"
     kind: Literal["gather"] = "gather"
 
@@ -194,8 +186,6 @@ class Merge:
     source_reads: tuple[ReadOfSource, ...]
     #: The sources whose rows sit above another source's: copied down onto those rows.
     copied_down: tuple[Ref, ...]
-    #: A blank here stays in the table.
-    takes_blank: bool
     receive_mode: Literal["merged"] = "merged"
     kind: Literal["merge"] = "merge"
 
@@ -206,18 +196,18 @@ class Merge:
 ReceiveMode = Annotated[Cell | RowsUnder | FixedValue | Gather | Merge, Field(discriminator="kind")]
 
 
-def cell_at_the_row(sources: tuple[Ref, ...], index: Index | None, takes_blank: bool) -> Cell:
+def cell_at_the_row(sources: tuple[Ref, ...], index: Index | None) -> Cell:
     """The ``Cell`` of ``sources``, which sit on ``index``, or hold one value with none."""
     if index is None:
-        return Cell("same_value_every_row", sources, None, 0, takes_blank)
-    return Cell("value_at_row", sources, Ref._from_checked_address(index.id), index.depth, takes_blank)
+        return Cell("same_value_every_row", sources, None, 0)
+    return Cell("value_at_row", sources, Ref._from_checked_address(index.id), index.depth)
 
 
-def rows_under_the_row(sources: tuple[Ref, ...], index: Index, depth: int, takes_blank: bool) -> RowsUnder:
+def rows_under_the_row(sources: tuple[Ref, ...], index: Index, depth: int) -> RowsUnder:
     """The ``RowsUnder`` of ``sources`` on ``index``, grouped under its step at ``depth``, ``0`` being all of them."""
     if depth == 0:
-        return RowsUnder("entire_value", sources, None, None, 0, takes_blank)
-    return RowsUnder("all_rows_under_row", sources, Ref._from_checked_address(index.id), Ref._from_checked_address(index.lineage[depth - 1].id), depth, takes_blank)
+        return RowsUnder("entire_value", sources, None, None, 0)
+    return RowsUnder("all_rows_under_row", sources, Ref._from_checked_address(index.id), Ref._from_checked_address(index.lineage[depth - 1].id), depth)
 
 
 def reads_of_input(receive_mode: Cell | RowsUnder | FixedValue | Gather | Merge) -> list[tuple[Ref, int]]:

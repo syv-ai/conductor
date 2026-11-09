@@ -157,15 +157,14 @@ def test_the_run_plan_reads_as_text():
     assert "table: merged: upload.result + count.result" in text
 
 
-def test_the_run_plan_says_a_blank_and_a_typed_in_value():
+def test_the_run_plan_says_a_typed_in_value():
     @node("blank")
     def blank(a: Txt | None, b: Txt = Txt("b")) -> Txt:
         return b
 
     plan = _compiled(_node("b", "blank", a=From("upload.result")), _node("upload", "upload"), registry=NodeRegistry([upload, blank])).run_plan
 
-    assert plan.nodes["b"].inputs["a"].takes_blank
-    assert (plan.nodes["b"].inputs["b"].receive_mode, plan.nodes["b"].inputs["b"].takes_blank) == ("same_value_every_row", False)
+    assert plan.nodes["b"].inputs["b"].receive_mode == "same_value_every_row"
 
 
 def test_a_table_part_at_a_nodes_own_row_and_a_deep_column_are_said():

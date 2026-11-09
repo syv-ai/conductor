@@ -194,5 +194,5 @@ def test_the_value_a_fixed_value_holds_is_not_written_in_the_run_plan():
     compiled = _compiled(_gn("h", "hold", table=Static(frame)))
 
     written = compiled.run_plan.model_dump(mode="json")["nodes"]["h"]["inputs"]["table"]
-    assert written == {"kind": "fixed", "receive_mode": "same_value_every_row", "takes_blank": False}
+    assert written == {"kind": "fixed", "receive_mode": "same_value_every_row"}
     assert compiled.node("h").fingerprint is not None

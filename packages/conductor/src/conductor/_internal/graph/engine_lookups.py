@@ -40,9 +40,6 @@ class EngineLookups:
     lists_on_nodes_under_index: dict[str, tuple[Ref, ...]]
     #: The field that makes each index's rows, by index id.
     field_making_rows_of_index: dict[str, CompiledField]
-    #: The table outputs a merge matches against a table they were built from: a
-    #: return where no row kept its id can never match (``row_ids_lost``).
-    row_ids_must_survive: frozenset[Ref]
     #: Per node, one ``(writer node, depth)`` per edge it reads, in reading order: the
     #: writer's units at or under the reading unit's row cut to that depth are
     #: what the read waits for. An edge from a list set on a node, whose values are
@@ -64,7 +61,7 @@ class EngineLookups:
     fields_held_at_their_own_row: frozenset[Ref]
 
 
-def build_engine_lookups(nodes: Iterable[CompiledNode], row_ids_must_survive: frozenset[Ref]) -> EngineLookups:
+def build_engine_lookups(nodes: Iterable[CompiledNode]) -> EngineLookups:
     """The plan for a finished compile, over its ready nodes in execution order.
     An index with entries and no owner is a bug in compile, and raises."""
     fields: dict[Ref, CompiledField] = {}
@@ -175,7 +172,7 @@ def build_engine_lookups(nodes: Iterable[CompiledNode], row_ids_must_survive: fr
         )
     return EngineLookups(
         fields, runs_per_row_of, interfaces, _lists_as_tuples(receive_modes_of_node), _lists_as_tuples(read_by), _lists_as_tuples(nodes_running_per_row_of_index), _lists_as_tuples(outputs_on_index), _lists_as_tuples(lists_on_nodes_under_index),
-        field_making_rows_of_index, row_ids_must_survive,
+        field_making_rows_of_index,
         _lists_as_tuples(what_each_read_waits_for),
         {node_id: tuple(sorted(depths)) for node_id, depths in depths_counted.items()},
         nodes_finished_when_rows_made_by, node_making_rows_of_index, _lists_as_tuples(index_ids_by_parent), tuple(lists_on_nodes_at_the_top),

@@ -69,7 +69,7 @@ from typing import TYPE_CHECKING, Any
 from conductor._internal.errors import InvalidCallError, Problem, make_problem
 from conductor._internal.execution.events import Event, RunEnd
 from conductor._internal.execution.run_state import Answers, RunState
-from conductor._internal.execution.run_until_idle import RunningLeg
+from conductor._internal.execution.running_leg import RunningLeg
 from conductor._internal.execution.values_of_run import ValuesOfRun
 from conductor._internal.execution.waiting_units import apply_answers
 from conductor._internal.graph.binding import Static
@@ -104,10 +104,9 @@ def _place_of_offered_field(handle: Ref, graph: CompiledGraph) -> Ref:
 class CompiledGraph:
     """The result of compiling one graph. Ask it; do not read through it.
 
-    Built by ``from_graph`` and read by the engine (``execution_order``,
-    then ``node`` and ``field`` for each node it runs), an editor's
-    compile endpoint (``describe``), and anything deciding whether a
-    run may start (``is_runnable``).
+    Built by ``from_graph`` and read by the engine (``_engine_lookups``, on
+    every step of a run), an editor's compile endpoint (``describe``), and
+    anything deciding whether a run may start (``is_runnable``).
 
     Three attributes are public, ``graph``, ``interface`` and ``problems``; every other
     attribute is private and read through the methods here and through
@@ -161,7 +160,7 @@ class CompiledGraph:
     @cached_property
     def _engine_lookups(self) -> EngineLookups:
         """What the engine looks up on every step, built on the first run: compiling alone never pays for it."""
-        return build_engine_lookups((self._nodes[node_id] for node_id in self._execution_order), self._row_ids_must_survive)
+        return build_engine_lookups(self._nodes[node_id] for node_id in self._execution_order)
 
     @cached_property
     def _embeddable(self) -> EmbeddableGraph:
