@@ -5,8 +5,11 @@ from typing import Annotated, Any
 import pytest
 from conductor import (
     AsItArrives,
+    CompiledGraph,
     ComputeHookError,
     DType,
+    Graph,
+    GraphNode,
     InvalidCallError,
     NodeDeclarationError,
     NodeError,
@@ -14,6 +17,7 @@ from conductor import (
     Param,
     Problem,
     Result,
+    Static,
     node,
 )
 from conductor._internal.errors import ConductorError, make_problem
@@ -95,12 +99,55 @@ def _hooked(raised: Exception) -> Any:
     return hooked
 
 
+def test_a_compile_problem_from_a_hook_lands_on_the_field_it_names():
+    registry = _registry(_hooked(ComputeHookError("Not that mode.", code="wrong_mode", field="text")))
+    graph = Graph(nodes=[GraphNode(id="h", type="hooked", version=1)])
+
+    (told,) = CompiledGraph.from_graph(graph, registry).problems
+
+    assert (told.type, told.msg, told.loc, told.fatal) == ("wrong_mode", "Not that mode.", ("h", "text"), True)
+
+
 def test_a_hook_may_not_raise_a_code_the_catalogue_says_can_still_run():
     with pytest.raises(ValueError, match="no_outputs"):
         ComputeHookError("m", code="no_outputs")
 
 
+def test_a_hook_that_raises_anything_else_is_a_bug_and_leaves_compile():
+    """Compile never raises for a fault in the graph; a hook's own bug is not one."""
+    registry = _registry(_hooked(KeyError("mode")))
+    graph = Graph(nodes=[GraphNode(id="h", type="hooked", version=1)])
+
+    with pytest.raises(KeyError):
+        CompiledGraph.from_graph(graph, registry)
+
+
 # --- problems of their own ---------------------------------------------------------
+
+
+def test_a_binding_on_a_field_a_hook_took_away_is_unused_and_a_typo_is_fatal():
+    def comes_inputs():
+        return ()
+
+    @node("comes", title="Comes", description="d", category="c", compute_added_inputs=comes_inputs)
+    def comes(text: Annotated[Txt, Param()], **more: Any) -> Annotated[Txt, Result(title="R")]:
+        return text
+
+    bound = {"gone": Static(1)}
+    (stale,) = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="echo", version=1, bindings={"text": Static("x"), **bound})]), _registry()).problems
+    (unused,) = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="comes", version=1, bindings={"text": Static("x"), **bound})]), _registry(comes)).problems
+
+    assert (stale.type, stale.fatal) == ("stale_binding", True)
+    assert (unused.type, unused.fatal) == ("unused_binding", False)
+
+
+def test_an_unknown_node_type_lists_what_there_is():
+    graph = Graph(nodes=[GraphNode(id="a", type="ecko", version=1)])
+
+    (told,) = CompiledGraph.from_graph(graph, _registry()).problems
+
+    assert (told.type, told.ctx["choices"]) == ("unknown_node_type", "echo")
+    assert "echo" in told.msg
 
 
 # --- at import ----------------------------------------------------------------------

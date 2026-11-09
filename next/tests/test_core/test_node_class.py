@@ -4,17 +4,24 @@ from typing import Annotated, Any, ClassVar
 
 import pytest
 from conductor import (
+    ArrivingType,
     AsItArrives,
+    CompiledGraph,
     Deprecation,
     DType,
+    Graph,
+    GraphNode,
+    Input,
     NodeDeclarationError,
     NodeDefinition,
     NodeDescription,
     NodeRegistry,
+    Output,
     Param,
     Policy,
     Result,
     Series,
+    Static,
     Upgrade,
     node,
 )
@@ -326,6 +333,24 @@ def test_a_category_is_a_string_on_the_definition():
     assert not hasattr(NodeRegistry, "include")
 
 
+def test_a_version_a_class_does_not_declare_is_refused():
+    """The pin is what a graph selects with, so a graph naming a version
+    that is not there must not resolve to the nearest one."""
+
+    @node("once-exec", title="Once", description="d", category="test")
+    def once(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
+        return x
+
+    registry = NodeRegistry([once])
+    compiled = CompiledGraph.from_graph(Graph(nodes=[
+        GraphNode(id="a", type="once-exec", version=2),
+        GraphNode(id="b", type="never-registered", version=1),
+    ]), registry)
+
+    assert [p.type for p in compiled.problems] == ["unknown_node_version", "unknown_node_type"]
+    assert not hasattr(NodeRegistry, "runner_for")
+
+
 # --- a node is a function ---------------------------------------------------------
 
 
@@ -436,6 +461,71 @@ def test_an_alternative_may_come_later_in_the_list_and_must_exist():
 # --- hooks read what their signature names ----------------------------------------
 
 
+def test_a_hook_gets_the_typed_value_the_declared_default_included():
+    def header_outputs(header: Txt) -> list[Output]:
+        return [Output(name, Txt) for name in header.split(",")]
+
+    @node("sheet", compute_outputs=header_outputs)
+    def sheet(header: Annotated[Txt, Param(connectable=False)] = Txt("a,b")) -> Mapping[str, Any]:
+        return {name: Txt(name) for name in header.split(",")}
+
+    registry = NodeRegistry([sheet])
+    default = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="s", type="sheet", version=1)]), registry)
+    typed = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="s", type="sheet", version=1, bindings={"header": Static("c")})]), registry)
+    assert [o.name for o in default.node("s").interface.outputs] == ["a", "b"]
+    assert [o.name for o in typed.node("s").interface.outputs] == ["c"]
+
+
+def test_a_hook_is_not_called_when_a_value_it_needs_has_none():
+    def names_outputs(names: Txt) -> list[Output]:
+        raise AssertionError("not called")
+
+    @node("n", compute_outputs=names_outputs)
+    def needs_names(names: Txt) -> Annotated[Any, Result(title="R")]:
+        return names
+
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n", type="n", version=1)]), NodeRegistry([needs_names]))
+    assert [o.name for o in compiled.node("n").interface.outputs] == ["result"]
+
+
+def test_compute_added_inputs_adds_to_what_the_node_declares():
+    def more_inputs(mode: Txt) -> list[Input]:
+        return [] if mode == "a" else [Input("extra", Txt, widget=Textarea(), default=Txt(""))]
+
+    @node("n", compute_added_inputs=more_inputs)
+    def modes(mode: Txt = Txt("a"), **more: Txt) -> Txt:
+        return mode
+
+    registry = NodeRegistry([modes])
+    def inputs(mode):
+        graph = Graph(nodes=[GraphNode(id="n", type="n", version=1, bindings={"mode": Static(mode)})])
+        return [i.name for i in CompiledGraph.from_graph(graph, registry).node("n").interface.inputs]
+
+    assert inputs("a") == ["mode"] and inputs("b") == ["mode", "extra"]
+
+
+def test_each_version_has_its_own_hooks():
+    def v1_outputs() -> list[Output]:
+        return [Output("one", Txt)]
+
+    def v2_outputs() -> list[Output]:
+        return [Output("two", Txt)]
+
+    def older_run(x: Txt) -> Mapping[str, Any]:
+        return {"one": x}
+
+    @node("n", compute_outputs=v2_outputs, replaces=node("n", compute_outputs=v1_outputs)(older_run), upgrade=Upgrade(renamed_outputs={"one": "two"}))
+    def newer(x: Txt) -> Mapping[str, Any]:
+        return {"two": x}
+
+    registry = NodeRegistry([newer])
+    def outs(v):
+        graph = Graph(nodes=[GraphNode(id="n", type="n", version=v, bindings={"x": Static("a")})])
+        return [o.name for o in CompiledGraph.from_graph(graph, registry).node("n").interface.outputs]
+
+    assert outs(1) == ["one"] and outs(2) == ["two"]
+
+
 @pytest.mark.parametrize("hook, code", [
     (lambda nope: [], "hook_parameter_unknown"),
     (lambda *a: [], "hook_parameter_unknown"),
@@ -488,6 +578,24 @@ def test_an_unknown_annotation_extra_is_refused():
     assert raised.value.code == "annotated_extra_unknown"
 
 
+def test_a_definition_may_hold_graphs_by_number_with_holes():
+    @node("shout")
+    def shout(text: Annotated[Txt, Param(widget=Textarea())] = Txt("")) -> Out:
+        return text
+
+    inner = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="inner", type="shout", version=1)]), NodeRegistry([shout]))
+    wrapped = NodeDefinition.from_compiled_graphs("wrapped", title="Embedded", description="d", versions={3: inner})
+
+    assert set(wrapped.versions) == {3} and wrapped.current_version == 3
+    assert [i.name for i in wrapped.versions[3].interface.inputs] == ["text"]
+    described = wrapped.describe().versions[3]
+    assert [i.name for i in described.inputs] == ["text"]
+    assert described.policy is None and described.deprecation is None
+    assert "wrapped" in NodeRegistry([wrapped])
+    with pytest.raises(TypeError, match="graph"):
+        wrapped()
+
+
 def test_the_contract_is_importable_from_the_package_root():
     import conductor
 
@@ -495,3 +603,24 @@ def test_the_contract_is_importable_from_the_package_root():
         assert hasattr(conductor, name)
 
 
+def test_arriving_is_the_edges_type_or_the_typed_in_values():
+    class Num(DType, float):
+        id = "node-class-num"
+
+    def echoed_outputs(x: ArrivingType) -> list[Output]:
+        return [Output("result", x)]
+
+    @node("echoed", compute_outputs=echoed_outputs)
+    def echoed(x: Txt) -> Mapping[str, Any]:
+        return {"result": x}
+
+    @node("num")
+    def num() -> Num:
+        return Num(1)
+
+    registry = NodeRegistry([echoed, num])
+    typed_in = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n", type="echoed", version=1, bindings={"x": Static("a")})]), registry)
+    nothing = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n", type="echoed", version=1)]), registry)
+
+    assert typed_in.node("n").interface.outputs[0].dtype is Txt
+    assert nothing.node("n").interface.outputs[0].dtype.id == "any"

@@ -7,8 +7,10 @@ from typing import Annotated, Any, Optional
 import polars as pl
 import pytest
 from conductor import (
+    CompiledGraph,
     DType,
     From,
+    Graph,
     GraphNode,
     Input,
     NodeDeclarationError,
@@ -17,6 +19,7 @@ from conductor import (
     Param,
     Result,
     Series,
+    Static,
     Table,
     node,
     table_with_columns,
@@ -106,6 +109,14 @@ def _registry(*more):
     return NodeRegistry([rows, rows2, plain, takes, branched, after_branch, splits, count, join, keep, zipped, make_table, *more])
 
 
+def _results(*nodes, registry=None):
+    compiled = CompiledGraph.from_graph(Graph(nodes=list(nodes)), registry or _registry())
+    assert compiled.is_runnable, compiled.problems
+    state = compiled.run_sync()
+    assert state.status == "complete", state.failure
+    return compiled, state, compiled.results(state)
+
+
 CSV = GraphNode(id="csv", type="rows2", version=1)
 
 
@@ -182,5 +193,13 @@ def test_a_none_default_with_a_blank_hint_is_fine():
 
 
 # --- a node is not called on a blank unless it says so ---------------------------
+
+
+def test_a_static_none_needs_the_hint():
+    plain_static = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n", type="plain", version=1, bindings={"email": Static(None)})]), _registry())
+    takes_static = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n", type="takes", version=1, bindings={"email": Static(None)})]), _registry())
+
+    assert [p.type for p in plain_static.problems] == ["invalid_static"]
+    assert takes_static.is_runnable
 
 

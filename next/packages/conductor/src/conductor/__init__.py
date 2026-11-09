@@ -19,9 +19,31 @@ from conductor._internal.errors import (
     NodeError,
     Problem,
 )
+from conductor._internal.execution.run_state import (
+    Answers,
+    EarlierUnit,
+    OutputColumn,
+    Question,
+    RunState,
+    RunStatus,
+    WaitingUnit,
+    WorkOfNode,
+)
 from conductor._internal.field_records import Input, Output, Param, Result
 from conductor._internal.graph.binding import OPEN, Binding, From, Static
+from conductor._internal.graph.compiled_graph import CompiledGraph
+from conductor._internal.graph.compiled_node import CompiledField, CompiledNode, NodeState
+from conductor._internal.graph.graph_description import (
+    CompiledNodeDescription,
+    FieldDescription,
+    GraphDescription,
+    InterfaceDescription,
+)
 from conductor._internal.graph.graph_records import FieldContent, Graph, GraphNode
+from conductor._internal.graph.output_conditions import ALWAYS, NEVER, BranchTaken, Condition
+from conductor._internal.graph.receive_modes import ReceiveMode
+from conductor._internal.graph.run_plan import NodeRunPlan, RunPlan
+from conductor._internal.graph.topology import dependencies_of
 from conductor._internal.graph.upgrade import upgrade_node
 from conductor._internal.index import ValuesOnRows
 from conductor._internal.node_definition import (
@@ -48,39 +70,61 @@ else:
     from conductor._internal.table import Table
 
 __all__ = [
+    "ALWAYS",
+    "NEVER",
     "OPEN",
     "PROBLEM_CODES",
     "ROW_ID_COLUMN",
     "SKIPPED",
+    "Answers",
     "ArrivingType",
     "AsItArrives",
     "AskPerson",
     "Binding",
+    "BranchTaken",
+    "CompiledField",
+    "CompiledGraph",
+    "CompiledNode",
+    "CompiledNodeDescription",
     "ComputeHookError",
+    "Condition",
     "DType",
     "Deprecation",
     "ExternalFailure",
     "FieldContent",
+    "FieldDescription",
     "From",
     "FromRun",
     "Graph",
+    "GraphDescription",
     "GraphNode",
     "Input",
     "Interface",
+    "InterfaceDescription",
     "InvalidCallError",
     "NodeDeclarationError",
     "NodeDefinition",
     "NodeDescription",
     "NodeError",
     "NodeRegistry",
+    "NodeRunPlan",
+    "NodeState",
     "NodeVersion",
     "Output",
+    "EarlierUnit",
+    "OutputColumn",
+    "WorkOfNode",
     "Param",
     "Policy",
     "Problem",
+    "Question",
+    "ReceiveMode",
     "Ref",
     "RegistryDescription",
     "Result",
+    "RunPlan",
+    "RunState",
+    "RunStatus",
     "Series",
     "Static",
     "Table",
@@ -88,6 +132,8 @@ __all__ = [
     "Upgrade",
     "ValuesOnRows",
     "VersionDescription",
+    "WaitingUnit",
+    "dependencies_of",
     "node",
     "table_with_columns",
     "to_jsonable",

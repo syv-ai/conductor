@@ -1,0 +1,228 @@
+{
+ "cond_nested_per_row": {
+  "after": {
+   "result": "'A'"
+  },
+  "docs": {
+   "result": "{'rows': [(0,), (1,)], 'values': ['a', 'b']}"
+  },
+  "top/b/gate": {
+   "if_false": "{'rows': [], 'values': []}",
+   "if_true": "{'rows': [(0,), (1,)], 'values': ['a', 'b']}"
+  },
+  "top/b/holder": {
+   "result": "{'rows': [(0,), (1,)], 'values': ['a', 'b']}"
+  },
+  "top/b/single": {
+   "result": "{'rows': [(0,), (1,)], 'values': ['a', 'b']}"
+  },
+  "top/b/up": {
+   "result": "{'rows': [(0,), (1,)], 'values': ['A', 'B']}"
+  },
+  "top/g": {
+   "if_false": "{'rows': [], 'values': []}",
+   "if_true": "{'rows': [(0,), (1,)], 'values': ['a', 'b']}"
+  },
+  "top/h": {
+   "result": "{'rows': [(0,), (1,)], 'values': ['a', 'b']}"
+  },
+  "top/s": {
+   "result": "{'rows': [(0,), (1,)], 'values': ['A', 'B']}"
+  }
+ },
+ "cond_outer_gate_into_graph": {
+  "h": {
+   "result": "'y'"
+  },
+  "og": {
+   "if_true": "'y'"
+  }
+ },
+ "edge_into_a_list_filled_inside": {
+  "after": {
+   "result": "'OUTSIDE'"
+  },
+  "emb/j": {
+   "result": "'OUTSIDE'"
+  },
+  "emb/n": {
+   "result": "'OUTSIDE'"
+  },
+  "h": {
+   "result": "'outside'"
+  }
+ },
+ "edge_into_a_value_filled_inside": {
+  "after": {
+   "result": "'OUTSIDE'"
+  },
+  "emb/n": {
+   "result": "'outside'"
+  },
+  "emb/u": {
+   "result": "'OUTSIDE'"
+  },
+  "h": {
+   "result": "'outside'"
+  }
+ },
+ "entering_scalar": {
+  "docs": {
+   "result": "{'rows': [(0,), (1,)], 'values': ['a', 'b']}"
+  },
+  "emb/holder": {
+   "result": "{'rows': [(0,), (1,)], 'values': ['a', 'b']}"
+  },
+  "emb/join": {
+   "result": "{'rows': [(0,), (1,)], 'values': ['A', 'B']}"
+  },
+  "emb/up": {
+   "result": "{'rows': [(0,), (1,)], 'values': ['A', 'B']}"
+  }
+ },
+ "gather_two_inside": {
+  "docs": {
+   "result": "{'rows': [(0,), (1,)], 'values': ['a', 'b']}"
+  },
+  "emb/holder": {
+   "result": "{'rows': [(0,), (1,)], 'values': ['a', 'b']}"
+  },
+  "emb/join": {
+   "result": "{'rows': [(0,), (1,)], 'values': ['a+A', 'b+B']}"
+  },
+  "emb/up": {
+   "result": "{'rows': [(0,), (1,)], 'values': ['A', 'B']}"
+  }
+ },
+ "gathered_into_the_graph_node": {
+  "after": {
+   "result": "'A+B'"
+  },
+  "emb/join": {
+   "result": "'a+b'"
+  },
+  "h1": {
+   "result": "'a'"
+  },
+  "h2": {
+   "result": "'b'"
+  }
+ },
+ "many_values_on_the_graph_node": {
+  "after": {
+   "result": "'A+B'"
+  },
+  "emb/holder": {
+   "result": "{'rows': [(0,), (1,)], 'values': ['a', 'b']}"
+  },
+  "emb/join": {
+   "result": "'A+B'"
+  },
+  "emb/up": {
+   "result": "{'rows': [(0,), (1,)], 'values': ['A', 'B']}"
+  }
+ },
+ "nested_iterating": {
+  "after": {
+   "result": "'A+B'"
+  },
+  "docs": {
+   "result": "{'rows': [(0,), (1,)], 'values': ['a', 'b']}"
+  },
+  "top/holder": {
+   "result": "{'rows': [(0,), (1,)], 'values': ['a', 'b']}"
+  },
+  "top/join": {
+   "result": "{'rows': [(0,), (1,)], 'values': ['A', 'B']}"
+  },
+  "top/leafy/holder": {
+   "result": "{'rows': [(0, 0), (1, 0)], 'values': ['a', 'b']}"
+  },
+  "top/leafy/join": {
+   "result": "{'rows': [(0, 0), (1, 0)], 'values': ['A', 'B']}"
+  },
+  "top/leafy/lines": {
+   "result": "{'rows': [(0, 0, 0), (1, 0, 0)], 'values': ['A', 'B']}"
+  },
+  "top/leafy/s0": {
+   "result": "{'rows': [(0, 0), (1, 0)], 'values': ['A', 'B']}"
+  },
+  "top/leafy/s1": {
+   "result": "{'rows': [(0, 0), (1, 0)], 'values': ['A', 'B']}"
+  },
+  "top/leafy/s2": {
+   "result": "{'rows': [(0, 0), (1, 0)], 'values': ['A', 'B']}"
+  },
+  "top/leafy/up": {
+   "result": "{'rows': [(0, 0, 0), (1, 0, 0)], 'values': ['A', 'B']}"
+  },
+  "top/lines": {
+   "result": "{'rows': [(0, 0), (1, 0)], 'values': ['a', 'b']}"
+  }
+ },
+ "per_row_output_read_outside": {
+  "after": {
+   "result": "{'rows': [(0,), (1,)], 'values': ['A', 'B']}"
+  },
+  "docs": {
+   "result": "{'rows': [(0,), (1,)], 'values': ['a', 'b']}"
+  },
+  "emb/holder": {
+   "result": "{'rows': [(0,), (1,)], 'values': ['a', 'b']}"
+  },
+  "emb/lines": {
+   "result": "{'rows': [(0, 0), (1, 0)], 'values': ['a', 'b']}"
+  },
+  "emb/up": {
+   "result": "{'rows': [(0, 0), (1, 0)], 'values': ['A', 'B']}"
+  }
+ },
+ "required_input_filled_inside": {
+  "after": {
+   "result": "'INSIDE'"
+  },
+  "emb/n": {
+   "result": "'inside'"
+  },
+  "emb/u": {
+   "result": "'INSIDE'"
+  }
+ },
+ "rows_made_inside_exposed": {
+  "after": {
+   "result": "{'rows': [(0,), (1,)], 'values': ['a', 'b']}"
+  },
+  "docs": {
+   "result": "{'rows': [(0,), (1,)], 'values': ['a', 'b']}"
+  },
+  "emb/holder": {
+   "result": "{'rows': [(0,), (1,)], 'values': ['a', 'b']}"
+  },
+  "emb/lines": {
+   "result": "{'rows': [(0, 0), (1, 0)], 'values': ['a', 'b']}"
+  }
+ },
+ "value_and_edge_per_row": {
+  "after": {
+   "result": "{'rows': [(0,), (1,)], 'values': ['A:x+A:y', 'B:x+B:y']}"
+  },
+  "docs": {
+   "result": "{'rows': [(0,), (1,)], 'values': ['a', 'b']}"
+  },
+  "emb/a": {
+   "result": "{'rows': [(0,), (1,)], 'values': ['a', 'b']}"
+  },
+  "emb/b": {
+   "result": "{'rows': [(0,), (1,)], 'values': ['x\\ny', 'x\\ny']}"
+  },
+  "emb/lines": {
+   "result": "{'rows': [(0, 0), (0, 1), (1, 0), (1, 1)], 'values': ['x', 'y', 'x', 'y']}"
+  },
+  "emb/p": {
+   "result": "{'rows': [(0, 0), (0, 1), (1, 0), (1, 1)], 'values': ['A:x', 'A:y', 'B:x', 'B:y']}"
+  },
+  "emb/ua": {
+   "result": "{'rows': [(0,), (1,)], 'values': ['A', 'B']}"
+  }
+ }
+}

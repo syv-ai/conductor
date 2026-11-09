@@ -13,12 +13,15 @@ from typing import Annotated
 
 import pytest
 from conductor import (
+    CompiledGraph,
     DType,
+    FieldContent,
     From,
     Graph,
     GraphNode,
     InvalidCallError,
     NodeDeclarationError,
+    NodeDefinition,
     NodeRegistry,
     Param,
     Result,
@@ -126,6 +129,16 @@ def test_a_two_step_chain_rewrites_the_typed_in_values_and_the_version():
     assert graph_node.bindings == {"first": Static("Ada"), "last": Static("Lovelace")}
 
 
+def test_a_renamed_output_rewrites_the_readers_edges_and_the_graph_compiles_clean():
+    registry = _registry()
+    upgraded = upgrade_node(_graph(), "r", registry)
+
+    reader = next(n for n in upgraded.nodes if n.id == "e")
+    assert reader.bindings["text"] == From("r.text")
+    compiled = CompiledGraph.from_graph(upgraded, registry)
+    assert compiled.is_runnable and compiled.problems == (), compiled.problems
+
+
 def test_to_stops_the_chain_early():
     upgraded = upgrade_node(_graph(), "r", _registry(), to=2)
 
@@ -169,6 +182,14 @@ def test_a_downgrade_or_an_unknown_node_raises():
         upgrade_node(_graph(), "nope", registry)
 
 
+def test_compile_leaves_a_pinned_version_alone():
+    registry = _registry()
+    compiled = CompiledGraph.from_graph(_graph(), registry)
+
+    assert compiled.node("r").version == rename.versions[1]
+    assert compiled.is_runnable, compiled.problems
+
+
 # --- what moves with a renamed field ---------------------------------------------
 
 
@@ -179,6 +200,25 @@ def renames_v1(name: Annotated[Txt, _param("Name")] = Txt("")) -> Annotated[Txt,
 def renames(full: Annotated[Txt, _param("Full")] = Txt("")) -> Named:
     """Version 2 renames the input ``name`` to ``full`` and the output ``result`` to ``text``."""
     return Named(text=full)
+
+
+def test_a_renamed_input_takes_its_binding_lock_and_content_with_it():
+    registry = NodeRegistry([echo, renames])
+    graph = Graph(nodes=[
+        GraphNode(
+            id="r", type="renames", version=1, bindings={"name": Static("Ada")}, locked=("name",),
+            fields={"name": FieldContent(title="Navn"), "result": FieldContent(title="Resultat")},
+        ),
+        GraphNode(id="e", type="echo", version=1, bindings={"text": From("r.result")}),
+    ])
+
+    upgraded = upgrade_node(graph, "r", registry)
+
+    graph_node = upgraded.nodes[0]
+    assert graph_node.bindings == {"full": Static("Ada")}
+    assert graph_node.locked == ("full",)
+    assert graph_node.fields == {"full": FieldContent(title="Navn"), "text": FieldContent(title="Resultat")}
+    assert CompiledGraph.from_graph(upgraded, registry).problems == ()
 
 
 def test_a_later_step_reusing_a_renamed_away_name_does_not_catch_an_older_edge():
@@ -208,6 +248,25 @@ def test_a_later_step_reusing_a_renamed_away_name_does_not_catch_an_older_edge()
     upgraded = upgrade_node(graph, "u", registry)
 
     assert upgraded.nodes[1].bindings["text"] == From("u.first")
+
+
+def test_a_definition_with_no_steps_only_has_its_version_set():
+    """An embedded graph arrives by value, one version per saved flow, with
+    no ``@upgrade`` to run: the node moves to the new version with its
+    bindings as saved, and compile says what the new version makes of them."""
+
+    def embedded(inner_id: str) -> CompiledGraph:
+        return CompiledGraph.from_graph(Graph(nodes=[GraphNode(id=inner_id, type="echo", version=1)]), _registry())
+
+    registry = NodeRegistry([NodeDefinition.from_compiled_graphs("embedded", title="Embedded", description="d", versions={1: embedded("inner"), 2: embedded("renamed")})])
+    graph = Graph(nodes=[GraphNode(id="f", type="embedded", version=1, bindings={"text": Static("x")})])
+
+    upgraded = upgrade_node(graph, "f", registry)
+
+    assert upgraded.nodes[0].version == 2
+    assert upgraded.nodes[0].bindings == {"text": Static("x")}
+    with pytest.raises(InvalidCallError, match="it has 1, 2"):
+        upgrade_node(graph, "f", registry, to=5)
 
 
 def _older_out() -> Annotated[str, Result(name="x")]:
