@@ -22,7 +22,7 @@ from pydantic import ValidationError
 
 from conductor._sentinel import SKIPPED
 from conductor.series import Row, Series
-from conductor.table import Table, with_row_ids
+from conductor.table import Table, no_row_kept_its_id, with_row_ids
 
 if TYPE_CHECKING:
     from conductor.graph.compiled_node import CompiledField, CompiledNode
@@ -36,6 +36,7 @@ class OutputFault:
     output: str
     message: str
     errors: tuple[dict[str, Any], ...] = ()
+    code: str = "invalid_output"
 
 
 def validate_unit_outputs(node: CompiledNode, row: Row, named: Mapping[str, Any]) -> tuple[dict[str, Any], list[OutputFault]]:
@@ -67,6 +68,8 @@ def validate_unit_outputs(node: CompiledNode, row: Row, named: Mapping[str, Any]
             ))
         except _NotASequence as invalid:
             faults.append(OutputFault(name, str(invalid)))
+        except _RowIdsLost:
+            faults.append(OutputFault(name, f"'{name}' lost the ids of its rows, so they can't be matched to the table it was built from", code="row_ids_lost"))
     for name in named:
         if name not in node._fields or not node._fields[name]._output:
             faults.append(OutputFault(name, f"'{name}' is not one of this node's outputs"))
@@ -85,6 +88,8 @@ def _read_many(field: CompiledField, name: str, value: Any) -> list[Any]:
 def _read_one(field: CompiledField, row: Row, value: Any) -> Any:
     cell = field._read_cell(value)
     if field._makes_rows is not None and isinstance(cell, Table):
+        if field._row_ids_must_survive and no_row_kept_its_id(cell.frame):
+            raise _RowIdsLost
         return type(cell)._holding(with_row_ids(cell.frame, field._makes_rows, row))
     return cell
 
@@ -95,3 +100,7 @@ def _named(field: CompiledField) -> str:
 
 class _NotASequence(Exception):
     """A many-valued output was given one value."""
+
+
+class _RowIdsLost(Exception):
+    """A table a merge matches on its rows' ids came back with none of them."""

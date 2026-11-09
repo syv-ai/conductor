@@ -34,7 +34,10 @@ types and the node's outputs are complete.
 
 A ``Series[X]`` input receives a whole series; what it does depends on
 the index that series is on. One series on a child index is a reduction:
-the node runs once per parent row and receives the child rows under it.
+the node receives all the values under its own row, however many levels
+down they sit, and they arrive flat. It does not choose that row unless
+nothing else does; then the node runs once per row of the level right above
+the series, the shallowest such level when there are several.
 One series on a root index is received whole, once. Anything else
 feeding the input — several scalars, several series on different
 indexes, a list set on the node, a default — is gathered onto a fresh index
@@ -116,6 +119,9 @@ class Iteration:
     #: Every column of a table output offered as a field of its own, by its
     #: address (``csv.rows.email``): the table output and the column.
     views: Mapping[Ref, tuple[Ref, str]]
+    #: The table outputs a merge matches against a table they were built from:
+    #: a return where no row kept its id can never match (``row_ids_lost``).
+    row_ids_must_survive: frozenset[Ref]
     #: Every table output, by address: the index its rows are on, which the
     #: table output owns and its columns are offered on.
     tables: Mapping[Ref, Index]
@@ -181,7 +187,8 @@ class _Arrivals:
     per connected input, the type the node sees per call (an element,
     where a series is sliced per row) — what ``compute_outputs`` is told.
     ``demands``: the indexes the node must run per row of, each with the
-    input that demands it. ``bound``: the types the edges gave to inputs
+    input that demands it. ``reductions``: the child indexes ``Series[X]``
+    inputs read, each with its input, placed once the node's row is known. ``bound``: the types the edges gave to inputs
     that had none of their own. ``broken`` is set when a source cannot be
     read and the walk stopped at that input.
     """
@@ -190,6 +197,7 @@ class _Arrivals:
     receives: dict[Ref, Receive] = dataclasses.field(default_factory=dict)
     arriving: dict[str, Any] = dataclasses.field(default_factory=dict)
     demands: list[tuple[Index, Ref]] = dataclasses.field(default_factory=list)
+    reductions: list[tuple[Index, Ref]] = dataclasses.field(default_factory=list)
     #: The inputs holding a list set on the node, each with its declared
     #: type; its rows go under the rows the node runs on, once those are known.
     listed: list[tuple[Ref, Any]] = dataclasses.field(default_factory=list)
@@ -241,6 +249,7 @@ class _Walk:
         self.views: dict[Ref, tuple[Ref, str]] = {}
         #: Each table output: the index its rows are on.
         self.tables: dict[Ref, Index] = {}
+        self.row_ids_must_survive: set[Ref] = set()
         #: Where the rows of each output can come from, by index id: the
         #: index it sits on and every index above it, and for a table a node
         #: returns, the origins of every table it took in too, since rows keep
@@ -268,6 +277,7 @@ class _Walk:
             problems=tuple(self.problems),
             views=self.views,
             tables=self.tables,
+            row_ids_must_survive=frozenset(self.row_ids_must_survive),
         )
 
     def visit(self, node: GraphNode) -> None:
@@ -289,7 +299,7 @@ class _Walk:
         parameter takes one edge whole; an input with no type of its own
         takes its first edge's; ``accepts`` judges every edge; a scalar input
         fed a series demands its index, a ``Series[X]`` input fed one series
-        reduces on the parent index or receives the series whole, and fed
+        reduces when it is on a child index or receives the series whole, and fed
         anything else gathers onto a fresh index. Stops at the first input
         that cannot be read and says so in ``broken``.
         """
@@ -374,8 +384,7 @@ class _Walk:
                 arriving = sources[0]  # one series, or a union of several on one index
                 found.arriving[inp.name] = arriving.dtype
                 if arriving.index.parent is not None:
-                    found.receives[ref] = RowsUnder(arriving.index, arriving.index.parent.depth)
-                    found.demands.append((arriving.index.parent, ref))
+                    found.reductions.append((arriving.index, ref))  # type: ignore[arg-type]
                 else:
                     found.receives[ref] = Whole()
             else:
@@ -413,9 +422,13 @@ class _Walk:
             return
         if not outputs:
             self.problems.append(problem("no_outputs", node.id))
-        runs_per_row_of, disagreeing = self._runs_per_row_of(arrived.demands)
+        runs_per_row_of, disagreeing = self._runs_per_row_of(arrived.demands or self._row_above_reductions(arrived.reductions))
         if disagreeing is not None:
             self.problems.append(self._misaligned(node.id, *disagreeing))
+            return
+        if not arrived.demands and any(runs_per_row_of not in index.lineage for index, _ in arrived.reductions):
+            (_, first), (_, second) = arrived.reductions[:2]
+            self.problems.append(self._misaligned(node.id, first, second))
             return
         if len(arrived.listed) > 1:
             (first, _), (second, _) = arrived.listed[:2]
@@ -431,10 +444,17 @@ class _Walk:
             own = self._rows_of(ref, runs_per_row_of)
             arrived.arrivals[ref], arrived.receives[ref] = _Carried(Series[dtype], own), PerRow(own)
             runs_per_row_of = own
+        for index, ref in arrived.reductions:
+            depth = self._depth_shared_with_row(index, runs_per_row_of)
+            if depth is None:
+                self.problems.append(self._misaligned(node.id, arrived.demands[0][1], ref))
+                return
+            arrived.receives[ref] = RowsUnder(index, depth)
         for ref, target, sources in arrived.merging:
             arrived.arrivals[ref] = _Carried(target, None) if runs_per_row_of is None else _Carried(Series[target], runs_per_row_of)
             arrived.receives[ref] = Merge(tuple((source_ref, self._part(source, runs_per_row_of)) for source_ref, source in sources))
             self._warn_no_rows_in_common(ref, [source_ref for source_ref, _ in sources])
+            self._mark_row_ids_must_survive([source_ref for source_ref, _ in sources])
             self._check_columns(ref, target, sources)
         self.runs_per_row_of[node.id] = runs_per_row_of
         self.arrived.update(arrived.arrivals)
@@ -539,6 +559,16 @@ class _Walk:
                 self.problems.append(problem("no_rows_in_common", ref.node_id, ref.field, source=str(source)))
                 return
 
+    def _mark_row_ids_must_survive(self, sources: list[Ref]) -> None:
+        """Mark every table whose rows a merge matches on ids carried from a table
+        it was built from: the rows of a source trace back to it, and another
+        source holds what it was built from without holding its rows."""
+        found = [origins for source in sources if (origins := self.origins.get(source)) is not None]
+        for origin in frozenset().union(*found):
+            built_from = (self.index_origins.get(origin) or frozenset()) - {origin}
+            if any(built_from & other and origin not in other for other in found):
+                self.row_ids_must_survive.update(ref for ref, rows in self.tables.items() if rows.id == origin)
+
     def _check_columns(self, ref: Ref, target: Any, sources: list[tuple[Ref, _Carried]]) -> None:
         """A ``Table[...]`` input names the columns it needs; when every source's
         columns are known (a bare table's are not), one nothing wired in has is
@@ -572,19 +602,23 @@ class _Walk:
         )]
 
     @staticmethod
-    def _part(source: _Carried, runs_per_row_of: Index | None) -> PerRow | Broadcast | Whole | RowsUnder:
+    def _depth_shared_with_row(index: Index, runs_per_row_of: Index | None) -> int | None:
+        """How far up ``index``'s rows are grouped for a node on ``runs_per_row_of``: the
+        depth of the deepest level above them that the node's row sits on, ``None`` when none is."""
+        lineage = () if runs_per_row_of is None else runs_per_row_of.lineage
+        return next((step.depth for step in reversed(index.lineage[:-1]) if step in lineage), None)
+
+    @classmethod
+    def _part(cls, source: _Carried, runs_per_row_of: Index | None) -> PerRow | Broadcast | Whole | RowsUnder:
         """How a unit receives one source of a ``Table`` input: a table at its row
         or the one there is; a column's rows under its row; or all of them."""
         index = source.index
         if index is None:
             return Broadcast()
-        lineage = set(runs_per_row_of.lineage) if runs_per_row_of is not None else set()
-        if index in lineage:
+        if runs_per_row_of is not None and index in runs_per_row_of.lineage:
             return PerRow(index)
-        shared = [step for step in index.lineage[:-1] if step in lineage]
-        if shared:
-            return RowsUnder(index, shared[-1].depth)
-        return Whole()
+        depth = cls._depth_shared_with_row(index, runs_per_row_of)
+        return Whole() if depth is None else RowsUnder(index, depth)
 
     def _views_out_of_graph(self, node_id: str, graph: CompiledGraph, out: Output, row: Index | None) -> None:
         """The columns a table output of a compiled graph offers, at the graph
@@ -723,6 +757,14 @@ class _Walk:
                 target_said=name_of(target),
             )]
         return []
+
+    @staticmethod
+    def _row_above_reductions(reductions: list[tuple[Index, Ref]]) -> list[tuple[Index, Ref]]:
+        """The one demand reductions make when nothing else does: the shallowest level right above a series."""
+        if not reductions:
+            return []
+        index, ref = min(reductions, key=lambda reduction: reduction[0].depth)
+        return [(index.parent, ref)]  # type: ignore[list-item]
 
     @staticmethod
     def _runs_per_row_of(demands: list[tuple[Index, Ref]]) -> tuple[Index | None, tuple[Ref, Ref] | None]:

@@ -134,6 +134,7 @@ class Embedded:
     receives: dict[Ref, Receive]
     views: dict[Ref, tuple[Ref, str]]
     tables: dict[Ref, Index]
+    row_ids_must_survive: frozenset[Ref]
 
 
 def graph_as_embedded(
@@ -244,7 +245,7 @@ def graph_as_embedded(
     tables = {inside(table): under(rows, prefix, runs_per_row_of) for table, rows in iteration.tables.items()}
     return Embedded(
         **structure, runs_per_row_of=inner_runs_per_row_of, types=types, indexes=indexes, receives=receives,
-        views=views, tables=tables,
+        views=views, tables=tables, row_ids_must_survive=frozenset(inside(ref) for ref in iteration.row_ids_must_survive),
     )
 
 

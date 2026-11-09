@@ -357,6 +357,9 @@ class CompiledField:
     #: the table output and the column. Its values are the table's cells,
     #: read from the table where they sit, never stored one by one.
     _view_of: tuple[Ref, str] | None = field(repr=False)
+    #: A table output a merge matches against a table it was built from: a
+    #: return where no row kept its id fails the node (``row_ids_lost``).
+    _row_ids_must_survive: bool = field(repr=False)
     _run_per_row_by: tuple[str, ...] = field(repr=False)
     _carried_by: tuple[Ref, ...] = field(repr=False)
     _listed_inputs: tuple[Ref, ...] = field(repr=False)

@@ -20,7 +20,7 @@ The unit of work is a node on a row. A node fed a series on an input declared fo
   split ──> clean (row 0, 1, 2 …) ──> summarise (row 0, 1, 2 …) ──> join (once)
 ```
 
-A `Series[X]` input receives the whole series, or the rows under each parent row. A node's rows run at most `Policy.concurrency` at a time.
+A `Series[X]` input receives the whole series, or all the rows under the node's row, however many levels down, flat. It chooses the node's row only when nothing else does; then the node runs once per row of the level right above the series. A node's rows run at most `Policy.concurrency` at a time.
 
 A node returns `SKIPPED` on a branch it did not take. A skip at a row leaves the series downstream sparse; a skip above a node's rows skips everything under it.
 

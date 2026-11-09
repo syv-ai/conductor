@@ -551,7 +551,7 @@ class Compilation:
         versions, definitions, graphs = dict(layout.versions), dict(layout.definitions), set(layout.graphs)
         runs_per_row_of, types = dict(iteration.runs_per_row_of), dict(iteration.types)
         indexes, receives, views = dict(iteration.indexes), dict(iteration.receives), dict(iteration.views)
-        tables = dict(iteration.tables)
+        tables, row_ids_must_survive = dict(iteration.tables), set(iteration.row_ids_must_survive)
         for node_id in embedded_ids:
             node = nodes[node_id]
             # Only an input the graph offers crosses into it; an edge into any
@@ -579,12 +579,13 @@ class Compilation:
             receives.update(embedded.receives)
             views.update(embedded.views)
             tables.update(embedded.tables)
+            row_ids_must_survive |= embedded.row_ids_must_survive
         self.layout = replace(
             layout, nodes=nodes, order=tuple(order), versions=versions, definitions=definitions, graphs=frozenset(graphs),
         )
         self.iteration = replace(
             iteration, runs_per_row_of=runs_per_row_of, types=types, indexes=indexes, receives=receives, views=views,
-            tables=tables,
+            tables=tables, row_ids_must_survive=frozenset(row_ids_must_survive),
         )
 
     def conditions(self) -> None:
@@ -725,6 +726,7 @@ class Compilation:
                 _listed=name in self.listed.get(node_id, ()),
                 _makes_rows=plan.makes_rows.get(ref),
                 _view_of=None,
+                _row_ids_must_survive=ready and ref in iteration.row_ids_must_survive,
                 **plan.share(plan.makes_rows.get(ref) or plan.listed.get(ref)),
             )
         for view in plan.views_by_node.get(node_id, ()):
@@ -744,6 +746,7 @@ class Compilation:
                 _listed=False,
                 _makes_rows=None,
                 _view_of=(table, column),
+                _row_ids_must_survive=False,
                 **plan.share(None),
             )
         return fields

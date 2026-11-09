@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import datetime
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from itertools import count
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -112,49 +113,98 @@ def with_row_ids(frame: pl.DataFrame, index: Index, parent: Row) -> pl.DataFrame
     return frame.drop(ROW_ID).insert_column(0, pl.Series(ROW_ID, fresh, dtype=pl.String))
 
 
-def merge(parts: Sequence[tuple[str, pl.DataFrame, str]]) -> pl.DataFrame:
+@dataclass(frozen=True, slots=True)
+class MergeSource:
+    """One source of a merge, as a unit reads it: a frame with ``__row``, the
+    index its rows are on, and each frame row's path on that index."""
+
+    #: The node it comes from, which a clashing column takes on (``name_crm``).
+    node_id: str
+    frame: pl.DataFrame
+    index: Index
+    rows: Sequence[Row]
+
+
+def column_frame(name: str, dtype: type[DType], ids: list[str], values: list[Any]) -> pl.DataFrame:
+    """One column of values as a frame beside the ids of their rows."""
+    import polars as pl
+
+    return pl.DataFrame([
+        pl.Series(ROW_ID, ids, dtype=pl.String),
+        pl.Series(name, values, dtype=column_type(dtype), strict=False),
+    ])
+
+
+def frame_with_no_rows(dtype: Any) -> pl.DataFrame:
+    """A frame of no rows with the columns a table type declares: a table a branch skipped."""
+    import polars as pl
+
+    declared = columns_of(getattr(dtype, "element", None) or dtype)
+    return pl.DataFrame(schema={ROW_ID: pl.String, **{name: column_type(holds) for name, holds in declared}})
+
+
+def no_row_kept_its_id(frame: pl.DataFrame) -> bool:
+    """Has a frame with rows lost every row's id? No rows lost nothing."""
+    return frame.height > 0 and (ROW_ID not in frame.columns or frame[ROW_ID].null_count() == frame.height)
+
+
+def merge(sources: Sequence[MergeSource]) -> pl.DataFrame:
     """One table from several, matched on their rows' ids: the one place rows are matched.
 
-    Each part is ``(source, frame, key)``. A part keyed on ``__row`` has
-    rows of its own and is joined in full, in wiring order, so a row only
-    one source has is kept with blanks beside it. A part keyed on another
-    column is a parent's value copied down: its ``__row`` is matched against
-    that column of the rows so far, which holds each row's parent id, and
-    the column is dropped after; a parent row no row sits under is kept
-    as a row of its own. A column a source shares with what is already
-    there keeps its name with the source's added (``name_crm``).
+    The rows are those of the deepest sources. A source with another source's
+    rows under it brings no rows: its values are copied down onto the rows
+    under each of its own, by a parent's id, and a parent row nothing sits
+    under is not in the result. Every other source brings all its rows and is
+    joined in full, in wiring order, so a row only one of them has is kept
+    with blanks beside it. A column a source shares with what is already there
+    keeps its name with the source's added (``name_crm``).
     """
     import polars as pl
 
-    keys = {key for _, _, key in parts if key != ROW_ID}
+    above = {s.index for s in sources for other in sources if other.index != s.index and s.index in other.index.lineage}
+    ids_on: dict[Index, dict[Row, str]] = {}
+    for source in sources:
+        if source.index in above:
+            ids_on.setdefault(source.index, {}).update(zip(source.rows, source.frame[ROW_ID].to_list(), strict=True))
+
     taken: set[str] = set()
-    named: list[tuple[pl.DataFrame, str]] = []
-    for source, frame, key in parts:  # names and column order follow the wiring
+    named: list[pl.DataFrame] = []
+    for source in sources:  # names and column order follow the wiring
         renames = {}
-        for name in frame.columns:
-            if name in (ROW_ID, *keys):
+        for name in source.frame.columns:
+            if name == ROW_ID:
                 continue
             if name in taken:
-                renames[name] = f"{name}_{source}"
+                renames[name] = f"{name}_{source.node_id}"
             taken.add(renames.get(name, name))
-        named.append((frame.rename(renames), key))
-    merged: pl.DataFrame | None = None
-    for frame, key in sorted(named, key=lambda part: part[1] != ROW_ID):
-        if merged is None:
-            merged = frame if key == ROW_ID else frame.with_columns(pl.col(ROW_ID).alias(key))
-        elif key != ROW_ID:
-            under = merged.join(frame.rename({ROW_ID: key}), on=key, how="left", maintain_order="left")
-            alone = frame.filter(~pl.col(ROW_ID).is_in(merged[key].implode()))
-            merged = pl.concat([under, alone], how="diagonal_relaxed")
-        else:
-            merged = merged.join(frame, on=ROW_ID, how="full", coalesce=True, maintain_order="left_right")
-            # Two sources under one parent both hold its id: one column of it.
-            for both in [key for key in keys if f"{key}_right" in merged.columns]:
-                merged = merged.with_columns(pl.coalesce(both, f"{both}_right").alias(both)).drop(f"{both}_right")
-    if merged is None:
-        return pl.DataFrame({ROW_ID: []}, schema={ROW_ID: pl.String})
-    order = [ROW_ID, *(name for frame, _ in named for name in frame.columns if name not in (ROW_ID, *keys))]
-    return merged.select(order)
+        named.append(source.frame.rename(renames))
+    columns = [name for frame in named for name in frame.columns if name != ROW_ID]
+
+    with_own_rows: list[pl.DataFrame] = []
+    copied_down: list[tuple[Index, pl.DataFrame]] = []
+    for source, frame in zip(sources, named, strict=True):
+        if source.index in above:
+            copied_down.append((source.index, frame))
+            continue
+        for parent in above.intersection(source.index.lineage):
+            parent_ids = [ids_on[parent].get(row[: parent.depth]) for row in source.rows]
+            frame = frame.with_columns(pl.Series(_parent_key(parent), parent_ids, dtype=pl.String))
+        with_own_rows.append(frame)
+    merged = with_own_rows[0]
+    for frame in with_own_rows[1:]:
+        merged = merged.join(frame, on=ROW_ID, how="full", coalesce=True, maintain_order="left_right")
+        for key in (_parent_key(parent) for parent in above):  # two sources under one parent both hold its id
+            if f"{key}_right" in merged.columns:
+                merged = merged.with_columns(pl.coalesce(key, f"{key}_right").alias(key)).drop(f"{key}_right")
+    for index, frame in copied_down:
+        key = _parent_key(index)
+        merged = merged.join(frame.rename({ROW_ID: key}), on=key, how="left", maintain_order="left")
+    return merged.select(ROW_ID, *columns)
+
+
+def _parent_key(index: Index) -> str:
+    """The column that holds, on a row of a deeper source, the id of its row on ``index``."""
+    return f"__{index.id}"
 
 
 _PARAMETERISED: dict[tuple[Column, ...], type[Table]] = {}

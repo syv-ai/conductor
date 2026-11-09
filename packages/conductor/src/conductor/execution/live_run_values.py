@@ -65,7 +65,17 @@ from conductor.execution.run_state import OutputColumn, RunState, RunStatus, Wai
 from conductor.graph.receive import Broadcast, Gather, Merge, PerRow, Receive, RowsUnder, Whole
 from conductor.ref import Ref
 from conductor.series import Index, Row, Series
-from conductor.table import ROW_ID, Table, column_type, holds_tables, merge, row_id, with_row_ids
+from conductor.table import (
+    ROW_ID,
+    MergeSource,
+    Table,
+    column_frame,
+    frame_with_no_rows,
+    holds_tables,
+    merge,
+    row_id,
+    with_row_ids,
+)
 
 if TYPE_CHECKING:
     import polars as pl
@@ -159,11 +169,12 @@ class LiveRunValues:
         #: one lookup at its own row.
         self._skipped_on: set[Ref] = set()
         self._rows: dict[str, set[Row]] = {}
-        #: Every ``(index, parent row)`` whose rows under that parent row are
-        #: all made, and every ``(index, ())`` whose index is sealed. Rows
-        #: under a row are always made in one go — a unit returns its whole
-        #: list at once, a list set on a node is known before the run — so a
-        #: group that exists is complete, whoever made it.
+        #: Every ``(index, row)`` whose rows under that row are all made, and
+        #: every ``(index, ())`` whose index is sealed. Rows under their
+        #: immediate parent are always made in one go — a unit returns its
+        #: whole list at once, a list set on a node is known before the run —
+        #: so such a group that exists is complete, whoever made it. A row
+        #: further up joins once every group under it has (``_groups_under_made``).
         self._groups: set[tuple[str, Row]] = set()
         #: Per index, its rows under each shorter row, in the order they were
         #: made; ``()`` holds them all. Finds the rows under a row without
@@ -371,7 +382,7 @@ class LiveRunValues:
         if len(parent_row) == index.depth:
             made = parent_row in self._rows.get(index.id, ())  # the group is the row itself
         else:
-            made = (index.id, parent_row) in self._groups
+            made = (index.id, parent_row) in self._groups or self._groups_under_made(index, parent_row)
         if not made:
             return False
         # A made group's rows are final, so how many are written from the
@@ -384,6 +395,22 @@ class LiveRunValues:
             written += 1
         self._written_rows[group] = (rows, written)
         return written == len(rows)
+
+    def _groups_under_made(self, index: Index, row: Row) -> bool:
+        """For ``row`` above ``index``'s immediate parent: are the rows under it
+        all made? They are once the parent's rows under ``row`` are, and the
+        rows under each of those. The answer stays true, so it is kept."""
+        parent = index.parent
+        if parent is None or len(row) >= parent.depth:
+            return False
+        if (parent.id, row) not in self._groups and not self._groups_under_made(parent, row):
+            return False
+        no_rows_under = self._no_rows_under.get(index.id, ())
+        for parent_row in self._rows_under(parent.id, row):
+            if (index.id, parent_row) not in self._groups and not any(prefix in no_rows_under for prefix in _prefixes(parent_row)):
+                return False
+        self._groups.add((index.id, row))
+        return True
 
     # -- what a unit receives -------------------------------------------------
 
@@ -453,53 +480,34 @@ class LiveRunValues:
 
     def _merged(self, received: Merge, row: Row) -> pl.DataFrame | None:
         """The one table a unit at ``row`` receives from every source of a ``Table``
-        input, or ``None`` when every source is skipped there.
-
-        Each source becomes a frame of its rows with their ids: a table as it is
-        stored, a column as ``__row`` beside its values (the ids a table's own
-        column has are the table's). A source on rows above another's is a
-        parent: its value is copied down onto each row under it.
-        """
-        import polars as pl
-
-        pieces: list[tuple[str, pl.DataFrame, Index, list[Row]]] = []  # (source node, frame, rows' index, row paths)
+        input, or ``None`` when every source is skipped there. Reads each source's
+        rows; ``conductor.table.merge`` matches them. A skipped source has no rows
+        and still counts as a source."""
+        sources: list[MergeSource] = []
+        skipped = 0
         for source, part in received.parts:
             field = self._fields[source]
-            if field._makes_rows is not None and field._view_of is None and isinstance(part, (PerRow, Broadcast)):
-                at = () if isinstance(part, Broadcast) else row[: part.index.depth]
-                stored, _ = self._lookup(source, at)
-                if stored is _MISSING or is_skipped(stored):
-                    continue
-                pieces.append((source.node_id, stored.frame, field._makes_rows, [(*at, n) for n in range(stored.frame.height)]))
+            is_table = holds_tables(field._type)
+            index: Index = field._makes_rows if is_table else field.index  # type: ignore[assignment]
+            group = row[: part.index.depth] if isinstance(part, PerRow) else row[: _rows_under_depth(part)]
+            stored, _ = self._lookup(source, group)
+            is_skip = is_skipped(stored)
+            skipped += is_skip
+            if is_table:
+                frame = frame_with_no_rows(field._type) if is_skip else stored.frame
+                sources.append(MergeSource(source.node_id, frame, index, [(*group, n) for n in range(frame.height)]))
                 continue
-            index = field.index
-            if index is None:
-                raise RuntimeError(f"{source} is merged as a column but sits on no rows")
-            if isinstance(part, PerRow):
-                rows = [row[: index.depth]]
-            else:
-                rows = self._rows_under(index.id, row[: part.depth] if isinstance(part, RowsUnder) else ())
-            present = [(at, value) for at in rows if not is_skipped(value := self._lookup(source, at)[0]) and value is not _MISSING]
+            present = [
+                (at, value) for at in self._rows_under(index.id, group)
+                if not is_skipped(value := self._lookup(source, at)[0]) and value is not _MISSING
+            ]
             view = self._views.get(source)
-            name = view[1] if view is not None else source.field
-            frame = pl.DataFrame([
-                pl.Series(ROW_ID, [self._row_id(index, at) for at, _ in present], dtype=pl.String),
-                pl.Series(name, [value for _, value in present], dtype=column_type(self._fields[source]._cell_type), strict=False),
-            ])
-            pieces.append((source.node_id, frame, index, [at for at, _ in present]))
-        if not pieces:
-            return None
-        parts: list[tuple[str, pl.DataFrame, str]] = []
-        for name, frame, index, paths in pieces:
-            above = [other for _, _, other, _ in pieces if other != index and index in other.lineage]
-            if above:
-                parts.append((name, frame, f"__{index.id}"))
-                continue
-            for _, _, parent, _ in pieces:
-                if parent != index and parent in index.lineage:
-                    frame = frame.with_columns(pl.Series(f"__{parent.id}", [self._row_id(parent, at[: parent.depth]) for at in paths], dtype=pl.String))
-            parts.append((name, frame, ROW_ID))
-        return merge(parts)
+            frame = column_frame(
+                view[1] if view is not None else source.field, field._cell_type,
+                [self._row_id(index, at) for at, _ in present], [value for _, value in present],
+            )
+            sources.append(MergeSource(source.node_id, frame, index, [at for at, _ in present]))
+        return None if skipped == len(sources) else merge(sources)
 
     def _row_id(self, index: Index, row: Row) -> str:
         """The id of the row at ``row`` on ``index``: on a table's rows, the id
@@ -808,14 +816,24 @@ class LiveRunValues:
                 for key in keys:
                     if depth == len(key):
                         self._wake_group(ref, reader, key, woken)
-                if 0 < depth == len(row):  # a whole read (depth 0) waits for the seal below
-                    self._wake_group(ref, reader, row, woken)
+                if 0 < depth <= len(row):  # a whole read (depth 0) waits for the seal below
+                    self._wake_group(ref, reader, row[:depth], woken)
+            if not keys:  # no rows here means none further down, so nothing below will write
+                self._wake_readers_further_down(index_id, row, woken)
         for index_id in sealed:
             for reader, ref, depth in self._grouped_on(index_id):
                 if depth == 0:
                     self._wake_group(ref, reader, (), woken)
         ready = [u for u in woken if u not in self._done and u not in self._waiting and self.ready(u)]
         return sorted(ready, key=lambda u: (self._position[u[0]], u[1]))
+
+    def _wake_readers_further_down(self, index_id: str, row: Row, woken: set[Unit]) -> None:
+        """Wake the readers of every index under ``index_id`` whose group sits at or above ``row``."""
+        for child in self._making_rows_on(index_id):
+            for reader, ref, depth in self._grouped_on(child):
+                if 0 < depth <= len(row):
+                    self._wake_group(ref, reader, row[:depth], woken)
+            self._wake_readers_further_down(child, row, woken)
 
     def _wake_group(self, ref: Ref, reader: str, group: Row, woken: set[Unit]) -> None:
         """Add ``reader``'s units in ``group`` when every value of ``ref`` they read is written."""

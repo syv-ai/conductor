@@ -15,9 +15,8 @@ its own row. ``Broadcast`` copies one value to every unit: a scalar fed by a
 node that ran once, a typed-in value, a default. ``Whole`` leaves the
 value as it sits on the field: a ``Series[X]`` input fed one series on a
 root index takes it entire, and a ``**inputs`` name takes whatever its
-edge carries. ``RowsUnder`` takes the rows under the unit's own row: a
-``Series[X]`` input fed a series on a child index, reduced once per
-parent row. ``Gather`` collects unrelated sources — several scalars,
+edge carries. ``RowsUnder`` takes all the rows under the unit's own row, flat: a
+``Series[X]`` input fed a series on a child index. ``Gather`` collects unrelated sources — several scalars,
 several series on different indexes — onto a fresh index that belongs
 to the input. ``Merge`` makes one table of everything wired into a
 ``Table`` input, matched on the rows' ids, each source received by a
@@ -77,9 +76,9 @@ class Whole:
 class RowsUnder:
     """The unit receives the rows of ``index`` under its own row cut to ``depth``.
 
-    A ``Series[X]`` input fed a series on a child index: the node runs once
-    per parent row and reduces the child rows under it, so ``depth`` is the
-    parent's. Inside an embedded graph that runs once per outer row, a
+    A ``Series[X]`` input fed a series on a child index reduces the rows
+    under the node's row, however many levels down they sit, flat; ``depth``
+    is the deepest level above them that the node's row sits on. Inside an embedded graph that runs once per outer row, a
     series that entered through a scalar field is reduced one row at a
     time — ``depth`` is then the index's own, and the group is one row.
     """
@@ -110,8 +109,9 @@ class Merge:
     as its part says — a table value at the unit's row (``PerRow``) or the
     one there is (``Broadcast``), a column's rows under the unit's row
     (``RowsUnder``) or all of them (``Whole``) — and the pieces are merged on
-    their rows' ids, a parent's value copied down onto each child row. A
-    ``Table`` input never makes its node run per row by itself, and its
+    their rows' ids: the rows are the deepest sources', a parent's value
+    copied down onto each of them, and a parent row nothing sits under is not
+    in the table. A ``Table`` input never makes its node run per row by itself, and its
     sources never have to line up: rows that match nothing are blanks.
     """
 

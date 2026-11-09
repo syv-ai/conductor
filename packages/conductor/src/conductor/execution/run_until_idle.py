@@ -363,11 +363,11 @@ class Leg:
                 return
             cells, faults = validate_unit_outputs(node, row, unpack(version.interface.returns, value, node.interface.outputs))
         except ValueError as invalid:  # the wrong shape of return, or an ask naming no output
-            await queue.put(_UnitDone(unit, error=self._invalid_output(node_id, row, str(invalid), invalid)))
+            await queue.put(_UnitDone(unit, error=self._invalid_output(node_id, row, str(invalid), invalid, code="invalid_output")))
             return
         if faults:
             reason = "; ".join(fault.message for fault in faults)
-            await queue.put(_UnitDone(unit, error=self._invalid_output(node_id, row, reason, None, [e for fault in faults for e in fault.errors])))
+            await queue.put(_UnitDone(unit, error=self._invalid_output(node_id, row, reason, None, [e for fault in faults for e in fault.errors], code=next((fault.code for fault in faults if fault.code != "invalid_output"), "invalid_output"))))
             return
         ready = ledger.record(unit, cells)
         await self._after(unit)
@@ -437,12 +437,12 @@ class Leg:
         """A cause the engine writes itself, with the generic message for its code."""
         return ErrorCause(code=code, message=MESSAGES[code], details=details or {}, row=row)
 
-    def _invalid_output(self, node_id: str, row: Any, reason: str, original: Exception | None, errors: list[Any] | None = None) -> NodeFailed:
+    def _invalid_output(self, node_id: str, row: Any, reason: str, original: Exception | None, errors: list[Any] | None = None, *, code: str) -> NodeFailed:
         """The failure of a node that returned what it did not declare."""
         details: dict[str, Any] = {"reason": reason}
         if errors:
             details["errors"] = errors
-        failure = NodeExecutionError(MESSAGES["invalid_output"], node_id=node_id, original=original, cause=self._cause(code="invalid_output", row=row, details=details))
+        failure = NodeExecutionError(MESSAGES[code], node_id=node_id, original=original, cause=self._cause(code=code, row=row, details=details))
         return self._error_event(node_id, failure, row)
 
     @staticmethod
