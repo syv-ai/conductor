@@ -50,7 +50,7 @@ from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from functools import cache
+from functools import cache, reduce
 from itertools import count
 from types import NoneType
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, get_type_hints, is_typeddict
@@ -295,26 +295,16 @@ def merge_tables_on_row_ids(sources: Sequence[MergeSource]) -> pl.DataFrame:
             frame = frame.with_columns(pl.Series(_GROUP_ROW_COLUMN, [".".join(map(str, row[:-1])) for row in source.rows], dtype=pl.String))
         with_own_rows.setdefault(source.index, []).append(frame)
 
-    def full_join(left: pl.DataFrame, right: pl.DataFrame, on: list[str]) -> pl.DataFrame:
+    def full_join(left: pl.DataFrame, right: pl.DataFrame) -> pl.DataFrame:
+        # a row is its id, and its parent row where both sides repeat an id: one table passed through per row repeats its ids under each
+        on = [ROW_ID_COLUMN, _GROUP_ROW_COLUMN] if _GROUP_ROW_COLUMN in left.columns and _GROUP_ROW_COLUMN in right.columns else [ROW_ID_COLUMN]
         joined = left.join(right, on=on, how="full", coalesce=True, maintain_order="left_right")
         for key in (_parent_row_id_column(parent_index) for parent_index in parent_indexes):  # two sources under one parent both hold its id
             if f"{key}_right" in joined.columns:
                 joined = joined.with_columns(pl.coalesce(key, f"{key}_right").alias(key)).drop(f"{key}_right")
         return joined
 
-    def match_columns(left: pl.DataFrame, right: pl.DataFrame) -> list[str]:
-        """A row is its id, and its parent row where both sides repeat an id: one table passed through per row repeats its ids under each."""
-        return [ROW_ID_COLUMN, _GROUP_ROW_COLUMN] if _GROUP_ROW_COLUMN in left.columns and _GROUP_ROW_COLUMN in right.columns else [ROW_ID_COLUMN]
-
-    per_index = []
-    for frames in with_own_rows.values():
-        on_one_index = frames[0]
-        for frame in frames[1:]:
-            on_one_index = full_join(on_one_index, frame, match_columns(on_one_index, frame))
-        per_index.append(on_one_index)
-    merged = per_index[0]
-    for frame in per_index[1:]:
-        merged = full_join(merged, frame, match_columns(merged, frame))
+    merged = reduce(full_join, [reduce(full_join, frames) for frames in with_own_rows.values()])
     merged = merged.drop(_GROUP_ROW_COLUMN, strict=False)
     for index, frame in copied_down:
         key = _parent_row_id_column(index)
