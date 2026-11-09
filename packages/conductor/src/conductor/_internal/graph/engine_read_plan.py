@@ -34,7 +34,7 @@ class EngineReadPlan:
     reads: dict[str, tuple[tuple[Ref, Receive], ...]]
     #: Per index id: the nodes that run once per row of it.
     run_per_row_by: dict[str, tuple[str, ...]]
-    #: Per index id: the outputs whose values sit on it.
+    #: Per index id: the outputs whose values sit on it, and a list set on a node whose own rows they are.
     carried_by: dict[str, tuple[Ref, ...]]
     #: Per index id: the lists set on nodes whose rows are made under each of its rows.
     listed_inputs: dict[str, tuple[Ref, ...]]
@@ -90,6 +90,7 @@ def build_engine_read_plan(nodes: Iterable[CompiledNode], row_ids_must_survive: 
                         node_reads.append((source, how))
                 if field._listed and field._index is not None:
                     owned(field._index.id, field)
+                    carried_by[field._index.id].append(ref)
                     if field._index.parent is not None:
                         listed_inputs.setdefault(field._index.parent.id, []).append(ref)
                 continue

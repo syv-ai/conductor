@@ -60,7 +60,7 @@ from conductor._internal.field_records import Input, Output
 from conductor._internal.graph.binding import From, Static
 from conductor._internal.graph.graph_records import GraphNode
 from conductor._internal.interface import Interface, open_input_of, read_signature
-from conductor._internal.table import Table, is_frame
+from conductor._internal.table import is_frame, type_of_frame
 
 if TYPE_CHECKING:
     from conductor._internal.graph.compiled import CompiledGraph
@@ -188,8 +188,8 @@ class _Hook:
             return None
         arguments = {name: values[name] for name in self.reads if name in values}
         for name in self.arriving:
-            typed = typed_in.get(name)
-            arguments[name] = arriving.get(name, Table if is_frame(typed) else (dtype_of(type(typed)) or _UntypedValue))
+            typed: Any = typed_in.get(name)
+            arguments[name] = arriving.get(name, type_of_frame(typed) if is_frame(typed) else (dtype_of(type(typed)) or _UntypedValue))
         if self.all_arriving:
             arguments.update({name: dtype for name, dtype in arriving.items() if name not in arguments})
         return tuple(self.function(**arguments))

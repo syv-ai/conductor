@@ -81,6 +81,7 @@ from conductor._internal.execution.validate_unit_outputs import took_a_row_in, v
 from conductor._internal.execution.waiting_units import waiting_unit_for
 from conductor._internal.interface import unpack
 from conductor._internal.skip_and_ask import AskPerson
+from conductor._internal.table import missing_column_in
 
 logger = logging.getLogger("conductor")
 
@@ -438,7 +439,7 @@ class Leg:
 
         try:
             if isinstance(value, AskPerson):
-                asked = waiting_unit_for(node, row, value)
+                asked = waiting_unit_for(node, row, value, inputs)
                 ledger.mark_waiting(unit, asked)
                 queue.put_nowait(UnitWaiting(unit=asked))
                 queue.put_nowait(_UnitDone(unit))
@@ -480,6 +481,9 @@ class Leg:
             kwargs = node._check(inputs)
         except ValidationError as invalid:
             reason = self._describe(invalid, node.interface.inputs)
+            column = missing_column_in(invalid)
+            if column is not None:
+                raise NodeValidationError(reason, node_id=node_id, code="table_column_missing", ctx={"column": column}) from invalid
             raise NodeValidationError(
                 reason, node_id=node_id, code="invalid_input", ctx={"reason": reason},
             ) from invalid

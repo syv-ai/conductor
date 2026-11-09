@@ -21,6 +21,7 @@ from conductor._internal.errors import Problem, problem
 from conductor._internal.field_records import Input
 from conductor._internal.graph.binding import static_values
 from conductor._internal.graph.graph_records import GraphNode
+from conductor._internal.table import holds_tables, missing_column_in
 
 
 def read_typed_in_values(inputs: Iterable[Input], node: GraphNode) -> tuple[dict[str, Any], frozenset[str], list[Problem]]:
@@ -39,6 +40,10 @@ def read_typed_in_values(inputs: Iterable[Input], node: GraphNode) -> tuple[dict
         try:
             typed[name], many = _read_one_value(inp, value)
         except (ValidationError, TypeError, ValueError) as unreadable:
+            column = missing_column_in(unreadable) if isinstance(unreadable, ValidationError) else None
+            if column is not None:
+                invalid.append(problem("table_column_missing", node.id, name, column=column))
+                continue
             said = _what_the_type_said(unreadable)
             invalid.append(problem("invalid_static", node.id, name, input=_short_repr(value), expected=name_of(inp.dtype), **({"reason": said} if said else {})))
             continue
@@ -59,7 +64,7 @@ def _read_one_value(inp: Input, value: Any) -> tuple[Any, bool]:
     try:
         return _adapter(inp.dtype).validate_python(value), False
     except ValidationError:
-        if _is_sequence(value):
+        if _is_sequence(value) and not holds_tables(inp.dtype):  # records are one table, not many
             return [_adapter(inp.dtype).validate_python(v) for v in value], True
         raise
 

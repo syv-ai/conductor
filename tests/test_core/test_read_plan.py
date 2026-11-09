@@ -97,7 +97,7 @@ def test_an_input_holding_a_typed_in_list_owns_its_index():
     assert typed._listed and not compiled.field(Ref("v", "text"))._listed
     plan = compiled._read_plan
     assert plan.run_per_row_by["u.text"] == ("u", "v")
-    assert plan.carried_by["u.text"] == (Ref("u", "result"), Ref("v", "result"))
+    assert plan.carried_by["u.text"] == (Ref("u", "text"), Ref("u", "result"), Ref("v", "result"))
 
 
 def test_a_list_set_on_a_node_inside_an_embedded_graph_running_per_row_is_made_under_each_row():

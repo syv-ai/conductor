@@ -43,14 +43,14 @@ from __future__ import annotations
 import datetime
 import json
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cache
 from itertools import count
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, get_type_hints, is_typeddict
 
-from pydantic import TypeAdapter
-from pydantic_core import PydanticSerializationError, core_schema, to_json
+from pydantic import TypeAdapter, ValidationError
+from pydantic_core import PydanticCustomError, PydanticSerializationError, core_schema, to_json
 
 from conductor._internal.dtype import DType, dtype_of
 from conductor._internal.errors import NodeDeclarationError
@@ -200,17 +200,10 @@ def merge(sources: Sequence[MergeSource]) -> pl.DataFrame:
         if source.index in above:
             ids_on.setdefault(source.index, {}).update(zip(source.rows, source.frame[ROW_ID].to_list(), strict=True))
 
-    taken: set[str] = set()
-    named: list[pl.DataFrame] = []
-    for source in sources:  # names and column order follow the wiring
-        renames = {}
-        for name in source.frame.columns:
-            if name == ROW_ID:
-                continue
-            if name in taken:
-                renames[name] = _first_free_name(f"{name}_{source.node_id}", taken)
-            taken.add(renames.get(name, name))
-        named.append(source.frame.rename(renames))
+    named = [
+        source.frame.rename(renames)
+        for source, renames in zip(sources, renames_in_merge((source.node_id, source.frame.columns) for source in sources), strict=True)
+    ]
     columns = [name for frame in named for name in frame.columns if name != ROW_ID]
 
     repeating_ids = {source.index for source in sources if source.frame[ROW_ID].n_unique() < source.frame.height}
@@ -251,6 +244,56 @@ def merge(sources: Sequence[MergeSource]) -> pl.DataFrame:
     return merged.select(ROW_ID, *columns)
 
 
+def renames_in_merge(sources: Iterable[tuple[str, Iterable[str]]]) -> list[dict[str, str]]:
+    """Per source, in wiring order, what each column that clashes is called in the merged table: the columns a run's frames hold, or what compile reads off the sources' types.
+
+    ``sources`` is each one's node id and column names. A column another
+    source already holds takes its node's id (``name_crm``); every other keeps
+    its name. The one rule, so compile and the run can't call a column two things."""
+    taken: set[str] = set()
+    renames: list[dict[str, str]] = []
+    for node_id, columns in sources:
+        renamed: dict[str, str] = {}
+        for name in columns:
+            if name == ROW_ID:
+                continue
+            if name in taken:
+                renamed[name] = _first_free_name(f"{name}_{node_id}", taken)
+            taken.add(renamed.get(name, name))
+        renames.append(renamed)
+    return renames
+
+
+def type_of_frame(frame: pl.DataFrame) -> type[Table]:
+    """The table type a frame's columns make: each named by the plain type its values are, bare ``Table`` when a column holds no such type."""
+    columns: dict[str, type] = {}
+    for name, dtype in frame.schema.items():
+        if name == ROW_ID:
+            continue
+        plain = _plain_type_of_column(dtype)
+        if plain is None:
+            return Table
+        columns[name] = plain
+    return Table.with_columns(columns) if columns else Table
+
+
+def _plain_type_of_column(dtype: pl.DataType) -> type | None:
+    """The plain Python type of the values a column of this Polars type holds, ``None`` for a nested or an unusual one."""
+    import polars as pl
+
+    if dtype == pl.String:
+        return str
+    if dtype == pl.Boolean:
+        return bool
+    if dtype.is_integer():
+        return int
+    if dtype.is_float():
+        return float
+    if dtype == pl.Date:
+        return datetime.date
+    return datetime.datetime if dtype == pl.Datetime else None
+
+
 @cache
 def _schema_as_read(table_type: type[Table]) -> dict[str, pl.DataType]:
     """The schema of a frame already read as ``table_type``: its row ids first, then its columns."""
@@ -273,7 +316,7 @@ def _parent_key(index: Index) -> str:
     return f"__{index.id}"
 
 
-_PARAMETERISED: dict[tuple[Column, ...], type[Table]] = {}
+_PARAMETERISED: dict[tuple[type[Table], tuple[Column, ...]], type[Table]] = {}
 
 
 #: The ``TypedDict`` naming a table's columns, for a type checker.
@@ -327,11 +370,11 @@ class Table(DType, Generic[RowsOf]):
                 )
             declared.append((name, dtype))
         key = tuple(declared)
-        made = _PARAMETERISED.get(key)
+        made = _PARAMETERISED.get((cls, key))
         if made is None:
             label = ", ".join(f"{name}: {dtype.__name__}" for name, dtype in key)
             made = type(f"Table[{label}]", (cls,), {"columns": key, "__slots__": ()}, _parameterises=Table)
-            _PARAMETERISED[key] = made
+            _PARAMETERISED[cls, key] = made
         return made
 
     # -- reading a value --------------------------------------------------------
@@ -360,8 +403,8 @@ class Table(DType, Generic[RowsOf]):
         read = []
         for name, dtype in cls.columns:
             if name not in frame.columns:
-                raise ValueError(f"the table has no column '{name}'")
-            read.append(_cast(frame[name], column_type(dtype), dtype.display_title))  # type: ignore[arg-type]
+                raise PydanticCustomError("table_column_missing", "the table has no column '{column}'", {"column": name})
+            read.append(_read_column(frame[name], dtype))
         if ROW_ID in frame.columns:
             read.insert(0, frame[ROW_ID])
         return pl.DataFrame(read)
@@ -515,6 +558,34 @@ def _dtype_from_wire(described: str | Mapping[str, Any]) -> pl.DataType:
     if "fields" in parameters:
         parameters["fields"] = {field: _dtype_from_wire(inner) for field, inner in parameters["fields"].items()}
     return made(**parameters)
+
+
+@cache
+def _own_parsing_of(dtype: type[DType]) -> Any:
+    return TypeAdapter(dtype).validate_python
+
+
+def _read_column(column: pl.Series, dtype: type[DType]) -> pl.Series:
+    """``column`` as a column of ``dtype``: Polars' own cast, and through the type's own parsing where that fails (a Danish ``1,5``)."""
+    import polars as pl
+
+    target = column_type(dtype)
+    try:
+        return _cast(column, target, dtype.display_title)  # type: ignore[arg-type]
+    except ValueError as not_read:
+        parse = _own_parsing_of(dtype)
+        try:
+            return pl.Series(column.name, [None if cell is None else parse(cell) for cell in column.to_list()], dtype=target, strict=False)
+        except ValidationError:
+            raise not_read from None
+
+
+def missing_column_in(invalid: ValidationError) -> str | None:
+    """The column a ``Table[...]`` value lacked, when that is what a value was refused for."""
+    for error in invalid.errors(include_url=False, include_input=False):
+        if error["type"] == "table_column_missing":
+            return error["ctx"]["column"]
+    return None
 
 
 def _cast(column: pl.Series, target: pl.DataType, said: str) -> pl.Series:

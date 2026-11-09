@@ -229,8 +229,9 @@ class LiveRunValues:
                 typed = compiled.field(Ref(node_id, inp.name))
                 if not typed._listed or typed._index.parent is not None:
                     continue
-                for n in range(len(node.statics[inp.name])):
+                for n, value in enumerate(node.statics[inp.name]):
                     self._made(typed._index.id, (n,))
+                    self._values.setdefault(typed.ref, {})[(n,)] = value
                 self._close(typed._index.id)
                 roots.append(typed._index.id)
         self._make_root_list_rows(roots)
@@ -277,11 +278,10 @@ class LiveRunValues:
                 if not _per_row(received):
                     yield inp.node_id, ref, _rows_under_depth(received)
 
-    def _typed_under(self, index_id: str) -> Iterator[tuple[str, int]]:
-        """``(index, how many values)`` for each list set on a node, made under every row of this index."""
-        compiled = self._compiled
+    def _typed_under(self, index_id: str) -> Iterator[tuple[Ref, str]]:
+        """``(the input, its index)`` for each list set on a node, made under every row of this index."""
         for ref in self._plan.listed_inputs[index_id]:
-            yield self._fields[ref]._index.id, len(compiled.node(ref.node_id).statics[ref.field])
+            yield ref, self._fields[ref]._index.id
 
     # -- units ---------------------------------------------------------------
 
@@ -537,11 +537,7 @@ class LiveRunValues:
                 (at, value) for at in self._rows_under(index.id, group)
                 if (value := self._lookup(source, at)[0]) is not SKIPPED and value is not _MISSING
             ]
-            view = self._views.get(source)
-            frame = column_frame(
-                view[1] if view is not None else source.field, field._cell_type,
-                [self._row_id(index, at) for at, _ in present], [value for _, value in present],
-            )
+            frame = column_frame(field._title, field._cell_type, [self._row_id(index, at) for at, _ in present], [value for _, value in present])
             sources.append(MergeSource(source.node_id, frame, index, [at for at, _ in present]))
         return None if skipped == len(sources) else merge(sources)
 
@@ -753,11 +749,13 @@ class LiveRunValues:
         list set on a node whose index is its child, and theirs in turn;
         returns each ``(index, row)`` made."""
         made: list[tuple[str, Row]] = []
-        for child, count in self._typed_under(index_id):
-            for n in range(count):
+        for ref, child in self._typed_under(index_id):
+            cells = self._values.setdefault(ref, {})
+            for n, value in enumerate(self._compiled.node(ref.node_id).statics[ref.field]):
                 if self._made(child, (*row, n)):
                     made.append((child, (*row, n)))
                     made.extend(self._made_lists(child, (*row, n)))
+                cells[(*row, n)] = value
             self._groups.add((child, row))
         return made
 
@@ -765,7 +763,7 @@ class LiveRunValues:
         """Where ``index_id`` has no rows under ``at``, neither has a list set
         on a node beneath it; returns each ``(index, row)`` marked."""
         marked: list[tuple[str, Row]] = []
-        for child, _ in self._typed_under(index_id):
+        for _, child in self._typed_under(index_id):
             self._no_rows_under.setdefault(child, set()).add(at)
             marked.append((child, at))
             marked.extend(self._no_rows_under_lists(child, at))
@@ -776,7 +774,7 @@ class LiveRunValues:
         row is made, so every row under them is. Returns the indexes made by
         nodes running per row of the ones sealed, for ``_seal`` to try next."""
         next_up: list[str] = []
-        for child, _ in self._typed_under(index_id):
+        for _, child in self._typed_under(index_id):
             if child in self._sealed:
                 continue
             self._close(child)
@@ -853,6 +851,10 @@ class LiveRunValues:
                 woken.update((reader, key) for reader in readers)
         for index_id, key in (*no_rows_under, *lists):
             woken.update((reader, key) for reader in self._plan.run_per_row_by[index_id])
+        for index_id, key in lists:
+            for reader, ref, depth in self._grouped_on(index_id):
+                if 0 < depth <= len(key):
+                    self._wake_group(ref, reader, key[:depth], woken)
         for index_id in making:
             keys = made.get(index_id, [])
             for reader, ref, depth in self._grouped_on(index_id):
@@ -923,6 +925,8 @@ class LiveRunValues:
         each one by its own type."""
         columns: dict[Ref, OutputColumn] = {}
         for ref in sorted(self._values):
+            if self._fields[ref]._listed:  # the graph holds a list set on a node, never a state
+                continue
             by_row = self._values[ref]
             rows: list[Row] = []
             values: list[Any] = []
@@ -971,10 +975,11 @@ class LiveRunValues:
         """
         restored = cls(compiled)
         dropped = set(compiled.nodes_changed_since(state))
-        restored._values, faults = read_output_columns(compiled, state, dropped)
+        values, faults = read_output_columns(compiled, state, dropped)
+        restored._values.update(values)
         if faults:
             raise InvalidCallError(faults)
-        restored._skipped_on = {ref for ref in restored._values if state.output_columns[ref].skipped}
+        restored._skipped_on = {ref for ref in values if state.output_columns[ref].skipped}
         finished = {node_id: rows for node_id, rows in state.finished_rows.items() if node_id not in dropped}
         done = [(node_id, row) for node_id, rows in finished.items() for row in rows]
         restored._waiting = {(asked.node_id, asked.row): asked for asked in state.waiting if asked.node_id not in dropped}

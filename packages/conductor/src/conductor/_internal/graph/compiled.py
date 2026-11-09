@@ -245,7 +245,7 @@ class CompiledGraph:
         if refuse_unreadable_values:
             faults += [
                 found.model_copy(update={"loc": ("inputs", written_as[found.loc])})  # type: ignore[index]
-                for found in refilled.problems if found.type == "invalid_static" and found.loc in written_as
+                for found in refilled.problems if found.type in ("invalid_static", "table_column_missing") and found.loc in written_as
             ]
         if faults:
             raise InvalidCallError(faults)

@@ -741,7 +741,7 @@ def test_a_table_passed_through_per_row_merges_row_by_row_under_each_parent():
     assert state.status == "complete", state.failure
     frame = compiled.results(state)["m"]["result"]
     assert frame.height == 4
-    assert frame.select("name", "result").rows() == [("a", "A"), ("b", "B"), ("a", "A"), ("b", "B")]
+    assert frame.select("name", "Out").rows() == [("a", "A"), ("b", "B"), ("a", "A"), ("b", "B")]
 
 
 def test_a_lookup_repeating_a_reference_row_under_two_parents_still_joins_the_reference_on_its_id():
@@ -752,7 +752,7 @@ def test_a_lookup_repeating_a_reference_row_under_two_parents_still_joins_the_re
     )
     state = compiled.run_sync()
     assert state.status == "complete", state.failure
-    rows = compiled.results(state)["m"]["result"].select("name", "email", "result").rows()
+    rows = compiled.results(state)["m"]["result"].select("name", "email", "Out").rows()
     assert sorted(rows, key=str) == sorted([("a", "x", "A"), ("a", "x", "A"), ("b", "y", None)], key=str)
 
 
@@ -769,7 +769,7 @@ def test_which_parent_a_repeated_id_lands_on_does_not_depend_on_which_finished_f
         n("m", "merged", table=From("h.result.name", "u.result")), registry=registry,
     )
     state = compiled.run_sync()
-    assert compiled.results(state)["m"]["result"].select("name", "result").rows() == [("a", "A"), ("b", "B"), ("a", "A"), ("b", "B")]
+    assert compiled.results(state)["m"]["result"].select("name", "Out").rows() == [("a", "A"), ("b", "B"), ("a", "A"), ("b", "B")]
 
 
 # -- an answer that keeps a table's ids; results straight after an answer -----------------

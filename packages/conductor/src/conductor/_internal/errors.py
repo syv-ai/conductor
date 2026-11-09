@@ -82,7 +82,7 @@ CATALOGUE: Mapping[str, tuple[str, bool]] = {
         "'{source}' shares no rows with what else is wired into '{field}', so its cells will be blank beside them; "
         "to join unrelated tables, match them on a key.", False,
     ),
-    "table_column_missing": ("'{field}' needs the column '{column}', which nothing wired into it has.", True),
+    "table_column_missing": ("'{field}' needs the column '{column}', which the table it received doesn't have.", True),
     "series_of_tables": (
         "The output '{field}' is a series of tables; a table already holds many rows, so return one table.", True,
     ),

@@ -17,16 +17,17 @@ above. One column on a root is received whole, once. Anything else feeding it
 collected onto a level of the input's own.
 
 A ``Table`` input merges everything wired in, matched on row ids; it never
-makes the node run per row by itself, except a table arriving per row.
+makes the node run per row by itself, except a table arriving per row. What
+it carries is the merged table's type, each column named as the merge will
+name it, or what the input declares when it names columns.
 
 A ``**inputs: AsItArrives`` input takes what its edge carries, whole, and
 never makes the node run per row. A parameter typed ``Any`` takes the type of
 its first edge.
 
 A list typed into an input that takes one value is a column of its own, under
-each row the node otherwise runs on. Only one list may be set on a node that
-runs per row (``lists_on_a_per_row_node``); two on a node that runs once are
-``misaligned``.
+each row the node otherwise runs on, and an edge reads it like an output (``q.question``).
+Only one list may be set on a node (``lists_on_a_per_row_node``).
 
 Every answer is written as the input's receive record
 (``conductor._internal.graph.receive``), which the engine reads and never decides again.
@@ -54,9 +55,17 @@ from conductor._internal.graph.receive import (
     Receive,
     RowsUnder,
 )
+from conductor._internal.graph.row_origins import counts_as_taken_in
 from conductor._internal.ref import Ref
 from conductor._internal.series import Index, Series
-from conductor._internal.table import Table, column_type, columns_of, holds_tables
+from conductor._internal.table import (
+    Column,
+    Table,
+    column_type,
+    columns_of,
+    holds_tables,
+    renames_in_merge,
+)
 
 if TYPE_CHECKING:
     from conductor._internal.graph.compile_graph import WalkSoFar
@@ -87,7 +96,7 @@ class InputsRead:
     reductions: list[tuple[Index, str]] = field(default_factory=list)
     #: The inputs holding a list set on the node, each with its declared type.
     listed: list[tuple[str, Any]] = field(default_factory=list)
-    #: The ``Table`` inputs with their sources.
+    #: The ``Table`` inputs with the table type each carries and its sources.
     merging: list[tuple[str, Any, list[tuple[Ref, CompiledField]]]] = field(default_factory=list)
     #: Every table and merged column taken in whole: a table the node returns may carry their ids.
     tables_taken_in: list[CompiledField] = field(default_factory=list)
@@ -121,8 +130,8 @@ def read_inputs(
             found.broken = True
             return found
         sources: list[CompiledField] = cast("list[CompiledField]", feeding)
-        found.tables_taken_in.extend(source for source in sources if holds_tables(source.type))
         target = inp.dtype
+        found.tables_taken_in.extend(source for source in sources if counts_as_taken_in(target, source))
         if target is _ReceivedAsItArrives:
             if not name.isidentifier():
                 problems.append(problem("parameter_name_invalid", node.id, name))
@@ -137,14 +146,15 @@ def read_inputs(
             found.receives[name] = EntireValue()
             continue
         if _is_table_type(target):
-            for source_ref, source in zip(binding.refs, sources, strict=True):
-                problems.extend(_admit_into_table(target, node.id, name, source_ref, source))
-                if holds_tables(source.type) and source._index is not None:
-                    found.demands.append((source._index, name))
-                elif not holds_tables(source.type):
-                    found.tables_taken_in.append(source)
-            found.merging.append((name, target, list(zip(binding.refs, sources, strict=True))))
-            found.arriving[name] = target
+            pairs = list(zip(binding.refs, sources, strict=True))
+            faults = [fault for source_ref, source in pairs for fault in _admit_into_table(target, node.id, name, source_ref, source)]
+            problems.extend(faults)
+            merged = None if faults else _merged_columns(pairs)
+            found.demands.extend((source._index, name) for source in sources if holds_tables(source.type) and source._index is not None)
+            carried = _table_a_call_receives(target, merged)
+            _check_columns(node.id, name, target, merged, problems)
+            found.merging.append((name, carried, pairs))
+            found.arriving[name] = carried
             continue
         if is_untyped(target):
             element = sources[0].type.element or sources[0].type
@@ -193,7 +203,7 @@ def _source(ref: Ref, walk: WalkSoFar) -> CompiledField | None:
     if node is None or node.wiring is None or source_id in walk.refused:
         return None
     found = node.wiring.fields.get(ref.field)
-    return found if found is not None and found._is_output else None
+    return found if found is not None and (found._is_output or found._listed) else None
 
 
 def _outputs_offered_by(node_id: str, walk: WalkSoFar) -> str:
@@ -202,7 +212,7 @@ def _outputs_offered_by(node_id: str, walk: WalkSoFar) -> str:
     if node.embedded_graph is not None:
         names = sorted(node.embedded_graph._for_embedding.outputs)
     else:
-        names = sorted(name for name, field in node.wiring.fields.items() if field._is_output)  # type: ignore[union-attr]
+        names = sorted(name for name, field in node.wiring.fields.items() if field._is_output or field._listed)  # type: ignore[union-attr]
     return ", ".join(names) or "none"
 
 
@@ -228,10 +238,7 @@ def decide_rows(node: GraphNode, found: InputsRead, problems: list[Problem], row
         return False, None
     if len(found.listed) > 1:
         (first, _), (second, _) = found.listed[:2]
-        if runs_on is not None:
-            problems.append(problem("lists_on_a_per_row_node", node_id, second, a=str(where(first)), b=str(where(second))))
-        else:
-            problems.append(_misaligned(node_id, where(first), where(second)))
+        problems.append(problem("lists_on_a_per_row_node", node_id, second, a=str(where(first)), b=str(where(second))))
         return False, None
     if found.listed:
         (name, dtype), = found.listed
@@ -244,14 +251,13 @@ def decide_rows(node: GraphNode, found: InputsRead, problems: list[Problem], row
             problems.append(_misaligned(node_id, where(found.demands[0][1]), where(name)))
             return False, None
         found.receives[name] = RowsUnder(index, depth)
-    for name, target, sources in found.merging:
-        found.arrivals[name] = Arrival(target, None) if runs_on is None else Arrival(Series[target], runs_on)
+    for name, carried, sources in found.merging:
+        found.arrivals[name] = Arrival(carried, None) if runs_on is None else Arrival(Series[carried], runs_on)
         found.receives[name] = Merge(
             tuple((source_ref, _part(source, runs_on)) for source_ref, source in sources),
             frozenset(_copied_down(sources)),
         )
         problems.extend(row_origins.note_merge(node_id, name, sources))
-        _check_columns(node_id, name, target, sources, problems)
     return True, runs_on
 
 
@@ -261,22 +267,34 @@ def _copied_down(sources: list[tuple[Ref, CompiledField]]) -> list[Ref]:
     return [ref for ref, index in rows if index is not None and any(index != other and index in other.lineage for _, other in rows if other is not None)]
 
 
-def _check_columns(node_id: str, name: str, target: Any, sources: list[tuple[Ref, CompiledField]], problems: list[Problem]) -> None:
-    """A ``Table[...]`` input names the columns it needs; when every source's
-    columns are known (a bare table's are not), one nothing wired in has is
-    ``table_column_missing``. A column that can't be read as the input wants fails the node when it runs."""
-    if not columns_of(target):
-        return
-    available: set[str] = set()
+def _merged_columns(sources: list[tuple[Ref, CompiledField]]) -> tuple[Column, ...] | None:
+    """The columns the merged table of ``sources`` has, named as the merge names them; ``None`` when a table among them names none."""
+    columns_each: list[tuple[str, tuple[Column, ...]]] = []
     for source_ref, source in sources:
         if holds_tables(source.type):
-            declared = columns_of(source.type.element or source.type)
-            if not declared:
-                return
-            available |= {column for column, _ in declared}
+            columns = columns_of(source.type.element or source.type)
+            if not columns:
+                return None
         else:
-            available.add(source._view_of[1] if source._view_of is not None else source_ref.field)
-    missing = next((column for column, _ in columns_of(target) if column not in available), None)
+            columns = ((source._title, source.type.element),)
+        columns_each.append((source_ref.node_id, columns))
+    renames = renames_in_merge((node_id, (name for name, _ in columns)) for node_id, columns in columns_each)
+    return tuple((renamed.get(name, name), dtype) for (_, columns), renamed in zip(columns_each, renames, strict=True) for name, dtype in columns)
+
+
+def _table_a_call_receives(target: Any, merged: tuple[Column, ...] | None) -> Any:
+    """The table type a ``Table`` input carries, what a hook's ``Arriving`` is told: the merged table's, or what the input declares when it names columns, since those are what a call gets."""
+    if columns_of(target) or merged is None:
+        return target
+    return target.with_columns(dict(merged))
+
+
+def _check_columns(node_id: str, name: str, target: Any, merged: tuple[Column, ...] | None, problems: list[Problem]) -> None:
+    """A ``Table[...]`` input names the columns it needs; when the merged table's columns are known, one it lacks is ``table_column_missing``."""
+    if merged is None or not columns_of(target):
+        return
+    have = {column for column, _ in merged}
+    missing = next((column for column, _ in columns_of(target) if column not in have), None)
     if missing is not None:
         problems.append(problem("table_column_missing", node_id, name, column=missing))
 

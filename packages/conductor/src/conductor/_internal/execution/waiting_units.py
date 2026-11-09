@@ -36,10 +36,11 @@ if TYPE_CHECKING:
     from conductor._internal.graph.compiled_node import CompiledNode
 
 
-def waiting_unit_for(node: CompiledNode, row: Row, asked: AskPerson) -> WaitingUnit:
-    """The entry for this unit in ``RunState.waiting``. A ``ValueError`` when
-    ``asked`` names an output the node does not have or proposes a default that
-    is not its output's type: the node's own fault, not the person's."""
+def waiting_unit_for(node: CompiledNode, row: Row, asked: AskPerson, inputs: dict[str, Any]) -> WaitingUnit:
+    """The entry for this unit in ``RunState.waiting``, with the ``inputs`` it was
+    called with. A ``ValueError`` when ``asked`` names an output the node does
+    not have or proposes a default that is not its output's type: the node's
+    own fault, not the person's."""
     assert node.interface is not None and node.wiring is not None  # the engine runs only a runnable graph
     questions = node._questions
     if asked.defaults or asked.widgets:
@@ -50,6 +51,7 @@ def waiting_unit_for(node: CompiledNode, row: Row, asked: AskPerson) -> WaitingU
         row=row,
         prompt=asked.prompt,
         questions=questions,
+        inputs=inputs,
     )
 
 

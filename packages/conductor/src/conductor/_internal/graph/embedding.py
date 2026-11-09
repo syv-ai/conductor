@@ -20,6 +20,9 @@ Embedding, rule by rule:
    as the row is deep.
 4. An inner field the outer graph feeds (a crossing) takes what the outer
    wiring decided for the graph node's field of that address.
+5. Row origins are worked out again from the node's place in the outer graph,
+   by the same rule as a node drawn there, so a table that crosses in carries
+   its origins through and ``row_ids_lost`` reaches a table rebuilt inside.
 
 Refusing a graph that embeds itself is the host's job, as it builds the
 versions: a compiled graph can't contain itself, but a host that swaps a
@@ -60,6 +63,11 @@ from conductor._internal.graph.receive import (
     PerRow,
     Receive,
     RowsUnder,
+)
+from conductor._internal.graph.row_origins import (
+    RowOriginsSoFar,
+    counts_as_taken_in,
+    origins_taken_in,
 )
 from conductor._internal.interface import Interface
 from conductor._internal.node_decorator import NodeVersion
@@ -122,8 +130,6 @@ class EmbeddableGraph:
     faults: tuple[Problem, ...]
     #: Its nodes, in the order compile met them: sources before readers.
     nodes: Mapping[str, CompiledNode]
-    #: Its tables that must keep their rows' ids.
-    row_ids_must_survive: frozenset[Ref]
 
 
 def read_embeddable(graph: CompiledGraph) -> EmbeddableGraph:
@@ -164,7 +170,6 @@ def read_embeddable(graph: CompiledGraph) -> EmbeddableGraph:
     )
     return EmbeddableGraph(
         interface=interface, inputs=inputs, outputs=outputs, faults=tuple(_faults_of(graph, nodes, inputs)), nodes=nodes,
-        row_ids_must_survive=graph._row_ids_must_survive,
     )
 
 
@@ -201,14 +206,16 @@ def lift_embedded_nodes(
     values: Mapping[Ref, Any],
     row: Index | None,
     crossings: Mapping[Ref, Crossing],
-    condition_above: Callable[[Ref], Condition],
+    field_above: Callable[[Ref], CompiledField | None],
+    row_origins: RowOriginsSoFar,
 ) -> dict[str, CompiledNode]:
     """Every node of ``embeddable`` as it stands embedded at ``node_id``, running once per row of ``row``.
 
     Each of ``edges``, ``crossings`` and ``values`` is keyed by where it lands
     in the run: the edge connected there, what the outer wiring decided for
     it, and the value typed on the graph node, as if typed on the inner field.
-    ``condition_above`` answers for a field outside the graph."""
+    ``field_above`` answers for a field outside the graph; its row origins are
+    carried on through ``row_origins``, as a node drawn there would."""
     prefix = f"{node_id}{SEPARATOR}"
     inner_nodes = embeddable.nodes
 
@@ -225,11 +232,12 @@ def lift_embedded_nodes(
 
     lifted: dict[str, CompiledNode] = {}
 
-    def condition_of(ref: Ref) -> Condition:
+    def field_at(ref: Ref) -> CompiledField | None:
         node = lifted.get(ref.node_id)
-        if node is None:
-            return condition_above(ref)
-        found = node.wiring.fields.get(ref.field) if node.wiring is not None else None
+        return field_above(ref) if node is None else None if node.wiring is None else node.wiring.fields.get(ref.field)
+
+    def condition_of(ref: Ref) -> Condition:
+        found = field_at(ref)
         return found.condition if found is not None and found.condition is not None else ALWAYS
 
     for inner_id, inner in inner_nodes.items():
@@ -254,6 +262,12 @@ def lift_embedded_nodes(
             runs_once = new_row is None
             outputs_of = {out.name: out for out in inner.interface.outputs}
             fields = {}
+            taken_in = origins_taken_in([
+                source
+                for name, binding in bindings.items() if isinstance(binding, From) and name in inner.wiring.fields
+                for ref in binding.refs
+                if (source := field_at(ref)) is not None and counts_as_taken_in(inner.wiring.fields[name].type, source)
+            ])
             for name, field in inner.wiring.fields.items():
                 condition = None
                 if field._view_of is not None:  # a column appears exactly when its table does
@@ -262,11 +276,19 @@ def lift_embedded_nodes(
                     condition = output_condition(new_id, outputs_of[name], at_node, runs_once)
                 dtype, index, receives = _field_under(field, crossings, inner_nodes, prefix, row, inside)
                 makes = None if field._makes_rows is None else under(field._makes_rows, prefix, row)
+                listed = field._listed and name not in crossed
+                if isinstance(receives, Merge) and field.ref not in crossings:
+                    row_origins.note_merge(new_id, name, [(source, found) for source, _ in receives.parts if (found := field_at(source)) is not None])
+                origins: frozenset[str] | None = None
+                if field._is_output:
+                    origins = row_origins.note_table(makes, taken_in) if makes is not None and holds_tables(dtype) else row_origins.of_rows_on(index)
+                elif listed:
+                    origins = row_origins.of_rows_on(index)
                 fields[name] = CompiledField(
                     ref=Ref._of_parts(new_id, name), type=dtype, binding=bindings.get(name) if not field._is_output else None, condition=condition,
-                    problems=(), _index=index, _receives=receives, _listed=field._listed and name not in crossed,
+                    problems=(), _index=index, _receives=receives, _listed=listed,
                     _makes_rows=makes, _view_of=None if field._view_of is None else (inside(field._view_of[0]), field._view_of[1]),
-                    _takes_blank=field._takes_blank, _row_origins=None,
+                    _takes_blank=field._takes_blank, _title=field._title, _row_origins=origins,
                 )
         lifted[new_id] = CompiledNode(
             id=new_id, graph_node=graph_node, embedded_in=embedded_in(new_id), problems=(), cause=None,
@@ -274,15 +296,6 @@ def lift_embedded_nodes(
             wiring=Wiring(fields, new_row),
         )
     return lifted
-
-
-def table_rows_inside(lifted: Mapping[str, CompiledNode]) -> list[str]:
-    """The index ids of every table an embedded graph's nodes make: their rows' origins can't be seen from here."""
-    return [
-        field._makes_rows.id
-        for node in lifted.values() for field in node.wiring.fields.values()
-        if field._makes_rows is not None and holds_tables(field.type)
-    ]
 
 
 def _field_under(

@@ -9,16 +9,19 @@ at run time, a return where no row kept its id is ``row_ids_lost``.
 
 Each output's origins sit on its field (``_row_origins``), as index ids; a
 table's rows' origins are also kept by index, for the columns and series
-that sit on them.
+that sit on them. A list typed into a node is an index of its own, and a
+graph embedded in another has its origins worked out by the same rule
+where it stands, so nothing stops at an embedding.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from conductor._internal.errors import Problem, problem
 from conductor._internal.ref import Ref
+from conductor._internal.table import holds_tables
 
 if TYPE_CHECKING:
     from conductor._internal.graph.compiled_node import CompiledField
@@ -69,6 +72,11 @@ class RowOriginsSoFar:
             if not any(meet(n, m) for m in range(len(sources)) if m != n):
                 return [problem("no_rows_in_common", node_id, field_name, source=str(source_ref))]
         return []
+
+
+def counts_as_taken_in(reader_type: Any, source: CompiledField) -> bool:
+    """Does a table a node returns carry this source's rows' ids? A source it takes as a whole table does, whichever side says so."""
+    return holds_tables(reader_type) or holds_tables(source.type)
 
 
 def origins_taken_in(sources: list[CompiledField]) -> frozenset[str] | None:

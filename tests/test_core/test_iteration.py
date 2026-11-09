@@ -814,7 +814,7 @@ def test_two_lists_on_a_node_running_per_row_are_refused():
     assert refused.ctx == {"a": "ask.b", "b": "ask.c"}
 
 
-def test_two_lists_on_a_node_that_runs_once_are_misaligned():
+def test_two_lists_on_a_node_that_runs_once_are_the_list_refusal():
     compiled = _compiled([GraphNode(id="ask", type="pair", version=1, bindings={"a": Static(["p", "q"]), "b": Static(["x", "y"])})])
 
-    assert [problem.type for problem in compiled.problems] == ["misaligned"]
+    assert [problem.type for problem in compiled.problems] == ["lists_on_a_per_row_node"]

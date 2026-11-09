@@ -30,7 +30,7 @@ from conductor._internal.codec import values_to_wire
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import Problem
 from conductor._internal.ref import Ref
-from conductor._internal.series import Row
+from conductor._internal.series import Row, Series
 
 #: How the last leg ended. ``complete``: every node finished. ``waiting``: the
 #: leg went quiet with units waiting on a person. ``failed``: a node failed.
@@ -91,7 +91,8 @@ class WaitingUnit(ConductorModel):
 
     ``id`` is what an answer is keyed by. It is written once, when the node
     asks, and nothing ever reads it apart. ``questions`` are frozen until the
-    unit is answered or its node, or something above it, changes.
+    unit is answered or its node, or something above it, changes. ``inputs``
+    says what the row is about, in a state's size no more than the unit received.
     """
 
     id: str
@@ -99,6 +100,14 @@ class WaitingUnit(ConductorModel):
     row: Row
     prompt: str | None = None
     questions: tuple[Question, ...]
+    #: What this unit received, by input name, so a form can show the row it is about: exactly the
+    #: values its call would have got, no more; a ``Series`` as a list, a table in its JSON form.
+    inputs: dict[str, Any] = Field(default_factory=dict)
+
+    @field_serializer("inputs", when_used="json")
+    def _inputs_as_wire(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Each input written by its own type; held typed until a dump, as a state's values are."""
+        return dict(zip(inputs, values_to_wire([value.values if isinstance(value, Series) else value for value in inputs.values()]), strict=True))
 
 
 class RunState(ConductorModel):
