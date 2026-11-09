@@ -55,6 +55,11 @@ A widget dumps through pydantic. The dump is for an editor to read, not to load 
 Conductor ships the common controls and neither compile nor the engine reads a widget, so a control of your own needs no conductor release. Subclass `Widget` with a `kind: Literal["..."]` field, beside the component in your frontend that renders it:
 
 ```python
+from typing import Literal
+
+from conductor.widgets import Widget
+
+
 class EntityDropdown(Widget):
     kind: Literal["entity-dropdown"] = "entity-dropdown"
     entity_kind: str = ""

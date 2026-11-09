@@ -30,7 +30,7 @@ assert results["loud"]["result"]["values"] == ["RED", "GREEN"]   # ran once per 
 assert ready.run_plan.nodes["joined"].runs_per_row_of is None   # parts is Series[str]: one call
 ```
 
-A node you declared yourself is placed with `upper.graph_node("b", text=From("a.result"), times=2)`, the same record with the function's own signature for a checker to read. A value is typed in, `From(...)` is an edge, and an input left open is written `GraphNode(...)`.
+A node you declared yourself is placed with `upper.graph_node("b", text=From("a.result"), times=2)`, the same record with the function's own signature for a checker to read. A value is typed in, `From(...)` is an edge, and `text=OPEN` leaves an input for the caller or a `FromRun`. In a `GraphNode`, an open input simply has no binding.
 
 An input holds one binding: `From("node.output")` over an edge, `Static(value)` typed in (a list on a single-value input runs the node once per item), or none for the default. A single output is named `result`. `GraphNode` is keyword-only; a node id may not contain `.`, `/` or `@`.
 

@@ -51,7 +51,7 @@ results["join"]["result"]          # "A+B+C": Series[str] received the whole ser
 - Input: `text: str`, or `Annotated[str, Param(title=, description=, widget=, connectable=)]` beside it. Without a widget an editor shows no control for it: an edge fills it, or a value set in code. A default makes it optional, and goes through the input's type where it is written: one the type can't read is a `NodeDeclarationError` (`default_invalid`), and the default is kept as the type read it. A type no edge can carry (`list[X]`, a `Literal`) closes the input by itself; `connectable=False` closes one that could.
 - Output: `-> str` is one output named `result`, `Result(name=, title=, description=, exclusive_group=)` beside it says more; a frozen dataclass is one output per field; `-> Mapping[str, Any]` returns the computed outputs by name and needs `compute_outputs`; `-> None` declares no outputs.
 - `Any` is a value routed unread; an `Any` output needs `compute_outputs` to type it.
-- A value can be blank. If an input's type doesn't say `| None` (`email: str | None`), the node isn't called for that row: its outputs are blank there, an `exclusive_group` output is skipped, and an output that makes rows has none. `Series[X]` leaves blanks out, row by row across the series inputs on one index; `Series[X | None]` keeps them. Inputs of many values reading one index stay on the same rows: a row one of them has skipped is blank there, so a zip never pairs two rows, and `Series[X]` then drops that row from all of them. Two `Series[X]` inputs reading opposite branches on one index would lose every row: that is the fatal `series_inputs_never_share_a_row`. Write `Series[X | None]`, or wire both branches into one input. `Any`, `Series[Any]` and `AsItArrives` take blanks. `| None` on a return lets the node return `None`, and a question may be left blank. A default is for an input nothing is wired to, never for a blank. `node_complete.rows_not_called` and `RunState.rows_not_called` count, per input, the rows skipped this way.
+- A value can be blank. If an input's type doesn't say `| None` (`email: str | None`), the node isn't called for that row: its outputs are blank there, an `exclusive_group` output is skipped, and an output that makes rows has none. `Series[X]` leaves blanks out, row by row across the series inputs on one index; `Series[X | None]` keeps them. Inputs of many values reading one index stay on the same rows: a row one of them has skipped is blank there, so a zip never pairs two rows, and `Series[X]` then drops that row from all of them. Two `Series[X]` inputs reading opposite branches on one index would lose every row: that is the fatal `series_inputs_never_share_a_row`. Write `Series[X | None]`, or wire both branches into one input. `Any`, `Series[Any]` and `AsItArrives` take blanks. `| None` on a return lets the node return `None`, and a question may be left blank. A default is for an input nothing is wired to, never for a blank. `node_complete.rows_not_called` and `state.nodes[node_id].rows_not_called` count, per input, the rows skipped this way.
 - `**x: T` makes every edge an input declared `T` when no `compute_added_inputs` owns the parameter: `Any` or a type runs the node per row, `Series[Any]` reduces each edge, `AsItArrives` hands each as it arrives (a column as a column) and never runs per row.
 - The function returns `SKIPPED` on a branch not taken and `AskPerson` when a person must answer (`-> ... | AskPerson`).
 - What the run supplies arrives through `FromRun[T]` parameters.
@@ -59,9 +59,10 @@ results["join"]["result"]          # "A+B+C": Series[str] received the whole ser
 
 ### Versions and Policies
 
-A node's older versions are listed oldest first; the decorated function is the newest. A version's number is its place.
+A newer version names the one it replaces, a `@node` of the same id, and the decorated function is the newest. A version's number is its place in that chain.
 
 ```python
+@node("greet")
 def greet_v1(name: Annotated[str, Param(title="Name", widget=Textarea())]) -> str: ...
 
 def _split_name(values: dict) -> dict:
@@ -97,7 +98,7 @@ Each is a plain function, given per version (`compute_added_inputs=` and `comput
 
 - `target.accepts(source)`: may an edge land, asked about one value of each side (default `issubclass`). `as_text` formats, `describe()` is its record.
 - `registry.types`: node types plus `NodeRegistry(..., types=[...])`; `registry.accepted_as(T)`: ids `T` lands on.
-- `Series[X]`: many values of one type, never nested. A word on a signature, not a value: a type checker reads `Sequence[X]`, a node receives a plain list and returns any sequence, and `Input`/`Output` hold `X` in `dtype` with `many=True`. `list[X]` stays one value that is a list. A row is a path, `(i,)` or `(i, j)`.
+- `Series[X]`: many values of one type, never nested. A marker on a signature, not a value: a type checker reads `Sequence[X]`, a node receives a plain list and returns any sequence, and `Input`/`Output` hold `X` in `dtype` with `many=True`. `list[X]` stays one value that is a list. A row is a path, `(i,)` or `(i, j)`.
 - `Ref("node.field")` addresses one field.
 
 ### Bindings
@@ -115,8 +116,8 @@ Each is a plain function, given per version (`compute_added_inputs=` and `comput
 
 - Graph: `problems`, `is_runnable`, `interface` (open inputs, unread outputs), `graph`, `execution_order`, `decisions`. An address is `node.field`; `interface` and `outputs` name an embedded graph's fields the same way, by what it offers (`emb.amount`). Reading a run, `results` uses the path (`Ref("emb/check", "amount")`), and `compiled.field` takes either address.
 - `compiled.node(node_id)` answers for every node compile met: `id`, `graph_node`, `embedded_in`, `problems`, `state` (`ready`, `wiring_failed`, `resolution_failed`), `cause` (the one `Problem` behind a node that isn't `ready`), `definition`, `version`, `interface`, `statics`, `embedded_graph` and `fingerprint`. What compile doesn't know is `None`, never an error: `interface` when it can't tell the node's fields, `fingerprint` on a node that doesn't run as one unit. `compiled.field(ref)` hands back one record per field (`ref`, `type`, `binding`, `condition`, `problems`); a node that isn't `ready` or an unknown field is a `KeyError`.
-- `compiled.describe()` is what an editor reads to draw the graph, one JSON-ready `GraphDescription`: `is_runnable`, `problems`, `interface`, `run_plan`, `nodes` and `fields`. `nodes` has one `CompiledNodeDescription` per node the author drew (`state`, `interface`, `takes_graph_inputs`), and `fields` has one `FieldDescription` (`dtype`, and `many`, whether it holds many values) per input and output of a `ready` node, by the address an edge writes (`emb.amount` on a node that is a graph), each of which `compiled.field` accepts. An `InterfaceDescription` has `inputs`, `outputs` and `needs`, the names of the `FromRun` types a run must be given. `registry.describe()` is its twin for what can be placed.
-- `compiled.run_plan` says where every ready node runs and what each of its inputs receives: `.nodes[node_id]` has `runs_per_row_of` (a `Ref` or `None`), `inputs` (a `ReceiveMode` per input, the record the run reads) and `makes_rows`. Every `ReceiveMode` has `receive_mode` (`value_at_row`, `same_value_every_row`, `all_rows_under_row`, `entire_value`, `collected`, `merged`) and `kind`, which says what else it holds: `cell` has `sources`, `rows_of`, `depth`; `rows_under` has `sources`, `rows_of`, `grouped_under`, `depth`; `fixed` is a static or a default (its value isn't written); `gather` has `source_reads`, one `cell` or `rows_under` per source saying how that source is read at the call's row; `merge` has `source_reads` (a table is a `cell`, a column `rows_under`) and `copied_down`, a table wired in alone being a `cell`. `print(compiled.run_plan)` is the same as text. It is what a host compares between two versions of a graph.
+- `compiled.describe()` is what an editor reads to draw the graph, one JSON-ready `GraphDescription`: `is_runnable`, `problems`, `interface`, `run_plan`, `nodes` and `fields`. `nodes` has one `CompiledNodeDescription` per node the author drew (`state`, `interface`, `takes_graph_inputs`), and `fields` has one `FieldDescription` (`dtype`, and `many`, whether it holds many values) per input and output of a `ready` node, by the address an edge writes (`emb.amount` on a node that is a graph), each of which `compiled.field` accepts. An `InterfaceDescription` has `inputs`, `outputs` and `needs`, the names of the `FromRun` types a run must be given. `registry.describe()` is the same record for what can be placed.
+- `compiled.run_plan` says where every ready node runs and what each of its inputs receives: `.nodes[node_id]` has `runs_per_row_of` (a `Ref` or `None`), `inputs` (a `ReceiveMode` per input, the record the run reads) and `makes_rows`. Every `ReceiveMode` has `receive_mode` (`value_at_row`, `same_value_every_row`, `all_rows_under_row`, `entire_value`, `collected`, `merged`) and `kind`, which says what else it holds: `cell` has `sources`, `rows_of`, `depth`; `rows_under` has `sources`, `rows_of`, `grouped_under`, `depth`; `fixed` is a static or a default (its value isn't written); `gather` has `source_reads`, one `cell` or `rows_under` per source saying how that source is read at the call's row; `merge` has `source_reads` (a table is a `cell`, a column `rows_under`), `copied_down` and `carries_columns_of` (per source, the sources whose columns its table was made from), a table wired in alone being a `cell`. `print(compiled.run_plan)` is the same as text. It is what a host compares between two versions of a graph.
 - A field's `condition` says when it has a value as far as a decision on a node that runs once holds it back: a set of alternatives, each a set of `BranchTaken`, or `ALWAYS` or `NEVER`. A decision made per row holds back rows, not the field, so it isn't in `condition`.
 
 ### Rows
@@ -132,7 +133,7 @@ Every level is a table.
 
 - `Table[R]`, whose columns a `TypedDict` names, or bare `Table`, is a whole table in a signature; at run time and to a type checker it is a `polars.DataFrame`. A node takes one and returns one, and it never runs per row because of a `Table` input. Bare `Table` has columns known only when it arrives.
 - `| None` on a column changes nothing, a column holds blanks anyway. A column's Polars type is read off what its type is built on (`str`, `float`, `int`, `bool`, `datetime.date`); a type sets `polars_column_type = "Boolean"` only where that base is wrong.
-- Every stored table carries a `__row` column (`ROW_ID_COLUMN`), each row's id (`contacts:0`). A returned row with no id, or with one an earlier row holds, gets a fresh one; the others keep theirs. No node declares anything about rows.
+- Every stored table carries a `__row` column (`ROW_ID_COLUMN`), each row's id (`contacts.result:0`). A returned row with no id, or with one an earlier row holds, gets a fresh one; the others keep theirs. No node declares anything about rows.
 - Each column of a `Table[...]` output is a field of its own at `node.output.column` (`csv.result.email`). Wired into a single-value input it runs the node once per row of the table; wired into a `Series[X]` input it gives every row under the node's row. The table is stored once and its cells are read where they sit.
 - A blank cell is `None`, and a node running per row isn't called there unless its input says `| None`.
 - Several tables or columns wired into one `Table` input are merged on `__row` as the graph runs. A source with another wired source's rows under it is only copied down, so the rows are those of the deepest source and a parent with nothing under it has no row in that table. Sources on the same level keep all their rows, with blanks where one has nothing. A child table a branch skipped gives no rows; a `Table` input fed only skipped sources skips its node.
@@ -146,6 +147,12 @@ Every level is a table.
 One call of `compiled.run` is one leg. A run is its `RunState`: every leg returns one, and `status` says how it ended (`complete`, `waiting`, `failed`, `cancelled`, `timed_out`). A node returns `AskPerson(prompt=None, defaults={}, widgets={})`: what is asked is its declared outputs. It and its readers wait, and the leg ends `waiting` with one unit per waiting call in `state.waiting` (`id`, `node_id`, `row`, `prompt`, `questions`). Answering is an edit of the state, and the next leg runs from it:
 
 ```python
+@node("approve")
+def approve(invoice: str) -> str | AskPerson:
+    return AskPerson(prompt=f"Approve {invoice}?")
+
+
+compiled = CompiledGraph.from_graph(Graph(nodes=[approve.graph_node("approve", invoice="INV-1")]), NodeRegistry([approve]))
 paused = compiled.run_sync()                                    # paused.status == "waiting"
 answers = {asked.id: {"result": "Approved"} for asked in paused.waiting}
 answered = compiled.answer(paused, answers)                     # raises here if wrong; no node runs
@@ -154,7 +161,7 @@ state = compiled.run_sync(answered)
 
 - Each entry of `state.waiting` holds its `prompt` (from `AskPerson(prompt=...)`), the `inputs` it received by name so a form can show the row, many values as a list and a table as its JSON form, exactly what the call got and no more, and the questions it asks.
 - Answers are `{waiting.id: {output: value}}`, for a node that ran once, each row, an embedded node or a `Table` output; `None` for a unit means no value on its row. A question left blank takes its default; an `exclusive_group` output left out is the branch not taken. A unit not answered goes on waiting, and a node that asked is not called again unless it or something above it changed.
-- A question has `name`, `title`, `description`, `dtype`, `json_schema`, `widget`, `default`, `optional`, `exclusive_group`: enough for a form with no graph loaded.
+- A question has `name`, `title`, `description`, `dtype`, `many`, `json_schema`, `widget`, `default`, `optional`, `exclusive_group`: enough for a form with no graph loaded.
 - A state is plain JSON: `RunState.model_validate_json(saved)`. On the next leg every value passes its output's check, a value that doesn't read fails with `state_unreadable`, and a node whose fingerprint differs runs again with what reads it, reusing a row's earlier result where what it receives is the same (see "Running again"). `run_start`'s `changed_nodes` lists them. `state.without_nodes(node_id)` forces a rerun.
 - A parameter typed `FromRun[T]` receives the value of `T` from `compiled.run(from_run={T: value})`; `Interface.needs` is the set of those types. A missing one is `from_run_missing`, at the call.
 
@@ -163,20 +170,27 @@ state = compiled.run_sync(answered)
 A leg that goes on from a state reuses what it can. A node nothing changed above is restored whole. A changed node's units run again, except a unit whose inputs match one its earlier units received: it takes that result, its cells are written at its new row, and the node isn't called. Reuse comes only from the state you pass: conductor keeps no cache and looks nothing up across runs.
 
 ```python
-state = compiled.run_sync()                                    # 5,000 mails
-state = compiled.with_inputs(contacts=edited).run_sync(state)  # one row added: one mail
+@node("send")
+def send(contact: str) -> str:
+    return f"sent to {contact}"
+
+
+compiled = CompiledGraph.from_graph(Graph(nodes=[send.graph_node("send", contact=OPEN)]), NodeRegistry([send]))
+contacts = ["ida@a.dk", "bo@b.dk"]
+state = compiled.with_inputs(contact=contacts).run_sync()                       # two mails
+state = compiled.with_inputs(contact=[*contacts, "eva@c.dk"]).run_sync(state)   # one row added: one mail
 ```
 
 - The key is what the unit is about to receive, by content, statics and wired values alike (a `FromRun` value is not part of it), plus the node's type, version, input names and output types. A row's position and its id are not, nor are the ids inside a `Table` or a merged table: insert a row at the top and the rows below keep their work, and a whole-table reader sees the same table. A reused unit that took a table and returned one gets the ids of the rows it received now, by position.
 - Identical rows don't share a result: each earlier unit is taken once, in row order, so a third identical row is a new call.
 - A person's answer goes further than the inputs: it belongs to the question and to the row it was asked on, that row read whole, every row above it, the row its `__row` came from, and which of how many identical rows it is. An answer or a waiting question moves with its row when the row moves. A row replaced by another (Ida's approval doesn't carry to Bo at the same amount), or an edit to any column of the row, even one the form never showed, asks again and re-runs nothing else. Identical rows answered differently keep their answers k-th to k-th while their count holds, and are all asked again when it changes. A waiting unit's `id` (`node@row#hash12`, `node#hash12` for a node that ran once) binds its row and question the same way, so an answer meant for a row that has since moved or changed is refused.
 - A node's id is the node: a renamed node is a new node and runs again, sends included.
-- The hole: `__row` is a plain column a node can write. A node that swaps ids between rows or copies ids from another table mispairs those rows in a later merge, and an answer bound to such a row follows the wrong one.
+- What this can't catch: `__row` is a plain column a node can write. A node that swaps ids between rows or copies ids from another table mispairs those rows in a later merge, and an answer bound to such a row follows the wrong one.
 - A leg that stops short keeps the earlier work it hadn't reached (`state.nodes[node_id].earlier_units`), so running again from a failed, cancelled, checkpointed or waiting state reuses as much as one uninterrupted leg would.
 - `Policy(reuse_when_inputs_match=False)` is for a node whose result depends on the world, not its inputs (a file read by its path, today's exchange rate): a new leg from a `complete` state calls it again, and no earlier unit stands in for it. A leg going on from a waiting, failed or cancelled state keeps what it read.
 - `state.without_nodes("a")` forgets only what it names; a node reading it runs again only if what it receives changes. To run `a` and everything after it again, name them all.
-- `node_complete.reused_units` and `state.nodes[node_id].reused_units` (the count for that leg) say how much was reused. `run_start` still speaks in nodes (`reused_nodes`, `changed_nodes`).
-- **A state goes back only to the runner it came from.** It holds results and hands them to whoever passes it; what the runner could see (`FromRun` values, the world) is not in the key, as it isn't for a resume today.
+- `node_complete.reused_units` and `state.nodes[node_id].reused_units` (the count for that leg) say how much was reused. `run_start` counts nodes (`reused_nodes`, `changed_nodes`).
+- **A state goes back only to the runner it came from.** It holds results and hands them to whoever passes it; what the runner could see (`FromRun` values, the world) is not in the key.
 
 ### Retries and Timeouts
 
@@ -245,7 +259,7 @@ Three public modules: `conductor`, `conductor.widgets` and `conductor.events`. E
 - Registry: `NodeRegistry(nodes, types=())`, immutable (`in`, `[]`, `len`, iteration, `nodes`, `types`, `accepted_as`, `describe`, `extended_with`), `RegistryDescription`, `TypeDescription`
 - Graph: `Graph`, `GraphNode`, `FieldContent`, `Binding`, `From`, `Static`, `dependencies_of`, `CompiledGraph`, `CompiledNode`, `CompiledField`, `NodeState`, `GraphDescription`, `CompiledNodeDescription`, `FieldDescription`, `InterfaceDescription`, `Problem`, `RunPlan`, `NodeRunPlan`, `ReceiveMode`, `Condition`, `BranchTaken`, `ALWAYS`, `NEVER`
 - Errors: `NodeDeclarationError`, `ComputeHookError`, `InvalidCallError`, `Problem`, `NodeError`, `ExternalFailure`, `PROBLEM_CODES`
-- A run's state: `RunStatus`, `WaitingUnit`, `Question`, `Answers`, `OutputColumn`, `WorkOfNode` (what one node did: `fingerprint`, `finished_units`, `answered_rows`, `outputs`, `waiting`, `rows_not_called`, `reused_units`, `earlier_units`), `EarlierUnit`, `RunState` (`status`, `failure`, `waiting`, `nodes`, `without_nodes(...)`); dumped as JSON it is one document holding each table once, under its `tables` key by digest, and a load holds one frame per digest
+- A run's state: `RunStatus`, `WaitingUnit`, `Question`, `Answers`, `OutputColumn`, `WorkOfNode` (what one node did: `fingerprint`, `finished_units`, `answered_rows`, `tables_received`, `outputs`, `waiting`, `rows_not_called`, `reused_units`, `earlier_units`), `EarlierUnit`, `RunState` (`status`, `failure`, `waiting`, `nodes`, `without_nodes(...)`); dumped as JSON it is one document holding each table once, under its `tables` key by digest, and a load holds one frame per digest
 - Records (`Graph`, `GraphNode`, …) also have `to_yaml()`, `from_yaml(text)`, `to_path(path)`, `from_path(path)`, plus pydantic's.
 
 ### Running
@@ -255,7 +269,7 @@ Every verb is on `CompiledGraph`:
 - `compiled.run(state=None, /, *, from_run=None, timeout=None, cancel=None)`: one leg, its `RunState`. A pause or failure is a `status`. `run_sync` is `run` under `asyncio.run`.
 - `compiled.stream(...)`, the same arguments: an async context manager yielding the events.
 - `compiled.answer(state, answers)`: a new state with these units answered; no node runs.
-- `compiled.with_inputs(**inputs)`: a copy with inputs filled as `Static`s, by bare name or address; a name it doesn't offer or a value its type can't read raises `InvalidCallError`, every fault at once; `compiled.graph` is then what ran.
+- `compiled.with_inputs(inputs=None, /, **by_name)`: a copy with inputs filled as `Static`s, by bare name or address; a name it doesn't offer or a value its type can't read raises `InvalidCallError`, every fault at once; `compiled.graph` is then what ran.
 - `compiled.results(state)`: every node's outputs so far, by node id, `{"rows": [...], "values": [...]}` (`ValuesOnRows`) for an output holding many (`compiled.field(ref).many`), the rows that have values so far. `compiled.outputs(state)`: narrowed to `compiled.interface.outputs`, by address, on a `complete` state only.
 
 ### Problem and error codes

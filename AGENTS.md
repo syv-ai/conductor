@@ -4,7 +4,7 @@ A general-purpose Python library that compiles and runs graphs of typed nodes. I
 
 ## Layout
 
-- `packages/conductor/` (`syv-conductor`, import `conductor`): the engine. Three doors, `__init__.py`, `widgets.py` (the controls) and `events.py`, plus `about/` and `_internal/`, which holds everything else: `node_definition.py` is the node contract, `node_signature.py` reads a signature, `field_records.py` the records of a field, `dtype.py` / `series.py` / `table.py` / `ref.py` the types, `errors.py` the exceptions, `registry.py`, `graph/` (the record, compile, `CompiledGraph`) and `execution/` (the engine, events, `RunState`).
+- `packages/conductor/` (`syv-conductor`, import `conductor`): the engine. Three public modules, `__init__.py`, `widgets.py` (the controls) and `events.py`, plus `about/` and `_internal/`, which holds everything else: `node_definition.py` is the node contract, `node_signature.py` reads a signature, `field_records.py` the records of a field, `dtype.py` / `table.py` / `ref.py` the types, `errors.py` the exceptions, `registry.py`, `graph/` (the record, compile, `CompiledGraph`) and `execution/` (the engine, events, `RunState`).
 - `packages/conductor-nodes/` (`conductor_nodes`): the standard nodes and the one type of their own, `Json`.
 - `packages/conductor-providers/` (`conductor_providers`): the `mermaid` adapter.
 - `tests/`: `test_core`, `test_nodes`, `test_providers`, `test_stress`.
@@ -36,11 +36,11 @@ CI runs ruff and pytest on every PR. Tests marked `slow` time the wall clock and
 - **The widget set is open.** Conductor ships the common controls; a host subclasses `Widget` for its own. Compile and the engine never read a widget. What a value must satisfy goes on `Param` (`ge`, `le`, `max_length`, ...), where it is enforced.
 - **Two definitions under one id raise** when a registry is built; so does one type id from two classes.
 - **Fail loud.** No defensive `None` checks or silent defaults where the state means a bug.
-- **Imports.** Code outside the core library imports only from the three doors: `conductor`, `conductor.widgets` and `conductor.events`. Inside the core, import a name from the module that defines it. Only the doors and `conductor.about` declare `__all__`.
+- **Imports.** Code outside the core library imports only from the three public modules: `conductor`, `conductor.widgets` and `conductor.events`. Inside the core, import a name from the module that defines it. Only those three and `conductor.about` declare `__all__`.
 - **Identifiers are English.**
 - **Notebook outputs are stripped on commit.** Run the cells to see values.
 - **Keep the docs true.** A change to public API updates `README.md`, `docs/`, `llms.txt` and the skills in the same change, and adds a `CHANGELOG.md` line under `[Unreleased]`. Keep every Python block in the docs runnable. Docs describe what the code does; where a commit message and the code disagree, trust the code.
 
 ## Public API
 
-The public API is what the three doors list in `__all__`, plus `conductor_nodes` and `conductor_providers`. Everything in `conductor._internal`, including anything with a leading underscore, is internal. A breaking change to the public API needs a major version.
+The public API is what the three public modules list in `__all__`, plus `conductor_nodes` and `conductor_providers`. Everything in `conductor._internal`, including anything with a leading underscore, is internal. A breaking change to the public API needs a major version.

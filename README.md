@@ -134,11 +134,11 @@ A leg yields `run_start`, `node_start`, `node_progress`, `node_complete`, `node_
 
 **Graphs and bindings.** A graph is its nodes. Each input holds at most one binding: `From("node.output")` is an edge, `Static(value)` is a typed-in value, and no binding means the declared default. A saved graph embedded as a node is wired by the names it offers, the bare name where unique and the address on a clash; what's inside stays private. A `Graph` saves itself with `to_path` / `from_path` as YAML or JSON.
 
-**Compile.** `CompiledGraph.from_graph(graph, registry)` never raises for a fault in the graph. Everything wrong is a `Problem` with a stable `type`, anchored on a node, and `is_runnable` says whether a run may start. Ask the result about the graph with `compiled.node(id)`, `compiled.field(ref)` or `compiled.run_plan`. Every node has a `state` (`ready`, `wiring_failed` or `resolution_failed`) and its own `problems`, so an editor can draw a half-finished graph node by node. `compiled.describe()` is all of that as one JSON-ready record, the twin of `registry.describe()`.
+**Compile.** `CompiledGraph.from_graph(graph, registry)` never raises for a fault in the graph. Everything wrong is a `Problem` with a stable `type`, anchored on a node, and `is_runnable` says whether a run may start. Ask the result about the graph with `compiled.node(id)`, `compiled.field(ref)` or `compiled.run_plan`. Every node has a `state` (`ready`, `wiring_failed` or `resolution_failed`) and its own `problems`, so an editor can draw a half-finished graph node by node. `compiled.describe()` is all of that as one JSON-ready record, as `registry.describe()` is for what can be placed.
 
 **Rows.** A series arriving on an input declared for one value runs the node once per row, up to its policy's `concurrency` at a time. A `Series[X]` input receives every value under the node's row, flat, however many levels down. When nothing else says where the node runs, it runs once per row of the level right above the series.
 
-**Merging tables.** Every table carries a `__row` column (`contacts:0`) saying which row is which. You never declare it, and a row you return without an id gets a fresh one. Wire several tables or columns into one `Table` input and they are merged on those ids. A parent column beside its children is copied down, so the rows are those of the deepest source and a parent with nothing under it has no row in that table. Sources on the same level keep all their rows, with blanks where one has nothing. A table rebuilt in a node and merged with its source has to keep `__row`, or the node fails with `row_ids_lost`. A column is named after its output (or, from a table, keeps its own name). A column a table carries on from the table it was made from is one column with it, read from the newer table where that has the row. Two columns of one name that aren't related: the later takes its output's name (`name_contacts`, `result_2`). Tables with no rows in common are refused when the graph is checked (`no_rows_in_common`): join them on a key in a node of your own.
+**Merging tables.** Every table carries a `__row` column (`contacts.result:0`) saying which row is which. You never declare it, and a row you return without an id gets a fresh one. Wire several tables or columns into one `Table` input and they are merged on those ids. A parent column beside its children is copied down, so the rows are those of the deepest source and a parent with nothing under it has no row in that table. Sources on the same level keep all their rows, with blanks where one has nothing. A table rebuilt in a node and merged with its source has to keep `__row`, or the node fails with `row_ids_lost`. A column is named after its output (or, from a table, keeps its own name). A column a table carries on from the table it was made from is one column with it, read from the newer table where that has the row. Two columns of one name that aren't related: the later takes its output's name (`name_contacts`, `result_2`). Tables with no rows in common are refused when the graph is checked (`no_rows_in_common`): join them on a key in a node of your own.
 
 **Blanks.** A value can be blank (`None`, a cell with nothing in it). If an input's type doesn't say `| None`, the node isn't called for that row and its outputs are blank there; to get the blank, write `email: str | None`. A default is for an input nothing is wired to. `Series[str]` leaves blanks out row by row, `Series[str | None]` keeps them. A row one column skipped counts as blank there, so `Series` inputs reading one table stay on the same rows whatever a node zips: a row `Series[str]` can't take leaves all of them. Two such inputs reading opposite branches of one decision would lose every row, so that is refused when the graph is checked (`series_inputs_never_share_a_row`): write `Series[str | None]`, or wire both branches into one input. `node_complete` counts the rows not called, per input (`rows_not_called`).
 
@@ -165,7 +165,7 @@ def route(text: str) -> Routed:
 **A person in the loop.** A node returns `AskPerson`, annotated `-> X | AskPerson`, and its declared outputs are what is asked. The rest of the graph runs on and the state ends `waiting`, each waiting unit and its questions in `state.waiting`.
 
 ```python
-from conductor import AskPerson, node
+from conductor import AskPerson, CompiledGraph, Graph, NodeRegistry, node
 
 
 @node("approve")
@@ -173,6 +173,7 @@ def approve(invoice: str) -> str | AskPerson:
     return AskPerson(prompt=f"Approve {invoice}?")
 
 
+compiled = CompiledGraph.from_graph(Graph(nodes=[approve.graph_node("approve", invoice="INV-1")]), NodeRegistry([approve]))
 paused = compiled.run_sync()                                                   # paused.status == "waiting"
 answered = compiled.answer(paused, {unit.id: {"result": "yes"} for unit in paused.waiting})  # checks them; no node runs
 state = compiled.run_sync(answered)

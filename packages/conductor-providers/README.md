@@ -2,7 +2,7 @@
 
 Adapters for Conductor: `conductor_providers.mermaid.flowchart(compiled)` draws a compiled graph as a Mermaid flowchart.
 
-To serve runs over HTTP, write the routes on your own app: [the recipe](https://github.com/syv-ai/conductor/blob/main/docs/serving-runs.md) is one page you copy.
+To serve runs over HTTP, write the routes on your own application: [`docs/serving-runs.md`](https://github.com/syv-ai/conductor/blob/main/docs/serving-runs.md) is one page you copy.
 
 ```python
 import conductor_providers
