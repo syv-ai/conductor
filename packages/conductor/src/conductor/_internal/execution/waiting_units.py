@@ -71,8 +71,9 @@ def _with_defaults_and_widgets(node: CompiledNode, row: Row, ask_person: AskPers
     if problems:
         return problems
     for name in ask_person.defaults:
-        no_json_form = _why_default_has_no_json_form(cells[name])
-        if no_json_form is not None:
+        try:
+            to_jsonable(cells[name])  # what a dump of the state would fail on, held typed as a state's values are
+        except Exception as no_json_form:
             return [Problem(type="invalid_output", loc=(name,), msg=f"AskPerson's default for '{name}' has no JSON form: {no_json_form}")]
     defaults = {name: cells[name] for name in ask_person.defaults}
     return tuple(
@@ -83,15 +84,6 @@ def _with_defaults_and_widgets(node: CompiledNode, row: Row, ask_person: AskPers
         })
         for question in node._questions
     )
-
-
-def _why_default_has_no_json_form(cell: Any) -> Exception | None:
-    """What a dump of the state would fail on for ``cell``, held typed as a state's values are; ``None`` when it has a form."""
-    try:
-        to_jsonable(cell)
-    except Exception as unwritable:
-        return unwritable
-    return None
 
 
 def apply_answers(compiled: CompiledGraph, state: RunState, answers: Answers) -> RunState:

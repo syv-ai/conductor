@@ -219,34 +219,17 @@ class Problem(ConductorModel):
         return entry is None or entry.fatal
 
 
-#: The one slot a caller may leave unfilled: the sentence a type's own
-#: constructor raised, which not every constructor gives. Any other slot a
-#: row names must be supplied, or ``make_problem`` raises where it is called — a
-#: typo in a row or a forgotten keyword is a programming error, not an
-#: empty message.
-_OPTIONAL_MESSAGE_ARGUMENTS: frozenset[str] = frozenset({"reason"})
-
-
-class _MessageArguments(dict[str, Any]):
-    """Formatting slots: an optional slot the caller left out renders empty;
-    any other missing slot raises."""
-
-    def __missing__(self, key: str) -> str:
-        if key in _OPTIONAL_MESSAGE_ARGUMENTS:
-            return ""
-        raise KeyError(f"the message for this problem needs {key!r}")
-
-
 def make_problem(code: str, /, *loc: str | int | None, **ctx: Any) -> Problem:
     """The problem ``code`` at ``loc``, its message made from ``ctx``, which the record keeps.
 
     A ``None`` place is left out, so a site with an optional field passes it
     as it is. A code not in ``PROBLEM_CATALOGUE``, or a slot its row names that
-    ``ctx`` does not fill, is a programming error and raises.
+    ``ctx`` does not fill, is a programming error and raises; only ``reason`` may be
+    left out, the sentence a type's own constructor raised, which not every one gives.
     """
     location = tuple(place for place in loc if place is not None)
-    arguments = _MessageArguments(node_id=location[0] if location else None, field=location[1] if len(location) > 1 else None, **ctx)
-    return Problem(type=code, loc=location, msg=PROBLEM_CATALOGUE[code].message.format_map(arguments).rstrip(), ctx=ctx)
+    slots = {"reason": "", "node_id": location[0] if location else None, "field": location[1] if len(location) > 1 else None, **ctx}
+    return Problem(type=code, loc=location, msg=PROBLEM_CATALOGUE[code].message.format_map(slots).rstrip(), ctx=ctx)
 
 
 class ConductorError(Exception):
