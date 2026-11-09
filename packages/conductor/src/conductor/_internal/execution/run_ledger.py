@@ -1,65 +1,33 @@
-"""One leg's live table: what a run has produced so far, and what that lets run next.
+"""``RunLedger``: what a run has produced so far, and what that lets run next.
 
 The engine runs a graph as units. A unit is one node on one row. A node
 that runs once is a single unit on the empty row ``()``; a node fed a series on
 a scalar input runs once per row of that series' index, one unit per row.
-A row is a path, ``(i,)`` on a root index and ``(i, child_position)`` for the j-th row
-made under ``(i,)``, so a unit deep in the tree finds its row on an
-ancestor index by taking a prefix. Rows are made when the unit producing
-the series writes it; until then nobody knows how many there will be.
+A row is a path, ``(i,)`` on a root index and ``(i, j)`` for the j-th row
+made under ``(i,)``, so a unit deep in the tree finds its row on a parent
+index by cutting its path short. Rows are made when the unit producing the
+series writes it; until then nobody knows how many there will be.
 
-This table keeps everything a run has written, one value per field and
-row, and answers the engine's two questions: is this unit ready, and
-what does it run with. The engine is a loop over those calls. Nothing in
-here is asynchronous and nothing in here schedules.
+The ledger keeps everything a run has written, one value per field and
+row, and answers the engine's two questions: is this unit ready
+(``unit_is_ready``), and what does it run with (``inputs_for``). The engine
+is a loop over those calls. Nothing in here is asynchronous and nothing in
+here schedules.
 
-Readiness is kept rather than recomputed. Checking every unit after every
-write would cost the square of the rows, so ``record`` returns the units
-its write could have made ready, and only those are checked: the readers
-of the written value at its row and below, the units a new row creates,
-and a reduction whose group is now complete. ``unit_is_ready`` stays the
-definition, and ``units_ready_to_start`` asks it of every unit when a leg starts and
-when it goes quiet, where a ready unit nobody started is a bug.
+Compile decided how each unit receives each input and who reads what; both
+are read here from ``EngineLookups``, never worked out again from types or
+indexes. A ``ReceiveMode`` says what to hand a unit: ``PerRow`` the value at
+its row, ``Broadcast`` the one value there is, ``EntireValue`` everything on
+the field, ``RowsUnder`` the rows under its row cut to a depth, ``Gather``
+unrelated sources collected onto the input's own index, ``Merge`` one table
+from every source.
 
-How a unit receives each input, and who reads what, are compile's
-decisions, read here: a node's ``_reads``, an output's ``_read_by``, and
-per index who runs on it and what sits on it (on the field that makes the
-index's rows, ``CompiledField._makes_rows`` and its kin). A node's ``_runs_per_row_of`` is read the
-same way, for other
-callers: the engine runs only a graph whose every node is ready. Every
-input carries a receive record (``CompiledField.receives``, from
-``conductor._internal.graph.receive_modes``). ``PerRow`` takes the value at the unit's own
-row, ``Broadcast`` the one value there is, ``EntireValue`` everything on the
-field, ``RowsUnder`` the rows under the unit's row cut to a depth, and
-``Gather`` unrelated sources collected onto the input's own index. The
-this module switches on the record to say when a unit is ready and what to
-hand it, and derives none of this from types or indexes itself.
-
-A blank is a value: ``None`` in a table's cell or written by a node. A
-unit is not called when a blank reaches an input that does not say
-``| None``: its outputs are blank at that row, a ``choice`` output is
-skipped (no branch was chosen), and an output that makes rows has no rows
-there. ``Series[X]`` leaves blanks out row by row. Order at a unit: not
-ready, skip, blank.
-
-A skip has a depth. ``SKIPPED`` written at row ``k`` means the field
-holds nothing at ``k`` and at every row under it. A unit that returns
-``SKIPPED`` writes it at its own row. A reader looks for a skip at its
-own row and at every shorter prefix, and re-emits it at the depth it
-found it. A unit whose every series output is skipped makes no rows, so
-a node that would run per row of that index runs once at the shorter row
-instead. That is how a skip keeps its reach down a chain.
-
-A reduction over a group with no rows may be called with an empty series
-just before a skip from a sibling row reaches above that group. What it
-returned is then hidden by the skip, so a run's results don't depend on
-which came first, though the number of calls can.
-
-What it holds is the run's state: ``state()`` writes that down when a leg
-ends or a checkpoint is due, and ``restore`` starts the next leg from it, working the rows out again
-from the values. Nothing is pruned, so a unit done in one leg stays done in
-the next. A value written here has already passed its output's check
-(``conductor._internal.execution.validate_unit_outputs``); inside a leg it is trusted.
+What the ledger holds is the run's state: ``state`` writes it down when a
+leg ends or a checkpoint is due, and ``restore`` starts the next leg from
+it, working the rows out again from the values. Nothing is pruned, so a unit
+done in one leg stays done in the next. A value written here has already
+passed its output's check (``conductor._internal.execution.validate_unit_outputs``);
+inside a leg it is trusted.
 """
 
 from __future__ import annotations
@@ -112,9 +80,10 @@ if TYPE_CHECKING:
     from conductor._internal.graph.compiled_node import CompiledField
     from conductor._internal.graph.engine_lookups import EngineLookups
 
-#: One run of one node: the node id and the row it runs on — ``()`` for
-#: a node that runs once; a row shorter than the index the node runs per row of, for the one
-#: unit standing in for rows a skip above them never let be made.
+#: One run of one node: the node id and the row it runs on, ``()`` for a node
+#: that runs once. A unit on a row shorter than its node's index is a unit
+#: above the rows: there is one for each place a skip left that index with no
+#: rows, so the node still finishes and passes the skip on.
 Unit = tuple[str, Row]
 
 _MISSING = object()
@@ -126,11 +95,16 @@ _NO_VALUES: Mapping[Row, Any] = MappingProxyType({})
 class SkippedAtRow:
     """This unit does not run: ``SKIPPED`` was found at row ``row`` on something it reads.
 
-    ``row`` is the unit's own row, or a shorter prefix when the skip sits
-    above it. The unit re-emits ``SKIPPED`` at ``row``, so the skip keeps its
-    reach down the chain.
-    Written and read inside this module only. Not the same thing as
-    ``SKIPPED``, which is the value a node returns and carries no row.
+    A skip has a depth. ``SKIPPED`` written at a row means the field holds
+    nothing at that row or at any row under it. A reader looks for a skip at
+    its own row and at every shorter row, and writes it again at the row it
+    found it, so the skip keeps its reach down the chain. ``row`` is the unit's
+    own row or that shorter one. A unit whose every series output is skipped
+    makes no rows, so a node running per row of that index runs once at the
+    shorter row instead.
+
+    Written and read inside this module only. Not ``SKIPPED`` itself, the value
+    a node returns, which carries no row.
     """
 
     row: Row
@@ -138,13 +112,20 @@ class SkippedAtRow:
 
 @dataclass(frozen=True, slots=True)
 class BlankInputsStopCall:
-    """This unit does not run: a blank reached these inputs, which take none."""
+    """This unit does not run: a blank reached these inputs, which take none.
+
+    A blank is a value: ``None`` in a table's cell or written by a node. Its
+    outputs are blank at that row, a ``choice`` output is skipped (no branch
+    was chosen), and an output that makes rows has no rows there. A
+    ``Series[X]`` input leaves blanks out row by row. A unit is checked in
+    this order: not ready, skip, blank.
+    """
 
     blank_inputs: tuple[str, ...]
 
 
 def _rows_from_root_to(row: Row) -> Iterator[Row]:
-    """Every prefix of ``row`` from ``()`` to ``row`` itself."""
+    """Every row on the path from ``()`` down to ``row``, ``row`` included."""
     for depth in range(len(row) + 1):
         yield row[:depth]
 
@@ -160,7 +141,7 @@ def _reads_one_value_at_row(receive_mode: ReceiveMode) -> bool:
 
 
 class RunLedger:
-    """The live state of one run over one compiled graph, and what it makes ready.
+    """The record of one run over one compiled graph, and what it makes ready.
 
     Built empty for a first leg, or from the ``state()`` of an earlier leg by
     ``restore``. The engine is the only caller.
@@ -199,7 +180,7 @@ class RunLedger:
         #: Kept in the order units finished, which ``state`` then has little to sort.
         self._done: dict[Unit, None] = {}
         #: Per node that runs once per row, how many of its units are done:
-        #: at a row of its index, and standing in at a shorter row.
+        #: on a row of its index, and above its rows.
         self._units_done_on_rows: dict[str, int] = {}
         self._units_done_above_rows: dict[str, int] = {}
         #: Units waiting on a person, each as the state carries it.
@@ -210,16 +191,15 @@ class RunLedger:
         #: under — its rows in order and how many from the first are written.
         #: Kept once every row of the group is made, so no row is read twice.
         self._written_rows: dict[tuple[Ref, Row], tuple[list[Row], int]] = {}
-        #: Per group more than one level above its index's rows that is still
+        #: Per group more than one row above its index's rows that is still
         #: being made, the parent rows under it and how many from the first are made.
         self._parent_rows_made: dict[tuple[str, Row], tuple[list[Row], int]] = {}
 
-        # Who reads what, and what runs on each index, is compile's read plan
-        # (``CompiledField._makes_rows``, ``CompiledField._read_by`` and their
-        # kin), looked up where a write needs it. Built here: each node's place
-        # in the execution order, and the rows of every list set on a node
-        # whose own index is a root, made from the graph as it is now so a
-        # restore never takes them from a stored state.
+        # Who reads what and what runs on each index come from compile
+        # (``EngineLookups``), looked up where a write needs them. Built here:
+        # each node's place in the execution order, and the rows of every list
+        # on a node whose own index is a root, made from the graph being run
+        # so a restore never takes them from a stored state.
         order = compiled.execution_order
         self._execution_position = {node_id: position for position, node_id in enumerate(order)}
         roots: list[str] = []
@@ -249,12 +229,11 @@ class RunLedger:
             next_up.extend(self._seal_lists_on_nodes_under(index_id, []))
         self._seal_indexes_whose_makers_are_complete(next_up)
 
-    # -- the read plan, as compile stored it -----------------------------------
+    # -- what compile stored ----------------------------------------------------
 
     def _field_making_rows_of(self, index_id: str) -> CompiledField:
-        """The field that makes an index's rows and carries its read plan: a
-        series output, or an input holding a list set on its node, as compile
-        recorded it."""
+        """The field that makes an index's rows: a series output, or an input
+        holding a list set on its node."""
         return self._lookups.field_making_rows_of_index[index_id]
 
     def _indexes_made_per_row_of(self, index_id: str) -> list[str]:
@@ -319,17 +298,15 @@ class RunLedger:
         return {node_id for node_id, _ in self._done if self.node_is_complete(node_id)}
 
     def unit_is_at_a_real_row(self, unit: Unit) -> bool:
-        """Whether this unit is at a row of its node's index: one ``progress``
-        counts. A unit of a node that runs once, or one standing in at a
-        shorter row for rows never made, is not."""
+        """Whether this unit is on a row of its node's index, the rows
+        ``progress`` counts. A unit of a node that runs once, or a unit above the rows, is not."""
         node_id, row = unit
         runs_per_row_of = self._lookups.runs_per_row_of[node_id]
         return runs_per_row_of is not None and len(row) == runs_per_row_of.depth
 
     def progress(self, node_id: str) -> tuple[int, int | None]:
         """``(done, total)`` rows for a node; ``total`` is ``None`` until the
-        node's index is sealed. Cover units stand in for rows that were never
-        made, so they count in neither number."""
+        node's index is sealed. Units above the rows count in neither number."""
         runs_per_row_of = self._lookups.runs_per_row_of[node_id]
         if runs_per_row_of is None:
             return int((node_id, ()) in self._done), 1
@@ -337,9 +314,8 @@ class RunLedger:
         return self._units_done_on_rows.get(node_id, 0), total
 
     def _units_under(self, node_id: str, row: Row) -> list[Unit]:
-        """This node's units at ``row`` or beneath it, in no particular order —
-        not counting a unit standing in at a shorter row, which is ready
-        the moment it exists."""
+        """This node's units at ``row`` or beneath it, in no particular order,
+        not counting a unit above the rows, which is ready the moment it exists."""
         runs_per_row_of = self._lookups.runs_per_row_of[node_id]
         if runs_per_row_of is None:
             return [(node_id, ())] if row == () else []
@@ -354,7 +330,7 @@ class RunLedger:
         node_id, row = unit
         runs_per_row_of = self._lookups.runs_per_row_of[node_id]
         if runs_per_row_of is not None and len(row) < runs_per_row_of.depth:
-            return True  # standing in at a shorter row: the skip above it is already known
+            return True  # a unit above the rows: the skip above it is already known
         return all(self._read_ready(ref, receive_mode, row) for ref, receive_mode in self._lookups.reads[node_id])
 
     def units_ready_to_start(self) -> list[Unit]:
@@ -398,7 +374,7 @@ class RunLedger:
             return True
         no_rows_under = self._no_rows_under.get(index.id, ())
         if any(row_on_path in no_rows_under for row_on_path in _rows_from_root_to(group_row)):
-            return False  # the unit standing in at that shorter row has not run yet
+            return False  # the unit above the rows there has not run yet
         if len(group_row) == index.depth:
             made = group_row in self._rows.get(index.id, ())  # the group is the row itself
         else:
@@ -507,7 +483,7 @@ class RunLedger:
                     ((values[inp.name], _),) = found
                 else:
                     values[inp.name] = self._series_on_rows(node_id, binding.refs, index, self._rows_under(index.id, group_row))
-        blank = tuple(name for name in node._inputs_refusing_a_blank if values.get(name, _MISSING) is None)
+        blank = tuple(name for name in node._inputs_rejecting_a_blank if values.get(name, _MISSING) is None)
         if blank:
             return BlankInputsStopCall(blank)
         if node._series_inputs_leaving_blanks_out:
@@ -571,7 +547,7 @@ class RunLedger:
         return covering, skips
 
     def _static_or_default_for_unit(self, receive_mode: ReceiveMode, value: Any, own: Ref, row: Row = ()) -> Any:
-        """A value the author typed (or the declared default) as the unit receives it.
+        """A static (or the declared default) as the unit receives it.
 
         Received whole, it is a series on the input's own index; received
         per row of an index of the input's own, it is a list set on the node
@@ -645,16 +621,19 @@ class RunLedger:
         ``SKIPPED``, or a list of cells for an output that makes a row per
         value. A scalar output is one value at the unit's row; so is
         ``SKIPPED`` on any output. A many-valued output makes rows under the
-        unit's row on an index of its own — ``(child_position,)`` for a node that ran once,
-        ``row + (child_position,)`` for one running per row — so two of them from one unit
+        unit's row on an index of its own — ``(j,)`` for a node that ran once,
+        ``row + (j,)`` for one running per row — so two of them from one unit
         may differ in length. A skipped one leaves its index with no rows
         under that row; an empty one makes no rows and leaves an empty group,
-        so a reduction over it still runs. A table is one value, and makes
+        so a reduction over it still runs. Such a reduction may be called with an
+        empty series just before a skip from another row reaches above its group;
+        what it returned is then hidden by the skip, so a run's results don't
+        depend on which came first, though the number of calls can. A table is one value, and makes
         rows on its columns' index only when something reads a column. For a
         ``BlankInputsStopCall`` unit each output is its blank (``_blank_of``).
 
         The units returned are the ones this write could have made ready and
-        that answer ``unit_is_ready`` now, in execution order; the engine starts
+        that answer ``unit_is_ready``, in execution order; the engine starts
         those and asks nothing else.
         """
         node_id, row = unit
@@ -826,6 +805,12 @@ class RunLedger:
     ) -> list[Unit]:
         """The units ``unit``'s record could have made ready, that are ready.
 
+        Readiness is kept rather than recomputed: checking every unit after
+        every write would cost the square of the rows, so a write returns the
+        units it could have made ready, and only those are checked. Asking
+        every unit (``units_ready_to_start``) is for where a leg starts and
+        where it goes quiet, where a ready unit nobody started is a bug.
+
         A unit's readiness reads values of its inputs, the rows made on the
         indexes those values and the unit itself sit on, and which of those
         indexes are sealed. So the candidates are: a scalar reader of a
@@ -833,7 +818,7 @@ class RunLedger:
         the write completed, or everything under a skip above that group;
         the units new rows or an empty row create, on an index this node's
         outputs make or on a list set on a node beneath it; a series reader of
-        such an index whose group is made now that this unit is done or the
+        such an index whose group is made once this unit is done or the
         index is sealed.
         """
         _, row = unit
@@ -873,7 +858,7 @@ class RunLedger:
         return sorted(unit_is_ready, key=lambda unit: (self._execution_position[unit[0]], unit[1]))
 
     def _add_group_readers_further_down(self, index_id: str, row: Row, made_ready: set[Unit]) -> None:
-        """Wake the readers of every index under ``index_id`` whose group sits at or above ``row``."""
+        """Add the readers of every index under ``index_id`` whose group sits at or above ``row``."""
         for child in self._indexes_made_per_row_of(index_id):
             for reader, ref, depth in self._group_readers_of(child):
                 if 0 < depth <= len(row):
@@ -888,7 +873,7 @@ class RunLedger:
     # -- waiting on a person ---------------------------------------------
 
     def mark_waiting(self, unit: Unit, asked: WaitingUnit) -> None:
-        """Park this unit: its node asked a person. It and whatever reads it wait."""
+        """Hold this unit as waiting: its node asked a person. It and whatever reads it wait."""
         self._waiting[unit] = asked
 
     def is_waiting(self, unit: Unit) -> bool:
@@ -956,21 +941,21 @@ class RunLedger:
 
     @classmethod
     def restore(cls, compiled: CompiledGraph, state: RunState) -> RunLedger:
-        """Live values holding what an earlier leg recorded, over the graph as it is now.
+        """A ledger holding what an earlier leg recorded, over the graph being run.
 
         Every node ``compiled.nodes_changed_since(state)`` names is left out,
         so its units run again; a node gone from the graph drops with them.
         The rest is restored, each value through its output's check. The rows
         are not stored: each finished unit's values make them again, as its
         write did (``_remake_rows``), and the indexes whose producers are
-        complete are sealed again. The rows of a list set on a node come from
-        the graph as it is now, as for a fresh run.
+        complete are sealed again. The rows of a list on a node come from
+        the graph being run, as for a fresh run.
 
         A stored value that does not read as its output's type, a value or a
         unit at a row its field or node has no place for, and a value for a
         field the graph does not have are all reported at once, as
         ``InvalidCallError`` with the code ``state_unreadable``, the columns'
-        faults first and then the units'. A ``None`` passes on any output: a
+        problems first and then the units'. A ``None`` passes on any output: a
         blank is a legal value in a state.
         """
         restored = cls(compiled)
@@ -1031,7 +1016,7 @@ class RunLedger:
 
         Per series output of a done unit: a skip at the unit's row, or at a
         shorter row its skip reached from, left that output's index with no
-        rows under the row; otherwise the output made the rows one level under
+        rows under the row; otherwise the output made the rows one step under
         the unit's row that it holds values at, none for a series that came
         back empty, and that group is made. Rows are made in order, and each
         row made makes the rows of the lists set on nodes under it, as
@@ -1099,7 +1084,7 @@ def _leave_out_blank_rows(values: dict[str, Any], names: tuple[str, ...]) -> Non
 
 
 def _rows_by_parent(by_row: Mapping[Row, Any]) -> dict[Row, list[Row]]:
-    """A column's rows grouped under the row one level above each."""
+    """A column's rows grouped under the row one step above each."""
     grouped: dict[Row, list[Row]] = {}
     for row in by_row:
         if row:
@@ -1109,7 +1094,7 @@ def _rows_by_parent(by_row: Mapping[Row, Any]) -> dict[Row, list[Row]]:
 
 def read_output_columns(compiled: CompiledGraph, state: RunState, dropped: set[str]) -> tuple[dict[Ref, dict[Row, Any]], list[Problem]]:
     """What ``state`` holds on every output of the graph, by row, each value
-    read through its output's check, and every fault found.
+    read through its output's check, and every problem found.
 
     The one reader of ``state.output_columns``: a leg restores from it and
     ``compiled.results`` reads from it. ``dropped`` (``nodes_changed_since``)
@@ -1125,7 +1110,7 @@ def read_output_columns(compiled: CompiledGraph, state: RunState, dropped: set[s
 
 
 def _read_output_column(compiled: CompiledGraph, ref: Ref, column: OutputColumn, problems: list[Problem]) -> dict[Row, Any] | None:
-    """One output's stored rows and cells, or ``None`` and the faults that stop them."""
+    """One output's stored rows and cells, or ``None`` and the problems that stop them."""
     try:
         field = compiled.field(ref)
     except KeyError:

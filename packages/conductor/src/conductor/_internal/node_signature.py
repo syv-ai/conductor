@@ -28,7 +28,7 @@ What it understands:
   per field), ``Mapping`` (the node's ``compute_outputs`` says which),
   ``None`` (no outputs), and ``X | AskPerson`` read as ``X``.
 
-Anything else inside ``Annotated`` is refused where it is written.
+Anything else inside ``Annotated`` raises where it is written.
 """
 
 from __future__ import annotations
@@ -104,7 +104,7 @@ class ParsedSignature:
 
 
 def read_signature(function: Callable[..., Any]) -> ParsedSignature:
-    """Read ``function``'s signature. Every fault is a ``NodeDeclarationError``, at import."""
+    """Read ``function``'s signature. Every mistake is a ``NodeDeclarationError``, at import."""
     hints = get_type_hints(function, include_extras=True)
     inputs: list[Input] = []
     from_run_parameters: dict[str, type] = {}

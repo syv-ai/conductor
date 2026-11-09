@@ -37,7 +37,7 @@ Three things a ``DType`` deliberately does not do:
 * **Format itself beyond text.** ``as_text`` is the one rendering hook:
   override it when a value should read differently from ``str(value)``.
 
-``Any`` is the one word an author writes for "whatever arrives"; a record
+``Any`` is what an author writes for "whatever arrives"; a record
 holds a private ``DType`` in its place, so every field's type is a
 ``DType``. ``AsItArrives`` marks an open input received whole,
 ``**inputs: AsItArrives``. A plain Python type (``str``, ``int``, ``float``,
@@ -45,15 +45,15 @@ holds a private ``DType`` in its place, so every field's type is a
 place, ``dtype_of``: nothing past it knows a plain type from one written with
 ``DType``. A value of such a type stays plain. So ``class Text(DType, str)``
 is for a type of your own, one that restricts which edges land on it, or
-carries a title for a palette; a ``str`` is what a node otherwise writes. A
+carries a title for an editor; a ``str`` is what a node otherwise writes. A
 type no edge can carry (``list[Branch]``) closes its input.
 
 Conductor defines no concrete ``DType`` except ``Series``. Which types
 exist is the host application's decision, made on its ``NodeRegistry``:
 the types its nodes declare plus the ``types`` a host names are that
-registry's vocabulary, and nothing is recorded process-wide. Declaring a
+registry's types, and nothing is recorded process-wide. Declaring a
 type is therefore free of side effects — a notebook cell can declare the
-same ``Text`` twice — and one id claimed by two classes is refused where
+same ``Text`` twice — and one id claimed by two classes raises where
 the second reaches a registry, never at class definition.
 """
 
@@ -101,8 +101,8 @@ class DType(ABC, metaclass=_DTypeMeta):
     base itself has no ``id`` and is never on an edge.
 
     A subclass is a type of its own and names itself: a class that leaves
-    ``id`` to its parent is refused at definition, since a ``EntireValue`` that
-    quietly travels as ``number`` is the mistake nobody sees.
+    ``id`` to its parent raises at definition, since a type that quietly
+    travels under its parent's ``number`` is the mistake nobody sees.
     """
 
     #: Stable identifier, used by the persisted graph and the frontend.
@@ -144,7 +144,7 @@ class DType(ABC, metaclass=_DTypeMeta):
         An object rather than a string, so nothing downstream parses a
         type. ``Series`` overrides this to nest its element type. Where a
         value of this type may land — every type whose ``accepts`` admits
-        it — is a question about a vocabulary, so it is the registry's
+        it — is a question about a set of types, so it is the registry's
         answer (``NodeRegistry.accepted_as``), served once per type in
         ``NodeRegistry.describe()`` rather than on every field's record.
         """
@@ -246,7 +246,7 @@ class _FloatThatIsNotFinite(DType, float):
 class _UntypedValue(DType):
     """What a record holds where an author wrote ``Any``: whatever arrives,
     until compile types it from the edge. A host asking "is this untyped?"
-    reads ``dtype.id == "any"``, the word on the wire."""
+    reads ``dtype.id == "any"``, the id on the wire."""
 
     id = "any"
     display_title = "Any"
@@ -283,7 +283,7 @@ class _PlainPythonType(DType):
     Its values are instances of the plain type, unwrapped, and its schema is
     the plain type's. ``plain_python_dtype`` builds one per type, and an author never
     sees it. One an edge can carry is named after the type (``{"id": "str"}``)
-    and is a word of a registry's vocabulary; any other is a setting, typed in
+    and is a type a registry holds; any other is a setting, set
     on a closed input and never on an edge (``{"id": "setting", "of": "list"}``)."""
 
     id = "setting"
@@ -395,7 +395,7 @@ def type_name_for_sentence(declared: Any) -> str:
 
 
 def _validate_dtype_field(value: Any) -> type[DType]:
-    """Validator for a ``DTypeField`` field: whatever ``dtype_of`` makes a type; anything else is refused."""
+    """Validator for a ``DTypeField`` field: whatever ``dtype_of`` makes a type; anything else raises."""
     declared = dtype_of(value)
     if declared is None:
         raise ValueError(f"dtype must be a DType, a type an edge can carry or Any, not {value!r}")

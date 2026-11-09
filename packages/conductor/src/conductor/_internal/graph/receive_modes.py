@@ -1,10 +1,9 @@
 """How an input receives its value: one row at a time, one value everywhere, the whole thing, the rows under a row, a gathering, or a merge.
 
-A node in a graph runs as units, one per row of its index (``runs_per_row_of``)
-(or one unit when it runs once). For every input, the question this
+A node in a graph runs as units, one per row of its index, or one unit when it runs once. For every input, the question this
 module answers is: *at a unit's row, which of the input's values does the
 unit receive?* Compile answers it once, while it walks the edges, and
-stores the answer on the field (``CompiledField.receives``). The engine's
+stores the answer on the field (``CompiledField._receive_mode``). The
 engine reads that record to decide when a unit is ready and what to hand
 it, and never works the answer out again from the types and indexes.
 
@@ -12,7 +11,7 @@ Six records, one per input, named for what happens to the value on its
 way in. ``PerRow`` takes a series one row at a time: a scalar input fed
 a series, so the node runs once per row and each unit takes the value at
 its own row. ``Broadcast`` copies one value to every unit: a scalar fed by a
-node that ran once, a typed-in value, a default. ``EntireValue`` leaves the
+node that ran once, a static, a default. ``EntireValue`` leaves the
 value as it sits on the field: a ``Series[X]`` input fed one series on a
 root index takes it entire, and a ``**inputs`` name takes whatever its
 edge carries. ``RowsUnder`` takes all the rows under the unit's own row, flat: a
@@ -20,12 +19,11 @@ edge carries. ``RowsUnder`` takes all the rows under the unit's own row, flat: a
 several series on different indexes — onto a fresh index that belongs
 to the input. ``Merge`` makes one table of everything wired into a
 ``Table`` input, matched on the rows' ids, each source received by a
-record of its own.
+mode of its own.
 
 These say how a value is *received*, not where it comes from: the
-binding (an edge from another node's output, or a value the author
-typed) is a different record on the same field, and an output has no
-receive record at all.
+binding (an edge from another node's output, or a static) is a different
+record on the same field, and an output has no receive mode at all.
 """
 
 from __future__ import annotations
@@ -53,8 +51,8 @@ class PerRow:
 class Broadcast:
     """The unit receives the one value there is, the same at every unit.
 
-    A scalar input fed by an edge from a node that ran once, a value the
-    author typed, or a default. The node does not run per row because of
+    A scalar input fed by an edge from a node that ran once, a static,
+    or a default. The node does not run per row because of
     this input; when it runs per row for another, this value is copied to
     every row.
     """
@@ -77,8 +75,8 @@ class RowsUnder:
     """The unit receives the rows of ``index`` under its own row cut to ``depth``.
 
     A ``Series[X]`` input fed a series on a child index reduces the rows
-    under the node's row, however many levels down they sit, flat; ``depth``
-    is the deepest level above them that the node's row sits on. Inside an embedded graph that runs once per outer row, a
+    under the node's row, however many steps down they sit, flat; ``depth``
+    is that of the deepest index above them that the node's row sits on. Inside an embedded graph that runs once per outer row, a
     series that entered through a scalar field is reduced one row at a
     time — ``depth`` is then the index's own, and the group is one row.
     """

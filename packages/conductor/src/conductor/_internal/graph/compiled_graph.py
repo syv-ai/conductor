@@ -26,7 +26,7 @@ what it lacks: its ``interface`` or its ``wiring`` is ``None``, and its
 saved it) and addresses fields by ``Ref``; what compile learned about that
 node or field lives on its ``CompiledNode`` and ``CompiledField``.
 
-The words this module uses throughout, each defined once here.
+The terms this module uses throughout, each defined once here.
 
 A node's interface is the list of inputs and outputs it actually has.
 Usually that is what its version declares, but a node may add or drop
@@ -132,7 +132,7 @@ class CompiledGraph:
 
         Pure: the same graph and registry always give the same result. Every
         definition the graph names must already be in the registry. Nothing
-        raises for a fault in the graph; read ``problems`` and ``is_runnable``.
+        raises for a problem in the graph; read ``problems`` and ``is_runnable``.
         A node's hook that raises anything but ``ComputeHookError`` is a bug in
         the node, and that exception leaves here as it is.
         """
@@ -202,19 +202,19 @@ class CompiledGraph:
             compiled.with_inputs({"a.text": "hello"}, count=3)
 
         ``inputs`` is keyed by address (``a.text``, ``emb.text`` on a node that
-        is a graph); a keyword is a field name when no other input has that name. A name the interface does not offer is refused with
+        is a graph); a keyword is a field name when no other input has that name. A name the interface does not offer raises
         ``InvalidCallError``, code ``not_offered``, every such name at once.
         Each value becomes a ``Static`` on its input in a copy of the graph,
         which compiles against the same registry: a list on an input for one
         value runs the graph once per item. A value its input's type can't
         read is an ``invalid_static``, raised with any names it doesn't offer.
-        The copy still offers every input. Not a run.
+        The copy offers every input as this one does. Not a run.
         """
         return self._recompiled_with({**(inputs or {}), **by_name}, (), raise_on_unreadable_values=True)
 
     def _recompiled_with(self, values: Mapping[str, Any], input_names_to_clear: Iterable[str], *, raise_on_unreadable_values: bool = False) -> CompiledGraph:
-        """This graph compiled again with ``values`` typed on the inputs they
-        name and the values its author typed on the ``statics_to_remove`` inputs taken
+        """This graph compiled again with ``values`` set on the inputs they
+        name and the statics on the inputs in ``input_names_to_clear`` taken
         off, so they arrive at run time. ``with_inputs`` for a caller; a
         graph that embeds this one asks for the copy one graph node fills. Names are read as ``with_inputs`` reads them.
         A graph that embeds this one wants a value its input can't read as
@@ -252,7 +252,7 @@ class CompiledGraph:
         return refilled
 
     def _offered_input_named(self, name: str, offered: list[Ref], problems: list[Problem]) -> Ref | None:
-        """The input a keyword to ``with_inputs`` names; or ``None``, and the fault that lists what is offered."""
+        """The input a keyword to ``with_inputs`` names; or ``None``, and the problem that lists what is offered."""
         names = offered_names(offered)
         matches = [ref for ref in offered if ref == name or names[ref] == name]
         if matches:
@@ -287,7 +287,7 @@ class CompiledGraph:
         """Every decision a caller could observe: for each node that runs
         once and declares a ``choice`` group, the group's alternatives in
         field order, keyed by node id. A node that runs per row is
-        left out: its decision picks rows and gates nothing downstream. So
+        left out: its decision picks rows and holds back nothing downstream. So
         is a node that is not ready: whether it runs per row is not
         known."""
         groups_by_node: dict[str, dict[str, tuple[str, ...]]] = {}
@@ -323,7 +323,7 @@ class CompiledGraph:
 
         The first event is ``RunStart`` and the last ``RunEnd``, whose ``state``
         says how the leg ended. Every check is made at this call, before the
-        block is entered, so a refused start raises here (``InvalidCallError``).
+        block is entered, so a start that can't go raises here (``InvalidCallError``).
 
         ``state`` is where to go on from, ``None`` for a fresh run: a node the
         graph has changed since, and whatever reads it, runs again. ``from_run``
@@ -379,7 +379,7 @@ class CompiledGraph:
         cancel: asyncio.Event | None = None,
     ) -> RunState:
         """``run`` for a script or a test. Inside a running event loop it
-        refuses, since ``asyncio.run`` cannot nest: ``await compiled.run(...)``."""
+        raises, since ``asyncio.run`` cannot nest: ``await compiled.run(...)``."""
         try:
             asyncio.get_running_loop()
         except RuntimeError:
@@ -391,7 +391,7 @@ class CompiledGraph:
 
         ``answers`` maps ``WaitingUnit.id`` to a value per output, or to
         ``None`` for no value on that row. Every answer is checked here, with a
-        wrong one refused from this call (``InvalidCallError``, every fault at
+        wrong one raises from this call (``InvalidCallError``, every problem at
         once) and ``state`` untouched. A unit left out goes on waiting, so
         people can answer rows days apart. ``run`` the result to go on.
         """
@@ -408,9 +408,9 @@ class CompiledGraph:
         reads it, is left out.
         """
         dropped = set(self.nodes_changed_since(state))
-        values, faults = read_output_columns(self, state, dropped)
-        if faults:
-            raise InvalidCallError(faults)
+        values, problems = read_output_columns(self, state, dropped)
+        if problems:
+            raise InvalidCallError(problems)
         produced: dict[str, dict[str, Any]] = {}
         for node_id in self._execution_order:
             if node_id in state.finished_rows and node_id not in dropped:
@@ -454,12 +454,12 @@ class CompiledGraph:
 
     def nodes_changed_since(self, state: RunState, /) -> list[str]:
         """Every node ``state`` holds nothing current for, in execution order,
-        then the nodes it names that the graph no longer has.
+        then the nodes it names that the graph doesn't have.
 
         Changed means its fingerprint differs or is missing: a static edited,
         a version bumped, an edge moved. Whatever reads such a node is in the
         answer too, directly or through other nodes. The one place that decides
-        what is stale; a host wanting a strict pin refuses when the list is
+        what is stale; a host wanting a strict pin rejects the run when the list is
         not empty.
         """
         self._raise_unless_runnable()
@@ -472,7 +472,7 @@ class CompiledGraph:
     def _readers_of(self, node_ids: Iterable[str]) -> set[str]:
         """Every node that reads a field of one of ``node_ids``, directly or
         through other nodes: an output, or a column of a table output. Walked
-        over the read plan on each call rather than stored, since every node's
+        over the lookups on each call rather than stored, since every node's
         readers stored would cost memory quadratic in a long chain."""
         read_by = self._engine_lookups.read_by
         found: set[str] = set()
@@ -486,7 +486,7 @@ class CompiledGraph:
         return found
 
     def _raise_unless_runnable(self) -> None:
-        """Refuse any verb on a graph with a fatal problem, naming every one."""
+        """Raise for any verb on a graph with a fatal problem, naming every one."""
         if not self.is_runnable:
             raise InvalidCallError(problem for problem in self.problems if problem.fatal)
 
@@ -494,5 +494,5 @@ class CompiledGraph:
 
     @property
     def is_runnable(self) -> bool:
-        """True when nothing fatal was found. A run refuses otherwise."""
+        """True when nothing fatal was found. A run raises otherwise."""
         return not any(problem.fatal for problem in self.problems)

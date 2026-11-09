@@ -1,4 +1,4 @@
-"""How a value an author typed into a node's input reads: one value, or many.
+"""How a static reads: one value, or many.
 
 A stored ``Static`` holds JSON: a file comes back as a dict, an authored
 schema as a list. Each is read here once, through its field's declared type.
@@ -25,7 +25,7 @@ from conductor._internal.table import is_table_or_series_of_tables, missing_colu
 
 
 def read_static_values(inputs: Iterable[Input], node: GraphNode) -> tuple[dict[str, Any], frozenset[str], list[Problem]]:
-    """Every value the author typed into ``node`` on ``inputs``, typed; which of them hold many values; and the values no type could read."""
+    """Every static on ``node`` for ``inputs``, read through its type; which of them hold many values; and the problems no type could read."""
     values = static_values(node.bindings)
     if not values:
         return {}, frozenset(), []

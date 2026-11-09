@@ -1,6 +1,6 @@
 """One node, compiled from the nodes compiled above it.
 
-Find its definition and version; read what the author typed; ask
+Find its definition and version; read the statics; ask
 ``compute_inputs``; check its bindings; wire each input from the nodes above;
 ask ``compute_outputs``; build its fields. It returns at the first stage that
 can't go on, with what it has, and the node says so by what it lacks
@@ -191,11 +191,11 @@ def _graph_as_this_node_fills_it(
 ) -> tuple[CompiledGraph, bool]:
     """The compiled graph as this graph node fills it, and whether it can be embedded.
 
-    A value typed on an embedded graph's input belongs to the node inside, and
+    A static on an embedded graph's input belongs to the node inside, and
     an outer edge into an input the graph's own author filled replaces that
-    value. Mostly that just puts the value or edge on the inner field. But a
+    static. Mostly that just puts the value or edge on the inner field. But a
     value can decide something when compile runs: a list makes the node
-    holding it run per item, and a hook reads the values typed on its node.
+    holding it run per item, and a hook reads the statics on its node.
     Only then is the graph compiled again with the graph node's values.
     """
     embeddable = stored._embeddable
@@ -209,8 +209,8 @@ def _graph_as_this_node_fills_it(
     problems_found = recompiled_graph._embeddable.problems
     if not problems_found:
         return recompiled_graph, True
-    # A fault this graph node's own values brought in is its author's to fix,
-    # so it is reported where they typed it; every other fault is the graph's.
+    # A problem this graph node's own values brought in is its author's to fix,
+    # so it is reported where they set it; every other problem is the graph's.
     existing_problems = {(problem.type, problem.loc) for problem in embeddable.problems} if recompiled_graph is not stored else None
     problems_from_this_node = [problem for problem in problems_found if existing_problems is not None and (problem.type, problem.loc) not in existing_problems]
     for problem in problems_from_this_node:
@@ -227,7 +227,7 @@ def _bindings_can_be_wired(
     """The stored bindings against the inputs the node actually has, and those
     inputs against the field rules. ``False`` when its edges can't be wired.
 
-    A typed required input left empty is fatal but wiring goes on: its type is
+    A required input left empty is fatal but wiring goes on: its type is
     declared, so the node and everything after it are still worked out."""
     declared = {input_.name: input_ for input_ in inputs}
     if node.locked:
@@ -281,7 +281,7 @@ def _interface_without_wiring(
     try:
         answered = _outputs_after_compute_outputs(version, inputs_read.arriving_types, statics)
     except ComputeHookError:
-        # The broken source carries the fault; a refusal about its missing
+        # The broken source carries the problem; a problem about its missing
         # arrival would report the same fact twice.
         answered = ()
     inputs_typed_by_their_edges = tuple(_with_type_from_its_edge(inp, inputs_read.type_given_by_edge) for inp in inputs)
@@ -290,7 +290,7 @@ def _interface_without_wiring(
 
 
 def _outputs_after_compute_outputs(version: Any, arriving_types: dict[str, Any], statics: dict[str, Any]) -> tuple[Output, ...]:
-    """What ``compute_outputs`` answers now that it can be told what arrives; a compiled graph has no hooks."""
+    """What ``compute_outputs`` says once it can be told what arrives; a compiled graph has no hooks."""
     if not isinstance(version, NodeVersion) or version.compute_outputs is None:
         return _interface_it_declares(version).outputs
     values = {**{input_.name: input_.default for input_ in version.interface.inputs if not input_.required}, **statics}

@@ -41,6 +41,8 @@ class RunStart(_EventBase):
 
 
 class NodeStart(_EventBase):
+    """A node's first unit started; never again for that node, on this or a later leg."""
+
     type: Literal["node_start"] = "node_start"
     node_id: str
 
@@ -67,6 +69,8 @@ class NodeComplete(_EventBase):
 
 
 class NodeSkipped(_EventBase):
+    """Every unit of this node was skipped and it produced nothing, not even a blank."""
+
     type: Literal["node_skipped"] = "node_skipped"
     node_id: str
 
@@ -81,6 +85,9 @@ class NodeFailed(_EventBase):
 
 
 class NodeRetry(_EventBase):
+    """An attempt failed on the outside world and is being tried again: try
+    ``attempt`` of ``retries``, on ``row``, after ``delay`` seconds. ``error`` is what failed."""
+
     type: Literal["node_retry"] = "node_retry"
     node_id: str
     row: Row
@@ -110,7 +117,7 @@ class RunCheckpoint(_EventBase):
 
 
 class RunEnd(_EventBase):
-    """The leg ended. ``state`` is the run as of now, for any way of ending."""
+    """The leg ended. ``state`` is the run as this leg left it, for any way of ending."""
 
     type: Literal["run_end"] = "run_end"
     state: RunState

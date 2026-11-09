@@ -17,12 +17,12 @@ an index. A child index, ``Index("lines", parent=Index("docs"))``, is made
 when a node opens a nested value one level. Each row on it is a path,
 ``(i, j)`` for the j-th row made under parent row ``(i,)``, so a row knows
 its parent by construction: a value on the parent index broadcasts down to
-the child, and a reduction on the child collapses back up to the parent.
+the child, and a reduction on the child comes back up to the parent.
 
 A series may be **sparse** — carry only some of its index's rows — which is
-what a branching node produces when it runs per row. There is no ``NA``.
+what a branching node produces when it runs per row.
 
-``Series[Series[X]]`` is refused: nesting travels as one value on one
+``Series[Series[X]]`` raises: nesting travels as one value on one
 field and is opened one level at a time by a node.
 """
 
@@ -66,7 +66,7 @@ class Index(ConductorModel):
     """
 
     id: str
-    #: The index this one was unfolded from, or ``None`` for a root.
+    #: The index this one was made under, or ``None`` for a root.
     parent: Index | None = None
 
     def __init__(self, id: str, parent: Index | None = None) -> None:
@@ -110,9 +110,8 @@ class Series(DType, Sequence[ElementT]):
     attribute, which is how compile tells a series from one value and
     ``describe()`` nests its element. Declaring an
     input as ``Series[X]`` means "give me the whole series"; the class
-    itself is never a wire type, only its parameterisations are. Neither
-    is a word of a registry's vocabulary: a series is many of something,
-    and the something is the word.
+    itself is never a wire type, only its parameterisations are. A registry
+    lists neither: a series is many of something, and the something is the type.
 
     ``rows`` may be left out on a root index, in which case the series is
     dense: ``(0,), (1,), ...``. On a child index the rows must be given,

@@ -16,27 +16,27 @@ Embedding, rule by rule:
    and an edge-fed ``Broadcast`` becomes ``PerRow``.
 3. ``EntireValue`` becomes ``RowsUnder`` at the row's depth; a ``Gather`` whose
    every source carries one value becomes ``RowsUnder`` on the row, since
-   per row the sources line up; a ``RowsUnder`` goes as many levels deeper
+   per row the sources line up; a ``RowsUnder`` goes as many rows deeper
    as the row is deep.
-4. An inner field the outer graph feeds (a crossing) takes what the outer
-   wiring decided for the graph node's field of that address.
+4. An inner field the outer graph feeds takes what the outer compile
+   decided for the graph node's field of that address.
 5. Row origins are worked out again from the node's place in the outer graph,
    by the same rule as a node drawn there, so a table that crosses in carries
    its origins through and ``row_ids_lost`` reaches a table rebuilt inside.
 
-Refusing a graph that embeds itself is the host's job, as it builds the
+A graph that embeds itself is the host's to catch, as it builds the
 versions: a compiled graph can't contain itself, but a host that swaps a
-version in place can close a loop through a value typed on an embedded
+version in place can close a loop through a static on an embedded
 graph, which compile then follows until Python's recursion limit.
 
-``/`` separates the levels inside a node id, and ``.`` stays the address
+``/`` separates the graphs inside a node id, and ``.`` stays the address
 separator, so a place in the run is a path and a field: ``approve/check.amount``.
-Only embedding writes a ``/``: an id holding one is refused (``invalid_node_id``).
+Only embedding writes a ``/``: an id holding one is the problem ``invalid_node_id``.
 
 An embedded graph has an interface of its own. Each input and output it offers
 goes by its bare name where that is unique on its side, by its address on a
 clash (``offered_names``), and from outside those names are all there is: a
-binding, a ``From``, a palette entry. A rename inside it breaks no caller.
+binding, a ``From``, an entry in an editor's list of nodes. A rename inside it breaks no caller.
 Inner addresses stay for reading a run (``approve/check``).
 """
 
@@ -108,9 +108,9 @@ class OfferedInput:
     authored_address: Ref
     #: Where the value lands in the graph that runs, ``check/inner.amount`` through a nested graph.
     address_in_run: Ref
-    #: Its author typed a value on it, so nothing needs connecting where it's embedded.
+    #: Its author set a static on it, so nothing needs connecting where it's embedded.
     has_static_inside: bool
-    #: Its author typed a list on it, so the node holding it runs once per item.
+    #: Its author set a list on it, so the node holding it runs once per item.
     list_on_node_inside: bool
     #: A hook of the node it lands on reads its value.
     read_by_a_hook: bool
@@ -126,7 +126,7 @@ class EmbeddableGraph:
     inputs: Mapping[str, OfferedInput]
     #: The outputs it offers and each column of a table output, by offered name, each with where it is in the run.
     outputs: Mapping[str, Ref]
-    #: Every fatal problem but a typed input it offers left empty, which a value from outside fills.
+    #: Every fatal problem but an input it offers left empty, which a value from outside fills.
     problems: tuple[Problem, ...]
     #: Its nodes, in the order compile met them: sources before readers.
     nodes: Mapping[str, CompiledNode]
@@ -177,7 +177,7 @@ def _problems_blocking_embedding(graph: CompiledGraph, nodes: Mapping[str, Compi
     """A graph can be embedded only when nothing in it is fatal but an input it
     offers left empty, which a value from outside fills. An empty input the
     graph doesn't offer can never be filled, and one with no type of its own
-    leaves its node unworked-out, so each stays a fault."""
+    leaves its node unworked-out, so each stays a problem."""
     offered_addresses = {inp.authored_address for inp in offered.values()}
 
     def a_value_from_outside_fills_it(problem: Problem) -> bool:
@@ -191,8 +191,8 @@ def _problems_blocking_embedding(graph: CompiledGraph, nodes: Mapping[str, Compi
 
 @dataclass(frozen=True)
 class OuterEdgeIntoGraphInput:
-    """What the outer wiring decided for one input of the graph node that an
-    outer edge feeds: the type, rows and receipt the inner field takes."""
+    """What the outer compile decided for one input of the graph node that an
+    outer edge feeds: the type, rows and receive mode the inner field takes."""
 
     type: Any
     index: Index | None
@@ -212,8 +212,8 @@ def place_inner_nodes_under_graph_node(
     """Every node of ``embeddable`` as it stands embedded at ``node_id``, running once per row of ``runs_per_row_of``.
 
     Each of ``edges``, ``outer_edges`` and ``values`` is keyed by where it lands
-    in the run: the edge connected there, what the outer wiring decided for
-    it, and the value typed on the graph node, as if typed on the inner field.
+    in the run: the edge connected there, what the outer compile decided for
+    it, and the static on the graph node, as if set on the inner field.
     ``field_above`` answers for a field outside the graph; its row origins are
     carried on through ``row_origins``, as a node drawn there would."""
     prefix = f"{node_id}{NODE_PATH_SEPARATOR}"
@@ -302,7 +302,7 @@ def _field_inside_embedding(
     field: CompiledField, outer_edges: Mapping[Ref, OuterEdgeIntoGraphInput], nodes: Mapping[str, CompiledNode], prefix: str,
     runs_per_row_of: Index | None, outer_address_of_inner_ref: Callable[[Ref], Ref],
 ) -> tuple[Any, Index | None, ReceiveMode | None]:
-    """An inner field's type, rows and receipt, as it stands embedded (rules 2-4)."""
+    """An inner field's type, rows and receive mode, as it stands embedded (rules 2-4)."""
     outer_edge = outer_edges.get(field.ref) if outer_edges else None
     if outer_edge is not None:
         return outer_edge.type, outer_edge.index, outer_edge.receive_mode
@@ -349,7 +349,7 @@ def _merge_source_mode_inside_embedding(source_receive_mode: Any, index: Index |
 
 
 def _receive_mode_inside_embedding(receive_mode: ReceiveMode, index: Index | None, prefix: str, runs_per_row_of: Index | None) -> ReceiveMode:
-    """An inner receipt as it stands embedded (rules 1 and 3)."""
+    """An inner receive mode as it stands embedded (rules 1 and 3)."""
     if isinstance(receive_mode, PerRow):
         return PerRow(index_inside_embedding(receive_mode.index, prefix, runs_per_row_of))
     if isinstance(receive_mode, RowsUnder):

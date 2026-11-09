@@ -1,6 +1,6 @@
 """``Table`` — many rows of named, typed columns, as one value.
 
-Every level conductor runs over is a table: the rows of an index are its
+Everything conductor runs over is a table: the rows of an index are its
 rows and the fields on it its columns. A whole table as one value is a
 Polars ``DataFrame``, at a node's call, in a run's state and in its results:
 a node takes one and returns one, so a CSV read in, a filter and a sort are
@@ -328,7 +328,7 @@ class Table(DType, Generic[RowsOf]):
 
     Has no instances. A value is read as it enters a run: a ``DataFrame``, a
     list of records or a table's JSON form; a table type with columns reads
-    each declared column as its type's column, refusing a value that won't read and
+    each declared column as its type's column, raising for a value that won't read and
     naming the column, and drops columns it doesn't declare. ``__row`` always
     passes through.
     """
@@ -581,7 +581,7 @@ def _read_column(column: pl.Series, dtype: type[DType]) -> pl.Series:
 
 
 def missing_column_in(invalid: ValidationError) -> str | None:
-    """The column a ``Table[...]`` value lacked, when that is what a value was refused for."""
+    """The column a ``Table[...]`` value lacked, when that is what stopped a value."""
     for error in invalid.errors(include_url=False, include_input=False):
         if error["type"] == "table_column_missing":
             return error["ctx"]["column"]
@@ -589,7 +589,7 @@ def missing_column_in(invalid: ValidationError) -> str | None:
 
 
 def _cast_column_or_raise(column: pl.Series, target: pl.DataType, type_name_for_error: str) -> pl.Series:
-    """``column`` as ``target``, a value that won't read refused, naming the column and the type it isn't.
+    """``column`` as ``target``, raising for a value that won't read, naming the column and the type it isn't.
 
     A column already of ``target``'s kind stays as it is, its parameters
     with it: a ``DType`` naming ``"Decimal"`` says nothing of the scale.

@@ -9,7 +9,7 @@ at run time, a return where no row kept its id is ``row_ids_lost``.
 
 Each output's origins sit on its field (``_row_origins``), as index ids; a
 table's rows' origins are also kept by index, for the columns and series
-that sit on them. A list typed into a node is an index of its own, and a
+that sit on them. A list on a node is an index of its own, and a
 graph embedded in another has its origins worked out by the same rule
 where it stands, so nothing stops at an embedding.
 """

@@ -7,7 +7,7 @@ row 3 can move on down the graph while row 10 is still waiting its turn.
 
 A *leg* is one call of ``CompiledGraph.run`` or ``stream``: it starts every
 unit it can, and stops when nothing more can start. The loop asks the run's
-live values (``conductor._internal.execution.run_ledger``) which units are ready
+ledger (``conductor._internal.execution.run_ledger``) which units are ready
 and queues each on its node; a unit runs as an asyncio task once its node has a free
 concurrency slot, and each record answers with the units it made ready.
 
@@ -21,8 +21,8 @@ final, and the thread keeps the node's concurrency slot until it returns.
 
 **A run has legs.** A unit whose node returned ``AskPerson`` is neither done
 nor failed: it waits, whatever reads it waits, and the rest of the graph runs
-on. Nothing resumes: the next leg is an ordinary run over live values that
-already hold what earlier legs produced, and a node the graph has changed
+on. Nothing resumes: the next leg is an ordinary run over a ledger that
+already holds what earlier legs produced, and a node the graph has changed
 since, or that reads one, runs again.
 
 **A leg can save itself while it runs.** Asked for checkpoints, the loop
@@ -131,13 +131,13 @@ class RunningLeg:
     """One leg in flight: the loop that starts ready units, and each unit's run.
 
     What ``CompiledGraph.stream`` returns. Building one makes every check a
-    start needs, so a refused start raises at the call. It is an async context
+    start needs, so a start that can't go raises at the call. It is an async context
     manager: entering it arms the watch on the host's cancel event and the
     leg's deadline and gives the event stream; leaving it — however the leg
     ended, the consumer dropping out included — stops every unit and tells
     the threads to take no more, so nothing outlives the ``async with``.
 
-    It holds what the loop and the unit tasks share: the live values, the
+    It holds what the loop and the unit tasks share: the ledger, the
     calls handed to its threads (``calls``), the nodes that
     have emitted ``node_start`` (``nodes_announced_started``), the queue the unit tasks
     report on, and each unit between being made ready and being reported
@@ -233,7 +233,7 @@ class RunningLeg:
             self.calls.put(None)
 
     async def _report_cancel(self) -> None:
-        """Wake the loop when the host sets its cancel event."""
+        """Tell the loop when the host sets its cancel event."""
         await self.cancel.wait()
         self.queue.put_nowait(_Cancelled())
 
@@ -277,11 +277,11 @@ class RunningLeg:
                 yield RunCheckpoint(state=ledger.state("running"))
                 self.last_checkpoint_at = time.monotonic()
 
-        # Quiescence: nothing in flight. Nothing may be runnable either; a
-        # ready unit nobody started is a wake that was missed.
+        # Nothing is in flight, so nothing may be ready either: a ready unit
+        # nobody started means a write missed a unit it made ready.
         missed = ledger.units_ready_to_start()
         if missed:
-            raise RuntimeError(f"{missed} are ready but were never started — a missed wake, an engine bug")
+            raise RuntimeError(f"{missed} are ready but were never started — an engine bug")
         if ledger.waiting():
             yield RunEnd(state=ledger.state("waiting"))
             return

@@ -21,7 +21,7 @@ closes the input to edges. A parameter of a type no edge can carry
 (``list[Branch]``) is closed by itself.
 
 These records are their own schema: ``dtype`` is a ``DTypeField``, so a
-dump gives the type's ``describe()``, and a palette is these records
+dump gives the type's ``describe()``, and what an editor offers is these records
 dumped. A dump does not read back into one of these records: ``dtype``
 is a ``DType`` class, never a description, and the class itself lives on
 the signature.
@@ -59,8 +59,7 @@ class Param(ConductorModel):
 
     ``title`` falls back to the parameter's name. ``widget`` is the control a
     person edits it with, or ``None`` for an input only an edge fills.
-    ``connectable`` is whether an edge can reach the input. Its twin on the
-    return is ``Result``.
+    ``connectable`` is whether an edge can reach the input.
     """
 
     title: str | None = None
@@ -80,8 +79,6 @@ class Result(ConductorModel):
 
         if_true: Annotated[Text, Result(title="If true", choice="branches")]
         if_false: Annotated[Text, Result(title="If false", choice="branches")]
-
-    Its twin on a parameter is ``Param``.
     """
 
     name: str | None = None
@@ -133,7 +130,7 @@ class Input(ConductorModel):
         annotation_without_none, says_none = split_off_none(dtype)
         dtype = dtype_of(annotation_without_none)
         if dtype is None or (not connectable and dtype is _UntypedValue):
-            # Nothing can travel here, so what is typed in is read as the plain type.
+            # Nothing can travel here, so a static is read as the plain type.
             dtype, connectable = plain_python_dtype(annotation_without_none), False
         takes_blank = says_none or annotation_without_none is Any or getattr(annotation_without_none, "element_takes_blank", False) or is_untyped(dtype)
         required = default is _NO_DEFAULT

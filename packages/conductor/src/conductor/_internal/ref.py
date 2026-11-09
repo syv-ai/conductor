@@ -29,9 +29,6 @@ two::
     'total.value'
     >>> Ref("inner.total.value") == Ref("inner", Ref("total", "value"))
     True
-
-There is deliberately no third part and no path syntax (``"rows.0.name"``):
-a nested value travels whole on one field, and opening it is a node's job.
 """
 
 from __future__ import annotations
@@ -57,9 +54,8 @@ class Ref(str):
     def __new__(cls, node_id: str, field: str | None = None) -> Ref:
         """``Ref(node_id, field)`` composes an address; ``Ref("node.field")`` reads one.
 
-        Refused: a string with no dot or an empty half (not an address), and
-        a node id containing a dot (the first dot would no longer separate
-        node from field).
+        Raises for a string with no dot or an empty half (not an address), and
+        for a node id containing a dot (the first dot must separate node from field).
         """
         if field is not None and "." in node_id:
             raise ValueError(f"node id {node_id!r} contains '.'; an address reads 'node.field'")

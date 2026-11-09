@@ -23,12 +23,11 @@ written. An upgrade sits on the version it leaves::
 
 Two hooks shape a node from what it is given in one graph, each a plain
 function whose signature says what it reads. A parameter names an input of
-the node and receives its typed value, the declared default included; a
+the node and receives its value, the static or the declared default; a
 parameter marked ``Arriving`` receives the type one call gets there, the
-edge's or that of the value typed in, and
-``**x: Arriving`` receives all of them. ``compute_inputs`` returns the
+edge's or the static's, and ``**x: Arriving`` receives all of them. ``compute_inputs`` returns the
 inputs to add, ``compute_outputs`` all the outputs. If a value it needs is
-neither typed in nor defaulted, the hook is not called and the node keeps
+neither set nor defaulted, the hook is not called and the node keeps
 what it declares.
 
 A host hands over a saved graph as a node with
@@ -79,7 +78,7 @@ class _ArrivingMark:
 
 
 #: On a ``compute_outputs`` parameter: the type one call of the node receives
-#: on that input: the edge's, or the typed-in value's when no edge is there,
+#: on that input: the edge's, or the static's when no edge is there,
 #: ``Any`` until something is. ``**x: Arriving`` receives every connected input's.
 Arriving = Annotated[type[DType], _ArrivingMark()]
 
@@ -132,7 +131,7 @@ class Policy(ConductorModel):
     #: world failed — a connection error, a timeout, a rate limit. A foreign
     #: exception of one of these classes is wrapped as ``ExternalFailure``
     #: and retried; any other is wrapped as ``NodeExecutionError`` and is
-    #: not. Left out of the dump and the schema: a palette reads the policy
+    #: not. Left out of the dump and the schema: an editor reads the policy
     #: as JSON, and a class has no JSON form.
     retry_on: SkipJsonSchema[tuple[type[BaseException], ...]] = Field(default=(), exclude=True)
 
@@ -147,7 +146,7 @@ class Upgrade:
 
     ``renamed_inputs`` moves each input's binding, lock and author-written
     content to the new name before ``rewrite`` runs. ``rewrite`` takes the
-    node's bindings as a dict, a typed-in value as itself and an edge as its
+    node's bindings as a dict, a static as itself and an edge as its
     ``From``, and returns the same shape for the next version.
     ``renamed_outputs`` moves each output's content and rewrites every edge
     in the graph that read the old name.
@@ -176,7 +175,7 @@ class _ComputeFieldsHook:
     """A ``compute_inputs`` or ``compute_outputs`` function and what its signature reads."""
 
     function: Callable[..., Iterable[Any]]
-    #: The inputs whose typed values it receives; those in ``inputs_it_cannot_run_without`` it can't be called without.
+    #: The inputs whose values it receives; those in ``inputs_it_cannot_run_without`` it can't be called without.
     inputs_it_reads: tuple[str, ...]
     inputs_it_cannot_run_without: frozenset[str]
     #: The inputs whose arriving type it receives by name, and whether it takes all of them.
@@ -187,7 +186,7 @@ class _ComputeFieldsHook:
         """The hook's fields for these values and arriving types; ``None`` when a value it needs has none.
 
         An ``Arriving`` parameter gets the edge's type, or the type of the
-        value typed in when no edge is there; ``Any`` until something is."""
+        static when no edge is there; ``Any`` until something is."""
         if not self.inputs_it_cannot_run_without <= values.keys():
             return None
         arguments = {name: values[name] for name in self.inputs_it_reads if name in values}
@@ -262,7 +261,7 @@ class NodeVersion:
 
     @property
     def inputs_read_by_hooks(self) -> frozenset[str]:
-        """The inputs whose typed-in values this version's hooks read."""
+        """The inputs whose statics this version's hooks read."""
         return frozenset(name for hook in (self.compute_inputs, self.compute_outputs) if hook is not None for name in hook.inputs_it_reads)
 
     def __repr__(self) -> str:
@@ -330,11 +329,11 @@ class NodeDefinition(Generic[_P, _R]):
     #: The registry id. Stored in every graph that uses this node, so
     #: changing it is a data migration, not a rename.
     id: str
-    #: What a person sees in the palette. A node copies these when it is
+    #: What a person sees in an editor's list of nodes. A node copies these when it is
     #: added to a graph and may edit its own copy.
     title: str
     description: str
-    #: Where the palette files it. A plain string; the host keeps the table
+    #: Where an editor lists it. A plain string; the host keeps the table
     #: that titles categories.
     category: str
     tags: tuple[str, ...]
@@ -359,7 +358,7 @@ class NodeDefinition(Generic[_P, _R]):
 
             upper.graph_node("b", text=From("a.result"), times=2)
 
-        A value is typed in; ``From`` is an edge. An input left open, or one the
+        A value becomes a static; ``From`` is an edge. An input left open, or one the
         run supplies with ``FromRun``, is written with ``GraphNode(...)``, the stored form this returns.
         """
         version = self.versions[self.current_version]
@@ -409,7 +408,7 @@ class NodeDefinition(Generic[_P, _R]):
         )
 
     def describe(self) -> NodeDescription:
-        """This definition as a ``NodeDescription``: what a palette reads."""
+        """This definition as a ``NodeDescription``: what an editor reads."""
         return NodeDescription(
             id=self.id, title=self.title, description=self.description, category=self.category, tags=self.tags,
             docs=self.docs, deprecation=self.deprecation,
@@ -477,7 +476,7 @@ def node(
 
 
 class VersionDescription(ConductorModel):
-    """One version as a palette reads it: its fields, its policy, what an edge
+    """One version as an editor reads it: its fields, its policy, what an edge
     into it becomes when its inputs are open, and its deprecation notice.
 
     ``policy`` is ``None`` for a version whose body is a graph, which
@@ -492,10 +491,10 @@ class VersionDescription(ConductorModel):
 
 
 class NodeDescription(ConductorModel):
-    """A node definition as a record — the palette entry.
+    """A node definition as a record, what an editor lists.
 
     Built by ``NodeDefinition.describe()`` on demand and read by an editor:
-    a palette is these records dumped through pydantic. Describes the
+    what it offers is these records dumped through pydantic. Describes the
     *type*. The titles one node in a graph shows live on its ``GraphNode``.
     """
 

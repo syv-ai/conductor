@@ -15,13 +15,13 @@ What describes a node — ``NodeDescription``, ``VersionDescription``,
 ``Input``, ``Output`` and the widgets — is written for an editor. It is
 built from a function's signature, so its ``dtype`` dumps as the type's
 description, and a dump does not read back: a description is not a type,
-and a record holding one is refused. A widget reads back as written. The
+and reading a record holding one raises. A widget reads back as written. The
 class is still there to ``describe()``.
 
 The events a leg yields are models too, since a host sends every one of
 them on. What compile and the engine build and keep to themselves —
 ``CompiledGraph`` and its node and field views, a version, an interface,
-a run's live records — is not a model: those are frozen dataclasses,
+a run's ledger — is not a model: those are frozen dataclasses,
 built far more often than they are ever parsed. A node's return declaration is not one either: a
 function that returns a model returns one value, not one output per field.
 """
@@ -43,7 +43,7 @@ class ConductorModel(BaseModel):
     Beside it: ``to_yaml`` and ``from_yaml``, and ``to_path`` and
     ``from_path``, where the suffix decides — ``.json`` is JSON, ``.yaml``
     and ``.yml`` are YAML, and any other suffix, ``.JSON`` included, is
-    refused rather than guessed. A record that describes a node writes and
+    an error rather than a guess. A record that describes a node writes and
     does not read back (the module docstring says why).
     """
 

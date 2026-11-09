@@ -1,4 +1,4 @@
-"""The door into a run's state: what one unit produced, checked against its outputs.
+"""What one unit produced, checked against its outputs before it enters a run's state.
 
 A value enters the state three ways: a node returns it, a person answers with
 it, or a stored state is read back. Each passes the one check its output has
@@ -8,8 +8,7 @@ leg nothing checks a value again on the way into the state.
 ``validate_unit_outputs`` is the shared part for a return and an answer, which
 are the same thing: one unit's outputs by name. It reads each into the cells
 the state holds, a many-valued output into a list of cells and a table with its
-rows' ids written on, and reports every output that does not fit instead of
-stopping at the first.
+rows' ids written on, and reports every output that does not fit, not only the first.
 """
 
 from __future__ import annotations

@@ -11,7 +11,7 @@ A ``Condition`` is a set of alternatives, each a set of decisions that
 must all hold; an ``BranchTaken`` is one decision ("the ``choice`` group on node
 N went to output O"). The output appears when any alternative holds::
 
-    ALWAYS = frozenset({frozenset()})   # one empty alternative: no gate
+    ALWAYS = frozenset({frozenset()})   # one empty alternative: always
     NEVER = frozenset()                  # no alternative at all
 
 An input fed by several edges drops the skipped ones, so what hangs off
@@ -19,7 +19,7 @@ it appears when any one of its sources appeared — that is where a second
 alternative comes from. An alternative naming one decision twice with different
 outputs is dropped, since it can never hold.
 
-Only a decision on a node that runs once gates anything. A node that runs
+Only a decision on a node that runs once holds anything back. A node that runs
 once per row may take one branch on some rows and the
 other on the rest, so each branch output is a series missing the rows
 that went the other way. Nothing downstream is switched off, so such a

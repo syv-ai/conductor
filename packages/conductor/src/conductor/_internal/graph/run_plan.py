@@ -1,7 +1,7 @@
 """``compiled.run_plan``: where each node runs and what each of its inputs receives, for a person to read.
 
 An author draws edges and never says "for each". Compile decides, and this is
-what it decided, in words a host can show and compare::
+what it decided, in terms a host can show and compare::
 
     print(compiled.run_plan)
     # upload  once
@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 #: How a value reaches one call of a node.
 #:
 #: ``value_at_row``: the value at the call's own row. ``same_value_every_row``:
-#: one value, copied to every call; also a value typed in or a default.
+#: one value, copied to every call; also a static or a default.
 #: ``all_rows_under_row``: every row of a column under the call's row, however
 #: deep, flat. ``entire_value``: everything on the field, once. ``collected``: unrelated
 #: sources gathered into one series. ``merged``: tables and columns matched on
@@ -45,12 +45,12 @@ ReceiveModeName = Literal["value_at_row", "same_value_every_row", "all_rows_unde
 class InputPlan(ConductorModel):
     """How one input of one node is filled."""
 
-    #: The outputs wired to it; empty for a value typed in, or a default.
+    #: The outputs wired to it; empty for a static or a default.
     sources: tuple[Ref, ...]
     receive_mode: ReceiveModeName
     #: The field whose rows it reads: for ``value_at_row`` and ``all_rows_under_row``. ``None`` otherwise.
     rows_of: Ref | None = None
-    #: For ``all_rows_under_row``: the level the rows are grouped under, which a
+    #: For ``all_rows_under_row``: the index the rows are grouped under, which a
     #: call's row sits on. Equal to ``rows_of`` when a call gets its own row's cell.
     grouped_under: Ref | None = None
     #: A blank here calls the node with ``None`` (or keeps the cell, on a series). If not, the row isn't called.
@@ -69,10 +69,10 @@ class InputPlan(ConductorModel):
             case "same_value_every_row":
                 return f"the same value every row ({source})" if source else "the same value every row"
             case "all_rows_under_row":
-                level = "" if self.grouped_under in (None, self.rows_of) else f" (grouped under {self.grouped_under})"
-                return f"all rows of {self.rows_of} under my row{level}; none under it: called with an empty list"
+                grouped_under = "" if self.grouped_under in (None, self.rows_of) else f" (grouped under {self.grouped_under})"
+                return f"all rows of {self.rows_of} under my row{grouped_under}; none under it: called with an empty list"
             case "entire_value":
-                return f"all of {source}" if source else "the whole list typed in"
+                return f"all of {source}" if source else "the whole list set on the node"
             case "collected":
                 return f"collected into one list: {source}"
             case "merged":
@@ -113,7 +113,7 @@ def _index_as_address(index: Index | None) -> Ref | None:
 
 
 def _plan_of_receive_mode(sources: tuple[Ref, ...], receive_mode: object, takes_blank: bool) -> InputPlan:
-    """The one reading of a receive record, for the words a host sees."""
+    """What a receive mode means, in the terms a host sees."""
     match receive_mode:
         case PerRow(index=index):
             return InputPlan.model_construct(sources=sources, receive_mode="value_at_row", rows_of=_index_as_address(index), grouped_under=None, takes_blank=takes_blank, source_plans=(), copied_down=False)

@@ -1,9 +1,9 @@
 """How a graph is compiled: one forward walk, each node from the nodes compiled above it.
 
-``CompiledGraph.from_graph(graph, registry)`` is the door. Pure: no session,
+``CompiledGraph.from_graph(graph, registry)`` is the one way in. Pure: no session,
 no I/O, no loading. Every definition the graph names must already be in the
 registry. Everything wrong with the graph comes back as a ``Problem`` rather
-than raising, so an editor can show a half-finished graph with its faults
+than raising, so an editor can show a half-finished graph with its problems
 marked; a hook that raises anything but ``ComputeHookError`` is a bug in the
 node, and that exception leaves here as it is.
 """
@@ -62,7 +62,7 @@ def _node_compile_could_not_resolve(node: GraphNode, problem: Problem) -> Compil
 
 
 def compile_graph(graph: Graph, registry: NodeRegistry) -> CompileResult:
-    """Walk ``graph`` once: refused ids and cycles first, then each node in an order where its sources come before it."""
+    """Walk ``graph`` once: ids that can't name a node and cycles first, then each node in an order where its sources come before it."""
     progress = CompileProgress()
     nodes_by_id: dict[str, GraphNode] = {}
     for node in graph.nodes:

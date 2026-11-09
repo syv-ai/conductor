@@ -3,7 +3,7 @@
 A node returns ``AskPerson`` and ``waiting_unit_for`` turns that into an entry
 of ``RunState.waiting``. ``apply_answers`` is the other half, and the verb
 ``CompiledGraph.answer``: it checks every answer against what its unit asked,
-refuses the call listing every fault, and otherwise writes the answered units
+raises with every problem it found, and otherwise writes the answered units
 into a new state as finished, with the same cells a node's return would have
 written. No node runs. Each call passes over every waiting unit and copies the
 columns it writes to, so answering many units costs least as one call. Whether
@@ -40,7 +40,7 @@ def waiting_unit_for(node: CompiledNode, row: Row, ask_person: AskPerson, inputs
     """The entry for this unit in ``RunState.waiting``, with the ``inputs`` it was
     called with. A ``ValueError`` when ``ask_person`` names an output the node does
     not have or proposes a default that is not its output's type: the node's
-    own fault, not the person's."""
+    own doing, not the person's."""
     assert node.interface is not None and node.wiring is not None  # the engine runs only a runnable graph
     questions = node._questions
     if ask_person.defaults or ask_person.widgets:
@@ -148,7 +148,7 @@ def _with_choices_and_defaults(
         if question.optional:
             values[name] = question.default
         else:
-            values[name] = SKIPPED  # refused below; a value in its place so the other questions are still checked
+            values[name] = SKIPPED  # the problem below stops the call; a value in its place keeps the other questions checked
             problems.append(make_problem("missing", *problem_location, name, name=name))
     return values
 

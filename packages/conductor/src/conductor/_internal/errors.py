@@ -1,7 +1,7 @@
 """What goes wrong, in one record, and how it is reported.
 
 Everything wrong that a person has to hear about is a ``Problem``: what a
-compile found (``CompiledGraph.problems``), what a refused call lists
+compile found (``CompiledGraph.problems``), what a rejected call lists
 (``InvalidCallError.errors()``), and why a node or a run failed
 (``NodeFailed.cause``, ``RunState.failure``). So a host has one type to
 translate, and one table to translate it with: ``PROBLEM_CODES`` is every
@@ -29,7 +29,7 @@ returns its ``RunState``.
     │   └── NodeTimeoutError        the leg stopped waiting for it
 
 **Two families of failure.** A node's failure is internal — a bug, bad
-data, a refused schema — unless the outside world caused it: a network
+data, a schema that didn't fit — unless the outside world caused it: a network
 error, a rate limit, an upstream 5xx. Only ``ExternalFailure`` is retried
 under the version's ``Policy``; a node raises it itself, or names the
 exception classes of the client it calls in ``Policy(retry_on=...)`` and
@@ -109,7 +109,7 @@ _PROBLEM_MESSAGES: Mapping[str, tuple[str, bool]] = {
     "unused_binding": (
         "Field '{field}' is not an input of the node as it is set up, so its value is not used; it has {inputs}.", False,
     ),
-    # -- what a call to a compiled graph is refused for ------------------------
+    # -- what a call to a compiled graph is rejected for -----------------------
     "cannot_move_to_version": ("'{node_type}' cannot move from version {version} to {target}; it has {versions}.", True),
     "from_run_missing": ("'{node}' needs a {needs} for '{parameter}', and the call did not give one in from_run.", True),
     "from_run_not_a_type": ("from_run is keyed by type; {key} is not one.", True),
@@ -167,9 +167,9 @@ class Problem(ConductorModel):
     a node's failure          ``(node_id, *row)``: ``("b", 2, 0)`` is the first
                               row under the third row of what ``b`` runs on
     a run stopped as a whole  ``()``
-    a refused call            ``("inputs", name)``, ``("answers", id, output)``,
+    a rejected call           ``("inputs", name)``, ``("answers", id, output)``,
                               ``("state", ...)``; a graph that can't run is
-                              refused with its own compile problems
+                              rejected with its own compile problems
     ========================  ==================================================
 
     A compile problem's field need not exist: half of them are about a
@@ -254,7 +254,7 @@ class ComputeHookError(ConductorError):
     what arrives do not fit. Compile records it as a fatal ``Problem`` on
     the node, or on ``field`` when one is named, with ``code`` and
     ``message`` as the hook wrote them. Anything else a hook raises is a bug
-    in the hook, not a fault in the graph, and leaves compile as it is.
+    in the hook, not a problem in the graph, and leaves compile as it is.
 
     A code may be one conductor uses too, but not one the catalogue says is
     non-fatal: the node has no answer, so the graph must not run. Raising
@@ -280,7 +280,7 @@ class InvalidCallError(ConductorError, ValueError):
 
     Raised by ``run``, ``stream``, ``answer``, ``outputs``, ``results``,
     ``with_inputs`` and ``upgrade_node`` from the call that caused it, before anything runs, and
-    listing every fault at once. The state the caller holds is untouched. A
+    listing every problem at once. The state the caller holds is untouched. A
     ``ValueError`` too, as pydantic's error is.
     """
 
@@ -289,7 +289,7 @@ class InvalidCallError(ConductorError, ValueError):
         super().__init__("\n".join([f"{len(self._problems)} problem(s):", *(f"  {'.'.join(str(place) for place in problem.loc)} — {problem.type}: {problem.msg}" for problem in self._problems)]))
 
     def errors(self) -> list[Problem]:
-        """Every fault, in the order the call met them."""
+        """Every problem, in the order the call met them."""
         return list(self._problems)
 
 

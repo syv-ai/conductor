@@ -4,10 +4,10 @@ A value lives in memory as its type — a ``Text`` is a ``str`` subclass, a
 ``Series[X]`` an object with an index and rows, a table a Polars frame, a
 host's file a name and bytes. Whenever such a value crosses into JSON and back — the state of
 a run, an answer a host hands in, a result a host stores
-— this module is the one crossing, and the declared type decides the
+— this module is the one place that happens, and the declared type decides the
 form: ``to_wire(value, dtype)`` writes it, ``cell_validator_for(dtype)`` reads it
 back as the same type. Nothing else in the library turns a
-value into JSON, so every crossing agrees.
+value into JSON, so every such value agrees.
 
 The form is the type's own pydantic schema, which every ``DType`` has: a
 type built on ``str`` or ``float`` is its plain value, a type with a
@@ -19,8 +19,7 @@ through the element type — because a series is the engine's own idea:
 ``Series`` points its pydantic schema at ``series_to_wire`` and
 ``series_from_wire`` here, so both directions live in one place.
 
-What this is not: the skip marker. A skip has no type to cross by; a run's
-state lists the rows skipped beside the values, instead of a value.
+A skip has no type to cross by, so a run's state lists the skipped rows beside the values.
 """
 
 from __future__ import annotations
@@ -39,7 +38,7 @@ from conductor._internal.series import Index, Series
 from conductor._internal.table import Table, is_frame_type, is_table_or_series_of_tables
 
 #: Runtime types whose JSON form can hold no float a dump would have to look for.
-#: A table writes its own columns and refuses what it can't keep.
+#: A table writes its own columns and raises for what it can't keep.
 _NEVER_HOLDS_A_FLOAT = (str, int, NoneType)
 
 
@@ -177,8 +176,8 @@ def series_to_wire(series: Series[Any]) -> dict[str, Any]:
 def series_from_wire(value: Any, validate_values: Callable[[list[Any]], list[Any]]) -> Series[Any]:
     """A series from what arrives: a series passes through, its values
     validated; the wire form comes back on its own index and rows; a plain
-    list is dense rows on a fresh root index; a scalar is refused rather
-    than wrapped. What ``Series``'s pydantic schema calls to validate."""
+    list is dense rows on a fresh root index; a scalar raises rather
+    than being wrapped. What ``Series``'s pydantic schema calls to validate."""
     if isinstance(value, Series):
         return Series(validate_values(list(value.values)), index=value.index, rows=value.rows)
     if isinstance(value, Mapping) and set(value) == {"index", "rows", "values"}:

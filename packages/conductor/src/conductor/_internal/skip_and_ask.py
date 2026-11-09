@@ -63,8 +63,6 @@ class AskPerson:
 
         def approve(proposal: Annotated[Txt, Param(title="Proposal", widget=Textarea())]) -> Out | AskPerson:
             return AskPerson(defaults={"result": proposal}, widgets={"result": Textarea()})
-
-    Its sibling is ``SKIPPED``, the other value that is not a result.
     """
 
     prompt: str | None = None

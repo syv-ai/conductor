@@ -6,7 +6,7 @@ has, and ``wiring`` is ``None`` when it couldn't work out its connections.
 ``cause`` then names the one problem behind it.
 
 This module knows nothing of the compiler or of ``CompiledGraph``: it holds
-the answers, and compile puts them in. The words it uses (interface, series,
+the answers, and compile puts them in. The terms it uses (interface, series,
 embedded graph) are defined at the top of ``conductor._internal.graph.compiled_graph``.
 """
 
@@ -54,8 +54,8 @@ if TYPE_CHECKING:
 #: node with its fields and marks the problem that ``cause`` names.
 #:
 #: ``resolution_failed``: compile doesn't know what fields it has: its type or
-#: version is unknown, it sits on a cycle, its id was refused or its
-#: ``compute_inputs`` refused the values typed into it. An editor draws a bare
+#: version is unknown, it sits on a cycle, its id can't name a node or its
+#: ``compute_inputs`` raised on the statics set on it. An editor draws a bare
 #: box with its problem.
 NodeState = Literal["ready", "wiring_failed", "resolution_failed"]
 
@@ -83,7 +83,7 @@ class Wiring:
     #: (``rows.email``). Empty on an embedded graph: its fields are the nodes' inside it.
     fields: Mapping[str, CompiledField]
     #: The rows the node runs once per row of, ``None`` when it runs once. The
-    #: engine's word for it; a host reads ``CompiledGraph.run_plan``.
+    #: engine's own; a host reads ``CompiledGraph.run_plan``.
     _runs_per_row_of: Index | None = field(repr=False)
 
 
@@ -211,7 +211,7 @@ class CompiledNode:
         ))
 
     @cached_property
-    def _inputs_refusing_a_blank(self) -> tuple[str, ...]:
+    def _inputs_rejecting_a_blank(self) -> tuple[str, ...]:
         """The one-value inputs on which a blank means this node isn't called."""
         return tuple(inp.name for inp in self._inputs if inp.dtype.element is None and not inp.takes_blank)
 
@@ -237,7 +237,7 @@ class CompiledField:
     #: Where this input's value comes from: ``From``, ``Static``, or ``None``
     #: when its declared default applies. Always ``None`` on an output.
     binding: Binding | None
-    #: Under which condition this output appears (``ALWAYS`` when nothing gates it). Always ``None`` on an input.
+    #: Under which condition this output appears (``ALWAYS`` when no decision holds it back). Always ``None`` on an input.
     condition: Condition | None
     #: Every problem about this field.
     problems: tuple[Problem, ...] = field(repr=False)
@@ -245,7 +245,7 @@ class CompiledField:
     _index: Index | None = field(repr=False)
     #: How a unit of its node receives it; ``None`` exactly on an output.
     _receive_mode: ReceiveMode | None = field(repr=False)
-    #: An input the author typed many values into, so its node runs once per
+    #: An input the author set a list on, so its node runs once per
     #: value; an edge may read the values as a column of those rows.
     _is_list_on_node: bool = field(repr=False)
     #: The rows this output makes: a series output or a table output. ``None`` on any other field.
@@ -267,7 +267,7 @@ class CompiledField:
         _index: Index | None, _receive_mode: ReceiveMode | None, _is_list_on_node: bool, _makes_rows: Index | None, _column_of_table: tuple[Ref, str] | None,
         _takes_blank: bool, _title: str, _row_origins: frozenset[str] | None,
     ) -> None:
-        """Compile builds one per field of a graph, so this sets them in one step instead of one at a time."""
+        """Compile builds one per field of a graph, so this sets them in one step, not one at a time."""
         self.__dict__.update(
             ref=ref, type=type, binding=binding, condition=condition, problems=problems, _index=_index, _receive_mode=_receive_mode,
             _is_list_on_node=_is_list_on_node, _makes_rows=_makes_rows, _column_of_table=_column_of_table, _takes_blank=_takes_blank, _title=_title, _row_origins=_row_origins,

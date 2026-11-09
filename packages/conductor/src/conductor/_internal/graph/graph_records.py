@@ -9,9 +9,9 @@ node's fields fall in three groups:
 * **content** — the node's ``title``, ``description`` and one
   ``FieldContent`` per field — is shown to people and emitted in events,
   never branched on;
-* **chrome** — ``display`` — is stored and returned and never parsed.
+* **display** — ``display`` — is stored and returned and never parsed.
 
-So a diff of the behaviour fields is the behavioural diff, and chrome can
+So a diff of the behaviour fields is the behavioural diff, and display can
 change shape without a migration. Each record is a ``ConductorModel``,
 so a graph saves and loads itself (``Graph.from_path``, ``graph.to_yaml()``).
 """
@@ -50,7 +50,7 @@ class GraphNode(ConductorModel):
 
     ``type`` names the definition and ``version`` selects one of its
     versions; ``bindings`` says where each input's value comes from (one
-    entry per input, so a typed value and an edge cannot both claim one);
+    entry per input, so a static and an edge cannot both claim one);
     ``locked`` names inputs no caller may fill. ``title``, ``description``
     and ``fields`` are copies of the declaration's text that the author may
     edit. ``display`` is the canvas's own::
@@ -61,8 +61,7 @@ class GraphNode(ConductorModel):
             title="Upper case",
         )
 
-    There is no edge record beside it; a canvas derives edges from
-    ``bindings``. What the node's inputs and outputs actually are is
+    A canvas derives edges from ``bindings``. What the node's inputs and outputs actually are is
     answered when the graph is compiled (``CompiledGraph.node(node_id).interface``), not stored here.
     """
 
@@ -80,22 +79,21 @@ class GraphNode(ConductorModel):
     title: str = ""
     description: str = ""
     fields: Mapping[str, FieldContent] = Field(default_factory=dict)
-    #: Chrome: position, size, whatever the canvas keeps. Never parsed here.
+    #: Display: position, size, whatever the canvas keeps. Never parsed here.
     display: Mapping[str, Any] = Field(default_factory=dict)
 
 
 class Graph(ConductorModel):
-    """The persisted graph: its nodes and its chrome.
+    """The persisted graph: its nodes and its display.
 
-    What a host stores for one version of a graph. There is no edge list,
-    no trigger and no settings block: edges live in each node's
-    ``bindings``. What the graph takes and returns is derived when it is
+    What a host stores for one version of a graph; edges live in each
+    node's ``bindings``. What the graph takes and returns is derived when it is
     compiled (``derive_interface``), never stored.
     """
 
     #: Any sequence going in; a tuple once built.
     nodes: Sequence[GraphNode]
-    #: Chrome, at graph level.
+    #: Display, for the whole graph.
     display: Mapping[str, Any] = Field(default_factory=dict)
 
     @field_validator("nodes")

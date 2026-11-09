@@ -309,7 +309,7 @@ def test_a_ready_unit_nobody_started_stops_the_leg_loudly(monkeypatch):
         GraphNode(id="a", type="echo-wake", version=1),
         GraphNode(id="b", type="echo-wake", version=1, bindings={"text": From("a.result")}),
     ])
-    with pytest.raises(RuntimeError, match="missed wake"):
+    with pytest.raises(RuntimeError, match="never started"):
         CompiledGraph.from_graph(graph, NodeRegistry((echo,))).run_sync()
 
 

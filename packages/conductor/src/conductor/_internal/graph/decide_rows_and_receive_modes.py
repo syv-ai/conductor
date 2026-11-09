@@ -1,7 +1,7 @@
 """What arrives on each input of one node, whether each edge may land, how each input receives, and on which rows the node runs.
 
-May this edge land? ``target.accepts(source)``, element against element; a
-refusal is the fatal ``type_mismatch``.
+May this edge land? ``target.accepts(source)``, element against element; ``False``
+is the fatal ``type_mismatch``.
 
 Does the node run once, or once per row? A column arriving on an input that
 takes one value makes the node run once per row of it, and its outputs become
@@ -9,12 +9,12 @@ columns on the same rows; "receives a series" is the whole rule. Several
 columns must sit on one line of descent (the deepest wins, a parent value is
 copied down), or they are the fatal ``misaligned``.
 
-A ``Series[X]`` input fed one column on a child level reduces: a call receives
+A ``Series[X]`` input fed one column on a child index reduces: a call receives
 all the values under its own row, however deep, flat. It doesn't choose the
-row unless nothing else does; then the node runs per row of the level right
+row unless nothing else does; then the node runs per row of the index right
 above. One column on a root is received whole, once. Anything else feeding it
 (several scalars, unrelated columns, a list set on the node, a default) is
-collected onto a level of the input's own.
+collected onto an index of the input's own.
 
 A ``Table`` input merges everything wired in, matched on row ids; it never
 makes the node run per row by itself, except a table arriving per row. What
@@ -25,13 +25,13 @@ A ``**inputs: AsItArrives`` input takes what its edge carries, whole, and
 never makes the node run per row. A parameter typed ``Any`` takes the type of
 its first edge.
 
-A list typed into an input that takes one value is a column of its own, under
+A list set on an input that takes one value is a column of its own, under
 each row the node otherwise runs on, and an edge reads it like an output (``q.question``).
 Only one list may be set on a node (``lists_on_a_per_row_node``).
 
-Every answer is written as the input's receive record
-(``conductor._internal.graph.receive_modes``), which the engine reads and never decides again.
-A level belongs to the field that makes its rows and is named after it.
+Every answer is written as the input's ``ReceiveMode``, which the engine
+reads and never decides again. An index belongs to the field that makes its
+rows and is named after it.
 """
 
 from __future__ import annotations
@@ -78,7 +78,7 @@ if TYPE_CHECKING:
 
 
 class InputCarries(NamedTuple):
-    """What one input carries: its type and, for a series, the level its rows are on."""
+    """What one input carries: its type and, for a series, the index its rows are on."""
 
     dtype: Any
     index: Index | None
@@ -97,7 +97,7 @@ class WhatArrivesOnInputs:
     type_given_by_edge: dict[str, Any] = field(default_factory=dict)
     #: The rows the node must run per row of, each with the input that demands it.
     rows_required_by_inputs: list[tuple[Index, str]] = field(default_factory=list)
-    #: The child levels ``Series[X]`` inputs read, placed once the node's row is known.
+    #: The child indexes ``Series[X]`` inputs read, placed once the node's row is known.
     child_indexes_read_by_series_inputs: list[tuple[Index, str]] = field(default_factory=list)
     #: The inputs holding a list set on the node, each with its declared type.
     lists_on_node: list[tuple[str, Any]] = field(default_factory=list)
@@ -126,7 +126,7 @@ def read_what_arrives_on_inputs(
         feeding = [_source_output(source, progress) for source in binding.refs]
         if None in feeding:
             # A source that was worked out but has no such output is this input's
-            # fault; one that wasn't carries its own problem already.
+            # problem; one that wasn't carries its own problem already.
             problems.extend(
                 make_problem("unknown_ref_output", node.id, name, source=str(ref_), outputs=_outputs_offered_by(ref_.node_id, progress))
                 for ref_, source in zip(binding.refs, feeding, strict=True)
@@ -227,9 +227,9 @@ def _source_node_is_wired(ref: Ref, progress: CompileProgress) -> bool:
 
 
 def decide_runs_per_row_of_and_receive_modes(node: GraphNode, found: WhatArrivesOnInputs, problems: list[Problem], row_origins: Any) -> tuple[bool, Index | None]:
-    """The level ``node_id`` runs once per row of, with every input's receive record settled.
+    """The index ``node_id`` runs once per row of, with every input's receive mode settled.
 
-    ``False`` when its inputs disagree, with the fault in ``problems``."""
+    ``False`` when its inputs disagree, with the problem in ``problems``."""
     node_id = node.id
     field_address_of = lambda name: Ref(node_id, name)  # noqa: E731
     required_rows = found.rows_required_by_inputs or _row_above_reductions(found.child_indexes_read_by_series_inputs)
@@ -329,7 +329,7 @@ def _type_mismatch(target: Any, node_id: str, name: str, source_ref: Ref, source
 
 def _depth_shared_with_row(index: Index, runs_per_row_of: Index | None) -> int | None:
     """How far up ``index``'s rows are grouped for a node on ``runs_per_row_of``: the
-    depth of the deepest level above them that the node's row sits on, ``None`` when none is."""
+    depth of the deepest index above them that the node's row sits on, ``None`` when none is."""
     lineage = () if runs_per_row_of is None else runs_per_row_of.lineage
     return next((step.depth for step in reversed(index.lineage[:-1]) if step in lineage), None)
 
@@ -347,7 +347,7 @@ def _receive_mode_of_merge_source(source: CompiledField, runs_per_row_of: Index 
 
 
 def _all_on_one_index(sources: Sequence[CompiledField]) -> bool:
-    """Do all sources carry a series on one and the same level? Then the edges together are one set of rows."""
+    """Do all sources carry a series on one and the same index? Then the edges together are one set of rows."""
     return all(source._index is not None for source in sources) and len({source._index for source in sources}) == 1
 
 
@@ -360,7 +360,7 @@ def _what_an_unwired_input_carries(inp: Input, node_id: str) -> tuple[InputCarri
 
 
 def _row_above_reductions(reductions: list[tuple[Index, str]]) -> list[tuple[Index, str]]:
-    """The one demand reductions make when nothing else does: the shallowest level right above a series."""
+    """The one demand reductions make when nothing else does: the shallowest index right above a series."""
     if not reductions:
         return []
     index, name = min(reductions, key=lambda child_index_and_input: child_index_and_input[0].depth)
@@ -368,7 +368,7 @@ def _row_above_reductions(reductions: list[tuple[Index, str]]) -> list[tuple[Ind
 
 
 def _deepest_index_on_one_line_of_descent(required_rows: list[tuple[Index, str]]) -> tuple[Index | None, tuple[str, str] | None]:
-    """The deepest level among ``rows_required_by_inputs`` if they lie on one line of descent, or the two fields that disagree."""
+    """The deepest index among ``rows_required_by_inputs`` if they lie on one line of descent, or the two fields that disagree."""
     if not required_rows:
         return None, None
     deepest, deepest_ref = max(required_rows, key=lambda required_row: required_row[0].depth)
