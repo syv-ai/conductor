@@ -24,7 +24,7 @@ from conductor import (
     Table,
     node,
 )
-from conductor._internal.interface import read_signature
+from conductor._internal.node_signature import read_signature
 from conductor.events import NodeComplete, NodeSkipped
 from conductor.widgets import Textarea
 

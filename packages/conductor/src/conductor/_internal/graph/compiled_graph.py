@@ -67,7 +67,7 @@ from typing import TYPE_CHECKING, Any
 
 from conductor._internal.errors import InvalidCallError, Problem, make_problem
 from conductor._internal.execution.events import Event, RunEnd
-from conductor._internal.execution.live_run_values import node_result, read_output_columns
+from conductor._internal.execution.run_ledger import node_result, read_output_columns
 from conductor._internal.execution.run_state import Answers, RunState
 from conductor._internal.execution.run_until_idle import Leg
 from conductor._internal.execution.waiting_units import apply_answers
@@ -75,13 +75,13 @@ from conductor._internal.graph.binding import Static
 from conductor._internal.graph.compile_graph import compile_graph
 from conductor._internal.graph.compiled_node import CompiledField, CompiledNode
 from conductor._internal.graph.embedding import EmbeddableGraph, offered_names, read_embeddable
-from conductor._internal.graph.engine_read_plan import EngineLookups, build_engine_lookups
+from conductor._internal.graph.engine_lookups import EngineLookups, build_engine_lookups
 from conductor._internal.graph.run_plan import RunPlan
 from conductor._internal.ref import Ref
 
 if TYPE_CHECKING:
     from conductor._internal.graph.graph_records import Graph
-    from conductor._internal.interface import Interface
+    from conductor._internal.node_signature import Interface
     from conductor._internal.registry import NodeRegistry
 
 

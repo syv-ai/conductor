@@ -25,7 +25,7 @@ from typing import Any
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.dtype import DType, _PlainPythonType, _UntypedValue, dtype_of
 from conductor._internal.errors import NodeDeclarationError
-from conductor._internal.node_decorator import NodeDefinition, NodeDescription, NodeVersion
+from conductor._internal.node_definition import NodeDefinition, NodeDescription, NodeVersion
 from conductor._internal.series import Series
 
 

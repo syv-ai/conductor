@@ -49,13 +49,13 @@ from typing import TYPE_CHECKING, Any
 
 from conductor._internal.graph.binding import Binding, From, Static
 from conductor._internal.graph.compiled_node import CompiledField, CompiledNode, Wiring
-from conductor._internal.graph.conditions import (
+from conductor._internal.graph.output_conditions import (
     ALWAYS,
     Condition,
     condition_at_node,
     output_condition,
 )
-from conductor._internal.graph.receive import (
+from conductor._internal.graph.receive_modes import (
     Broadcast,
     EntireValue,
     Gather,
@@ -69,15 +69,15 @@ from conductor._internal.graph.row_origins import (
     origins_taken_in,
     sources_taken_in_whole,
 )
-from conductor._internal.interface import Interface
-from conductor._internal.node_decorator import NodeVersion
+from conductor._internal.node_definition import NodeVersion
+from conductor._internal.node_signature import Interface
 from conductor._internal.ref import Ref
 from conductor._internal.series import Index, Series
 from conductor._internal.table import columns_of, holds_tables
 
 if TYPE_CHECKING:
     from conductor._internal.errors import Problem
-    from conductor._internal.graph.compiled import CompiledGraph
+    from conductor._internal.graph.compiled_graph import CompiledGraph
 
 
 SEPARATOR = "/"

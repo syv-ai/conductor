@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 
 from conductor._internal.errors import Problem, make_problem
 from conductor._internal.graph.graph_records import GraphNode
-from conductor._internal.interface import Interface
+from conductor._internal.node_signature import Interface
 from conductor._internal.ref import Ref
 
 if TYPE_CHECKING:

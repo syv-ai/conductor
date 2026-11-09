@@ -14,7 +14,7 @@ from typing import Any
 from conductor._internal.errors import InvalidCallError, make_problem
 from conductor._internal.graph.binding import From, Static, static_values
 from conductor._internal.graph.graph_records import Graph, GraphNode
-from conductor._internal.node_decorator import NodeVersion, Upgrade
+from conductor._internal.node_definition import NodeVersion, Upgrade
 from conductor._internal.ref import Ref
 from conductor._internal.registry import NodeRegistry
 

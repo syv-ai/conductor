@@ -30,7 +30,7 @@ from conductor import (
     Static,
     node,
 )
-from conductor._internal.interface import read_signature
+from conductor._internal.node_signature import read_signature
 from conductor.widgets import NumberWidget, Textarea
 from helpers import stream_of
 

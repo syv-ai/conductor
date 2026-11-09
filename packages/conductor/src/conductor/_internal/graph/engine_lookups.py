@@ -13,8 +13,8 @@ from dataclasses import dataclass
 
 from conductor._internal.graph.binding import From
 from conductor._internal.graph.compiled_node import CompiledField, CompiledNode
-from conductor._internal.graph.receive import Merge, ReceiveMode
-from conductor._internal.interface import Interface
+from conductor._internal.graph.receive_modes import Merge, ReceiveMode
+from conductor._internal.node_signature import Interface
 from conductor._internal.ref import Ref
 from conductor._internal.series import Index
 

@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal
 
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.graph.receive import (
+from conductor._internal.graph.receive_modes import (
     Broadcast,
     EntireValue,
     Gather,

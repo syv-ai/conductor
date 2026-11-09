@@ -7,7 +7,7 @@ has, and ``wiring`` is ``None`` when it couldn't work out its connections.
 
 This module knows nothing of the compiler or of ``CompiledGraph``: it holds
 the answers, and compile puts them in. The words it uses (interface, series,
-embedded graph) are defined at the top of ``conductor._internal.graph.compiled``.
+embedded graph) are defined at the top of ``conductor._internal.graph.compiled_graph``.
 """
 
 from __future__ import annotations
@@ -25,8 +25,8 @@ from conductor._internal.codec import json_schema_of, reader_of, to_wire
 from conductor._internal.dtype import description_of
 from conductor._internal.execution.run_state import Question
 from conductor._internal.graph.run_plan import NodeRunPlan, plan_of_node
-from conductor._internal.interface import build_call_validator
-from conductor._internal.node_decorator import NodeVersion
+from conductor._internal.node_definition import NodeVersion
+from conductor._internal.node_signature import build_call_validator
 from conductor._internal.series import Series
 from conductor._internal.table import holds_tables
 
@@ -34,12 +34,12 @@ if TYPE_CHECKING:
     from conductor._internal.errors import Problem
     from conductor._internal.field_records import Input
     from conductor._internal.graph.binding import Binding
-    from conductor._internal.graph.compiled import CompiledGraph
-    from conductor._internal.graph.conditions import Condition
+    from conductor._internal.graph.compiled_graph import CompiledGraph
     from conductor._internal.graph.graph_records import GraphNode
-    from conductor._internal.graph.receive import ReceiveMode
-    from conductor._internal.interface import Interface
-    from conductor._internal.node_decorator import NodeDefinition
+    from conductor._internal.graph.output_conditions import Condition
+    from conductor._internal.graph.receive_modes import ReceiveMode
+    from conductor._internal.node_definition import NodeDefinition
+    from conductor._internal.node_signature import Interface
     from conductor._internal.ref import Ref
     from conductor._internal.series import Index
 

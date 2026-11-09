@@ -20,7 +20,7 @@ from conductor._internal.graph.graph_interface import derive_interface
 from conductor._internal.graph.graph_records import Graph, GraphNode
 from conductor._internal.graph.row_origins import RowOriginsSoFar
 from conductor._internal.graph.topology import dependencies_of, order_of
-from conductor._internal.interface import Interface
+from conductor._internal.node_signature import Interface
 from conductor._internal.ref import Ref
 from conductor._internal.registry import NodeRegistry
 

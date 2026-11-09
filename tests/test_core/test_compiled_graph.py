@@ -29,7 +29,7 @@ from conductor import (
     Upgrade,
     node,
 )
-from conductor._internal.interface import build_call_validator
+from conductor._internal.node_signature import build_call_validator
 from conductor.widgets import Choice, Dropdown, Textarea
 from pydantic import ValidationError
 
@@ -405,7 +405,7 @@ def test_compile_does_not_know_the_compiled_graph():
 
     reached = _imports_of(walk_module)
 
-    assert not {name for name in reached if name == "conductor._internal.graph.compiled" or name.startswith("conductor._internal.graph.compiled.")}
+    assert not {name for name in reached if name == "conductor._internal.graph.compiled_graph" or name.startswith("conductor._internal.graph.compiled_graph.")}
     assert not {name for name in reached if name.rsplit(".", 1)[-1] == "CompiledGraph"}
 
 
@@ -415,7 +415,7 @@ def test_the_compiled_values_know_neither_the_compiler_nor_the_graph():
     ``compiled``, so the values stand on their own."""
     import conductor._internal.graph.compiled_node as compiled_node_module
 
-    assert not _imports_of(compiled_node_module) & {"conductor._internal.graph.compiler", "conductor._internal.graph.compiled"}
+    assert not _imports_of(compiled_node_module) & {"conductor._internal.graph.compiler", "conductor._internal.graph.compiled_graph"}
 
 
 def test_execution_order_follows_the_edges():

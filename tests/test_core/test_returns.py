@@ -6,7 +6,7 @@ from typing import Annotated, Any
 
 import pytest
 from conductor import DType, Output, Result, Series
-from conductor._internal.interface import _read_return, unpack
+from conductor._internal.node_signature import _read_return, unpack
 from pydantic import TypeAdapter
 
 

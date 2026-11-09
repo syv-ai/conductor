@@ -17,11 +17,10 @@ from conductor._internal.errors import CompileProblem, Problem, make_problem
 from conductor._internal.field_records import Input, Output
 from conductor._internal.graph.binding import From
 from conductor._internal.graph.compiled_node import CompiledField, CompiledNode, Wiring
-from conductor._internal.graph.conditions import (
-    ALWAYS,
-    Condition,
-    condition_at_node,
-    output_condition,
+from conductor._internal.graph.decide_rows_and_receive_modes import (
+    InputsRead,
+    decide_rows,
+    read_inputs,
 )
 from conductor._internal.graph.embedding import (
     SEPARATOR,
@@ -32,11 +31,16 @@ from conductor._internal.graph.embedding import (
 )
 from conductor._internal.graph.graph_interface import field_problems
 from conductor._internal.graph.graph_records import GraphNode
+from conductor._internal.graph.output_conditions import (
+    ALWAYS,
+    Condition,
+    condition_at_node,
+    output_condition,
+)
+from conductor._internal.graph.read_static_values import read_static_values
 from conductor._internal.graph.row_origins import origins_taken_in
-from conductor._internal.graph.typed_in_values import read_static_values
-from conductor._internal.graph.wire_inputs import InputsRead, decide_rows, read_inputs
-from conductor._internal.interface import Interface
-from conductor._internal.node_decorator import NodeVersion
+from conductor._internal.node_definition import NodeVersion
+from conductor._internal.node_signature import Interface
 from conductor._internal.ref import Ref
 from conductor._internal.registry import NodeRegistry
 from conductor._internal.series import Index, Series
@@ -44,7 +48,7 @@ from conductor._internal.table import columns_of, holds_tables
 
 if TYPE_CHECKING:
     from conductor._internal.graph.compile_graph import WalkSoFar
-    from conductor._internal.graph.compiled import CompiledGraph
+    from conductor._internal.graph.compiled_graph import CompiledGraph
 
 
 def _replaced(interface: Interface, inputs: tuple[Input, ...], outputs: tuple[Output, ...]) -> Interface:

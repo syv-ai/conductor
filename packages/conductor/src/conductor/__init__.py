@@ -24,14 +24,13 @@ from conductor._internal.errors import (
 from conductor._internal.execution.run_state import RunState
 from conductor._internal.field_records import Input, Output, Param, Result
 from conductor._internal.graph.binding import From, Static
-from conductor._internal.graph.compiled import CompiledGraph
-from conductor._internal.graph.conditions import ALWAYS, NEVER, Atom
+from conductor._internal.graph.compiled_graph import CompiledGraph
 from conductor._internal.graph.graph_records import FieldContent, Graph, GraphNode
+from conductor._internal.graph.output_conditions import ALWAYS, NEVER, Atom
 from conductor._internal.graph.run_plan import InputPlan, RunPlan
 from conductor._internal.graph.topology import dependencies_of
 from conductor._internal.graph.upgrade import upgrade_node
-from conductor._internal.interface import FromRun, Interface
-from conductor._internal.node_decorator import (
+from conductor._internal.node_definition import (
     Arriving,
     Deprecation,
     NodeDefinition,
@@ -41,6 +40,7 @@ from conductor._internal.node_decorator import (
     Upgrade,
     node,
 )
+from conductor._internal.node_signature import FromRun, Interface
 from conductor._internal.ref import Ref
 from conductor._internal.registry import NodeRegistry, TypeDescription
 from conductor._internal.skip_and_ask import SKIPPED, AskPerson

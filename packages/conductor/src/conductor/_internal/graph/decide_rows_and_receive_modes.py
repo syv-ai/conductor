@@ -30,7 +30,7 @@ each row the node otherwise runs on, and an edge reads it like an output (``q.qu
 Only one list may be set on a node (``lists_on_a_per_row_node``).
 
 Every answer is written as the input's receive record
-(``conductor._internal.graph.receive``), which the engine reads and never decides again.
+(``conductor._internal.graph.receive_modes``), which the engine reads and never decides again.
 A level belongs to the field that makes its rows and is named after it.
 """
 
@@ -46,7 +46,7 @@ from conductor._internal.errors import Problem, make_problem
 from conductor._internal.field_records import Input
 from conductor._internal.graph.binding import From
 from conductor._internal.graph.graph_records import GraphNode
-from conductor._internal.graph.receive import (
+from conductor._internal.graph.receive_modes import (
     Broadcast,
     EntireValue,
     Gather,

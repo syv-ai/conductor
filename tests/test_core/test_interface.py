@@ -5,7 +5,7 @@ from typing import Annotated
 
 import pytest
 from conductor import AsItArrives, DType, Param, Result, Series
-from conductor._internal.interface import build_call_validator, read_signature
+from conductor._internal.node_signature import build_call_validator, read_signature
 from conductor.widgets import (
     AnyWidget,
     Choice,

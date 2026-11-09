@@ -59,11 +59,11 @@ from conductor._internal.errors import NodeDeclarationError
 from conductor._internal.field_records import Input, Output
 from conductor._internal.graph.binding import From, Static
 from conductor._internal.graph.graph_records import GraphNode
-from conductor._internal.interface import Interface, open_input_of, read_signature
+from conductor._internal.node_signature import Interface, open_input_of, read_signature
 from conductor._internal.table import is_frame, type_of_frame
 
 if TYPE_CHECKING:
-    from conductor._internal.graph.compiled import CompiledGraph
+    from conductor._internal.graph.compiled_graph import CompiledGraph
 
 _P = ParamSpec("_P")
 _R = TypeVar("_R")

@@ -525,17 +525,17 @@ def test_a_stored_table_with_no_row_ids_is_unreadable():
 
 def test_results_reads_the_state_without_building_a_run():
     compiled, state = _waiting_run()
-    from conductor._internal.execution import live_run_values
+    from conductor._internal.execution import run_ledger
 
     def not_called(*_: Any, **__: Any) -> None:
         raise AssertionError("results built the run's live values")
 
-    original = live_run_values.RunLedger.__init__
-    live_run_values.RunLedger.__init__ = not_called  # type: ignore[method-assign]
+    original = run_ledger.RunLedger.__init__
+    run_ledger.RunLedger.__init__ = not_called  # type: ignore[method-assign]
     try:
         assert list(compiled.results(state)["sp"]["result"]) == ["a", "b"]
     finally:
-        live_run_values.RunLedger.__init__ = original  # type: ignore[method-assign]
+        run_ledger.RunLedger.__init__ = original  # type: ignore[method-assign]
 
 
 def test_a_node_that_ran_on_no_rows_is_in_the_results_with_no_rows_before_and_after_json():

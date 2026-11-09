@@ -28,7 +28,7 @@ index's rows, ``CompiledField._makes_rows`` and its kin). A node's ``_runs_per_r
 same way, for other
 callers: the engine runs only a graph whose every node is ready. Every
 input carries a receive record (``CompiledField.receives``, from
-``conductor._internal.graph.receive``). ``PerRow`` takes the value at the unit's own
+``conductor._internal.graph.receive_modes``). ``PerRow`` takes the value at the unit's own
 row, ``Broadcast`` the one value there is, ``EntireValue`` everything on the
 field, ``RowsUnder`` the rows under the unit's row cut to a depth, and
 ``Gather`` unrelated sources collected onto the input's own index. The
@@ -81,7 +81,7 @@ from conductor._internal.errors import (
     make_problem,
 )
 from conductor._internal.execution.run_state import OutputColumn, RunState, RunStatus, WaitingUnit
-from conductor._internal.graph.receive import (
+from conductor._internal.graph.receive_modes import (
     Broadcast,
     EntireValue,
     Gather,
@@ -108,9 +108,9 @@ if TYPE_CHECKING:
     import polars as pl
 
     from conductor._internal.field_records import Output
-    from conductor._internal.graph.compiled import CompiledGraph
+    from conductor._internal.graph.compiled_graph import CompiledGraph
     from conductor._internal.graph.compiled_node import CompiledField
-    from conductor._internal.graph.engine_read_plan import EngineLookups
+    from conductor._internal.graph.engine_lookups import EngineLookups
 
 #: One run of one node: the node id and the row it runs on — ``()`` for
 #: a node that runs once; a row shorter than the index the node runs per row of, for the one
@@ -169,7 +169,7 @@ class RunLedger:
     def __init__(self, compiled: CompiledGraph) -> None:
         compiled._raise_unless_runnable()
         self._compiled = compiled
-        #: Every lookup the engine makes, in one place (``conductor._internal.graph.engine_read_plan``).
+        #: Every lookup the engine makes, in one place (``conductor._internal.graph.engine_lookups``).
         self._lookups = compiled._engine_lookups
         self._fields = self._lookups.fields
         #: Every column of a table output offered as a field: its values are the
