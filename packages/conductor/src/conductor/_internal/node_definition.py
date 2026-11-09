@@ -417,8 +417,7 @@ class NodeDefinition(Generic[_P, _R]):
             docs=self.docs,
             versions={
                 number: VersionDescription(
-                    inputs=version.interface.inputs,
-                    outputs=version.interface.outputs,
+                    interface=version.interface,
                     policy=version.policy,
                     open_input_type=None if version.open_input_template is None else version.open_input_template.dtype,
                     deprecation=version.deprecation,
@@ -476,15 +475,14 @@ def node(
 
 
 class VersionDescription(ConductorModel):
-    """One version as an editor reads it: its fields, its policy, what an edge
+    """One version as an editor reads it: its interface, its policy, what an edge
     into it becomes when its inputs are open, and its deprecation notice.
 
     ``policy`` is ``None`` for a version whose body is a graph, which
     nothing runs as one unit.
     """
 
-    inputs: tuple[Input, ...]
-    outputs: tuple[Output, ...]
+    interface: Interface
     policy: Policy | None
     open_input_type: DTypeField | None
     deprecation: Deprecation | None

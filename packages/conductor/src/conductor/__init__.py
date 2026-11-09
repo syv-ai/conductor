@@ -37,7 +37,6 @@ from conductor._internal.graph.graph_description import (
     CompiledNodeDescription,
     FieldDescription,
     GraphDescription,
-    InterfaceDescription,
 )
 from conductor._internal.graph.graph_records import FieldContent, Graph, GraphNode
 from conductor._internal.graph.output_conditions import ALWAYS, NEVER, BranchTaken, Condition
@@ -100,7 +99,6 @@ __all__ = [
     "GraphNode",
     "Input",
     "Interface",
-    "InterfaceDescription",
     "InvalidCallError",
     "NodeDeclarationError",
     "NodeDefinition",

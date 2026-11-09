@@ -249,9 +249,9 @@ def test_describe_is_the_class_as_a_record():
     assert isinstance(d, NodeDescription)
     assert (d.id, d.title, d.tags) == ("describe-translate", "Translation", ("Language model",))
     assert d.current_version == 2
-    assert [i.name for i in d.versions[2].inputs] == ["text", "language"]
+    assert [i.name for i in d.versions[2].interface.inputs] == ["text", "language"]
     assert d.versions[2].policy.retries == 2
-    assert d.versions[1].outputs[0].name == "result"
+    assert d.versions[1].interface.outputs[0].name == "result"
     assert d.versions[1].open_input_type is None
     assert not hasattr(d, "role")
 
@@ -285,11 +285,11 @@ def test_describe_dumps_as_the_palette_payload():
 
     assert data["id"] == "describe-echo"
     assert data["category"] == "test"
-    assert data["versions"]["1"]["inputs"][0]["widget"] == {
+    assert data["versions"]["1"]["interface"]["inputs"][0]["widget"] == {
         "kind": "textarea", "rows": 2,
     }
-    assert data["versions"]["1"]["inputs"][0]["dtype"] == {"id": "node-class-test-txt"}
-    assert data["versions"]["1"]["outputs"][0]["dtype"] == {"id": "node-class-test-txt"}
+    assert data["versions"]["1"]["interface"]["inputs"][0]["dtype"] == {"id": "node-class-test-txt"}
+    assert data["versions"]["1"]["interface"]["outputs"][0]["dtype"] == {"id": "node-class-test-txt"}
     for gone in ("base_id", "width", "is_decision", "has_dynamic_outputs", "latest_version", "deprecated"):
         assert gone not in data
 
@@ -644,7 +644,7 @@ def test_a_definition_may_hold_graphs_by_number_with_holes():
     assert set(wrapped.versions) == {3} and wrapped.current_version == 3
     assert [i.name for i in wrapped.versions[3].interface.inputs] == ["text"]
     described = wrapped.describe().versions[3]
-    assert [i.name for i in described.inputs] == ["text"]
+    assert [i.name for i in described.interface.inputs] == ["text"]
     assert described.policy is None and described.deprecation is None
     assert "wrapped" in NodeRegistry([wrapped])
     with pytest.raises(TypeError, match="graph"):

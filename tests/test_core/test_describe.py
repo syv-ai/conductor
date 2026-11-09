@@ -86,7 +86,7 @@ def test_every_key_of_fields_is_an_address_compiled_field_accepts():
 
     assert set(described.fields) == {"emb.text", "emb.result", "words.text", "words.result", "hook.language", "hook.en", "hook.result"}
     for address, field in described.fields.items():
-        assert field.dtype == compiled.field(address).type.describe()
+        assert field.dtype is compiled.field(address).type
         assert field.many is compiled.field(address).many
     assert described.fields[Ref("words", "result")].many is True
     assert described.fields[Ref("emb", "result")].many is False
@@ -115,4 +115,4 @@ def test_a_node_says_whether_the_graph_takes_inputs_on_it_and_a_hook_changes_its
     assert described.nodes["words"].takes_graph_inputs is False
     hook = described.nodes["hook"]
     assert hook.state == "ready" and [input_.name for input_ in hook.interface.inputs] == ["language", "en"]
-    assert described.nodes["emb"].interface.needs == ("Caller",)
+    assert described.nodes["emb"].interface.needs == {Caller}

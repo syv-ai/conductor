@@ -328,8 +328,8 @@ def test_a_clash_is_named_by_address_and_only_then():
     )
     clashing = NodeDefinition.from_compiled_graphs("two", versions=inner)
     described = clashing.describe().versions[1]
-    assert [i.name for i in described.inputs] == ["x.text", "y.text"]
-    assert [o.name for o in described.outputs] == ["x.result", "y.result"]
+    assert [i.name for i in described.interface.inputs] == ["x.text", "y.text"]
+    assert [o.name for o in described.interface.outputs] == ["x.result", "y.result"]
 
 
 # -- a node placed in a graph, typed -----------------------------------------------------

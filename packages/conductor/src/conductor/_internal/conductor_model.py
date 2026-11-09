@@ -20,7 +20,7 @@ class is still there to ``describe()``.
 
 The events a leg yields are models too, since a host sends every one of
 them on. What compile and the engine build and keep to themselves —
-``CompiledGraph`` and its node and field views, a version, an interface,
+``CompiledGraph`` and its node and field views, a version,
 a run's ledger — is not a model: those are frozen dataclasses,
 built far more often than they are ever parsed. A node's return declaration is not one either: a
 function that returns a model returns one value, not one output per field.
@@ -52,7 +52,7 @@ class ConductorModel(BaseModel):
     @classmethod
     def _built_from_checked_fields(cls, **fields: Any) -> Self:
         """A record from values that already passed, every field given: what ``model_construct``
-        does without its walk over the fields, for records built once per node on a leg's path."""
+        does without its walk over the fields. A field left out is absent, not defaulted."""
         record = cls.__new__(cls)
         object.__setattr__(record, "__dict__", fields)
         object.__setattr__(record, "__pydantic_fields_set__", set(fields))

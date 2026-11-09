@@ -39,7 +39,7 @@ from dataclasses import dataclass, fields, is_dataclass
 from types import NoneType, UnionType
 from typing import Annotated, Any, TypedDict, TypeVar, Union, get_args, get_origin, get_type_hints
 
-from pydantic import ConfigDict, TypeAdapter, with_config
+from pydantic import ConfigDict, PlainSerializer, TypeAdapter, WithJsonSchema, with_config
 
 from conductor._internal.dtype import (
     DType,
@@ -80,14 +80,14 @@ class Interface:
     graph actually has once the compiler has asked its hooks and typed its
     edges (``CompiledGraph.node(node_id).interface``); and what a whole
     graph takes and returns (``CompiledGraph.interface``), with inputs
-    named by address. Derived, never written by hand; frozen, so the
-    derivation is the only writer.
+    named by address.
     """
 
     inputs: tuple[Input, ...]
     outputs: tuple[Output, ...]
-    #: The types the caller must provide, from every ``FromRun`` parameter.
-    needs: frozenset[type] = frozenset()
+    #: The types the caller must provide, from every ``FromRun`` parameter. A class has no
+    #: JSON form, so a dump writes each one's name, sorted.
+    needs: Annotated[frozenset[type], PlainSerializer(lambda needs: sorted(need.__name__ for need in needs), return_type=list[str]), WithJsonSchema({"type": "array", "items": {"type": "string"}})]
 
 
 @dataclass(frozen=True)
