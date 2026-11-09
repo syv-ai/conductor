@@ -116,6 +116,8 @@ def test_a_bare_deprecated_means_going_away_with_no_details_yet():
     assert old_node.versions[1].deprecation == Deprecation()
 
 
+
+
 def test_a_version_with_no_policy_gets_the_default():
     @node("plain-policy", title="Plain", description="d", category="test")
     def plain(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
@@ -204,6 +206,8 @@ def test_the_flattened_record_is_gone():
         importlib.import_module("conductor._internal.registry.definition")
 
 
+
+
 def test_a_hook_that_cannot_answer_raises_refuses():
     """`CompileProblem(code, message)` is the one refusal a field hook has: the
     host names the code and writes the sentence, and the compiler anchors both
@@ -225,6 +229,8 @@ def test_a_reduction_declares_a_series_input():
 
     (texts,) = join_node.versions[1].interface.inputs
     assert texts.dtype is Txt and texts.many
+
+
 
 
 def test_describe_is_the_class_as_a_record():
@@ -305,6 +311,8 @@ def test_describe_is_computed_not_stored():
     assert "description_record" not in vars(echo)
 
 
+
+
 class Flag(DType):
     """A boolean dtype for the test — conductor ships none."""
 
@@ -331,6 +339,39 @@ def test_a_category_is_a_string_on_the_definition():
     assert echo.describe().category == "tools"
     assert not hasattr(conductor, "NodeCategory")
     assert not hasattr(NodeRegistry, "include")
+
+
+def test_a_class_node_executes_in_a_graph():
+    def _decorate(text: str) -> str:
+        return text.upper() + "!"
+
+    @node("shout", title="Shout", description="d", category="test")
+    def shout(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
+        return Txt(_decorate(text))
+
+    registry = NodeRegistry([shout])
+
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="shout", version=1, bindings={"text": Static("hi")})]), registry)
+    results = compiled.results(compiled.run_sync())
+    assert results["a"]["result"] == "HI!"
+
+
+def test_two_versions_of_one_class_execute_independently():
+    def suffix_v1(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
+        return text
+
+    @node("suffix", title="Suffix", description="d", category="test", replaces=node("suffix")(suffix_v1), upgrade=Upgrade())
+    def suffix(
+        text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt(""),
+        mark: Annotated[Txt, Param(title="Mark", widget=Textarea())] = Txt("?"),
+    ) -> Out:
+        return Txt(text + mark)
+
+    registry = NodeRegistry([suffix])
+
+    for pinned, expected in ((1, "hi"), (2, "hi?")):
+        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="suffix", version=pinned, bindings={"text": Static("hi")})]), registry)
+        assert compiled.results(compiled.run_sync())["a"]["result"] == expected
 
 
 def test_a_version_a_class_does_not_declare_is_refused():
@@ -378,6 +419,20 @@ def test_a_title_defaults_to_the_function_name_read_as_words():
         return x
 
     assert split_lines.title == "Split lines"
+
+
+def test_a_sink_node_declares_no_outputs_and_runs():
+    seen = []
+
+    @node("sink")
+    def sink(text: Txt) -> None:
+        seen.append(text)
+
+    registry = NodeRegistry([sink])
+    assert sink.versions[1].interface.outputs == ()
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="s", type="sink", version=1, bindings={"text": Static("hi")})]), registry)
+    assert compiled.problems == ()
+    assert compiled.run_sync().status == "complete" and seen == ["hi"]
 
 
 def test_a_result_can_name_the_output():

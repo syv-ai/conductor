@@ -309,6 +309,7 @@ def test_an_empty_typed_input_is_a_value_that_arrives_later():
     assert compiled.field(Ref("e", "result")).type is Txt
 
 
+
 def headed_outputs(header=None):
     if header is None:
         raise ComputeHookError("Type a header first.", code="header_missing")
@@ -659,6 +660,23 @@ def test_a_compiled_node_validates_a_call_and_hands_back_its_keyword_arguments()
     wired = _compiled([_exposed(), GraphNode(id="b", type="echo", version=1, bindings={"x": From("besked.result")})]).node("b")
     with pytest.raises(ValidationError):
         wired._validate_call_inputs({"x": ["not", "text"], "y": Txt("")})
+
+
+def test_a_default_reaches_the_node_as_its_input_s_type():
+    """A default is a value of its input like any other: ``n: Num = 3``
+    with nothing bound reaches ``run`` as a ``Num``, not a bare ``int``."""
+
+    seen = []
+
+    @node("counted", title="Counted", description="d", category="test")
+    def counted(n: Annotated[Num, Param(title="N", widget=Textarea())] = 3) -> Out:  # type: ignore[assignment]
+        seen.append(n)
+        return Txt("")
+
+    compiled = _compiled([GraphNode(id="c", type="counted", version=1)], NodeRegistry((counted,)))
+
+    assert compiled.run_sync().status == "complete"
+    assert [type(n) for n in seen] == [Num] and seen == [3.0]
 
 
 def test_the_record_keeps_the_authored_graph_and_the_registry_and_drops_what_nothing_calls():

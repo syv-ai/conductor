@@ -1,9 +1,11 @@
 import dataclasses
 import inspect
+from dataclasses import dataclass
 from typing import Annotated
 
 import pytest
 from conductor import (
+    SKIPPED,
     CompiledGraph,
     DType,
     FieldContent,
@@ -451,6 +453,59 @@ def _echo_registry():
 
     registry = NodeRegistry([echo])
     return registry
+
+
+def test_a_graph_of_bindings_compiles_and_runs():
+    graph = Graph(
+        nodes=[
+            GraphNode(id="a", type="echo", version=1, bindings={"x": Static("hi")}),
+            GraphNode(id="b", type="echo", version=1, bindings={"x": From("a.result")}),
+        ],
+    )
+    compiled = CompiledGraph.from_graph(graph=graph, registry=_echo_registry())
+    results = compiled.results(compiled.run_sync())
+
+    assert results["a"]["result"] == "HI"
+    assert results["b"]["result"] == "HI"
+
+
+def test_an_unbound_input_falls_back_to_its_declared_default():
+    """Absence is the only "nothing binds this" state there is."""
+    graph = Graph(nodes=[GraphNode(id="a", type="echo", version=1)])
+
+    compiled = CompiledGraph.from_graph(graph=graph, registry=_echo_registry())
+
+    assert compiled.results(compiled.run_sync())["a"]["result"] == ""
+
+
+def test_a_branch_not_taken_is_skipped_downstream():
+    """A branch is an output; SKIPPED on it skips what hangs off it."""
+
+    @dataclass(frozen=True)
+    class Answer:
+        yes: Annotated[Txt, Result(title="Yes", exclusive_group="answer")]
+        no: Annotated[Txt, Result(title="No", exclusive_group="answer")]
+
+    @node("gate", title="Gate", description="d", category="test")
+    def gate(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")
+    ) -> Answer:
+        return Answer(yes=x, no=SKIPPED) if x else Answer(yes=SKIPPED, no=x)
+
+    registry = _echo_registry()
+    registry = registry.extended_with([gate])
+    graph = Graph(
+        nodes=[
+            GraphNode(id="g", type="gate", version=1, bindings={"x": Static("hi")}),
+            GraphNode(id="yes", type="echo", version=1, bindings={"x": From("g.yes")}),
+            GraphNode(id="no", type="echo", version=1, bindings={"x": From("g.no")}),
+        ],
+    )
+    compiled = CompiledGraph.from_graph(graph=graph, registry=registry)
+    results = compiled.results(compiled.run_sync())
+
+    assert results["yes"]["result"] == "HI"
+    # The results a leg ends with omit a skipped node.
+    assert "no" not in results
 
 
 def test_compile_takes_a_graph_and_a_registry_and_nothing_else_positional():

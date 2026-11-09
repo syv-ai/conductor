@@ -3,14 +3,17 @@
 from typing import Annotated
 
 import polars as pl
+import pytest
 from conductor import (
     SKIPPED,
     CompiledGraph,
     From,
     Graph,
     GraphNode,
+    InvalidCallError,
     NodeRegistry,
     Result,
+    RunState,
     Series,
     Static,
     node,
@@ -81,3 +84,27 @@ def test_compile_says_once_how_each_field_is_held():
     assert held.rows_made is not None and held.rows_made.id == "list.text"
 
 
+@pytest.mark.parametrize("maker", ["contacts", "names"])
+def test_a_skip_at_the_top_leaves_a_node_on_its_rows_absent_from_a_state_read_back(maker):
+    """Whether the skip is read live or off a state's columns, what a reader of those rows gets is the same."""
+    reader_edge = "m.result.name" if maker == "contacts" else "m.result"
+    compiled = _compiled(
+        GraphNode(id="m", type=maker, version=1, bindings={"text": Static("skip")}),
+        GraphNode(id="r", type="shout", version=1, bindings={"text": From(reader_edge)}),
+    )
+    state = compiled.run_sync()
+
+    assert compiled.results(state) == {}
+    assert compiled.results(RunState.model_validate_json(state.model_dump_json())) == {}
+
+
+def test_a_null_stored_where_a_table_makes_rows_is_refused_when_read_for_a_result():
+    compiled = _compiled(GraphNode(id="t", type="contacts", version=1, bindings={"text": Static("a,b")}))
+    data = compiled.run_sync().model_dump(mode="json")
+    data["nodes"]["t"]["outputs"]["result"]["values"][0] = None
+    corrupted = RunState.model_validate(data)
+
+    with pytest.raises(InvalidCallError) as raised:
+        compiled.results(corrupted)
+
+    assert {problem.type for problem in raised.value.errors()} == {"state_unreadable"}

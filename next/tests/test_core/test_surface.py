@@ -140,6 +140,20 @@ def test_a_registry_prints_a_call_its_constructor_accepts():
 # --- an error's text names what went wrong --------------------------------------------
 
 
+def test_a_compilation_error_lists_its_fatal_problems():
+    """The message lists the problems, not only 'the graph cannot run'."""
+    from conductor import InvalidCallError
+
+    compiled = _compiled(GraphNode(id="s", type="scale", version=1, bindings={"facter": Static("3")}))
+    with pytest.raises(InvalidCallError) as raised:
+        compiled.run_sync()
+
+    assert str(raised.value) == (
+        "1 problem(s):\n"
+        "  s.facter — stale_binding: Field 'facter' is not an input of the node; it has factor, value."
+    )
+
+
 # --- a declaration mistake is refused where it is written -----------------------------
 
 
@@ -172,6 +186,23 @@ def test_a_type_no_edge_can_carry_on_an_open_interface_is_refused():
 def test_an_underscore_parameter_is_refused():
     with pytest.raises(TypeError, match="'_hidden'"):
         _declare(run=_run({"_hidden": Annotated[Txt, Param(title="H", widget=Textarea())]}))
+
+
+@pytest.mark.parametrize("name", ["schema", "copy", "json", "model_config"])
+def test_a_parameter_named_like_a_pydantic_model_attribute_validates_without_a_warning(name):
+    """``BaseModel`` has ``schema``, ``copy``, ``json`` and ``model_config``;
+    a call's check keys its inputs by name in a dict, so an input may carry
+    any of them, without a warning."""
+    import warnings
+
+
+    graph_node = _declare(run=_run({name: Annotated[Txt, Param(title="X", widget=Textarea())]}))
+    registry = NodeRegistry((graph_node,))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n", type="bad", version=1, bindings={name: Static("x")})]), registry)
+        assert compiled.node("n")._validate_call_inputs({name: Txt("x")}) == {name: "x"}
+    assert compiled.run_sync().status == "complete"
 
 
 def test_an_aliased_input_and_an_input_named_like_its_field_both_arrive():

@@ -8,6 +8,7 @@ from conductor import (
     CompiledGraph,
     ComputeHookError,
     Deprecation,
+    From,
     Graph,
     GraphNode,
     Input,
@@ -104,6 +105,20 @@ def test_a_typed_in_value_outside_its_bounds_is_a_problem_at_compile():
     assert [(problem.type, problem.loc) for problem in compiled.problems] == [("invalid_static", ("t", "temperature"))]
 
 
+def test_a_value_on_an_edge_outside_its_bounds_fails_the_node_for_that_row():
+    @node("source")
+    def source() -> float:
+        return 5.0
+
+    graph = Graph(nodes=(GraphNode(id="s", type="source", version=1), GraphNode(id="t", type="temper", version=1, bindings={"temperature": From("s.result")})))
+    compiled = CompiledGraph.from_graph(graph, NodeRegistry([source, temper]))
+    assert compiled.is_runnable
+
+    state = compiled.run_sync()
+
+    assert state.status == "failed" and state.failure.type == "invalid_input"
+
+
 def test_a_blank_on_an_input_that_takes_one_is_held_to_no_bound():
     assert not CompiledGraph.from_graph(_temper_graph(temperature=1.0), NodeRegistry([temper])).problems
     assert temper.versions[1].interface.inputs[1].bounds == {"max_length": 3}
@@ -122,6 +137,16 @@ def test_a_bound_written_wrong_is_refused_where_it_is_written(written):
 
 class _HostControl(Widget):
     kind: Literal["host-control"] = "host-control"
+
+
+def test_compile_and_a_run_take_a_control_the_library_has_never_seen():
+    @node("hosted")
+    def hosted(text: Annotated[str, Param(widget=_HostControl())]) -> str:
+        return text
+
+    compiled = CompiledGraph.from_graph(Graph(nodes=(GraphNode(id="h", type="hosted", version=1, bindings={"text": Static("a")}),)), NodeRegistry([hosted]))
+
+    assert compiled.run_sync().status == "complete"
 
 
 def _graph_with_hook(error: ComputeHookError) -> tuple[Graph, NodeRegistry]:
@@ -154,3 +179,24 @@ def first_two(items: Annotated[Series[str], Param(min_length=1, max_length=2)]) 
     return ",".join(items)
 
 
+def test_a_list_typed_in_is_held_to_its_length_at_compile():
+    def graph(items: list[str]) -> Graph:
+        return Graph(nodes=(GraphNode(id="f", type="first_two", version=1, bindings={"items": Static(items)}),))
+
+    assert [problem.type for problem in CompiledGraph.from_graph(graph(["a", "b", "c"]), NodeRegistry([first_two])).problems] == ["invalid_static"]
+    assert [problem.type for problem in CompiledGraph.from_graph(graph([]), NodeRegistry([first_two])).problems] == ["invalid_static"]
+    assert CompiledGraph.from_graph(graph(["a", "b"]), NodeRegistry([first_two])).run_sync().status == "complete"
+
+
+@pytest.mark.parametrize(("rows", "status"), [(2, "complete"), (3, "failed")])
+def test_many_values_on_an_edge_arrive_as_a_list_held_to_its_length(rows, status):
+    @node("many")
+    def many() -> Series[str]:
+        return ["x"] * rows
+
+    graph = Graph(nodes=(GraphNode(id="m", type="many", version=1), GraphNode(id="f", type="first_two", version=1, bindings={"items": From("m.result")})))
+
+    state = CompiledGraph.from_graph(graph, NodeRegistry([many, first_two])).run_sync()
+
+    assert state.status == status
+    assert state.failure is None or state.failure.type == "invalid_input"

@@ -1,9 +1,12 @@
 """One record for what goes wrong, and who raises what."""
 
+import ast
+from pathlib import Path
 from typing import Annotated, Any
 
 import pytest
 from conductor import (
+    PROBLEM_CODES,
     AsItArrives,
     CompiledGraph,
     ComputeHookError,
@@ -69,6 +72,36 @@ def test_a_none_place_is_left_out_of_loc():
     assert make_problem("unbound_required", "a", None).loc == ("a",)
 
 
+def test_every_code_a_site_writes_is_in_the_catalogue_and_every_row_is_written():
+    """``PROBLEM_CODES`` is what a host translating by code covers, so it
+    equals the codes written at the sites: a ``make_problem(...)`` and a ``code=``
+    in the engine and compile. ``failed`` and ``compute_hook_failed`` are the names
+    for a ``NodeError`` and a ``ComputeHookError`` raised with no code."""
+    import conductor._internal.execution
+    import conductor._internal.graph
+
+    written: set[str] = {"failed", "compute_hook_failed"}
+
+    def literals(expression: ast.expr) -> set[str]:
+        return {graph_node.value for graph_node in ast.walk(expression) if isinstance(graph_node, ast.Constant) and isinstance(graph_node.value, str)}
+
+    for package in (conductor._internal.execution, conductor._internal.graph):
+        for path in Path(package.__file__).parent.glob("*.py"):
+            for graph_node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if not isinstance(graph_node, ast.Call):
+                    continue
+                if isinstance(graph_node.func, ast.Name) and graph_node.func.id == "make_problem" and graph_node.args:
+                    written |= literals(graph_node.args[0])
+                written |= {
+                    value for keyword in graph_node.keywords if keyword.arg == "code" for value in literals(keyword.value)
+                    if keyword.value is not None
+                }
+                if isinstance(graph_node.func, ast.Name) and graph_node.func.id == "Problem":
+                    written |= {value for keyword in graph_node.keywords if keyword.arg == "type" for value in literals(keyword.value)}
+
+    assert written == PROBLEM_CODES
+
+
 def test_the_errors_a_caller_catches_sit_under_conductor_error():
     """A failed node is a ``NodeError``; a refused call is a ``ValueError``
     as well, so a host's ``except ValueError`` catches it."""
@@ -83,6 +116,17 @@ def test_a_node_failure_takes_its_code_and_ctx_from_what_the_node_raised():
 
 
 # --- a refused call ------------------------------------------------------------------
+
+
+def test_a_graph_that_cannot_run_is_refused_with_its_own_problems():
+    graph = Graph(nodes=[GraphNode(id="a", type="echo", version=1)])
+    compiled = CompiledGraph.from_graph(graph, _registry())
+
+    with pytest.raises(InvalidCallError) as raised:
+        compiled.run_sync()
+
+    assert raised.value.errors() == [p for p in compiled.problems if p.fatal]
+    assert raised.value.errors()[0].loc == ("a", "text")
 
 
 # --- hooks -----------------------------------------------------------------------

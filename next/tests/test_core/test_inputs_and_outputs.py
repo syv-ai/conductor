@@ -13,6 +13,7 @@ from conductor import (
     SKIPPED,
     CompiledGraph,
     DType,
+    From,
     Graph,
     GraphNode,
     InvalidCallError,
@@ -71,6 +72,14 @@ def _outputs(compiled: CompiledGraph) -> dict:
     return compiled.outputs(ending)
 
 
+def test_a_bare_name_fills_the_one_input_that_has_it():
+    compiled = _compiled(GraphNode(id="a", type="upper", version=1))
+
+    ready = compiled.with_inputs(text="hi")
+
+    assert _outputs(ready) == {"a.result": "HI"}
+
+
 def test_the_copy_carries_the_authored_graph_with_the_value_on_it():
     """A host stores what ran; the graph it was compiled from is on the copy, the original untouched."""
     compiled = _compiled(GraphNode(id="a", type="upper", version=1))
@@ -79,6 +88,25 @@ def test_the_copy_carries_the_authored_graph_with_the_value_on_it():
 
     assert ready.graph.nodes[0].bindings == {"text": Static("hi")}
     assert compiled.graph.nodes[0].bindings == {}
+
+
+def test_a_filled_input_stays_offered_and_filling_it_again_overrides_it():
+    """A static is a value a caller may answer over, so the copy still offers the input."""
+    compiled = _compiled(GraphNode(id="a", type="upper", version=1))
+
+    once = compiled.with_inputs(text="hi")
+
+    assert [str(i.name) for i in once.interface.inputs] == ["a.text"]
+    assert _outputs(once.with_inputs(text="yo")) == {"a.result": "YO"}
+    assert _outputs(compiled) == {"a.result": ""}
+
+
+def test_a_bare_name_two_inputs_share_is_refused_naming_both_and_the_address_fills_one():
+    compiled = _compiled(GraphNode(id="a", type="upper", version=1), GraphNode(id="b", type="upper", version=1))
+
+    with pytest.raises(InvalidCallError, match=r"a\.text.*b\.text"):
+        compiled.with_inputs(text="hi")
+    assert _outputs(compiled.with_inputs(**{"a.text": "x", "b.text": "y"})) == {"a.result": "X", "b.result": "Y"}
 
 
 def test_an_unknown_name_is_refused_listing_the_names_offered():
@@ -97,11 +125,46 @@ def test_a_locked_input_is_refused_by_name():
         compiled.with_inputs(text="hi")
 
 
+def test_a_list_on_an_input_for_one_value_runs_the_graph_once_per_item():
+    compiled = _compiled(GraphNode(id="a", type="upper", version=1))
+
+    out = _outputs(compiled.with_inputs(text=["x", "y"]))
+
+    assert out["a.result"]["values"] == ["X", "Y"]
+
+
 def test_a_required_input_left_unfilled_is_compiles_own_problem():
     compiled = _compiled(GraphNode(id="n", type="needs", version=1))
 
     assert "unbound_required" in [p.type for p in compiled.problems]
     assert compiled.with_inputs(text="x").is_runnable
+
+
+def test_an_input_inside_an_embedded_graph_is_filled_by_its_address():
+    compiled = _compiled(GraphNode(id="emb", type="shout", version=1))
+
+    assert _outputs(compiled.with_inputs(**{"emb.text": "hi"})) == {"emb.result": "HI"}
+
+
+def test_an_input_inside_an_embedded_graph_is_filled_by_its_bare_name_when_no_other_has_it():
+    compiled = _compiled(GraphNode(id="emb", type="shout", version=1))
+
+    assert _outputs(compiled.with_inputs(text="hi")) == {"emb.result": "HI"}
+
+
+def test_outputs_leave_out_a_skipped_output_and_read_what_a_failed_leg_produced():
+    skipped = _compiled(GraphNode(id="s", type="skips", version=1))
+    assert _outputs(skipped) == {}
+
+    failed = _compiled(
+        GraphNode(id="a", type="upper", version=1, bindings={"text": Static("ok")}),
+        GraphNode(id="f", type="fails", version=1),
+    )
+    ending = failed.run_sync()
+    assert ending.status == "failed"
+    assert failed.results(ending)["a"]["result"] == "OK"
+    with pytest.raises(InvalidCallError, match="run_not_complete"):
+        failed.outputs(ending)
 
 
 def test_two_fillings_are_two_graphs_with_two_fingerprints():
@@ -113,3 +176,7 @@ def test_two_fillings_are_two_graphs_with_two_fingerprints():
     assert compiled.node("a").fingerprint not in (one.node("a").fingerprint, other.node("a").fingerprint)
 
 
+def test_an_edge_input_is_not_offered():
+    compiled = _compiled(GraphNode(id="a", type="upper", version=1), GraphNode(id="b", type="upper", version=1, bindings={"text": From("a.result")}))
+
+    assert _outputs(compiled.with_inputs(text="hi")) == {"b.result": "HI"}

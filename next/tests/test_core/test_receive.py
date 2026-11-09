@@ -254,3 +254,9 @@ def test_an_open_parameter_inside_an_embedded_graph_is_not_an_input_it_offers():
 # --- the ledger reads the record -----------------------------------------------------
 
 
+def test_a_closed_list_input_runs_once_with_its_list_and_with_its_default():
+    typed = _compiled([GraphNode(id="t", type="tags", version=1, bindings={"tags": Static(["a", "b", "c"])})])
+    defaulted = _compiled([GraphNode(id="t", type="tags", version=1)])
+
+    assert typed.results(typed.run_sync())["t"]["result"] == "a|b|c"
+    assert defaulted.results(defaulted.run_sync())["t"]["result"] == "x"

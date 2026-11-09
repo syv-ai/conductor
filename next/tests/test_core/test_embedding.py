@@ -483,6 +483,7 @@ def test_the_pinned_values_are_the_scenarios():
     assert set(json.loads(FIXTURE.read_text())) == set(SCENARIOS)
 
 
+
 RUN = (
     "entering_scalar", "rows_made_inside_exposed", "gathered_into_the_graph_node", "many_values_on_the_graph_node",
     "nested_iterating", "cond_outer_gate_into_graph", "cond_nested_per_row",
@@ -497,6 +498,11 @@ def _results(compiled: CompiledGraph) -> dict[str, dict[str, str]]:
         node_id: {name: repr(value) for name, value in outputs.items()}
         for node_id, outputs in compiled.results(compiled.run_sync()).items()
     }
+
+
+@pytest.mark.parametrize("name", RUN)
+def test_a_compiled_graph_placed_runs_to_the_same_results(name):
+    assert _results(_compiled(name)) == json.loads(RESULTS.read_text())[name]
 
 
 def test_the_pinned_results_are_the_run_scenarios():
@@ -559,6 +565,7 @@ def test_an_outer_edge_may_only_read_what_the_graph_offers():
     assert [(p.type, p.loc[0]) for p in compiled.problems] == [("unknown_ref_output", "after")]
 
 
+
 def test_two_series_made_by_different_nodes_inside_do_not_line_up_outside():
     """Each series output of an embedded graph sits on the index of the node
     inside that makes it, so two unrelated ones are ``misaligned`` where they
@@ -573,6 +580,7 @@ def test_two_series_made_by_different_nodes_inside_do_not_line_up_outside():
     problems = CompiledGraph.from_graph(Graph(nodes=list(scenario.nodes)), _registry(scenario)).problems
 
     assert [(p.type, p.loc[0]) for p in problems] == [("misaligned", "after")]
+
 
 
 def test_a_graph_that_cannot_run_is_refused_even_when_every_node_is_ready():
@@ -642,6 +650,31 @@ def _pass_on_what_arrives(**arriving: ArrivingType):
 @node("as_it_arrives", title="As it arrives", description="d", category="test", compute_outputs=_pass_on_what_arrives)
 def as_it_arrives(**thing: AsItArrives) -> Annotated[Any, Result(title="Thing")]:
     return thing["thing"]
+
+
+def test_a_value_inside_a_graph_run_per_row_arrives_as_itself_on_an_as_it_arrives_input():
+    """One value per run of the graph: a hook is told its type, and the call gets it at its own row."""
+    inner = CompiledGraph.from_graph(Graph(nodes=[N(id="h", type="holder", version=1), N(id="kw", type="as_it_arrives", version=1, bindings={"thing": From("h.result")})]), _plain_registry().extended_with([as_it_arrives]))
+    registry = _plain_registry().extended_with([as_it_arrives, _definition("g", inner)])
+    compiled = CompiledGraph.from_graph(Graph(nodes=[N(id="docs", type="docs", version=1), N(id="emb", type="g", version=1, bindings={"value": From("docs.result")})]), registry)
+
+    assert compiled.is_runnable, compiled.problems
+    plan = compiled.run_plan.nodes["emb/kw"].inputs["thing"]
+    assert (plan.receive_mode, plan.rows_of) == ("value_at_row", "docs.result")
+    assert [str(value) for value in compiled.results(compiled.run_sync())["emb/kw"]["result"]["values"]] == ["a", "b"]
+
+
+def test_a_graph_run_per_row_sees_an_input_fed_whole_as_a_whole():
+    """``u`` is fed one doc per call, so the embedded graph runs once per doc.
+    ``j`` is fed the docs too, into a series input: like any node that runs
+    per row, each run sees the series whole."""
+    scenario = Scenario((("mixed", (N(id="u", type="upper", version=1), N(id="j", type="join", version=1))),), (
+        _docs(),
+        N(id="emb", type="mixed", version=1, bindings={"text": From("docs.result"), "texts": From("docs.result")}),
+    ))
+    compiled = CompiledGraph.from_graph(Graph(nodes=list(scenario.nodes)), _registry(scenario))
+
+    assert [str(value) for value in compiled.results(compiled.run_sync())["emb/j"]["result"]["values"]] == ["a+b", "a+b"]
 
 
 def test_a_broken_graph_with_a_value_typed_on_it_is_one_problem():
