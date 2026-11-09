@@ -493,7 +493,7 @@ def test_answers_stay_with_their_row_when_a_row_is_inserted_above() -> None:
     assert [unit.row for unit in ending.waiting] == [(0,), (3,)]
     ending = moved.run_sync(moved.answer(ending, {unit.id: {"result": "ok:" + unit.prompt} for unit in ending.waiting}))
     assert moved.results(ending)["a"]["result"]["values"] == ["ok:n@x", "A-yes", "B-no", "ok:c@x"]
-    assert ending.nodes["a"].answered_rows == [(0,), (1,), (2,), (3,)] and reused(ending) == {}
+    assert reused(ending) == {}
 
     with pytest.raises(InvalidCallError) as stale:
         moved.answer(ending, {waiting_c_id: {"result": "stale"}})

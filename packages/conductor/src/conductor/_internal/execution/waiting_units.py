@@ -89,7 +89,7 @@ def apply_answers(compiled: CompiledGraph, state: RunState, answers: Answers) ->
     changed = set(compiled._nodes_changed_since(state))
     waiting = {waiting_unit.id: waiting_unit for waiting_unit in state.waiting}
     problems: list[Problem] = []
-    finished: list[tuple[WaitingUnit, dict[str, Any] | None]] = []
+    finished: list[tuple[WaitingUnit, dict[str, Any]]] = []
     for waiting_id, answer in answers.items():
         waiting_unit = waiting.get(waiting_id)
         if waiting_unit is None or waiting_unit.node_id in changed:
@@ -103,18 +103,18 @@ def apply_answers(compiled: CompiledGraph, state: RunState, answers: Answers) ->
         raise InvalidCallError(problems)
     ledger = RunLedger.restore(compiled, state)
     for waiting_unit, cells in finished:
-        ledger.record_answer((waiting_unit.node_id, waiting_unit.row), cells)
+        ledger.record((waiting_unit.node_id, waiting_unit.row), cells)
     return ledger.state(state.status, state.failure)
 
 
-def _answered_cells(node: CompiledNode, waiting_unit: WaitingUnit, answer: Mapping[str, Any] | None) -> tuple[dict[str, Any] | None, list[Problem]]:
-    """One unit's answer as the cells it finishes with, ``None`` for a unit with
+def _answered_cells(node: CompiledNode, waiting_unit: WaitingUnit, answer: Mapping[str, Any] | None) -> tuple[dict[str, Any], list[Problem]]:
+    """One unit's answer as the cells it finishes with, every output skipped for a unit with
     no value on its row, and what is wrong with it."""
     if answer is None:
-        return None, []
+        return {out.name: SKIPPED for out in node.interface.outputs}, []  # type: ignore[union-attr]  # only a ready node asks
     problem_location = ("answers", waiting_unit.id)
     if not isinstance(answer, Mapping):
-        return None, [make_problem("invalid_value", *problem_location, reason=f"an answer is a value per output, not a {type(answer).__name__}")]
+        return {}, [make_problem("invalid_value", *problem_location, reason=f"an answer is a value per output, not a {type(answer).__name__}")]
     problems: list[Problem] = []
     questions = {question.name: question for question in waiting_unit.questions}
     for name in answer:

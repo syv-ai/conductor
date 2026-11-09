@@ -44,7 +44,7 @@ question while it waits, and a form opened for another row is refused.
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from hashlib import blake2b
 from itertools import chain, groupby
@@ -112,6 +112,9 @@ if TYPE_CHECKING:
 
 #: One run of one node: the node id and the row it runs on, ``()`` for a node that runs once.
 Unit = tuple[str, Row]
+
+#: What starts the reuse key of a question put on a row, so a re-planned node can tell it has any to look for.
+_BOUND_TO_ITS_ROW = "row-"
 
 #: An earlier unit of a re-planned node: the row it had and its reuse key.
 _EarlierUnitKey = tuple[Row, str]
@@ -206,8 +209,6 @@ class RunLedger:
         self._parked: dict[Unit, list[Unit]] = {}
         #: Per node, how many rows it wasn't called on, per input that was blank there.
         self._rows_not_called: dict[str, dict[str, int]] = {}
-        #: Units a person answered.
-        self._answered: set[Unit] = set()
         #: The tables each unit of a table-returning node received, for moving its ids when it is reused.
         self._tables_received: dict[Unit, list[pl.DataFrame]] = {}
         self._nodes_returning_a_table = frozenset(field.ref.node_id for field in lookups.field_making_rows_of_index.values() if field._held_as.__class__ is TableAtRow)
@@ -624,15 +625,10 @@ class RunLedger:
         held = self._waiting[unit] = waiting_unit.model_copy(update={"reuse_key": reuse_key, "id": id_of_waiting_unit(unit[0], unit[1], reuse_key)})
         return held
 
-    def record_answer(self, unit: Unit, cells: dict[str, Any] | None) -> None:
-        """A person answered this waiting unit: record it as if its node had returned ``cells``; ``None`` is no value on its row."""
-        self.record(unit, SkippedAtRow(unit[1]) if cells is None else cells)
-        self._answered.add(unit)
-
     def _reuse_key_of_question(self, unit: Unit, input_hash: str) -> str:
         """The reuse key of a question this unit puts to a person: ``input_hash``, and on a row the row it is asked on."""
         index = self._runs_per_row_of[unit[0]]
-        return input_hash if index is None else blake2b(f"{input_hash}|{self._identity_of_row_for_a_question(index, unit[1])}".encode(), digest_size=16).hexdigest()
+        return input_hash if index is None else _BOUND_TO_ITS_ROW + blake2b(f"{input_hash}|{self._identity_of_row_for_a_question(index, unit[1])}".encode(), digest_size=16).hexdigest()
 
     def _identity_of_row_for_a_question(self, index: Index, row: Row) -> str:
         """All a row is: what it holds, the row above it, the row its id came from, and which of how many identical rows it is."""
@@ -697,7 +693,7 @@ class RunLedger:
         earlier = self._earlier_units.get(node_id)
         if earlier is None:
             return None
-        claimed = earlier.claim(input_hash, self._reuse_key_of_question(unit, input_hash) if earlier.a_person_was_asked else None)
+        claimed = earlier.claim(input_hash, self._reuse_key_of_question(unit, input_hash) if earlier.holds_a_unit_bound_to_its_row else None)
         if claimed is None:
             return None
         if claimed.waiting is not None:
@@ -707,8 +703,6 @@ class RunLedger:
         if cells is None:
             return None
         self._reused_units[node_id] = self._reused_units.get(node_id, 0) + 1
-        if claimed.answered:
-            self._answered.add(unit)
         return cells, claimed.reuse_key
 
     def _cells_of_earlier_unit(self, claimed: _EarlierUnit, unit: Unit) -> dict[str, Any] | None:
@@ -731,7 +725,7 @@ class RunLedger:
             return []
         return [
             EarlierUnit.model_construct(
-                row=unit.row, reuse_key=unit.reuse_key, answered=unit.answered, waiting=unit.waiting, tables_received=unit.tables_received,
+                row=unit.row, reuse_key=unit.reuse_key, waiting=unit.waiting, tables_received=unit.tables_received,
                 outputs={name: output_column_of({unit.row: cell}, self._fields[Ref(node_id, name)]) for name, cell in unit.cells.items()},
             )
             for unit in earlier.unclaimed()
@@ -749,9 +743,6 @@ class RunLedger:
         finished_units: dict[str, list[FinishedUnit]] = {}
         for (node_id, row), reuse_key in self._done.items():
             finished_units.setdefault(node_id, []).append((row, reuse_key))
-        answered: dict[str, list[Row]] = {}
-        for node_id, row in sorted(self._answered):
-            answered.setdefault(node_id, []).append(row)
         waiting = {node_id: tuple(units) for node_id, units in groupby(self.waiting(), key=attrgetter("node_id"))}
         tables_received: dict[str, list[tuple[Row, list[pl.DataFrame]]]] = {}
         for (node_id, row), tables in self._tables_received.items():
@@ -767,7 +758,6 @@ class RunLedger:
             nodes[node_id] = WorkOfNode._built_from_checked_fields(
                 fingerprint=compiled.node(node_id).fingerprint,
                 finished_units=units,
-                answered_rows=answered.get(node_id, []),
                 tables_received=sorted(tables_received[node_id], key=itemgetter(0)) if node_id in tables_received else [],
                 outputs=self._values.output_columns_of(node_id),
                 waiting=waiting.get(node_id, ()),
@@ -811,7 +801,6 @@ class RunLedger:
         problems.extend(restored._problems_with_waiting_units())
         if problems:
             raise InvalidCallError(problems)
-        restored._answered = {(node_id, row) for node_id, work in kept.items() for row in work.answered_rows}
         return restored
 
     def _replay_finished_units(self, kept: Mapping[str, WorkOfNode]) -> list[Problem]:
@@ -859,7 +848,6 @@ class _EarlierUnit(NamedTuple):
 
     row: Row
     reuse_key: str
-    answered: bool
     waiting: WaitingUnit | None
     tables_received: list[pl.DataFrame]
     cells: dict[str, Any]
@@ -875,18 +863,17 @@ class _EarlierUnitsOfNode:
     row in its key, so only the same row finds it.
     """
 
-    __slots__ = ("units_with_reuse_key_lowest_row_last", "a_person_was_asked")
+    __slots__ = ("units_with_reuse_key_lowest_row_last", "holds_a_unit_bound_to_its_row")
 
-    def __init__(self, units: Iterable[_EarlierUnit]) -> None:
-        self.a_person_was_asked = False
+    def __init__(self, units: dict[_EarlierUnitKey, _EarlierUnit]) -> None:
         self.units_with_reuse_key_lowest_row_last: dict[str, list[_EarlierUnit]] = {}
-        for unit in sorted(units, key=itemgetter(0, 1), reverse=True):
-            self.a_person_was_asked |= unit.answered or unit.waiting is not None
-            self.units_with_reuse_key_lowest_row_last.setdefault(unit.reuse_key, []).append(unit)
+        for key in sorted(units, reverse=True):
+            self.units_with_reuse_key_lowest_row_last.setdefault(key[1], []).append(units[key])
+        self.holds_a_unit_bound_to_its_row = any(reuse_key.startswith(_BOUND_TO_ITS_ROW) for reuse_key in self.units_with_reuse_key_lowest_row_last)
 
-    def claim(self, input_hash: str, key_if_a_person_was_asked: str | None) -> _EarlierUnit | None:
+    def claim(self, input_hash: str, key_bound_to_this_row: str | None) -> _EarlierUnit | None:
         """Take the earlier unit bound to this row or, failing that, one that only took these inputs; gone from the pool, or ``None``."""
-        for reuse_key in (key_if_a_person_was_asked, input_hash):
+        for reuse_key in (key_bound_to_this_row, input_hash):
             units = None if reuse_key is None else self.units_with_reuse_key_lowest_row_last.get(reuse_key)
             if units:
                 return units.pop()
@@ -907,11 +894,10 @@ def _earlier_units_of_node(compiled: CompiledGraph, node_id: str, work: WorkOfNo
     units: dict[_EarlierUnitKey, _EarlierUnit] = {}
     problems: list[Problem] = []
     if read_its_own_units:
-        answered = set(work.answered_rows)
         tables_received = dict(work.tables_received)
-        finished = {row: _EarlierUnit(row, reuse_key, row in answered, None, tables_received.get(row, []), {}) for row, reuse_key in work.finished_units or () if reuse_key is not None}
+        finished = {row: _EarlierUnit(row, reuse_key, None, tables_received.get(row, []), {}) for row, reuse_key in work.finished_units or () if reuse_key is not None}
         units.update(((unit.row, unit.reuse_key), unit) for unit in finished.values())
-        units.update(((unit.row, unit.reuse_key), _EarlierUnit(unit.row, unit.reuse_key, False, unit, [], {})) for unit in work.waiting if unit.reuse_key)
+        units.update(((unit.row, unit.reuse_key), _EarlierUnit(unit.row, unit.reuse_key, unit, [], {})) for unit in work.waiting if unit.reuse_key)
         for name, ref in outputs:
             column = work.outputs.get(name)
             read = None if column is None else read_output_column(compiled, ref, column, problems)
@@ -923,10 +909,10 @@ def _earlier_units_of_node(compiled: CompiledGraph, node_id: str, work: WorkOfNo
         key = (stored.row, stored.reuse_key)
         if key in units:  # a unit of this very leg at that row with that key has the newer result
             continue
-        unit = units[key] = _EarlierUnit(stored.row, stored.reuse_key, stored.answered, stored.waiting, stored.tables_received, {})
+        unit = units[key] = _EarlierUnit(stored.row, stored.reuse_key, stored.waiting, stored.tables_received, {})
         for name, ref in outputs:
             column = stored.outputs.get(name)
             read = None if column is None else read_output_column(compiled, ref, column, problems)
             if read is not None and stored.row in read:
                 unit.cells[name] = read[stored.row]
-    return None if problems or not units else _EarlierUnitsOfNode(units.values())
+    return None if problems or not units else _EarlierUnitsOfNode(units)

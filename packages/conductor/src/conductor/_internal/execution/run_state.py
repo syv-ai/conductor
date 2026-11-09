@@ -175,7 +175,6 @@ class EarlierUnit(ConductorModel):
 
     row: Row
     reuse_key: str
-    answered: bool = False
     waiting: WaitingUnit | None = None
     #: The tables it received, for moving the ids its own table took from them.
     tables_received: list[Any] = Field(default_factory=list)
@@ -200,8 +199,6 @@ class WorkOfNode(ConductorModel):
     fingerprint: str | None = None
     #: Each finished unit's row and hash, in row order.
     finished_units: list[FinishedUnit] | None = None
-    #: The finished rows a person answered.
-    answered_rows: list[Row] = Field(default_factory=list)
     #: Per unit that returned a table, the tables it received, for moving the ids it took from them.
     tables_received: list[tuple[Row, list[Any]]] = Field(default_factory=list)
     #: What each output holds, by output name.
