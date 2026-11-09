@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from conductor._internal.codec import to_wire
 from conductor._internal.errors import InvalidCallError, Problem, problem
+from conductor._internal.execution.live_run_values import LiveRunValues
 from conductor._internal.execution.run_state import (
     Answers,
     OutputColumn,
@@ -157,6 +158,7 @@ def _with_units_finished(compiled: CompiledGraph, state: RunState, finished: lis
     finished_rows = dict(state.finished_rows)
     copied: set[str] = set()
     answered: set[str] = set()
+    made_no_rows = False
 
     def column_of(ref: Ref) -> OutputColumn:
         if ref not in copied:
@@ -182,6 +184,8 @@ def _with_units_finished(compiled: CompiledGraph, state: RunState, finished: lis
             ref = node.wiring.fields[out.name].ref
             value = SKIPPED if cells is None else cells[out.name]
             column = column_of(ref)
+            makes_rows = value is not SKIPPED and node.wiring.fields[out.name]._makes_rows is not None
+            made_no_rows = made_no_rows or (makes_rows and (value.frame.height if isinstance(value, Table) else len(value)) == 0)
             if value is SKIPPED:
                 column.skipped.append(asked.row)
             elif isinstance(value, list) and not isinstance(value, Table) and node.wiring.fields[out.name]._holds_many:
@@ -192,8 +196,17 @@ def _with_units_finished(compiled: CompiledGraph, state: RunState, finished: lis
             else:
                 column.rows.append(asked.row)
                 column.values.append(value)
-    return state.model_copy(update={
+    updated = state.model_copy(update={
         "waiting": tuple(unit for unit in state.waiting if unit.id not in answered),
         "output_columns": columns,
         "finished_rows": finished_rows,
     })
+    return _with_nodes_complete_on_no_rows(compiled, updated) if made_no_rows else updated
+
+
+def _with_nodes_complete_on_no_rows(compiled: CompiledGraph, state: RunState) -> RunState:
+    """``state`` with every node an answer of no rows has left nothing to do listed as
+    finished on none, as a leg would. Working that out means making the rows again, so
+    only an answer that made no rows pays for it."""
+    finished = LiveRunValues.restore(compiled, state).state(state.status, state.failure).finished_rows
+    return state.model_copy(update={"finished_rows": {**{node_id: rows for node_id, rows in finished.items() if not rows}, **state.finished_rows}})

@@ -57,6 +57,8 @@ if TYPE_CHECKING:
 
 #: The hidden column of global row ids every stored table carries.
 ROW_ID = "__row"
+#: While a merge runs, the row above each row of a source whose index repeats an id.
+_UNDER_ROW = "__under_row"
 
 #: The Polars column type of a value built on each builtin, by the dtype's name.
 _COLUMN_OF_BASE: dict[type, str] = {
@@ -168,8 +170,9 @@ def merge(sources: Sequence[MergeSource]) -> pl.DataFrame:
     rows under it brings no rows: its values are copied down onto the rows
     under each of its own, by a parent's id, and a parent row nothing sits
     under is not in the result. Every other source brings all its rows and is
-    joined in full, in wiring order, so a row only one of them has is kept
-    with blanks beside it. A column a source shares with what is already there
+    joined in full, so a row only one of them has is kept with blanks beside
+    it: sources on one index first, matching id and parent row, then the
+    indexes in wiring order, on the id alone. A column a source shares with what is already there
     keeps its name with the source's added (``name_crm``).
     """
     import polars as pl
@@ -193,7 +196,8 @@ def merge(sources: Sequence[MergeSource]) -> pl.DataFrame:
         named.append(source.frame.rename(renames))
     columns = [name for frame in named for name in frame.columns if name != ROW_ID]
 
-    with_own_rows: list[pl.DataFrame] = []
+    repeating_ids = {source.index for source in sources if source.frame[ROW_ID].n_unique() < source.frame.height}
+    with_own_rows: dict[Index, list[pl.DataFrame]] = {}
     copied_down: list[tuple[Index, pl.DataFrame]] = []
     for source, frame in zip(sources, named, strict=True):
         if source.index in above:
@@ -202,13 +206,28 @@ def merge(sources: Sequence[MergeSource]) -> pl.DataFrame:
         for parent in above.intersection(source.index.lineage):
             parent_ids = [ids_on[parent].get(row[: parent.depth]) for row in source.rows]
             frame = frame.with_columns(pl.Series(_parent_key(parent), parent_ids, dtype=pl.String))
-        with_own_rows.append(frame)
-    merged = with_own_rows[0]
-    for frame in with_own_rows[1:]:
-        merged = merged.join(frame, on=ROW_ID, how="full", coalesce=True, maintain_order="left_right")
+        if source.index in repeating_ids:
+            frame = frame.with_columns(pl.Series(_UNDER_ROW, [".".join(map(str, row[:-1])) for row in source.rows], dtype=pl.String))
+        with_own_rows.setdefault(source.index, []).append(frame)
+
+    def full_join(left: pl.DataFrame, right: pl.DataFrame, on: list[str]) -> pl.DataFrame:
+        joined = left.join(right, on=on, how="full", coalesce=True, maintain_order="left_right")
         for key in (_parent_key(parent) for parent in above):  # two sources under one parent both hold its id
-            if f"{key}_right" in merged.columns:
-                merged = merged.with_columns(pl.coalesce(key, f"{key}_right").alias(key)).drop(f"{key}_right")
+            if f"{key}_right" in joined.columns:
+                joined = joined.with_columns(pl.coalesce(key, f"{key}_right").alias(key)).drop(f"{key}_right")
+        return joined
+
+    # Sources on one index match row by row, and a row there is its id under its parent:
+    # one table passed through per row repeats its ids under each. Across indexes the id alone matches.
+    per_index = []
+    for frames in with_own_rows.values():
+        on_one_index = frames[0]
+        for frame in frames[1:]:
+            on_one_index = full_join(on_one_index, frame, [ROW_ID, _UNDER_ROW] if _UNDER_ROW in frame.columns else [ROW_ID])
+        per_index.append(on_one_index.drop(_UNDER_ROW, strict=False))
+    merged = per_index[0]
+    for frame in per_index[1:]:
+        merged = full_join(merged, frame, [ROW_ID])
     for index, frame in copied_down:
         key = _parent_key(index)
         merged = merged.join(frame.rename({ROW_ID: key}), on=key, how="left", maintain_order="left")
@@ -370,10 +389,11 @@ class Table(DType, Generic[RowsOf]):
 
     @classmethod
     def __get_pydantic_json_schema__(cls, schema: core_schema.CoreSchema, handler: Any) -> dict[str, Any]:
-        """A list of records, each column under its name: the form a person's answer is sent in."""
-        record: dict[str, Any] = {"type": "object"}
+        """A list of records, each column under its name: the form a person's answer is sent in.
+        A record may carry its row's ``__row``, so a client editing a table keeps its rows; one without is a new row."""
+        record: dict[str, Any] = {"type": "object", "properties": {ROW_ID: {"type": "string"}}}
         if cls.columns:
-            record["properties"] = {name: TypeAdapter(dtype).json_schema() for name, dtype in cls.columns}
+            record["properties"].update({name: TypeAdapter(dtype).json_schema() for name, dtype in cls.columns})
             record["required"] = [name for name, _ in cls.columns]
         return {"type": "array", "items": record}
 

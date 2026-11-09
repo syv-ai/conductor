@@ -13,11 +13,11 @@ concurrency slot, and each record answers with the units it made ready.
 
 **The leg owns its work.** Every node's ``run`` is called in a thread the leg
 owns, made when every thread so far is busy, so a unit never waits for a
-thread and a node's timeout counts only the time its thread ran. Leaving the ``async with`` of a stream stops every unit before the block
-is gone. What a leg cannot do is interrupt a thread: a ``run`` that has
-started finishes on its own and what it returns is dropped. A timed-out attempt
-is therefore final, and the thread keeps the node's concurrency slot until it
-returns.
+thread and a node's timeout counts only the time its thread ran. Leaving the
+``async with`` of a stream stops every unit before the block is gone. What a
+leg cannot do is interrupt a thread: a ``run`` that has started finishes on
+its own and what it returns is dropped. A timed-out attempt is therefore
+final, and the thread keeps the node's concurrency slot until it returns.
 
 **A run has legs.** A unit whose node returned ``AskPerson`` is neither done
 nor failed: it waits, whatever reads it waits, and the rest of the graph runs
@@ -375,6 +375,7 @@ class Leg:
                 CATALOGUE["engine_error"][0], node_id=node_id, original=raised, code="engine_error", ctx={"exception": type(raised).__name__},
             )
             self.queue.put_nowait(_UnitDone(unit, error=self._error_event(node_id, failure, row)))
+
     async def _unit(self, unit: Unit, attempt: int) -> None:
         """One attempt: its inputs, the node's call, and what it produced.
 

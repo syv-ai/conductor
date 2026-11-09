@@ -223,9 +223,19 @@ def ask_slow_first(text: Wire) -> Out | AskPerson:
     return AskPerson(prompt=text)
 
 
+@node("reference", title="s", description="d", category="t")
+def reference(k: In = Txt("")) -> TableOut:
+    return Contacts([{"name": "a", "email": "x"}, {"name": "b", "email": "y"}])
+
+
+@node("lookup", title="s", description="d", category="t")
+def lookup(x: Wire, t: Annotated[Contacts, Param(title="T")]) -> TableOut:
+    return t.frame.filter(pl.col("name") == "a")  # type: ignore[return-value]
+
+
 REGISTRY = NodeRegistry([
     source, split, upper, join, two, lister, route, num, num_in, frame_node, frame_in, anything, pass_table, merged, module_frame,
-    csv, rebuild, none_left, ask, ask_table, ask_rows, ask_choice_default, ask_choice, ask_default_skipped, ask_bad_widget, ask_slow_first,
+    csv, rebuild, none_left, reference, lookup, ask, ask_table, ask_rows, ask_choice_default, ask_choice, ask_default_skipped, ask_bad_widget, ask_slow_first,
 ])
 
 
@@ -715,3 +725,78 @@ def test_a_loaded_definition_cannot_replace_one_already_registered():
     registry = REGISTRY.extended_with([other])
     compiled = compiled_of(n("s", "source", text=Static("x")), registry=registry)
     assert compiled.results(compiled.run_sync())["s"]["result"] == "x"
+
+
+# -- rows that repeat an id under different parents -------------------------------------
+
+
+def test_a_table_passed_through_per_row_merges_row_by_row_under_each_parent():
+    compiled = compiled_of(
+        n("s", "source", text=Static(["p1", "p2"])), n("k", "reference"),
+        n("h", "pass_table", x=From("s.result"), t=From("k.result")), n("u", "upper", text=From("h.result.name")),
+        n("m", "merged", table=From("h.result.name", "u.result")),
+    )
+    state = compiled.run_sync()
+    assert state.status == "complete", state.failure
+    frame = compiled.results(state)["m"]["result"].frame
+    assert frame.height == 4
+    assert frame.select("name", "result").rows() == [("a", "A"), ("b", "B"), ("a", "A"), ("b", "B")]
+
+
+def test_a_lookup_repeating_a_reference_row_under_two_parents_still_joins_the_reference_on_its_id():
+    compiled = compiled_of(
+        n("s", "source", text=Static(["p1", "p2"])), n("k", "reference"),
+        n("h", "lookup", x=From("s.result"), t=From("k.result")), n("u", "upper", text=From("h.result.name")),
+        n("m", "merged", table=From("k.result", "h.result.name", "u.result")),
+    )
+    state = compiled.run_sync()
+    assert state.status == "complete", state.failure
+    rows = compiled.results(state)["m"]["result"].frame.select("name", "email", "result").rows()
+    assert sorted(rows, key=str) == sorted([("a", "x", "A"), ("a", "x", "A"), ("b", "y", None)], key=str)
+
+
+def test_which_parent_a_repeated_id_lands_on_does_not_depend_on_which_finished_first():
+    @node("pass_slow_first", title="s", description="d", category="t")
+    def pass_slow_first(x: Wire, t: Annotated[Contacts, Param(title="T")]) -> TableOut:
+        time.sleep(0.05 if x == "p1" else 0)
+        return t
+
+    registry = REGISTRY.extended_with([pass_slow_first])
+    compiled = compiled_of(
+        n("s", "source", text=Static(["p1", "p2"])), n("k", "reference"),
+        n("h", "pass_slow_first", x=From("s.result"), t=From("k.result")), n("u", "upper", text=From("h.result.name")),
+        n("m", "merged", table=From("h.result.name", "u.result")), registry=registry,
+    )
+    state = compiled.run_sync()
+    assert compiled.results(state)["m"]["result"].frame.select("name", "result").rows() == [("a", "A"), ("b", "B"), ("a", "A"), ("b", "B")]
+
+
+# -- an answer that keeps a table's ids; results straight after an answer -----------------
+
+
+def test_the_published_table_answer_may_carry_row_ids_and_need_not():
+    compiled = compiled_of(n("c", "csv", k=Static("a,b")), n("r", "ask_table", t=From("c.result")))
+    record = compiled.run_sync().waiting[0].questions[0].json_schema["items"]
+    assert ROW_ID in record["properties"] and ROW_ID not in record["required"]
+
+
+def test_records_in_the_published_shape_that_keep_row_ids_merge_on_their_source_without_doubling():
+    compiled = compiled_of(n("c", "csv", k=Static("a,b")), n("r", "ask_table", t=From("c.result")), n("m", "merged", table=From("c.result", "r.result")))
+    state = compiled.run_sync()
+    default = state.waiting[0].questions[0].default
+    records = [{ROW_ID: row_id, "name": name, "email": "edited"} for row_id, name in zip(default["rows"], default["data"]["name"], strict=True)]
+    ended = compiled.run_sync(compiled.answer(state, {"r": {"result": records}}))
+    assert ended.status == "complete", ended.failure
+    assert compiled.results(ended)["m"]["result"].frame.height == 2
+
+
+@node("ask_list", title="s", description="d", category="t")
+def ask_list(k: In = Txt("")) -> Parts | AskPerson:
+    return AskPerson()
+
+
+def test_a_reader_left_with_no_rows_by_an_answer_is_in_the_results_before_the_next_leg():
+    compiled = compiled_of(n("a", "ask_list"), n("u", "upper", text=From("a.result")), registry=REGISTRY.extended_with([ask_list]))
+    answered = compiled.answer(compiled.run_sync(), {"a": {"result": []}})
+    assert list(compiled.results(answered)["u"]["result"]) == []
+    assert answered.finished_rows["u"] == []
