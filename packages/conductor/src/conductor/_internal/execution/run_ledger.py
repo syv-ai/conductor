@@ -44,10 +44,10 @@ question while it waits, and a form opened for another row is refused.
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from hashlib import blake2b
-from itertools import groupby
+from itertools import chain, groupby
 from operator import attrgetter, itemgetter
 from typing import TYPE_CHECKING, Any, NamedTuple
 
@@ -67,7 +67,6 @@ from conductor._internal.execution.input_hash import (
 from conductor._internal.execution.run_state import (
     EarlierUnit,
     FinishedUnit,
-    OutputColumn,
     RunState,
     RunStatus,
     WaitingUnit,
@@ -76,7 +75,6 @@ from conductor._internal.execution.run_state import (
 )
 from conductor._internal.execution.values_of_run import (
     MISSING,
-    NO_VALUES,
     TableAtRow,
     ValuesOfRun,
     blank_of,
@@ -706,58 +704,45 @@ class RunLedger:
         earlier = self._earlier_units.get(node_id)
         if earlier is None:
             return None
-        key_if_a_person_was_asked = self._reuse_key_of_question(unit, input_hash) if earlier.a_person_was_asked else None
-        claimed = earlier.claim(input_hash, key_if_a_person_was_asked)
+        claimed = earlier.claim(input_hash, self._reuse_key_of_question(unit, input_hash) if earlier.a_person_was_asked else None)
         if claimed is None:
             return None
-        old_row, reuse_key = claimed
-        waiting_unit = earlier.waiting.get(claimed)
-        if waiting_unit is not None:
+        if claimed.waiting is not None:
             self._reused_units[node_id] = self._reused_units.get(node_id, 0) + 1
-            return waiting_unit if old_row == row else waiting_unit.model_copy(update={"row": row, "id": id_of_waiting_unit(node_id, row, reuse_key)})
-        cells = self._cells_of_earlier_unit(earlier, unit, claimed)
+            return claimed.waiting if claimed.row == row else claimed.waiting.model_copy(update={"row": row, "id": id_of_waiting_unit(node_id, row, claimed.reuse_key)})
+        cells = self._cells_of_earlier_unit(claimed, unit)
         if cells is None:
             return None
         self._reused_units[node_id] = self._reused_units.get(node_id, 0) + 1
-        if claimed in earlier.answered:
+        if claimed.answered:
             self._answered.add(unit)
-        return cells, reuse_key
+        return cells, claimed.reuse_key
 
-    def _cells_of_earlier_unit(self, earlier: _EarlierUnitsOfNode, unit: Unit, claimed: _EarlierUnitKey) -> dict[str, Any] | None:
+    def _cells_of_earlier_unit(self, claimed: _EarlierUnit, unit: Unit) -> dict[str, Any] | None:
         """What an earlier unit wrote, one value per output as ``record`` takes it: ids its tables minted
         re-spelled at this unit's row, ids they took in moved to what this unit received;
         ``None`` when the state has lost a value, and the unit runs."""
         node_id, row = unit
         cells: dict[str, Any] = {}
-        old_row = claimed[0]
-        received_then = earlier.tables_received.get(claimed, [])
         for out in self._lookups.interfaces[node_id].outputs:
-            ref = Ref(node_id, out.name)
-            value = earlier.cells.get(ref, NO_VALUES).get(claimed, MISSING)
+            value = claimed.cells.get(out.name, MISSING)
             if value is MISSING:
                 return None
-            cells[out.name] = value_for_another_row(self._fields[ref], value, old_row, row, received_then, self._tables_received.get(unit, []))
+            cells[out.name] = value_for_another_row(self._fields[Ref(node_id, out.name)], value, claimed.row, row, claimed.tables_received, self._tables_received.get(unit, []))
         return cells
 
     def _earlier_units_still_unclaimed(self, node_id: str) -> list[EarlierUnit]:
         """What is left of this node's earlier work when the node isn't finished, for a leg going on from this one."""
         earlier = self._earlier_units.get(node_id)
-        if earlier is None or not earlier.unclaimed or self.node_is_complete(node_id):
+        if earlier is None or self.node_is_complete(node_id):
             return []
-        outputs = [(out.name, Ref(node_id, out.name)) for out in self._lookups.interfaces[node_id].outputs]
-        units: list[EarlierUnit] = []
-        for key in sorted(earlier.unclaimed):
-            row, reuse_key = key
-            columns: dict[str, OutputColumn] = {}
-            for name, ref in outputs:
-                by_key = earlier.cells.get(ref, NO_VALUES)
-                if key in by_key:
-                    columns[name] = output_column_of({row: by_key[key]}, self._fields[ref])
-            units.append(EarlierUnit.model_construct(
-                row=row, reuse_key=reuse_key, answered=key in earlier.answered,
-                waiting=earlier.waiting.get(key), tables_received=earlier.tables_received.get(key, []), outputs=columns,
-            ))
-        return units
+        return [
+            EarlierUnit.model_construct(
+                row=unit.row, reuse_key=unit.reuse_key, answered=unit.answered, waiting=unit.waiting, tables_received=unit.tables_received,
+                outputs={name: output_column_of({unit.row: cell}, self._fields[Ref(node_id, name)]) for name, cell in unit.cells.items()},
+            )
+            for unit in earlier.unclaimed()
+        ]
 
     # -- what the run produced -------------------------------------------------------
 
@@ -889,42 +874,46 @@ class RunLedger:
         return problems
 
 
+class _EarlierUnit(NamedTuple):
+    """A unit a re-planned node left behind, with what it wrote read back as ``record`` takes it: ``cells``, per output."""
+
+    row: Row
+    reuse_key: str
+    answered: bool
+    waiting: WaitingUnit | None
+    tables_received: list[pl.DataFrame]
+    cells: dict[str, Any]
+
+
 class _EarlierUnitsOfNode:
     """The units a re-planned node left in the state a leg starts from, held to be claimed.
 
-    Each is keyed by its row and reuse key, so units of several legs sit side
-    by side, two of them at one row. ``claim`` hands each out once, the lowest
-    row first: identical inputs are a multiset, so a third identical row gets
-    a new call and never shares a result, and the k-th identical row takes
-    the k-th. A unit a person was asked about has its row in its key, so only
-    the same row finds it. ``cells`` holds what each output wrote, per unit.
+    Units of several legs sit side by side, two of them at one row. ``claim``
+    hands each out once, the lowest row first: identical inputs are a multiset,
+    so a third identical row gets a new call and never shares a result, and the
+    k-th identical row takes the k-th. A unit a person was asked about has its
+    row in its key, so only the same row finds it.
     """
 
-    __slots__ = ("unclaimed", "units_with_reuse_key_lowest_row_last", "answered", "waiting", "cells", "tables_received", "a_person_was_asked")
+    __slots__ = ("units_with_reuse_key_lowest_row_last", "a_person_was_asked")
 
-    def __init__(
-        self, unclaimed: set[_EarlierUnitKey], answered: set[_EarlierUnitKey],
-        waiting: dict[_EarlierUnitKey, WaitingUnit], cells: dict[Ref, dict[_EarlierUnitKey, Any]], tables_received: dict[_EarlierUnitKey, list[pl.DataFrame]],
-    ) -> None:
-        self.unclaimed = unclaimed
-        self.answered = answered
-        self.waiting = waiting
-        self.cells = cells
-        self.tables_received = tables_received
-        self.a_person_was_asked = bool(answered or waiting)
-        self.units_with_reuse_key_lowest_row_last: dict[str, list[_EarlierUnitKey]] = {}
-        for key in sorted(unclaimed, reverse=True):
-            self.units_with_reuse_key_lowest_row_last.setdefault(key[1], []).append(key)
+    def __init__(self, units: Iterable[_EarlierUnit]) -> None:
+        self.a_person_was_asked = False
+        self.units_with_reuse_key_lowest_row_last: dict[str, list[_EarlierUnit]] = {}
+        for unit in sorted(units, key=itemgetter(0, 1), reverse=True):
+            self.a_person_was_asked |= unit.answered or unit.waiting is not None
+            self.units_with_reuse_key_lowest_row_last.setdefault(unit.reuse_key, []).append(unit)
 
-    def claim(self, input_hash: str, key_if_a_person_was_asked: str | None) -> _EarlierUnitKey | None:
+    def claim(self, input_hash: str, key_if_a_person_was_asked: str | None) -> _EarlierUnit | None:
         """Take the earlier unit bound to this row or, failing that, one that only took these inputs; gone from the pool, or ``None``."""
         for reuse_key in (key_if_a_person_was_asked, input_hash):
-            keys = None if reuse_key is None else self.units_with_reuse_key_lowest_row_last.get(reuse_key)
-            if keys:
-                claimed = keys.pop()
-                self.unclaimed.remove(claimed)
-                return claimed
+            units = None if reuse_key is None else self.units_with_reuse_key_lowest_row_last.get(reuse_key)
+            if units:
+                return units.pop()
         return None
+
+    def unclaimed(self) -> list[_EarlierUnit]:
+        return sorted(chain.from_iterable(self.units_with_reuse_key_lowest_row_last.values()), key=itemgetter(0, 1))
 
 
 def _earlier_units_of_nodes(compiled: CompiledGraph, state: RunState, changed: set[str]) -> dict[str, _EarlierUnitsOfNode]:
@@ -946,39 +935,29 @@ def _earlier_units_of_node(compiled: CompiledGraph, node_id: str, work: WorkOfNo
     if node is None or node.embedded_graph is not None or node.interface is None or not node.version.policy.reuse_when_inputs_match:  # type: ignore[union-attr]  # an interface comes with a version
         return None
     outputs = [(out.name, Ref(node_id, out.name)) for out in node.interface.outputs]
-    unclaimed: set[_EarlierUnitKey] = set()
-    answered: set[_EarlierUnitKey] = set()
-    waiting: dict[_EarlierUnitKey, WaitingUnit] = {}
-    cells: dict[Ref, dict[_EarlierUnitKey, Any]] = {}
-    tables_received: dict[_EarlierUnitKey, list[pl.DataFrame]] = {}
+    units: dict[_EarlierUnitKey, _EarlierUnit] = {}
     problems: list[Problem] = []
     if read_its_own_units:
-        reuse_key_of_row = {row: reuse_key for row, reuse_key in work.finished_units or () if reuse_key is not None}
-        waiting.update(((unit.row, unit.reuse_key), unit) for unit in work.waiting if unit.reuse_key)
-        unclaimed.update(reuse_key_of_row.items(), waiting)
-        answered.update((row, reuse_key_of_row[row]) for row in work.answered_rows if row in reuse_key_of_row)
-        tables_received.update(((row, reuse_key_of_row[row]), tables) for row, tables in work.tables_received if row in reuse_key_of_row)
+        answered = set(work.answered_rows)
+        tables_received = dict(work.tables_received)
+        finished = {row: _EarlierUnit(row, reuse_key, row in answered, None, tables_received.get(row, []), {}) for row, reuse_key in work.finished_units or () if reuse_key is not None}
+        units.update(((unit.row, unit.reuse_key), unit) for unit in finished.values())
+        units.update(((unit.row, unit.reuse_key), _EarlierUnit(unit.row, unit.reuse_key, False, unit, [], {})) for unit in work.waiting if unit.reuse_key)
         for name, ref in outputs:
             column = work.outputs.get(name)
             read = None if column is None else read_output_column(compiled, ref, column, problems)
             if read is not None:
-                cells[ref] = {(row, reuse_key): read[row] for row, reuse_key in reuse_key_of_row.items() if row in read}
-    for unit in work.earlier_units:
-        key = (unit.row, unit.reuse_key)
-        if key in unclaimed:  # a unit of this very leg at that row with that key has the newer result
+                for row, unit in finished.items():
+                    if row in read:
+                        unit.cells[name] = read[row]
+    for stored in work.earlier_units:
+        key = (stored.row, stored.reuse_key)
+        if key in units:  # a unit of this very leg at that row with that key has the newer result
             continue
-        unclaimed.add(key)
-        if unit.answered:
-            answered.add(key)
-        if unit.waiting is not None:
-            waiting[key] = unit.waiting
-        if unit.tables_received:
-            tables_received[key] = unit.tables_received
+        unit = units[key] = _EarlierUnit(stored.row, stored.reuse_key, stored.answered, stored.waiting, stored.tables_received, {})
         for name, ref in outputs:
-            column = unit.outputs.get(name)
+            column = stored.outputs.get(name)
             read = None if column is None else read_output_column(compiled, ref, column, problems)
-            if read is not None and unit.row in read:
-                cells.setdefault(ref, {})[key] = read[unit.row]
-    if problems or not unclaimed:
-        return None
-    return _EarlierUnitsOfNode(unclaimed, answered, waiting, cells, tables_received)
+            if read is not None and stored.row in read:
+                unit.cells[name] = read[stored.row]
+    return None if problems or not units else _EarlierUnitsOfNode(units.values())
