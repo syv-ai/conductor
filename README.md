@@ -89,7 +89,7 @@ To watch a run, `async with compiled.stream() as events:`. It yields `run_start`
 
 **Versions and retries.** A node lists its older versions, oldest first: `@node("split", older=[OlderVersion(split_v1, upgrade=Upgrade(renamed_inputs={"sep": "separator"}))])`. Each version has its own `Policy` (`retries`, `delay`, `timeout`, `concurrency`, `retry_on`) and hooks. `upgrade_node(graph, node_id, registry)` moves a node forward, and `Deprecation(...)` retires a node or a version. Only an `ExternalFailure`, or an exception class named in `retry_on`, is retried.
 
-**Failures.** Every run-time failure is a `Problem` (`type`, `loc`, `msg`, `ctx`), the same record a compile reports, on the event and `state.failure`. A call that cannot be acted on raises `InvalidCallError`, every fault listed. All exceptions inherit from `ConductorError`.
+**Failures.** Every run-time failure is a `Problem` (`type`, `loc`, `msg`, `ctx`), the same record a compile reports, on the event and `state.failure`. A call that cannot be acted on raises `InvalidCallError`, every fault listed.
 
 **Values the host supplies.** A parameter marked `FromRun[T]` is filled by type from `compiled.run_sync(from_run={T: value})`, not from an edge.
 

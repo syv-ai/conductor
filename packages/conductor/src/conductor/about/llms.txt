@@ -103,14 +103,14 @@ A `DType` is a class on a builtin with its own `id`, `title` defaulting to the c
 - `target.accepts(source)`: may an edge land, asked about one value of each side (default `issubclass`). `as_text` formats. `describe()`, `dtype_of(annotation)`.
 - `registry.types`: node types plus `NodeRegistry(..., types=[...])`; `registry.accepted_as(T)`: ids `T` lands on.
 - `Series[X]`: values of one type on an index; never nested. A row is a path, `(i,)` or `(i, j)`.
-- `Ref("node.field")` addresses one field. `DTypeRef` holds a declared type in a record.
+- `Ref("node.field")` addresses one field.
 
 ### Bindings
 
 `Graph(nodes=[...])`; `GraphNode(id=, type=, version=, bindings=, locked=, title=, description=, fields=, display=)`. Each input holds at most one binding; there is no edge record. A node id may not contain `.`.
 
 - `From("a.result", ...)`: over edges. Refs on different indexes into a `Series[X]` input gather; refs on one index are a union, and a row covered twice fails with `row_covered_twice`.
-- `Static(...)`: typed in. A list on a scalar input runs the node once per value, under each row the node otherwise runs on: questions set on a node that runs per document run once per question per document (`Index("ask.b", parent=Index("docs.texts"))`). Only one list may be set on a node that runs per row (`lists_on_a_per_row_node`).
+- `Static(...)`: typed in. A list on a scalar input runs the node once per value, under each row the node otherwise runs on: questions set on a node that runs per document run once per question per document. Only one list may be set on a node that runs per row (`lists_on_a_per_row_node`).
 - No binding: the default. `locked` names inputs no caller may fill.
 - `dependencies_of(nodes)`: who waits for whom; an empty set is an input node.
 
@@ -119,9 +119,9 @@ A `DType` is a class on a builtin with its own `id`, `title` defaulting to the c
 `CompiledGraph.from_graph(graph, registry)` is pure and never raises for a fault in the graph: each is a `Problem` (`type`, `loc`, `msg`, `ctx`, and `fatal`, read off the code). A hook that raises anything but `CompileProblem` is a bug in the hook and leaves `from_graph` as it is. A required input with a type and nothing bound is a fatal `unbound_required`, but its node stays `ready`: compile types it from its declaration, so the node and everything after it are worked out. Definitions loaded at run time go in `registry.extended_with([cls])`.
 
 - Graph: `problems`, `is_runnable`, `interface` (open inputs, unread outputs), `graph`, `execution_order`, `decisions`. An address is a node's path and a field: a field inside an embedded graph is `Ref("emb/check", "amount")`, in `field`, results, `outputs` and `interface` alike.
-- `compiled.node(node_id)` answers for every node compile met, a `CompiledNode`: `id`, `graph_node`, `embedded_in`, `problems`, `state` (`ready`, `wiring_failed`, `resolution_failed`), `cause` (the one `Problem` behind a node that isn't `ready`), `definition`, `version`, `interface`, `statics`, `wiring`, `embedded_graph` and `fingerprint`. What compile doesn't know is `None`, never an error: `interface` when it can't tell the node's fields, `wiring` when it can't work out its connections, `fingerprint` on a node that doesn't run as one unit. `wiring.fields` holds a `CompiledField` per field (`ref`, `type`, `binding`, `condition`, `problems`), and `compiled.field(ref)` hands one back; an unwired node or an unknown field is a `KeyError`.
-- `compiled.run_plan` says where every ready node runs and what each of its inputs receives: `.nodes[node_id]` is a `NodeRunPlan` (`runs_per_row_of`: a `Ref` or `None`, `inputs`: an `InputPlan` per input with `sources`, `arrives`, `rows_of`, `grouped_under`, `takes_blank`, `parts`, `copied_down`, and `makes_rows`). `print(compiled.run_plan)` is the same as text. It is what a host compares between two versions of a graph.
-- `compiled.field(ref)` is a `CompiledField`: `problems`, `binding`, `listed`, and once its node is ready `type`, `index`, `receives` (`PerRow`, `Broadcast`, `Whole`, `RowsUnder`, `Gather`), `condition` (`Condition`, `Atom`, `ALWAYS`).
+- `compiled.node(node_id)` answers for every node compile met: `id`, `graph_node`, `embedded_in`, `problems`, `state` (`ready`, `wiring_failed`, `resolution_failed`), `cause` (the one `Problem` behind a node that isn't `ready`), `definition`, `version`, `interface`, `statics`, `wiring`, `embedded_graph` and `fingerprint`. What compile doesn't know is `None`, never an error: `interface` when it can't tell the node's fields, `wiring` when it can't work out its connections, `fingerprint` on a node that doesn't run as one unit. `wiring.fields` holds one record per field (`ref`, `type`, `binding`, `condition`, `problems`), and `compiled.field(ref)` hands one back; an unwired node or an unknown field is a `KeyError`.
+- `compiled.run_plan` says where every ready node runs and what each of its inputs receives: `.nodes[node_id]` has `runs_per_row_of` (a `Ref` or `None`), `inputs` (an `InputPlan` per input with `sources`, `arrives`, `rows_of`, `grouped_under`, `takes_blank`, `parts`, `copied_down`) and `makes_rows`. `print(compiled.run_plan)` is the same as text. It is what a host compares between two versions of a graph.
+- A field's `condition` says when it has a value: a set of alternatives, each a set of `Atom`, or `ALWAYS` or `NEVER`.
 
 ### Rows
 
@@ -129,13 +129,13 @@ A unit is a node on a row; it starts once what it reads exists.
 
 - A series on a scalar input runs the node per row; its outputs are series on that index.
 - A list returned on a `Series[X]` output makes rows on an index of that output's own (`split.lines`), under the row the node ran on. Two series outputs of one node are two indexes, each with its own length; a node fed both per row is `misaligned`.
-- `Table[("name", Text), ("email", Text)]` is a whole table as one value, a Polars data frame in `.frame`; a node takes and returns frames. A column's Polars type is read off what its type is built on (`str`, `float`, `int`, `bool`, `datetime.date`); a type sets `column = "Boolean"` only where that base is wrong. Bare `Table` has columns known only when it arrives. Every stored table carries `__row`, each row's global id (`contacts:0`); a row returned with no id, or with one an earlier row holds, gets a fresh one, the others keep theirs. Each column of a `Table[...]` output is a field of its own at `node.output.column` (`csv.result.email`), a series on rows the table output owns: wired into a single-value input it runs the node once per row of the table, into a `Series[X]` input it gives every row under the node's row. A blank cell is `None`, and a node running per row runs on it. The table is stored once; its cells are read where they sit. Several tables or columns wired into one `Table` input are merged on their rows' ids as the graph runs (`Merge`), a parent's value copied down onto each row under it; never refused at check time. A source whose rows can't share an origin with the others (two CSVs read separately) is the non-fatal `no_rows_in_common` when the graph is checked, and its cells are blank beside the others'. A `Table` input never makes its node run per row by itself.
+- `Table[("name", Text), ("email", Text)]` is a whole table as one value, a Polars data frame in `.frame`; a node takes and returns frames. A column's Polars type is read off what its type is built on (`str`, `float`, `int`, `bool`, `datetime.date`); a type sets `column = "Boolean"` only where that base is wrong. Bare `Table` has columns known only when it arrives. Every stored table carries `__row`, each row's global id (`contacts:0`); a row returned with no id, or with one an earlier row holds, gets a fresh one, the others keep theirs. Each column of a `Table[...]` output is a field of its own at `node.output.column` (`csv.result.email`), a series on rows the table output owns: wired into a single-value input it runs the node once per row of the table, into a `Series[X]` input it gives every row under the node's row. A blank cell is `None`, and a node running per row runs on it. The table is stored once; its cells are read where they sit. Several tables or columns wired into one `Table` input are merged on their rows' ids as the graph runs, a parent's value copied down onto each row under it; never refused at check time. A source whose rows can't share an origin with the others (two CSVs read separately) is the non-fatal `no_rows_in_common` when the graph is checked, and its cells are blank beside the others'. A `Table` input never makes its node run per row by itself.
 - A `Series[X]` input receives the whole series (per parent row on a child index).
 - `SKIPPED` at a row leaves the series sparse; above the rows it skips the node.
 
 ### Legs and Asking
 
-One call of `compiled.run` is one leg. A run is its `RunState`: every leg returns one, and `status` says how it ended (`complete`, `waiting`, `failed`, `cancelled`, `timed_out`). A node returns `AskPerson(prompt=None, defaults={}, widgets={})`: what is asked is its declared outputs. It and its readers wait, and the leg ends `waiting` with one `WaitingUnit` per unit in `state.waiting` (`id`, `node_id`, `row`, `prompt`, `questions`). Answering is an edit of the state, and the next leg runs from it:
+One call of `compiled.run` is one leg. A run is its `RunState`: every leg returns one, and `status` says how it ended (`complete`, `waiting`, `failed`, `cancelled`, `timed_out`). A node returns `AskPerson(prompt=None, defaults={}, widgets={})`: what is asked is its declared outputs. It and its readers wait, and the leg ends `waiting` with one unit per waiting call in `state.waiting` (`id`, `node_id`, `row`, `prompt`, `questions`). Answering is an edit of the state, and the next leg runs from it:
 
 ```python
 paused = compiled.run_sync()                                    # paused.status == "waiting"
@@ -145,7 +145,7 @@ state = compiled.run_sync(answered)
 ```
 
 - Answers are `{waiting.id: {output: value}}`, for a node that ran once, each row, an embedded node or a `Table` output; `None` for a unit means no value on its row. A question left blank takes its default; a `choice` output left out is the branch not taken. A unit not answered goes on waiting, and a node that asked is not called again unless it or something above it changed.
-- A `Question` has `name`, `title`, `description`, `dtype`, `json_schema`, `widget`, `default`, `optional`, `choice`: enough for a form with no graph loaded.
+- A question has `name`, `title`, `description`, `dtype`, `json_schema`, `widget`, `default`, `optional`, `choice`: enough for a form with no graph loaded.
 - A state is plain JSON: `RunState.model_validate_json(saved)`. On the next leg every value passes its output's check, a value that no longer reads is refused, and a node whose fingerprint differs runs again with what reads it. `compiled.nodes_changed_since(state)` lists them. `state.without(node_id)` forces a rerun.
 - `Annotated[T, FromRun()]` receives `from_run[T]` from `compiled.run(from_run={T: value})`; `Interface.needs` lists them.
 
@@ -155,7 +155,7 @@ Retries live on the version's `Policy`, per unit.
 
 - Only `ExternalFailure` retries: raised by the node, or wrapped from a class in `Policy.retry_on` (`external_failed`). Anything else is `NodeExecutionError` (`execution_failed`), run once.
 - Attempt `n` waits `delay * 2 ** (n - 1)` and emits `node_retry`.
-- `Policy.timeout` bounds one attempt: `NodeTimeoutError`, final; the thread is not interrupted.
+- `Policy.timeout` bounds one attempt: the unit fails with the code `timeout`, final; the thread is not interrupted.
 - `compiled.run(timeout=60)` ends the leg `timed_out`; setting `compiled.run(cancel=asyncio.Event())` ends it `cancelled`. Leaving `async with compiled.stream() as events:` stops every unit.
 
 ### Errors
@@ -163,15 +163,13 @@ Retries live on the version's `Policy`, per unit.
 The classes are exported from `conductor`. What is wrong is always one record, `Problem(type, loc, msg, ctx)`: on `compiled.problems`, on `node_failed` and `state.failure`, and in `InvalidCallError.errors()`. Its `type` is a stable code (see "Problem and error codes"); a node failure's `loc` is `(node_id, *row)`, a compile problem's `(node_id, field)`.
 
 ```
-ConductorError
-├── NodeDeclarationError    a node or type declared wrong, at import; a TypeError, with code and node_id
-├── CompileProblem          a hook cannot answer; field= says where
-├── InvalidCallError        a verb was given what it cannot act on, every fault listed
-└── NodeError               code, ctx, node_id, original
-    ├── ExternalFailure         retried
-    ├── NodeValidationError
-    ├── NodeExecutionError
-    └── NodeTimeoutError
+NodeDeclarationError    a node or type declared wrong, at import; a TypeError, with code and node_id
+CompileProblem          a hook cannot answer; field= says where
+InvalidCallError        a verb was given what it cannot act on, every fault listed
+NodeError               code, ctx, node_id, original
+├── ExternalFailure         retried
+├── NodeValidationError
+└── NodeExecutionError
 ```
 
 A failed unit ends the leg `failed`, its problem on `state.failure`; `compiled.results(state)` reads what was done and `compiled.outputs(state)` refuses (`run_not_complete`). A refused call raises `InvalidCallError`, whose `errors()` lists a `Problem` for every fault, with nothing changed; a graph that cannot run is refused with its own fatal compile problems; a node returning the wrong type is not a refusal but a failed run with `invalid_output`.
@@ -196,7 +194,7 @@ A failed unit ends the leg `failed`, its problem on `state.failure`; `compiled.r
 
 ### Saving a Graph
 
-Records are `ConductorModel`s (frozen pydantic). `Graph`, `Problem` and `Policy` round-trip; descriptions and widgets are write-only. A ref is stored as `"node.field"`.
+Records are frozen pydantic models. `Graph`, `Problem` and `Policy` round-trip; descriptions and widgets are write-only. A ref is stored as `"node.field"`.
 
 ```python
 graph.to_path("approval.yaml")          # .json, .yaml or .yml
@@ -206,7 +204,7 @@ graph = Graph.from_yaml(graph.to_yaml())
 
 ### The Palette
 
-`NodeDefinition.describe()` is a `NodeDescription` (`id`, `title`, `description`, `category`, `tags`, `docs`, `deprecation`, `current`, `versions` of `VersionDescription`: `inputs`, `outputs`, `policy`, `open`, the type an edge into an open node becomes, `deprecation`). `registry.describe()` is a `RegistryDescription` (`nodes`, `types` of `TypeDescription`: `id`, `title`, `accepted_as`). Printed objects show constructor form.
+`NodeDefinition.describe()` is a `NodeDescription` (`id`, `title`, `description`, `category`, `tags`, `docs`, `deprecation`, `current`, `versions`, each with `inputs`, `outputs`, `policy`, `open`, the type an edge into an open node becomes, `deprecation`). `registry.describe()` has `nodes` and `types` (each a `TypeDescription`: `id`, `title`, `accepted_as`). Printed objects show constructor form.
 
 ## API Reference
 
@@ -214,13 +212,13 @@ Three public doors: `conductor`, `conductor.widgets` and `conductor.events`. Eac
 
 ### conductor
 
-- Nodes: `node`, `NodeDefinition`, `NodeVersion`, `OlderVersion`, `Upgrade`, `upgrade_node`, `Policy`, `Deprecation`, `NodeDescription`, `Interface`, `Arriving`, `FromRun`, `model_of(inputs)` (the check a call validates through: a mapping of values in, a dict of keyword arguments out, defaults filled in through their types), `Input`, `Output`, `Param`, `Result`, `VersionDescription` (an entry of `NodeDescription.versions`)
-- Returns: `SKIPPED`, `AskPerson`, `is_skipped`
-- Types: `DType`, `AsItArrives`, `Series`, `Table`, `Ref`, `to_wire(value, dtype)`, `from_wire(data, dtype)`
-- Registry: `NodeRegistry(nodes, types=())`, immutable (`in`, `[]`, `len`, iteration, `nodes`, `types`, `accepted_as`, `describe`, `extended_with`), `RegistryDescription`, `TypeDescription`
-- Graph: `Graph`, `GraphNode`, `FieldContent`, `Binding`, `From`, `Static`, `dependencies_of`, `CompiledGraph`, `CompiledNode`, `CompiledField`, `Problem`, `Condition`, `Atom`, `ALWAYS`, `NEVER`
-- Errors: `ConductorError`, `NodeDeclarationError`, `CompileProblem`, `InvalidCallError`, `Problem`, `NodeError`, `ExternalFailure`, `NodeValidationError`, `NodeExecutionError`, `NodeTimeoutError`, `PROBLEM_CODES`
-- A run's state: `RunState` (`status`, `failure`, `waiting`, `output_columns` of `OutputColumn`, `finished_rows`, `node_fingerprints`), `RunStatus`, `WaitingUnit`, `Question`, `Answers`
+- Nodes: `node`, `NodeDefinition`, `OlderVersion`, `Upgrade`, `upgrade_node`, `Policy`, `Deprecation`, `NodeDescription`, `Interface`, `Arriving`, `FromRun`, `Input`, `Output`, `Param`, `Result`
+- Returns: `SKIPPED`, `AskPerson`
+- Types: `DType`, `AsItArrives`, `Series`, `Table`, `Ref`, `to_wire(value, dtype)`, `ROW_ID` (the name of a table's hidden row-id column)
+- Registry: `NodeRegistry(nodes, types=())`, immutable (`in`, `[]`, `len`, iteration, `nodes`, `types`, `accepted_as`, `describe`, `extended_with`), `TypeDescription`
+- Graph: `Graph`, `GraphNode`, `FieldContent`, `From`, `Static`, `dependencies_of`, `CompiledGraph`, `Problem`, `RunPlan`, `InputPlan`, `Atom`, `ALWAYS`, `NEVER`
+- Errors: `NodeDeclarationError`, `CompileProblem`, `InvalidCallError`, `Problem`, `NodeError`, `ExternalFailure`, `NodeValidationError`, `NodeExecutionError`, `PROBLEM_CODES`
+- A run's state: `RunState` (`status`, `failure`, `waiting`, `output_columns`, `finished_rows`, `node_fingerprints`)
 - Records (`Graph`, `GraphNode`, …) also have `to_yaml()`, `from_yaml(text)`, `to_path(path)`, `from_path(path)`, plus pydantic's.
 
 ### Running

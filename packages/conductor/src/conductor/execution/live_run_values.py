@@ -66,7 +66,7 @@ from typing import TYPE_CHECKING, Any, Iterator
 
 from pydantic import ValidationError
 
-from conductor._sentinel import SKIPPED, is_skipped
+from conductor._sentinel import SKIPPED
 from conductor.errors import CATALOGUE, InvalidCallError, NodeExecutionError, Problem, problem
 from conductor.execution.run_state import OutputColumn, RunState, RunStatus, WaitingUnit
 from conductor.graph.receive import Broadcast, Gather, Merge, PerRow, Receive, RowsUnder, Whole
@@ -377,7 +377,7 @@ class LiveRunValues:
     def _all_written(self, ref: Ref, index: Index, parent_row: Row) -> bool:
         """Is every value of ``ref`` under ``parent_row`` written? True when the
         field is skipped there, or every row under it is made and produced."""
-        if is_skipped(self._lookup(ref, parent_row)[0]):
+        if self._lookup(ref, parent_row)[0] is SKIPPED:
             return True
         no_rows_under = self._no_rows_under.get(index.id, ())
         if any(prefix in no_rows_under for prefix in _prefixes(parent_row)):
@@ -472,7 +472,7 @@ class LiveRunValues:
                 for ref in binding.refs:
                     index = self._fields[ref]._index
                     value, _ = self._lookup(ref, ())
-                    if is_skipped(value):
+                    if value is SKIPPED:
                         continue
                     if index is None:
                         gathered.append(value)
@@ -482,7 +482,7 @@ class LiveRunValues:
             else:
                 group = row[: _rows_under_depth(received)]
                 found = [self._lookup(ref, group) for ref in binding.refs]
-                if all(is_skipped(value) for value, _ in found):
+                if all(value is SKIPPED for value, _ in found):
                     return Skip(at=max((at for _, at in found), key=len))
                 index = self._fields[binding.refs[0]]._index
                 if index is None:
@@ -510,7 +510,7 @@ class LiveRunValues:
             index: Index = field._makes_rows if is_table else field._index  # type: ignore[assignment]
             group = row[: part.index.depth] if isinstance(part, PerRow) else row[: _rows_under_depth(part)]
             stored, _ = self._lookup(source, group)
-            is_skip = is_skipped(stored)
+            is_skip = stored is SKIPPED
             skipped += is_skip
             if is_table:
                 frame = frame_with_no_rows(field.type) if is_skip else stored.frame
@@ -518,7 +518,7 @@ class LiveRunValues:
                 continue
             present = [
                 (at, value) for at in self._rows_under(index.id, group)
-                if not is_skipped(value := self._lookup(source, at)[0]) and value is not _MISSING
+                if (value := self._lookup(source, at)[0]) is not SKIPPED and value is not _MISSING
             ]
             view = self._views.get(source)
             frame = column_frame(
@@ -549,7 +549,7 @@ class LiveRunValues:
             value, at = self._lookup(ref, self._key(ref, row))
             if value is _MISSING:
                 raise KeyError(f"{ref} has no value at {at} — the unit was not ready")
-            if is_skipped(value):
+            if value is SKIPPED:
                 skips.append(at)
             else:
                 covering.append(value)
@@ -594,9 +594,9 @@ class LiveRunValues:
         if len(key) < self._fields[ref]._index.depth:
             # A group above the table's rows: only a skip on the table reaches it.
             stored, at = self._lookup(table, key)
-            return (stored, at) if is_skipped(stored) else (_MISSING, key)
+            return (stored, at) if stored is SKIPPED else (_MISSING, key)
         stored, at = self._lookup(table, key[:-1])
-        if stored is _MISSING or is_skipped(stored):
+        if stored is _MISSING or stored is SKIPPED:
             return stored, at
         cells = stored.frame[column]
         if key[-1] >= len(cells):
@@ -895,14 +895,14 @@ class LiveRunValues:
         was skipped away gives an empty series.
         """
         outputs = self._plan.interfaces[node_id].outputs
-        if outputs and all(is_skipped(self._lookup(Ref(node_id, out.name), ())[0]) for out in outputs):
+        if outputs and all(self._lookup(Ref(node_id, out.name), ())[0] is SKIPPED for out in outputs):
             return None
         result: dict[str, Any] = {}
         for out in outputs:
             ref = Ref(node_id, out.name)
             index = self._fields[ref]._index
             value, _ = self._lookup(ref, ())
-            if is_skipped(value):
+            if value is SKIPPED:
                 continue
             if index is None:
                 result[out.name] = value
@@ -1061,7 +1061,7 @@ class LiveRunValues:
                     continue
                 self._rows.setdefault(index.id, set())
                 by_row = self._values.get(ref, {})
-                at = next((key for key in _prefixes(row) if is_skipped(by_row.get(key))), None)
+                at = next((key for key in _prefixes(row) if by_row.get(key) is SKIPPED), None)
                 if at is not None:
                     self._no_rows_under.setdefault(index.id, set()).add(at)
                     self._no_rows_under_lists(index.id, at)

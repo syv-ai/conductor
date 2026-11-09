@@ -5,8 +5,8 @@ A value lives in memory as its type — a ``Text`` is a ``str`` subclass, a
 bytes. Whenever such a value crosses into JSON and back — the state of
 a run, an answer a host hands in, a result a host stores
 — this module is the one crossing, and the declared type decides the
-form: ``to_wire(value, dtype)`` writes it, ``from_wire(data, dtype)``
-reads it back as the same type. Nothing else in the library turns a
+form: ``to_wire(value, dtype)`` writes it, ``reader_of(dtype)`` reads it
+back as the same type. Nothing else in the library turns a
 value into JSON, so every crossing agrees.
 
 The form is the type's own pydantic schema, which every ``DType`` has: a
@@ -42,15 +42,6 @@ def to_wire(value: Any, dtype: Any) -> Any:
     caller, who knows which field the value sits on, names it.
     """
     return _adapter(dtype).dump_python(value, mode="json", fallback=_by_own_type)
-
-
-def from_wire(data: Any, dtype: Any) -> Any:
-    """``data``, the JSON form of a value declared as ``dtype``, as that type again.
-
-    A series comes back on the index it was written with, rows and all;
-    under ``Any`` the data is the value.
-    """
-    return _adapter(dtype).validate_python(data)
 
 
 def reader_of(dtype: Any) -> Callable[[Any], Any]:

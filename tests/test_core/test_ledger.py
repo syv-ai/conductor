@@ -4,11 +4,12 @@ from dataclasses import dataclass
 from typing import Annotated
 
 import pytest
-from conductor import NodeRegistry, Param, WaitingUnit, node
+from conductor import NodeRegistry, Param, node
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
 from conductor.errors import NodeExecutionError
 from conductor.execution.live_run_values import LiveRunValues, Skip
+from conductor.execution.run_state import WaitingUnit
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode

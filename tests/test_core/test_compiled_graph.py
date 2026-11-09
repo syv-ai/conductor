@@ -638,7 +638,7 @@ def test_the_artifact_and_its_diagnostics_are_importable_from_the_root():
 
     assert conductor.CompiledGraph is CompiledGraph
     assert conductor.Problem is Problem
-    assert conductor.Condition is not None and conductor.Atom is not None
+    assert conductor.Atom is not None
     assert callable(conductor.CompiledGraph.from_graph)
 
 

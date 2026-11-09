@@ -1,6 +1,6 @@
 """One codec: a value goes to JSON and back by its declared type.
 
-``to_wire`` and ``from_wire`` are the one crossing between a value in
+``to_wire`` and pydantic's reading back are the one crossing between a value in
 memory and its JSON form — the ledger's values, a cached answer, a run's
 return all go through them. A series carries its index and rows and comes
 back on that index; a skip is marked beside its address, never as a string in
@@ -12,7 +12,7 @@ from typing import Annotated, Any
 
 import pytest
 from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, node
-from conductor.codec import from_wire, to_wire
+from conductor.codec import to_wire
 from conductor.dtype import DType
 from conductor.execution.live_run_values import LiveRunValues
 from conductor.execution.run_state import RunState
@@ -49,13 +49,13 @@ def test_each_shipped_type_round_trips(dtype, value, wire):
 
     assert on_the_wire == wire
     assert json.loads(json.dumps(on_the_wire)) == wire
-    back = from_wire(on_the_wire, dtype)
+    back = TypeAdapter(dtype).validate_python(on_the_wire)
     assert back == value and type(back) is dtype
 
 
 def test_any_passes_through_as_json_ready_data():
     assert to_wire({"k": (1, 2)}, Any) == {"k": [1, 2]}
-    assert from_wire({"k": [1, 2]}, Any) == {"k": [1, 2]}
+    assert TypeAdapter(Any).validate_python({"k": [1, 2]}) == {"k": [1, 2]}
 
 
 # -- a series -------------------------------------------------------------------------
@@ -74,7 +74,7 @@ def test_a_series_of_json_round_trips_in_both_modes():
         "values": [{"n": 1}, [2]],
     }
     for back in (
-        from_wire(wire, Series[Json]),
+        TypeAdapter(Series[Json]).validate_python(wire),
         TypeAdapter(Series[Json]).validate_python(wire),
         TypeAdapter(Series[Json]).validate_json(json.dumps(wire)),
     ):
@@ -85,7 +85,7 @@ def test_a_series_of_json_round_trips_in_both_modes():
 
 
 def test_a_series_still_reads_a_plain_list_as_dense_rows_on_a_fresh_index():
-    back = from_wire(["a", "b"], Series[Text])
+    back = TypeAdapter(Series[Text]).validate_python(["a", "b"])
 
     assert back.rows == ((0,), (1,)) and list(back) == ["a", "b"]
 

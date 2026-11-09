@@ -104,9 +104,11 @@ def test_cli_help_flag():
 
 
 def _library_names() -> set[str]:
-    """Every name any module of the three packages defines or imports, plus typing's and the builtins."""
+    """Every name a reader can import: what the three doors list, what the sibling packages define, typing's and the builtins."""
     names = set(dir(typing)) | set(dir(builtins))
-    for package_name in ("conductor", "conductor_nodes", "conductor_providers"):
+    for door in ("conductor", "conductor.widgets", "conductor.events"):
+        names.update(importlib.import_module(door).__all__)
+    for package_name in ("conductor_nodes", "conductor_providers"):
         package = importlib.import_module(package_name)
         for info in pkgutil.walk_packages(package.__path__, f"{package_name}."):
             if info.name.endswith("__main__"):
@@ -117,9 +119,9 @@ def _library_names() -> set[str]:
 
 def test_every_name_the_reference_puts_in_backticks_exists():
     """A stale name here is broken code on an agent's next task. Every
-    class-like name in backticks is defined somewhere in the library (a
-    one-letter placeholder like ``X`` aside), and every dotted
-    ``conductor…`` path imports."""
+    class-like name in backticks is one a reader can import (a one-letter
+    placeholder like ``X`` aside), and every dotted ``conductor…`` path
+    imports."""
     known = _library_names()
     missing: set[str] = set()
     for span in re.findall(r"`([^`\n]+)`", about.get_content()):

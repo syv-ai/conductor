@@ -70,7 +70,3 @@ class AskPerson:
     prompt: str | None = None
     defaults: Mapping[str, Any] = field(default_factory=dict)
     widgets: Mapping[str, Widget] = field(default_factory=dict)
-
-
-def is_skipped(value: Any) -> bool:
-    return value is SKIPPED

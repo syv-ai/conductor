@@ -7,10 +7,11 @@ import sys
 import polars as pl
 import pytest
 from conductor import Table, node
-from conductor.codec import from_wire, to_wire
+from conductor.codec import to_wire
 from conductor.dtype import DType
 from conductor.series import Index
 from conductor.table import ROW_ID, column_type, row_id, with_row_ids
+from pydantic import TypeAdapter
 
 
 class Txt(DType, str):
@@ -95,7 +96,7 @@ def test_the_wire_form_round_trips_with_blanks_and_row_ids():
         "data": {"name": ["Ida", None], "score": [4.5, None]},
         "rows": ["contacts:0", "contacts:1"],
     }
-    assert from_wire(wire, Contacts) == table
+    assert TypeAdapter(Contacts).validate_python(wire) == table
 
 
 def test_a_bare_table_keeps_every_column_and_round_trips_a_date():
@@ -103,7 +104,7 @@ def test_a_bare_table_keeps_every_column_and_round_trips_a_date():
     wire = to_wire(table, Table)
 
     assert wire["rows"] is None
-    assert from_wire(wire, Table) == table
+    assert TypeAdapter(Table).validate_python(wire) == table
 
 
 def test_a_row_id_names_the_index_and_the_row():
@@ -176,4 +177,4 @@ def test_a_bare_table_with_nested_and_time_columns_round_trips():
         "at": [datetime.time(9, 30), None],
     }))
 
-    assert from_wire(to_wire(table, Table), Table) == table
+    assert TypeAdapter(Table).validate_python(to_wire(table, Table)) == table

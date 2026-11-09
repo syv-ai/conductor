@@ -8,55 +8,43 @@ Every other module is the library's own and may move.
 
 from typing import TYPE_CHECKING
 
-from conductor._sentinel import SKIPPED, AskPerson, is_skipped
-from conductor.codec import from_wire, to_wire
+from conductor._sentinel import SKIPPED, AskPerson
+from conductor.codec import to_wire
 from conductor.dtype import AsItArrives, DType
 from conductor.errors import (
     PROBLEM_CODES,
     CompileProblem,
-    ConductorError,
     ExternalFailure,
     InvalidCallError,
     NodeDeclarationError,
     NodeError,
     NodeExecutionError,
-    NodeTimeoutError,
     NodeValidationError,
     Problem,
 )
-from conductor.execution.run_state import (
-    Answers,
-    OutputColumn,
-    Question,
-    RunState,
-    RunStatus,
-    WaitingUnit,
-)
-from conductor.graph.binding import Binding, From, Static
+from conductor.execution.run_state import RunState
+from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
-from conductor.graph.compiled_node import CompiledField, CompiledNode
-from conductor.graph.conditions import ALWAYS, NEVER, Atom, Condition
+from conductor.graph.conditions import ALWAYS, NEVER, Atom
 from conductor.graph.model import FieldContent, Graph, GraphNode
-from conductor.graph.run_plan import InputPlan, NodeRunPlan, RunPlan
+from conductor.graph.run_plan import InputPlan, RunPlan
 from conductor.graph.topology import dependencies_of
 from conductor.graph.upgrade import upgrade_node
-from conductor.interface import FromRun, Interface, model_of
+from conductor.interface import FromRun, Interface
 from conductor.metadata import Input, Output, Param, Result
 from conductor.node_decorator import (
     Arriving,
     Deprecation,
     NodeDefinition,
     NodeDescription,
-    NodeVersion,
     OlderVersion,
     Policy,
     Upgrade,
-    VersionDescription,
     node,
 )
 from conductor.ref import Ref
-from conductor.registry import NodeRegistry, RegistryDescription, TypeDescription
-from conductor.table import Table
+from conductor.registry import NodeRegistry, TypeDescription
+from conductor.table import ROW_ID, Table
 
 if TYPE_CHECKING:
     # A node takes and returns plain sequences; a type checker reads ``Series[X]`` as one.
@@ -68,19 +56,14 @@ __all__ = [
     "ALWAYS",
     "NEVER",
     "PROBLEM_CODES",
+    "ROW_ID",
     "SKIPPED",
-    "Answers",
     "Arriving",
     "AsItArrives",
     "AskPerson",
     "Atom",
-    "Binding",
     "CompileProblem",
-    "CompiledField",
     "CompiledGraph",
-    "CompiledNode",
-    "Condition",
-    "ConductorError",
     "DType",
     "Deprecation",
     "ExternalFailure",
@@ -99,34 +82,22 @@ __all__ = [
     "NodeError",
     "NodeExecutionError",
     "NodeRegistry",
-    "NodeRunPlan",
-    "NodeTimeoutError",
     "NodeValidationError",
-    "NodeVersion",
     "Output",
     "OlderVersion",
-    "OutputColumn",
     "Param",
     "Policy",
     "Problem",
-    "Question",
     "Ref",
-    "RegistryDescription",
     "Result",
     "RunPlan",
     "RunState",
-    "RunStatus",
     "Series",
     "Static",
     "Table",
     "TypeDescription",
     "Upgrade",
-    "VersionDescription",
-    "WaitingUnit",
     "dependencies_of",
-    "from_wire",
-    "is_skipped",
-    "model_of",
     "node",
     "to_wire",
     "upgrade_node",
