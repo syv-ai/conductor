@@ -195,6 +195,9 @@ class LiveRunValues:
         #: under — its rows in order and how many from the first are written.
         #: Kept once every row of the group is made, so no row is read twice.
         self._written_rows: dict[tuple[Ref, Row], tuple[list[Row], int]] = {}
+        #: Per group more than one level above its index's rows that is still
+        #: being made, the parent rows under it and how many from the first are made.
+        self._parent_rows_made: dict[tuple[str, Row], tuple[list[Row], int]] = {}
 
         # Who reads what, and what runs on each index, is compile's read plan
         # (``CompiledField._makes_rows``, ``CompiledField._read_by`` and their
@@ -399,17 +402,28 @@ class LiveRunValues:
     def _groups_under_made(self, index: Index, row: Row) -> bool:
         """For ``row`` above ``index``'s immediate parent: are the rows under it
         all made? They are once the parent's rows under ``row`` are, and the
-        rows under each of those. The answer stays true, so it is kept."""
+        rows under each of those. A parent row found made stays made, so how
+        many are, from the first, is kept and none is looked at twice; the
+        answer stays true, so it is kept as well."""
         parent = index.parent
         if parent is None or len(row) >= parent.depth:
             return False
         if (parent.id, row) not in self._groups and not self._groups_under_made(parent, row):
             return False
+        group = (index.id, row)
+        if group not in self._parent_rows_made:
+            self._parent_rows_made[group] = (self._rows_under(parent.id, row), 0)
+        parent_rows, made = self._parent_rows_made[group]
         no_rows_under = self._no_rows_under.get(index.id, ())
-        for parent_row in self._rows_under(parent.id, row):
-            if (index.id, parent_row) not in self._groups and not any(prefix in no_rows_under for prefix in _prefixes(parent_row)):
-                return False
-        self._groups.add((index.id, row))
+        while made < len(parent_rows) and (
+            (index.id, parent_rows[made]) in self._groups or any(prefix in no_rows_under for prefix in _prefixes(parent_rows[made]))
+        ):
+            made += 1
+        if made < len(parent_rows):
+            self._parent_rows_made[group] = (parent_rows, made)
+            return False
+        del self._parent_rows_made[group]
+        self._groups.add(group)
         return True
 
     # -- what a unit receives -------------------------------------------------

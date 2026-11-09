@@ -89,6 +89,16 @@ class Join(NodeDefinition):
         return Txt("+".join(texts))
 
 
+class JoinPerText(NodeDefinition):
+    id = "join-per-text"
+    title = "Join per text"
+    description = "d"
+    category = "test"
+
+    def run(self, text: Annotated[Txt, Param(title="Text")], texts: Annotated[Series[Txt], Param(title="Texts")]) -> Out:
+        return Txt(text + "+".join(texts))
+
+
 class Gate(NodeDefinition):
     """A decision over a whole column: the column goes out on ``full`` or ``empty``."""
 
@@ -103,7 +113,7 @@ class Gate(NodeDefinition):
 
 def _registry():
     registry = NodeRegistry()
-    for node_cls in (Docs, Upper, Pair, Lines, Join, Gate):
+    for node_cls in (Docs, Upper, Pair, Lines, Join, JoinPerText, Gate):
         registry.register(node_cls)
     return registry
 
@@ -663,3 +673,42 @@ def test_a_pending_unit_waits_and_so_does_what_reads_it():
     (waiting,) = ledger.waiting()
     assert (waiting.node_id, waiting.row) == ("a", ())
     assert ("a", ()) not in LiveRunValues.restore(ledger._compiled, ledger.state("complete"))._done
+
+
+class _CountedSet(set):
+    """A set that counts how often it is asked whether it holds something."""
+
+    asked = 0
+
+    def __contains__(self, item: object) -> bool:
+        self.asked += 1
+        return super().__contains__(item)
+
+
+def _groups_asked_with_lines_written_between_splits(paragraphs: int) -> int:
+    """How often a document's reduction looks at the made groups while the
+    document's paragraphs are split one at a time, with the lines of each
+    written before the next is split."""
+    ledger = _ledger([
+        DOCS,
+        GraphNode(id="paras", type="lines", version=1, bindings={"text": _edge(("docs", "texts"))}),
+        GraphNode(id="lines", type="lines", version=1, bindings={"text": _edge(("paras", "result"))}),
+        GraphNode(id="work", type="upper", version=1, bindings={"text": _edge(("lines", "result"))}),
+        GraphNode(id="j", type="join-per-text", version=1, bindings={"text": _edge(("docs", "texts")), "texts": _edge(("work", "result"))}),
+    ])
+    ledger.record(("docs", ()), {"texts": ["\n".join("p" * paragraphs)], "names": ["x"]})
+    ledger.record(("paras", (0,)), {"result": ["p"] * paragraphs})
+    ledger._groups = _CountedSet(ledger._groups)
+    for paragraph in range(paragraphs):
+        ledger.record(("lines", (0, paragraph)), {"result": ["l", "l"]})
+        for line in range(2):
+            ledger.record(("work", (0, paragraph, line)), {"result": "L"})
+    return ledger._groups.asked
+
+
+def test_a_group_two_levels_above_its_rows_looks_at_each_parent_row_once():
+    """A reduction over lines per document is woken by every write under the
+    document; deciding that the group is made costs what its size costs, not its square."""
+    small, large = (_groups_asked_with_lines_written_between_splits(n) for n in (100, 400))
+
+    assert large <= 6 * small, (small, large)
