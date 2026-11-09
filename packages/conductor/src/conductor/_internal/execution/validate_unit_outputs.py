@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import ValidationError
 
 from conductor._internal.errors import Problem
-from conductor._internal.series import Row, Series
+from conductor._internal.index import Row
 from conductor._internal.skip_and_ask import SKIPPED
 from conductor._internal.table import frame_with_no_rows, no_row_kept_its_id, with_row_ids
 
@@ -76,9 +76,7 @@ def _output_problem(output: str, message: str, *, errors: tuple[dict[str, Any], 
 def _cells_of_many_valued_output(field: CompiledField, name: str, value: Any) -> list[Any] | Problem:
     if value is None and field._takes_blank:
         return []  # row-making outputs have no blank form: no rows
-    if isinstance(value, Series):
-        value = value.values
-    elif not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
         return _output_problem(name, f"'{name}' is many values and must be a sequence, not a {type(value).__name__}")
     read = field._validate_cell
     return [item if item is SKIPPED else read(item) for item in value]
@@ -89,11 +87,11 @@ def _cell_of_output(field: CompiledField, name: str, row: Row, value: Any, row_i
     if field._makes_rows is None:
         return cell
     if cell is None:  # row-making outputs have no blank form: no rows
-        return frame_with_no_rows(field._cell_type)
+        return frame_with_no_rows(field.type)
     if field.ref in row_ids_must_survive and no_row_kept_its_id(cell):
         return _output_problem(name, f"'{name}' lost the ids of its rows, so they can't be matched to the table it was built from", code="row_ids_lost")
     return with_row_ids(cell, field._makes_rows, row)
 
 
 def _type_name_for_error(field: CompiledField) -> str:
-    return f"a {getattr(field._cell_type, '__name__', field._cell_type)}"
+    return f"a {getattr(field.type, '__name__', field.type)}"

@@ -7,7 +7,7 @@ import sys
 import polars as pl
 import pytest
 from conductor import ROW_ID_COLUMN, DType, Table, node, to_wire
-from conductor._internal.series import Index
+from conductor._internal.index import Index
 from conductor._internal.table import global_row_id, polars_type_of, with_row_ids
 from helpers import read_table
 from pydantic import TypeAdapter

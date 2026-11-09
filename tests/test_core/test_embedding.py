@@ -146,7 +146,7 @@ def gate(
 
 def single_outputs(**arriving: Arriving):
     series = arriving.get("values")
-    dtype = series.element if series is not None else Any
+    dtype = series if series is not None else Any
     return (Output("result", dtype, title="The value"),)
 
 @node("single", title="Only one", description="d", category="test", compute_outputs=single_outputs)
@@ -463,6 +463,7 @@ def _what_compile_says(compiled: CompiledGraph) -> dict[str, Any]:
             found = compiled.field(Ref(node_id, declared.name))
             fields[declared.name] = {
                 "type": repr(found.type),
+                "many": found.many,
                 **({"binding": repr(found.binding)} if declared.name in inputs else {"condition": _condition(found.condition)}),
             }
         nodes[node_id] = {
@@ -660,7 +661,7 @@ def test_a_value_inside_a_graph_run_per_row_arrives_as_itself_on_an_as_it_arrive
     assert compiled.is_runnable, compiled.problems
     plan = compiled.run_plan.nodes["emb/kw"].inputs["thing"]
     assert (plan.receive_mode, plan.rows_of) == ("value_at_row", "docs.result")
-    assert [str(value) for value in compiled.results(compiled.run_sync())["emb/kw"]["result"]] == ["a", "b"]
+    assert [str(value) for value in compiled.results(compiled.run_sync())["emb/kw"]["result"]["values"]] == ["a", "b"]
 
 
 def test_a_graph_run_per_row_sees_an_input_fed_whole_as_a_whole():
@@ -673,7 +674,7 @@ def test_a_graph_run_per_row_sees_an_input_fed_whole_as_a_whole():
     ))
     compiled = CompiledGraph.from_graph(Graph(nodes=list(scenario.nodes)), _registry(scenario))
 
-    assert [str(value) for value in compiled.results(compiled.run_sync())["emb/j"]["result"]] == ["a+b", "a+b"]
+    assert [str(value) for value in compiled.results(compiled.run_sync())["emb/j"]["result"]["values"]] == ["a+b", "a+b"]
 
 
 def test_a_broken_graph_with_a_value_typed_on_it_is_one_problem():

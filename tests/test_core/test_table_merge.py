@@ -20,7 +20,7 @@ from conductor import (
     Table,
     node,
 )
-from conductor._internal.series import Index
+from conductor._internal.index import Index
 from conductor._internal.table import MergeSource, merge_tables_on_row_ids
 from conductor.widgets import Textarea
 
@@ -151,7 +151,7 @@ def test_a_table_input_on_a_node_running_per_document_gets_that_documents_rows()
     read, check = compiled.run_plan.nodes["excel"].inputs["table"].source_plans
     assert (read.sources[0], read.receive_mode, read.rows_of) == ("read.result", "value_at_row", "docs.result")
     assert (check.sources[0], check.receive_mode, check.rows_of, check.grouped_under) == ("check.result", "all_rows_under_row", "read.result", "docs.result")
-    sheets = compiled.results(compiled.run_sync())["excel"]["result"]
+    sheets = compiled.results(compiled.run_sync())["excel"]["result"]["values"]
     assert [sheet.drop(ROW_ID_COLUMN).to_dicts() for sheet in sheets] == [
         [{"vendor": "acme", "amount": 10.0, "Approved": "acme ok"}, {"vendor": "beta", "amount": 5.0, "Approved": "beta ok"}],
         [{"vendor": "gamma", "amount": 7.0, "Approved": "gamma ok"}],
@@ -357,7 +357,7 @@ def _deep_registry() -> NodeRegistry:
 
 def _said(compiled: CompiledGraph, graph_node: str = "n") -> list[str]:
     assert compiled.is_runnable, compiled.problems
-    return list(compiled.results(compiled.run_sync())[graph_node]["result"].values)
+    return compiled.results(compiled.run_sync())[graph_node]["result"]["values"]
 
 
 def test_wiring_the_parent_as_well_adds_no_row():
@@ -398,7 +398,7 @@ def test_parents_with_nothing_under_them_give_a_table_of_no_rows_with_every_colu
 
 def test_a_parent_column_beside_a_table_made_per_row_of_it_is_copied_down():
     compiled = _compiled(DOCS, READ, GraphNode(id="excel", type="export", version=1, bindings={"table": From("docs.result", "read.result")}))
-    sheets = compiled.results(compiled.run_sync())["excel"]["result"]
+    sheets = compiled.results(compiled.run_sync())["excel"]["result"]["values"]
 
     assert [sheet.drop(ROW_ID_COLUMN).to_dicts() for sheet in sheets] == [
         [{"Documents": "acme:10,beta:5", "vendor": "acme", "amount": 10.0}, {"Documents": "acme:10,beta:5", "vendor": "beta", "amount": 5.0}],
@@ -413,10 +413,10 @@ def test_a_child_table_a_branch_skipped_gives_no_rows_and_the_sheet_keeps_its_co
         GraphNode(id="excel", type="export", version=1, bindings={"table": From("docs.result", "read.result")}),
         registry=_registry_with(skip_or_read),
     )
-    sheets = compiled.results(compiled.run_sync())["excel"]["result"]
+    sheets = compiled.results(compiled.run_sync())["excel"]["result"]["values"]
 
     assert [sheet.height for sheet in sheets] == [1, 0]
-    assert sheets.values[1].columns == [ROW_ID_COLUMN, "Documents", "vendor", "amount"]
+    assert sheets[1].columns == [ROW_ID_COLUMN, "Documents", "vendor", "amount"]
 
 
 def test_a_series_two_levels_down_with_nothing_else_runs_per_row_of_the_level_above_it():

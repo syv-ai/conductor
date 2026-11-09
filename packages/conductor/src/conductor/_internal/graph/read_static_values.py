@@ -21,7 +21,7 @@ from conductor._internal.errors import Problem, make_problem
 from conductor._internal.field_records import Input
 from conductor._internal.graph.binding import static_values
 from conductor._internal.graph.graph_records import GraphNode
-from conductor._internal.table import is_table_or_series_of_tables, missing_column_in
+from conductor._internal.table import is_table_type, missing_column_in
 
 
 def read_static_values(inputs: Iterable[Input], node: GraphNode) -> tuple[dict[str, Any], frozenset[str], list[Problem]]:
@@ -45,7 +45,7 @@ def read_static_values(inputs: Iterable[Input], node: GraphNode) -> tuple[dict[s
                 problems.append(make_problem("table_column_missing", node.id, name, column=column))
                 continue
             said = _message_from_type_constructor(unreadable)
-            problems.append(make_problem("invalid_static", node.id, name, input=_short_repr(value), expected=type_name_for_sentence(input_.dtype), **({"reason": said} if said else {})))
+            problems.append(make_problem("invalid_static", node.id, name, input=_short_repr(value), expected=type_name_for_sentence(input_.dtype, input_.many), **({"reason": said} if said else {})))
             continue
         if many:
             inputs_given_a_list.add(name)
@@ -54,17 +54,16 @@ def read_static_values(inputs: Iterable[Input], node: GraphNode) -> tuple[dict[s
 
 def _read_value_or_list(input_: Input, value: Any) -> tuple[Any, bool]:
     """``value`` read through ``input_``'s type, and whether it is many values."""
-    element = input_.dtype.element
-    if element is not None:
+    if input_.many:
         if not _is_sequence(value):
             raise TypeError("a Series input takes a sequence")
-        return [None if item is None and input_.takes_blank else _adapter(element).validate_python(item) for item in value], False
+        return [None if item is None and input_.takes_blank else _adapter(input_.dtype).validate_python(item) for item in value], False
     if value is None and input_.takes_blank:
         return None, False
     try:
         return _adapter(input_.dtype).validate_python(value), False
     except ValidationError:
-        if _is_sequence(value) and not is_table_or_series_of_tables(input_.dtype):  # records are one table, not many
+        if _is_sequence(value) and not is_table_type(input_.dtype):  # records are one table, not many
             return [_adapter(input_.dtype).validate_python(item) for item in value], True
         raise
 

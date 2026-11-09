@@ -334,9 +334,9 @@ def _random_graph(rng: random.Random, registry: NodeRegistry) -> CompiledGraph:
 
 
 def _canon(value):
-    """A unit's inputs, comparable: a series by its rows and values, a table by its rows."""
-    if isinstance(value, Series):
-        return ("series", value.index.id, value.rows, tuple(_canon(item) for item in value.values))
+    """A unit's inputs, comparable: many values in order, a table by its rows."""
+    if isinstance(value, list):
+        return ("many", tuple(_canon(item) for item in value))
     if isinstance(value, pl.DataFrame):
         return ("table", tuple(value.columns), tuple(value.rows()))
     if isinstance(value, dict):

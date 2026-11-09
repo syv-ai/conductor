@@ -261,7 +261,7 @@ def test_a_failed_row_is_retried_alone():
 
     results = compiled.results(compiled.run_sync())
 
-    assert list(results["rows"]["result"]) == ["A", "B", "C"]
+    assert results["rows"]["result"]["values"] == ["A", "B", "C"]
     assert sorted(calls) == ["a", "b", "b", "c"]
 
 

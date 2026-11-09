@@ -46,6 +46,7 @@ from conductor._internal.dtype import (
     _AsItArrivesMark,
     _ReceivedAsItArrives,
     dtype_of,
+    read_field_annotation,
     split_off_none,
 )
 from conductor._internal.errors import NodeDeclarationError, Problem
@@ -145,13 +146,14 @@ def input_template_for_var_keyword(name: str, hint: Any) -> Input:
     declared, extras = _split_annotated(hint)
     if any(isinstance(extra, _AsItArrivesMark) for extra in extras):
         return Input("", _ReceivedAsItArrives)
-    dtype = dtype_of(declared)
+    one_value, _, _ = read_field_annotation(declared)
+    dtype = dtype_of(one_value)
     if dtype is None or dtype is DType:
         raise NodeDeclarationError(
             f"**{name}: {declared!r} is no type an edge carries; each edge is an input, declared a type, Any or AsItArrives",
             code="open_interface_annotation",
         )
-    return Input("", dtype)
+    return Input("", declared)
 
 
 def _input_from_parameter(name: str, declared: Any, extras: tuple[Any, ...], parameter: inspect.Parameter) -> Input:
@@ -194,9 +196,9 @@ def _return_shape_and_outputs(hints: Mapping[str, Any]) -> tuple[Any, tuple[Outp
     declared, extras = _split_annotated(hint)
     if any(isinstance(extra, Param) for extra in extras):
         raise NodeDeclarationError("the return carries a Param; a return carries a Result, and Param belongs on a parameter", code="param_on_return")
-    bare, blank = split_off_none(declared)
+    bare, _, blank = read_field_annotation(declared)
     if (dtype := dtype_of(bare)) is not None:
-        return dtype, (_output_from_result(DEFAULT_OUTPUT_NAME, dtype | None if blank else bare, _result_annotation_in(extras)),)
+        return dtype, (_output_from_result(DEFAULT_OUTPUT_NAME, declared, _result_annotation_in(extras)),)
     if blank:
         raise NodeDeclarationError(f"{bare!r} can't take a blank: only one value, or a field of a returned record, is blank", code="blank_on_a_record")
     if isinstance(declared, type) and is_dataclass(declared):
@@ -214,14 +216,13 @@ def _outputs_of_returned_dataclass(record: type) -> tuple[Output, ...]:
         declared, extras = _split_annotated(hints[record_field.name])
         if any(isinstance(extra, Param) for extra in extras):
             raise NodeDeclarationError(f"{record.__name__}.{record_field.name} carries a Param; a record's field carries a Result", code="param_on_record_field")
-        bare, blank = split_off_none(declared)
+        bare, _, _ = read_field_annotation(declared)
         result = _result_annotation_in(extras)
         if dtype_of(bare) is None:
             raise NodeDeclarationError(f"{record.__name__}.{record_field.name} must be a type an edge can carry — got {declared!r}", code="record_field_needs_dtype")
-        dtype = declared
         if result.name is not None:
             raise NodeDeclarationError(f"{record.__name__}.{record_field.name}: a record's field is named by the field, so Result(name=...) has nothing to name", code="result_name_on_record_field")
-        outputs.append(_output_from_result(record_field.name, dtype, result))
+        outputs.append(_output_from_result(record_field.name, declared, result))
     return tuple(outputs)
 
 
@@ -280,6 +281,14 @@ def _wrong_shape(message: str) -> list[Problem]:
     return [Problem(type="invalid_output", msg=message)]
 
 
+def _type_a_call_reads(input_: Input) -> Any:
+    """The type a call's value of ``input_`` is checked against: one value or a list of them, each ``None`` where the input takes a blank."""
+    one_value = input_.dtype | None if input_.takes_blank else input_.dtype
+    if not input_.many:
+        return one_value
+    return list[one_value] | None if input_.takes_blank and not input_.required and input_.default is None else list[one_value]
+
+
 def build_call_validator(inputs: tuple[Input, ...]) -> Callable[[Mapping[str, Any]], dict[str, Any]]:
     """The check a call of ``inputs`` goes through: values in, keyword arguments out.
 
@@ -298,7 +307,7 @@ def build_call_validator(inputs: tuple[Input, ...]) -> Callable[[Mapping[str, An
     """
     adapter = TypeAdapter(
         with_config(ConfigDict(extra="ignore", arbitrary_types_allowed=True))(
-            TypedDict("Inputs", {input_.name: input_.dtype for input_ in inputs})  # type: ignore[operator]
+            TypedDict("Inputs", {input_.name: _type_a_call_reads(input_) for input_ in inputs})  # type: ignore[operator]
         )
     )
     defaults = {input_.name: input_.default for input_ in inputs if not input_.required}

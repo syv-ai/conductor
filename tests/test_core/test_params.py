@@ -191,8 +191,8 @@ def test_each_row_of_a_per_row_node_is_answered_by_its_own_id():
     second = _leg(compiled, state=first, answers={"ask@0": {"result": "x"}, "ask@1": {"result": "y"}, "ask@2": {"result": "z"}})
 
     assert second[-1].state.status == "complete"
-    assert list(compiled.results(second[-1].state)["ask"]["result"]) == ["x", "y", "z"]
-    assert compiled.results(second[-1].state)["ask"]["result"].rows == ((0,), (1,), (2,))
+    assert compiled.results(second[-1].state)["ask"]["result"]["values"] == ["x", "y", "z"]
+    assert compiled.results(second[-1].state)["ask"]["result"]["rows"] == [(0,), (1,), (2,)]
 
 
 def test_a_row_skipped_upstream_never_asks():
@@ -213,4 +213,4 @@ def test_a_row_skipped_upstream_never_asks():
 
     assert second[-1].state.status == "complete"
     answered = compiled.results(second[-1].state)["ask"]["result"]
-    assert (list(answered), answered.rows) == (["x", "z"], ((0,), (2,)))
+    assert answered == {"rows": [(0,), (2,)], "values": ["x", "z"]}

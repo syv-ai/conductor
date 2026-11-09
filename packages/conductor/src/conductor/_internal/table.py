@@ -59,7 +59,7 @@ from pydantic_core import PydanticCustomError, PydanticSerializationError, core_
 
 from conductor._internal.dtype import DType, dtype_of
 from conductor._internal.errors import NodeDeclarationError
-from conductor._internal.series import Index, Row
+from conductor._internal.index import Index, Row
 
 if TYPE_CHECKING:
     import polars as pl
@@ -98,9 +98,8 @@ def polars_type_of(dtype: type[DType]) -> pl.DataType | None:
 
 
 @cache
-def is_table_or_series_of_tables(dtype: Any) -> bool:
-    """Is a field of this type a table, one or one per row?"""
-    dtype = getattr(dtype, "element", None) or dtype
+def is_table_type(dtype: Any) -> bool:
+    """Is one value of this type a table?"""
     return isinstance(dtype, type) and issubclass(dtype, Table)
 
 
@@ -390,7 +389,7 @@ class Table(DType, Generic[RowsOf]):
         declared: list[Column] = []
         for name, written in columns.items():
             dtype = dtype_of(written)
-            if not isinstance(name, str) or dtype is None or dtype.element is not None:
+            if not isinstance(name, str) or dtype is None:
                 raise NodeDeclarationError(f"a column is a name and a scalar type, got {name!r}: {written!r}", code="table_column_invalid")
             if name == ROW_ID_COLUMN:
                 raise NodeDeclarationError(f"'{ROW_ID_COLUMN}' is the column of row ids every table carries; no column may be named it", code="table_column_reserved")

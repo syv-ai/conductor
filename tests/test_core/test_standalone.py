@@ -200,7 +200,7 @@ def _types_declared_by(*packages: str) -> list[str]:
 
 def test_the_library_declares_no_type_of_its_own_beyond_series_and_table():
     """Which values exist is the host's decision; importing every module of the core and the providers declares only the two shapes every level has, and the library's private stand-ins for an untyped or closed field."""
-    assert _types_declared_by("conductor", "conductor_providers") == ["any", "as_it_arrives", "float_not_finite", "series", "setting", "table"]
+    assert _types_declared_by("conductor", "conductor_providers") == ["any", "as_it_arrives", "float_not_finite", "setting", "table"]
 
 
 def test_a_package_that_declares_types_is_found():
@@ -224,5 +224,5 @@ def test_an_iteration_and_a_reduction_run_on_the_standard_nodes_alone():
     results = compiled.results(compiled.run_sync())
 
     assert compiled.run_plan.nodes["upper"].runs_per_row_of is not None
-    assert list(results["upper"]["result"]) == ["A", "B", "C"]
+    assert results["upper"]["result"]["values"] == ["A", "B", "C"]
     assert results["join"]["result"] == "A+B+C"

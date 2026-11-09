@@ -153,7 +153,7 @@ def test_the_bare_type_is_what_travels_on_an_edge():
     def run(x: Series[Txt | None], y: Txt | None) -> Txt | None: ...
 
     x, y = read_signature(run).interface.inputs
-    assert x.dtype is Series[Txt] and y.dtype is Txt
+    assert x.dtype is Txt and x.many and y.dtype is Txt
 
 
 def test_an_output_takes_a_blank_when_its_hint_says_so():
@@ -203,13 +203,13 @@ def test_a_blank_on_a_plain_input_is_not_called_and_its_outputs_are_blank():
     compiled, _, results = _results(CSV, _per_row("plain"))
 
     assert CALLED == ["ida@x", "nina@x"]
-    assert results["n"]["result"].values == ("IDA@X", None, "NINA@X")
+    assert results["n"]["result"]["values"] == ["IDA@X", None, "NINA@X"]
 
 
 def test_an_input_saying_none_is_called_with_the_blank():
     _, _, results = _results(CSV, _per_row("takes"))
 
-    assert results["n"]["result"].values == ("ida@x", "none", "nina@x")
+    assert results["n"]["result"]["values"] == ["ida@x", "none", "nina@x"]
 
 
 def test_a_default_is_for_an_input_nothing_is_wired_to_not_for_a_blank():
@@ -218,7 +218,7 @@ def test_a_default_is_for_an_input_nothing_is_wired_to_not_for_a_blank():
         return x
 
     _, _, results = _results(CSV, GraphNode(id="n", type="defaulted", version=1, bindings={"x": From("csv.result.email")}), registry=_registry(defaulted))
-    assert results["n"]["result"].values == ("ida@x", None, "nina@x")
+    assert results["n"]["result"]["values"] == ["ida@x", None, "nina@x"]
 
 
 def test_the_event_counts_the_rows_not_called_and_the_state_keeps_them():
@@ -234,7 +234,7 @@ def test_the_event_counts_the_rows_not_called_and_the_state_keeps_them():
     assert complete.rows_not_called == {"email": 1}
     state = events[-1].state
     assert state.rows_not_called == {"n": {"email": 1}}
-    assert compiled.results(compiled.run_sync(state))["n"]["result"].values[1] is None
+    assert compiled.results(compiled.run_sync(state))["n"]["result"]["values"][1] is None
 
 
 def test_a_node_all_blank_completes_it_is_never_skipped():
@@ -262,8 +262,8 @@ def test_choice_outputs_are_skipped_when_not_called():
         CSV, _per_row("branched"),
         GraphNode(id="k", type="after-branch", version=1, bindings={"value": From("n.known")}),
     )
-    assert results["n"]["known"].rows == ((0,), (2,))
-    assert results["k"]["result"].rows == ((0,), (2,))
+    assert results["n"]["known"]["rows"] == [(0,), (2,)]
+    assert results["k"]["result"]["rows"] == [(0,), (2,)]
 
 
 def test_a_row_making_output_has_no_rows_when_not_called_so_a_count_gives_zero():
@@ -271,12 +271,12 @@ def test_a_row_making_output_has_no_rows_when_not_called_so_a_count_gives_zero()
         CSV, _per_row("splits"),
         GraphNode(id="c", type="count", version=1, bindings={"values": From("n.result")}),
     )
-    assert results["c"]["result"].values == (5, 0, 6)
+    assert results["c"]["result"]["values"] == [5, 0, 6]
 
 
 def test_a_table_output_has_no_rows_when_not_called():
     _, state, results = _results(CSV, _per_row("make-table"))
-    assert results["n"]["result"].values[1].height == 0
+    assert results["n"]["result"]["values"][1].height == 0
     assert state.status == "complete"
 
 
@@ -338,7 +338,7 @@ def test_a_question_with_a_blank_hint_may_be_left_out():
 def test_a_reader_of_a_blank_chain_is_not_called_either():
     CALLED.clear()
     _, _, results = _results(CSV, _per_row("plain"), GraphNode(id="m", type="plain", version=1, bindings={"email": From("n.result")}))
-    assert results["m"]["result"].values == ("IDA@X", None, "NINA@X")
+    assert results["m"]["result"]["values"] == ["IDA@X", None, "NINA@X"]
     assert len(CALLED) == 4
 
 
@@ -358,4 +358,4 @@ def test_a_blank_on_a_state_round_trips_through_its_json():
     restored = type(state).model_validate_json(state.model_dump_json())
 
     assert restored.rows_not_called == {"n": {"email": 1}}
-    assert compiled.results(compiled.run_sync(restored))["n"]["result"].values == ("IDA@X", None, "NINA@X")
+    assert compiled.results(compiled.run_sync(restored))["n"]["result"]["values"] == ["IDA@X", None, "NINA@X"]

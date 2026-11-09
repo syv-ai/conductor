@@ -235,7 +235,7 @@ def test_an_inner_reduction_over_the_entering_series_is_a_fold_of_one():
     ])
 
     assert compiled.run_plan.nodes["emb/join"].runs_per_row_of == "docs.result"
-    assert compiled.field(Ref("emb/join", "result")).type is Series[Txt]
+    assert compiled.field(Ref("emb/join", "result")).type is Txt and compiled.field(Ref("emb/join", "result")).many
 
 
 def test_a_series_made_inside_reduces_to_the_outer_row_by_lineage_alone():

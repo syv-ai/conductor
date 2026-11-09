@@ -48,7 +48,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from functools import cache
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from conductor._internal.dtype import (
@@ -72,13 +71,12 @@ from conductor._internal.graph.receive_modes import (
     rows_under_the_row,
 )
 from conductor._internal.graph.row_origins import sources_taken_in_whole
+from conductor._internal.index import Index
 from conductor._internal.ref import Ref
-from conductor._internal.series import Index, Series
 from conductor._internal.table import (
     Column,
-    Table,
     columns_of,
-    is_table_or_series_of_tables,
+    is_table_type,
     polars_type_of,
     renames_in_merge,
 )
@@ -104,8 +102,8 @@ class WhatArrivesOnInputs:
     receive_modes: dict[str, ReceiveMode] = field(default_factory=dict)
     #: Per connected input: the type one call sees, what ``compute_outputs`` is told.
     arriving_types: dict[str, Any] = field(default_factory=dict)
-    #: The types edges gave to inputs that had none of their own.
-    type_given_by_edge: dict[str, Any] = field(default_factory=dict)
+    #: What edges gave to inputs that had no type of their own: the fields to set on each.
+    given_by_edge: dict[str, dict[str, Any]] = field(default_factory=dict)
     #: The rows the node must run per row of, each with the input that demands it.
     rows_required_by_inputs: tuple[tuple[Index, str], ...] = ()
     #: The child indexes ``Series[X]`` inputs read, placed once the node's row is known.
@@ -161,37 +159,37 @@ def read_what_arrives_on_inputs(
                 return found
             source = sources[0]
             one_value_per_run_of_a_graph = _sits_on_the_row_of_a_graph_around_both(node.id, source, progress)
-            found.type_given_by_edge[name] = found.arriving_types[name] = source.type.element if one_value_per_run_of_a_graph else source.type
+            found.given_by_edge[name] = {"dtype": source.type, "many": source.many and not one_value_per_run_of_a_graph}
+            found.arriving_types[name] = source.type
             found.carries[name] = InputCarries(source.type, source._index)
             if source._index is None or one_value_per_run_of_a_graph:
                 found.receive_modes[name] = cell_at_the_row(binding.refs, source._index, input_.takes_blank)
             else:
                 found.receive_modes[name] = rows_under_the_row(binding.refs, source._index, 0, input_.takes_blank)
             continue
-        if _is_table_type(target):
+        if is_table_type(target) and not input_.many:
             pairs = list(zip(binding.refs, sources, strict=True))
             problems_found = [problem for source_ref, source in pairs for problem in _type_mismatch_unless_table_or_column(target, node.id, name, source_ref, source)]
             problems.extend(problems_found)
             merged = None if problems_found else _merged_columns(pairs)
-            found.rows_required_by_inputs += tuple((source._index, name) for source in sources if is_table_or_series_of_tables(source.type) and source._index is not None)
+            found.rows_required_by_inputs += tuple((source._index, name) for source in sources if is_table_type(source.type) and source._index is not None)
             carried = _table_a_call_receives(target, merged)
             _check_columns(node.id, name, target, merged, problems)
             found.table_inputs_and_sources += ((input_, carried, pairs),)
             found.arriving_types[name] = carried
             continue
         if is_untyped(target):
-            element = sources[0].type.element or sources[0].type
-            target = Series[element] if input_.dtype.element is not None else element
-            found.type_given_by_edge[name] = target
+            target = sources[0].type
+            found.given_by_edge[name] = {"dtype": target}
         for source_ref, source in zip(binding.refs, sources, strict=True):
-            problems.extend(_type_mismatch_unless_accepted(target, node.id, name, source_ref, source))
-        if target.element is None:
+            problems.extend(_type_mismatch_unless_accepted(target, node.id, name, source_ref, source, target_many=input_.many))
+        if not input_.many:
             if len(sources) > 1 and not _all_on_one_index(sources):
                 problems.append(make_problem("union_needs_one_index", node.id, name))
                 found.stopped_at_unreadable_source = True
                 return found
             source = sources[0]
-            found.arriving_types[name] = source.type.element or source.type
+            found.arriving_types[name] = source.type
             found.receive_modes[name] = cell_at_the_row(binding.refs, source._index, input_.takes_blank)
             if source._index is not None:
                 found.rows_required_by_inputs += ((source._index, name),)
@@ -238,11 +236,6 @@ def _read_at_the_row_of_the_graph_around_it(node_id: str, input_: Input, refs: t
         input_own_index = Index(Ref(node_id, name))
         found.receive_modes[name] = Gather(refs, Ref(input_own_index.id), index.depth, input_.takes_blank)
         found.carries[name] = InputCarries(target, input_own_index)
-
-
-@cache
-def _is_table_type(dtype: Any) -> bool:
-    return isinstance(dtype, type) and issubclass(dtype, Table)
 
 
 def _source_output(ref: Ref, reader_id: str, progress: CompileProgress) -> CompiledField | None:
@@ -298,7 +291,7 @@ def decide_runs_per_row_of_and_receive_modes(node: GraphNode, found: WhatArrives
         (input_,) = found.lists_on_node
         own_ref = field_address_of(input_.name)
         input_own_index = Index(str(own_ref), parent=runs_per_row_of)
-        found.carries[input_.name] = InputCarries(Series[input_.dtype], input_own_index)
+        found.carries[input_.name] = InputCarries(input_.dtype, input_own_index)
         found.receive_modes[input_.name] = cell_at_the_row((own_ref,), input_own_index, input_.takes_blank)
         runs_per_row_of = input_own_index
     for index, input_, refs in found.child_indexes_read_by_series_inputs:
@@ -308,7 +301,7 @@ def decide_runs_per_row_of_and_receive_modes(node: GraphNode, found: WhatArrives
             return False, None
         found.receive_modes[input_.name] = rows_under_the_row(refs, index, depth, input_.takes_blank)
     for input_, carried, sources in found.table_inputs_and_sources:
-        found.carries[input_.name] = InputCarries(carried, None) if runs_per_row_of is None else InputCarries(Series[carried], runs_per_row_of)
+        found.carries[input_.name] = InputCarries(carried, runs_per_row_of)
         found.receive_modes[input_.name] = _receive_mode_of_table_input(sources, runs_per_row_of, input_.takes_blank)
         problems.extend(row_origins.check_merge(node_id, input_.name, sources))
     return True, runs_per_row_of
@@ -316,7 +309,7 @@ def decide_runs_per_row_of_and_receive_modes(node: GraphNode, found: WhatArrives
 
 def _receive_mode_of_table_input(sources: list[tuple[Ref, CompiledField]], runs_per_row_of: Index | None, takes_blank: bool) -> Cell | Merge:
     """How a ``Table`` input receives what is wired into it: one table on its own has nothing to match with."""
-    if len(sources) == 1 and is_table_or_series_of_tables(sources[0][1].type):
+    if len(sources) == 1 and is_table_type(sources[0][1].type):
         return cell_at_the_row((sources[0][0],), sources[0][1]._index, takes_blank)
     return Merge(
         tuple(ref for ref, _ in sources),
@@ -336,12 +329,12 @@ def _merged_columns(sources: list[tuple[Ref, CompiledField]]) -> tuple[Column, .
     """The columns the merged table of ``sources`` has, named as the merge names them; ``None`` when a table among them names none."""
     columns_each: list[tuple[str, tuple[Column, ...]]] = []
     for source_ref, source in sources:
-        if is_table_or_series_of_tables(source.type):
-            columns = columns_of(source.type.element or source.type)
+        if is_table_type(source.type):
+            columns = columns_of(source.type)
             if not columns:
                 return None
         else:
-            columns = ((source._title, source.type.element),)
+            columns = ((source._title, source.type),)
         columns_each.append((source_ref.node_id, columns))
     renames = renames_in_merge((node_id, (name for name, _ in columns)) for node_id, columns in columns_each)
     return tuple((renamed.get(name, name), dtype) for (_, columns), renamed in zip(columns_each, renames, strict=True) for name, dtype in columns)
@@ -367,23 +360,22 @@ def _check_columns(node_id: str, name: str, target: Any, merged: tuple[Column, .
 def _type_mismatch_unless_table_or_column(target: Any, node_id: str, name: str, source_ref: Ref, source: CompiledField) -> list[Problem]:
     """A ``Table`` input takes a table, or a column: a series of a type a
     table column holds. A single value or anything else is ``type_mismatch``."""
-    element = source.type.element
-    if is_table_or_series_of_tables(source.type) or (element is not None and isinstance(element, type) and polars_type_of(element) is not None):
+    if is_table_type(source.type) or (source.many and polars_type_of(source.type) is not None):
         return []
     return _type_mismatch_unless_accepted(target, node_id, name, source_ref, source) or [_type_mismatch(target, node_id, name, source_ref, source)]
 
 
-def _type_mismatch_unless_accepted(target: Any, node_id: str, name: str, source_ref: Ref, source: CompiledField) -> list[Problem]:
+def _type_mismatch_unless_accepted(target: Any, node_id: str, name: str, source_ref: Ref, source: CompiledField, *, target_many: bool = False) -> list[Problem]:
     """May what arrives land? The target's ``accepts`` decides, asked about one value of each."""
-    if (target.element or target).accepts(source.type.element or source.type):
+    if target.accepts(source.type):
         return []
-    return [_type_mismatch(target, node_id, name, source_ref, source)]
+    return [_type_mismatch(target, node_id, name, source_ref, source, target_many=target_many)]
 
 
-def _type_mismatch(target: Any, node_id: str, name: str, source_ref: Ref, source: CompiledField) -> Problem:
+def _type_mismatch(target: Any, node_id: str, name: str, source_ref: Ref, source: CompiledField, *, target_many: bool = False) -> Problem:
     return make_problem(
-        "type_mismatch", node_id, name, source=str(source_ref), source_type=source.type.describe(),
-        target_type=target.describe(), source_said=type_name_for_sentence(source.type), target_said=type_name_for_sentence(target),
+        "type_mismatch", node_id, name, source=str(source_ref), source_type=source.type.describe(), source_many=source.many,
+        target_type=target.describe(), target_many=target_many, source_said=type_name_for_sentence(source.type, source.many), target_said=type_name_for_sentence(target, target_many),
     )
 
 
@@ -413,12 +405,9 @@ def _what_an_unwired_input_carries(input_: Input, node_id: str, statics: Mapping
     """What an input carries when no edge feeds it: one value copied to every
     call, or for a ``Series[X]`` input a column of its own, received whole."""
     value = statics.get(input_.name, input_.default)
-    if input_.dtype.element is None:
+    if not input_.many:
         return InputCarries(input_.dtype, None), FixedValue("same_value_every_row", value, input_.takes_blank)
-    index = Index(Ref(node_id, input_.name))
-    if value is not None:
-        value = Series(value.values if isinstance(value, Series) else list(value), index=index)
-    return InputCarries(input_.dtype, index), FixedValue("entire_value", value, input_.takes_blank)
+    return InputCarries(input_.dtype, Index(Ref(node_id, input_.name))), FixedValue("entire_value", None if value is None else list(value), input_.takes_blank)
 
 
 def _row_above_reductions(reductions: tuple[tuple[Index, Input, tuple[Ref, ...]], ...]) -> tuple[tuple[Index, str], ...]:

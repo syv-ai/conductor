@@ -24,8 +24,8 @@ from conductor import (
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.execution.run_ledger import SkippedAtRow
 from conductor._internal.graph.compiled_node import CompiledField, CompiledNode
+from conductor._internal.index import Index
 from conductor._internal.node_definition import NodeVersion, VersionDescription
-from conductor._internal.series import Index
 from conductor.widgets import Choice, Dropdown, OperatorChoice, SchemaBuilder, Textarea, Widget
 from pydantic import ValidationError
 

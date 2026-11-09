@@ -14,9 +14,9 @@ from typing import Any
 
 from conductor._internal.graph.compiled_node import CompiledField, CompiledNode
 from conductor._internal.graph.receive_modes import ReceiveMode, reads_of_input
+from conductor._internal.index import Index
 from conductor._internal.node_signature import Interface
 from conductor._internal.ref import Ref
-from conductor._internal.series import Index, Series
 
 
 @dataclass(frozen=True)
@@ -118,7 +118,7 @@ def build_engine_lookups(nodes: Iterable[CompiledNode], row_ids_must_survive: fr
                     register_index_owner(field._index.id, field)
                     outputs_on_index[field._index.id].append(ref)
                     values = node.statics[ref.field]
-                    cells_of_list_on_node[ref] = list(values.values if isinstance(values, Series) else values)
+                    cells_of_list_on_node[ref] = list(values)
                     if field._index.parent is not None:
                         lists_on_nodes_under_index.setdefault(field._index.parent.id, []).append(ref)
                 continue

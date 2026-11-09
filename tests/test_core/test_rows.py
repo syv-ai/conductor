@@ -196,9 +196,9 @@ def test_a_computed_inputs_runs_by_name_and_edges_like_any_field():
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("c", "email"))}),
     ])
 
-    assert list(results["c"]["navn"]) == ["navn:a", "navn:b"]
-    assert results["c"]["email"].index.id == "docs.texts"
-    assert list(results["up"]["result"]) == ["EMAIL:A", "EMAIL:B"]
+    assert results["c"]["navn"]["values"] == ["navn:a", "navn:b"]
+    assert results["c"]["email"]["rows"] == [(0,), (1,)]
+    assert results["up"]["result"]["values"] == ["EMAIL:A", "EMAIL:B"]
 
 
 def test_a_computed_inputs_with_no_outputs_is_compiles_problem():
@@ -219,10 +219,7 @@ def test_an_iterating_chain_runs_per_row_and_a_reduction_collapses_it():
     ])
 
     up = results["up"]["result"]
-    assert isinstance(up, Series)
-    assert up.index.id == "docs.texts"
-    assert up.rows == ((0,), (1,), (2,))
-    assert list(up) == ["A", "B", "C"]
+    assert up == {"rows": [(0,), (1,), (2,)], "values": ["A", "B", "C"]}
     assert results["j"]["result"] == "A+B+C"
 
 
@@ -233,7 +230,7 @@ def test_a_scalar_broadcasts_beside_a_series():
         GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("prefix", "result")), "b": _edge(("docs", "texts"))}),
     ])
 
-    assert list(results["p"]["result"]) == ["P:a", "P:b"]
+    assert results["p"]["result"]["values"] == ["P:a", "P:b"]
 
 
 def test_an_iterating_node_returning_a_series_unfolds_and_a_reduction_refolds():
@@ -247,12 +244,10 @@ def test_an_iterating_node_returning_a_series_unfolds_and_a_reduction_refolds():
     ])
 
     lines = results["lines"]["result"]
-    assert lines.index.id == "lines.result"
-    assert lines.rows == ((0, 0), (0, 1), (1, 0))
-    assert results["up"]["result"].rows == ((0, 0), (0, 1), (1, 0))
+    assert lines["rows"] == [(0, 0), (0, 1), (1, 0)]
+    assert results["up"]["result"]["rows"] == [(0, 0), (0, 1), (1, 0)]
     per_doc = results["j"]["result"]
-    assert per_doc.index.id == "docs.texts"
-    assert list(per_doc) == ["A+B", "C"]
+    assert per_doc["values"] == ["A+B", "C"]
 
 
 def test_a_parent_series_broadcasts_down_to_a_child_row():
@@ -262,7 +257,7 @@ def test_a_parent_series_broadcasts_down_to_a_child_row():
         GraphNode(id="p", type="pair", version=1, bindings={"a": _edge(("lines", "result")), "b": _edge(("docs", "texts"))}),
     ])
 
-    assert list(results["p"]["result"]) == ["a:a/b", "b:a/b", "c:c"]
+    assert results["p"]["result"]["values"] == ["a:a/b", "b:a/b", "c:c"]
 
 
 def test_a_gather_of_scalars_arrives_as_a_series():
@@ -283,8 +278,8 @@ def test_a_list_set_on_a_node_running_per_row_runs_once_per_value_in_each_row():
     ])
 
     asked = results["ask"]["result"]
-    assert asked.rows == tuple((doc, question) for doc in range(3) for question in range(3))
-    assert list(asked) == [f"{doc}:{question}" for doc in "abc" for question in ("q1", "q2", "q3")]
+    assert asked["rows"] == [(doc, question) for doc in range(3) for question in range(3)]
+    assert asked["values"] == [f"{doc}:{question}" for doc in "abc" for question in ("q1", "q2", "q3")]
 
 
 def test_no_documents_ask_no_questions():
@@ -293,7 +288,7 @@ def test_no_documents_ask_no_questions():
         GraphNode(id="ask", type="pair", version=1, bindings={"a": _edge(("docs", "texts")), "b": Static(["q1", "q2"])}),
     ])
 
-    assert list(results["ask"]["result"]) == []
+    assert results["ask"]["result"]["values"] == []
 
 
 def test_a_document_skipped_above_asks_none_of_its_questions():
@@ -303,7 +298,7 @@ def test_a_document_skipped_above_asks_none_of_its_questions():
         GraphNode(id="ask", type="pair", version=1, bindings={"a": _edge(("g", "long")), "b": Static(["q1", "q2"])}),
     ])
 
-    assert results["ask"]["result"].rows == ((0, 0), (0, 1), (2, 0), (2, 1))
+    assert results["ask"]["result"]["rows"] == [(0, 0), (0, 1), (2, 0), (2, 1)]
 
 
 # --- sparse series and skip ---------------------------------------------
@@ -317,9 +312,9 @@ def test_an_iterating_gate_masks_rows_and_downstream_runs_on_fewer():
         GraphNode(id="short", type="upper", version=1, bindings={"text": _edge(("g", "short"))}),
     ])
 
-    assert results["long"]["result"].rows == ((0,), (2,))
-    assert list(results["long"]["result"]) == ["ABC", "EFG"]
-    assert results["short"]["result"].rows == ((1,),)
+    assert results["long"]["result"]["rows"] == [(0,), (2,)]
+    assert results["long"]["result"]["values"] == ["ABC", "EFG"]
+    assert results["short"]["result"]["rows"] == [(1,)]
 
 
 def test_a_reduction_over_a_sparse_series_sees_only_the_rows_present():
@@ -354,8 +349,8 @@ def test_two_branches_merge_back_by_wiring_and_the_chain_stays_on_the_index():
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("all", "result"))}),
     ])
 
-    assert list(results["all"]["result"]) == ["HEY", "X:!", "WORLD"]
-    assert results["all"]["result"].rows == ((0,), (1,), (2,))
+    assert results["all"]["result"]["values"] == ["HEY", "X:!", "WORLD"]
+    assert results["all"]["result"]["rows"] == [(0,), (1,), (2,)]
     assert results["j"]["result"] == "HEY+X:!+WORLD"
 
 
@@ -505,14 +500,14 @@ def test_computed_inputs_reach_the_node_as_keywords():
     )
     assert compiled.is_runnable, compiled.problems
 
-    assert list(compiled.results(compiled.run_sync())["t"]["result"]) == ["Dear Ida (24-1)", "Dear Bo (24-1)"]
+    assert compiled.results(compiled.run_sync())["t"]["result"]["values"] == ["Dear Ida (24-1)", "Dear Bo (24-1)"]
 
 
 def test_node_complete_carries_the_series():
     events = _events([_docs("a,b"), GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))})])
 
     (done,) = [e for e in events if e.type == "node_complete" and e.node_id == "up"]
-    assert list(done.result["result"]) == ["A", "B"]
+    assert done.result["result"]["values"] == ["A", "B"]
     assert events[-1].state.status == "complete"
 
 
@@ -637,7 +632,7 @@ def test_an_iterating_asking_node_pends_once_per_row_and_is_answered_as_a_series
 
     second = _leg(compiled, state=first, answers={"ask@0": {"result": Txt("x")}, "ask@1": {"result": Txt("y")}})
 
-    assert list(compiled.results(second[-1].state)["up"]["result"]) == ["X", "Y"]
+    assert compiled.results(second[-1].state)["up"]["result"]["values"] == ["X", "Y"]
 
 
 @node("asks-if-long", title="Ask if long", description="d", category="test")
@@ -669,8 +664,8 @@ def test_an_answer_fills_the_rows_it_names_and_the_rows_already_done_stay():
     second = _leg(compiled, state=first, answers={"ask@1": {"result": Txt("yes")}})
 
     assert second[-1].state.status == "complete"
-    assert list(compiled.results(second[-1].state)["ask"]["result"]) == ["a", "yes", "b"]
-    assert list(compiled.results(second[-1].state)["up"]["result"]) == ["A", "YES", "B"]
+    assert compiled.results(second[-1].state)["ask"]["result"]["values"] == ["a", "yes", "b"]
+    assert compiled.results(second[-1].state)["up"]["result"]["values"] == ["A", "YES", "B"]
     (start,) = [e for e in second if e.type == "run_start"]
     assert "docs" in start.reused_nodes
 
@@ -741,8 +736,8 @@ def test_a_typed_in_list_inside_an_iterating_embedded_graph_is_a_child_row_under
 
     results = compiled.results(compiled.run_sync())
 
-    assert list(results["emb/j"]["result"]) == joined
-    assert results["emb/t"]["result"].rows == tuple((i, n) for i in range(len(joined)) for n in range(2))
+    assert results["emb/j"]["result"]["values"] == joined
+    assert results["emb/t"]["result"]["rows"] == [(i, n) for i in range(len(joined)) for n in range(2)]
 
 
 def test_a_skip_above_an_embedded_list_leaves_it_with_no_rows_and_the_inner_nodes_complete():
@@ -786,7 +781,6 @@ def test_an_inner_reduction_over_the_entering_series_runs_once_per_outer_row():
     assert compiled.is_runnable, compiled.problems
     results = compiled.results(compiled.run_sync())
 
-    assert list(results["emb/holder"]["result"]) == ["A", "B", "C"]
-    assert list(results["emb/gather"]["result"]) == ["A", "B", "C"]
-    assert results["emb/gather"]["result"].index.id == "docs.texts"
+    assert results["emb/holder"]["result"]["values"] == ["A", "B", "C"]
+    assert results["emb/gather"]["result"]["values"] == ["A", "B", "C"]
     assert results["after"]["result"] == "A+B+C"

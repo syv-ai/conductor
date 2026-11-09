@@ -103,7 +103,7 @@ graph = Graph(nodes=[
 ])
 compiled = CompiledGraph.from_graph(graph, NodeRegistry([read_csv, domain, count]))
 results = compiled.results(compiled.run_sync())
-print(list(results["domain"]["result"]))        # ['a.dk', 'b.dk']
+print(results["domain"]["result"]["values"])    # ['a.dk', 'b.dk']
 print(results["how_many"]["result"])            # 2
 ```
 
@@ -119,7 +119,7 @@ print(results["how_many"]["result"])            # 2
 
 **Nodes.** `@node("id")` wraps a plain function and returns a frozen, callable `NodeDefinition`. It registers nothing, so `upper("a")` is the unit test. The title defaults to the function's name and the description to its docstring. A parameter is `text: str`, or `Annotated[str, Param(title=..., widget=...)]` when a person needs to read more. A default makes it optional, and `Param(connectable=False)` closes it to edges. `-> str` is one output named `result`, a frozen dataclass is one output per field, and `-> None` declares none. The engine calls the function in a worker thread. `@node` checks the function, so a mistake fails at import.
 
-**Types.** `str`, `int`, `float`, `bool`, `date`, `datetime` and a pydantic model travel on edges as they are. `Series[X]` is the one collection, a plain sequence to a type checker. `Table[Contact]` is a whole table whose columns a `TypedDict` names, and a `polars.DataFrame` at run time and to a type checker. A list of something you only type in, `list[Branch]`, closes its input. Write `class Text(DType, str)` with an `id` only for a type of your own: one whose edges stay among its own, one a palette names, one that formats itself. A subtype lands wherever its parent does. A registry holds the types its nodes declare plus the `types` a host names, and `target.accepts(source)` decides whether an edge may land.
+**Types.** `str`, `int`, `float`, `bool`, `date`, `datetime` and a pydantic model travel on edges as they are. `Series[X]` says a field holds many values of `X`: a `Sequence[X]` to a type checker, a plain list to the node. A `list[X]` stays one value. `Table[Contact]` is a whole table whose columns a `TypedDict` names, and a `polars.DataFrame` at run time and to a type checker. A list of something you only type in, `list[Branch]`, closes its input. Write `class Text(DType, str)` with an `id` only for a type of your own: one whose edges stay among its own, one a palette names, one that formats itself. A subtype lands wherever its parent does. A registry holds the types its nodes declare plus the `types` a host names, and `target.accepts(source)` decides whether an edge may land.
 
 **Graphs and bindings.** A graph is its nodes. Each input holds at most one binding: `From("node.output")` is an edge, `Static(value)` is a typed-in value, and no binding means the declared default. A saved graph embedded as a node is wired by the names it offers, the bare name where unique and the address on a clash; what's inside stays private. A `Graph` saves itself with `to_path` / `from_path` as YAML or JSON.
 

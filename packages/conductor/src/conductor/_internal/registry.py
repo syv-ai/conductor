@@ -26,7 +26,6 @@ from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.dtype import DType, _PlainPythonType, _UntypedValue, dtype_of
 from conductor._internal.errors import NodeDeclarationError
 from conductor._internal.node_definition import NodeDefinition, NodeDescription, NodeVersion
-from conductor._internal.series import Series
 
 
 class TypeDescription(ConductorModel):
@@ -152,13 +151,10 @@ class NodeRegistry:
         """The ids of every type here a value of ``dtype`` may land on, its own included.
 
         Derived from each type's ``accepts``, so a type that widens its
-        welcome is served without a table kept by hand. A series is judged
-        as its element is, since a node declared with the element runs once
-        per row. A bug in a type's ``accepts`` surfaces here, not as a
+        welcome is served without a table kept by hand. A bug in a type's ``accepts`` surfaces here, not as a
         silent absence.
         """
-        one_value = dtype.element or dtype
-        return tuple(dtype.id for dtype in self._types.values() if dtype.accepts(one_value))
+        return tuple(target.id for target in self._types.values() if target.accepts(dtype))
 
     def describe(self) -> RegistryDescription:
         """This registry as an editor reads it: every node's record and every type's, once."""
@@ -193,10 +189,10 @@ def _raise_unless_definition(definition: Any) -> None:
 def _registered_type_of(declared: Any, *, named_by_host: bool = False) -> type[DType] | None:
     """The registry type a declared type names, or ``None`` when it names none.
 
-    A scalar type is itself; a ``Table[...]`` is ``Table``; a ``Series[X]``
-    is ``X``. An untyped field and a type no edge can carry name none. With
-    ``named_by_host`` — the host naming a type in ``types`` — a series, the
-    base ``DType`` and a non-type raise rather than silently naming nothing.
+    A scalar type is itself; a ``Table[...]`` is ``Table``. An untyped field and
+    a type no edge can carry name none. With ``named_by_host`` — the host
+    naming a type in ``types`` — the base ``DType`` and a non-type raise
+    rather than silently naming nothing.
     """
     if not (isinstance(declared, type) and issubclass(declared, DType)):
         if named_by_host:
@@ -208,10 +204,6 @@ def _registered_type_of(declared: Any, *, named_by_host: bool = False) -> type[D
         if named_by_host:
             raise NodeDeclarationError("the base DType is not a type to add; add a concrete type", code="base_dtype_added")
         return None
-    if issubclass(declared, Series):
-        if named_by_host:
-            raise NodeDeclarationError(f"{declared!r} is a series; add its element", code="series_added")
-        return _registered_type_of(declared.element)
     if declared._generic_base is not None:
         return _registered_type_of(declared._generic_base, named_by_host=named_by_host)
     return declared

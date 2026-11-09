@@ -22,7 +22,7 @@ from conductor._internal.ref import Ref
 
 if TYPE_CHECKING:
     from conductor._internal.graph.compiled_node import CompiledNode
-    from conductor._internal.series import Index
+    from conductor._internal.index import Index
 
 
 class NodeRunPlan(ConductorModel):

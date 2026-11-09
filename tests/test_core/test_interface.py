@@ -85,9 +85,9 @@ def test_a_series_parameter_carries_its_element_type():
     ) -> Annotated[Text, Result(title="R")]:
         return Text("")
 
-    dtype = read_signature(collects).interface.inputs[0].dtype
+    sources = read_signature(collects).interface.inputs[0]
 
-    assert dtype.describe() == {"id": "series", "of": {"id": "interface-test-text"}}
+    assert (sources.dtype.describe(), sources.many) == ({"id": "interface-test-text"}, True)
 
 
 def test_optional_is_derived_from_the_default():
@@ -296,7 +296,7 @@ def test_the_input_record_dumps_as_the_wire():
 
     assert set(data) == {
         "name", "dtype", "title", "description",
-        "widget", "connectable", "default", "required", "takes_blank",
+        "widget", "connectable", "default", "required", "takes_blank", "many",
     }
     assert data["dtype"] == {"id": "interface-test-text"}
     assert data["widget"]["kind"] == "dropdown"

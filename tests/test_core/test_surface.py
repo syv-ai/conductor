@@ -115,13 +115,9 @@ def test_display_is_the_canvas_own_and_takes_any_key():
 # --- a repr is the call that makes the object ----------------------------------------
 
 
-def test_a_series_prints_as_its_constructor():
-    from conductor import Series
-    from conductor._internal.series import Index
+def test_an_index_prints_as_its_constructor():
+    from conductor._internal.index import Index
 
-    assert repr(Series[Txt]([Txt("a")], index=Index("lines"))) == "Series[Txt](['a'], index=Index('lines'))"
-    sparse = Series[Txt]([Txt("b")], index=Index("lines"), rows=[(1,)])
-    assert repr(sparse) == "Series[Txt](['b'], index=Index('lines'), rows=[(1,)])"
     assert repr(Index("b", parent=Index("a"))) == "Index('b', parent=Index('a'))"
 
 
@@ -175,12 +171,11 @@ def _run(annotations: dict, **kinds):
 
 
 def test_a_bare_series_parameter_is_a_series_of_anything():
-    from typing import Any
 
     from conductor import Series
 
     declared = _declare(run=_run({"rows": Annotated[Series, Param(title="Rows")]}))
-    assert declared.versions[1].interface.inputs[0].dtype is Series[Any]
+    assert declared.versions[1].interface.inputs[0].dtype.id == "any" and declared.versions[1].interface.inputs[0].many
 
 
 def test_a_type_no_edge_can_carry_on_an_open_interface_is_refused():

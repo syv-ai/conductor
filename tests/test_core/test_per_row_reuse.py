@@ -35,7 +35,6 @@ from conductor import (
 from conductor._internal.execution.input_hash import hash_of_inputs
 from conductor._internal.execution.run_state import OutputColumn
 from conductor._internal.ref import Ref
-from conductor._internal.series import Index
 from conductor.events import NodeComplete, NodeProgress, NodeStart, UnitWaiting
 from helpers import answer
 
@@ -182,7 +181,7 @@ def test_a_changed_csv_sends_only_the_mails_it_has_to(edited: str, body: str, ma
     assert CALLS["mail"] == mails and ending.reused_units.get("m", 0) == reused
     assert ending.status == "complete" and compiled.results(ending)["x"]["result"] == edited.count("\n")
     # the result of a reused unit is at its new row, and all of them are
-    assert [v.split(":")[1] for v in compiled.results(ending)["m"]["result"].values] == [line.split("|")[1] for line in edited.splitlines()]
+    assert [v.split(":")[1] for v in compiled.results(ending)["m"]["result"]["values"]] == [line.split("|")[1] for line in edited.splitlines()]
 
 
 def test_the_common_case_with_inputs_on_a_compiled_graph() -> None:
@@ -313,12 +312,9 @@ def test_what_a_value_is_stays_apart_in_the_hash() -> None:
     assert hash_of(a=1) == hash_of(a=1) and hash_of_inputs(b"other", {"a": 1}, {}) != hash_of(a=1)
 
 
-def test_a_series_is_its_values_in_order() -> None:
-    def series(values: list[str]) -> Series:
-        return Series(values, index=Index("r"), rows=[(i,) for i in range(len(values))])
-
-    assert hash_of_inputs(b"s", {"x": series(["a", "b"])}, {}) != hash_of_inputs(b"s", {"x": series(["b", "a"])}, {})
-    assert hash_of_inputs(b"s", {"x": series(["a"])}, {}) != hash_of_inputs(b"s", {"x": series(["ab"])}, {})
+def test_many_values_are_their_values_in_order() -> None:
+    assert hash_of_inputs(b"s", {"x": ["a", "b"]}, {}) != hash_of_inputs(b"s", {"x": ["b", "a"]}, {})
+    assert hash_of_inputs(b"s", {"x": ["a"]}, {}) != hash_of_inputs(b"s", {"x": ["ab"]}, {})
 
 
 def test_a_value_that_reaches_every_row_is_read_once_and_its_memo_is_tied_to_the_value() -> None:
@@ -392,12 +388,12 @@ def test_a_table_output_reused_at_another_row_says_where_it_now_is() -> None:
     ending = compiled.run_sync(through_json(state))
 
     assert CALLS["doc_table"] == 1 and ending.reused_units == {"d": 3, "m": 3}
-    written = compiled.results(ending)["d"]["result"].values
+    written = compiled.results(ending)["d"]["result"]["values"]
     assert [frame["__row"].to_list() for frame in written] == [["d.result:0.0"], ["d.result:1.0"], ["d.result:2.0"], ["d.result:3.0"]]
     assert [frame["name"].to_list() for frame in written] == [["zz"], ["a"], ["b"], ["c"]]
     # and the merge on those ids still matches
     merged = compiled.results(ending)["m"]["result"]
-    assert merged.values == ("sent:zz@x:b", "sent:a@x:b", "sent:b@x:b", "sent:c@x:b")
+    assert merged["values"] == ["sent:zz@x:b", "sent:a@x:b", "sent:b@x:b", "sent:c@x:b"]
     # the state a later leg reads moved with it: nothing downstream sees an old id
     assert {frame["__row"].to_list()[0] for frame in written} == {"d.result:0.0", "d.result:1.0", "d.result:2.0", "d.result:3.0"}
 
@@ -415,8 +411,8 @@ def test_a_row_inside_a_list_moves_with_the_row_it_is_under() -> None:
 
     assert CALLS["split"] == 1 and CALLS["per"] == 1 and CALLS["count"] == 1
     assert ending.reused_units == {"sp": 2, "p": 5, "cn": 2}
-    assert compiled.results(ending)["p"]["result"].values == ("NEW", "X", "Y", "U", "V", "W")
-    assert compiled.results(ending)["cn"]["result"].values == (1, 2, 3)
+    assert compiled.results(ending)["p"]["result"]["values"] == ["NEW", "X", "Y", "U", "V", "W"]
+    assert compiled.results(ending)["cn"]["result"]["values"] == [1, 2, 3]
 
 
 def test_a_changed_row_is_new_work_all_the_way_down() -> None:
@@ -476,7 +472,7 @@ def test_answers_stay_with_their_row_when_a_row_is_inserted_above() -> None:
     assert CALLS["ask"] == 1 and sorted(unit.prompt for unit in ending.waiting) == ["c@x", "n@x"]
     assert [unit.row for unit in ending.waiting] == [(0,), (3,)]
     ending = moved.run_sync(moved.answer(ending, {unit.id: {"result": "ok:" + unit.prompt} for unit in ending.waiting}))
-    assert moved.results(ending)["a"]["result"].values == ("ok:n@x", "A-yes", "B-no", "ok:c@x")
+    assert moved.results(ending)["a"]["result"]["values"] == ["ok:n@x", "A-yes", "B-no", "ok:c@x"]
     assert ending.answered_rows == {"a": [(0,), (1,), (2,), (3,)]} and ending.reused_units == {}
 
     with pytest.raises(InvalidCallError) as stale:
@@ -528,7 +524,7 @@ def test_identical_answered_rows_are_asked_again_when_none_is_at_this_row() -> N
     CALLS.clear()
     kept = graph("a|d@x\nb|d@x\n").run_sync(through_json(state))
     assert kept.status == "complete" and CALLS["ask"] == 0
-    assert graph("a|d@x\nb|d@x\n").results(kept)["a"]["result"].values == ("yes", "no")
+    assert graph("a|d@x\nb|d@x\n").results(kept)["a"]["result"]["values"] == ["yes", "no"]
 
 
 def test_an_answered_unit_keeps_its_answer_through_a_row_edit_elsewhere() -> None:
@@ -702,7 +698,7 @@ def test_inner_units_of_an_embedded_graph_are_reused_like_any_others() -> None:
     ending = edited.run_sync(through_json(state))
 
     assert CALLS["mail"] == 1 and ending.reused_units == {"s/t": 3}
-    assert edited.results(ending)["s/t"]["result"].values == ("sent:z@x:inner", "sent:a@x:inner", "sent:b@x:inner", "sent:c@x:inner")
+    assert edited.results(ending)["s/t"]["result"]["values"] == ["sent:z@x:inner", "sent:a@x:inner", "sent:b@x:inner", "sent:c@x:inner"]
 
 
 def test_results_leave_out_a_changed_node_until_its_leg_has_run() -> None:
@@ -711,7 +707,7 @@ def test_results_leave_out_a_changed_node_until_its_leg_has_run() -> None:
 
     assert "m" not in edited.results(state)  # stale until its leg has run; reuse never makes it look current
     ending = edited.run_sync(state)
-    assert edited.results(ending)["m"]["result"].values[-1] == "sent:d@x:Hej"
+    assert edited.results(ending)["m"]["result"]["values"][-1] == "sent:d@x:Hej"
 
 
 def test_the_state_keeps_each_units_hash_through_a_restored_leg() -> None:

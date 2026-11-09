@@ -51,7 +51,7 @@ def field_problems(
         if declared.name in seen:
             problems.append(make_problem("duplicate_field_name", node_id, declared.name))
         seen.add(declared.name)
-        if declared.dtype.id == "any" and not untyped_ok:
+        if declared.dtype.id == "any" and not declared.many and not untyped_ok:
             problems.append(make_problem("output_has_no_type", node_id, declared.name))
     return problems
 

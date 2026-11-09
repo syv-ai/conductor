@@ -68,7 +68,7 @@ def upper_node(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Tx
 
 def single_outputs(**arriving: Arriving):
     series = arriving.get("values")
-    dtype = series.element if series is not None else Any
+    dtype = series if series is not None else Any
     return (Output("result", dtype, title="The value"),)
 
 @node("single", title="Only one", description="d", category="test", compute_outputs=single_outputs)

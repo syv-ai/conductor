@@ -70,9 +70,9 @@ from conductor._internal.graph.receive_modes import (
     ReceiveMode,
     RowsUnder,
 )
+from conductor._internal.index import Index, Row, ValuesOnRows
 from conductor._internal.node_definition import NodeVersion
 from conductor._internal.ref import Ref
-from conductor._internal.series import Index, Row, Series
 from conductor._internal.skip_and_ask import SKIPPED
 from conductor._internal.table import (
     ROW_ID_COLUMN,
@@ -80,7 +80,7 @@ from conductor._internal.table import (
     frame_with_no_rows,
     global_row_id,
     is_frame,
-    is_table_or_series_of_tables,
+    is_table_type,
     merge_tables_on_row_ids,
     one_column_frame_with_row_ids,
     with_ids_spelled_at_row,
@@ -422,7 +422,7 @@ class RunLedger:
         if blank:
             return BlankInputsStopCall(blank)
         if node._series_inputs_leaving_blanks_out:
-            _leave_out_blank_rows(values, node._series_inputs_leaving_blanks_out)
+            self._leave_out_blank_rows(unit, values, node._series_inputs_leaving_blanks_out)
         return values
 
     def read_input(self, receive_mode: ReceiveMode, unit: Unit) -> Any | SkippedAtRow:
@@ -444,9 +444,7 @@ class RunLedger:
                 found = [self._value_or_skip_at(ref, row[:depth]) for ref in sources]
                 if all(value is SKIPPED for value, _ in found):
                     return SkippedAtRow(row=max((value_row for _, value_row in found), key=len))
-                index = self._fields[sources[0]]._index
-                assert index is not None  # a series read as rows has an index
-                return self._series_on_rows(node_id, sources, index, self._rows[index.id].rows_under(row[:depth]))
+                return self._rows_and_values_on(node_id, sources, row[:depth])[1]
             case Gather():
                 return self._gathered_for_unit(receive_mode, node_id, row)
             case Merge():
@@ -455,8 +453,8 @@ class RunLedger:
                 # merged table it won't take fails this node, naming the column.
                 return SkippedAtRow(row=row) if merged is None else merged
 
-    def _gathered_for_unit(self, receive_mode: Gather, node_id: str, row: Row) -> Series[Any]:
-        """The series a unit at ``row`` gathers from its sources, left out where skipped."""
+    def _gathered_for_unit(self, receive_mode: Gather, node_id: str, row: Row) -> list[Any]:
+        """The values a unit at ``row`` gathers from its sources, left out where skipped."""
         group_row = row[: receive_mode.depth]
         gathered: list[Any] = []
         for ref in receive_mode.sources:
@@ -467,8 +465,8 @@ class RunLedger:
             if index is None or index.depth <= len(group_row):
                 gathered.append(value)
             else:
-                gathered.extend(self._series_on_rows(node_id, (ref,), index, self._rows[index.id].rows_under(group_row)).values)
-        return Series(gathered, index=Index(receive_mode.collected_onto))
+                gathered.extend(self._rows_and_values_on(node_id, (ref,), group_row)[1])
+        return gathered
 
     def _merged_table_for_unit(self, receive_mode: Merge, row: Row) -> pl.DataFrame | None:
         """The one table a unit at ``row`` receives from every source of a ``Table``
@@ -480,7 +478,7 @@ class RunLedger:
         for plan in receive_mode.source_plans:
             (source,) = plan.sources
             field = self._fields[source]
-            is_table = is_table_or_series_of_tables(field.type)
+            is_table = is_table_type(field.type)
             index: Index = field._makes_rows if is_table else field._index  # type: ignore[assignment]
             group_row = row[: plan.depth]
             copied_down = source in receive_mode.copied_down
@@ -495,7 +493,7 @@ class RunLedger:
                 (row, value) for row in self._rows[index.id].rows_under(group_row)
                 if (value := self._value_or_skip_at(source, row)[0]) is not SKIPPED and value is not _MISSING
             ]
-            frame = one_column_frame_with_row_ids(field._title, field._cell_type, [self._row_id(index, row) for row, _ in present], [value for _, value in present])
+            frame = one_column_frame_with_row_ids(field._title, field.type, [self._row_id(index, row) for row, _ in present], [value for _, value in present])
             sources.append(MergeSource(source.node_id, frame, index, [row for row, _ in present], copied_down))
         return None if skipped == len(sources) else merge_tables_on_row_ids(sources)
 
@@ -579,17 +577,47 @@ class RunLedger:
         if row[-1] >= len(cells):
             return _MISSING, row
         cell = cells[row[-1]]
-        return (None if cell is None else self._fields[ref]._cell_type(cell)), row
+        return (None if cell is None else self._fields[ref].type(cell)), row
 
-    def _series_on_rows(self, node_id: str, refs: tuple[Ref, ...], index: Index, rows: list[Row]) -> Series[Any]:
-        """A series of the values on ``rows`` — from one ref, or from whichever
-        of several covers each row — sparse where none does."""
-        present: list[tuple[Row, Any]] = []
-        for row in rows:
+    def _rows_and_values_on(self, node_id: str, refs: tuple[Ref, ...], under: Row) -> tuple[list[Row], list[Any]]:
+        """The rows of ``refs``' index under ``under`` that hold a value and those values,
+        from one ref or from whichever of several covers each row."""
+        index = self._fields[refs[0]]._index
+        assert index is not None  # what is read as rows has an index
+        rows: list[Row] = []
+        values: list[Any] = []
+        for row in self._rows[index.id].rows_under(under):
             covering, _ = self._values_covering_row(node_id, refs, row)
             if covering:
-                present.append((row, covering[0]))
-        return Series([value for _, value in present], index=index, rows=[row for row, _ in present])
+                rows.append(row)
+                values.append(covering[0])
+        return rows, values
+
+    def _leave_out_blank_rows(self, unit: Unit, values: dict[str, Any], names: tuple[str, ...]) -> None:
+        """Leave a row out of every input reading an index when one of ``names`` is blank there.
+
+        ``names`` are the inputs of many values that take no blank. A row leaves
+        all of them on its index, or a node zipping them would pair wrong values.
+        An input gathered or set on the node has rows of its own, so its blanks leave only it."""
+        if not any(cell is None for name in names for cell in values[name]):  # by identity: a frame refuses ``==``
+            return
+        node_id, row = unit
+        read_as_rows: dict[str, tuple[Index, list[Row], list[Any]]] = {}
+        for name, receive_mode in self._lookups.receive_modes_of_node[node_id]:
+            if isinstance(receive_mode, RowsUnder):
+                index = self._fields[receive_mode.sources[0]]._index
+                assert index is not None  # what is read as rows has an index
+                read_as_rows[name] = (index, *self._rows_and_values_on(node_id, receive_mode.sources, row[: receive_mode.depth]))
+        blank_rows: dict[Index, set[Row]] = {}
+        for name in names:
+            if name in read_as_rows:
+                index, rows, cells = read_as_rows[name]
+                blank_rows.setdefault(index, set()).update(on_row for on_row, cell in zip(rows, cells, strict=True) if cell is None)
+            else:
+                values[name] = [cell for cell in values[name] if cell is not None]
+        for name, (index, rows, cells) in read_as_rows.items():
+            if blank_rows.get(index):
+                values[name] = [cell for on_row, cell in zip(rows, cells, strict=True) if on_row not in blank_rows[index]]
 
     # -- recording -----------------------------------------------------------------
 
@@ -801,8 +829,7 @@ class RunLedger:
         A result holds only what the node produced: an output the node
         skipped (the branch not taken) is absent, never ``SKIPPED``. A scalar
         output of a node that ran once is its value; anything on an index is
-        a ``Series``, sparse where rows were skipped — a node whose every row
-        was skipped away gives an empty series.
+        ``ValuesOnRows``, without the rows that were skipped.
         """
         return node_result(self._lookups, node_id, self._values)
 
@@ -1033,25 +1060,9 @@ def _blank_of(field: CompiledField, out: Output) -> Any:
     if field._unit_writes_many_cells:
         return []
     if field._makes_rows is not None:
-        return frame_with_no_rows(field._cell_type)
+        return frame_with_no_rows(field.type)
     return None
 
-
-def _leave_out_blank_rows(values: dict[str, Any], names: tuple[str, ...]) -> None:
-    """Leave a row out of every series input on an index when one of ``names`` is blank there.
-
-    ``names`` are the series inputs that take no blank. A row leaves all of
-    the series on its index, or a node zipping them would pair wrong values."""
-    blank_rows: dict[Index, set[Row]] = {}
-    for name in names:
-        series = values.get(name)
-        if isinstance(series, Series) and None in series.values:
-            blank_rows.setdefault(series.index, set()).update(row for row, value in zip(series.rows, series.values, strict=True) if value is None)
-    for name, value in values.items():
-        if isinstance(value, Series) and value.index in blank_rows:
-            gone = blank_rows[value.index]
-            kept = [(row, cell) for row, cell in zip(value.rows, value.values, strict=True) if row not in gone]
-            values[name] = Series([cell for _, cell in kept], index=value.index, rows=[row for row, _ in kept])
 
 
 def _output_column_of(by_row: Mapping[Row, Any], is_many_cells: bool) -> OutputColumn:
@@ -1115,7 +1126,7 @@ def _read_output_column(compiled: CompiledGraph, ref: Ref, column: OutputColumn,
         return None
     by_row: dict[Row, Any] = {}
     read = field._validate_cell
-    cell_type = field._cell_type
+    cell_type = field.type
     for row, stored in zip(column.rows, column.values, strict=True):
         try:
             by_row[row] = _restored_list_of_cells(field, stored, read) if many_cells else stored if stored is None or type(stored) is cell_type else _restored_cell(field, stored, read)
@@ -1137,7 +1148,7 @@ def _restored_list_of_cells(field: CompiledField, stored: Any, read: Any) -> lis
     """The cells a many-valued output wrote at one row, each read as its output's cell."""
     if not isinstance(stored, list):
         raise TypeError(f"a list of values, not a {type(stored).__name__}")
-    cell_type = field._cell_type
+    cell_type = field.type
     return [cell if cell is None or type(cell) is cell_type else _restored_cell(field, cell, read) for cell in stored]
 
 
@@ -1157,8 +1168,8 @@ def node_result(lookups: EngineLookups, node_id: str, values: Mapping[Ref, Mappi
 
     A result holds only what the node produced: an output the node skipped
     (the branch not taken) is absent, never ``SKIPPED``. A scalar output of a
-    node that ran once is its value; anything on an index is a ``Series`` of
-    the rows written so far, sparse where rows were skipped."""
+    node that ran once is its value; anything on an index is ``ValuesOnRows``,
+    the rows written so far and a value each, without the rows that were skipped."""
     outputs = lookups.interfaces[node_id].outputs
     by_output = {out.name: values.get(Ref(node_id, out.name), _NO_VALUES) for out in outputs}
     skipped_at_top = {name: _skipped_at_the_top(lookups, Ref(node_id, name), values) for name in by_output}
@@ -1171,7 +1182,7 @@ def node_result(lookups: EngineLookups, node_id: str, values: Mapping[Ref, Mappi
         field = lookups.fields[Ref(node_id, name)]
         if field._index is not None:
             rows, cells = _rows_and_cells_with_a_value(by_row, field._unit_writes_many_cells)
-            result[name] = Series(cells, index=field._index, rows=rows)
+            result[name] = ValuesOnRows(rows=rows, values=cells)
         elif (at_top := by_row.get((), _MISSING)) is not _MISSING:
             result[name] = at_top
     return result

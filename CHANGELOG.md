@@ -41,7 +41,10 @@ its stored graphs itself. What a 1.x user must change:
 
 - Plain Python types and pydantic models travel on edges. Write `class X(DType, str)` with an `id`
   only for a type of your own; `target.accepts(source)` is the edge check.
-- `Series[X]` is the one collection, and `Table[TypedDict]` a whole table, a `polars.DataFrame`.
+- `Series[X]` is the word for many values of one type, a `Sequence[X]` to a type checker and a plain
+  list to the node, which returns any sequence; `Input` and `Output` hold `X` in `dtype` with `many=True`.
+  `Table[TypedDict]` is a whole table, a `polars.DataFrame`. `results()`, `outputs()` and
+  `NodeComplete.result` give an output holding many as `{"rows": [...], "values": [...]}` (`ValuesOnRows`).
   Conductor depends on `polars>=2.0` and `pydantic>=2.11`.
 - The for-each, while, subprocess and signal nodes and regions are gone. A column arriving on an input
   declared for one value runs the node once per row; a `Series[X]` input gets every value under the

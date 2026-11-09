@@ -38,8 +38,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import Field
 
+from conductor._internal.index import Index
 from conductor._internal.ref import Ref
-from conductor._internal.series import Index
 
 
 @dataclass(frozen=True, init=False)
@@ -76,10 +76,10 @@ class Cell:
 class RowsUnder:
     """The unit receives the rows of its sources under its own row cut to ``depth``, flat.
 
-    A ``Series[X]`` input fed a series on a child index reduces the rows
+    A ``Series[X]`` input fed a column on a child index reduces the rows
     under the node's row, however many steps down they sit; ``depth`` is that
     of the deepest index above them that the node's row sits on. ``0`` is
-    everything on the field: a ``Series[X]`` fed one series on a root index.
+    everything on the field: a ``Series[X]`` fed one column on a root index.
     """
 
     receive_mode: Literal["all_rows_under_row", "entire_value"]
@@ -104,7 +104,7 @@ class RowsUnder:
 class FixedValue:
     """The unit receives a value compile already holds: a static or a default.
 
-    One value, or for a ``Series[X]`` input a series on an index of the
+    One value, or for a ``Series[X]`` input a list on an index of the
     input's own. The value stays out of the run plan's written form: a host
     sees it on the graph, and a fingerprint hashes it by its own type.
     """

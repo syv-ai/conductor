@@ -123,7 +123,7 @@ def _seconds(rows: int) -> float:
     short = len(range(0, rows, 3))
     assert len(results["long-joined"]["result"].split("+")) == rows - short
     assert len(results["short-joined"]["result"].split("+")) == short
-    assert len(list(results["pair"]["result"])) == rows
+    assert len(results["pair"]["result"]["values"]) == rows
     return best
 
 

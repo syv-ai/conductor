@@ -9,7 +9,7 @@ Everything in ``conductor._internal`` is the library's own and may move.
 from typing import TYPE_CHECKING
 
 from conductor._internal.codec import to_wire
-from conductor._internal.dtype import AsItArrives, DType
+from conductor._internal.dtype import AsItArrives, DType, Series
 from conductor._internal.errors import (
     PROBLEM_CODES,
     ComputeHookError,
@@ -29,6 +29,7 @@ from conductor._internal.graph.receive_modes import ReceiveMode
 from conductor._internal.graph.run_plan import RunPlan
 from conductor._internal.graph.topology import dependencies_of
 from conductor._internal.graph.upgrade import upgrade_node
+from conductor._internal.index import ValuesOnRows
 from conductor._internal.node_definition import (
     Arriving,
     Deprecation,
@@ -46,12 +47,9 @@ from conductor._internal.skip_and_ask import SKIPPED, AskPerson
 from conductor._internal.table import ROW_ID_COLUMN
 
 if TYPE_CHECKING:
-    # A node takes and returns plain sequences and frames; a type checker reads ``Series[X]`` as one and ``Table[R]`` as the other.
-    from collections.abc import Sequence as Series
-
+    # A node takes and returns frames; a type checker reads ``Table[R]`` as one.
     from conductor._internal.table_as_a_type_checker_reads_it import Table
 else:
-    from conductor._internal.series import Series
     from conductor._internal.table import Table
 
 __all__ = [
@@ -97,6 +95,7 @@ __all__ = [
     "Table",
     "TypeDescription",
     "Upgrade",
+    "ValuesOnRows",
     "dependencies_of",
     "node",
     "to_wire",

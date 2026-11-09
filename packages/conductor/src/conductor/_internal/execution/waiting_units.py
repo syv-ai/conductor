@@ -26,7 +26,7 @@ from conductor._internal.execution.run_state import (
     id_of_waiting_unit,
 )
 from conductor._internal.execution.validate_unit_outputs import validate_unit_outputs
-from conductor._internal.series import Row
+from conductor._internal.index import Row
 from conductor._internal.skip_and_ask import SKIPPED, AskPerson
 from conductor.widgets import Widget
 

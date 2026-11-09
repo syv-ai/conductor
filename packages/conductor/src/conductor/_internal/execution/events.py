@@ -7,8 +7,8 @@ can send one over the network as it is. ``RunStart`` is always first and
 ``RunEnd`` always last; ``RunEnd.state`` says how the leg ended. A leg asked for
 checkpoints also emits ``RunCheckpoint`` along the way.
 
-A value in ``NodeComplete.result`` is a typed value (a ``Series`` for anything
-on an index), and a host that sends the event on serialises it at that edge.
+A value in ``NodeComplete.result`` is a typed value (``{"rows": [...], "values": [...]}``
+for an output holding many, ``ValuesOnRows``), and a host that sends the event on serialises it at that edge.
 An event stands alone on the stream, so a table in one (in ``NodeComplete.result``, a
 waiting unit's ``inputs``) is written whole; ``RunEnd.state`` and ``RunCheckpoint.state``
 are states, each with its own ``tables``.
@@ -23,7 +23,7 @@ from pydantic import ConfigDict, Field
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import Problem
 from conductor._internal.execution.run_state import RunState, WaitingUnit
-from conductor._internal.series import Row
+from conductor._internal.index import Row
 
 
 class _EventBase(ConductorModel):
@@ -63,8 +63,8 @@ class NodeProgress(_EventBase):
 
 
 class NodeComplete(_EventBase):
-    """A node finished; ``result`` is its outputs by name: a value, or a
-    ``Series`` for anything on an index. ``rows_not_called`` counts, per
+    """A node finished; ``result`` is its outputs by name: a value, or
+    ``{"rows": [...], "values": [...]}`` for an output holding many. ``rows_not_called`` counts, per
     input, the rows the node wasn't called on because that input was blank.
     ``reused_units`` counts the units this leg took from an earlier finished
     unit instead of calling the node."""

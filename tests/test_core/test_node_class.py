@@ -229,7 +229,7 @@ def test_a_reduction_declares_a_series_input():
         return Txt("\n".join(texts))
 
     (texts,) = join_node.versions[1].interface.inputs
-    assert texts.dtype is Series[Txt]
+    assert texts.dtype is Txt and texts.many
 
 
 

@@ -38,12 +38,12 @@ from conductor._internal.graph.output_conditions import (
 )
 from conductor._internal.graph.read_static_values import read_static_values
 from conductor._internal.graph.row_origins import origins_taken_in
+from conductor._internal.index import Index
 from conductor._internal.node_definition import NodeVersion
 from conductor._internal.node_signature import Interface
 from conductor._internal.ref import Ref
 from conductor._internal.registry import NodeRegistry
-from conductor._internal.series import Index, Series
-from conductor._internal.table import columns_of, is_table_or_series_of_tables
+from conductor._internal.table import columns_of, is_table_type
 
 if TYPE_CHECKING:
     from conductor._internal.graph.compile_graph import CompileProgress
@@ -113,7 +113,7 @@ def compile_one_node(node: GraphNode, progress: CompileProgress, registry: NodeR
     inputs_read = read_what_arrives_on_inputs(node, inputs, statics, inputs_given_a_list, progress, problems)
     if inputs_read.stopped_at_unreadable_source:
         return _record_compiled_node(progress, node, problems, definition, version, _interface_without_wiring(node, version, inputs, inputs_read, statics, problems), statics)
-    inputs_typed_by_their_edges = tuple(_with_type_from_its_edge(input_, inputs_read.type_given_by_edge) for input_ in inputs)
+    inputs_typed_by_their_edges = tuple(_with_type_from_its_edge(input_, inputs_read.given_by_edge) for input_ in inputs)
     try:
         outputs = _outputs_after_compute_outputs(version, inputs_read.arriving_types, statics)
     except ComputeHookError as hook_error:
@@ -123,7 +123,7 @@ def compile_one_node(node: GraphNode, progress: CompileProgress, registry: NodeR
     problems_found: list[Problem] = []
     if not placed_inside_a_graph or hooks_decide_fields:
         problems_found = field_problems(node.id, outputs, frozenset(input_.name for input_ in inputs_typed_by_their_edges), untyped_ok=False)
-        problems_found += [make_problem("series_of_tables", node.id, out.name) for out in outputs if out.dtype.element is not None and is_table_or_series_of_tables(out.dtype.element)]
+        problems_found += [make_problem("series_of_tables", node.id, out.name) for out in outputs if out.many and is_table_type(out.dtype)]
     if problems_found:
         problems.extend(problems_found)
         return _record_compiled_node(progress, node, problems, definition, version, interface, statics)
@@ -252,7 +252,7 @@ def _interface_without_wiring(
         # The broken source carries the problem; a problem about its missing
         # arrival would report the same fact twice.
         answered = ()
-    inputs_typed_by_their_edges = tuple(_with_type_from_its_edge(input_, inputs_read.type_given_by_edge) for input_ in inputs)
+    inputs_typed_by_their_edges = tuple(_with_type_from_its_edge(input_, inputs_read.given_by_edge) for input_ in inputs)
     problems.extend(field_problems(node.id, answered, frozenset(input_.name for input_ in inputs_typed_by_their_edges), untyped_ok=True))
     return _interface_with_fields(version.interface, inputs_typed_by_their_edges, answered)
 
@@ -266,9 +266,9 @@ def _outputs_after_compute_outputs(version: Any, arriving_types: dict[str, Any],
     return version.interface.outputs if answered is None else answered
 
 
-def _with_type_from_its_edge(field: Input, bound: dict[str, Any]) -> Input:
-    """``field`` with the type its edge gave it, if an edge gave one."""
-    return field.model_copy(update={"dtype": bound[field.name]}) if field.name in bound else field
+def _with_type_from_its_edge(field: Input, given_by_edge: dict[str, dict[str, Any]]) -> Input:
+    """``field`` with what its edge gave it, if an edge gave anything."""
+    return field.model_copy(update=given_by_edge[field.name]) if field.name in given_by_edge else field
 
 
 def _field_above(progress: CompileProgress, ref: Ref) -> CompiledField | None:
@@ -293,7 +293,7 @@ def _wiring_of_function_node(
     names = {out.name for out in outputs}
     taken_in = origins_taken_in(inputs_read.tables_taken_in)
     for out in outputs:
-        if is_table_or_series_of_tables(out.dtype):
+        if is_table_type(out.dtype):
             for column, _ in columns_of(out.dtype):
                 name = f"{out.name}.{column}"
                 if name in names:
@@ -319,11 +319,11 @@ def _wiring_of_function_node(
         condition = output_condition(node_id, out, node_condition, runs_once)
         takes_blank, field_problems_here = out.takes_blank, tuple(problems_by_field.get(out.name, ()))
         dtype = out.dtype
-        if is_table_or_series_of_tables(dtype):
+        if is_table_type(dtype):
             table_rows_index = Index(str(ref), parent=runs_per_row_of)
             origins = progress.row_origins.record_table(table_rows_index, taken_in)
             fields[out.name] = CompiledField(
-                ref=ref, type=Series[dtype] if runs_per_row_of is not None else dtype, binding=None, condition=condition, problems=field_problems_here,
+                ref=ref, type=dtype, binding=None, condition=condition, problems=field_problems_here,
                 _index=runs_per_row_of, _receive_mode=None, _is_list_on_node=False, _makes_rows=table_rows_index, _column_of_table=None, _takes_blank=takes_blank, _title=out.title, _row_origins=origins,
             )
             for column, column_dtype in columns_of(dtype):
@@ -331,19 +331,14 @@ def _wiring_of_function_node(
                 if name in names:
                     continue
                 fields[name] = CompiledField(
-                    ref=Ref._from_checked_parts(node_id, name), type=Series[column_dtype], binding=None, condition=condition, problems=(),
+                    ref=Ref._from_checked_parts(node_id, name), type=column_dtype, binding=None, condition=condition, problems=(),
                     _index=table_rows_index, _receive_mode=None, _is_list_on_node=False, _makes_rows=None, _column_of_table=(ref, column), _takes_blank=True, _title=column, _row_origins=origins,
                 )
             continue
-        if dtype.element is not None:
-            field_type, index, makes_rows_here = dtype, Index(str(ref), parent=runs_per_row_of), True
-        elif runs_per_row_of is not None:
-            field_type, index, makes_rows_here = Series[dtype], runs_per_row_of, False
-        else:
-            field_type, index, makes_rows_here = dtype, None, False
+        index = Index(str(ref), parent=runs_per_row_of) if out.many else runs_per_row_of
         fields[out.name] = CompiledField(
-            ref=ref, type=field_type, binding=None, condition=condition, problems=field_problems_here,
-            _index=index, _receive_mode=None, _is_list_on_node=False, _makes_rows=index if makes_rows_here else None, _column_of_table=None, _takes_blank=takes_blank, _title=out.title,
+            ref=ref, type=dtype, binding=None, condition=condition, problems=field_problems_here,
+            _index=index, _receive_mode=None, _is_list_on_node=False, _makes_rows=index if out.many else None, _column_of_table=None, _takes_blank=takes_blank, _title=out.title,
             _row_origins=progress.row_origins.origins_of_rows_on(index),
         )
     return Wiring(fields, runs_per_row_of)

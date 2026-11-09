@@ -17,8 +17,7 @@ is what a person reads and defaults to the class name.
 A type answers one question about edges — ``target.accepts(source)``:
 may a value of type ``source`` land on an input declared as ``target``?
 The default is ``issubclass``, so a subtype is accepted wherever its
-parent is. It is asked about one value of each side: compile takes the
-element off a ``Series`` before asking::
+parent is. It is asked about one value of each side::
 
     class Integer(Number):
         id = "integer"
@@ -48,7 +47,10 @@ is for a type of your own, one that restricts which edges land on it, or
 carries a title for an editor; a ``str`` is what a node otherwise writes. A
 type no edge can carry (``list[Branch]``) closes its input.
 
-Conductor defines no concrete ``DType`` except ``Series``. Which types
+``Series[X]`` is not a type of its own: it says a field holds many values of
+``X``, and the field records ``X`` and that it is many (``read_field_annotation``).
+
+Conductor defines no concrete ``DType``. Which types
 exist is the host application's decision, made on its ``NodeRegistry``:
 the types its nodes declare plus the ``types`` a host names are that
 registry's types, and nothing is recorded process-wide. Declaring a
@@ -62,6 +64,7 @@ from __future__ import annotations
 import datetime
 import math
 from abc import ABC, ABCMeta
+from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import cache
 from types import NoneType, UnionType
@@ -87,7 +90,7 @@ _FLOAT_AS_JSON = core_schema.plain_serializer_function_ser_schema(_float_as_json
 
 
 class _DTypeMeta(ABCMeta):
-    """A type prints as its name, ``Text`` or ``Series[Text]``, the way an author writes it."""
+    """A type prints as its name, ``Text``, the way an author writes it."""
 
     def __repr__(cls) -> str:
         return cls.__name__
@@ -109,16 +112,12 @@ class DType(ABC, metaclass=_DTypeMeta):
     id: ClassVar[str]
     #: The name a person reads; the class name unless the class says otherwise.
     display_title: ClassVar[str]
-    #: For a collection, the type of its elements; ``None`` for a scalar.
-    element: ClassVar[Any] = None
     #: The Polars type a table column of these values is stored as, by name
     #: (``"Boolean"``). ``None`` reads it off the builtin the type is built
     #: on (``conductor._internal.table.polars_type_of``); a type sets it only where that
     #: base would be wrong, as a flag built on ``int`` does.
     polars_column_type: ClassVar[str | None] = None
-    #: On ``Series[X | None]`` only: the series keeps its blank cells.
-    element_takes_blank: ClassVar[bool] = False
-    #: The type this one carries a detail of (``Series[Text]`` of ``Series``),
+    #: The type this one carries a detail of (``Table[Contact]`` of ``Table``),
     #: and shares its id with; ``None`` for a type of its own.
     _generic_base: ClassVar[type["DType"] | None] = None
 
@@ -142,18 +141,13 @@ class DType(ABC, metaclass=_DTypeMeta):
         """This type as a JSON-ready record, for the frontend: ``{"id": ...}``.
 
         An object rather than a string, so nothing downstream parses a
-        type. ``Series`` overrides this to nest its element type. Where a
+        type. Where a
         value of this type may land — every type whose ``accepts`` admits
         it — is a question about a set of types, so it is the registry's
         answer (``NodeRegistry.accepted_as``), served once per type in
         ``NodeRegistry.describe()`` rather than on every field's record.
         """
         return {"id": cls.id}
-
-    @classmethod
-    def _type_of_bare_annotation(cls) -> type["DType"]:
-        """The type a bare annotation of this class declares: itself, but for ``Series``."""
-        return cls
 
     # -- text for a person --------------------------------------------------
 
@@ -175,8 +169,7 @@ class DType(ABC, metaclass=_DTypeMeta):
 
         The target decides, because an input is where a node states what
         it needs. Default: ``issubclass(source, cls)``. Both sides are one
-        value's type: compile takes the element off a ``Series`` first. Bare
-        ``DType`` as a target raises: it would accept anything.
+        value's type. Bare ``DType`` as a target raises: it would accept anything.
         """
         if cls is DType:
             raise TypeError(
@@ -342,8 +335,8 @@ def plain_python_dtype(python_type: Any) -> type[_PlainPythonType]:
 
 @cache
 def is_untyped(dtype: Any) -> bool:
-    """Has this field no type of its own yet, directly or as a series' element?"""
-    return issubclass(dtype.element or dtype, _UntypedValue)
+    """Has this field no type of its own yet?"""
+    return issubclass(dtype, _UntypedValue)
 
 
 def split_off_none(annotation: Any) -> tuple[Any, bool]:
@@ -357,12 +350,35 @@ def split_off_none(annotation: Any) -> tuple[Any, bool]:
     return annotation, False
 
 
+#: Written on a field that holds many values of one type: an input that receives them
+#: all as one list, an output that makes a row of each one it returns. A type
+#: checker reads a ``Sequence``. ``list[X]`` stays free to mean one value that is a list.
+type Series[X] = Sequence[X]
+
+
+def read_field_annotation(annotation: Any) -> tuple[Any, bool, bool]:
+    """What a field's annotation says: the annotation of one value, whether the field
+    holds many, and whether it takes a blank.
+
+    ``X``, ``X | None``, ``Series[X]``, ``Series[X | None]`` and ``Series[X] | None``
+    are read here and nowhere else. Bare ``Series`` is many of whatever arrives."""
+    written, says_blank = split_off_none(annotation)
+    if written is not Series and get_origin(written) is not Series:
+        return written, False, says_blank
+    element, element_says_blank = split_off_none(get_args(written)[0] if written is not Series else Any)
+    if element is Series or get_origin(element) is Series:
+        raise NodeDeclarationError("Series[Series[...]] does not exist — a nested structure is a Table cell, opened one level by a node", code="nested_series")
+    if dtype_of(element) is None:
+        raise NodeDeclarationError(f"Series[{element!r}]: a series holds values an edge can carry, not {element!r}", code="series_element_invalid")
+    return element, True, says_blank or element_says_blank
+
+
 def dtype_of(annotation: Any) -> type[DType] | None:
     """The ``DType`` an annotation declares, or ``None`` if it declares none.
 
     ``Annotated[...]`` is unwrapped first, since an input's widget and an
     output's ``Result`` travel there. ``Any`` declares the private untyped
-    type; bare ``Series`` declares ``Series[Any]``; a plain type an edge can
+    type; a plain type an edge can
     carry declares the ``DType`` it is; the one place that decides::
 
         dtype_of(Annotated[Text, Result(title="Summary")])   # Text
@@ -375,14 +391,14 @@ def dtype_of(annotation: Any) -> type[DType] | None:
     if annotation is Any:
         return _UntypedValue
     if isinstance(annotation, type) and issubclass(annotation, DType):
-        return annotation._type_of_bare_annotation()
+        return annotation
     return plain_python_dtype(annotation) if _an_edge_can_carry(annotation) else None
 
 
-def type_name_for_sentence(declared: Any) -> str:
+def type_name_for_sentence(declared: Any, many: bool = False) -> str:
     """A declared type named for an English sentence: ``text``, ``a series of
     text``, ``any`` — by its id, which is what a host also keys on."""
-    return f"a series of {declared.element.id}" if declared.element is not None else declared.id
+    return f"a series of {declared.id}" if many else declared.id
 
 
 def _validate_dtype_field(value: Any) -> type[DType]:

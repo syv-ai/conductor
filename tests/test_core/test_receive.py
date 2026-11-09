@@ -60,7 +60,7 @@ def join_node(texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
 @node("script", title="Script", description="d", category="test")
 def script(**inputs: AsItArrives) -> Out:
     """An open interface: every connected name is received whole."""
-    return Txt(",".join(f"{name}={list(value) if isinstance(value, Series) else value}" for name, value in sorted(inputs.items())))
+    return Txt(",".join(f"{name}={value}" for name, value in sorted(inputs.items())))
 
 
 @node("tags", title="Tags", description="d", category="test")

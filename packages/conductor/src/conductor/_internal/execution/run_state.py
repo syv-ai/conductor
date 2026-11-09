@@ -47,8 +47,8 @@ from pydantic import (
 from conductor._internal.codec import to_wire, values_to_wire
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import Problem
+from conductor._internal.index import Row
 from conductor._internal.ref import Ref
-from conductor._internal.series import Row, Series
 from conductor._internal.table import (
     tables_read_once,
     with_table_references_read,
@@ -126,6 +126,8 @@ class Question(ConductorModel):
     title: str
     description: str | None = None
     dtype: dict[str, Any] | None
+    #: The answer is a list of values of ``dtype``, one row each.
+    many: bool = False
     json_schema: dict[str, Any]
     widget: dict[str, Any] | None = None
     default: Any = None
@@ -158,13 +160,13 @@ class WaitingUnit(ConductorModel):
     #: The hash of what this unit received, for a later leg re-planning its node.
     input_hash: str = ""
     #: What this unit received, by input name, so a form can show the row it is about: exactly the
-    #: values its call would have got, no more; a ``Series`` as a list.
+    #: values its call would have got, no more; many values as a list.
     inputs: dict[str, Any] = Field(default_factory=dict)
 
     @field_serializer("inputs", when_used="json")
     def _inputs_as_wire(self, inputs: dict[str, Any]) -> dict[str, Any]:
         """Each input written by its own type; held typed until a dump, as a state's values are."""
-        return dict(zip(inputs, values_to_wire([value.values if isinstance(value, Series) else value for value in inputs.values()]), strict=True))
+        return dict(zip(inputs, values_to_wire(list(inputs.values())), strict=True))
 
 
 class EarlierWork(ConductorModel):

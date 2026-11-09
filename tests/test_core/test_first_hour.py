@@ -152,7 +152,7 @@ def test_a_str_input_and_output_run_with_no_type_declared_and_the_values_stay_pl
 def test_plain_types_run_per_row_and_reduce_like_any_other():
     compiled = _plain(_n("w", "words", text=Static("a bb")), _n("s", "shout", text=From("w.result")), _n("l", "lengths", words=From("s.result")))
     results = compiled.results(compiled.run_sync())
-    assert list(results["s"]["result"]) == ["A!", "BB!"] and results["l"]["result"] == 5.0
+    assert results["s"]["result"]["values"] == ["A!", "BB!"] and results["l"]["result"] == 5.0
 
 
 @pytest.mark.parametrize(
@@ -365,7 +365,7 @@ def test_a_column_into_a_one_value_input_stays_legal():
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[rows.graph_node("r"), _shout.graph_node("s", text=From("r.result.name"))]), NodeRegistry([rows, _shout]),
     )
-    assert list(compiled.results(compiled.run_sync())["s"]["result"]) == ["A!", "B!"]
+    assert compiled.results(compiled.run_sync())["s"]["result"]["values"] == ["A!", "B!"]
 
 
 # -- errors say what to do ---------------------------------------------------------------
@@ -538,7 +538,7 @@ def test_a_series_of_floats_keeps_one_that_is_not_finite_through_json(value):
     NOT_FINITE["value"] = value
     compiled = CompiledGraph.from_graph(Graph(nodes=[_n("n", "not-finite-many")]), _FLOATS)
 
-    back = compiled.results(_through_json(compiled.run_sync()))["n"]["result"]
+    back = compiled.results(_through_json(compiled.run_sync()))["n"]["result"]["values"]
 
     assert back[0] == 1.5 and _same_float(back[1], value)
 
@@ -550,7 +550,7 @@ def test_an_output_per_row_keeps_a_float_that_is_not_finite_through_json(value):
         Graph(nodes=[_n("w", "words", text=Static("a b")), _n("n", "not-finite-per-row", text=From("w.result"))]), _FLOATS,
     )
 
-    back = compiled.results(_through_json(compiled.run_sync()))["n"]["result"]
+    back = compiled.results(_through_json(compiled.run_sync()))["n"]["result"]["values"]
 
     assert back[0] == 1.5 and _same_float(back[1], value)
 

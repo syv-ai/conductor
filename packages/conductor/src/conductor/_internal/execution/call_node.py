@@ -21,8 +21,8 @@ from conductor._internal.errors import ExternalFailure, NodeError, Problem, make
 from conductor._internal.execution.run_state import WaitingUnit
 from conductor._internal.execution.validate_unit_outputs import validate_unit_outputs
 from conductor._internal.execution.waiting_units import waiting_unit_for
+from conductor._internal.index import Row
 from conductor._internal.node_signature import split_return_into_outputs
-from conductor._internal.series import Row, Series
 from conductor._internal.skip_and_ask import AskPerson
 from conductor._internal.table import is_frame, missing_column_in
 
@@ -79,7 +79,7 @@ def call_node(
     if isinstance(returned, AskPerson):
         asked = waiting_unit_for(node, row, returned, inputs, input_hash)
         return _failed_on_its_outputs(node, row, asked) if isinstance(asked, list) else asked
-    if row_ids_must_survive and not _took_a_row_in(inputs):
+    if row_ids_must_survive and not _took_a_row_in(node, inputs):
         row_ids_must_survive = frozenset()
     value_by_output = split_return_into_outputs(version.return_shape, returned, node.interface.outputs, version.interface.outputs)
     if isinstance(value_by_output, list):
@@ -88,9 +88,10 @@ def call_node(
     return _failed_on_its_outputs(node, row, problems) if problems else cells
 
 
-def _took_a_row_in(inputs: Mapping[str, Any]) -> bool:
-    """Did these inputs carry a row a returned table could keep the id of?"""
-    return any((is_frame(value) or isinstance(value, Series)) and len(value) > 0 for value in inputs.values())
+def _took_a_row_in(node: CompiledNode, inputs: Mapping[str, Any]) -> bool:
+    """Did these inputs carry a row a returned table could keep the id of? A table, or an input of many values, with something in it."""
+    many = {input_.name for input_ in node._inputs if input_.many}
+    return any(len(value) > 0 for name, value in inputs.items() if is_frame(value) or (name in many and value is not None))
 
 
 def _problem_of_invalid_inputs(node: CompiledNode, row: Row, invalid: ValidationError) -> Problem:

@@ -17,11 +17,10 @@ from conductor import (
     Policy,
     Problem,
     Result,
-    Series,
     Upgrade,
     node,
 )
-from conductor._internal.series import Index
+from conductor._internal.index import Index
 from conductor.widgets import Textarea, TextWidget
 
 
@@ -46,7 +45,6 @@ def truncate(text: Annotated[Txt, Param(title="Text", widget=Textarea())], limit
 
 def test_a_type_prints_as_its_name():
     assert repr(Txt) == "Txt"
-    assert repr(Series[Txt]) == "Series[Txt]"
 
 
 def test_a_node_prints_what_it_declares():

@@ -8,9 +8,8 @@ import pytest
 
 pytest.importorskip("fastapi")
 
-from conductor import Problem, RunState, Series
+from conductor import Problem, RunState
 from conductor._internal.execution.run_state import OutputColumn, Question, WaitingUnit
-from conductor._internal.series import Index
 from conductor.events import Event, NodeComplete, NodeFailed, RunEnd, UnitWaiting
 from conductor_nodes.types import Json  # noqa: E402
 from conductor_providers.fastapi.sse import sse_frame  # noqa: E402
@@ -23,15 +22,14 @@ def _payload(event: Event) -> dict:
     return json.loads(frame[len("data: "):])
 
 
-def test_a_series_keeps_its_index_and_rows_and_an_ending_dumps_its_state():
-    lines = Series(["a", "b"], index=Index("lines", parent=Index("docs")), rows=((0, 0), (1, 0)))
+def test_many_values_keep_their_rows_and_an_ending_dumps_its_state():
+    lines = {"rows": [(0, 0), (1, 0)], "values": ["a", "b"]}
     state = RunState(status="complete", output_columns={"split.result": OutputColumn(rows=[(0,)], values=["a"])}, node_fingerprints={"split": "f" * 64})
 
     payload = _payload(NodeComplete(type="node_complete", node_id="split", result={"result": lines}))
     ending = _payload(RunEnd(state=state))
 
     assert payload["result"]["result"] == {
-        "index": {"id": "lines", "parent": {"id": "docs", "parent": None}},
         "rows": [[0, 0], [1, 0]],
         "values": ["a", "b"],
     }
@@ -51,7 +49,7 @@ def test_a_pending_units_questions_and_a_failures_cause_are_records():
 
 
 def test_a_typed_value_dumps_through_its_own_type_and_one_with_no_form_raises():
-    parsed = Series([Json({"a": 1}), Json([2])])
+    parsed = {"rows": [(0,), (1,)], "values": [Json({"a": 1}), Json([2])]}
 
     assert _payload(NodeComplete(type="node_complete", node_id="parse", result={"result": parsed}))["result"]["result"]["values"] == [{"a": 1}, [2]]
     assert _payload(NodeComplete(type="node_complete", node_id="n", result={"n": float("nan")}))["result"] == {"n": None}

@@ -188,7 +188,7 @@ def test_scenario_7_sort_and_choose_columns_are_followed_by_per_row_nodes() -> N
         _node("s", "send", email=From("p.result.email")), registry=_catalogue(sort_rows, choose_columns),
     )
     assert compiled.is_runnable, compiled.problems
-    assert compiled.results(compiled.run_sync())["s"]["result"].values == ("sent:nina@x", "sent:ida@x", None)
+    assert compiled.results(compiled.run_sync())["s"]["result"]["values"] == ["sent:nina@x", "sent:ida@x", None]
 
 
 def test_arriving_merged_table_names_every_column_as_the_run_does() -> None:
@@ -313,14 +313,14 @@ def test_a_series_of_typed_in_questions_read_under_each_document() -> None:
     )
     assert compiled.is_runnable, compiled.problems
     state = compiled.run_sync()
-    assert compiled.results(state)["n"]["result"].values == ("a.pdf:who,when", "b.pdf:who,when")
+    assert compiled.results(state)["n"]["result"]["values"] == ["a.pdf:who,when", "b.pdf:who,when"]
 
 
 def test_a_typed_in_list_as_a_column_reads_by_a_per_row_node() -> None:
     compiled = _compiled(_node("q", "send", email=Static(["a", "b"])), _node("s", "send", email=From("q.email")))
     state = compiled.run_sync()
     assert state.status == "complete", state.failure
-    assert compiled.results(state)["s"]["result"].values == ("sent:a", "sent:b")
+    assert compiled.results(state)["s"]["result"]["values"] == ["sent:a", "sent:b"]
 
 
 def test_a_typed_in_list_read_by_a_run_that_restores() -> None:

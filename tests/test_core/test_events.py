@@ -27,7 +27,6 @@ from conductor import (
     Static,
     node,
 )
-from conductor._internal.series import Index
 from conductor.events import Event, NodeComplete, NodeProgress, NodeStart, RunEnd
 from conductor.widgets import Textarea
 from pydantic import TypeAdapter, ValidationError
@@ -94,7 +93,7 @@ def test_the_last_event_is_matched_by_class():
 
     match asyncio.run(last()):
         case RunEnd(state=state):
-            assert list(compiled.results(state)["s"]["result"]) == ["a", "b"]
+            assert compiled.results(state)["s"]["result"]["values"] == ["a", "b"]
         case other:
             pytest.fail(f"the leg ended on {other}")
 
@@ -107,7 +106,7 @@ def test_the_values_are_read_from_the_state_live_or_stored():
     stored = RunState.model_validate(json.loads(state.model_dump_json()))
 
     assert compiled.results(stored) == compiled.results(state)
-    assert list(compiled.results(stored)["s"]["result"]) == ["a", "b"]
+    assert compiled.results(stored)["s"]["result"]["values"] == ["a", "b"]
 
 
 def test_an_event_is_frozen_and_refuses_a_key_it_does_not_have():
@@ -130,7 +129,7 @@ def test_a_frame_is_the_json_the_dict_was():
     from conductor_providers.fastapi.sse import sse_frame
 
     event = NodeComplete(
-        type="node_complete", node_id="s", result={"result": Series[Txt]([Txt("a")], index=Index("s"), rows=[(0,)])}
+        type="node_complete", node_id="s", result={"result": {"rows": [(0,)], "values": [Txt("a")]}}
     )
 
     assert json.loads(sse_frame(event).removeprefix("data: ")) == {
@@ -138,7 +137,7 @@ def test_a_frame_is_the_json_the_dict_was():
         "rows_not_called": {},
         "reused_units": 0,
         "node_id": "s",
-        "result": {"result": {"index": {"id": "s", "parent": None}, "rows": [[0]], "values": ["a"]}},
+        "result": {"result": {"rows": [[0]], "values": ["a"]}},
     }
 
 

@@ -42,11 +42,12 @@ def test_the_record_is_the_schema():
 
     assert TypeAdapter(Output).dump_python(output, mode="json") == {
         "name": "result",
-        "dtype": {"id": "series", "of": {"id": "returns-test-text"}},
+        "dtype": {"id": "returns-test-text"},
         "title": "R",
         "description": None,
         "choice": None,
         "takes_blank": False,
+        "many": True,
     }
 
 

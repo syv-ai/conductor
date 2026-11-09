@@ -1,8 +1,7 @@
 """One codec: a value goes to JSON and back by its declared type.
 
 A value lives in memory as its type — a ``Text`` is a ``str`` subclass, a
-``Series[X]`` an object with an index and rows, a table a Polars frame, a
-host's file a name and bytes. Whenever such a value crosses into JSON and back — the state of
+table a Polars frame, a host's file a name and bytes. Whenever such a value crosses into JSON and back — the state of
 a run, an answer a host hands in, a result a host stores
 — this module is the one place that happens, and the declared type decides the
 form: ``to_wire(value, dtype)`` writes it, ``cell_validator_for(dtype)`` reads it
@@ -13,11 +12,7 @@ The form is the type's own pydantic schema, which every ``DType`` has: a
 type built on ``str`` or ``float`` is its plain value, a type with a
 schema of its own (a file, a table) is whatever that schema writes, and
 ``Any`` is the value as JSON-ready data, a typed value inside it written
-through its own type. A series is the one form this
-module owns outright — ``{"index", "rows", "values"}``, the values each
-through the element type — because a series is the engine's own idea:
-``Series`` points its pydantic schema at ``series_to_wire`` and
-``series_from_wire`` here, so both directions live in one place.
+through its own type.
 
 A skip has no type to cross by, so a run's state lists the skipped rows beside the values.
 """
@@ -25,7 +20,7 @@ A skip has no type to cross by, so a run's state lists the skipped rows beside t
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable
 from functools import cache, partial
 from math import isfinite
 from types import NoneType
@@ -34,8 +29,7 @@ from typing import Any
 from pydantic import ConfigDict, PydanticUserError, TypeAdapter
 
 from conductor._internal.dtype import _FloatThatIsNotFinite
-from conductor._internal.series import Index, Series
-from conductor._internal.table import Table, is_frame_type, is_table_or_series_of_tables
+from conductor._internal.table import Table, is_frame_type, is_table_type
 
 #: Runtime types whose JSON form can hold no float a dump would have to look for.
 #: A table writes its own columns and raises for what it can't keep.
@@ -45,8 +39,7 @@ _NEVER_HOLDS_A_FLOAT = (str, int, NoneType)
 def to_wire(value: Any, dtype: Any) -> Any:
     """``value``, declared as ``dtype``, as JSON-ready data.
 
-    ``dtype`` is what the field declares: a ``DType`` class, ``Series[X]``
-    or ``Any``. A value pydantic cannot write raises its own error; the
+    ``dtype`` is one value's type: a ``DType`` class or ``Any``. A value pydantic cannot write raises its own error; the
     caller, who knows which field the value sits on, names it.
     """
     return cached_type_adapter(dtype).dump_python(value, mode="json", fallback=_dump_by_runtime_type)
@@ -65,7 +58,7 @@ def cell_validator_for(dtype: Any) -> Callable[[Any], Any]:
     if dtype.id == "any":
         return _return_as_is
     validate = cached_type_adapter(dtype).validate_python
-    if is_table_or_series_of_tables(dtype):  # a frame says nothing about its columns, so every one is read
+    if is_table_type(dtype):  # a frame says nothing about its columns, so every one is read
         return validate
     instance_type = dtype._instance_type()
     if instance_type is float:
@@ -113,12 +106,11 @@ def values_to_wire(values: list[Any]) -> list[Any]:
     return written
 
 
-def json_schema_of(dtype: Any) -> dict[str, Any]:
-    """The JSON schema of what a person may send for one value of ``dtype``:
-    the type's own, the elements' as an array for a series, ``{}`` when a type
-    publishes none."""
-    if dtype.element is not None:
-        return {"type": "array", "items": json_schema_of(dtype.element)}
+def json_schema_of(dtype: Any, many: bool = False) -> dict[str, Any]:
+    """The JSON schema of what a person may send for ``dtype``: the type's own, as
+    an array for many values, ``{}`` when a type publishes none."""
+    if many:
+        return {"type": "array", "items": json_schema_of(dtype)}
     try:
         return cached_type_adapter(dtype).json_schema()
     except PydanticUserError:
@@ -127,7 +119,7 @@ def json_schema_of(dtype: Any) -> dict[str, Any]:
 
 def _dump_by_runtime_type(value: Any) -> Any:
     """A typed value where the declared type says nothing about it — a slot
-    typed ``Any``, the contents of a bare ``Series`` — written through its
+    typed ``Any`` — written through its
     own type. A value its own type cannot write raises."""
 
     def dump_nested(nested_value: Any) -> Any:
@@ -153,66 +145,3 @@ def cached_type_adapter(dtype: Any) -> TypeAdapter[Any]:
 def _written_as(runtime_type: Any) -> Any:
     """The type a runtime type writes through: a frame has no schema of its own, so a table's."""
     return Table if isinstance(runtime_type, type) and is_frame_type(runtime_type) else runtime_type
-
-
-# -- a series ----------------------------------------------------------------------------
-
-
-def series_to_wire(series: Series[Any]) -> dict[str, Any]:
-    """The JSON form of a series: ``{"index": {...}, "rows": [...], "values": [...]}``.
-
-    The index travels whole (id and parent chain), so a reader can tell
-    which series share one and which rows belong to which parent. The
-    values are left to the caller's schema, which writes each through the
-    element type. What ``Series``'s pydantic schema calls to serialise.
-    """
-    return {
-        "index": series.index.model_dump(),
-        "rows": series.rows,
-        "values": list(series.values),
-    }
-
-
-def series_from_wire(value: Any, validate_values: Callable[[list[Any]], list[Any]]) -> Series[Any]:
-    """A series from what arrives: a series passes through, its values
-    validated; the wire form comes back on its own index and rows; a plain
-    list is dense rows on a fresh root index; a scalar raises rather
-    than being wrapped. What ``Series``'s pydantic schema calls to validate."""
-    if isinstance(value, Series):
-        return Series(validate_values(list(value.values)), index=value.index, rows=value.rows)
-    if isinstance(value, Mapping) and set(value) == {"index", "rows", "values"}:
-        return Series(
-            validate_values(list(value["values"])),
-            index=Index.model_validate(value["index"]),
-            rows=[tuple(row) for row in value["rows"]],
-        )
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
-        return Series(validate_values(list(value)))
-    raise TypeError(f"expected a series, got {type(value).__name__}")
-
-
-#: The JSON schema of an index. ``parent`` has this same shape, as deep
-#: as the lineage goes; it is published as a plain object because a
-#: schema built inside a pydantic schema function cannot reference itself.
-INDEX_WIRE_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "id": {"type": "string"},
-        "parent": {
-            "anyOf": [{"type": "object"}, {"type": "null"}],
-            "description": "The parent index, in this same shape; null for a root.",
-        },
-    },
-    "required": ["id", "parent"],
-}
-
-#: The JSON schema of ``series_to_wire``'s form, published for a record that holds a series.
-SERIES_WIRE_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "index": INDEX_WIRE_SCHEMA,
-        "rows": {"type": "array", "items": {"type": "array", "items": {"type": "integer"}}},
-        "values": {"type": "array"},
-    },
-    "required": ["index", "rows", "values"],
-}

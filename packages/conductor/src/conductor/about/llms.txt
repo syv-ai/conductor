@@ -36,7 +36,7 @@ assert ready.is_runnable, ready.problems
 state = await ready.run()          # in a script: ready.run_sync()
 ready.outputs(state)               # {"join.result": "A+B+C"}: what the graph returns, by address
 results = ready.results(state)     # every node's outputs, by node id
-list(results["upper"]["result"])   # ["A", "B", "C"]: ran once per value
+results["upper"]["result"]         # {"rows": [(0,), (1,), (2,)], "values": ["A", "B", "C"]}: ran once per value
 results["join"]["result"]          # "A+B+C": Series[str] received the whole series once
 ```
 
@@ -100,7 +100,7 @@ Each is a plain function, given per version (`compute_inputs=` and `compute_outp
 
 - `target.accepts(source)`: may an edge land, asked about one value of each side (default `issubclass`). `as_text` formats, `describe()` is its record.
 - `registry.types`: node types plus `NodeRegistry(..., types=[...])`; `registry.accepted_as(T)`: ids `T` lands on.
-- `Series[X]`: values of one type on some rows; never nested. A row is a path, `(i,)` or `(i, j)`.
+- `Series[X]`: many values of one type, never nested. A word on a signature, not a value: a type checker reads `Sequence[X]`, a node receives a plain list and returns any sequence, and `Input`/`Output` hold `X` in `dtype` with `many=True`. `list[X]` stays one value that is a list. A row is a path, `(i,)` or `(i, j)`.
 - `Ref("node.field")` addresses one field.
 
 ### Bindings
@@ -154,7 +154,7 @@ answered = compiled.answer(paused, answers)                     # raises here if
 state = compiled.run_sync(answered)
 ```
 
-- Each entry of `state.waiting` holds its `prompt` (from `AskPerson(prompt=...)`), the `inputs` it received by name so a form can show the row, a `Series` as a list and a table as its JSON form, exactly what the call got and no more, and the questions it asks.
+- Each entry of `state.waiting` holds its `prompt` (from `AskPerson(prompt=...)`), the `inputs` it received by name so a form can show the row, many values as a list and a table as its JSON form, exactly what the call got and no more, and the questions it asks.
 - Answers are `{waiting.id: {output: value}}`, for a node that ran once, each row, an embedded node or a `Table` output; `None` for a unit means no value on its row. A question left blank takes its default; a `choice` output left out is the branch not taken. A unit not answered goes on waiting, and a node that asked is not called again unless it or something above it changed.
 - A question has `name`, `title`, `description`, `dtype`, `json_schema`, `widget`, `default`, `optional`, `choice`: enough for a form with no graph loaded.
 - A state is plain JSON: `RunState.model_validate_json(saved)`. On the next leg every value passes its output's check, a value that doesn't read fails with `state_unreadable`, and a node whose fingerprint differs runs again with what reads it, reusing a row's earlier result where what it receives is the same (see "Running again"). `compiled.nodes_changed_since(state)` lists them. `state.without_nodes(node_id)` forces a rerun.
@@ -241,7 +241,7 @@ Three public modules: `conductor`, `conductor.widgets` and `conductor.events`. E
 
 - Nodes: `node`, `NodeDefinition`, `OlderVersion`, `Upgrade`, `upgrade_node`, `Policy`, `Deprecation`, `NodeDescription`, `Interface`, `Arriving`, `FromRun`, `Input`, `Output`, `Param`, `Result`
 - Returns: `SKIPPED`, `AskPerson`
-- Types: `DType`, `AsItArrives`, `Series`, `Table`, `Ref`, `to_wire(value, dtype)`, `ROW_ID_COLUMN` (the name of a table's hidden row-id column)
+- Types: `DType`, `AsItArrives`, `Series`, `Table`, `Ref`, `to_wire(value, dtype)`, `ROW_ID_COLUMN` (the name of a table's hidden row-id column), `ValuesOnRows`
 - Registry: `NodeRegistry(nodes, types=())`, immutable (`in`, `[]`, `len`, iteration, `nodes`, `types`, `accepted_as`, `describe`, `extended_with`), `TypeDescription`
 - Graph: `Graph`, `GraphNode`, `FieldContent`, `From`, `Static`, `dependencies_of`, `CompiledGraph`, `Problem`, `RunPlan`, `ReceiveMode`, `BranchTaken`, `ALWAYS`, `NEVER`
 - Errors: `NodeDeclarationError`, `ComputeHookError`, `InvalidCallError`, `Problem`, `NodeError`, `ExternalFailure`, `PROBLEM_CODES`
@@ -256,7 +256,7 @@ Every verb is on `CompiledGraph`:
 - `compiled.stream(...)`, the same arguments: an async context manager yielding the events.
 - `compiled.answer(state, answers)`: a new state with these units answered; no node runs.
 - `compiled.with_inputs(**inputs)`: a copy with inputs filled as `Static`s, by bare name or address; a name it doesn't offer or a value its type can't read raises `InvalidCallError`, every fault at once; `compiled.graph` is then what ran.
-- `compiled.results(state)`: every node's outputs so far, by node id, the rows that have values so far on a node that runs per row. `compiled.outputs(state)`: narrowed to `compiled.interface.outputs`, by address, on a `complete` state only.
+- `compiled.results(state)`: every node's outputs so far, by node id, `{"rows": [...], "values": [...]}` (`ValuesOnRows`) for an output holding many (`compiled.field(ref).many`), the rows that have values so far. `compiled.outputs(state)`: narrowed to `compiled.interface.outputs`, by address, on a `complete` state only.
 - `compiled.nodes_changed_since(state)`: which nodes must run again, each re-planned and reused row by row where what it receives is the same.
 
 ### Problem and error codes

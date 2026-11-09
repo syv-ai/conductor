@@ -28,7 +28,6 @@ from conductor import (
     to_wire,
 )
 from conductor._internal.execution.run_ledger import RunLedger
-from conductor._internal.series import Index
 from conductor.widgets import Textarea
 from conductor_nodes.types import Json
 from pydantic import TypeAdapter
@@ -77,38 +76,6 @@ def test_any_passes_through_as_json_ready_data():
     assert to_wire({"k": (1, 2)}, Any) == {"k": [1, 2]}
 
 
-# -- a series -------------------------------------------------------------------------
-
-
-def test_a_series_of_json_round_trips_in_both_modes():
-    docs = Index("docs")
-    lines = Index("lines", parent=docs)
-    series = Series[Json]([Json({"n": 1}), Json([2])], index=lines, rows=((0, 0), (1, 0)))
-
-    wire = to_wire(series, Series[Json])
-
-    assert wire == {
-        "index": {"id": "lines", "parent": {"id": "docs", "parent": None}},
-        "rows": [[0, 0], [1, 0]],
-        "values": [{"n": 1}, [2]],
-    }
-    for back in (
-        TypeAdapter(Series[Json]).validate_python(wire),
-        TypeAdapter(Series[Json]).validate_python(wire),
-        TypeAdapter(Series[Json]).validate_json(json.dumps(wire)),
-    ):
-        assert isinstance(back, Series)
-        assert (back.index, back.rows, back.values) == (lines, series.rows, series.values)
-        assert back.index.parent == docs
-        assert all(type(v) is Json for v in back.values)
-
-
-def test_a_series_still_reads_a_plain_list_as_dense_rows_on_a_fresh_index():
-    back = TypeAdapter(Series[Text]).validate_python(["a", "b"])
-
-    assert back.rows == ((0,), (1,)) and list(back) == ["a", "b"]
-
-
 # -- the ledger's values --------------------------------------------------------------
 
 
@@ -142,9 +109,9 @@ def test_a_text_that_spells_the_old_skip_marker_is_a_text_after_a_round_trip():
     state = ledger.state("complete")
     restored = RunLedger.restore(compiled, RunState.model_validate(json.loads(state.model_dump_json())))
 
-    values = restored.result_of("split")["result"]
-    assert list(values) == ["__skipped__", "x"] and all(type(v) is Txt for v in values)
-    assert list(restored.result_of("up")["result"]) == ["__SKIPPED__", "X"]
+    values = restored.result_of("split")["result"]["values"]
+    assert values == ["__skipped__", "x"] and all(type(v) is Txt for v in values)
+    assert restored.result_of("up")["result"]["values"] == ["__SKIPPED__", "X"]
     assert state.output_columns["split.result"].skipped == []
 
 

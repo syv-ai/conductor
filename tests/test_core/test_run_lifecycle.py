@@ -165,13 +165,13 @@ def test_run_returns_the_state_and_outputs_read_it():
     state = compiled.run_sync()
     assert (state.status, state.failure, state.waiting) == ("complete", None, ())
     counts = compiled.outputs(state)["count.result"]
-    assert isinstance(counts, Series) and list(counts) == [2, 1] and counts.rows == ((0,), (1,))
-    assert isinstance(counts.values[0], Whole)
+    assert counts == {"rows": [(0,), (1,)], "values": [2, 1]}
+    assert isinstance(counts["values"][0], Whole)
 
 
 def test_the_same_read_works_on_a_state_back_from_json():
     compiled = compiled_of(*LINES)
-    assert list(compiled.outputs(roundtrip(compiled.run_sync()))["count.result"]) == [2, 1]
+    assert compiled.outputs(roundtrip(compiled.run_sync()))["count.result"]["values"] == [2, 1]
 
 
 def test_in_a_running_loop_run_sync_points_at_run():
@@ -304,7 +304,7 @@ def test_an_answer_finishes_its_unit_and_a_node_that_asked_is_not_called_again()
 
     third = compiled.run_sync(answer(compiled, second, {"ask@0": {"result": "x"}, "ask@2": None}))
     assert third.status == "complete" and calls["approve"] == 3
-    assert list(compiled.outputs(third)["up.result"]) == ["X", "SVAR"]
+    assert compiled.outputs(third)["up.result"]["values"] == ["X", "SVAR"]
 
 
 def test_answer_changes_no_run_and_leaves_the_state_it_was_given():
@@ -369,7 +369,7 @@ def test_a_series_output_is_answered_as_a_plain_list_per_row():
     assert state.waiting[0].questions[0].json_schema == {"type": "array", "items": {"type": "string"}}
     state = compiled.run_sync(answer(compiled, state, {"ask@0": {"result": ["x", "y"]}, "ask@1": {"result": []}}))
     assert state.status == "complete"
-    assert compiled.results(state)["ask"]["result"].rows == ((0, 0), (0, 1))
+    assert compiled.results(state)["ask"]["result"]["rows"] == [(0, 0), (0, 1)]
 
 
 def test_a_table_is_answered_as_records_and_keeps_its_rows_across_json():
@@ -379,7 +379,7 @@ def test_a_table_is_answered_as_records_and_keeps_its_rows_across_json():
     answered = answer(compiled, roundtrip(state), {"t": {"result": [{"name": "a", "email": "a@x"}, {"name": "b", "email": "b@x"}]}})
     done = compiled.run_sync(roundtrip(answered))
     assert done.status == "complete"
-    assert list(compiled.results(done)["mail"]["result"]) == ["A@X", "B@X"]
+    assert compiled.results(done)["mail"]["result"]["values"] == ["A@X", "B@X"]
 
 
 def test_adding_a_row_to_an_answered_table_keeps_the_other_rows_ids():
@@ -536,8 +536,7 @@ def test_no_series_constructor_is_needed_for_skips_in_a_many_valued_output():
 
     registry = NodeRegistry([sparse])
     compiled = CompiledGraph.from_graph(Graph(nodes=(GraphNode(id="s", type="sparse", version=1),)), registry)
-    assert compiled.outputs(roundtrip(compiled.run_sync()))["s.result"].rows == ((0,), (2,))
-    assert Series[Txt]([Txt("a")]).rows == ((0,),)
+    assert compiled.outputs(roundtrip(compiled.run_sync()))["s.result"]["rows"] == [(0,), (2,)]
 
 
 # -- staleness reaches a reader of a table column; a partly answered node reads so far ---
@@ -571,7 +570,7 @@ def test_results_show_the_rows_answered_so_far():
     partly = compiled.run_sync(answer(compiled, compiled.run_sync(), {"ask@1": {"result": "svar"}}))
     assert partly.status == "waiting"
     result = compiled.results(partly)["ask"]["result"]
-    assert list(result) == ["svar"] and result.rows == ((1,),)
+    assert result == {"rows": [(1,)], "values": ["svar"]}
 
 
 def test_the_state_module_imports_nothing_from_the_graph():

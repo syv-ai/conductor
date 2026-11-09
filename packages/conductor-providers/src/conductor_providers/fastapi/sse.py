@@ -14,9 +14,8 @@ def as_data(event: Any) -> Any:
 
     A record (a ``RunState``, a ``Problem``, a waiting
     unit's questions) dumps through pydantic; a typed value pydantic
-    has no rule for by itself — a ``Series`` in a result, a type a host
-    declared — dumps through the codec by its own type, so a series keeps
-    its index and rows and whatever it holds dumps the same way. A float
+    has no rule for by itself — a type a host declared — dumps through the
+    codec by its own type. A float
     that is not a number is ``null``. A value with no JSON form raises.
     """
     return to_jsonable_python(event, inf_nan_mode="null", fallback=lambda value: to_wire(value, type(value)))

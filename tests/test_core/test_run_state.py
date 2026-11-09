@@ -130,8 +130,8 @@ def test_a_paused_legs_state_survives_json_and_the_next_leg_returns_typed_result
 
     assert second[-1].state.status == "complete"
     parts = compiled.results(second[-1].state)["split"]["result"]
-    assert isinstance(parts, Series) and all(type(v) is Txt for v in parts)
-    assert list(compiled.results(second[-1].state)["up"]["result"]) == ["X", "Y"]
+    assert all(type(v) is Txt for v in parts["values"])
+    assert compiled.results(second[-1].state)["up"]["result"]["values"] == ["X", "Y"]
     assert calls.count("split") == 1
 
 
@@ -227,7 +227,7 @@ def test_without_nodes_forgets_only_the_nodes_it_names():
     ending = _leg(compiled, state=_through_json(state.without_nodes("up")))[-1].state
 
     assert ending.status == "complete"
-    assert list(compiled.results(ending)["w"]["result"]) == ["[A]", "[B]"]
+    assert compiled.results(ending)["w"]["result"]["values"] == ["[A]", "[B]"]
     assert sorted(calls) == ["upper:a", "upper:b"]  # it forgets what it names: ``wrap`` receives the same and is reused
     assert ending.reused_units == {"w": 2}
     assert "up" not in state.without_nodes("up").node_fingerprints and "split" in state.without_nodes("up").node_fingerprints
@@ -375,16 +375,16 @@ def test_a_list_set_on_a_node_edited_between_legs_reruns_on_the_new_rows():
 
     longer = _compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a", "b", "c"])})])
     grown = _leg(longer, state=_through_json(state))[-1].state
-    assert grown.status == "complete" and list(longer.results(grown)["e"]["result"]) == ["A", "B", "C"]
+    assert grown.status == "complete" and longer.results(grown)["e"]["result"]["values"] == ["A", "B", "C"]
     shorter = _compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a"])})])
     shrunk = _leg(shorter, state=_through_json(state))[-1].state
-    assert shrunk.status == "complete" and list(shorter.results(shrunk)["e"]["result"]) == ["A"]
+    assert shrunk.status == "complete" and shorter.results(shrunk)["e"]["result"]["values"] == ["A"]
     wider = _compiled([
         GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a", "b"])}),
         GraphNode(id="f", type="upper", version=1, bindings={"text": Static(["x", "y"])}),
     ])
     added = _leg(wider, state=_through_json(state))[-1].state
-    assert added.status == "complete" and list(wider.results(added)["f"]["result"]) == ["X", "Y"]
+    assert added.status == "complete" and wider.results(added)["f"]["result"]["values"] == ["X", "Y"]
     assert "upper:a" not in calls[-2:]  # ``e`` was kept on the last leg
 
 
@@ -424,7 +424,7 @@ def test_series_outputs_of_two_lengths_both_land_each_on_its_own_index():
     result = compiled.results(ending)["u"]
 
     assert ending.status == "complete"
-    assert (list(result["a"]), list(result["b"])) == (["x"], ["y", "z"])
+    assert (result["a"]["values"], result["b"]["values"]) == (["x"], ["y", "z"])
 
 
 def test_the_state_an_ending_carries_reads_as_a_stored_one_does():
@@ -437,8 +437,8 @@ def test_the_state_an_ending_carries_reads_as_a_stored_one_does():
     state = _leg(compiled)[-1].state
     live, stored = compiled.results(state), compiled.results(_through_json(state))
 
-    assert list(live["up"]["result"]) == list(stored["up"]["result"]) == ["A", "B"]
-    assert live["up"]["result"].rows == stored["up"]["result"].rows
+    assert live["up"]["result"]["values"] == stored["up"]["result"]["values"] == ["A", "B"]
+    assert live["up"]["result"]["rows"] == stored["up"]["result"]["rows"]
 
 
 def test_a_live_state_read_over_an_edited_graph_leaves_out_what_changed():

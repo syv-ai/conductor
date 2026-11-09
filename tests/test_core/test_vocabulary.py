@@ -145,9 +145,9 @@ def test_a_collision_through_register_names_both_classes_and_files_nothing():
 
 def test_a_series_is_not_a_word():
     """A series is many of something; the something is the word."""
-    with pytest.raises(TypeError, match="element"):
+    with pytest.raises(NodeDeclarationError, match="not a DType"):
         NodeRegistry(types=[Series[Text]])
-    with pytest.raises(TypeError, match="element"):
+    with pytest.raises(NodeDeclarationError, match="not a DType"):
         NodeRegistry(types=[Series])
     with pytest.raises(TypeError, match="concrete"):
         NodeRegistry(types=[DType])
@@ -173,7 +173,6 @@ def test_accepted_as_is_answered_over_the_registrys_words_self_included():
     both = NodeRegistry([], types=[Number, Score])
     assert both.accepted_as(Number) == ("number", "score")
     assert both.accepted_as(Score) == ("score",)
-    assert both.accepted_as(Series[Number]) == ("number", "score")
 
     alone = NodeRegistry([], types=[Number])
     assert alone.accepted_as(Number) == ("number",)
@@ -199,7 +198,6 @@ def test_a_bug_in_a_types_accepts_is_not_swallowed():
 def test_a_type_record_is_its_id():
     """``accepted_as`` is the registry's answer, so the record a field carries is the id alone."""
     assert Text.describe() == {"id": "text"}
-    assert Series[Text].describe() == {"id": "series", "of": {"id": "text"}}
 
 
 def test_describe_is_the_palette_nodes_and_vocabulary():

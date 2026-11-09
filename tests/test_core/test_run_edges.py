@@ -534,7 +534,7 @@ def test_results_reads_the_state_without_building_a_run():
     original = run_ledger.RunLedger.__init__
     run_ledger.RunLedger.__init__ = not_called  # type: ignore[method-assign]
     try:
-        assert list(compiled.results(state)["sp"]["result"]) == ["a", "b"]
+        assert compiled.results(state)["sp"]["result"]["values"] == ["a", "b"]
     finally:
         run_ledger.RunLedger.__init__ = original  # type: ignore[method-assign]
 
@@ -542,7 +542,7 @@ def test_results_reads_the_state_without_building_a_run():
 def test_a_node_that_ran_on_no_rows_is_in_the_results_with_no_rows_before_and_after_json():
     compiled = compiled_of(n("s", "source", text=Static([])), n("u", "upper", text=From("s.result")))
     state = compiled.run_sync()
-    assert list(compiled.results(state)["u"]["result"]) == list(compiled.results(through_json(state))["u"]["result"]) == []
+    assert compiled.results(state)["u"]["result"]["values"] == compiled.results(through_json(state))["u"]["result"]["values"] == []
 
 
 def test_two_identical_runs_dump_identical_json():
@@ -632,7 +632,7 @@ def test_a_skip_above_a_row_reaches_the_reader_at_that_row():
     )
     state = compiled.run_sync()
     assert state.status == "complete", state.failure
-    assert compiled.results(state)["u"]["result"].rows == ((0, 0), (0, 1))
+    assert compiled.results(state)["u"]["result"]["rows"] == [(0, 0), (0, 1)]
 
 
 def test_a_reduction_waits_for_the_unit_above_the_rows_for_a_skip_above_its_group():
@@ -660,7 +660,7 @@ def test_a_reduction_waits_for_the_unit_above_the_rows_for_a_skip_above_its_grou
     state = asyncio.run(go())
     assert state.status == "complete", state.failure
     assert ("join", []) not in CALLS
-    assert compiled.results(state)["j"]["result"].rows == ((0,),)
+    assert compiled.results(state)["j"]["result"]["rows"] == [(0,)]
 
 
 def test_a_decision_over_a_whole_column_gates_what_hangs_off_the_branch_not_taken():
@@ -699,7 +699,7 @@ def test_a_skip_above_an_empty_group_hides_what_the_reduction_returned():
     )
     state = compiled.run_sync()
     assert state.status == "complete", state.failure
-    assert compiled.results(state)["j"]["result"].rows == ((0, 0),)
+    assert compiled.results(state)["j"]["result"]["rows"] == [(0, 0)]
 
 
 def test_without_covers_the_nodes_of_an_embedded_graph():
@@ -800,5 +800,5 @@ def ask_list(k: In = Txt("")) -> Parts | AskPerson:
 def test_a_reader_left_with_no_rows_by_an_answer_is_in_the_results_before_the_next_leg():
     compiled = compiled_of(n("a", "ask_list"), n("u", "upper", text=From("a.result")), registry=REGISTRY.extended_with([ask_list]))
     answered = answer(compiled, compiled.run_sync(), {"a": {"result": []}})
-    assert list(compiled.results(answered)["u"]["result"]) == []
+    assert compiled.results(answered)["u"]["result"]["values"] == []
     assert answered.finished_rows["u"] == []

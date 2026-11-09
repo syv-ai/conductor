@@ -102,7 +102,7 @@ def route(value: Annotated[Any, Param(title="Value")]) -> Annotated[Any, Result(
 
 def only_outputs(**arriving: Arriving):
     series = arriving.get("values")
-    dtype = series.element if series is not None else Any
+    dtype = series if series is not None else Any
     return (Output("result", dtype, title="The value"),)
 
 @node("only", title="Only one", description="d", category="test", compute_outputs=only_outputs)
@@ -148,7 +148,7 @@ def test_a_scalar_node_fed_scalars_does_not_iterate():
 def test_a_series_is_made_at_the_node_that_produces_it():
     compiled = _compiled([GraphNode(id="docs", type="docs", version=1)])
 
-    assert compiled.field(Ref("docs", "texts")).type is Series[Txt]
+    assert compiled.field(Ref("docs", "texts")).type is Txt and compiled.field(Ref("docs", "texts")).many
     assert Ref("docs", "texts") in compiled.run_plan.nodes["docs"].makes_rows
     assert compiled.run_plan.nodes["docs"].runs_per_row_of is None
 
@@ -177,7 +177,7 @@ def test_an_iterating_nodes_outputs_are_series_on_the_same_index():
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "texts"))}),
     ])
 
-    assert compiled.field(Ref("up", "result")).type is Series[Txt]
+    assert compiled.field(Ref("up", "result")).type is Txt and compiled.field(Ref("up", "result")).many
     assert compiled.run_plan.nodes["up"].runs_per_row_of == "docs.texts"
 
 
@@ -191,7 +191,7 @@ def test_iteration_is_contagious_and_needs_no_construct():
     ])
 
     assert compiled.run_plan.nodes["n"].runs_per_row_of == "docs.texts"
-    assert compiled.field(Ref("n", "result")).type is Series[Num]
+    assert compiled.field(Ref("n", "result")).type is Num and compiled.field(Ref("n", "result")).many
 
 
 def test_a_scalar_beside_a_series_broadcasts():
@@ -220,7 +220,7 @@ def test_a_mismatched_edge_is_a_fatal_problem_on_the_target_field():
     (make_problem,) = compiled.problems
     assert (make_problem.type, make_problem.fatal, make_problem.loc[0], make_problem.loc[1]) == ("type_mismatch", True, "up", "text")
     assert make_problem.ctx["source"] == "n.result"
-    assert set(make_problem.ctx) == {"source", "source_type", "target_type", "source_said", "target_said"}
+    assert set(make_problem.ctx) == {"source", "source_type", "source_many", "target_type", "target_many", "source_said", "target_said"}
     assert "id" in make_problem.ctx["target_type"]  # a description record, not a name
     assert not compiled.is_runnable
 
@@ -262,7 +262,7 @@ def test_an_iterating_pass_through_binds_the_element_and_iterates():
     ])
 
     assert compiled.is_runnable, compiled.problems
-    assert compiled.field(Ref("r", "result")).type is Series[Txt]
+    assert compiled.field(Ref("r", "result")).type is Txt and compiled.field(Ref("r", "result")).many
     assert compiled.run_plan.nodes["r"].runs_per_row_of == "docs.texts"
     assert compiled.run_plan.nodes["up"].runs_per_row_of == "docs.texts"
 
@@ -274,7 +274,7 @@ def test_a_reduction_over_the_variable_binds_from_the_series_element():
     ])
 
     assert compiled.is_runnable, compiled.problems
-    assert compiled.node("one").interface.inputs[0].dtype is Series[Txt]
+    assert compiled.node("one").interface.inputs[0].dtype is Txt and compiled.node("one").interface.inputs[0].many
     assert compiled.field(Ref("one", "result")).type is compiled.field(Ref("one", "result")).type
     assert compiled.field(Ref("one", "result")).type is Txt
     assert compiled.run_plan.nodes["one"].runs_per_row_of is None
@@ -313,7 +313,7 @@ def test_an_open_inputs_takes_one_input_per_edge_received_whole():
 
     assert compiled.is_runnable, compiled.problems
     interface = compiled.node("s").interface
-    assert [(i.name, i.dtype) for i in interface.inputs] == [("code", Txt), ("antal", Num), ("tekster", Series[Txt])]
+    assert [(i.name, i.dtype, i.many) for i in interface.inputs] == [("code", Txt, False), ("antal", Num, False), ("tekster", Txt, True)]
     assert interface.inputs[2].widget is None
     assert compiled.run_plan.nodes["s"].runs_per_row_of is None
     assert compiled.run_plan.nodes["s"].inputs["tekster"].receive_mode == "entire_value"
@@ -544,7 +544,7 @@ def test_a_node_running_per_row_returning_a_series_makes_rows_of_a_child_index()
     ])
 
     assert compiled.run_plan.nodes["lines"].runs_per_row_of == "docs.texts"
-    assert compiled.field(Ref("lines", "result")).type is Series[Txt]
+    assert compiled.field(Ref("lines", "result")).type is Txt and compiled.field(Ref("lines", "result")).many
     assert compiled.run_plan.nodes["lines"].makes_rows == (Ref("lines", "result"),)
 
 
@@ -558,7 +558,7 @@ def test_a_reduction_on_a_child_runs_per_row_of_the_parent():
     ])
 
     assert compiled.run_plan.nodes["j"].runs_per_row_of == "docs.texts"
-    assert compiled.field(Ref("j", "result")).type is Series[Txt]
+    assert compiled.field(Ref("j", "result")).type is Txt and compiled.field(Ref("j", "result")).many
 
 
 def test_a_parent_index_series_broadcasts_down_to_a_child_index_node():
@@ -595,7 +595,7 @@ def test_n_scalar_refs_into_a_series_input_gather_onto_a_fresh_index():
     ])
 
     assert compiled.run_plan.nodes["j"].runs_per_row_of is None
-    assert compiled.field(Ref("j", "texts")).type is Series[Txt]
+    assert compiled.field(Ref("j", "texts")).type is Txt and compiled.field(Ref("j", "texts")).many
     assert compiled.run_plan.nodes["j"].inputs["texts"].receive_mode == "collected"
 
 
@@ -622,7 +622,7 @@ def test_two_refs_on_one_index_into_a_scalar_input_are_a_union_on_it():
 
     assert compiled.is_runnable, compiled.problems
     assert compiled.run_plan.nodes["m"].runs_per_row_of == "docs.texts"
-    assert compiled.field(Ref("m", "result")).type is Series[Txt]
+    assert compiled.field(Ref("m", "result")).type is Txt and compiled.field(Ref("m", "result")).many
 
 
 def test_two_refs_on_different_indexes_into_a_scalar_input_is_fatal():

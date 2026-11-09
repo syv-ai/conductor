@@ -55,7 +55,7 @@ else:
         ``refs`` names those outputs in the order the author connected them,
         and that order is the only order there is; an edge with no refs is not
         a binding and raises where it is written. A scalar input has one
-        ref; a ``Series[X]`` input may have several, gathered into one series.
+        ref; a ``Series[X]`` input may have several, gathered into one list.
 
         Written by the editor when two handles are connected; read by compile.
         """

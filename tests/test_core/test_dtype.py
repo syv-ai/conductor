@@ -87,7 +87,6 @@ def test_every_dtype_serializes_as_an_object():
 
 def test_a_scalar_has_no_element():
     """What `accepts` reads to tell a scalar from a collection."""
-    assert Text.element is None
 
 
 def test_the_base_has_no_id():

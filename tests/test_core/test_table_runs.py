@@ -132,8 +132,7 @@ def test_send_mail_runs_once_per_contact_and_bos_blank_email_runs_blank():
     results = _results(compiled)
 
     sent = results["send"]["result"]
-    assert sent.index.id == "csv.result" and sent.rows == ((0,), (1,), (2,))
-    assert list(sent) == ["sent to ida@x", "no address", "sent to nina@x"]
+    assert sent == {"rows": [(0,), (1,), (2,)], "values": ["sent to ida@x", "no address", "sent to nina@x"]}
 
 
 def test_the_stored_table_carries_its_row_ids():
@@ -161,10 +160,8 @@ def test_invoices_per_document_get_their_check_and_a_skipped_check_is_a_gap_on_i
     results = _results(compiled)
 
     approved = results["check"]["result"]
-    assert approved.index.id == "read.result"
-    assert approved.rows == ((0, 0), (1, 0))
-    assert list(approved) == ["acme ok", "beta ok"]
-    assert list(results["total"]["result"]) == [15.0, 7.0]
+    assert approved == {"rows": [(0, 0), (1, 0)], "values": ["acme ok", "beta ok"]}
+    assert results["total"]["result"]["values"] == [15.0, 7.0]
 
 
 def test_a_document_with_no_invoices_totals_nothing():
@@ -174,7 +171,7 @@ def test_a_document_with_no_invoices_totals_nothing():
         GraphNode(id="total", type="total", version=1, bindings={"amounts": From("read.result.amount")}),
     )
 
-    assert list(_results(compiled)["total"]["result"]) == [10.0, 0.0]
+    assert _results(compiled)["total"]["result"]["values"] == [10.0, 0.0]
 
 
 def test_a_branch_per_row_fills_only_its_rows_and_the_next_node_reads_whichever_is_filled():
@@ -185,9 +182,9 @@ def test_a_branch_per_row_fills_only_its_rows_and_the_next_node_reads_whichever_
     )
     results = _results(compiled)
 
-    assert results["route"]["known"].rows == ((0,), (2,))
-    assert results["route"]["unknown"].rows == ((1,),)
-    assert list(results["send"]["result"]) == ["sent to Dear Ida", "sent to Call Bo", "sent to Dear Nina"]
+    assert results["route"]["known"]["rows"] == [(0,), (2,)]
+    assert results["route"]["unknown"]["rows"] == [(1,)]
+    assert results["send"]["result"]["values"] == ["sent to Dear Ida", "sent to Call Bo", "sent to Dear Nina"]
 
 
 def test_a_column_into_a_series_input_on_a_node_that_runs_once_is_the_whole_column():
@@ -212,8 +209,8 @@ def test_a_person_approves_each_invoice_and_the_document_totals_once_its_invoice
 
     assert second.status == "complete"
     results = compiled.results(second)
-    assert results["approve"]["result"].rows == ((0, 0), (0, 1), (1, 0))
-    assert list(results["all"]["result"]) == ["Ida+Bo", "Nina"]
+    assert results["approve"]["result"]["rows"] == [(0, 0), (0, 1), (1, 0)]
+    assert results["all"]["result"]["values"] == ["Ida+Bo", "Nina"]
 
 
 def test_an_embedded_graph_run_per_row_lands_its_result_on_the_contacts():
@@ -227,8 +224,7 @@ def test_an_embedded_graph_run_per_row_lands_its_result_on_the_contacts():
     results = _results(compiled)
 
     sent = results["emb/send"]["result"]
-    assert sent.index.id == "csv.result"
-    assert list(sent) == ["sent to ida@x", "no address", "sent to nina@x"]
+    assert sent["values"] == ["sent to ida@x", "no address", "sent to nina@x"]
 
 
 def test_a_table_made_inside_an_embedded_graph_offers_its_columns_at_the_graph_node():
@@ -240,7 +236,7 @@ def test_a_table_made_inside_an_embedded_graph_offers_its_columns_at_the_graph_n
         registry=registry.extended_with([sub]),
     )
 
-    assert list(_results(compiled)["send"]["result"]) == ["sent to ida@x", "no address"]
+    assert _results(compiled)["send"]["result"]["values"] == ["sent to ida@x", "no address"]
 
 
 def test_a_document_skipped_above_its_table_totals_nothing_and_the_others_still_total():
@@ -252,5 +248,4 @@ def test_a_document_skipped_above_its_table_totals_nothing_and_the_others_still_
     )
     total = _results(compiled)["total"]["result"]
 
-    assert total.rows == ((0,), (2,))
-    assert list(total) == [10.0, 7.0]
+    assert total == {"rows": [(0,), (2,)], "values": [10.0, 7.0]}

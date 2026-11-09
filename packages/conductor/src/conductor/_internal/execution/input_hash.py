@@ -19,7 +19,6 @@ from hashlib import blake2b
 from typing import Any
 
 from conductor._internal.codec import to_wire
-from conductor._internal.series import Series
 from conductor._internal.table import digest_of_table, is_frame
 
 #: Digests of the values that aren't plain data, by ``id``; each kept with the value, so an id can't be reused while it is here.
@@ -56,9 +55,9 @@ def _add_value(parts: list[bytes], value: Any, digests_of_values: DigestsOfValue
         parts.append(b"i%d;" % value)
     elif isinstance(value, float):
         parts.append(b"f%a;" % value)
-    elif isinstance(value, Series):
-        parts.append(b"[%d:" % len(value.values))
-        for item in value.values:
+    elif isinstance(value, list):
+        parts.append(b"[%d:" % len(value))
+        for item in value:
             _add_value(parts, item, digests_of_values)
     else:
         parts.append(_digest_of_value(value, digests_of_values))

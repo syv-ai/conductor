@@ -25,7 +25,7 @@ if not ready.is_runnable:
 
 state = ready.run_sync()                               # in a notebook: await ready.run()
 assert ready.outputs(state) == {"joined.result": "RED + GREEN"}
-results = ready.results(state)                         # {node_id: {output: value}}
+results = ready.results(state)                         # {node_id: {output: value}}; many values are {"rows": [...], "values": [...]}
 assert list(results["loud"]["result"]) == ["RED", "GREEN"]   # ran once per word
 assert ready.run_plan.nodes["joined"].runs_per_row_of is None   # parts is Series[str]: one call
 ```

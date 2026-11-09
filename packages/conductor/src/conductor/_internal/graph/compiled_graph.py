@@ -32,11 +32,11 @@ A node's interface is the list of inputs and outputs it actually has.
 Usually that is what its version declares, but a node may add or drop
 fields depending on the values it holds and the types connected to it.
 
-A series is a value with many rows, and an index names where those rows
-come from: ten uploaded documents are a series of ten rows on the index
+A field that holds many values has a row for each, and an index names where those
+rows come from: ten uploaded documents are ten rows on the index
 of the node that uploaded them. A scalar input is an input that takes one
-value. A node that receives a series on a scalar input runs once per row
-of the series; we say the node runs per row of that index.
+value. A node that receives many values on an input for one runs once per row
+of them; we say the node runs per row of that index.
 
 Some nodes have a version that is itself a graph, which the host compiled
 on its own; that graph is an embedded graph, the node's ``embedded_graph``. Compile embeds the graph's nodes in place of that
@@ -384,8 +384,9 @@ class CompiledGraph:
         (``emb/up`` inside an embedded graph), whatever way the leg ended.
 
         A node with nothing finished is absent, and so is an output a node
-        skipped (the branch not taken). One that runs per row is a ``Series``
-        of the rows that have values so far, so a host can show a table filling
+        skipped (the branch not taken). One that holds many is
+        ``{"rows": [...], "values": [...]}`` (``ValuesOnRows``), the rows that have
+        values so far and a value each, so a host can show a table filling
         in as people answer. A node the graph has changed since, and whatever
         reads it, is left out.
         """

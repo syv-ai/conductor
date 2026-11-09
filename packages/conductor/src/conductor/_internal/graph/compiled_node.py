@@ -26,8 +26,7 @@ from conductor._internal.execution.run_state import Question
 from conductor._internal.graph.run_plan import NodeRunPlan, plan_of_node
 from conductor._internal.node_definition import NodeVersion
 from conductor._internal.node_signature import build_call_validator
-from conductor._internal.series import Series
-from conductor._internal.table import is_table_or_series_of_tables
+from conductor._internal.table import is_table_type
 
 if TYPE_CHECKING:
     from conductor._internal.errors import Problem
@@ -37,10 +36,10 @@ if TYPE_CHECKING:
     from conductor._internal.graph.graph_records import GraphNode
     from conductor._internal.graph.output_conditions import Condition
     from conductor._internal.graph.receive_modes import ReceiveMode
+    from conductor._internal.index import Index
     from conductor._internal.node_definition import NodeDefinition
     from conductor._internal.node_signature import Interface
     from conductor._internal.ref import Ref
-    from conductor._internal.series import Index
 
 #: How far compile got with a node, read off what it holds, for the wire.
 #:
@@ -59,19 +58,11 @@ if TYPE_CHECKING:
 NodeState = Literal["ready", "wiring_failed", "resolution_failed"]
 
 
-def _static_as_json(value: Any, dtype: Any) -> Any:
-    """A static as its field's type writes it, for ``CompiledNode.fingerprint``:
-    each of many values through the element type, one value through its own."""
+def _static_as_json(value: Any, dtype: Any, many: bool) -> Any:
+    """A static as its field's type writes it, for ``CompiledNode.fingerprint``."""
     if value is None:
         return None
-    if dtype.element is not None:
-        return [to_wire(item, dtype.element) for item in (value.values if isinstance(value, Series) else value)]
-    return to_wire(value, dtype)
-
-
-def _nullable_dtype(dtype: Any) -> Any:
-    """The type a call reads an input that takes a blank as: a series' cells may be blank, one value may."""
-    return Series[dtype.element | None] if dtype.element is not None else dtype | None
+    return [to_wire(item, dtype) for item in value] if many else to_wire(value, dtype)
 
 
 @dataclass(frozen=True, eq=False, slots=True)
@@ -171,7 +162,7 @@ class CompiledNode:
                 # The value as its type writes it, never as the author spelled
                 # it: ``2`` and ``2.0`` on a number are one value, and a graph
                 # built in Python hashes like the stored graph with its JSON.
-                bindings[name] = {"static": _static_as_json(self.statics[name], fields[name].type)}
+                bindings[name] = {"static": _static_as_json(self.statics[name], fields[name].type, fields[name].many)}
             else:
                 bindings[name] = binding.model_dump()
         used = {
@@ -187,7 +178,7 @@ class CompiledNode:
     def _outputs_described(self) -> dict[str, Any]:
         """Each output's type, as a state's fingerprint and a unit's input hash both name it."""
         assert self.interface is not None
-        return {out.name: out.dtype.describe() for out in self.interface.outputs}
+        return {out.name: {**out.dtype.describe(), "many": out.many} for out in self.interface.outputs}
 
     @cached_property
     def _input_hash_seed(self) -> bytes:
@@ -206,8 +197,8 @@ class CompiledNode:
         assert self.interface is not None
         return tuple(
             Question(
-                name=out.name, title=self._title_of_a_question(out), description=out.description, dtype=out.dtype.describe(),
-                json_schema=json_schema_of(out.dtype), optional=out.takes_blank and out.choice is None, choice=out.choice,
+                name=out.name, title=self._title_of_a_question(out), description=out.description, dtype=out.dtype.describe(), many=out.many,
+                json_schema=json_schema_of(out.dtype, out.many), optional=out.takes_blank and out.choice is None, choice=out.choice,
             )
             for out in self.interface.outputs
         )
@@ -219,21 +210,18 @@ class CompiledNode:
 
     @cached_property
     def _validate_call_inputs(self) -> Callable[[Mapping[str, Any]], dict[str, Any]]:
-        """The check a call goes through (``build_call_validator``), built on first use. An
-        input that takes a blank is read as its type or ``None``."""
-        return build_call_validator(tuple(
-            input_.model_copy(update={"dtype": _nullable_dtype(input_.dtype)}) if input_.takes_blank else input_ for input_ in self._inputs
-        ))
+        """The check a call goes through (``build_call_validator``), built on first use."""
+        return build_call_validator(self._inputs)
 
     @cached_property
     def _inputs_rejecting_a_blank(self) -> tuple[str, ...]:
         """The one-value inputs on which a blank means this node isn't called."""
-        return tuple(input_.name for input_ in self._inputs if input_.dtype.element is None and not input_.takes_blank)
+        return tuple(input_.name for input_ in self._inputs if not input_.many and not input_.takes_blank)
 
     @cached_property
     def _series_inputs_leaving_blanks_out(self) -> tuple[str, ...]:
         """The series inputs whose blank cells, row by row, are left out of the call."""
-        return tuple(input_.name for input_ in self._inputs if input_.dtype.element is not None and not input_.takes_blank)
+        return tuple(input_.name for input_ in self._inputs if input_.many and not input_.takes_blank)
 
 
 @dataclass(frozen=True, eq=False, init=False)
@@ -246,8 +234,7 @@ class CompiledField:
 
     #: The field's address: ``Ref("approve/check", "amount")`` for a field inside an embedded graph.
     ref: Ref
-    #: The type that travels on this field. An output of a node that runs once
-    #: per row carries ``Series[X]`` even where its declaration says ``X``.
+    #: The type of one value on this field. Whether it holds many is ``many``.
     type: Any
     #: Where this input's value comes from: ``From``, ``Static``, or ``None``
     #: when its declared default applies. Always ``None`` on an output.
@@ -256,7 +243,7 @@ class CompiledField:
     condition: Condition | None
     #: Every problem about this field.
     problems: tuple[Problem, ...] = field(repr=False)
-    #: Where its rows come from, for a field that carries a series; ``None`` otherwise.
+    #: Where its rows come from, for a field that holds many values; ``None`` otherwise.
     _index: Index | None = field(repr=False)
     #: How a unit of its node receives it; ``None`` exactly on an output.
     _receive_mode: ReceiveMode | None = field(repr=False)
@@ -292,10 +279,10 @@ class CompiledField:
     def _is_output(self) -> bool:
         return self._receive_mode is None
 
-    @cached_property
-    def _cell_type(self) -> Any:
-        """The type of one value of this field: the element of a series on rows, the field's own type otherwise."""
-        return self.type if self._index is None or self.type.element is None else self.type.element
+    @property
+    def many(self) -> bool:
+        """Does this field hold many values, one per row? An output of a node that runs once per row does, even where its declaration says one."""
+        return self._index is not None
 
     @cached_property
     def _validate_cell(self) -> Callable[[Any], Any]:
@@ -303,10 +290,10 @@ class CompiledField:
         (``conductor._internal.codec.cell_validator_for``), returned by a node, answered by a
         person or read back from a stored state. A blank passes where the
         output's type says ``| None``."""
-        read = cell_validator_for(self._cell_type)
+        read = cell_validator_for(self.type)
         return (lambda value: None if value is None else read(value)) if self._takes_blank else read
 
     @cached_property
     def _unit_writes_many_cells(self) -> bool:
         """One unit writes many cells here, one per row it makes: a series output, not a table."""
-        return self._makes_rows is not None and not is_table_or_series_of_tables(self.type)
+        return self._makes_rows is not None and not is_table_type(self.type)

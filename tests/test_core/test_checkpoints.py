@@ -164,7 +164,7 @@ def test_outputs_refuses_a_checkpoint_and_results_reads_what_it_holds():
         graph.outputs(state)
     assert raised.value.errors()[0].type == "run_not_complete"
     assert raised.value.errors()[0].ctx["status"] == "running"
-    assert sorted(graph.results(state)["work"]["result"]) == ["A", "B", "C"]
+    assert sorted(graph.results(state)["work"]["result"]["values"]) == ["A", "B", "C"]
 
 
 def test_a_checkpoint_carries_who_is_waiting_and_an_answer_goes_into_it(monkeypatch: pytest.MonkeyPatch):

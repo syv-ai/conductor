@@ -20,7 +20,6 @@ from conductor import (
     NodeRegistry,
     Param,
     Result,
-    Series,
     Static,
     node,
 )
@@ -131,8 +130,7 @@ def test_a_list_on_an_input_for_one_value_runs_the_graph_once_per_item():
 
     out = _outputs(compiled.with_inputs(text=["x", "y"]))
 
-    assert isinstance(out["a.result"], Series)
-    assert list(out["a.result"]) == ["X", "Y"]
+    assert out["a.result"]["values"] == ["X", "Y"]
 
 
 def test_a_required_input_left_unfilled_is_compiles_own_problem():

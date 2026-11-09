@@ -38,7 +38,7 @@ from conductor._internal.dtype import (
     dtype_of,
     is_untyped,
     plain_python_dtype,
-    split_off_none,
+    read_field_annotation,
 )
 from conductor._internal.errors import NodeDeclarationError
 from conductor.widgets import AnyWidget
@@ -101,7 +101,8 @@ class Input(ConductorModel):
     With no ``default`` the input is ``required``. ``takes_blank`` is what
     the type said: ``Text | None``, or a type of no value of its own (``Any``).
     A blank reaching an input that doesn't take one means the node isn't
-    called for that row.
+    called for that row. ``many`` is ``True`` for ``Series[X]``: ``dtype`` is
+    ``X``, and a call receives a plain list of them.
     """
 
     name: str
@@ -114,6 +115,7 @@ class Input(ConductorModel):
     default: Any = None
     required: bool = True
     takes_blank: bool = False
+    many: bool = False
 
     def __init__(
         self,
@@ -127,18 +129,18 @@ class Input(ConductorModel):
         connectable: bool = True,
         default: Any = _NO_DEFAULT,
     ) -> None:
-        annotation_without_none, says_none = split_off_none(dtype)
-        dtype = dtype_of(annotation_without_none)
+        one_value, many, says_blank = read_field_annotation(dtype)
+        dtype = dtype_of(one_value)
         if dtype is None or (not connectable and dtype is _UntypedValue):
             # Nothing can travel here, so a static is read as the plain type.
-            dtype, connectable = plain_python_dtype(annotation_without_none), False
-        takes_blank = says_none or annotation_without_none is Any or getattr(annotation_without_none, "element_takes_blank", False) or is_untyped(dtype)
+            dtype, connectable = plain_python_dtype(one_value), False
+        takes_blank = says_blank or one_value is Any or is_untyped(dtype)
         required = default is _NO_DEFAULT
         if default is None and not takes_blank:
             raise NodeDeclarationError(f"input {name!r} defaults to None, which is a blank; write its type with | None", code="none_default_needs_blank")
         super().__init__(
             name=name, dtype=dtype, title=title or name, description=description, widget=widget,
-            connectable=connectable, default=None if required else default, required=required, takes_blank=takes_blank,
+            connectable=connectable, default=None if required else default, required=required, takes_blank=takes_blank, many=many,
         )
 
 
@@ -150,7 +152,9 @@ class Output(ConductorModel):
     arrives. ``dtype`` is a ``DType`` or ``Any`` (typed by a hook once it
     knows what arrives). It carries no widget or default: nobody supplies a
     result. ``takes_blank`` is ``True`` when the type says ``| None``: a
-    return of ``None`` is valid there and nowhere else. ``choice`` is read by the compiler and the editor, never by the
+    return of ``None`` is valid there and nowhere else. ``many`` is ``True``
+    for ``Series[X]``: ``dtype`` is ``X``, and the node returns a sequence of
+    them, each a row. ``choice`` is read by the compiler and the editor, never by the
     engine, which only propagates the skip.
     """
 
@@ -160,6 +164,7 @@ class Output(ConductorModel):
     description: str | None = None
     choice: str | None = None
     takes_blank: bool = False
+    many: bool = False
 
     def __init__(
         self,
@@ -171,5 +176,5 @@ class Output(ConductorModel):
         description: str | None = None,
         choice: str | None = None,
     ) -> None:
-        annotation_without_none, says_none = split_off_none(dtype)
-        super().__init__(name=name, dtype=annotation_without_none, title=title or name, description=description, choice=choice, takes_blank=says_none or getattr(annotation_without_none, "element_takes_blank", False))
+        one_value, many, says_blank = read_field_annotation(dtype)
+        super().__init__(name=name, dtype=one_value, title=title or name, description=description, choice=choice, takes_blank=says_blank, many=many)

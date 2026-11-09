@@ -24,7 +24,7 @@ def route(text: Annotated[str, Param(title="Text", widget=Textarea())], go: Anno
 
 @node("words", title="Words", description="One row per word.", category="text")
 def words(text: Annotated[str, Param(title="Text", widget=Textarea())]) -> Annotated[Series[str], Result(title="Words")]:
-    return [word for word in text.split()]      # a list on a Series output: one row per item
+    return [word for word in text.split()]      # any sequence on a Series output: one row per item
 
 
 class Caller:
