@@ -118,22 +118,22 @@ def row_id(index: Index, row: Row) -> str:
     return f"{index.id}:{'.'.join(str(n) for n in row)}"
 
 
-def with_row_ids(frame: pl.DataFrame, index: Index, parent: Row) -> pl.DataFrame:
+def with_row_ids(frame: pl.DataFrame, index: Index, group_row: Row) -> pl.DataFrame:
     """``frame`` with an id on every row, each row's own if it has one.
 
     A row with no id, or with an id an earlier row holds, is a new row: a
     person added it, or a node copied one. It gets the first id spelled
-    from ``parent + (n,)`` on ``index`` that no row holds, so a row added
+    from ``group_row + (n,)`` on ``index`` that no row holds, so a row added
     to a table leaves every other row's id where it was."""
     if ROW_ID not in frame.columns:
-        return _with_ids([row_id(index, (*parent, n)) for n in range(frame.height)], frame)
+        return _with_ids([row_id(index, (*group_row, n)) for n in range(frame.height)], frame)
     ids = frame[ROW_ID]
     if ids.null_count() == 0 and ids.n_unique() == frame.height:
         return frame
     written = ids.to_list()
     taken = {value for value in written if value is not None}
     seen: set[str] = set()
-    spare = (spelled for spelled in (row_id(index, (*parent, n)) for n in count()) if spelled not in taken)
+    spare = (spelled for spelled in (row_id(index, (*group_row, n)) for n in count()) if spelled not in taken)
     fresh = [next(spare) if value is None or value in seen or seen.add(value) else value for value in written]  # type: ignore[func-returns-value]
     return _with_ids(fresh, frame.drop(ROW_ID))
 
@@ -213,16 +213,16 @@ def merge(sources: Sequence[MergeSource]) -> pl.DataFrame:
         if source.index in above:
             copied_down.append((source.index, frame))
             continue
-        for parent in above.intersection(source.index.lineage):
-            parent_ids = [ids_on[parent].get(row[: parent.depth]) for row in source.rows]
-            frame = frame.with_columns(pl.Series(_parent_key(parent), parent_ids, dtype=pl.String))
+        for parent_index in above.intersection(source.index.lineage):
+            parent_ids = [ids_on[parent_index].get(row[: parent_index.depth]) for row in source.rows]
+            frame = frame.with_columns(pl.Series(_parent_key(parent_index), parent_ids, dtype=pl.String))
         if source.index in repeating_ids:
             frame = frame.with_columns(pl.Series(_UNDER_ROW, [".".join(map(str, row[:-1])) for row in source.rows], dtype=pl.String))
         with_own_rows.setdefault(source.index, []).append(frame)
 
     def full_join(left: pl.DataFrame, right: pl.DataFrame, on: list[str]) -> pl.DataFrame:
         joined = left.join(right, on=on, how="full", coalesce=True, maintain_order="left_right")
-        for key in (_parent_key(parent) for parent in above):  # two sources under one parent both hold its id
+        for key in (_parent_key(parent_index) for parent_index in above):  # two sources under one parent both hold its id
             if f"{key}_right" in joined.columns:
                 joined = joined.with_columns(pl.coalesce(key, f"{key}_right").alias(key)).drop(f"{key}_right")
         return joined

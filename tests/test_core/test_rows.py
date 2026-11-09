@@ -756,7 +756,7 @@ def test_a_restore_leaves_a_list_set_on_a_node_under_a_skipped_outer_row_complet
         _registry_with_asks(TypedInside),
     )
     live = LiveRunValues(compiled)
-    live.record(("docs", ()), Skip(at=()))
+    live.record(("docs", ()), Skip(row=()))
     for node_id in compiled.execution_order[1:]:
         live.record((node_id, ()), live.inputs_for((node_id, ())))
 

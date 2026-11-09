@@ -118,15 +118,15 @@ def test_a_decision_over_a_whole_column_gates_what_hangs_off_the_branch_not_take
 
     assert ledger.ready(("full", ())) and ledger.ready(("empty", ()))
     assert list(ledger.inputs_for(("full", ()))["texts"]) == ["a", "b"]
-    assert ledger.inputs_for(("empty", ())) == Skip(at=())
+    assert ledger.inputs_for(("empty", ())) == Skip(row=())
     # the branch not taken has an index of its own with no rows, so the node running per row of it stands in once, at the top
     assert ledger.units("up") == [("up", ())]
-    assert ledger.inputs_for(("up", ())) == Skip(at=())
+    assert ledger.inputs_for(("up", ())) == Skip(row=())
     assert not ledger.ready(("after", ()))
-    ledger.record(("up", ()), Skip(at=()))
-    assert ledger.inputs_for(("after", ())) == Skip(at=())
-    ledger.record(("empty", ()), Skip(at=()))
-    ledger.record(("after", ()), Skip(at=()))
+    ledger.record(("up", ()), Skip(row=()))
+    assert ledger.inputs_for(("after", ())) == Skip(row=())
+    ledger.record(("empty", ()), Skip(row=()))
+    ledger.record(("after", ()), Skip(row=()))
     results = _results_of(ledger)
     assert "empty" not in results and "up" not in results and "after" not in results
     assert "empty" not in ledger.result_of("decide")  # the branch not taken is absent, never SKIPPED
