@@ -6,6 +6,6 @@ import pytest
 @pytest.fixture
 def registry():
     """Fresh NodeRegistry instance."""
-    from conductor.registry import NodeRegistry
+    from conductor import NodeRegistry
 
     return NodeRegistry()

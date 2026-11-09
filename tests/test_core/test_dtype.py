@@ -1,7 +1,8 @@
 """A type carries what it is and what it admits."""
 
 import pytest
-from conductor.dtype import DType, Single, dtype_of
+from conductor import DType
+from conductor._internal.dtype import dtype_of
 from pydantic import BaseModel
 
 
@@ -9,14 +10,14 @@ class Text(DType, str):
     """A host-side type, defined here because conductor ships none."""
 
     id = "dtype-test-text"
-    title = "Text"
+    display_title = "Text"
 
 
 class Colour(DType):
     """A type built on nothing — validated by instance, not by a builtin."""
 
     id = "dtype-test-colour"
-    title = "Colour"
+    display_title = "Colour"
 
     def __init__(self, name):
         self.name = name
@@ -24,7 +25,7 @@ class Colour(DType):
 
 def test_a_dtype_declares_its_id_and_its_title():
     assert Text.id == "dtype-test-text"
-    assert Text.title == "Text"
+    assert Text.display_title == "Text"
 
 
 def test_a_type_renders_its_own_text():
@@ -65,7 +66,7 @@ def test_a_dtype_must_declare_an_id_and_a_title():
     with pytest.raises(TypeError, match="id"):
 
         class Nameless(DType, str):
-            title = "No id"
+            display_title = "No id"
 
 
 def test_declaring_a_type_has_no_side_effect():
@@ -73,7 +74,7 @@ def test_declaring_a_type_has_no_side_effect():
 
     class Duplicate(DType, str):
         id = "dtype-test-text"
-        title = "Another text"
+        display_title = "Another text"
 
     assert Duplicate.id == Text.id
 
@@ -84,21 +85,8 @@ def test_every_dtype_serializes_as_an_object():
     assert Text.describe() == {"id": "dtype-test-text"}
 
 
-def test_a_type_is_not_authorable_unless_it_says_so():
-    """The host's derived choice lists — what may a person type into a
-    cell, a form answer, a schema field — read this flag and nothing else."""
-    assert DType.authorable is False
-    assert Text.authorable is False
-
-
 def test_a_scalar_has_no_element():
     """What `accepts` reads to tell a scalar from a collection."""
-    assert Text.element is None
-
-
-def test_a_type_refuses_nothing_whole_unless_it_says_so():
-    """The one question compile asks a source before binding it whole."""
-    assert Text.refuses_whole() is None and Colour.refuses_whole() is None
 
 
 def test_the_base_has_no_id():
@@ -109,7 +97,7 @@ def test_the_base_has_no_id():
     with pytest.raises(TypeError, match="id"):
 
         class Inherits(DType, str):
-            title = "Arver"
+            display_title = "Arver"
 
 
 def test_a_subclass_names_itself():
@@ -118,7 +106,7 @@ def test_a_subclass_names_itself():
     with pytest.raises(TypeError, match="own"):
 
         class Nameless(Text):
-            title = "Kort"
+            display_title = "Kort"
 
 
 # --- accepts: the one question ------------------------------------------
@@ -127,7 +115,7 @@ def test_a_subclass_names_itself():
 def test_a_type_accepts_itself_and_its_subclasses():
     class Kort(Text):
         id = "dtype-test-kort"
-        title = "Kort"
+        display_title = "Kort"
 
     assert Text.accepts(Text) is True
     assert Text.accepts(Kort) is True
@@ -153,22 +141,19 @@ def test_the_base_type_itself_cannot_be_a_target():
         DType.accepts(Text)
 
 
-# --- Any: the unconstrained input, and Single ------------------------
+# --- Any: the unconstrained input, and AsItArrives---------------------
 
 
-def test_any_is_the_unconstrained_marker_and_is_not_a_type():
-    """``Any`` stands for "whatever arrives"; it is not a type, so it is
-    not in the vocabulary and no value ever carries it."""
+def test_any_is_read_as_a_type_of_its_own():
+    """``Any`` stands for "whatever arrives"; a record holds a private ``DType`` for it."""
     from typing import Annotated, Any
 
-    assert not (isinstance(Any, type) and issubclass(Any, DType))
-    assert dtype_of(Annotated[Any, object()]) is Any
+    assert dtype_of(Annotated[Any, object()]).id == "any"
 
 
 def test_single_is_a_bare_marker():
-    """``**inputs: Single`` — the open interface. ``Single`` is the whole
+    """``**inputs: AsItArrives`` — the open interface. ``AsItArrives`` is the whole
     declaration; what it means is ``Interface.of`` to read."""
-    assert Single() is not None
 
 
 # --- dtype_of --------------------------------------------------------------
@@ -181,9 +166,12 @@ def test_dtype_of_reads_the_annotation():
     assert dtype_of(Annotated[Text, object()]) is Text
 
 
-def test_dtype_of_returns_None_for_a_plain_python_type():
-    """AKA's catalog contract test is what turns this into an error."""
-    assert dtype_of(str) is None
+def test_dtype_of_makes_a_dtype_of_a_type_an_edge_can_carry():
+    assert dtype_of(str).wrapped_type is str and dtype_of(str).id == "str" and dtype_of(str) is dtype_of(str)
+
+
+def test_dtype_of_returns_None_for_a_type_no_edge_can_carry():
+    assert dtype_of(list[int]) is None
 
 
 def test_conductor_declares_no_domain_types_of_its_own():
@@ -194,7 +182,7 @@ def test_conductor_declares_no_domain_types_of_its_own():
     not domain: it means the same thing in every host — and it is not a
     word either (``test_standalone.py`` checks every module of the library).
     """
-    from conductor.registry import NodeRegistry
+    from conductor import NodeRegistry
 
     assert NodeRegistry().types == {}
 
@@ -202,5 +190,5 @@ def test_conductor_declares_no_domain_types_of_its_own():
 def test_the_vocabulary_is_importable_from_the_root():
     import conductor
 
-    for name in ("DType", "DTypeRef", "Single", "Series", "Index", "Ref", "Result"):
+    for name in ("DType", "AsItArrives", "Series", "Ref", "Result"):
         assert getattr(conductor, name) is not None

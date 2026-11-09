@@ -5,39 +5,41 @@ produced and runs it — here, graphs whose nodes each run once. Rows are
 
 import asyncio
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Annotated
 
 import pytest
-from conductor import NodeRegistry, Param, run_sync
-from conductor._sentinel import SKIPPED
-from conductor.dtype import DType
-from conductor.errors import CompilationError
-from conductor.execution.engine import execute
-from conductor.graph.binding import From, Static
-from conductor.graph.compiled import CompiledGraph
-from conductor.graph.model import Graph, GraphNode
-from conductor.metadata import Result
-from conductor.node import NodeDefinition, Policy, version
-from conductor.series import Series
+from conductor import (
+    SKIPPED,
+    CompiledGraph,
+    DType,
+    From,
+    Graph,
+    GraphNode,
+    InvalidCallError,
+    NodeRegistry,
+    Param,
+    Policy,
+    Result,
+    Series,
+    Static,
+    node,
+)
 from conductor.widgets import Textarea
+from helpers import stream_of
 
 
 class Txt(DType, str):
     id = "exec-test-txt"
-    title = "Text"
+    display_title = "Text"
 
 
 Out = Annotated[Txt, Result(title="Result")]
 
 
-class Upper(NodeDefinition):
-    id = "upper"
-    title = "Upper"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
-        return Txt(text.upper())
+@node("upper", title="Upper", description="d", category="test")
+def upper_node(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
+    return Txt(text.upper())
 
 
 @dataclass(frozen=True)
@@ -46,53 +48,39 @@ class Answer:
     no: Annotated[Txt, Result(title="No")]
 
 
-class Gate(NodeDefinition):
-    id = "gate"
-    title = "Gate"
-    description = "d"
-    category = "test"
-
-    def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Answer:
-        return Answer(yes=x, no=SKIPPED) if x else Answer(yes=SKIPPED, no=x)
+@node("gate", title="Gate", description="d", category="test")
+def gate(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Answer:
+    return Answer(yes=x, no=SKIPPED) if x else Answer(yes=SKIPPED, no=x)
 
 
-class Join(NodeDefinition):
-    id = "join"
-    title = "Join"
-    description = "d"
-    category = "test"
-
-    def run(self, texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
-        return Txt("+".join(texts))
+@node("join", title="Join", description="d", category="test")
+def join_node(texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
+    return Txt("+".join(texts))
 
 
-class Flaky(NodeDefinition):
-    id = "flaky"
-    title = "Flaky"
-    description = "d"
-    category = "test"
-    calls = 0
+flaky_state = SimpleNamespace(active=0, peak=0, seen=[], calls=0)
 
-    @version(1, policy=Policy(retries=2, delay=0.0))
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
-        Flaky.calls += 1
-        if Flaky.calls < 3:
-            from conductor.errors import ExternalFailure
 
-            raise ExternalFailure("not yet")
-        return text
+@node("flaky", title="Flaky", description="d", category="test", policy=Policy(retries=2, retry_delay=0.0))
+def flaky(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
+    flaky_state.calls += 1
+    if flaky_state.calls < 3:
+        from conductor import ExternalFailure
+
+        raise ExternalFailure("not yet")
+    return text
 
 
 def _registry():
     registry = NodeRegistry()
-    for node_cls in (Upper, Gate, Join, Flaky):
-        registry.register(node_cls)
+    for node_cls in (upper_node, gate, join_node, flaky):
+        registry = registry.extended_with([node_cls])
     return registry
 
 
 def _run(nodes):
     compiled = CompiledGraph.from_graph(Graph(nodes=nodes), _registry())
-    return run_sync(compiled).state.results(compiled)
+    return compiled.results(compiled.run_sync())
 
 
 def test_a_graph_of_bindings_compiles_and_runs():
@@ -132,19 +120,19 @@ def test_a_gather_arrives_as_a_series():
 
 
 def test_policy_is_read_off_the_pinned_version():
-    Flaky.calls = 0
+    flaky_state.calls = 0
     results = _run([GraphNode(id="f", type="flaky", version=1, bindings={"text": Static("ok")})])
 
     assert results["f"]["result"] == "ok"
-    assert Flaky.calls == 3
+    assert flaky_state.calls == 3
 
 
 def test_a_graph_compile_rejected_is_refused_with_its_problems():
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="gone", version=1)]), _registry())
 
-    with pytest.raises(CompilationError) as raised:
-        run_sync(compiled)
-    assert [p.code for p in raised.value.problems] == ["unknown_node_type"]
+    with pytest.raises(InvalidCallError) as raised:
+        compiled.run_sync()
+    assert [fault.type for fault in raised.value.errors()] == ["unknown_node_type"]
 
 
 def test_events_carry_the_placement_title():
@@ -154,7 +142,7 @@ def test_events_carry_the_placement_title():
     )
 
     async def gathered():
-        return [e async for e in execute(compiled)]
+        return [e async for e in stream_of(compiled)]
 
     events = asyncio.run(gathered())
-    assert [e.type for e in events] == ["node_start", "node_complete", "graph_complete"]
+    assert [e.type for e in events] == ["run_start", "node_start", "node_complete", "run_end"]

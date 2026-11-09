@@ -1,6 +1,8 @@
 # syv-conductor-providers
 
-Framework adapters for Conductor: `conductor_providers.react` translates a graph to ReactFlow JSON and back, `conductor_providers.mermaid.flowchart(compiled)` draws a compiled graph as a Mermaid flowchart, and `conductor_providers.fastapi` mounts the engine's routes on a FastAPI `APIRouter` (the `fastapi` extra).
+Adapters for Conductor: `conductor_providers.mermaid.flowchart(compiled)` draws a compiled graph as a Mermaid flowchart.
+
+To serve runs over HTTP, write the routes on your own application: [`docs/serving-runs.md`](https://github.com/syv-ai/conductor/blob/main/docs/serving-runs.md) is one page you copy.
 
 ```python
 import conductor_providers

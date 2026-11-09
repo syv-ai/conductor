@@ -7,113 +7,72 @@ section runs two of those shapes, where the ledger must decide as
 compile did.
 """
 
-from collections.abc import Mapping
-from typing import Annotated, ClassVar
+from typing import Annotated
 
-import pytest
-from conductor import NodeRegistry, run_sync
-from conductor.dtype import DType, Single
-from conductor.graph.binding import From, Static
-from conductor.graph.compiled import CompiledGraph
-from conductor.graph.model import Graph, GraphNode
-from conductor.graph.receive import Broadcast, Gather, Group, Iterate, Whole
-from conductor.interface import Interface
-from conductor.metadata import Input, Output, Param, Result
-from conductor.node import GraphVersion, NodeDefinition
-from conductor.ref import Ref
-from conductor.series import Index, Series
+from conductor import (
+    AsItArrives,
+    CompiledGraph,
+    DType,
+    From,
+    Graph,
+    GraphNode,
+    NodeRegistry,
+    Param,
+    Ref,
+    Result,
+    Series,
+    Static,
+    node,
+)
 from conductor.widgets import Textarea
+
+from test_core.embedded import embedded_graph_node
 
 
 class Txt(DType, str):
     id = "receive-test-txt"
-    title = "Text"
+    display_title = "Text"
 
 
 Out = Annotated[Txt, Result(title="Result")]
 
 
-class Docs(NodeDefinition):
-    id = "docs"
-    title = "Documents"
-    description = "d"
-    category = "test"
-
-    def run(self, folder: Annotated[Txt, Param(title="Folder", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Texts")]:
-        return [Txt(t) for t in folder.split(",") if t]
+@node("docs", title="Documents", description="d", category="test")
+def docs(folder: Annotated[Txt, Param(title="Folder", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Texts")]:
+    return [Txt(t) for t in folder.split(",") if t]
 
 
-class Upper(NodeDefinition):
-    id = "upper"
-    title = "Upper case"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
-        return Txt(text.upper())
+@node("upper", title="Upper case", description="d", category="test")
+def upper_node(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
+    return Txt(text.upper())
 
 
-class Lines(NodeDefinition):
-    id = "lines"
-    title = "Lines"
-    description = "d"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Lines")]:
-        return text.splitlines()
+@node("lines", title="Lines", description="d", category="test")
+def lines(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Series[Txt], Result(title="Lines")]:
+    return text.splitlines()
 
 
-class Join(NodeDefinition):
-    id = "join"
-    title = "Join"
-    description = "d"
-    category = "test"
-
-    def run(self, texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
-        return Txt("+".join(texts))
+@node("join", title="Join", description="d", category="test")
+def join_node(texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
+    return Txt("+".join(texts))
 
 
-class Script(NodeDefinition):
+@node("script", title="Script", description="d", category="test")
+def script(**inputs: AsItArrives) -> Out:
     """An open interface: every connected name is received whole."""
-
-    id = "script"
-    title = "Script"
-    description = "d"
-    category = "test"
-
-    def run(self, **inputs: Single) -> Out:
-        return Txt(",".join(f"{name}={list(value) if isinstance(value, Series) else value}" for name, value in sorted(inputs.items())))
+    return Txt(",".join(f"{name}={value}" for name, value in sorted(inputs.items())))
 
 
-class Tags(NodeDefinition):
+@node("tags", title="Tags", description="d", category="test")
+def tags_node(tags: Annotated[list[str], Param(title="Tags", connectable=False)] = ["x"]) -> Out:
     """A closed input typed as a list: one value that happens to be a list."""
-
-    id = "tags"
-    title = "Tags"
-    description = "d"
-    category = "test"
-
-    def run(self, tags: Annotated[list[str], Param(title="Tags", show_handle=False)] = ["x"]) -> Out:
-        return Txt("|".join(tags))
-
-
-def _embedded(node_id, graph, inputs, outputs):
-    class Embedded(NodeDefinition):
-        id = node_id
-        title = "Embedded"
-        description = "d"
-        category = "test"
-        versions: ClassVar[dict[int, GraphVersion]] = {
-            1: GraphVersion(graph=graph, interface=Interface(inputs=inputs, outputs=outputs, returns=Mapping))
-        }
-
-    return Embedded
+    return Txt("|".join(tags))
 
 
 def _registry(*extra):
     registry = NodeRegistry()
-    for node_cls in (Docs, Upper, Lines, Join, Script, Tags, *extra):
-        registry.register(node_cls)
+    for node_cls in (docs, upper_node, lines, join_node, script, tags_node, *extra):
+        registry = registry.extended_with([node_cls])
     return registry
 
 
@@ -125,8 +84,8 @@ def _edge(*refs):
     return From(*(Ref(n, f) for n, f in refs))
 
 
-def _receives(compiled, node_id, field):
-    return compiled.field(Ref(node_id, field)).receives
+def _input_plan(compiled, node_id, field):
+    return compiled.run_plan.nodes[node_id].inputs[field]
 
 
 # --- fed by an edge -------------------------------------------------------------
@@ -138,7 +97,7 @@ def test_a_scalar_input_fed_a_scalar_receives_one_value_once():
         GraphNode(id="b", type="upper", version=1, bindings={"text": _edge(("a", "result"))}),
     ])
 
-    assert _receives(compiled, "b", "text") == Broadcast()
+    assert _input_plan(compiled, "b", "text").receive_mode == "same_value_every_row"
 
 
 def test_a_scalar_input_fed_a_series_receives_one_value_per_row_of_its_index():
@@ -147,8 +106,8 @@ def test_a_scalar_input_fed_a_series_receives_one_value_per_row_of_its_index():
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge(("docs", "result"))}),
     ])
 
-    assert _receives(compiled, "up", "text") == Iterate(Index("docs"))
-    assert compiled.node("up").iterates_on == Index("docs")
+    assert (_input_plan(compiled, "up", "text").receive_mode, _input_plan(compiled, "up", "text").rows_of) == ("value_at_row", "docs.result")
+    assert compiled.run_plan.nodes["up"].runs_per_row_of == "docs.result"
 
 
 def test_a_series_input_fed_one_series_on_a_root_receives_it_whole():
@@ -157,8 +116,8 @@ def test_a_series_input_fed_one_series_on_a_root_receives_it_whole():
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("docs", "result"))}),
     ])
 
-    assert _receives(compiled, "j", "texts") == Whole()
-    assert compiled.node("j").iterates_on is None
+    assert _input_plan(compiled, "j", "texts").receive_mode == "entire_value"
+    assert compiled.run_plan.nodes["j"].runs_per_row_of is None
 
 
 def test_a_series_input_fed_a_series_on_a_child_reduces_under_the_parent_row():
@@ -168,8 +127,8 @@ def test_a_series_input_fed_a_series_on_a_child_reduces_under_the_parent_row():
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("lines", "result"))}),
     ])
 
-    assert _receives(compiled, "j", "texts") == Group(Index("lines"), depth=1)
-    assert compiled.node("j").iterates_on == Index("docs")
+    assert (_input_plan(compiled, "j", "texts").receive_mode, _input_plan(compiled, "j", "texts").rows_of) == ("all_rows_under_row", "lines.result")
+    assert compiled.run_plan.nodes["j"].runs_per_row_of == "docs.result"
 
 
 def test_a_series_input_fed_unrelated_sources_gathers_them_onto_the_fields_own_index():
@@ -179,9 +138,7 @@ def test_a_series_input_fed_unrelated_sources_gathers_them_onto_the_fields_own_i
         GraphNode(id="j", type="join", version=1, bindings={"texts": _edge(("a", "result"), ("b", "result"))}),
     ])
 
-    received = _receives(compiled, "j", "texts")
-    assert received == Gather(Index(Ref("j", "texts")))
-    assert received.index == compiled.field(Ref("j", "texts")).index
+    assert _input_plan(compiled, "j", "texts").receive_mode == "collected"
 
 
 def test_an_open_parameter_receives_its_edge_whole_even_when_a_series_arrives():
@@ -190,8 +147,8 @@ def test_an_open_parameter_receives_its_edge_whole_even_when_a_series_arrives():
         GraphNode(id="s", type="script", version=1, bindings={"v": _edge(("docs", "result"))}),
     ])
 
-    assert _receives(compiled, "s", "v") == Whole()
-    assert compiled.node("s").iterates_on is None
+    assert _input_plan(compiled, "s", "v").receive_mode == "entire_value"
+    assert compiled.run_plan.nodes["s"].runs_per_row_of is None
 
 
 # --- nothing feeds it -------------------------------------------------------------
@@ -204,10 +161,10 @@ def test_a_typed_in_scalar_is_received_once_and_a_typed_in_list_once_per_value()
         GraphNode(id="default", type="upper", version=1),
     ])
 
-    assert _receives(compiled, "one", "text") == Broadcast()
-    assert _receives(compiled, "many", "text") == Iterate(Index(Ref("many", "text")))
-    assert compiled.node("many").iterates_on == Index(Ref("many", "text"))
-    assert _receives(compiled, "default", "text") == Broadcast()
+    assert _input_plan(compiled, "one", "text").receive_mode == "same_value_every_row"
+    assert (_input_plan(compiled, "many", "text").receive_mode, _input_plan(compiled, "many", "text").rows_of) == ("value_at_row", "many.text")
+    assert compiled.run_plan.nodes["many"].runs_per_row_of == "many.text"
+    assert _input_plan(compiled, "default", "text").receive_mode == "same_value_every_row"
 
 
 def test_a_series_input_with_a_typed_in_list_or_a_default_receives_it_whole_on_its_own_index():
@@ -216,21 +173,8 @@ def test_a_series_input_with_a_typed_in_list_or_a_default_receives_it_whole_on_i
         GraphNode(id="default", type="join", version=1),
     ])
 
-    assert _receives(compiled, "typed", "texts") == Whole()
-    assert compiled.field(Ref("typed", "texts")).index == Index(Ref("typed", "texts"))
-    assert _receives(compiled, "default", "texts") == Whole()
-
-
-def test_a_closed_input_typed_as_a_list_holds_one_value_and_the_node_runs_once():
-    """``['a', 'b', 'c']`` on ``tags: list[str]`` is the one value the
-    type read, not three values to run per; whether the author typed many is
-    decided by which validation succeeded, never by the shape of the result."""
-    compiled = _compiled([GraphNode(id="t", type="tags", version=1, bindings={"tags": Static(["a", "b", "c"])})])
-
-    assert compiled.is_runnable, compiled.problems
-    assert _receives(compiled, "t", "tags") == Broadcast()
-    assert compiled.node("t").iterates_on is None
-    assert compiled.node("t").statics == {"tags": ["a", "b", "c"]}
+    assert _input_plan(compiled, "typed", "texts").receive_mode == "entire_value"
+    assert _input_plan(compiled, "default", "texts").receive_mode == "entire_value"
 
 
 def test_a_default_is_not_a_static():
@@ -240,64 +184,45 @@ def test_a_default_is_not_a_static():
 
     assert compiled.is_runnable, compiled.problems
     assert compiled.node("t").statics == {}
-    assert _receives(compiled, "t", "tags") == Broadcast()
-
-
-def test_an_output_has_no_receive_record():
-    compiled = _compiled([GraphNode(id="a", type="upper", version=1, bindings={"text": Static("hi")})])
-
-    with pytest.raises(KeyError):
-        compiled.field(Ref("a", "result")).receives
+    assert _input_plan(compiled, "t", "tags").receive_mode == "same_value_every_row"
 
 
 # --- inside an embedded graph ----------------------------------------------------------
 
 
 def test_an_inner_reduction_over_the_entering_series_reduces_to_its_own_row():
-    inner = _embedded(
-        "inner-graph",
-        (
+    inner = embedded_graph_node("inner-graph", (
             GraphNode(id="holder", type="upper", version=1),
             GraphNode(id="join", type="join", version=1, bindings={"texts": _edge(("holder", "result"))}),
-        ),
-        inputs=(Input(name="holder.text", dtype=Txt, title="Text", widget=Textarea(), default=Txt(""), optional=True),),
-        outputs=(Output(name="join.result", dtype=Txt, title="Result"),),
-    )
+        ), _registry())
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.text": _edge(("docs", "result"))}),
+        GraphNode(id="emb", type="inner-graph", version=1, bindings={"text": _edge(("docs", "result"))}),
     ], inner)
 
     assert compiled.is_runnable, compiled.problems
-    assert _receives(compiled, "emb/holder", "text") == Iterate(Index("docs"))
-    assert _receives(compiled, "emb", "join.texts") == Group(Index("docs"), depth=1)
-    assert compiled.node("emb/join").iterates_on == Index("docs")
+    assert (_input_plan(compiled, "emb/holder", "text").receive_mode, _input_plan(compiled, "emb/holder", "text").rows_of) == ("value_at_row", "docs.result")
+    gather = _input_plan(compiled, "emb/join", "texts")
+    assert (gather.receive_mode, [read.depth for read in gather.source_reads]) == ("collected", [1])
+    assert compiled.run_plan.nodes["emb/join"].runs_per_row_of == "docs.result"
 
 
 def test_unrelated_rows_inside_an_embedded_graph_are_misaligned_not_paired():
     """One inner node fed rows of ``a``, another fed a reduction over
-    lines of ``b``. On one flat node this is ``misaligned``, and inside a
-    placement too: A's row i is never paired with B's row i."""
-    inner = _embedded(
-        "pair-graph",
-        (
+    lines of ``b``. On one flat node this is ``misaligned``, and inside an
+    embedded graph too: A's row i is never paired with B's row i."""
+    inner = embedded_graph_node("pair-graph", (
             GraphNode(id="up", type="upper", version=1),
             GraphNode(id="j", type="join", version=1),
-        ),
-        inputs=(
-            Input(name="up.text", dtype=Txt, title="Text", widget=Textarea(), default=Txt(""), optional=True),
-            Input(name="j.texts", dtype=Series[Txt], title="Texts", default=(), optional=True),
-        ),
-        outputs=(Output(name="up.result", dtype=Txt, title="Upper"), Output(name="j.result", dtype=Txt, title="Joined")),
-    )
+        ), _registry())
     compiled = _compiled([
         GraphNode(id="a", type="docs", version=1),
         GraphNode(id="b", type="docs", version=1),
         GraphNode(id="lb", type="lines", version=1, bindings={"text": _edge(("b", "result"))}),
-        GraphNode(id="e", type="pair-graph", version=1, bindings={"up.text": _edge(("a", "result")), "j.texts": _edge(("lb", "result"))}),
+        GraphNode(id="e", type="pair-graph", version=1, bindings={"text": _edge(("a", "result")), "texts": _edge(("lb", "result"))}),
     ], inner)
 
-    assert [(p.code, p.node_id) for p in compiled.problems] == [("misaligned", "e")]
+    assert [(p.type, p.loc[0]) for p in compiled.problems] == [("misaligned", "e")]
     assert not compiled.is_runnable
 
 
@@ -309,28 +234,21 @@ def test_an_edge_from_another_nodes_input_is_not_a_source():
         GraphNode(id="u", type="upper", version=1, bindings={"text": _edge(("h", "text"))}),
     ])
 
-    assert [(p.code, p.node_id, p.field) for p in compiled.problems] == [("unknown_ref_output", "u", "text")]
+    assert [(p.type, p.loc[0], p.loc[1]) for p in compiled.problems] == [("unknown_ref_output", "u", "text")]
     assert not compiled.is_runnable
 
 
-def test_an_open_parameter_inside_an_embedded_graph_receives_whole_as_it_does_standalone():
-    """The inner graph behaves as it would standalone: ``**inputs: Single``
-    fed a series receives it whole, and the placement does not run per row."""
-    inner = _embedded(
-        "script-graph",
-        (GraphNode(id="s", type="script", version=1),),
-        inputs=(Input(name="s.v", dtype=Series[Txt], title="V", default=(), optional=True),),
-        outputs=(Output(name="s.result", dtype=Txt, title="Result"),),
-    )
+def test_an_open_parameter_inside_an_embedded_graph_is_not_an_input_it_offers():
+    """``**inputs`` takes a field per edge connected to it. Inside a graph
+    compiled on its own nothing is connected to it, so the graph offers no
+    field there, and an edge from outside into ``s.v`` reaches nothing."""
+    inner = embedded_graph_node("script-graph", (GraphNode(id="s", type="script", version=1),), _registry())
     compiled = _compiled([
         GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="emb", type="script-graph", version=1, bindings={"s.v": _edge(("docs", "result"))}),
+        GraphNode(id="emb", type="script-graph", version=1, bindings={"v": _edge(("docs", "result"))}),
     ], inner)
 
-    assert compiled.is_runnable, compiled.problems
-    assert _receives(compiled, "emb/s", "v") == Whole()
-    assert compiled.node("emb/s").iterates_on is None
-    assert compiled.node("emb").iterates_on is None
+    assert [(p.type, p.loc[0], p.loc[1]) for p in compiled.problems] == [("stale_binding", "emb", "v")]
 
 
 # --- the ledger reads the record -----------------------------------------------------
@@ -340,25 +258,5 @@ def test_a_closed_list_input_runs_once_with_its_list_and_with_its_default():
     typed = _compiled([GraphNode(id="t", type="tags", version=1, bindings={"tags": Static(["a", "b", "c"])})])
     defaulted = _compiled([GraphNode(id="t", type="tags", version=1)])
 
-    assert run_sync(typed).state.results(typed)["t"]["result"] == "a|b|c"
-    assert run_sync(defaulted).state.results(defaulted)["t"]["result"] == "x"
-
-
-def test_an_open_parameter_embedded_receives_the_series_whole_at_run_time():
-    inner = _embedded(
-        "script-graph",
-        (GraphNode(id="s", type="script", version=1),),
-        inputs=(Input(name="s.v", dtype=Series[Txt], title="V", default=(), optional=True),),
-        outputs=(Output(name="s.result", dtype=Txt, title="Result"),),
-    )
-    standalone = _compiled([
-        GraphNode(id="docs", type="docs", version=1, bindings={"folder": Static("fa,fb")}),
-        GraphNode(id="s", type="script", version=1, bindings={"v": _edge(("docs", "result"))}),
-    ])
-    embedded = _compiled([
-        GraphNode(id="docs", type="docs", version=1, bindings={"folder": Static("fa,fb")}),
-        GraphNode(id="emb", type="script-graph", version=1, bindings={"s.v": _edge(("docs", "result"))}),
-    ], inner)
-
-    assert run_sync(standalone).state.results(standalone)["s"]["result"] == "v=['fa', 'fb']"
-    assert run_sync(embedded).state.results(embedded)["emb/s"]["result"] == "v=['fa', 'fb']"
+    assert typed.results(typed.run_sync())["t"]["result"] == "a|b|c"
+    assert defaulted.results(defaulted.run_sync())["t"]["result"] == "x"

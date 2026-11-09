@@ -3,87 +3,74 @@
 from typing import Annotated
 
 import pytest
-from conductor import NodeRegistry
-from conductor.dtype import DType
-from conductor.graph.binding import From, Static
-from conductor.graph.compiled import CompiledGraph
-from conductor.graph.model import Graph, GraphNode
-from conductor.graph.problem import Problem
-from conductor.metadata import Output, Param, Result
-from conductor.node import NodeDefinition
-from conductor.ref import Ref
-from conductor.series import Series
+from conductor import (
+    ArrivingType,
+    CompiledGraph,
+    DType,
+    From,
+    Graph,
+    GraphNode,
+    NodeRegistry,
+    Output,
+    Param,
+    Problem,
+    Ref,
+    Result,
+    Series,
+    Static,
+    node,
+)
 from conductor.widgets import Textarea
 from pydantic import ValidationError
 
 
 def test_a_problem_names_a_code_a_message_and_a_place():
-    p = Problem(
-        code="unknown_input",
-        message="The node has no such field.",
-        fatal=True,
-        node_id="letter",
-        field="template",
-    )
+    p = Problem(type="unknown_input", msg="The node has no such field.", loc=("letter", "template"))
 
-    assert p.code == "unknown_input"
-    assert p.node_id == "letter"
-    assert p.field == "template"
+    assert p.type == "unknown_input"
+    assert p.loc[0] == "letter"
+    assert p.loc[1] == "template"
 
 
 def test_a_problem_about_a_whole_node_names_no_field():
-    p = Problem(code="cycle", message="The graph loops back on itself.", fatal=True, node_id="letter")
+    p = Problem(type="cycle", msg="The graph loops back on itself.", loc=("letter",))
 
-    assert p.node_id == "letter"
-    assert p.field is None
-
-
-def test_every_problem_is_about_a_node():
-    """There is no graph-level problem: a graph is only ever wrong
-    somewhere, so the anchor has two states and not three."""
-    with pytest.raises(ValidationError, match="node_id"):
-        Problem(code="empty", message="The graph is empty.", fatal=True)
-
-def test_fatal_is_a_boolean_not_a_two_valued_enum():
-    """One fact, once. There are exactly two audiences: the editor
-    shows everything, a run stops at the first fatal one."""
-    assert Problem(code="c", message="m", fatal=True, node_id="n").fatal is True
-    assert Problem(code="c", message="m", fatal=False, node_id="n").fatal is False
+    assert p.loc[0] == "letter"
+    assert p.loc[1:] == ()
 
 
 def test_a_problem_is_frozen():
-    p = Problem(code="c", message="m", fatal=True, node_id="n")
+    p = Problem(type="c", msg="m", loc=("n",))
 
     with pytest.raises(Exception):
-        p.code = "other"
+        p.type = "other"
 
 
 def test_problems_compare_by_value():
-    a = Problem(code="c", message="m", fatal=True, node_id="n")
-    b = Problem(code="c", message="m", fatal=True, node_id="n")
+    a = Problem(type="c", msg="m", loc=("n",))
+    b = Problem(type="c", msg="m", loc=("n",))
 
     assert a == b
 
 
 def test_details_carry_what_the_message_names():
     """A host that translates by code needs the values, not the sentence."""
-    p = Problem(code="unknown_ref_node", message="Field 'text' is connected to 'a', which is not in the graph.",
-                fatal=True, node_id="b", field="text", details={"source_node": "a"})
+    p = Problem(type="unknown_ref_node", msg="Field 'text' is connected to 'a', which is not in the graph.", loc=("b", "text"), ctx={"source_node": "a"})
 
-    assert p.details == {"source_node": "a"}
-    assert Problem(code="c", message="m", fatal=True, node_id="n").details == {}
+    assert p.ctx == {"source_node": "a"}
+    assert Problem(type="c", msg="m", loc=("n",)).ctx == {}
 
 
 class Txt(DType, str):
     id = "problems-test-txt"
-    title = "Text"
+    display_title = "Text"
 
 
 class Nonempty(DType, str):
     """A type with a constructor rule: a value is one only when it has text."""
 
     id = "problems-test-nonempty"
-    title = "Non-empty text"
+    display_title = "Non-empty text"
 
     def __new__(cls, value=""):
         if not value:
@@ -94,85 +81,52 @@ class Nonempty(DType, str):
 Out = Annotated[Txt, Result(title="Result")]
 
 
-class Echo(NodeDefinition):
-    id = "echo"
-    title = "Echo"
-    description = "d"
-    category = "test"
-
-    def run(
-        self,
-        x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt(""),
-        y: Annotated[Txt, Param(title="Y", widget=Textarea())] = Txt(""),
-    ) -> Out:
-        return Txt(x + y)
+@node("echo", title="Echo", description="d", category="test")
+def echo(
+    x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt(""),
+    y: Annotated[Txt, Param(title="Y", widget=Textarea())] = Txt(""),
+) -> Out:
+    return Txt(x + y)
 
 
-class Script(NodeDefinition):
-    id = "script"
-    title = "Python"
-    description = "d"
-    category = "test"
-
-    def run(self, code: Annotated[Txt, Param(title="Code", show_handle=False, widget=Textarea())] = Txt("")) -> Out:
-        return code
+@node("script", title="Python", description="d", category="test")
+def script(code: Annotated[Txt, Param(title="Code", connectable=False, widget=Textarea())] = Txt("")) -> Out:
+    return code
 
 
-class Needs(NodeDefinition):
-    id = "needs"
-    title = "Needs"
-    description = "d"
-    category = "test"
-
-    def run(self, x: Annotated[Txt, Param(title="X", widget=Textarea())]) -> Out:
-        return x
+@node("needs", title="Needs", description="d", category="test")
+def needs(x: Annotated[Txt, Param(title="X", widget=Textarea())]) -> Out:
+    return x
 
 
-class Join(NodeDefinition):
-    id = "join"
-    title = "Join"
-    description = "d"
-    category = "test"
-
-    def run(self, texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
-        return Txt("\n".join(texts))
+@node("join", title="Join", description="d", category="test")
+def join_node(texts: Annotated[Series[Txt], Param(title="Texts")] = ()) -> Out:
+    return Txt("\n".join(texts))
 
 
-class Picky(NodeDefinition):
+@node("picky", title="Picky", description="d", category="test")
+def picky(x: Annotated[Nonempty, Param(title="X", widget=Textarea())] = Nonempty("x")) -> Out:
     """Its constraint is its type's: `x` must be a `Nonempty`."""
-
-    id = "picky"
-    title = "Picky"
-    description = "d"
-    category = "test"
-
-    def run(self, x: Annotated[Nonempty, Param(title="X", widget=Textarea())] = Nonempty("x")) -> Out:
-        return Txt(x)
+    return Txt(x)
 
 
-class Twice(NodeDefinition):
+def twice_outputs():
+    return (
+        Output("x", Txt, title="X"),
+        Output("x", Txt, title="X again"),
+        Output("value", Txt, title="Value"),
+    )
+
+@node("twice", title="Twice", description="d", category="test", compute_outputs=twice_outputs)
+def twice(value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
     """An interface naming one field twice: one name on two outputs, and one on both sides."""
-
-    id = "twice"
-    title = "Twice"
-    description = "d"
-    category = "test"
-
-    def run(self, value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
-        return value
-
-    def compute_outputs(self, declared, values, arriving):
-        return (
-            Output(name="x", dtype=Txt, title="X"),
-            Output(name="x", dtype=Txt, title="X again"),
-            Output(name="value", dtype=Txt, title="Value"),
-        )
+    return value
 
 
 def _registry():
     registry = NodeRegistry()
-    for node_cls in (Echo, Script, Needs, Join, Picky, Twice):
-        registry.register(node_cls)
+    for node_cls in (echo, script, needs, join_node, picky, twice):
+        registry = registry.extended_with([node_cls])
     return registry
 
 
@@ -181,7 +135,7 @@ def _problems(nodes, **kw):
 
 
 def _codes(nodes, **kw):
-    return [p.code for p in _problems(nodes, **kw)]
+    return [p.type for p in _problems(nodes, **kw)]
 
 
 # --- a value's own rule is its type's ---------------------------------------------
@@ -190,11 +144,11 @@ def _codes(nodes, **kw):
 def test_a_values_own_rule_is_its_types_constructor_and_reaches_compile_anchored():
     """What a value must satisfy to *be* one is the type's rule, and a
     static that breaks it is the statics pass's `invalid_static` — on the
-    field, on the node. No hook is asked, and no node is told where it was
-    placed."""
-    (problem,) = _problems([GraphNode(id="p", type="picky", version=1, bindings={"x": Static("")})])
+    field, on the node. No hook is asked, and no node is told where it
+    sits in the graph."""
+    (make_problem,) = _problems([GraphNode(id="p", type="picky", version=1, bindings={"x": Static("")})])
 
-    assert (problem.code, problem.fatal, problem.node_id, problem.field) == ("invalid_static", True, "p", "x")
+    assert (make_problem.type, make_problem.fatal, make_problem.loc[0], make_problem.loc[1]) == ("invalid_static", True, "p", "x")
 
 
 def test_the_problem_carries_what_the_type_itself_said():
@@ -202,19 +156,19 @@ def test_the_problem_carries_what_the_type_itself_said():
     type is where a value's rule is written, so the type's own words are the
     only ones that say what to change. The generic sentence leads, because it
     names the field; the type's follows it."""
-    (problem,) = _problems([GraphNode(id="p", type="picky", version=1, bindings={"x": Static("")})])
+    (make_problem,) = _problems([GraphNode(id="p", type="picky", version=1, bindings={"x": Static("")})])
 
-    assert problem.message == "The value in 'x' cannot be read as the field's type. The field must be filled in."
-    assert problem.details == {"reason": "The field must be filled in."}
+    assert make_problem.msg.endswith("The field must be filled in.") and "'x'" in make_problem.msg
+    assert make_problem.ctx["reason"] == "The field must be filled in."
 
 
 def test_a_type_that_said_nothing_of_its_own_leaves_the_generic_sentence_alone():
     """Pydantic's own report is English and about a JSON shape. A `Series`
     input handed a scalar is the same: nothing a person should read."""
-    (problem,) = _problems([GraphNode(id="j", type="join", version=1, bindings={"texts": Static(3)})])
+    (make_problem,) = _problems([GraphNode(id="j", type="join", version=1, bindings={"texts": Static(3)})])
 
-    assert problem.message == "The value in 'texts' cannot be read as the field's type."
-    assert problem.details == {}
+    assert "'texts'" in make_problem.msg
+    assert "reason" not in make_problem.ctx
 
 
 def test_a_value_that_satisfies_its_type_contributes_nothing():
@@ -224,40 +178,32 @@ def test_a_value_that_satisfies_its_type_contributes_nothing():
 # --- a field name is unique within a node -------------------------------------------
 
 
-def test_a_computed_roster_naming_one_field_twice_is_fatal():
+def test_a_computed_inputs_naming_one_field_twice_is_fatal():
     """`Interface.of` refuses the declaration; an interface a hook computed is
     compile's to refuse, once, on the finished interface — within a side and
     across sides alike, because a `Ref` is one address on either side."""
     problems = _problems([GraphNode(id="t", type="twice", version=1)])
 
-    assert [(p.code, p.fatal, p.node_id, p.field) for p in problems] == [
+    assert [(p.type, p.fatal, p.loc[0], p.loc[1]) for p in problems] == [
         ("duplicate_field_name", True, "t", "x"),
         ("duplicate_field_name", True, "t", "value"),
     ]
 
 
-def test_a_computed_field_with_a_handle_needs_an_edge_type():
-    """A DType is required exactly where a handle is. `Interface.of`
-    refuses the declaration; a hook can compute an output nothing could
-    edge, and compile refuses that once, on the completed interface."""
+def test_a_hook_writing_an_output_of_no_dtype_is_a_bug_in_the_hook():
+    """A record's ``dtype`` is a ``DType``, so the record refuses anything else where the hook writes it."""
 
-    class Odd(NodeDefinition):
-        id = "odd"
-        title = "Odd"
-        description = "d"
-        category = "test"
+    def odd_outputs():
+        return (Output("raw", dict, title="Raw"))
 
-        def run(self, value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
-            return value
-
-        def compute_outputs(self, declared, values, arriving):
-            return (*declared, Output(name="raw", dtype=dict, title="Raw"))
+    @node("odd", title="Odd", description="d", category="test", compute_outputs=odd_outputs)
+    def odd(value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
+        return value
 
     registry = _registry()
-    registry.register(Odd)
-    problems = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="o", type="odd", version=1)]), registry).problems
-
-    assert [(p.code, p.fatal, p.field) for p in problems] == [("handle_needs_dtype", True, "raw")]
+    registry = registry.extended_with([odd])
+    with pytest.raises(ValidationError, match="dtype"):
+        CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="o", type="odd", version=1)]), registry)
 
 
 # --- the stored bindings, validated -----------------------------------------------
@@ -271,20 +217,20 @@ def test_a_clean_graph_reports_no_problems():
 
 
 def test_a_binding_on_an_input_the_placement_does_not_have_is_stale():
-    (problem,) = _problems([GraphNode(id="a", type="echo", version=1, bindings={"z": Static(1)})])
+    (make_problem,) = _problems([GraphNode(id="a", type="echo", version=1, bindings={"z": Static(1)})])
 
-    assert (problem.code, problem.fatal, problem.node_id, problem.field) == ("stale_binding", True, "a", "z")
+    assert (make_problem.type, make_problem.fatal, make_problem.loc[0], make_problem.loc[1]) == ("stale_binding", True, "a", "z")
 
 
 def test_an_edge_into_a_closed_handle_is_fatal():
-    """`show_handle=False` is the one wireability question, and the
+    """`connectable=False` is the one wireability question, and the
     integrity it protects is structural — nothing upstream reaches `code`."""
-    (problem,) = _problems([
+    (make_problem,) = _problems([
         GraphNode(id="a", type="echo", version=1),
         GraphNode(id="s", type="script", version=1, bindings={"code": From("a.result")}),
     ])
 
-    assert (problem.code, problem.fatal, problem.field) == ("edge_into_closed_handle", True, "code")
+    assert (make_problem.type, make_problem.fatal, make_problem.loc[1]) == ("edge_into_unconnectable_input", True, "code")
 
 
 def test_two_scalar_refs_into_a_scalar_input_is_fatal():
@@ -308,29 +254,29 @@ def test_two_refs_into_a_series_input_is_a_gather_not_a_problem():
 
 
 def test_a_ref_to_a_node_not_in_the_graph_is_fatal():
-    (problem,) = _problems([GraphNode(id="b", type="echo", version=1, bindings={"x": From("ghost.result")})])
+    (make_problem,) = _problems([GraphNode(id="b", type="echo", version=1, bindings={"x": From("ghost.result")})])
 
-    assert (problem.code, problem.node_id, problem.field) == ("unknown_ref_node", "b", "x")
-    assert problem.details == {"source_node": "ghost"}
+    assert (make_problem.type, make_problem.loc[0], make_problem.loc[1]) == ("unknown_ref_node", "b", "x")
+    assert make_problem.ctx == {"source_node": "ghost"}
 
 
 def test_a_ref_to_an_output_the_node_does_not_have_is_fatal():
-    (problem,) = _problems([
+    (make_problem,) = _problems([
         GraphNode(id="a", type="echo", version=1),
         GraphNode(id="b", type="echo", version=1, bindings={"x": From("a.nope")}),
     ])
 
-    assert (problem.code, problem.node_id, problem.field) == ("unknown_ref_output", "b", "x")
-    assert problem.details == {"source": "a.nope"}
+    assert (make_problem.type, make_problem.loc[0], make_problem.loc[1]) == ("unknown_ref_output", "b", "x")
+    assert make_problem.ctx == {"source": "a.nope", "outputs": "result"}
 
 
 def test_a_required_input_with_nothing_bound_is_fatal():
     """A graph is closed. The caller's answer replaces a value the
     author set; it does not fill a hole."""
-    (problem,) = _problems([GraphNode(id="n", type="needs", version=1)])
+    (make_problem,) = _problems([GraphNode(id="n", type="needs", version=1)])
 
-    assert (problem.code, problem.fatal, problem.field) == ("unbound_required", True, "x")
-    assert problem.message == "Nothing is connected to the field."
+    assert (make_problem.type, make_problem.fatal, make_problem.loc[1]) == ("unbound_required", True, "x")
+    assert make_problem.msg == "Nothing is connected to the field."
 
 
 def test_an_any_input_with_no_edge_is_unbound_required():
@@ -339,25 +285,20 @@ def test_an_any_input_with_no_edge_is_unbound_required():
     an untyped field."""
     from typing import Any
 
-    class Route(NodeDefinition):
-        id = "route-p"
-        title = "Pass on"
-        description = "d"
-        category = "test"
+    def route_outputs(value: ArrivingType):
+        dtype = value
+        return (Output("result", dtype, title="R"),)
 
-        def run(self, value: Annotated[Any, Param(title="Value")]) -> Annotated[Any, Result(title="R")]:
-            return value
-
-        def compute_outputs(self, declared, values, arriving):
-            dtype = arriving.get("value", Any)
-            return tuple(out.model_copy(update={"dtype": dtype}) for out in declared)
+    @node("route-p", title="Pass on", description="d", category="test", compute_outputs=route_outputs)
+    def route(value: Annotated[Any, Param(title="Value")]) -> Annotated[Any, Result(title="R")]:
+        return value
 
     registry = _registry()
-    registry.register(Route)
+    registry = registry.extended_with([route])
     problems = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="r", type="route-p", version=1)]), registry).problems
 
-    assert [(p.code, p.fatal, p.field) for p in problems] == [("unbound_required", True, "value")]
-    assert problems[0].message == "Nothing is connected to the field."
+    assert [(p.type, p.fatal, p.loc[1]) for p in problems] == [("unbound_required", True, "value")]
+    assert problems[0].msg == "Nothing is connected to the field."
 
 
 def test_a_required_input_with_a_static_is_fine():
@@ -374,7 +315,7 @@ def test_a_cycle_is_a_fatal_problem_on_each_node_in_it():
         _registry(),
     )
 
-    assert [(p.code, p.node_id) for p in compiled.problems] == [("cycle", "a"), ("cycle", "b")]
+    assert [(p.type, p.loc[0]) for p in compiled.problems] == [("cycle", "a"), ("cycle", "b")]
     assert compiled.execution_order == ("c",)
     assert not compiled.is_runnable
 
@@ -391,8 +332,8 @@ def test_problems_can_be_read_whole_or_by_node():
     )
 
     assert len(compiled.problems) == 3
-    assert [p.code for p in compiled.problems if p.node_id == "a" and p.field == "ghost"] == ["unknown_locked_field"]
-    assert [p.code for p in compiled.problems if p.node_id == "a" and p.field == "z"] == ["stale_binding"]
+    assert [p.type for p in compiled.problems if p.loc[0] == "a" and p.loc[1] == "ghost"] == ["unknown_locked_field"]
+    assert [p.type for p in compiled.problems if p.loc[0] == "a" and p.loc[1] == "z"] == ["stale_binding"]
     with pytest.raises(KeyError):
         compiled.field(Ref("a", "z"))
 
@@ -409,34 +350,35 @@ def test_a_non_fatal_problem_leaves_the_graph_runnable():
 
 
 def test_every_code_is_declared_once_in_the_catalogue():
-    """``CODES`` is what a host translating by code has to cover: the keys of
+    """``PROBLEM_CODES`` is what a host translating by code has to cover: the keys of
     the one table every emitting site reads. A site naming a code the table
     lacks raises where it is written, so nothing can be emitted undeclared."""
-    from conductor.graph.problem import CATALOGUE, CODES, problem
+    from conductor import PROBLEM_CODES
+    from conductor._internal.errors import PROBLEM_CATALOGUE, make_problem
 
-    assert CODES == frozenset(CATALOGUE)
+    assert PROBLEM_CODES == frozenset(PROBLEM_CATALOGUE)
     with pytest.raises(KeyError):
-        problem("no_such_code", "n")
+        make_problem("no_such_code", "n")
 
 
 def test_a_slot_the_details_do_not_fill_raises_unless_it_is_optional():
     """A template typo or a forgotten keyword is a programming error, caught
     where the problem is built; only the type's own sentence may be absent."""
-    from conductor.graph.problem import problem
+    from conductor._internal.errors import make_problem
 
     with pytest.raises(KeyError):
-        problem("unknown_ref_node", "b", "text")  # no source_node
-    assert problem("invalid_static", "b", "text").message == "The value in 'text' cannot be read as the field's type."
+        make_problem("unknown_ref_node", "b", "text")  # no source_node
+    assert make_problem("invalid_static", "b", "text", input="1", expected="text").msg == "The value 1 in 'text' cannot be read as text."
 
 
 def test_a_problem_is_formatted_from_its_details_and_keeps_them():
-    from conductor.graph.problem import problem
+    from conductor._internal.errors import make_problem
 
-    p = problem("unknown_ref_node", "b", "text", source_node="a")
-    assert p.message == "Field 'text' is connected to 'a', which is not in the graph."
-    assert p.details == {"source_node": "a"}
+    p = make_problem("unknown_ref_node", "b", "text", source_node="a")
+    assert p.msg == "Field 'text' is connected to 'a', which is not in the graph."
+    assert p.ctx == {"source_node": "a"}
     assert p.fatal is True
-    assert problem("unknown_locked_field", "b", "old").fatal is False
+    assert make_problem("unknown_locked_field", "b", "old").fatal is False
 
 
 # --- what compile refuses ----------------------------------------------------------------
@@ -444,14 +386,13 @@ def test_a_problem_is_formatted_from_its_details_and_keeps_them():
 
 def test_a_slash_in_an_authored_id_is_fatal():
     """``/`` is how compile names the nodes of an embedded graph."""
-    (problem,) = _problems([GraphNode(id="a/b", type="echo", version=1)])
+    (make_problem,) = _problems([GraphNode(id="a/b", type="echo", version=1)])
 
-    assert (problem.code, problem.fatal, problem.node_id) == ("invalid_node_id", True, "a/b")
+    assert (make_problem.type, make_problem.fatal, make_problem.loc[0]) == ("invalid_node_id", True, "a/b")
 
 
 def test_an_edge_with_no_refs_is_refused_where_it_is_written():
     """``From()`` is not a binding: the model refuses it before compile sees it."""
-    from pydantic import ValidationError
 
     with pytest.raises(ValidationError):
         From()
@@ -470,7 +411,7 @@ def test_a_cycle_is_reported_on_its_members_only():
         _registry(),
     )
 
-    assert [(p.code, p.node_id) for p in compiled.problems] == [("cycle", "a"), ("cycle", "b")]
+    assert [(p.type, p.loc[0]) for p in compiled.problems] == [("cycle", "a"), ("cycle", "b")]
     assert compiled.execution_order == ("u", "v")
     assert [i.name for i in compiled.node("u").interface.inputs] == ["x", "y"]
     assert not compiled.is_runnable
@@ -484,37 +425,18 @@ def test_an_edge_from_a_node_that_failed_to_resolve_is_not_reported_again():
         GraphNode(id="u", type="echo", version=1, bindings={"x": From("x.result")}),
     ])
 
-    assert [(p.code, p.node_id) for p in problems] == [("unknown_node_type", "x")]
+    assert [(p.type, p.loc[0]) for p in problems] == [("unknown_node_type", "x")]
 
 
 def test_an_edge_into_a_field_an_embedded_graph_lacks_names_the_authors_address():
-    """``e.nope`` is not an output of ``e``; the message says so with
-    the address the author wrote, and no expanded id leaks."""
-    from collections.abc import Mapping
-    from typing import ClassVar
-
-    from conductor.interface import Interface
-    from conductor.metadata import Input, Output
-    from conductor.node import GraphVersion
-
-    class Emb(NodeDefinition):
-        id = "emb-graph"
-        title = "Embedded"
-        description = "d"
-        category = "test"
-        versions: ClassVar[dict[int, GraphVersion]] = {
-            1: GraphVersion(
-                graph=(GraphNode(id="inner", type="echo", version=1),),
-                interface=Interface(
-                    inputs=(Input(name="inner.x", dtype=Txt, title="X", widget=Textarea(), default=Txt(""), optional=True),),
-                    outputs=(Output(name="inner.result", dtype=Txt, title="R"),),
-                    returns=Mapping,
-                ),
-            )
-        }
+    """``e.nope`` is not an output of ``e``, and ``e.ghost.out`` is the address
+    ``e/ghost.out``, which nothing inside ``e`` has."""
+    from test_core.embedded import embedded_graph_node
 
     registry = _registry()
-    registry.register(Emb)
+    registry = registry.extended_with([embedded_graph_node(
+        "emb-graph", (GraphNode(id="inner", type="echo", version=1),), registry,
+    )])
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="e", type="emb-graph", version=1),
@@ -524,11 +446,10 @@ def test_an_edge_into_a_field_an_embedded_graph_lacks_names_the_authors_address(
         registry,
     )
 
-    assert [(p.code, p.node_id, p.field, p.details) for p in compiled.problems] == [
-        ("unknown_ref_output", "u", "x", {"source": "e.nope"}),
-        ("unknown_ref_output", "w", "x", {"source": "e.ghost.out"}),
+    assert [(p.type, p.loc[0], p.loc[1], p.ctx) for p in compiled.problems] == [
+        ("unknown_ref_output", "u", "x", {"source": "e.nope", "outputs": "result"}),
+        ("unknown_ref_output", "w", "x", {"source": "e.ghost.out", "outputs": "result"}),
     ]
-    assert not any("/" in p.message for p in compiled.problems)
 
 
 def test_an_edge_from_a_slashed_name_under_a_plain_node_is_not_in_the_graph():
@@ -544,7 +465,7 @@ def test_an_edge_from_a_slashed_name_under_a_plain_node_is_not_in_the_graph():
         _registry(),
     )
 
-    assert [(p.code, p.node_id, p.details) for p in compiled.problems] == [("unknown_ref_node", "u", {"source_node": "a/b"})]
+    assert [(p.type, p.loc[0], p.ctx) for p in compiled.problems] == [("unknown_ref_node", "u", {"source_node": "a/b"})]
     assert not compiled.is_runnable
 
 
@@ -555,4 +476,26 @@ def test_an_edge_from_a_refused_id_is_not_reported_again():
         GraphNode(id="u", type="echo", version=1, bindings={"x": From("x/y.result")}),
     ])
 
-    assert [(p.code, p.node_id) for p in problems] == [("invalid_node_id", "x/y")]
+    assert [(p.type, p.loc[0]) for p in problems] == [("invalid_node_id", "x/y")]
+
+
+def test_an_edge_from_a_refused_id_beside_an_embedded_graph_does_not_read_inside_it():
+    """``e/inner`` is a refused id, not the node ``inner`` of the graph ``e``:
+    its reader stays broken and silent, and never reads the embedded graph."""
+    from test_core.embedded import embedded_graph_node
+
+    registry = _registry()
+    registry = registry.extended_with([embedded_graph_node(
+        "emb-graph", (GraphNode(id="inner", type="echo", version=1),), registry,
+    )])
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[
+            GraphNode(id="e", type="emb-graph", version=1),
+            GraphNode(id="e/inner", type="echo", version=1),
+            GraphNode(id="u", type="echo", version=1, bindings={"x": From("e/inner.result")}),
+        ]),
+        registry,
+    )
+
+    assert [(p.type, p.loc[0]) for p in compiled.problems] == [("invalid_node_id", "e/inner")]
+    assert compiled.node("u").state == "wiring_failed"

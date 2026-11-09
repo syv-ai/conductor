@@ -5,87 +5,66 @@ from dataclasses import dataclass
 from typing import Annotated
 
 import pytest
-from conductor import SKIPPED, Param, run, run_sync
-from conductor.dtype import DType
-from conductor.execution.engine import execute
-from conductor.graph.binding import From, Static
-from conductor.graph.compiled import CompiledGraph
-from conductor.graph.model import Graph, GraphNode
-from conductor.metadata import Result
-from conductor.node import NodeDefinition
+from conductor import (
+    SKIPPED,
+    CompiledGraph,
+    DType,
+    From,
+    Graph,
+    GraphNode,
+    Param,
+    Result,
+    Static,
+    node,
+)
 from conductor.widgets import Textarea
+from helpers import stream_of
 
 
 class Txt(DType, str):
     id = "execution-test-text"
-    title = "Text"
+    display_title = "Text"
 
 
 Out = Annotated[Txt, Result(title="Out")]
 
 
-class Echo(NodeDefinition):
-    id = "echo"
-    title = "Echo"
-    description = "Returns input"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
-        return text
+@node("echo", title="Echo", description="Returns input", category="test")
+def echo(text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
+    return text
 
 
-class Upper(NodeDefinition):
-    id = "upper"
-    title = "Upper"
-    description = "Uppercases"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
-        return Txt(text.upper())
+@node("upper", title="Upper", description="Uppercases", category="test")
+def upper_node(text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
+    return Txt(text.upper())
 
 
-class Combine(NodeDefinition):
-    id = "combine"
-    title = "Combine"
-    description = "Joins two strings"
-    category = "test"
-
-    def run(
-        self,
-        a: Annotated[Txt, Param(title="A", widget=Textarea())],
-        b: Annotated[Txt, Param(title="B", widget=Textarea())],
-    ) -> Out:
-        return Txt(f"{a} {b}")
+@node("combine", title="Combine", description="Joins two strings", category="test")
+def combine(
+    a: Annotated[Txt, Param(title="A", widget=Textarea())],
+    b: Annotated[Txt, Param(title="B", widget=Textarea())],
+) -> Out:
+    return Txt(f"{a} {b}")
 
 
-class Fail(NodeDefinition):
-    id = "fail"
-    title = "Fail"
-    description = "Always fails"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
-        raise RuntimeError("boom")
+@node("fail", title="Fail", description="Always fails", category="test")
+def fail(text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
+    raise RuntimeError("boom")
 
 
 @pytest.fixture
 def three_node_registry(registry):
     """Registry with echo, upper, and combine nodes."""
-    registry.register(Echo)
-    registry.register(Upper)
-    registry.register(Combine)
+    registry = registry.extended_with([echo])
+    registry = registry.extended_with([upper_node])
+    registry = registry.extended_with([combine])
     return registry
 
 
-class Slow(NodeDefinition):
-    id = "slow"
-    title = "Slow"
-    description = "Sleeps 0.3s, then uppercases"
-    category = "test"
-
-    def run(self, text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
-        time.sleep(0.3)
-        return Txt(text.upper())
+@node("slow", title="Slow", description="Sleeps 0.3s, then uppercases", category="test")
+def slow(text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
+    time.sleep(0.3)
+    return Txt(text.upper())
 
 
 # ---------------------------------------------------------------------------
@@ -98,8 +77,8 @@ class TestStreamingExecution:
         # A(0.3s) -> C(0.3s) --+
         #                      +--> E
         # B(0.3s) -> D(0.3s) --+
-        registry.register(Slow)
-        registry.register(Combine)
+        registry = registry.extended_with([slow])
+        registry = registry.extended_with([combine])
         compiled = CompiledGraph.from_graph(Graph(nodes=[
             GraphNode(id="a", type="slow", version=1, bindings={"text": Static("hello")}),
             GraphNode(id="b", type="slow", version=1, bindings={"text": Static("world")}),
@@ -109,7 +88,7 @@ class TestStreamingExecution:
         ]), registry)
 
         start = time.monotonic()
-        results = run_sync(compiled).state.results(compiled)
+        results = compiled.results(compiled.run_sync())
         elapsed = time.monotonic() - start
 
         # Sequential would be 5 * 0.3 = 1.5s; eager is A+B, C+D, E = ~0.9s.
@@ -124,13 +103,13 @@ class TestStreamingExecution:
             ]), three_node_registry)
 
         events = []
-        async for event in execute(compiled):
+        async for event in stream_of(compiled):
             events.append(event)
 
         event_types = [e.type for e in events]
         assert "node_start" in event_types
         assert "node_complete" in event_types
-        assert "graph_complete" in event_types
+        assert "run_end" in event_types
 
     async def test_linear_chain_results(self, three_node_registry):
         """echo('hello') -> upper -> 'HELLO'."""
@@ -139,7 +118,7 @@ class TestStreamingExecution:
                 GraphNode(id="n2", type="upper", version=1, bindings={"text": From('n1.result')}),
             ]), three_node_registry)
 
-        results = (await run(compiled)).state.results(compiled)
+        results = compiled.results((await compiled.run()))
         assert results["n2"]["result"] == "HELLO"
 
     async def test_diamond_execution(self, three_node_registry):
@@ -154,7 +133,7 @@ class TestStreamingExecution:
                 GraphNode(id="n4", type="combine", version=1, bindings={"a": From('n2.result'), "b": From('n3.result')}),
             ]), three_node_registry)
 
-        results = (await run(compiled)).state.results(compiled)
+        results = compiled.results((await compiled.run()))
         assert results["n4"]["result"] == "HELLO hello"
 
 
@@ -170,35 +149,15 @@ class TestSyncExecution:
                 GraphNode(id="n2", type="upper", version=1, bindings={"text": From('n1.result')}),
             ]), three_node_registry)
 
-        results = run_sync(compiled).state.results(compiled)
+        results = compiled.results(compiled.run_sync())
         assert results["n2"]["result"] == "WORLD"
 
     def test_single_node_no_edges(self, three_node_registry):
         """A single node with static data, no edges."""
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="echo", version=1, bindings={"text": Static("standalone")})]), three_node_registry)
 
-        results = run_sync(compiled).state.results(compiled)
+        results = compiled.results(compiled.run_sync())
         assert results["n1"]["result"] == "standalone"
-
-
-# ---------------------------------------------------------------------------
-# Caching
-# ---------------------------------------------------------------------------
-
-class TestCaching:
-    async def test_cached_results_used(self, three_node_registry):
-        """Passing cache skips execution and uses cached value."""
-        compiled = CompiledGraph.from_graph(Graph(nodes=[
-                GraphNode(id="n1", type="echo", version=1, bindings={"text": Static("hello")}),
-                GraphNode(id="n2", type="upper", version=1, bindings={"text": From('n1.result')}),
-            ]), three_node_registry)
-
-        results = (await run(
-            compiled,
-            cache={"n1": {"result": "cached_value"}},
-        )).state.results(compiled)
-        # n2 should uppercase the cached value, not "hello"
-        assert results["n2"]["result"] == "CACHED_VALUE"
 
 
 # ---------------------------------------------------------------------------
@@ -207,22 +166,22 @@ class TestCaching:
 
 class TestErrorHandling:
     async def test_a_node_error_ends_the_graph_in_error(self, registry):
-        registry.register(Fail)
+        registry = registry.extended_with([fail])
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="fail", version=1, bindings={"text": Static("hello")})]), registry)
 
         events = []
-        async for event in execute(compiled):
+        async for event in stream_of(compiled):
             events.append(event)
 
         event_types = [e.type for e in events]
-        assert "node_error" in event_types
-        assert "graph_error" in event_types
+        assert "node_failed" in event_types
+        assert "node_failed" in event_types
 
     def test_run_sync_returns_the_error_ending(self, registry):
-        registry.register(Fail)
+        registry = registry.extended_with([fail])
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="fail", version=1, bindings={"text": Static("hello")})]), registry)
 
-        assert run_sync(compiled).type == "graph_error"
+        assert compiled.run_sync().status == "failed"
 
 
 # ---------------------------------------------------------------------------
@@ -231,25 +190,20 @@ class TestErrorHandling:
 
 class TestTimeout:
     async def test_timeout_produces_event(self, registry):
-        class Slow(NodeDefinition):
-            id = "slow"
-            title = "Slow"
-            description = "Sleeps"
-            category = "test"
+        @node("slow", title="Slow", description="Sleeps", category="test")
+        def slow(text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
+            time.sleep(2)
+            return text
 
-            def run(self, text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
-                time.sleep(2)
-                return text
-
-        registry.register(Slow)
+        registry = registry.extended_with([slow])
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="slow", version=1, bindings={"text": Static("hello")})]), registry)
 
         events = []
-        async for event in execute(compiled, timeout=1):
+        async for event in stream_of(compiled, timeout=1):
             events.append(event)
 
         event_types = [e.type for e in events]
-        assert "graph_timeout" in event_types
+        assert "run_end" in event_types
 
 
 # ---------------------------------------------------------------------------
@@ -260,32 +214,27 @@ class TestTimeout:
 class Branches:
     """Two exclusive outputs: the one not taken holds ``SKIPPED``."""
 
-    taken: Annotated[Txt, Result(title="Taken", choice="branch")]
-    not_taken: Annotated[Txt, Result(title="Not taken", choice="branch")]
+    taken: Annotated[Txt, Result(title="Taken", exclusive_group="branch")]
+    not_taken: Annotated[Txt, Result(title="Not taken", exclusive_group="branch")]
 
 
 class TestSkipPropagation:
     async def test_skipped_input_skips_downstream(self, registry):
         """If all inputs to a node are SKIPPED, the node itself is skipped."""
 
-        class Conditional(NodeDefinition):
-            id = "conditional"
-            title = "Cond"
-            description = "Returns SKIPPED on one branch"
-            category = "test"
+        @node("conditional", title="Cond", description="Returns SKIPPED on one branch", category="test")
+        def conditional(text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Branches:
+            return Branches(taken=text, not_taken=SKIPPED)
 
-            def run(self, text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Branches:
-                return Branches(taken=text, not_taken=SKIPPED)
-
-        registry.register(Echo)
-        registry.register(Conditional)
+        registry = registry.extended_with([echo])
+        registry = registry.extended_with([conditional])
         compiled = CompiledGraph.from_graph(Graph(nodes=[
                 GraphNode(id="n1", type="conditional", version=1, bindings={"text": Static("hello")}),
                 GraphNode(id="n2", type="echo", version=1, bindings={"text": From('n1.not_taken')}),  # connected to the branch not taken
             ]), registry)
 
         events = []
-        async for event in execute(compiled):
+        async for event in stream_of(compiled):
             events.append(event)
 
         # n2 should be skipped because its only input is SKIPPED

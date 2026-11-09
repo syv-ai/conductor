@@ -15,7 +15,11 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Typing :: Typed",
 ]
-dependencies = ["pydantic>=2.11", "pyyaml>=6.0"]
+dependencies = [
+    "polars>=2.0",
+    "pydantic>=2.11",
+    "pyyaml>=6.0",
+]
 
 [project.optional-dependencies]
 # Sibling-package extras — published in lockstep from this monorepo, so
@@ -24,7 +28,7 @@ nodes = ["syv-conductor-nodes==2.0.0"]
 providers = ["syv-conductor-providers==2.0.0"]
 all = [
     "syv-conductor-nodes==2.0.0",
-    "syv-conductor-providers[fastapi]==2.0.0",
+    "syv-conductor-providers==2.0.0",
 ]
 
 [project.urls]

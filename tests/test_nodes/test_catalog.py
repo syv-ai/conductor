@@ -5,12 +5,12 @@ to one module cannot quietly drop a title, a category or an id.
 """
 
 from collections import defaultdict
-from typing import Any, get_args
+from typing import get_args
 
 import conductor_nodes
 import pytest
-from conductor.node import NodeDefinition
-from conductor_nodes.types import Flag, Json, Number, Text
+from conductor._internal.dtype import dtype_of
+from conductor_nodes.types import Json
 
 #: Every node id the catalog is expected to hold, checked in both directions
 #: against ``registry.nodes``: a node missing here or an unlisted
@@ -30,7 +30,7 @@ EXPECTED_IDS = {
 #: The types the catalog is declared with. A field's dtype is one of these,
 #: a ``Series`` of one, or ``Any`` on a node that routes a value it does not
 #: read.
-VOCABULARY = {Text, Number, Flag, Json}
+VOCABULARY = {dtype_of(str), dtype_of(float), dtype_of(bool), Json}
 
 
 @pytest.fixture(scope="module")
@@ -40,7 +40,7 @@ def registry():
 
 def _current(node_cls):
     """The interface of the version the catalog currently offers."""
-    return node_cls.versions[node_cls.current].interface
+    return node_cls.versions[node_cls.current_version].interface
 
 
 def _is_vocabulary(dtype) -> bool:
@@ -57,7 +57,7 @@ def test_the_markers_and_the_signals_are_gone(registry):
     """Compound and signal node types are not in the catalog.
 
     Iteration is a ``Series`` reaching a scalar input, an embedded graph is
-    a definition the host builds, and a pause is a node returning ``Asks``,
+    a definition the host builds, and a pause is a node returning ``AskPerson``,
     so none of these needs a node of its own.
     """
     for gone in (
@@ -94,7 +94,7 @@ def test_every_field_is_declared_in_the_vocabulary_or_is_any(registry):
     for node_cls in registry.nodes:
         iface = _current(node_cls)
         for field in (*iface.inputs, *iface.outputs):
-            assert field.dtype is Any or _is_vocabulary(field.dtype), (
+            assert field.dtype.id == "any" or _is_vocabulary(field.dtype), (
                 f"{node_cls.id}.{field.name} is {field.dtype!r}"
             )
 
@@ -106,11 +106,11 @@ def test_only_the_gate_declares_any(registry):
     vague = {
         node_cls.id
         for node_cls in registry.nodes
-        if any(f.dtype is Any for f in (*_current(node_cls).inputs, *_current(node_cls).outputs))
+        if any(f.dtype.id == "any" for f in (*_current(node_cls).inputs, *_current(node_cls).outputs))
     }
     assert vague == {"decision"}
     gate = _current(registry["decision"])
-    assert gate.inputs[0].dtype is Any and all(o.dtype is Any for o in gate.outputs)
+    assert gate.inputs[0].dtype.id == "any" and all(o.dtype.id == "any" for o in gate.outputs)
 
 
 def test_branches_are_one_choice(registry):
@@ -121,8 +121,8 @@ def test_branches_are_one_choice(registry):
     for node_cls in registry.nodes:
         by_choice = defaultdict(list)
         for out in _current(node_cls).outputs:
-            if out.choice is not None:
-                by_choice[out.choice].append(out.name)
+            if out.exclusive_group is not None:
+                by_choice[out.exclusive_group].append(out.name)
         if by_choice:
             groups[node_cls.id] = dict(by_choice)
     assert groups == {
@@ -141,13 +141,10 @@ def test_no_stdlib_node_overrides_a_shaping_hook(registry):
     its dtype's constructor rules.
     """
     for node_cls in registry.nodes:
-        assert getattr(node_cls, "compute_inputs") is getattr(NodeDefinition, "compute_inputs"), (
-            f"{node_cls.id} overrides compute_inputs — record why it must"
-        )
+        version = node_cls.versions[node_cls.current_version]
+        assert version.compute_added_inputs is None, f"{node_cls.id} has compute_added_inputs — record why it must"
         if node_cls.id != "decision":
-            assert getattr(node_cls, "compute_outputs") is getattr(NodeDefinition, "compute_outputs"), (
-                f"{node_cls.id} overrides compute_outputs — record why it must"
-            )
+            assert version.compute_outputs is None, f"{node_cls.id} has compute_outputs — record why it must"
         assert not hasattr(node_cls, "validate"), f"{node_cls.id} has a validate hook; there is none"
 
 

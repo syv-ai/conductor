@@ -2,12 +2,12 @@
 
 class TestSentinel:
     def test_skipped_is_singleton(self):
-        from conductor._sentinel import SKIPPED
+        from conductor import SKIPPED
 
         assert SKIPPED is SKIPPED
         assert repr(SKIPPED) == "SKIPPED"
 
     def test_skipped_is_falsy(self):
-        from conductor._sentinel import SKIPPED
+        from conductor import SKIPPED
 
         assert not SKIPPED

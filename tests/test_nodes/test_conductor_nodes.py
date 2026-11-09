@@ -1,8 +1,8 @@
 """The standard node library, node by node, through ``compile`` + ``run_sync``.
 
-Each node is placed in a graph and run, so registration, the declared
+Each node is put in a graph and run, so registration, the declared
 interface and the behaviour of ``run`` are checked together. Results come
-back as the library's own dtypes (``Text``, ``Number``, ``Flag``, ``Json``);
+back as the library's own dtypes (``str``, ``float``, ``bool``, ``Json``);
 a series output compares as a list. ``decision`` is called directly: its
 ``value`` is ``Any`` and nothing here records what arrives on it.
 """
@@ -11,29 +11,26 @@ from __future__ import annotations
 
 import conductor_nodes
 import pytest
-from conductor import CompiledGraph, GraphNode, NodeRegistry, run_sync
-from conductor._sentinel import SKIPPED
-from conductor.graph.binding import From, Static
-from conductor.graph.model import Graph
-from conductor_nodes.decision import Decision
-from conductor_nodes.types import Flag, Json, Text
+from conductor import SKIPPED, CompiledGraph, From, Graph, GraphNode, NodeRegistry, Static
+from conductor_nodes.decision import decision
+from conductor_nodes.types import Json
+from helpers import stream_of
 
 
 @pytest.fixture
 def full_registry() -> NodeRegistry:
-    reg = NodeRegistry()
-    conductor_nodes.register_all(reg)
+    reg = conductor_nodes.registry()
     return reg
 
 
 def _ending(reg: NodeRegistry, nodes):
     compiled = CompiledGraph.from_graph(Graph(nodes=nodes), reg)
-    return run_sync(compiled)
+    return compiled.run_sync()
 
 
 def _run(reg: NodeRegistry, nodes):
     compiled = CompiledGraph.from_graph(Graph(nodes=nodes), reg)
-    return run_sync(compiled).state.results(compiled)
+    return compiled.results(compiled.run_sync())
 
 
 class TestPackageSurface:
@@ -49,7 +46,7 @@ class TestPackageSurface:
 
     def test_register_all_respects_categories_filter(self):
         reg = NodeRegistry()
-        conductor_nodes.register_all(reg, categories=["text", "math"])
+        reg = conductor_nodes.registry(categories=["text", "math"])
         ids = {c.id for c in reg.nodes}
         assert "text-uppercase" in ids
         assert "math-add" in ids
@@ -57,16 +54,14 @@ class TestPackageSurface:
         assert "logic-if-empty" not in ids
 
     def test_register_all_rejects_unknown_category(self):
-        reg = NodeRegistry()
         with pytest.raises(KeyError, match="Unknown category"):
-            conductor_nodes.register_all(reg, categories=["doesnt-exist"])
+            conductor_nodes.registry(categories=["doesnt-exist"])
 
-    def test_individual_modules_expose_register(self):
-        reg = NodeRegistry()
-        conductor_nodes.text.register(reg)
-        ids = {c.id for c in reg.nodes}
+    def test_each_module_lists_its_own_nodes(self):
+        ids = {c.id for c in conductor_nodes.text.NODES}
         assert "text-uppercase" in ids
-        assert "math-add" not in ids   # only text registered
+        assert "math-add" not in ids   # only text's own nodes
+        assert {c.id for c in NodeRegistry(nodes=conductor_nodes.text.NODES).nodes} == ids
 
 
 class TestText:
@@ -119,7 +114,7 @@ class TestText:
             [GraphNode(id="n", type="text-contains", version=1,
                        bindings={"text": Static("Hello"), "needle": Static("hello"), "case_sensitive": Static(False)})],
         )
-        assert r["n"]["result"] == Flag(True)
+        assert r["n"]["result"]
 
     def test_contains_case_sensitive(self, full_registry):
         r = _run(
@@ -127,14 +122,14 @@ class TestText:
             [GraphNode(id="n", type="text-contains", version=1,
                        bindings={"text": Static("Hello"), "needle": Static("hello"), "case_sensitive": Static(True)})],
         )
-        assert r["n"]["result"] == Flag(False)
+        assert not r["n"]["result"]
 
     def test_split(self, full_registry):
         r = _run(
             full_registry,
             [GraphNode(id="n", type="text-split", version=1, bindings={"text": Static("a,b,c"), "separator": Static(",")})],
         )
-        assert list(r["n"]["result"]) == ["a", "b", "c"]
+        assert r["n"]["result"]["values"] == ["a", "b", "c"]
 
     def test_join(self, full_registry):
         r = _run(
@@ -185,7 +180,7 @@ class TestMath:
             full_registry,
             [GraphNode(id="n", type="math-divide", version=1, bindings={"a": Static(1), "b": Static(0)})],
         )
-        assert ending.type == "graph_error"
+        assert ending.status == "failed"
 
     def test_modulo(self, full_registry):
         r = _run(
@@ -283,21 +278,21 @@ class TestLogic:
             full_registry,
             [GraphNode(id="n", type="logic-not", version=1, bindings={"value": Static(True)})],
         )
-        assert r["n"]["result"] == Flag(False)
+        assert not r["n"]["result"]
 
 
 class TestDecision:
     """The gate's body: ``value`` lands on the branch ``when`` picks, ``SKIPPED`` on the other."""
 
     def test_true_routes_to_if_true(self):
-        branches = Decision().run(value=Text("x"), when=Flag(True))
-        assert branches.if_true == Text("x")
+        branches = decision(value="x", when=True)
+        assert branches.if_true == "x"
         assert branches.if_false is SKIPPED
 
     def test_false_routes_to_if_false(self):
-        branches = Decision().run(value=Text("x"), when=Flag(False))
+        branches = decision(value="x", when=False)
         assert branches.if_true is SKIPPED
-        assert branches.if_false == Text("x")
+        assert branches.if_false == "x"
 
 
 class TestJSON:
@@ -355,7 +350,7 @@ class TestRegex:
             [GraphNode(id="n", type="regex-match", version=1,
                        bindings={"text": Static("hello 123 world"), "pattern": Static(r"\d+")})],
         )
-        assert r["n"]["result"] == Flag(True)
+        assert r["n"]["result"]
 
     def test_match_false(self, full_registry):
         r = _run(
@@ -363,7 +358,7 @@ class TestRegex:
             [GraphNode(id="n", type="regex-match", version=1,
                        bindings={"text": Static("nothing numeric"), "pattern": Static(r"\d+")})],
         )
-        assert r["n"]["result"] == Flag(False)
+        assert not r["n"]["result"]
 
     def test_match_ignore_case(self, full_registry):
         r = _run(
@@ -371,7 +366,7 @@ class TestRegex:
             [GraphNode(id="n", type="regex-match", version=1,
                        bindings={"text": Static("Hello"), "pattern": Static(r"hello"), "ignore_case": Static(True)})],
         )
-        assert r["n"]["result"] == Flag(True)
+        assert r["n"]["result"]
 
     def test_replace(self, full_registry):
         r = _run(
@@ -387,7 +382,7 @@ class TestRegex:
             [GraphNode(id="n", type="regex-extract", version=1,
                        bindings={"text": Static("a1 b22 c333"), "pattern": Static(r"\d+")})],
         )
-        assert list(r["n"]["result"]) == ["1", "22", "333"]
+        assert r["n"]["result"]["values"] == ["1", "22", "333"]
 
     def test_extract_uses_first_group(self, full_registry):
         r = _run(
@@ -395,7 +390,7 @@ class TestRegex:
             [GraphNode(id="n", type="regex-extract", version=1,
                        bindings={"text": Static("name=Ada, age=36"), "pattern": Static(r"name=(\w+)")})],
         )
-        assert list(r["n"]["result"]) == ["Ada"]
+        assert r["n"]["result"]["values"] == ["Ada"]
 
 
 class TestIntegration:
@@ -438,7 +433,6 @@ def test_a_catastrophic_pattern_answers_at_once():
     import asyncio
     import time
 
-    from conductor import execute
 
     graph = Graph(nodes=[GraphNode(id="m", type="regex-match", version=1, bindings={
         "text": Static("a" * 27 + "b"), "pattern": Static("(a+)+$"),
@@ -446,13 +440,13 @@ def test_a_catastrophic_pattern_answers_at_once():
     compiled = CompiledGraph.from_graph(graph, conductor_nodes.registry())
 
     async def events():
-        return [event async for event in execute(compiled)]
+        return [event async for event in stream_of(compiled)]
 
     started = time.monotonic()
     seen = asyncio.run(events())
-    assert time.monotonic() - started < conductor_nodes.regex_ops.Match.timeout
+    assert time.monotonic() - started < conductor_nodes.regex_ops.TIMEOUT
     assert "node_start" in [e.type for e in seen]
-    assert seen[-1].state.results(compiled)["m"]["result"] == Flag(False)
+    assert not compiled.results(seen[-1].state)["m"]["result"]
 
 
 def test_a_pattern_that_times_out_fails_its_node_with_a_sentence_for_people(monkeypatch):
@@ -463,23 +457,23 @@ def test_a_pattern_that_times_out_fails_its_node_with_a_sentence_for_people(monk
 
     monkeypatch.setattr(regex, "search", too_slow)
     graph = Graph(nodes=[GraphNode(id="m", type="regex-match", version=1, bindings={"text": Static("x"), "pattern": Static("x")})])
-    ending = run_sync(CompiledGraph.from_graph(graph, conductor_nodes.registry()))
+    ending = CompiledGraph.from_graph(graph, conductor_nodes.registry()).run_sync()
 
-    assert ending.type == "graph_error"
-    assert (ending.cause.code, ending.error) == ("pattern_timeout", "The pattern took too long.")
+    assert ending.status == "failed"
+    assert (ending.failure.type, ending.failure.msg) == ("pattern_timeout", "The pattern took too long.")
 
 
 def test_a_grouped_extract_that_times_out_fails_with_the_same_code(monkeypatch):
     """With groups, Extract walks the matches one by one, and the timeout
     fires during the walk rather than when the search starts."""
-    monkeypatch.setattr(conductor_nodes.regex_ops.Extract, "timeout", 0.05)
+    monkeypatch.setattr(conductor_nodes.regex_ops, "TIMEOUT", 0.05)
     graph = Graph(nodes=[GraphNode(id="x", type="regex-extract", version=1, bindings={
         "text": Static("a" * 40), "pattern": Static("((?:(?:a|aa)+)+b)"),
     })])
-    ending = run_sync(CompiledGraph.from_graph(graph, conductor_nodes.registry()))
+    ending = CompiledGraph.from_graph(graph, conductor_nodes.registry()).run_sync()
 
-    assert ending.type == "graph_error"
-    assert ending.cause.code == "pattern_timeout"
+    assert ending.status == "failed"
+    assert ending.failure.type == "pattern_timeout"
 
 
 def test_categories_filter_on_each_nodes_own_category():
