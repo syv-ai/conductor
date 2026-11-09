@@ -557,7 +557,7 @@ class RunLedger:
             else:
                 value = outputs[out.name]  # type: ignore[index]
             write(field, row if skip_row is None else skip_row, value, rows_made)
-        was_waiting = self._waiting.pop(unit, None)
+        was_waiting = self._waiting.pop(unit, None) if self._waiting else None
         input_hash = self._input_hash_of_call.pop(unit, None)  # an attempt that failed left one, and this one may be a skip
         self._mark_done(unit, was_waiting.reuse_key if was_waiting is not None else None if skip_row is not None or not_called is not None else input_hash)
         return self._what_this_write_makes_ready(unit, rows_made, skip_row is None)

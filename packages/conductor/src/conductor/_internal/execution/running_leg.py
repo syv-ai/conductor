@@ -364,6 +364,8 @@ class RunningLeg:
                 self._announce_node_started(node_id)
                 self._hand_to_a_thread(unit, attempt, inputs)
             case UnitRecorded() as recorded:
+                if recorded.node_started:
+                    self._announce_node_started(node_id)
                 self._free_slot(node_id)
                 self._report_recorded(unit, recorded)
             case WaitingUnit() as waiting_unit:
@@ -475,8 +477,6 @@ class RunningLeg:
         """Report this unit's progress and every node its record completed, and queue what it made ready."""
         node_id, _ = unit
         self.a_unit_finished = True
-        if recorded.node_started:
-            self._announce_node_started(node_id)
         if self.runs_per_row_of[node_id] is not None:
             self._report_progress_when_due(node_id)
         for event in recorded.node_events:
