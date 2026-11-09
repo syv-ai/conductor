@@ -208,7 +208,10 @@ A failed unit ends the leg `failed`, its cause on `state.failure`; `compiled.res
 | `node_failed` | `node_id`, `error`, `cause` |
 | `unit_waiting` | `unit` |
 | `run_start` | `reused_nodes`, `changed_nodes`, `waiting` |
+| `run_checkpoint` | `state`, with status `running` (only with `checkpoint_every`) |
 | `run_end` | `state` |
+
+`compiled.stream(state, checkpoint_every=5.0)` also yields `RunCheckpoint` at most every 5 seconds, when a unit finishes (`0`: every time one does), so a crash loses only what came after the last one saved. `run` and `answer` take its `state` like any other, `results` reads it, and `outputs` refuses it. A finished unit is not called again and one in flight is: a unit runs at least once, so a node with side effects must allow for that. A stored `running` state can't tell a live leg from a crashed one, so a host holds a lease before it resumes one. Building the state is a pass over every value so far, on the event loop; the state is a copy, so dump it on another thread.
 
 ### Saving a Graph
 

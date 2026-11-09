@@ -4,7 +4,8 @@ A *leg* is one call of ``CompiledGraph.stream`` or ``run``; a run takes several
 when a node waits on a person. Each event is a frozen record, one of a union
 discriminated on ``type``, so a caller can ``match`` on the class and a host
 can send one over the network as it is. ``RunStart`` is always first and
-``RunEnd`` always last; ``RunEnd.state`` says how the leg ended.
+``RunEnd`` always last; ``RunEnd.state`` says how the leg ended. A leg asked for
+checkpoints also emits ``RunCheckpoint`` along the way.
 
 A value in ``NodeComplete.result`` is a typed value (a ``Series`` for anything
 on an index), and a host that sends the event on serialises it at that edge.
@@ -96,6 +97,17 @@ class UnitWaiting(_EventRecord):
     unit: WaitingUnit
 
 
+class RunCheckpoint(_EventRecord):
+    """A state to save while the leg runs on, status ``running``: what has
+    finished and who is waiting, as of the moment it was taken. Sent only when
+    ``stream`` was given ``checkpoint_every``. It is a copy, so it can be dumped
+    later or on another thread. ``run`` and ``answer`` go on from it as from any
+    state: a finished unit is not called again and one in flight is."""
+
+    type: Literal["run_checkpoint"] = "run_checkpoint"
+    state: RunState
+
+
 class RunEnd(_EventRecord):
     """The leg ended. ``state`` is the run as of now, for any way of ending."""
 
@@ -104,6 +116,6 @@ class RunEnd(_EventRecord):
 
 
 Event = Annotated[
-    RunStart | NodeStart | NodeProgress | NodeComplete | NodeSkipped | NodeFailed | NodeRetry | UnitWaiting | RunEnd,
+    RunStart | NodeStart | NodeProgress | NodeComplete | NodeSkipped | NodeFailed | NodeRetry | UnitWaiting | RunCheckpoint | RunEnd,
     Field(discriminator="type"),
 ]

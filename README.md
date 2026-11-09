@@ -76,7 +76,7 @@ ready = compiled.with_inputs(text="good night")
 print(ready.outputs(ready.run_sync()))  # {'n2.result': 'GOOD NIGHT'}
 ```
 
-To watch a run, `async with compiled.stream() as events:`. It yields `run_start`, `node_start`, `node_progress`, `node_complete`, `node_skipped`, `node_retry`, `node_failed` and `unit_waiting`, and ends with `run_end`, carrying the run's `state`. Leaving the block stops every unit.
+To watch a run, `async with compiled.stream() as events:`. It yields `run_start`, `node_start`, `node_progress`, `node_complete`, `node_skipped`, `node_retry`, `node_failed` and `unit_waiting`, and ends with `run_end`, carrying the run's `state`. Leaving the block stops every unit. `compiled.stream(checkpoint_every=5.0)` also yields `run_checkpoint`, a state with status `running` to save as the leg goes: after a crash `compiled.run(state)` calls no finished unit again and calls those in flight again, so a unit runs at least once. A host that resumes one holds a lease of its own, since a saved state can't say whether its leg is still alive.
 
 ## Concepts
 

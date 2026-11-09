@@ -335,6 +335,7 @@ class CompiledGraph:
         from_run: Mapping[type, Any] | None = None,
         timeout: float | None = None,
         cancel: asyncio.Event | None = None,
+        checkpoint_every: float | None = None,
     ) -> AbstractAsyncContextManager[AsyncIterator[Event]]:
         """One leg, as a stream of events; leaving the block stops every unit::
 
@@ -352,8 +353,19 @@ class CompiledGraph:
         ``Annotated[X, FromRun()]``; a type no one supplied is a ``TypeError``.
         ``timeout`` bounds the leg in seconds and ends it ``timed_out``;
         setting ``cancel`` ends it ``cancelled`` at once.
+
+        ``checkpoint_every`` asks for a ``RunCheckpoint`` at most this many
+        seconds apart, taken when a unit finishes (``0``: every time one does),
+        so a crash loses only the units since the last one saved. ``None``, the
+        default, costs nothing. A checkpoint is a state with status ``running``:
+        ``run`` and ``answer`` go on from it, a finished unit is not called again
+        and one in flight is, so a unit runs at least once and a node with side
+        effects must allow for that. Nothing in the state says whether its leg is
+        still alive; a host resuming from one holds a lease of its own, or two
+        workers will run it. Building the state costs a pass over every value so
+        far, on the event loop; dump it on another thread, it is a copy.
         """
-        return Leg(self, state=state, from_run=from_run or {}, timeout=timeout, cancel=cancel or asyncio.Event())
+        return Leg(self, state=state, from_run=from_run or {}, timeout=timeout, cancel=cancel or asyncio.Event(), checkpoint_every=checkpoint_every)
 
     async def run(
         self,

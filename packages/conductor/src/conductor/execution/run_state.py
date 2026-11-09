@@ -1,8 +1,9 @@
 """``RunState``: everything a run is, as one record a host can store between legs.
 
 A *leg* is one call of ``CompiledGraph.run``; a run takes several when a node
-waits on a person. The state is what a leg ends on and what the next one
-starts from. It says how the last leg ended (``status``, ``failure``), who is
+waits on a person. The state is what a leg ends on, what a checkpoint during
+one hands over, and what the next one starts from. A unit in flight is in no
+state: going on from one calls it again, so a unit runs at least once. It says how the last leg ended (``status``, ``failure``), who is
 waiting and what they were asked (``waiting``), what every output holds
 (``output_columns``), which units finished (``finished_rows``), and a hash of
 how the graph used each node (``node_fingerprints``). Everything else a run
@@ -33,8 +34,11 @@ from conductor.series import Row
 
 #: How the last leg ended. ``complete``: every node finished. ``waiting``: the
 #: leg went quiet with units waiting on a person. ``failed``: a node failed.
-#: ``cancelled`` and ``timed_out``: the host stopped the leg, or its deadline passed.
-RunStatus = Literal["complete", "waiting", "failed", "cancelled", "timed_out"]
+#: ``cancelled`` and ``timed_out``: the host stopped the leg, or its deadline
+#: passed. ``running``: not an ending, a state saved while its leg ran
+#: (``RunCheckpoint``). A stored ``running`` state cannot tell a leg still alive
+#: from one that crashed, so a host resuming from one keeps its own lease.
+RunStatus = Literal["running", "complete", "waiting", "failed", "cancelled", "timed_out"]
 
 #: A person's answers, by ``WaitingUnit.id``: each a value per output name, or
 #: ``None`` for a unit that has no value on its row. Unit ids are opaque.
@@ -98,7 +102,7 @@ class WaitingUnit(ConductorModel):
 
 
 class RunState(ConductorModel):
-    """A run, as of the end of its last leg.
+    """A run, as of the end of its last leg or of a checkpoint during one.
 
     ``compiled.run(state)`` goes on from one, ``compiled.answer(state, ...)``
     returns a new one with answers written in, and ``without`` returns one

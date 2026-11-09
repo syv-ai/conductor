@@ -44,7 +44,7 @@ a node that would run per row of that index runs once at the shorter row
 instead. That is how a skip keeps its reach down a chain.
 
 What it holds is the run's state: ``state()`` writes that down when a leg
-ends and ``restore`` starts the next leg from it, working the rows out again
+ends or a checkpoint is due, and ``restore`` starts the next leg from it, working the rows out again
 from the values. Nothing is pruned, so a unit done in one leg stays done in
 the next. A value written here has already passed its output's check
 (``conductor.execution.validate_unit_outputs``); inside a leg it is trusted.

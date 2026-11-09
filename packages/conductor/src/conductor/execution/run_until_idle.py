@@ -22,9 +22,16 @@ returns.
 
 **A run has legs.** A unit whose node returned ``AskPerson`` is neither done
 nor failed: it waits, whatever reads it waits, and the rest of the graph runs
-on. Nothing is checkpointed and nothing resumes: the next leg is an ordinary
-run over live values that already hold what earlier legs produced, and a node
-the graph has changed since, or that reads one, runs again.
+on. Nothing resumes: the next leg is an ordinary run over live values that
+already hold what earlier legs produced, and a node the graph has changed
+since, or that reads one, runs again.
+
+**A leg can save itself while it runs.** Asked for checkpoints, the loop
+compares a monotonic clock each time a unit finishes and, when the interval has
+passed, emits the state as ``RunCheckpoint``. Only a finished unit changes the
+state, so no timer is needed. Building the state runs on the event loop and
+costs a pass over every value so far; the clock restarts once the consumer
+comes back for the next event, so a slow save cannot crowd out the leg.
 
 **Every leg ends the same way:** one ``RunEnd`` carrying the state. A failed
 unit fails the leg: the other units are stopped and the cause, with the row,
@@ -60,6 +67,7 @@ from conductor.execution.events import (
     NodeRetry,
     NodeSkipped,
     NodeStart,
+    RunCheckpoint,
     RunEnd,
     RunStart,
     UnitWaiting,
@@ -139,6 +147,9 @@ class Leg:
     #: Made on entering, where the loop's event loop runs.
     _watchers: list[asyncio.Task[_Cancelled | _TimedOut]]
     started_at: float
+    #: When the last ``RunCheckpoint`` went out and its consumer came back for
+    #: more; when the leg began, before the first.
+    last_checkpoint_at: float
 
     def __init__(
         self,
@@ -148,6 +159,7 @@ class Leg:
         from_run: Mapping[type, Any],
         timeout: float | None,
         cancel: asyncio.Event,
+        checkpoint_every: float | None = None,
     ) -> None:
         self.compiled = compiled
         self.live = LiveRunValues(compiled) if state is None else LiveRunValues.restore(compiled, state)
@@ -161,6 +173,7 @@ class Leg:
         self.from_run = dict(from_run)
         self.timeout = timeout
         self.cancel = cancel
+        self.checkpoint_every = checkpoint_every
         self.started = self.live.completed_nodes()
         in_flight = sum(compiled.node(node_id).version.policy.concurrency for node_id in compiled.execution_order)
         self.executor = ThreadPoolExecutor(max_workers=max(1, in_flight), thread_name_prefix="conductor")
@@ -169,7 +182,7 @@ class Leg:
         self.running: dict[Unit, asyncio.Task[None]] = {}
 
     async def __aenter__(self) -> AsyncGenerator[Event, None]:
-        self.started_at = time.monotonic()
+        self.started_at = self.last_checkpoint_at = time.monotonic()
         self._watchers = [asyncio.ensure_future(self._cancelled())]
         if self.timeout is not None:
             self._watchers.append(asyncio.ensure_future(self._timed_out(self.timeout)))
@@ -231,6 +244,9 @@ class Leg:
                 yield RunEnd(state=ledger.state("failed", message.error.cause))
                 return
             self._start(message.ready)
+            if self.checkpoint_every is not None and self.running and time.monotonic() - self.last_checkpoint_at >= self.checkpoint_every:
+                yield RunCheckpoint(state=ledger.state("running"))
+                self.last_checkpoint_at = time.monotonic()
 
         # Quiescence: nothing in flight. Nothing may be runnable either; a
         # ready unit nobody started is a wake that was missed.

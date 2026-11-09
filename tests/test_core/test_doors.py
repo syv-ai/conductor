@@ -41,7 +41,7 @@ DOORS: dict[str, list[str]] = {
     ],
     "conductor.events": [
         "Event", "NodeComplete", "NodeFailed", "NodeProgress", "NodeRetry", "NodeSkipped", "NodeStart",
-        "RunEnd", "RunStart", "UnitWaiting",
+        "RunCheckpoint", "RunEnd", "RunStart", "UnitWaiting",
     ],
 }
 
