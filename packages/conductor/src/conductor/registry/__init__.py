@@ -196,7 +196,7 @@ def _word_of(declared: Any, *, adding: bool = False) -> type[DType] | None:
     A scalar type is its own word; a ``Table[...]`` is ``Table``'s; a
     ``Series[X]`` is ``X``'s. An untyped field and a closed input's plain
     Python type name no word. With ``adding`` — the host
-    handing a type to ``add_types`` — a series, the base ``DType`` and a
+    naming a type in ``types`` — a series, the base ``DType`` and a
     non-type are refused rather than silently naming nothing.
     """
     if not (isinstance(declared, type) and issubclass(declared, DType)):

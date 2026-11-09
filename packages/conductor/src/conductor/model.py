@@ -13,7 +13,7 @@ What a host saves reads back what it wrote — a ``Graph`` and its parts, a
 
 What describes a node — ``NodeDescription``, ``VersionDescription``,
 ``Input``, ``Output`` and the widgets — is written for an editor. It is
-built from a ``run`` signature, so its ``dtype`` dumps as the type's
+built from a function's signature, so its ``dtype`` dumps as the type's
 description, and a dump does not read back: a description is not a type,
 and a record holding one is refused. A widget reads back as written. The
 class is still there to ``describe()``.
@@ -23,7 +23,7 @@ them on. What compile and the engine build and keep to themselves —
 ``CompiledGraph`` and its node and field views, a version, an interface,
 a run's live records — is not a model: those are frozen dataclasses,
 built far more often than they are ever parsed. A node's return declaration is not one either: a
-``run`` that returns a model returns one value, not one output per field.
+function that returns a model returns one value, not one output per field.
 """
 
 from __future__ import annotations

@@ -1,11 +1,11 @@
 """The two values a node's ``run`` may return that are not results: ``SKIPPED`` and ``AskPerson``.
 
-The engine acts on the returned value itself. Nothing on the node class
+The engine acts on the returned value itself. Nothing on the node
 declares that it may skip or ask.
 
 ``SKIPPED`` on an output means the node did not take that branch::
 
-    def run(self, text: Txt, short: Boolean) -> Branches:
+    def route(text: Txt, short: Boolean) -> Branches:
         return Branches(if_true=text if short else SKIPPED,
                         if_false=SKIPPED if short else text)
 
@@ -55,13 +55,13 @@ class AskPerson:
 
     The questions are the node's outputs, with the name, type and title the
     return annotation already gives them, so ``-> Approved | AskPerson`` is the
-    only thing a class says about asking. ``prompt`` is text for the person;
+    only thing a node says about asking. ``prompt`` is text for the person;
     when ``None`` the host shows the node's own title and description.
     ``defaults`` proposes an answer, by output name, and a question with one may
     be left blank. ``widgets`` insists on a control, by output name; otherwise
     the host picks one from the type::
 
-        def run(self, proposal: Annotated[Txt, Param(title="Proposal", widget=Textarea())]) -> Out | AskPerson:
+        def approve(proposal: Annotated[Txt, Param(title="Proposal", widget=Textarea())]) -> Out | AskPerson:
             return AskPerson(defaults={"result": proposal}, widgets={"result": Textarea()})
 
     Its sibling is ``SKIPPED``, the other value that is not a result.

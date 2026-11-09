@@ -45,7 +45,7 @@ type wrapped in another private ``DType``, ``setting_type``.
 
 Conductor defines no concrete ``DType`` except ``Series``. Which types
 exist is the host application's decision, made on its ``NodeRegistry``:
-the types its nodes declare plus ``registry.add_types(...)`` are that
+the types its nodes declare plus the ``types`` a host names are that
 registry's vocabulary, and nothing is recorded process-wide. Declaring a
 type is therefore free of side effects — a notebook cell can declare the
 same ``Text`` twice — and one id claimed by two classes is refused where

@@ -227,8 +227,8 @@ class Compilation:
         """The class and version each authored node uses, resolved once, here.
 
         A node stores a ``type`` and a ``version`` number; the registry gives
-        the class and the class its version record. A stored graph can name
-        a type the registry has since lost or a version the class has since
+        the definition and the definition its version record. A stored graph can name
+        a type the registry has since lost or a version the definition has since
         dropped, so either miss is a problem on the node rather than an
         error. A version may be a graph the host compiled on its own, once
         per version; the walk sees it as one node and ``embed_graphs`` embeds it.
