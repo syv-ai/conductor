@@ -66,8 +66,8 @@ from conductor._internal.graph.receive import (
 )
 from conductor._internal.graph.row_origins import (
     RowOriginsSoFar,
-    counts_as_taken_in,
     origins_taken_in,
+    sources_taken_in_whole,
 )
 from conductor._internal.interface import Interface
 from conductor._internal.node_decorator import NodeVersion
@@ -262,12 +262,12 @@ def lift_embedded_nodes(
             runs_once = new_row is None
             outputs_of = {out.name: out for out in inner.interface.outputs}
             fields = {}
-            taken_in = origins_taken_in([
-                source
-                for name, binding in bindings.items() if isinstance(binding, From) and name in inner.wiring.fields
-                for ref in binding.refs
-                if (source := field_at(ref)) is not None and counts_as_taken_in(inner.wiring.fields[name].type, source)
-            ])
+            taken: list[CompiledField] = []
+            for name, binding in bindings.items():
+                if isinstance(binding, From) and name in inner.wiring.fields:
+                    arriving = [source for ref in binding.refs if (source := field_at(ref)) is not None]
+                    taken.extend(sources_taken_in_whole(inner.wiring.fields[name].type, arriving))
+            taken_in = origins_taken_in(taken)
             for name, field in inner.wiring.fields.items():
                 condition = None
                 if field._view_of is not None:  # a column appears exactly when its table does

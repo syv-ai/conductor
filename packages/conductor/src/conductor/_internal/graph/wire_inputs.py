@@ -55,7 +55,7 @@ from conductor._internal.graph.receive import (
     Receive,
     RowsUnder,
 )
-from conductor._internal.graph.row_origins import counts_as_taken_in
+from conductor._internal.graph.row_origins import sources_taken_in_whole
 from conductor._internal.ref import Ref
 from conductor._internal.series import Index, Series
 from conductor._internal.table import (
@@ -131,7 +131,7 @@ def read_inputs(
             return found
         sources: list[CompiledField] = cast("list[CompiledField]", feeding)
         target = inp.dtype
-        found.tables_taken_in.extend(source for source in sources if counts_as_taken_in(target, source))
+        found.tables_taken_in.extend(sources_taken_in_whole(target, sources))
         if target is _ReceivedAsItArrives:
             if not name.isidentifier():
                 problems.append(problem("parameter_name_invalid", node.id, name))

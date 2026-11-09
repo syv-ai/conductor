@@ -16,6 +16,7 @@ where it stands, so nothing stops at an embedding.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -74,9 +75,9 @@ class RowOriginsSoFar:
         return []
 
 
-def counts_as_taken_in(reader_type: Any, source: CompiledField) -> bool:
-    """Does a table a node returns carry this source's rows' ids? A source it takes as a whole table does, whichever side says so."""
-    return holds_tables(reader_type) or holds_tables(source.type)
+def sources_taken_in_whole(reader_type: Any, sources: Sequence[CompiledField]) -> list[CompiledField]:
+    """The sources a node takes in as a whole table, whichever side says so: a table it returns may carry their rows' ids."""
+    return list(sources) if holds_tables(reader_type) else [source for source in sources if holds_tables(source.type)]
 
 
 def origins_taken_in(sources: list[CompiledField]) -> frozenset[str] | None:
