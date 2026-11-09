@@ -140,7 +140,6 @@
     "plan": {
      "inputs": {
       "values": {
-       "collected_onto": "emb/single.values",
        "kind": "gather",
        "receive_mode": "collected",
        "source_reads": [
@@ -381,7 +380,6 @@
     "plan": {
      "inputs": {
       "values": {
-       "collected_onto": "emb/single.values",
        "kind": "gather",
        "receive_mode": "collected",
        "source_reads": [
@@ -598,7 +596,6 @@
     "plan": {
      "inputs": {
       "values": {
-       "collected_onto": "emb/single.values",
        "kind": "gather",
        "receive_mode": "collected",
        "source_reads": [
@@ -876,7 +873,6 @@
     "plan": {
      "inputs": {
       "values": {
-       "collected_onto": "top/b/single.values",
        "kind": "gather",
        "receive_mode": "collected",
        "source_reads": [
@@ -1048,7 +1044,6 @@
     "plan": {
      "inputs": {
       "values": {
-       "collected_onto": "top/s.values",
        "kind": "gather",
        "receive_mode": "collected",
        "source_reads": [
@@ -1257,7 +1252,6 @@
     "plan": {
      "inputs": {
       "values": {
-       "collected_onto": "top/b/single.values",
        "kind": "gather",
        "receive_mode": "collected",
        "source_reads": [
@@ -1423,7 +1417,6 @@
     "plan": {
      "inputs": {
       "values": {
-       "collected_onto": "top/s.values",
        "kind": "gather",
        "receive_mode": "collected",
        "source_reads": [
@@ -1626,7 +1619,6 @@
     "plan": {
      "inputs": {
       "values": {
-       "collected_onto": "emb/single.values",
        "kind": "gather",
        "receive_mode": "collected",
        "source_reads": [
@@ -1838,7 +1830,6 @@
     "plan": {
      "inputs": {
       "texts": {
-       "collected_onto": "emb/j.texts",
        "kind": "gather",
        "receive_mode": "collected",
        "source_reads": [
@@ -3419,7 +3410,6 @@
     "plan": {
      "inputs": {
       "texts": {
-       "collected_onto": "emb/join.texts",
        "kind": "gather",
        "receive_mode": "collected",
        "source_reads": [
@@ -3566,7 +3556,6 @@
     "plan": {
      "inputs": {
       "texts": {
-       "collected_onto": "emb/join.texts",
        "kind": "gather",
        "receive_mode": "collected",
        "source_reads": [
@@ -3693,7 +3682,6 @@
     "plan": {
      "inputs": {
       "texts": {
-       "collected_onto": "emb/join.texts",
        "kind": "gather",
        "receive_mode": "collected",
        "source_reads": [
@@ -3808,7 +3796,6 @@
     "plan": {
      "inputs": {
       "texts": {
-       "collected_onto": "after.texts",
        "kind": "gather",
        "receive_mode": "collected",
        "source_reads": [
@@ -6101,7 +6088,6 @@
     "plan": {
      "inputs": {
       "texts": {
-       "collected_onto": "emb/join.texts",
        "kind": "gather",
        "receive_mode": "collected",
        "source_reads": [
@@ -6319,7 +6305,6 @@
     "plan": {
      "inputs": {
       "texts": {
-       "collected_onto": "emb/join.texts",
        "kind": "gather",
        "receive_mode": "collected",
        "source_reads": [
@@ -7027,7 +7012,6 @@
     "plan": {
      "inputs": {
       "texts": {
-       "collected_onto": "emb/join.texts",
        "kind": "gather",
        "receive_mode": "collected",
        "source_reads": [
@@ -7142,7 +7126,6 @@
     "plan": {
      "inputs": {
       "texts": {
-       "collected_onto": "emb/join.texts",
        "kind": "gather",
        "receive_mode": "collected",
        "source_reads": [
@@ -7968,7 +7951,6 @@
     "plan": {
      "inputs": {
       "texts": {
-       "collected_onto": "emb/join.texts",
        "kind": "gather",
        "receive_mode": "collected",
        "source_reads": [

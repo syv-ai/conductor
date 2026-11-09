@@ -279,8 +279,8 @@ class CompiledField:
 
     @property
     def many(self) -> bool:
-        """Does this field hold many values, one per row? An output of a node that runs once per row does, even where its declaration says one."""
-        return self._index is not None
+        """Does this field hold many values, one per row? An output of a node that runs once per row does, even where its declaration says one; an input does when it is collected or holds a whole list."""
+        return self._index is not None or (self._receive_mode is not None and self._receive_mode.receive_mode in ("collected", "entire_value"))
 
     @cached_property
     def _validate_cell(self) -> Callable[[Any], Any]:

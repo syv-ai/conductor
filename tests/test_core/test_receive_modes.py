@@ -207,3 +207,24 @@ def test_the_value_a_fixed_value_holds_is_not_written_in_the_run_plan():
     written = compiled.run_plan.model_dump(mode="json")["nodes"]["h"]["inputs"]["table"]
     assert written == {"kind": "fixed", "receive_mode": "same_value_every_row"}
     assert compiled.node("h").fingerprint is not None
+
+
+def test_an_input_makes_no_index_of_its_own_and_still_says_it_holds_many():
+    @node("one_text", category="test")
+    def one_text() -> str:
+        return "a"
+
+    @node("takes_many", category="test")
+    def takes_many(values: Series[str] = ("x",)) -> int:  # type: ignore[assignment]
+        return len(values)
+
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[
+            one_text.graph_node("a"), one_text.graph_node("b"),
+            takes_many.graph_node("gathers", values=From("a.result", "b.result")), takes_many.graph_node("left_to_its_default"),
+        ]),
+        NodeRegistry([one_text, takes_many]),
+    )
+    assert "collected_onto" not in compiled.run_plan.model_dump(mode="json")["nodes"]["gathers"]["inputs"]["values"]
+    for node_id in ("gathers", "left_to_its_default"):
+        assert compiled.field(f"{node_id}.values").many and compiled.field(f"{node_id}.values")._index is None

@@ -13,7 +13,7 @@ The run tells apart only what it reads differently, by ``kind``:
 - ``RowsUnder``: all the rows of a field under the unit's row cut to ``depth``,
   ``0`` being everything on the field;
 - ``FixedValue``: a value compile already holds, a static or a default;
-- ``Gather``: unrelated sources collected onto an index of the input's own;
+- ``Gather``: unrelated sources collected into one list;
 - ``Merge``: one table of everything wired into a ``Table`` input, matched on
   its rows' ids.
 
@@ -117,8 +117,7 @@ class RowsUnder:
 class FixedValue:
     """The unit receives a value compile already holds: a static or a default.
 
-    One value, or for a ``Series[X]`` input a list on an index of the
-    input's own. The value stays out of the run plan's written form: a host
+    One value, or for a ``Series[X]`` input a list. The value stays out of the run plan's written form: a host
     sees it on the graph, and a fingerprint hashes it by its own type.
     """
 
@@ -152,15 +151,13 @@ class Gather:
 
     Several scalars, several series on indexes that share no rows, or the
     values of one run of the graph around the node, into one ``Series[X]``
-    input. Each source is read by its own record and laid out on
-    ``collected_onto``, the input's own index. A skipped source is left out
+    input. Each source is read by its own record. A skipped source is left out
     rather than skipping the unit, since gathering is how "whichever branch
     fired" is expressed.
     """
 
     #: One read per source, in wiring order.
     source_reads: tuple[ReadOfSource, ...]
-    collected_onto: Ref
     receive_mode: Literal["collected"] = "collected"
     kind: Literal["gather"] = "gather"
 
