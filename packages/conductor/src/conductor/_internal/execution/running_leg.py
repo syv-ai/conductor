@@ -442,8 +442,7 @@ class RunningLeg:
         if outcome.__class__ is dict:
             self._report_recorded(unit, self.ledger.record(unit, outcome, call.input_hash))  # type: ignore[arg-type]
         elif isinstance(outcome, WaitingUnit):
-            self.ledger.mark_waiting(unit, outcome)
-            self._report_waiting(outcome)
+            self._report_waiting(self.ledger.mark_waiting(unit, outcome))
         else:
             assert isinstance(outcome, CallFailed)
             self._retry_or_fail(unit, call.attempt, outcome)

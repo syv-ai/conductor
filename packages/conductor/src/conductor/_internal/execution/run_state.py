@@ -140,7 +140,7 @@ class WaitingUnit(ConductorModel):
     """One unit waiting on a person: a node, on one row when it runs per row.
 
     ``id`` is what an answer is keyed by: ``node@row#hash``, the row and the
-    first twelve characters of ``input_hash``, so an answer meant for a row that
+    first twelve characters of ``reuse_key``, so an answer meant for a row that
     has since moved or changed is refused, never written on another row. Nothing
     ever reads it apart. ``questions`` are frozen until the unit is answered, or
     the inputs of its row change. ``inputs`` says what the row is about. A unit in
@@ -153,14 +153,15 @@ class WaitingUnit(ConductorModel):
     row: Row
     prompt: str | None = None
     questions: tuple[Question, ...]
-    #: The hash of what this unit received, for a later leg re-planning its node.
-    input_hash: str = ""
+    #: What a later leg re-planning its node reuses it by: the hash of what it received,
+    #: and the row it was asked on (``RunLedger``'s account of an answer).
+    reuse_key: str = ""
     #: What this unit received, by input name, so a form can show the row it is about: exactly the
     #: values its call would have got, no more; many values as a list.
     inputs: dict[str, TypedValue] = Field(default_factory=dict)
 
 
-#: A finished unit: its row and the hash of what it received, ``None`` for one that wasn't called.
+#: A finished unit: its row and its reuse key (``WaitingUnit.reuse_key``), ``None`` for one that wasn't called.
 FinishedUnit = tuple[Row, str | None]
 
 
@@ -173,19 +174,18 @@ class EarlierUnit(ConductorModel):
     columns are; empty on a waiting unit."""
 
     row: Row
-    input_hash: str
+    reuse_key: str
     answered: bool = False
-    #: Inputs alone can't say which of several rows' answers this was, so only
-    #: its own row may take it: a person's answer has no second chance.
-    only_its_own_row_may_claim: bool = False
     waiting: WaitingUnit | None = None
+    #: The tables it received, for moving the ids its own table took from them.
+    tables_received: list[Any] = Field(default_factory=list)
     outputs: dict[str, OutputColumn] = Field(default_factory=dict)
 
 
-def id_of_waiting_unit(node_id: str, row: Row, input_hash: str) -> str:
+def id_of_waiting_unit(node_id: str, row: Row, reuse_key: str) -> str:
     """The ``WaitingUnit.id`` of this unit: the one place it is spelled."""
     at_row = f"@{','.join(str(n) for n in row)}" if row else ""
-    return f"{node_id}{at_row}#{input_hash[:12]}"
+    return f"{node_id}{at_row}#{reuse_key[:12]}"
 
 
 class WorkOfNode(ConductorModel):
@@ -202,6 +202,8 @@ class WorkOfNode(ConductorModel):
     finished_units: list[FinishedUnit] | None = None
     #: The finished rows a person answered.
     answered_rows: list[Row] = Field(default_factory=list)
+    #: Per unit that returned a table, the tables it received, for moving the ids it took from them.
+    tables_received: list[tuple[Row, list[Any]]] = Field(default_factory=list)
     #: What each output holds, by output name.
     outputs: dict[str, OutputColumn] = Field(default_factory=dict)
     #: Units of this node waiting on a person, in row order.
@@ -222,11 +224,15 @@ class WorkOfNode(ConductorModel):
             **{name: getattr(self, name) for name in type(self).model_fields},
             "outputs": _output_columns_to_wire(node_id, self.outputs),
             "waiting": [unit.model_dump(mode="json") for unit in self.waiting],
-            "earlier_units": [{**unit.model_dump(mode="json", exclude={"outputs"}), "outputs": _output_columns_to_wire(node_id, unit.outputs)} for unit in self.earlier_units],
+            "tables_received": [(row, each_to_jsonable(tables)) for row, tables in self.tables_received],
+            "earlier_units": [
+                {**unit.model_dump(mode="json", exclude={"outputs", "tables_received"}), "outputs": _output_columns_to_wire(node_id, unit.outputs), "tables_received": each_to_jsonable(unit.tables_received)}
+                for unit in self.earlier_units
+            ],
         }
 
     def _with_tables_read(self, frames: Mapping[str, Any]) -> WorkOfNode:
-        return self.model_copy(update={name: with_table_references_read(getattr(self, name), frames) for name in ("outputs", "waiting", "earlier_units")})
+        return self.model_copy(update={name: with_table_references_read(getattr(self, name), frames) for name in ("outputs", "waiting", "tables_received", "earlier_units")})
 
 
 class RunState(ConductorModel):

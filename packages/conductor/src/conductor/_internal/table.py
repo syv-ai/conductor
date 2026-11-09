@@ -32,7 +32,9 @@ column through a filter, a sort and a join, so a node that only narrows or
 reorders a table hands its rows back with their ids, and a later merge can
 match them. A row that comes back with no id, or with one an earlier row
 already holds, is a new row and gets a fresh id; the others keep theirs
-(``with_row_ids``).
+(``with_row_ids``). A row's id is positional within its run, so a node that
+swaps ids between rows, or copies ids from another table, mispairs those
+rows in a later merge: nothing can tell a real id from a misplaced one.
 
 Polars is imported the first time a table is built, never at
 ``import conductor``, so a host that runs no tables never pays for it.
@@ -72,9 +74,13 @@ _GROUP_ROW_COLUMN = "__under_row"
 #: The one key of what stands in a document for a table held under its digest.
 _TABLE_REFERENCE_KEY = "table"
 #: What a walk over a document's values passes by without looking inside.
-_HOLDS_NO_TABLE = (str, int, float, bool, NoneType)
+HOLDS_NO_TABLE = (str, int, float, bool, NoneType)
 #: The attribute a frame keeps its digest in, once worked out.
 _DIGEST_ATTRIBUTE = "_conductor_digest"
+#: The attribute a frame keeps the digest of what it holds in, once worked out.
+_CONTENT_DIGEST_ATTRIBUTE = "_conductor_content_digest"
+#: How many characters of a table's digest say what it holds; the rest say where its rows are.
+_CONTENT_DIGEST_LENGTH = 32
 
 #: The Polars column type of a value built on each builtin, by the dtype's name.
 _COLUMN_OF_BASE: dict[type, str] = {
@@ -138,6 +144,40 @@ def with_ids_spelled_at_row(frame: pl.DataFrame, index: Index, old_group_row: Ro
     old_prefix, new_prefix = (global_row_id(index, (*group_row, 0))[:-1] for group_row in (old_group_row, new_group_row))
     ids = [f"{new_prefix}{row_id[len(old_prefix):]}" if row_id.startswith(old_prefix) else row_id for row_id in frame[ROW_ID_COLUMN].to_list()]
     return frame.with_columns(pl.Series(ROW_ID_COLUMN, ids, dtype=pl.String))
+
+
+def with_received_ids_moved(frame: pl.DataFrame, received_then: Sequence[pl.DataFrame], received_now: Sequence[pl.DataFrame]) -> pl.DataFrame:
+    """``frame``, a unit's table made from ``received_then``, as if made from ``received_now``.
+
+    The received tables match row by row, input by input, so each id that came in
+    with one takes the id its row has now, whatever the node did to the rows
+    between. An id the node minted is in none of them and stays."""
+    import polars as pl
+
+    changed = [(then[ROW_ID_COLUMN], now[ROW_ID_COLUMN]) for then, now in zip(received_then, received_now, strict=True) if not then[ROW_ID_COLUMN].equals(now[ROW_ID_COLUMN])]
+    if not changed:
+        return frame
+    moves = pl.concat([pl.DataFrame({"old": then, "new": now}) for then, now in changed]).unique("old", keep="first", maintain_order=True)
+    return frame.with_columns(pl.col(ROW_ID_COLUMN).replace(moves["old"], moves["new"]))
+
+
+def row_of_global_id(row_id: str) -> tuple[str, Row] | None:
+    """The index id and row a ``global_row_id`` spells, or ``None`` for an id it didn't spell: a node may hand on any text."""
+    index_id, _, path = row_id.rpartition(":")
+    if not index_id or not path.replace(".", "").isdigit():
+        return None
+    return index_id, tuple(int(step) for step in path.split("."))
+
+
+def without_row_id_columns(frame: pl.DataFrame) -> pl.DataFrame:
+    """``frame`` without the ids of its rows: ``__row``, and a ``__row_right`` a join left behind."""
+    import polars as pl
+
+    return pl.DataFrame([series for series in frame.get_columns() if not _is_a_row_id_column(series.name)])
+
+
+def _is_a_row_id_column(name: str) -> bool:
+    return name == ROW_ID_COLUMN or name.startswith(f"{ROW_ID_COLUMN}_right")
 
 
 def with_row_ids(frame: pl.DataFrame, index: Index, group_row: Row) -> pl.DataFrame:
@@ -257,17 +297,20 @@ def merge_tables_on_row_ids(sources: Sequence[MergeSource]) -> pl.DataFrame:
                 joined = joined.with_columns(pl.coalesce(key, f"{key}_right").alias(key)).drop(f"{key}_right")
         return joined
 
-    # Sources on one index match row by row, and a row there is its id under its parent:
-    # one table passed through per row repeats its ids under each. Across indexes the id alone matches.
+    def match_columns(left: pl.DataFrame, right: pl.DataFrame) -> list[str]:
+        """A row is its id, and its parent row where both sides repeat an id: one table passed through per row repeats its ids under each."""
+        return [ROW_ID_COLUMN, _GROUP_ROW_COLUMN] if _GROUP_ROW_COLUMN in left.columns and _GROUP_ROW_COLUMN in right.columns else [ROW_ID_COLUMN]
+
     per_index = []
     for frames in with_own_rows.values():
         on_one_index = frames[0]
         for frame in frames[1:]:
-            on_one_index = full_join(on_one_index, frame, [ROW_ID_COLUMN, _GROUP_ROW_COLUMN] if _GROUP_ROW_COLUMN in frame.columns else [ROW_ID_COLUMN])
-        per_index.append(on_one_index.drop(_GROUP_ROW_COLUMN, strict=False))
+            on_one_index = full_join(on_one_index, frame, match_columns(on_one_index, frame))
+        per_index.append(on_one_index)
     merged = per_index[0]
     for frame in per_index[1:]:
-        merged = full_join(merged, frame, [ROW_ID_COLUMN])
+        merged = full_join(merged, frame, match_columns(merged, frame))
+    merged = merged.drop(_GROUP_ROW_COLUMN, strict=False)
     for index, frame in copied_down:
         key = _parent_row_id_column(index)
         merged = merged.join(frame.rename({ROW_ID_COLUMN: key}), on=key, how="left", maintain_order="left")
@@ -535,24 +578,55 @@ def _table_written_whole(frame: pl.DataFrame) -> dict[str, Any]:
 
 
 def digest_of_table(frame: pl.DataFrame) -> str:
-    """The SHA-256 of what the frame holds, ``__row`` and column order included: worked out once per frame object.
+    """A table's digest, what a state files it under: what it holds and where its rows are, each digested apart.
 
-    Over Arrow IPC at Polars' oldest format: it doesn't depend on how the columns happen to be
+    ``content_digest_of_table`` is the first half, so a call's hash reads a table without its ids."""
+    digest: str | None = getattr(frame, _DIGEST_ATTRIBUTE, None)
+    if digest is None:
+        digest = content_digest_of_table(frame) + _digest_of_row_ids(frame)
+        setattr(frame, _DIGEST_ATTRIBUTE, digest)
+    return digest
+
+
+def content_digest_of_table(frame: pl.DataFrame) -> str:
+    """The digest of what a table holds, leaving out the ids of its rows: two tables equal apart from them digest the same.
+
+    Over Arrow IPC at Polars' oldest format, it doesn't depend on how the columns happen to be
     chunked or how their strings sit in memory. A frame is never changed in place once a run holds it."""
     import polars as pl
 
-    digest: str | None = getattr(frame, _DIGEST_ATTRIBUTE, None)
+    digest: str | None = getattr(frame, _CONTENT_DIGEST_ATTRIBUTE, None)
     if digest is not None:
         return digest
     written = io.BytesIO()
     try:
-        frame.write_ipc(written, compat_level=pl.CompatLevel.oldest())
+        _with_only_real_blanks(without_row_id_columns(frame)).write_ipc(written, compat_level=pl.CompatLevel.oldest())
     except pl.exceptions.ComputeError:
         _table_written_whole(frame)  # a column IPC can't hold has no JSON form either, and this names it
         raise
-    digest = hashlib.sha256(written.getbuffer()).hexdigest()
-    setattr(frame, _DIGEST_ATTRIBUTE, digest)
+    hasher = hashlib.sha256(written.getbuffer())
+    hasher.update(b"%d" % frame.height)  # a table of ids alone has no bytes to tell its sizes apart
+    digest = hasher.hexdigest()[:_CONTENT_DIGEST_LENGTH]
+    setattr(frame, _CONTENT_DIGEST_ATTRIBUTE, digest)
     return digest
+
+
+def _with_only_real_blanks(frame: pl.DataFrame) -> pl.DataFrame:
+    """A frame with blanks, its columns rebuilt: a filtered or sliced column can hold stray validity bits past its last row, and IPC writes them."""
+    import polars as pl
+
+    with_blanks = [name for name in frame.columns if frame[name].null_count()]
+    return frame.with_columns([pl.when(pl.col(name).is_not_null()).then(pl.col(name)).alias(name) for name in with_blanks]) if with_blanks else frame
+
+
+def _digest_of_row_ids(frame: pl.DataFrame) -> str:
+    """The digest of a table's id columns, ``__row`` and any a join left."""
+    hasher = hashlib.sha256()
+    for name in frame.columns:
+        if _is_a_row_id_column(name):
+            hasher.update("\x1f".join(row_id or "" for row_id in frame[name].to_list()).encode())
+            hasher.update(b"\x1e")
+    return hasher.hexdigest()[:_CONTENT_DIGEST_LENGTH]
 
 
 def tables_read_once(tables: Any) -> dict[str, pl.DataFrame]:
@@ -561,6 +635,7 @@ def tables_read_once(tables: Any) -> dict[str, pl.DataFrame]:
     frames = _tables_adapter().validate_python(tables)
     for digest, frame in frames.items():
         setattr(frame, _DIGEST_ATTRIBUTE, digest)
+        setattr(frame, _CONTENT_DIGEST_ATTRIBUTE, digest[:_CONTENT_DIGEST_LENGTH])
     return frames
 
 
@@ -573,7 +648,7 @@ def with_table_references_read(value: Any, frames: Mapping[str, pl.DataFrame]) -
     if isinstance(value, (list, tuple)):
         if isinstance(value, tuple) and (not value or type(value[0]) is int):  # a row's path
             return value
-        return type(value)(nested if isinstance(nested, _HOLDS_NO_TABLE) else with_table_references_read(nested, frames) for nested in value)
+        return type(value)(nested if isinstance(nested, HOLDS_NO_TABLE) else with_table_references_read(nested, frames) for nested in value)
     if isinstance(value, BaseModel):
         return value.model_copy(update={name: with_table_references_read(getattr(value, name), frames) for name in type(value).model_fields})
     return value

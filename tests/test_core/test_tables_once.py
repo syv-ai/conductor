@@ -165,13 +165,13 @@ def test_a_frame_is_hashed_once_however_many_places_hold_it(monkeypatch: pytest.
 
     SOURCE["t"] = _frame(5)
     compiled = _graph(_node("s", "load", key=Static("t")), _node("g", "names", count=Static(50)), _node("q", "approve", name=From("g.result"), table=From("s.result")))
-    state = compiled.run_sync()  # the run's key hashes it once
+    state = compiled.run_sync()  # the run's key hashes what it holds, once
     hashed: list[int] = []
     real = table.hashlib.sha256
-    monkeypatch.setattr(table.hashlib, "sha256", lambda data: hashed.append(1) or real(data))
+    monkeypatch.setattr(table.hashlib, "sha256", lambda *data: hashed.append(1) or real(*data))
     state.model_dump_json()
     state.model_dump_json()
-    assert hashed == []  # the dump reads the digest the frame kept from the run's key
+    assert len(hashed) == 1  # the first dump hashes its row ids; what it holds it keeps from the run's key, and the second reads what the frame kept
 
 
 def test_a_loaded_state_dumps_the_same_digests_with_no_hashing(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -53,7 +53,7 @@ def waiting_unit_for(node: CompiledNode, row: Row, ask_person: AskPerson, inputs
         row=row,
         prompt=ask_person.prompt,
         questions=questions,
-        input_hash=input_hash,
+        reuse_key=input_hash,
         inputs=inputs,
     )
 
@@ -114,7 +114,7 @@ def apply_answers(compiled: CompiledGraph, state: RunState, answers: Answers) ->
     ledger = RunLedger.restore(compiled, state)
     for waiting_unit, cells in finished:
         unit = (waiting_unit.node_id, waiting_unit.row)
-        ledger.record(unit, SkippedAtRow(waiting_unit.row) if cells is None else cells, waiting_unit.input_hash)
+        ledger.record(unit, SkippedAtRow(waiting_unit.row) if cells is None else cells, waiting_unit.reuse_key)
         ledger.mark_answered(unit)
     return ledger.state(state.status, state.failure)
 

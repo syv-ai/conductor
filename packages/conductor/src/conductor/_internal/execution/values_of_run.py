@@ -46,10 +46,13 @@ from conductor._internal.table import (
     is_frame,
     no_row_kept_its_id,
     with_ids_spelled_at_row,
+    with_received_ids_moved,
     with_row_ids,
 )
 
 if TYPE_CHECKING:
+    import polars as pl
+
     from conductor._internal.graph.compiled_graph import CompiledGraph
     from conductor._internal.graph.compiled_node import CompiledField
     from conductor._internal.graph.engine_lookups import EngineLookups
@@ -162,11 +165,14 @@ def held_form_of_return(field: CompiledField, name: str, row: Row, value: Any, r
             return field._validate_cell(value)
 
 
-def value_for_another_row(field: CompiledField, value: Any, old_row: Row, row: Row) -> Any:
-    """What a unit that was at ``old_row`` wrote, as a unit at ``row`` writes it: a table's own row ids follow the row."""
+def value_for_another_row(field: CompiledField, value: Any, old_row: Row, row: Row, received_then: list[pl.DataFrame], received_now: list[pl.DataFrame]) -> Any:
+    """What a unit that was at ``old_row`` wrote, as a unit at ``row`` writes it: a table's
+    own row ids follow the row, and the ids it took in follow the tables this unit received."""
     match field._held_as:
-        case TableAtRow(rows_made=rows_made) if old_row != row and is_frame(value):
-            return with_ids_spelled_at_row(value, rows_made, old_row, row)
+        case TableAtRow(rows_made=rows_made) if is_frame(value):
+            if old_row != row:
+                value = with_ids_spelled_at_row(value, rows_made, old_row, row)
+            return with_received_ids_moved(value, received_then, received_now) if received_then else value
         case _:
             return value
 
@@ -419,6 +425,10 @@ class ValuesOfRun:
         if cells is MISSING or row[-1] >= len(cells):
             return MISSING, row
         return cells[row[-1]], row
+
+    def cells_under(self, ref: Ref, row: Row) -> list[Any]:
+        """The list a row-making output holds at ``row``, whose items are the rows under it."""
+        return self._values[ref][row]
 
     def _cell_of_column(self, field: CompiledField, held_as: ColumnOfTable, row: Row) -> Any:
         """The cell of a table's column at ``row``, as the column's type, a blank cell ``None``."""

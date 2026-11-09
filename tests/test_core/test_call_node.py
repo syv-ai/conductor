@@ -177,7 +177,7 @@ def test_an_ask_is_the_waiting_unit_it_makes():
     outcome = call_node(_compiled_node(asks), (1,), {"x": 1}, {}, "the-hash")
 
     assert isinstance(outcome, WaitingUnit)
-    assert (outcome.row, outcome.prompt, outcome.input_hash, outcome.inputs) == ((1,), "Hvad?", "the-hash", {"x": 1})
+    assert (outcome.row, outcome.prompt, outcome.reuse_key, outcome.inputs) == ((1,), "Hvad?", "the-hash", {"x": 1})
 
 
 def test_an_ask_that_is_not_sound_is_invalid_output():

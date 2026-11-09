@@ -525,8 +525,8 @@ def test_an_answer_keyed_for_a_row_that_moved_is_refused() -> None:
     assert stale.value.errors()[0].type == "not_waiting"
 
 
-def test_identical_answered_rows_are_asked_again_when_none_is_at_this_row() -> None:
-    """Two rows with the same inputs, answered differently: moved rows can't say whose answer was whose."""
+def test_identical_answered_rows_keep_their_answers_in_order_when_they_all_move() -> None:
+    """Two rows with the same inputs, answered differently: moved rows keep theirs, the k-th to the k-th."""
 
     def graph(rows: str) -> CompiledGraph:
         return CompiledGraph.from_graph(Graph(nodes=[n("c", "csv", rows=Static(rows)), n("a", "ask", email=From("c.result.email"))]), registry)
@@ -537,14 +537,11 @@ def test_identical_answered_rows_are_asked_again_when_none_is_at_this_row() -> N
     assert state.status == "complete"
     CALLS.clear()
 
-    ending = graph("z|z@x\ny|y@x\na|d@x\nb|d@x\n").run_sync(through_json(state))  # both moved down, neither at its own row
+    moved = graph("z|z@x\ny|y@x\na|d@x\nb|d@x\n")
+    ending = moved.run_sync(through_json(state))
 
-    assert CALLS["ask"] == 4 and len(ending.waiting) == 4
-    # at its own row, an answer keeps its place
-    CALLS.clear()
-    kept = graph("a|d@x\nb|d@x\n").run_sync(through_json(state))
-    assert kept.status == "complete" and CALLS["ask"] == 0
-    assert graph("a|d@x\nb|d@x\n").results(kept)["a"]["result"]["values"] == ["yes", "no"]
+    assert CALLS["ask"] == 2 and sorted(unit.prompt for unit in ending.waiting) == ["y@x", "z@x"]
+    assert moved.results(ending)["a"]["result"]["values"] == ["yes", "no"] and moved.results(ending)["a"]["result"]["rows"] == [(2,), (3,)]
 
 
 def test_an_answered_unit_keeps_its_answer_through_a_row_edit_elsewhere() -> None:
@@ -727,12 +724,12 @@ def test_identical_answered_rows_are_reused_after_a_stopped_leg_as_on_a_direct_o
     assert CALLS["ask_or_fail"] == 1 and [unit.prompt for unit in going_on.waiting] == ["n@x"]
 
 
-def test_two_identical_answered_rows_stay_with_their_rows_across_a_stopped_leg() -> None:
-    """Row 0 keeps its answer, the leg stops, and row 2 must not take the answer of old row 1: whose it is can't be told."""
+def test_two_identical_answered_rows_keep_their_answers_across_a_stopped_leg() -> None:
+    """The count of identical rows didn't change, so the rows keep their answers whichever leg reaches them."""
     answered = answered_state_of(["a", "a"])
     edited = ask_or_fail_graph(["a", "n", "a"])
     direct = edited.run_sync(through_json(answered))
-    assert [unit.prompt for unit in direct.waiting] == ["n@x", "a@x"] and CALLS["ask_or_fail"] == 2
+    assert [unit.prompt for unit in direct.waiting] == ["n@x"] and CALLS["ask_or_fail"] == 1
     CALLS.clear()
 
     FAILING["address"] = "n@x"
@@ -742,7 +739,7 @@ def test_two_identical_answered_rows_stay_with_their_rows_across_a_stopped_leg()
     CALLS.clear()
     going_on = edited.run_sync(through_json(stopped))
 
-    assert [unit.prompt for unit in going_on.waiting] == ["n@x", "a@x"] and CALLS["ask_or_fail"] == 2
+    assert [unit.prompt for unit in going_on.waiting] == ["n@x"] and CALLS["ask_or_fail"] == 1
 
 
 def doc_table_or_fail_graph(addresses: list[str]) -> CompiledGraph:
