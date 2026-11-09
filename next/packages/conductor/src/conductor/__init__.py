@@ -19,8 +19,26 @@ from conductor._internal.errors import (
     NodeError,
     Problem,
 )
+from conductor._internal.field_records import Input, Output, Param, Result
+from conductor._internal.graph.binding import OPEN, Binding, From, Static
+from conductor._internal.graph.graph_records import FieldContent, Graph, GraphNode
+from conductor._internal.graph.upgrade import upgrade_node
 from conductor._internal.index import ValuesOnRows
+from conductor._internal.node_definition import (
+    ArrivingType,
+    Deprecation,
+    NodeDefinition,
+    NodeDescription,
+    NodeVersion,
+    Policy,
+    Upgrade,
+    VersionDescription,
+    node,
+)
+from conductor._internal.node_signature import FromRun, Interface
 from conductor._internal.ref import Ref
+from conductor._internal.registry import NodeRegistry, RegistryDescription, TypeDescription
+from conductor._internal.skip_and_ask import SKIPPED, AskPerson
 from conductor._internal.table import ROW_ID_COLUMN, table_with_columns
 
 if TYPE_CHECKING:
@@ -30,20 +48,48 @@ else:
     from conductor._internal.table import Table
 
 __all__ = [
+    "OPEN",
     "PROBLEM_CODES",
     "ROW_ID_COLUMN",
+    "SKIPPED",
+    "ArrivingType",
     "AsItArrives",
+    "AskPerson",
+    "Binding",
     "ComputeHookError",
     "DType",
+    "Deprecation",
     "ExternalFailure",
+    "FieldContent",
+    "From",
+    "FromRun",
+    "Graph",
+    "GraphNode",
+    "Input",
+    "Interface",
     "InvalidCallError",
     "NodeDeclarationError",
+    "NodeDefinition",
+    "NodeDescription",
     "NodeError",
+    "NodeRegistry",
+    "NodeVersion",
+    "Output",
+    "Param",
+    "Policy",
     "Problem",
     "Ref",
+    "RegistryDescription",
+    "Result",
     "Series",
+    "Static",
     "Table",
+    "TypeDescription",
+    "Upgrade",
     "ValuesOnRows",
+    "VersionDescription",
+    "node",
     "table_with_columns",
     "to_jsonable",
+    "upgrade_node",
 ]
