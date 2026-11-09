@@ -28,6 +28,7 @@ from conductor import (
     node,
 )
 from conductor.widgets import TextWidget
+from helpers import answer
 
 
 class Contact(TypedDict):
@@ -330,9 +331,9 @@ def test_a_typed_in_list_read_by_a_run_that_restores() -> None:
     compiled = _compiled(_node("w", "wait", question=Static(["a", "b"])), _node("x", "export", table=From("w.question", "w.result")), registry=_catalogue(wait))
     waiting = compiled.run_sync()
     assert waiting.status == "waiting"
-    done = compiled.answer(RunState.model_validate_json(waiting.model_dump_json()), {unit.id: {"result": f"answer {unit.id}"} for unit in waiting.waiting})
+    done = answer(compiled, RunState.model_validate_json(waiting.model_dump_json()), {unit.id: {"result": f"answer {unit.row[0]}"} for unit in waiting.waiting})
     finished = compiled.run_sync(done)
-    assert compiled.results(finished)["x"]["result"].drop(ROW_ID_COLUMN).to_dicts() == [{"question": "a", "A": "answer w@0"}, {"question": "b", "A": "answer w@1"}]
+    assert compiled.results(finished)["x"]["result"].drop(ROW_ID_COLUMN).to_dicts() == [{"question": "a", "A": "answer 0"}, {"question": "b", "A": "answer 1"}]
 
 
 # -- a table read from outside ---------------------------------------------------------

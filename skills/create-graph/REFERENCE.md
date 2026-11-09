@@ -40,7 +40,7 @@ async def legs():
     first = await asking.run()
     assert first.status == "waiting" and [unit.row for unit in first.waiting] == [(0,), (1,)]
     stored = RunState.model_validate_json(first.model_dump_json())  # how a host keeps the state between legs
-    answered = asking.answer(stored, {"approve@1": {"result": "Second, approved"}})
+    answered = asking.answer(stored, {stored.waiting[1].id: {"result": "Second, approved"}})
     second = await asking.run(answered)
     assert [unit.row for unit in second.waiting] == [(0,)]
 

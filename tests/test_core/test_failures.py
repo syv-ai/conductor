@@ -234,7 +234,7 @@ def test_a_policy_keeps_retry_on_out_of_what_a_palette_reads():
     policy = Policy(retries=2, retry_on=(ConnectionError, TimeoutError))
 
     assert policy.retry_on == (ConnectionError, TimeoutError)
-    assert policy.model_dump(mode="json") == {"retries": 2, "delay": 1.0, "timeout": None, "concurrency": 8}
+    assert policy.model_dump(mode="json") == {"retries": 2, "delay": 1.0, "timeout": None, "concurrency": 8, "reuse_when_inputs_match": True}
     assert "retry_on" not in Policy.model_json_schema()["properties"]
 
 

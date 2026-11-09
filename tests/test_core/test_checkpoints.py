@@ -22,6 +22,7 @@ from conductor import (
     node,
 )
 from conductor.events import Event, RunCheckpoint, RunEnd, UnitWaiting
+from helpers import answer
 
 
 class Txt(DType, str):
@@ -178,7 +179,7 @@ def test_a_checkpoint_carries_who_is_waiting_and_an_answer_goes_into_it(monkeypa
     state = RunState.model_validate_json(seen[-1].state.model_dump_json())  # type: ignore[union-attr]
     (waiting,) = state.waiting
 
-    answered = compiled().answer(state, {waiting.id: {"result": "SVAR"}})
+    answered = answer(compiled(), state, {waiting.id: {"result": "SVAR"}})
     assert answered.status == "running" and not answered.waiting
 
     release.set()

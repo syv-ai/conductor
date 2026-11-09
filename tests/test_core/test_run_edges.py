@@ -39,7 +39,7 @@ from conductor import (
     node,
 )
 from conductor.widgets import Textarea
-from helpers import read_table
+from helpers import answer, read_table
 
 
 class Txt(DType, str):
@@ -406,7 +406,7 @@ def test_a_node_filtering_every_row_away_returns_zero_rows():
 
 def test_a_person_answering_an_empty_list_for_a_table_gives_a_table_of_no_rows():
     compiled = compiled_of(n("a", "ask_rows"))
-    state = compiled.run_sync(compiled.answer(compiled.run_sync(), {"a": {"result": []}}))
+    state = compiled.run_sync(answer(compiled, compiled.run_sync(), {"a": {"result": []}}))
     assert state.status == "complete"
     assert compiled.results(state)["a"]["result"].height == 0
 
@@ -418,7 +418,7 @@ def test_a_persons_records_in_the_published_shape_are_new_rows_not_a_lost_id():
     compiled = compiled_of(n("c", "csv", k=Static("a,b")), n("r", "ask_table", t=From("c.result")), n("m", "merged", table=From("c.result", "r.result")))
     state = compiled.run_sync()
     assert state.waiting[0].questions[0].json_schema["type"] == "array"
-    ended = compiled.run_sync(compiled.answer(state, {"r": {"result": [{"name": "a", "email": "9"}]}}))
+    ended = compiled.run_sync(answer(compiled, state, {"r": {"result": [{"name": "a", "email": "9"}]}}))
     assert ended.status == "complete", ended.failure
     assert compiled.results(ended)["m"]["result"].height == 3
 
@@ -510,7 +510,7 @@ def test_a_damaged_state_is_refused_at_the_call(change):
 def test_an_answer_to_a_tampered_row_is_refused_at_the_next_leg():
     compiled, state = _damage(lambda d: d["waiting"][0].update(row=[5]))
     with pytest.raises(InvalidCallError) as raised:
-        compiled.run_sync(compiled.answer(state, {"a@0": {"result": "x"}, "a@1": {"result": "y"}}))
+        compiled.run_sync(answer(compiled, state, {"a@0": {"result": "x"}, "a@1": {"result": "y"}}))
     assert {p.type for p in raised.value.errors()} == {"state_unreadable"}
 
 
@@ -578,14 +578,14 @@ def test_a_choice_is_never_optional_and_leaving_it_out_is_refused():
     assert [q.optional for q in state.waiting[0].questions] == [False, False]
     assert state.waiting[0].questions[0].default == "x"
     with pytest.raises(InvalidCallError) as raised:
-        compiled.answer(state, {"a": {}})
+        answer(compiled, state, {"a": {}})
     assert [p.type for p in raised.value.errors()] == ["choice_unanswered"]
 
 
 def test_an_answer_naming_none_of_a_choice_is_refused():
     compiled = compiled_of(n("a", "ask_choice"))
     with pytest.raises(InvalidCallError) as raised:
-        compiled.answer(compiled.run_sync(), {"a": {}})
+        answer(compiled, compiled.run_sync(), {"a": {}})
     assert [p.type for p in raised.value.errors()] == ["choice_unanswered"]
 
 
@@ -787,7 +787,7 @@ def test_records_in_the_published_shape_that_keep_row_ids_merge_on_their_source_
     state = compiled.run_sync()
     default = state.waiting[0].questions[0].default
     records = [{ROW_ID_COLUMN: global_row_id, "name": name, "email": "edited"} for global_row_id, name in zip(default[ROW_ID_COLUMN], default["name"], strict=True)]
-    ended = compiled.run_sync(compiled.answer(state, {"r": {"result": records}}))
+    ended = compiled.run_sync(answer(compiled, state, {"r": {"result": records}}))
     assert ended.status == "complete", ended.failure
     assert compiled.results(ended)["m"]["result"].height == 2
 
@@ -799,6 +799,6 @@ def ask_list(k: In = Txt("")) -> Parts | AskPerson:
 
 def test_a_reader_left_with_no_rows_by_an_answer_is_in_the_results_before_the_next_leg():
     compiled = compiled_of(n("a", "ask_list"), n("u", "upper", text=From("a.result")), registry=REGISTRY.extended_with([ask_list]))
-    answered = compiled.answer(compiled.run_sync(), {"a": {"result": []}})
+    answered = answer(compiled, compiled.run_sync(), {"a": {"result": []}})
     assert list(compiled.results(answered)["u"]["result"]) == []
     assert answered.finished_rows["u"] == []

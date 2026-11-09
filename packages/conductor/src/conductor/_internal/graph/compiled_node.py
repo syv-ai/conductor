@@ -179,9 +179,25 @@ class CompiledNode:
             "version": node.version,
             "bindings": bindings,
             "plan": self._run_plan,
-            "outputs": {out.name: out.dtype.describe() for out in interface.outputs},
+            "outputs": self._outputs_described,
         }
         return hashlib.sha256(json.dumps(to_jsonable_python(used), sort_keys=True).encode("utf-8")).hexdigest()
+
+    @cached_property
+    def _outputs_described(self) -> dict[str, Any]:
+        """Each output's type, as a state's fingerprint and a unit's input hash both name it."""
+        assert self.interface is not None
+        return {out.name: out.dtype.describe() for out in self.interface.outputs}
+
+    @cached_property
+    def _input_hash_seed(self) -> bytes:
+        """What a unit's input hash starts from: what the node *is*, apart from what
+        it receives. A different function behind the same inputs is different work;
+        how its inputs get there is not (the fingerprint holds that)."""
+        assert self.interface is not None
+        node = self.graph_node
+        identity = {"type": node.type, "version": node.version, "inputs": [input_.name for input_ in self.interface.inputs], "outputs": self._outputs_described}
+        return hashlib.blake2b(json.dumps(to_jsonable_python(identity), sort_keys=True).encode("utf-8"), digest_size=16).digest()
 
     @cached_property
     def _questions(self) -> tuple[Question, ...]:

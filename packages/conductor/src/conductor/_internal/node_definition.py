@@ -127,6 +127,11 @@ class Policy(ConductorModel):
     #: series. ``1`` means one after another. The engine has no other cap.
     concurrency: int = Field(default=8, ge=1)
 
+    #: ``False`` for a node whose result depends on the world, not on its
+    #: inputs (today's exchange rate): a re-planned unit is always called, even
+    #: when an earlier unit received the same inputs.
+    reuse_when_inputs_match: bool = True
+
     #: Exception classes from the node's own client that mean the outside
     #: world failed — a connection error, a timeout, a rate limit. A foreign
     #: exception of one of these classes is wrapped as ``ExternalFailure``

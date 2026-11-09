@@ -65,6 +65,11 @@ def _stream(client: TestClient, body: dict) -> list[dict]:
         return [json.loads(line[len("data: "):]) for line in resp.iter_lines() if line.startswith("data: ")]
 
 
+def _id_of(state: dict, name: str) -> str:
+    """The id of the unit waiting at ``node`` or ``node@row``."""
+    return next(unit["id"] for unit in state["waiting"] if unit["id"].split("#")[0] == name)
+
+
 def test_a_completed_leg_answers_with_its_state_and_results(client):
     ended = client.post("/run", json={"graph": {"nodes": PER_ROW["nodes"][:1]}}).json()
 
@@ -79,10 +84,10 @@ def test_a_leg_that_asks_answers_waiting_and_the_next_leg_goes_on(client, calls)
     body = pending.json()
     assert body["state"]["status"] == "waiting"
     [unit] = body["state"]["waiting"]
-    assert unit["id"] == "ok" and unit["row"] == []
+    assert unit["id"].split("#")[0] == "ok" and unit["row"] == []
     assert unit["questions"][0]["name"] == "result"
 
-    done = client.post("/run", json={"graph": ONCE, "state": body["state"], "answers": {"ok": {"result": True}}}).json()
+    done = client.post("/run", json={"graph": ONCE, "state": body["state"], "answers": {_id_of(body["state"], "ok"): {"result": True}}}).json()
 
     assert done["state"]["status"] == "complete"
     assert done["results"]["ok"]["result"] == 1  # a bool, written as its own type writes it
@@ -91,14 +96,14 @@ def test_a_leg_that_asks_answers_waiting_and_the_next_leg_goes_on(client, calls)
 
 def test_each_row_of_a_per_row_node_is_answered_by_its_own_id(client, calls):
     first = client.post("/run", json={"graph": PER_ROW}).json()
-    assert [unit["id"] for unit in first["state"]["waiting"]] == ["ok@0", "ok@1"]
+    assert [unit["id"].split("#")[0] for unit in first["state"]["waiting"]] == ["ok@0", "ok@1"]
 
-    second = client.post("/run", json={"graph": PER_ROW, "state": first["state"], "answers": {"ok@1": {"result": False}}}).json()
+    second = client.post("/run", json={"graph": PER_ROW, "state": first["state"], "answers": {_id_of(first["state"], "ok@1"): {"result": False}}}).json()
 
     assert second["state"]["status"] == "waiting"
     assert [unit["row"] for unit in second["state"]["waiting"]] == [[0]]
 
-    third = client.post("/run", json={"graph": PER_ROW, "state": second["state"], "answers": {"ok@0": {"result": True}}}).json()
+    third = client.post("/run", json={"graph": PER_ROW, "state": second["state"], "answers": {_id_of(second["state"], "ok@0"): {"result": True}}}).json()
 
     assert third["state"]["status"] == "complete"
     assert third["results"]["ok"]["result"]["values"] == [True, False]
@@ -109,7 +114,7 @@ def test_the_stream_takes_the_state_and_the_answers_too(client, calls):
     first = _stream(client, {"graph": PER_ROW})
     assert first[-1]["type"] == "run_end" and first[-1]["state"]["status"] == "waiting"
 
-    answers = {"ok@0": {"result": True}, "ok@1": {"result": True}}
+    answers = {_id_of(first[-1]["state"], name): {"result": True} for name in ("ok@0", "ok@1")}
     second = _stream(client, {"graph": PER_ROW, "state": first[-1]["state"], "answers": answers})
 
     assert second[-1]["state"]["status"] == "complete"

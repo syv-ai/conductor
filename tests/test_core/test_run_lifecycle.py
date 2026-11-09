@@ -28,7 +28,7 @@ from conductor import (
 )
 from conductor.events import RunEnd, RunStart, UnitWaiting
 from conductor.widgets import Textarea
-from helpers import read_table
+from helpers import answer, read_table, waiting_id
 
 
 class Txt(DType, str):
@@ -235,7 +235,7 @@ def test_stream_starts_with_run_start_ends_with_run_end():
     seen = asyncio.run(events())
     assert isinstance(seen[0], RunStart) and isinstance(seen[-1], RunEnd)
     waiting = [event for event in seen if isinstance(event, UnitWaiting)]
-    assert [event.unit.id for event in waiting] == ["ask"] and seen[-1].state.status == "waiting"
+    assert [event.unit.id.split("#")[0] for event in waiting] == ["ask"] and seen[-1].state.status == "waiting"
 
 
 def test_a_refused_stream_raises_at_the_call_not_inside_the_block():
@@ -281,7 +281,7 @@ PER_ROW = (n("split", text=Static("a\nb\nc")), n("ask", "approve", text=From("sp
 
 def test_the_waiting_units_are_in_the_state_with_their_questions_and_load_with_no_graph():
     state = roundtrip(compiled_of(*PER_ROW).run_sync())
-    assert [(unit.id, unit.node_id, unit.row, unit.prompt) for unit in state.waiting] == [
+    assert [(unit.id.split("#")[0], unit.node_id, unit.row, unit.prompt) for unit in state.waiting] == [
         ("ask@0", "ask", (0,), "ok? a"), ("ask@1", "ask", (1,), "ok? b"), ("ask@2", "ask", (2,), "ok? c"),
     ]
     (question,) = state.waiting[0].questions
@@ -294,15 +294,15 @@ def test_an_answer_finishes_its_unit_and_a_node_that_asked_is_not_called_again()
     compiled = compiled_of(*PER_ROW)
     first = compiled.run_sync()
     assert calls["approve"] == 3
-    answered = compiled.answer(roundtrip(first), {"ask@1": {"result": "svar"}})
-    assert [unit.id for unit in answered.waiting] == ["ask@0", "ask@2"]
+    answered = answer(compiled, roundtrip(first), {"ask@1": {"result": "svar"}})
+    assert [unit.id.split("#")[0] for unit in answered.waiting] == ["ask@0", "ask@2"]
     assert answered.status == "waiting" and "upper" not in calls
 
     second = compiled.run_sync(answered)
     assert second.status == "waiting" and calls["approve"] == 3 and calls["upper"] == 1
-    assert [unit.id for unit in second.waiting] == ["ask@0", "ask@2"]
+    assert [unit.id.split("#")[0] for unit in second.waiting] == ["ask@0", "ask@2"]
 
-    third = compiled.run_sync(compiled.answer(second, {"ask@0": {"result": "x"}, "ask@2": None}))
+    third = compiled.run_sync(answer(compiled, second, {"ask@0": {"result": "x"}, "ask@2": None}))
     assert third.status == "complete" and calls["approve"] == 3
     assert list(compiled.outputs(third)["up.result"]) == ["X", "SVAR"]
 
@@ -311,13 +311,13 @@ def test_answer_changes_no_run_and_leaves_the_state_it_was_given():
     compiled = compiled_of(n("ask", "approve", text=Static("a")))
     state = compiled.run_sync()
     dumped = state.model_dump_json()
-    compiled.answer(state, {"ask": {"result": "b"}})
+    answer(compiled, state, {"ask": {"result": "b"}})
     assert state.model_dump_json() == dumped and calls["approve"] == 1
 
 
 def test_a_question_with_a_default_may_be_left_blank():
     compiled = compiled_of(n("ask", "approve", text=Static("foreslået")))
-    state = compiled.run_sync(compiled.answer(compiled.run_sync(), {"ask": {}}))
+    state = compiled.run_sync(answer(compiled, compiled.run_sync(), {"ask": {}}))
     assert compiled.outputs(state)["ask.result"] == "foreslået"
 
 
@@ -325,39 +325,41 @@ def test_every_fault_of_a_call_is_reported_at_once_and_the_state_is_untouched():
     compiled = compiled_of(n("d", "decide"), n("ask", "approve", text=Static("a")))
     state = compiled.run_sync()
     with pytest.raises(InvalidCallError) as raised:
-        compiled.answer(state, {
+        answer(compiled, state, {
             "ghost": {},
             "ask": {"stray": "x"},
             "d": {"yes": "a", "no": "b", "note": 1},
         })
-    assert sorted((fault.type, fault.loc) for fault in raised.value.errors()) == [
-        ("choice_unanswered", ("answers", "d", "verdict")),
-        ("invalid_value", ("answers", "d", "note")),
-        ("not_asked", ("answers", "ask", "stray")),
+    ask_id, d_id = waiting_id(state, "ask"), waiting_id(state, "d")
+    assert sorted((fault.type, fault.loc) for fault in raised.value.errors()) == sorted([
+        ("choice_unanswered", ("answers", d_id, "verdict")),
+        ("invalid_value", ("answers", d_id, "note")),
+        ("not_asked", ("answers", ask_id, "stray")),
         ("not_waiting", ("answers", "ghost")),
-    ]
+    ])
     assert len(state.waiting) == 2
 
 
 def test_a_question_with_no_default_left_out_is_missing():
     compiled = compiled_of(n("d", "decide"))
+    state = compiled.run_sync()
     with pytest.raises(InvalidCallError) as raised:
-        compiled.answer(compiled.run_sync(), {"d": {"yes": "a"}})
-    assert [(fault.type, fault.loc) for fault in raised.value.errors()] == [("missing", ("answers", "d", "note"))]
+        answer(compiled, state, {"d": {"yes": "a"}})
+    assert [(fault.type, fault.loc) for fault in raised.value.errors()] == [("missing", ("answers", waiting_id(state, "d"), "note"))]
 
 
 def test_a_choice_output_left_out_means_that_branch_was_not_taken():
     compiled = compiled_of(n("d", "decide"), n("up", "upper", text=From("d.no")))
-    state = compiled.run_sync(compiled.answer(compiled.run_sync(), {"d": {"yes": "ja", "note": "n"}}))
+    state = compiled.run_sync(answer(compiled, compiled.run_sync(), {"d": {"yes": "ja", "note": "n"}}))
     assert state.status == "complete" and compiled.results(state)["d"] == {"yes": "ja", "note": "n"}
     assert "up" not in compiled.results(state)
 
 
 def test_an_answer_for_a_unit_already_answered_is_not_waiting():
     compiled = compiled_of(n("ask", "approve", text=Static("a")))
-    answered = compiled.answer(compiled.run_sync(), {"ask": {"result": "b"}})
+    answered = answer(compiled, compiled.run_sync(), {"ask": {"result": "b"}})
     with pytest.raises(InvalidCallError) as raised:
-        compiled.answer(answered, {"ask": {"result": "c"}})
+        answer(compiled, answered, {"ask": {"result": "c"}})
     assert raised.value.errors()[0].type == "not_waiting"
 
 
@@ -365,7 +367,7 @@ def test_a_series_output_is_answered_as_a_plain_list_per_row():
     compiled = compiled_of(n("split", text=Static("a\nb")), n("ask", "ask-many", text=From("split.result")))
     state = compiled.run_sync()
     assert state.waiting[0].questions[0].json_schema == {"type": "array", "items": {"type": "string"}}
-    state = compiled.run_sync(compiled.answer(state, {"ask@0": {"result": ["x", "y"]}, "ask@1": {"result": []}}))
+    state = compiled.run_sync(answer(compiled, state, {"ask@0": {"result": ["x", "y"]}, "ask@1": {"result": []}}))
     assert state.status == "complete"
     assert compiled.results(state)["ask"]["result"].rows == ((0, 0), (0, 1))
 
@@ -374,7 +376,7 @@ def test_a_table_is_answered_as_records_and_keeps_its_rows_across_json():
     compiled = compiled_of(n("t", "ask-table"), n("mail", "read-emails", email=From("t.result.email")))
     state = compiled.run_sync()
     assert state.waiting[0].questions[0].json_schema["type"] == "array"
-    answered = compiled.answer(roundtrip(state), {"t": {"result": [{"name": "a", "email": "a@x"}, {"name": "b", "email": "b@x"}]}})
+    answered = answer(compiled, roundtrip(state), {"t": {"result": [{"name": "a", "email": "a@x"}, {"name": "b", "email": "b@x"}]}})
     done = compiled.run_sync(roundtrip(answered))
     assert done.status == "complete"
     assert list(compiled.results(done)["mail"]["result"]) == ["A@X", "B@X"]
@@ -386,7 +388,7 @@ def test_adding_a_row_to_an_answered_table_keeps_the_other_rows_ids():
     wire = {"columns": [{"name": "name", "dtype": "String"}, {"name": "email", "dtype": "String"}],
             "data": {"name": ["a", "b", "new"], "email": ["a@x", "b@x", "n@x"]},
             "rows": ["t.result:1", "t.result:2", None]}
-    done = compiled.run_sync(compiled.answer(state, {"t": {"result": wire}}))
+    done = compiled.run_sync(answer(compiled, state, {"t": {"result": wire}}))
     assert compiled.results(done)["t"]["result"]["__row"].to_list() == ["t.result:1", "t.result:2", "t.result:0"]
 
 
@@ -395,7 +397,7 @@ def test_a_table_form_with_rows_that_do_not_line_up_is_a_refusal():
     wire = {"columns": [{"name": "name", "dtype": "String"}, {"name": "email", "dtype": "String"}],
             "data": {"name": ["a"], "email": ["a"]}, "rows": ["x", "y"]}
     with pytest.raises(InvalidCallError) as raised:
-        compiled.answer(compiled.run_sync(), {"t": {"result": wire}})
+        answer(compiled, compiled.run_sync(), {"t": {"result": wire}})
     assert raised.value.errors()[0].type == "invalid_value"
 
 
@@ -409,7 +411,7 @@ def test_a_changed_node_asks_again_and_its_old_unit_is_gone():
     earlier = compiled.run_sync()
     changed = compiled_of(n("ask", "approve", text=Static("b")))
     with pytest.raises(InvalidCallError) as raised:
-        changed.answer(earlier, {"ask": {"result": "x"}})
+        answer(changed, earlier, {"ask": {"result": "x"}})
     assert raised.value.errors()[0].type == "not_waiting"
     again = changed.run_sync(earlier)
     assert again.status == "waiting" and again.waiting[0].prompt == "ok? b" and calls["approve"] == 2
@@ -554,7 +556,7 @@ def test_a_change_above_a_column_reader_drops_its_answer_and_it_asks_again():
         return compiled_of(n("x", "extract", text=Static(text)), n("ask", "approve", text=From("x.result.name")))
 
     compiled = graph("a")
-    state = compiled.run_sync(compiled.answer(compiled.run_sync(), {"ask@0": {"result": "ja"}}))
+    state = compiled.run_sync(answer(compiled, compiled.run_sync(), {"ask@0": {"result": "ja"}}))
     assert state.status == "complete"
     calls.clear()
 
@@ -566,7 +568,7 @@ def test_a_change_above_a_column_reader_drops_its_answer_and_it_asks_again():
 
 def test_results_show_the_rows_answered_so_far():
     compiled = compiled_of(*PER_ROW)
-    partly = compiled.run_sync(compiled.answer(compiled.run_sync(), {"ask@1": {"result": "svar"}}))
+    partly = compiled.run_sync(answer(compiled, compiled.run_sync(), {"ask@1": {"result": "svar"}}))
     assert partly.status == "waiting"
     result = compiled.results(partly)["ask"]["result"]
     assert list(result) == ["svar"] and result.rows == ((1,),)

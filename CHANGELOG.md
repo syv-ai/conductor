@@ -78,6 +78,17 @@ its stored graphs itself. What a 1.x user must change:
   from, in place of `resume`.
 - `flow_*` events are `run_start`, `node_failed`, `unit_waiting` and `run_end`, which carries the
   state. What goes wrong is always a `Problem`; a node's own exception goes to the `conductor` logger.
+- A changed node reuses per row. A leg going on from a state hashes what each unit of a changed node
+  is about to receive, and a unit whose inputs match one its earlier units received takes that result
+  at its new row and isn't called, a waiting unit or an answer included: one row added to a CSV of
+  5,000 sends one mail. The hash is of content, so a row keeps its work when another is inserted above
+  it; a `Table` input is read with its `__row`s. Identical rows each get one result; a table a unit
+  minted moved with it gets its ids re-spelled at the new row. `WaitingUnit.id` is `node@row#hash12`
+  (`node#hash12` for a node that ran once), and a form opened before a row moved is refused
+  (`not_waiting`). `Policy(reuse_when_inputs_match=False)` opts a node out. `NodeComplete.reused_units`
+  and `RunState.reused_units` report it; `RunState` gains `input_hashes`, `answered_rows` and
+  `earlier_work` (what a leg that stopped short hadn't reached yet). `RunState.without_nodes` forgets
+  only the nodes it names. A state goes back only to the runner it came from.
 - A dumped `RunState` holds each table once, under `tables` by digest, with `{"table": digest}` in
   `output_columns` values, `WaitingUnit.inputs` and question defaults. A plain `model_dump_json()`
   is one document, and a load holds one frame per digest. An event writes its tables whole.

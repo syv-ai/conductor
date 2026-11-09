@@ -375,7 +375,7 @@ def _drive_graph(seed: int, check_after_each_record) -> None:
             else:
                 outputs = _unit_outputs(ledger, compiled, unit, inputs)
                 if isinstance(outputs, AskPerson):
-                    waiting_unit = waiting_unit_for(compiled.node(unit[0]), unit[1], outputs, inputs)
+                    waiting_unit = waiting_unit_for(compiled.node(unit[0]), unit[1], outputs, inputs, "0" * 32)
                     ledger.mark_waiting(unit, waiting_unit)
                     parked_answers.append((unit, {"result": Txt("answered")}))
                     check_after_each_record(ledger, compiled, in_flight, [])

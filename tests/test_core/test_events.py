@@ -57,7 +57,7 @@ def _compiled(text: str) -> CompiledGraph:
 
 #: Every event's fields and required fields, by its ``type``.
 SHAPES = {
-    "node_complete": (["node_id", "result", "rows_not_called", "type"], ["node_id", "result", "rows_not_called", "type"]),
+    "node_complete": (["node_id", "result", "reused_units", "rows_not_called", "type"], ["node_id", "result", "reused_units", "rows_not_called", "type"]),
     "node_failed": (["cause", "node_id", "type"], ["cause", "node_id", "type"]),
     "node_progress": (["done", "node_id", "total", "type"], ["done", "node_id", "total", "type"]),
     "node_retry": (
@@ -136,6 +136,7 @@ def test_a_frame_is_the_json_the_dict_was():
     assert json.loads(sse_frame(event).removeprefix("data: ")) == {
         "type": "node_complete",
         "rows_not_called": {},
+        "reused_units": 0,
         "node_id": "s",
         "result": {"result": {"index": {"id": "s", "parent": None}, "rows": [[0]], "values": ["a"]}},
     }

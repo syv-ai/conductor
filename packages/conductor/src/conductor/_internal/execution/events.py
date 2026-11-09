@@ -33,9 +33,11 @@ class _EventBase(ConductorModel):
 
 
 class RunStart(_EventBase):
-    """A leg began. On a leg going on from a state: the nodes kept from it
-    (``reused_nodes``), the nodes it left out because they or something above
-    them changed (``changed_nodes``), and the units still waiting."""
+    """A leg began. On a leg going on from a state: the nodes kept from it whole
+    (``reused_nodes``), the nodes whose units run again because they or something
+    above them changed (``changed_nodes``), and the units still waiting. These
+    speak about nodes: which units of a changed node are reused is only known
+    once its inputs are, and ``NodeComplete.reused_units`` says so."""
 
     type: Literal["run_start"] = "run_start"
     reused_nodes: list[str] = Field(default_factory=list)
@@ -63,12 +65,15 @@ class NodeProgress(_EventBase):
 class NodeComplete(_EventBase):
     """A node finished; ``result`` is its outputs by name: a value, or a
     ``Series`` for anything on an index. ``rows_not_called`` counts, per
-    input, the rows the node wasn't called on because that input was blank."""
+    input, the rows the node wasn't called on because that input was blank.
+    ``reused_units`` counts the units this leg took from an earlier finished
+    unit instead of calling the node."""
 
     type: Literal["node_complete"] = "node_complete"
     node_id: str
     result: dict[str, Any]
     rows_not_called: dict[str, int] = Field(default_factory=dict)
+    reused_units: int = 0
 
 
 class NodeSkipped(_EventBase):
@@ -101,8 +106,10 @@ class NodeRetry(_EventBase):
 
 
 class UnitWaiting(_EventBase):
-    """A node asked a person something, on this leg. The unit waits, whatever
-    reads it waits, and the rest of the graph runs on."""
+    """A unit is waiting on a person, as of this leg: its node asked, or an
+    earlier unit that received the same inputs was still waiting and goes on
+    waiting at this row. The unit waits, whatever reads it waits, and the rest
+    of the graph runs on."""
 
     type: Literal["unit_waiting"] = "unit_waiting"
     unit: WaitingUnit

@@ -23,7 +23,8 @@ final, and the thread keeps the node's concurrency slot until it returns.
 nor failed: it waits, whatever reads it waits, and the rest of the graph runs
 on. Nothing resumes: the next leg is an ordinary run over a ledger that
 already holds what earlier legs produced, and a node the graph has changed
-since, or that reads one, runs again.
+since, or that reads one, runs again, except on a row whose inputs match a row
+it ran on before: that row's result is used, and the node isn't called.
 
 **A leg can save itself while it runs.** Asked for checkpoints, the loop
 compares a monotonic clock each time a unit finishes and, when the interval has
@@ -82,7 +83,7 @@ from conductor._internal.execution.run_ledger import (
     Unit,
     UnitRecorded,
 )
-from conductor._internal.execution.run_state import RunState
+from conductor._internal.execution.run_state import RunState, WaitingUnit
 from conductor._internal.execution.validate_unit_outputs import took_a_row_in, validate_unit_outputs
 from conductor._internal.execution.waiting_units import waiting_unit_for
 from conductor._internal.node_signature import split_return_into_outputs
@@ -408,6 +409,17 @@ class RunningLeg:
 
         node = compiled.node(node_id)
         version = node.version
+        input_hash = ledger.input_hash_of(node._input_hash_seed, inputs)
+        if ledger.earlier_units and (earlier := ledger.claim_earlier_result(unit, input_hash)) is not None:
+            self._free_slot(node_id)
+            if isinstance(earlier, WaitingUnit):
+                ledger.mark_waiting(unit, earlier)
+                queue.put_nowait(UnitWaiting(unit=earlier))
+                queue.put_nowait(_UnitDone(unit))
+            else:
+                self._report_recorded(unit, ledger.record(unit, earlier, input_hash))
+            return
+
         policy = version.policy
         call = self._call_on_a_thread(unit, inputs)
         try:
@@ -434,7 +446,7 @@ class RunningLeg:
 
         try:
             if isinstance(value, AskPerson):
-                waiting_unit = waiting_unit_for(node, row, value, inputs)
+                waiting_unit = waiting_unit_for(node, row, value, inputs, input_hash)
                 ledger.mark_waiting(unit, waiting_unit)
                 queue.put_nowait(UnitWaiting(unit=waiting_unit))
                 queue.put_nowait(_UnitDone(unit))
@@ -453,7 +465,7 @@ class RunningLeg:
             code = next((problem.type for problem in problems if problem.type != "invalid_output"), "invalid_output")
             queue.put_nowait(_UnitDone(unit, error=self._invalid_output_event(node_id, row, reason, errors, code=code)))
             return
-        self._report_recorded(unit, ledger.record(unit, cells))
+        self._report_recorded(unit, ledger.record(unit, cells, input_hash))
 
     def _validate_inputs_and_call_node(self, unit: Unit, inputs: dict[str, Any]) -> Any:
         """Validate the inputs against the node's interface, then call the node.
@@ -519,7 +531,7 @@ class RunningLeg:
             if result is None and not rows_not_called:
                 self.queue.put_nowait(NodeSkipped(node_id=completed_node_id))
             else:
-                self.queue.put_nowait(NodeComplete(node_id=completed_node_id, result=result or {}, rows_not_called=rows_not_called))
+                self.queue.put_nowait(NodeComplete(node_id=completed_node_id, result=result or {}, rows_not_called=rows_not_called, reused_units=ledger.reused_units(completed_node_id)))
         self.queue.put_nowait(_UnitDone(unit, recorded.units_ready))
 
     # -- failures ----------------------------------------------------------------

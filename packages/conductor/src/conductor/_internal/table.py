@@ -125,8 +125,20 @@ def is_frame(value: Any) -> bool:
 def global_row_id(index: Index, row: Row) -> str:
     """The global id of the row at ``row`` on ``index``: ``contacts:0``, ``structured.invoices:0.1``.
 
-    The one place a row id is spelled; nothing parses one."""
+    The one place a row id is spelled."""
     return f"{index.id}:{'.'.join(str(n) for n in row)}"
+
+
+def with_ids_spelled_at_row(frame: pl.DataFrame, index: Index, old_group_row: Row, new_group_row: Row) -> pl.DataFrame:
+    """``frame``, whose rows a unit made under ``old_group_row``, as made under ``new_group_row``.
+
+    Ids the unit minted name their row and are re-spelled; ids it took in
+    from an input name another row and stay as they are."""
+    import polars as pl
+
+    old_prefix, new_prefix = (global_row_id(index, (*group_row, 0))[:-1] for group_row in (old_group_row, new_group_row))
+    ids = [f"{new_prefix}{row_id[len(old_prefix):]}" if row_id.startswith(old_prefix) else row_id for row_id in frame[ROW_ID_COLUMN].to_list()]
+    return frame.with_columns(pl.Series(ROW_ID_COLUMN, ids, dtype=pl.String))
 
 
 def with_row_ids(frame: pl.DataFrame, index: Index, group_row: Row) -> pl.DataFrame:
@@ -506,7 +518,7 @@ def _table_to_wire(frame: pl.DataFrame) -> dict[str, Any]:
     tables = _tables_of_document_being_written.get()
     if tables is None:
         return _table_written_whole(frame)
-    digest = _digest_of_frame(frame)
+    digest = digest_of_table(frame)
     if digest not in tables:
         tables[digest] = _table_written_whole(frame)
     return {_TABLE_REFERENCE_KEY: digest}
@@ -521,8 +533,8 @@ def _table_written_whole(frame: pl.DataFrame) -> dict[str, Any]:
     }
 
 
-def _digest_of_frame(frame: pl.DataFrame) -> str:
-    """The SHA-256 of what the frame holds, worked out once per frame object.
+def digest_of_table(frame: pl.DataFrame) -> str:
+    """The SHA-256 of what the frame holds, ``__row`` and column order included: worked out once per frame object.
 
     Over Arrow IPC at Polars' oldest format: it doesn't depend on how the columns happen to be
     chunked or how their strings sit in memory. A frame is never changed in place once a run holds it."""

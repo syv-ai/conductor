@@ -23,6 +23,7 @@ from conductor._internal.execution.run_state import (
     Question,
     RunState,
     WaitingUnit,
+    id_of_waiting_unit,
 )
 from conductor._internal.execution.validate_unit_outputs import validate_unit_outputs
 from conductor._internal.series import Row
@@ -34,7 +35,7 @@ if TYPE_CHECKING:
     from conductor._internal.graph.compiled_node import CompiledNode
 
 
-def waiting_unit_for(node: CompiledNode, row: Row, ask_person: AskPerson, inputs: dict[str, Any]) -> WaitingUnit:
+def waiting_unit_for(node: CompiledNode, row: Row, ask_person: AskPerson, inputs: dict[str, Any], input_hash: str) -> WaitingUnit:
     """The entry for this unit in ``RunState.waiting``, with the ``inputs`` it was
     called with. A ``ValueError`` when ``ask_person`` names an output the node does
     not have or proposes a default that is not its output's type: the node's
@@ -44,11 +45,12 @@ def waiting_unit_for(node: CompiledNode, row: Row, ask_person: AskPerson, inputs
     if ask_person.defaults or ask_person.widgets:
         questions = _with_defaults_and_widgets(node, row, ask_person)
     return WaitingUnit(
-        id=node.id if row == () else f"{node.id}@{','.join(str(n) for n in row)}",
+        id=id_of_waiting_unit(node.id, row, input_hash),
         node_id=node.id,
         row=row,
         prompt=ask_person.prompt,
         questions=questions,
+        input_hash=input_hash,
         inputs=inputs,
     )
 
@@ -105,7 +107,9 @@ def apply_answers(compiled: CompiledGraph, state: RunState, answers: Answers) ->
         raise InvalidCallError(problems)
     ledger = RunLedger.restore(compiled, state)
     for waiting_unit, cells in finished:
-        ledger.record((waiting_unit.node_id, waiting_unit.row), SkippedAtRow(waiting_unit.row) if cells is None else cells)
+        unit = (waiting_unit.node_id, waiting_unit.row)
+        ledger.record(unit, SkippedAtRow(waiting_unit.row) if cells is None else cells, waiting_unit.input_hash)
+        ledger.mark_answered(unit)
     return ledger.state(state.status, state.failure)
 
 

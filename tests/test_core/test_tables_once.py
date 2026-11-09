@@ -22,6 +22,7 @@ from conductor import (
 from conductor._internal.execution.run_state import OutputColumn
 from conductor.events import RunEnd, UnitWaiting
 from conductor_providers.fastapi.sse import as_data
+from helpers import answer
 from pydantic import ValidationError
 
 
@@ -86,7 +87,7 @@ def test_a_chain_and_many_waiting_units_cost_one_table_and_read_back_equal() -> 
     assert state.status == "waiting" and len(state.waiting) == 500
     document = state.model_dump_json()
     (table,) = json.loads(document)["tables"].values()
-    assert len(document) < 1.1 * len(json.dumps(table, separators=(",", ":")))
+    assert len(document) < 1.25 * len(json.dumps(table, separators=(",", ":")))  # the one table, and the rows' input hashes
     loaded = RunState.model_validate_json(document)
     for node_id, outputs in compiled.results(state).items():
         for name, value in outputs.items():
@@ -158,7 +159,7 @@ def test_a_table_default_is_a_reference_and_answers_like_any_default() -> None:
     document = json.loads(state.model_dump_json())
     assert set(document["waiting"][0]["questions"][0]["default"]) == {"table"}
     loaded = RunState.model_validate_json(state.model_dump_json())
-    assert compiled.results(compiled.answer(loaded, {"ask": {}}))["ask"]["result"].height == 1
+    assert compiled.results(answer(compiled, loaded, {"ask": {}}))["ask"]["result"].height == 1
 
 
 def test_a_frame_is_hashed_once_however_many_places_hold_it(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -166,13 +167,13 @@ def test_a_frame_is_hashed_once_however_many_places_hold_it(monkeypatch: pytest.
 
     SOURCE["t"] = _frame(5)
     compiled = _graph(_node("s", "load", key=Static("t")), _node("g", "names", count=Static(50)), _node("q", "approve", name=From("g.result"), table=From("s.result")))
-    state = compiled.run_sync()
+    state = compiled.run_sync()  # the run's key hashes it once
     hashed: list[int] = []
     real = table.hashlib.sha256
     monkeypatch.setattr(table.hashlib, "sha256", lambda data: hashed.append(1) or real(data))
     state.model_dump_json()
     state.model_dump_json()
-    assert len(hashed) == 1
+    assert hashed == []  # the dump reads the digest the frame kept from the run's key
 
 
 def test_a_loaded_state_dumps_the_same_digests_with_no_hashing(monkeypatch: pytest.MonkeyPatch) -> None:

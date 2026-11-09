@@ -157,8 +157,26 @@ state = compiled.run_sync(answered)
 - Each entry of `state.waiting` holds its `prompt` (from `AskPerson(prompt=...)`), the `inputs` it received by name so a form can show the row, a `Series` as a list and a table as its JSON form, exactly what the call got and no more, and the questions it asks.
 - Answers are `{waiting.id: {output: value}}`, for a node that ran once, each row, an embedded node or a `Table` output; `None` for a unit means no value on its row. A question left blank takes its default; a `choice` output left out is the branch not taken. A unit not answered goes on waiting, and a node that asked is not called again unless it or something above it changed.
 - A question has `name`, `title`, `description`, `dtype`, `json_schema`, `widget`, `default`, `optional`, `choice`: enough for a form with no graph loaded.
-- A state is plain JSON: `RunState.model_validate_json(saved)`. On the next leg every value passes its output's check, a value that doesn't read fails with `state_unreadable`, and a node whose fingerprint differs runs again with what reads it. `compiled.nodes_changed_since(state)` lists them. `state.without_nodes(node_id)` forces a rerun.
+- A state is plain JSON: `RunState.model_validate_json(saved)`. On the next leg every value passes its output's check, a value that doesn't read fails with `state_unreadable`, and a node whose fingerprint differs runs again with what reads it, reusing a row's earlier result where what it receives is the same (see "Running again"). `compiled.nodes_changed_since(state)` lists them. `state.without_nodes(node_id)` forces a rerun.
 - A parameter typed `FromRun[T]` receives the value of `T` from `compiled.run(from_run={T: value})`; `Interface.needs` is the set of those types. A missing one is `from_run_missing`, at the call.
+
+### Running again
+
+A leg that goes on from a state reuses what it can. A node nothing changed above is restored whole. A changed node's units run again, except a unit whose inputs match one its earlier units received: it takes that result, its cells are written at its new row, and the node isn't called. Reuse comes only from the state you pass: conductor keeps no cache and looks nothing up across runs.
+
+```python
+state = compiled.run_sync()                                    # 5,000 mails
+state = compiled.with_inputs(contacts=edited).run_sync(state)  # one row added: one mail
+```
+
+- The key is what the unit is about to receive, by content, statics and wired values alike (a `FromRun` value is not part of it), plus the node's type, version, input names and output types. A row's position and its id are not: insert a row at the top and the rows below keep their work. A `Table` or a merged table is read with its row ids.
+- Identical rows don't share a result: each earlier unit is taken once, so a third identical row is a new call.
+- A waiting unit goes on waiting at its new row; an answer stays with its row, unless several rows received the same and answered differently, and then the person is asked again rather than guessing. A waiting unit's `id` (`node@row#hash12`, `node#hash12` for a node that ran once) binds its row and inputs, so an answer meant for a row that has since moved or changed is refused.
+- A leg that stops short keeps the earlier work it hadn't reached (`state.earlier_work`), so running again from a failed, cancelled, checkpointed or waiting state reuses as much as the state before it would.
+- `Policy(reuse_when_inputs_match=False)` is for a node whose result depends on the world, not its inputs (today's exchange rate): a re-planned unit is always called.
+- `state.without_nodes("a")` forgets only what it names; a node reading it runs again only if what it receives changes. To run `a` and everything after it again, name them all.
+- `node_complete.reused_units` and `state.reused_units` (`{node_id: count}` for that leg) say how much was reused. `run_start` still speaks in nodes (`reused_nodes`, `changed_nodes`).
+- **A state goes back only to the runner it came from.** It holds results and hands them to whoever passes it; what the runner could see (`FromRun` values, the world) is not in the key, as it isn't for a resume today.
 
 ### Retries and Timeouts
 
@@ -193,7 +211,7 @@ A failed unit ends the leg `failed`, its problem on `state.failure`; `compiled.r
 |---|---|
 | `node_start`, `node_skipped` | `node_id` |
 | `node_progress` | `node_id`, `done`, `total` (`None` until every row exists) |
-| `node_complete` | `node_id`, `result`, `rows_not_called` |
+| `node_complete` | `node_id`, `result`, `rows_not_called`, `reused_units` |
 | `node_retry` | `node_id`, `row`, `attempt`, `retries`, `error`, `delay` |
 | `node_failed` | `node_id`, `cause` (a `Problem`) |
 | `unit_waiting` | `unit` |
@@ -229,7 +247,7 @@ Three public modules: `conductor`, `conductor.widgets` and `conductor.events`. E
 - Registry: `NodeRegistry(nodes, types=())`, immutable (`in`, `[]`, `len`, iteration, `nodes`, `types`, `accepted_as`, `describe`, `extended_with`), `TypeDescription`
 - Graph: `Graph`, `GraphNode`, `FieldContent`, `From`, `Static`, `dependencies_of`, `CompiledGraph`, `Problem`, `RunPlan`, `ReceiveMode`, `BranchTaken`, `ALWAYS`, `NEVER`
 - Errors: `NodeDeclarationError`, `ComputeHookError`, `InvalidCallError`, `Problem`, `NodeError`, `ExternalFailure`, `NodeValidationError`, `NodeExecutionError`, `PROBLEM_CODES`
-- A run's state: `RunState` (`status`, `failure`, `waiting`, `output_columns`, `finished_rows`, `node_fingerprints`, `rows_not_called`, `without_nodes(...)`); dumped as JSON it is one document holding each table once, under its `tables` key by digest, and a load holds one frame per digest
+- A run's state: `RunState` (`status`, `failure`, `waiting`, `output_columns`, `finished_rows`, `node_fingerprints`, `rows_not_called`, `input_hashes`, `answered_rows`, `reused_units`, `earlier_work`, `without_nodes(...)`); dumped as JSON it is one document holding each table once, under its `tables` key by digest, and a load holds one frame per digest
 - Records (`Graph`, `GraphNode`, …) also have `to_yaml()`, `from_yaml(text)`, `to_path(path)`, `from_path(path)`, plus pydantic's.
 
 ### Running
@@ -241,7 +259,7 @@ Every verb is on `CompiledGraph`:
 - `compiled.answer(state, answers)`: a new state with these units answered; no node runs.
 - `compiled.with_inputs(**inputs)`: a copy with inputs filled as `Static`s, by bare name or address; a name it doesn't offer or a value its type can't read raises `InvalidCallError`, every fault at once; `compiled.graph` is then what ran.
 - `compiled.results(state)`: every node's outputs so far, by node id, the rows that have values so far on a node that runs per row. `compiled.outputs(state)`: narrowed to `compiled.interface.outputs`, by address, on a `complete` state only.
-- `compiled.nodes_changed_since(state)`: which nodes must run again.
+- `compiled.nodes_changed_since(state)`: which nodes must run again, each re-planned and reused row by row where what it receives is the same.
 
 ### Problem and error codes
 

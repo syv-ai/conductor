@@ -211,7 +211,7 @@ def test_a_nodes_shape_changed_between_legs_reruns_it():
     assert calls == ["wrap2:x"]
 
 
-def test_without_drops_a_node_on_purpose_with_everything_downstream():
+def test_without_nodes_forgets_only_the_nodes_it_names():
     """Run from here: the host drops one node from the state, and the
     restore drops what reads it, so they run again while the rest is kept."""
     calls.clear()
@@ -228,7 +228,8 @@ def test_without_drops_a_node_on_purpose_with_everything_downstream():
 
     assert ending.status == "complete"
     assert list(compiled.results(ending)["w"]["result"]) == ["[A]", "[B]"]
-    assert sorted(calls) == ["upper:a", "upper:b", "wrap:A", "wrap:B"]
+    assert sorted(calls) == ["upper:a", "upper:b"]  # it forgets what it names: ``wrap`` receives the same and is reused
+    assert ending.reused_units == {"w": 2}
     assert "up" not in state.without_nodes("up").node_fingerprints and "split" in state.without_nodes("up").node_fingerprints
 
 

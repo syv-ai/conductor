@@ -27,6 +27,7 @@ from conductor import (
 from conductor._internal.node_signature import read_signature
 from conductor.events import NodeComplete, NodeSkipped
 from conductor.widgets import Textarea
+from helpers import answer
 
 
 class Txt(DType, str):
@@ -330,7 +331,7 @@ def test_a_question_with_a_blank_hint_may_be_left_out():
     waiting = compiled.run_sync()
     unit = waiting.waiting[0]
     assert unit.questions[0].optional
-    answered = compiled.answer(waiting, {unit.id: {}})
+    answered = answer(compiled, waiting, {unit.id: {}})
     assert compiled.results(compiled.run_sync(answered))["n"]["result"] is None
 
 
