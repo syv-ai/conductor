@@ -204,12 +204,12 @@ def lift_embedded_nodes(
     node_id: str,
     edges: Mapping[Ref, From],
     values: Mapping[Ref, Any],
-    row: Index | None,
+    runs_per_row_of: Index | None,
     crossings: Mapping[Ref, Crossing],
     field_above: Callable[[Ref], CompiledField | None],
     row_origins: RowOriginsSoFar,
 ) -> dict[str, CompiledNode]:
-    """Every node of ``embeddable`` as it stands embedded at ``node_id``, running once per row of ``row``.
+    """Every node of ``embeddable`` as it stands embedded at ``node_id``, running once per row of ``runs_per_row_of``.
 
     Each of ``edges``, ``crossings`` and ``values`` is keyed by where it lands
     in the run: the edge connected there, what the outer wiring decided for
@@ -253,13 +253,13 @@ def lift_embedded_nodes(
             bindings[name], statics[name] = Static(value), value
         graph_node = inner.graph_node.model_copy(update={"id": new_id, "bindings": bindings, "locked": ()})
         assert inner.wiring is not None and inner.interface is not None  # an embeddable graph is wired throughout
-        inner_row = inner.wiring._runs_per_row_of
-        new_row = row if inner_row is None else under(inner_row, prefix, row)
+        inner_runs_per_row_of = inner.wiring._runs_per_row_of
+        new_runs_per_row_of = runs_per_row_of if inner_runs_per_row_of is None else under(inner_runs_per_row_of, prefix, runs_per_row_of)
         if inner.embedded_graph is not None:
             fields: dict[str, CompiledField] = {}
         else:
             at_node = condition_at_node(bindings, condition_of)
-            runs_once = new_row is None
+            runs_once = new_runs_per_row_of is None
             outputs_of = {out.name: out for out in inner.interface.outputs}
             fields = {}
             taken: list[CompiledField] = []
@@ -274,8 +274,8 @@ def lift_embedded_nodes(
                     condition = fields[field._view_of[0].field].condition
                 elif field._is_output:
                     condition = output_condition(new_id, outputs_of[name], at_node, runs_once)
-                dtype, index, receives = _field_under(field, crossings, inner_nodes, prefix, row, inside)
-                makes = None if field._makes_rows is None else under(field._makes_rows, prefix, row)
+                dtype, index, receives = _field_under(field, crossings, inner_nodes, prefix, runs_per_row_of, inside)
+                makes = None if field._makes_rows is None else under(field._makes_rows, prefix, runs_per_row_of)
                 listed = field._listed and name not in crossed
                 if isinstance(receives, Merge) and field.ref not in crossings:
                     row_origins.note_merge(new_id, name, [(source, found) for source, _ in receives.parts if (found := field_at(source)) is not None])
@@ -293,14 +293,14 @@ def lift_embedded_nodes(
         lifted[new_id] = CompiledNode(
             id=new_id, graph_node=graph_node, embedded_in=embedded_in(new_id), problems=(), cause=None,
             definition=inner.definition, version=inner.version, interface=inner.interface, statics=statics,
-            wiring=Wiring(fields, new_row),
+            wiring=Wiring(fields, new_runs_per_row_of),
         )
     return lifted
 
 
 def _field_under(
     field: CompiledField, crossing_at: Mapping[Ref, Crossing], nodes: Mapping[str, CompiledNode], prefix: str,
-    row: Index | None, inside: Callable[[Ref], Ref],
+    runs_per_row_of: Index | None, inside: Callable[[Ref], Ref],
 ) -> tuple[Any, Index | None, Receive | None]:
     """An inner field's type, rows and receipt, as it stands embedded (rules 2-4)."""
     crossing = crossing_at.get(field.ref) if crossing_at else None
@@ -309,53 +309,53 @@ def _field_under(
     dtype, index, receipt = field.type, field._index, field._receives
     is_output = field._is_output
     edge_fed = isinstance(field.binding, From)
-    once_per_row = row is not None and index is None and (is_output or edge_fed)
+    once_per_row = runs_per_row_of is not None and index is None and (is_output or edge_fed)
     new_type = Series[dtype] if once_per_row else dtype
-    new_index = row if once_per_row else under(index, prefix, row)
+    new_index = runs_per_row_of if once_per_row else under(index, prefix, runs_per_row_of)
     if is_output:
         return new_type, new_index, None
     if once_per_row and isinstance(receipt, Broadcast):
-        return new_type, new_index, PerRow(row)
-    if row is not None and isinstance(receipt, Gather) and edge_fed and all(_source_index(source, nodes) is None for source in field.binding.refs):
-        return new_type, row, RowsUnder(row, row.depth)
+        return new_type, new_index, PerRow(runs_per_row_of)
+    if runs_per_row_of is not None and isinstance(receipt, Gather) and edge_fed and all(_source_index(source, nodes) is None for source in field.binding.refs):
+        return new_type, runs_per_row_of, RowsUnder(runs_per_row_of, runs_per_row_of.depth)
     if isinstance(receipt, Merge):
         return new_type, new_index, Merge(
-            tuple((inside(source), _part_under(part, _source_index(source, nodes), prefix, row)) for source, part in receipt.parts),
+            tuple((inside(source), _part_under(part, _source_index(source, nodes), prefix, runs_per_row_of)) for source, part in receipt.parts),
             frozenset(inside(source) for source in receipt.copied_down),
         )
-    return new_type, new_index, _received_under(receipt, index, prefix, row)
+    return new_type, new_index, _received_under(receipt, index, prefix, runs_per_row_of)
 
 
 def _source_index(source: Ref, nodes: Mapping[str, CompiledNode]) -> Index | None:
     return nodes[source.node_id].wiring.fields[source.field]._index
 
 
-def under(index: Index | None, prefix: str, row: Index | None) -> Index | None:
-    """An inner index as it stands embedded: each id prefixed, its root hung under ``row`` (rule 1)."""
+def under(index: Index | None, prefix: str, runs_per_row_of: Index | None) -> Index | None:
+    """An inner index as it stands embedded: each id prefixed, its root hung under ``runs_per_row_of`` (rule 1)."""
     if index is None:
         return None
-    parent = row
+    parent = runs_per_row_of
     for step in index.lineage:
         parent = Index(f"{prefix}{step.id}", parent=parent)
     return parent
 
 
-def _part_under(part: Any, index: Index | None, prefix: str, row: Index | None) -> Any:
+def _part_under(part: Any, index: Index | None, prefix: str, runs_per_row_of: Index | None) -> Any:
     """One source of an inner ``Table`` input as it stands embedded: a table the
-    inner graph makes once is one per ``row`` when the graph runs per row."""
-    if isinstance(part, Broadcast) and index is None and row is not None:
-        return PerRow(row)
-    return _received_under(part, index, prefix, row)
+    inner graph makes once is one per ``runs_per_row_of`` when the graph runs per row."""
+    if isinstance(part, Broadcast) and index is None and runs_per_row_of is not None:
+        return PerRow(runs_per_row_of)
+    return _received_under(part, index, prefix, runs_per_row_of)
 
 
-def _received_under(receipt: Receive, index: Index | None, prefix: str, row: Index | None) -> Receive:
+def _received_under(receipt: Receive, index: Index | None, prefix: str, runs_per_row_of: Index | None) -> Receive:
     """An inner receipt as it stands embedded (rules 1 and 3)."""
     if isinstance(receipt, PerRow):
-        return PerRow(under(receipt.index, prefix, row))
+        return PerRow(under(receipt.index, prefix, runs_per_row_of))
     if isinstance(receipt, RowsUnder):
-        return RowsUnder(under(receipt.index, prefix, row), receipt.depth + (0 if row is None else row.depth))
+        return RowsUnder(under(receipt.index, prefix, runs_per_row_of), receipt.depth + (0 if runs_per_row_of is None else runs_per_row_of.depth))
     if isinstance(receipt, Gather):
-        return Gather(under(receipt.index, prefix, row))
+        return Gather(under(receipt.index, prefix, runs_per_row_of))
     if isinstance(receipt, EntireValue):
-        return receipt if row is None else RowsUnder(under(index, prefix, row), row.depth)
+        return receipt if runs_per_row_of is None else RowsUnder(under(index, prefix, runs_per_row_of), runs_per_row_of.depth)
     return receipt

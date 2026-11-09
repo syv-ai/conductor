@@ -76,7 +76,7 @@ class Arrival(NamedTuple):
     """What one input carries: its type and, for a series, the level its rows are on."""
 
     dtype: Any
-    rows: Index | None
+    index: Index | None
 
 
 @dataclass
@@ -228,11 +228,11 @@ def decide_rows(node: GraphNode, found: InputsRead, problems: list[Problem], row
     node_id = node.id
     where = lambda name: Ref(node_id, name)  # noqa: E731
     demands = found.demands or _row_above_reductions(found.reductions)
-    runs_on, disagreeing = _deepest(demands)
+    runs_per_row_of, disagreeing = _deepest(demands)
     if disagreeing is not None:
         problems.append(_misaligned(node_id, where(disagreeing[0]), where(disagreeing[1])))
         return False, None
-    if not found.demands and any(runs_on not in index.lineage for index, _ in found.reductions):
+    if not found.demands and any(runs_per_row_of not in index.lineage for index, _ in found.reductions):
         (_, first), (_, second) = found.reductions[:2]
         problems.append(_misaligned(node_id, where(first), where(second)))
         return False, None
@@ -242,23 +242,23 @@ def decide_rows(node: GraphNode, found: InputsRead, problems: list[Problem], row
         return False, None
     if found.listed:
         (name, dtype), = found.listed
-        own = Index(str(where(name)), parent=runs_on)
+        own = Index(str(where(name)), parent=runs_per_row_of)
         found.arrivals[name], found.receives[name] = Arrival(Series[dtype], own), PerRow(own)
-        runs_on = own
+        runs_per_row_of = own
     for index, name in found.reductions:
-        depth = _depth_shared_with_row(index, runs_on)
+        depth = _depth_shared_with_row(index, runs_per_row_of)
         if depth is None:
             problems.append(_misaligned(node_id, where(found.demands[0][1]), where(name)))
             return False, None
         found.receives[name] = RowsUnder(index, depth)
     for name, carried, sources in found.merging:
-        found.arrivals[name] = Arrival(carried, None) if runs_on is None else Arrival(Series[carried], runs_on)
+        found.arrivals[name] = Arrival(carried, None) if runs_per_row_of is None else Arrival(Series[carried], runs_per_row_of)
         found.receives[name] = Merge(
-            tuple((source_ref, _part(source, runs_on)) for source_ref, source in sources),
+            tuple((source_ref, _part(source, runs_per_row_of)) for source_ref, source in sources),
             frozenset(_copied_down(sources)),
         )
         problems.extend(row_origins.note_merge(node_id, name, sources))
-    return True, runs_on
+    return True, runs_per_row_of
 
 
 def _copied_down(sources: list[tuple[Ref, CompiledField]]) -> list[Ref]:
@@ -322,22 +322,22 @@ def _type_mismatch(target: Any, node_id: str, name: str, source_ref: Ref, source
     )
 
 
-def _depth_shared_with_row(index: Index, runs_on: Index | None) -> int | None:
-    """How far up ``index``'s rows are grouped for a node on ``runs_on``: the
+def _depth_shared_with_row(index: Index, runs_per_row_of: Index | None) -> int | None:
+    """How far up ``index``'s rows are grouped for a node on ``runs_per_row_of``: the
     depth of the deepest level above them that the node's row sits on, ``None`` when none is."""
-    lineage = () if runs_on is None else runs_on.lineage
+    lineage = () if runs_per_row_of is None else runs_per_row_of.lineage
     return next((step.depth for step in reversed(index.lineage[:-1]) if step in lineage), None)
 
 
-def _part(source: CompiledField, runs_on: Index | None) -> PerRow | Broadcast | EntireValue | RowsUnder:
+def _part(source: CompiledField, runs_per_row_of: Index | None) -> PerRow | Broadcast | EntireValue | RowsUnder:
     """How a call receives one source of a ``Table`` input: a table at its row
     or the one there is; a column's rows under its row; or all of them."""
     index = source._index
     if index is None:
         return Broadcast()
-    if runs_on is not None and index in runs_on.lineage:
+    if runs_per_row_of is not None and index in runs_per_row_of.lineage:
         return PerRow(index)
-    depth = _depth_shared_with_row(index, runs_on)
+    depth = _depth_shared_with_row(index, runs_per_row_of)
     return EntireValue() if depth is None else RowsUnder(index, depth)
 
 

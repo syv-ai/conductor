@@ -46,10 +46,10 @@ class RowOriginsSoFar:
             return frozenset()
         return self.of_table_rows.get(index.id, frozenset({index.id}))
 
-    def note_table(self, rows: Index, taken_in: frozenset[str] | None) -> frozenset[str] | None:
-        """Record a table a node returns, its rows on ``rows``: they can carry the ids of what it took in. Returns its origins."""
-        known = None if taken_in is None else taken_in | {rows.id}
-        self.of_table_rows[rows.id] = known
+    def note_table(self, table_rows_index: Index, taken_in: frozenset[str] | None) -> frozenset[str] | None:
+        """Record a table a node returns, its rows on ``table_rows_index``: they can carry the ids of what it took in. Returns its origins."""
+        known = None if taken_in is None else taken_in | {table_rows_index.id}
+        self.of_table_rows[table_rows_index.id] = known
         return known
 
     def note_merge(self, node_id: str, field_name: str, sources: list[tuple[Ref, CompiledField]]) -> list[Problem]:
@@ -62,8 +62,8 @@ class RowOriginsSoFar:
                 self.must_survive.add(Ref(origin))
         if len(sources) < 2 or len(known) < len(found):
             return []
-        rows = [source._makes_rows or source._index for _, source in sources]
-        above = [frozenset() if index is None else frozenset(step.id for step in index.lineage[:-1]) for index in rows]
+        source_indexes = [source._makes_rows or source._index for _, source in sources]
+        above = [frozenset() if index is None else frozenset(step.id for step in index.lineage[:-1]) for index in source_indexes]
 
         def meet(n: int, m: int) -> bool:
             """Can a row of source ``n`` meet one of source ``m``: by one id, or as its parent copied down?"""

@@ -119,13 +119,13 @@ def compile_one_node(node: GraphNode, walk: WalkSoFar, registry: NodeRegistry) -
         return _add(walk, node, problems, definition, version, interface, typed)
     if not outputs and (is_graph or version.returns is not None):
         problems.append(problem("no_outputs", node.id))
-    settled, row = decide_rows(node, found, problems, walk.row_origins)
-    if not settled:
+    rows_agree, runs_per_row_of = decide_rows(node, found, problems, walk.row_origins)
+    if not rows_agree:
         return _add(walk, node, problems, definition, version, interface, typed)
     if is_graph:
-        _place_embedded_graph(node, definition, version, embeddable, interface, typed, row, found, walk, problems)
+        _place_embedded_graph(node, definition, version, embeddable, interface, typed, runs_per_row_of, found, walk, problems)
         return
-    wiring = _wiring_of_function_node(node, interface, found, listed, row, walk, problems)
+    wiring = _wiring_of_function_node(node, interface, found, listed, runs_per_row_of, walk, problems)
     _add(walk, node, problems, definition, version, interface, typed, wiring)
 
 
@@ -314,7 +314,7 @@ def _condition_of_source_above(walk: WalkSoFar) -> Any:
 
 
 def _wiring_of_function_node(
-    node: GraphNode, interface: Interface, found: InputsRead, listed: frozenset[str], row: Index | None, walk: WalkSoFar, problems: list[Problem],
+    node: GraphNode, interface: Interface, found: InputsRead, listed: frozenset[str], runs_per_row_of: Index | None, walk: WalkSoFar, problems: list[Problem],
 ) -> Wiring:
     """Every field of a node that is a function, built once its row is known."""
     outputs = interface.outputs
@@ -336,23 +336,23 @@ def _wiring_of_function_node(
         arrived = found.arrivals[inp.name]
         fields[inp.name] = CompiledField(
             ref=Ref._of_parts(node_id, inp.name), type=arrived.dtype, binding=node.bindings.get(inp.name), condition=None,
-            problems=tuple(on_field.get(inp.name, ())), _index=arrived.rows, _receives=found.receives[inp.name],
+            problems=tuple(on_field.get(inp.name, ())), _index=arrived.index, _receives=found.receives[inp.name],
             _listed=inp.name in listed, _makes_rows=None, _view_of=None, _takes_blank=False, _title=inp.title,
-            _row_origins=walk.row_origins.of_rows_on(arrived.rows) if inp.name in listed else None,
+            _row_origins=walk.row_origins.of_rows_on(arrived.index) if inp.name in listed else None,
         )
     at_node = condition_at_node(node.bindings, _condition_of_source_above(walk))
-    runs_once = row is None
+    runs_once = runs_per_row_of is None
     for out in outputs:
         ref = Ref._of_parts(node_id, out.name)
         condition = output_condition(node_id, out, at_node, runs_once)
         takes_blank, field_problems_here = out.takes_blank, tuple(on_field.get(out.name, ()))
         dtype = out.dtype
         if holds_tables(dtype):
-            rows = Index(str(ref), parent=row)
-            known = walk.row_origins.note_table(rows, taken_in)
+            table_rows_index = Index(str(ref), parent=runs_per_row_of)
+            known = walk.row_origins.note_table(table_rows_index, taken_in)
             fields[out.name] = CompiledField(
-                ref=ref, type=Series[dtype] if row is not None else dtype, binding=None, condition=condition, problems=field_problems_here,
-                _index=row, _receives=None, _listed=False, _makes_rows=rows, _view_of=None, _takes_blank=takes_blank, _title=out.title, _row_origins=known,
+                ref=ref, type=Series[dtype] if runs_per_row_of is not None else dtype, binding=None, condition=condition, problems=field_problems_here,
+                _index=runs_per_row_of, _receives=None, _listed=False, _makes_rows=table_rows_index, _view_of=None, _takes_blank=takes_blank, _title=out.title, _row_origins=known,
             )
             for column, holds in columns_of(dtype):
                 name = f"{out.name}.{column}"
@@ -360,13 +360,13 @@ def _wiring_of_function_node(
                     continue
                 fields[name] = CompiledField(
                     ref=Ref._of_parts(node_id, name), type=Series[holds], binding=None, condition=condition, problems=(),
-                    _index=rows, _receives=None, _listed=False, _makes_rows=None, _view_of=(ref, column), _takes_blank=True, _title=column, _row_origins=known,
+                    _index=table_rows_index, _receives=None, _listed=False, _makes_rows=None, _view_of=(ref, column), _takes_blank=True, _title=column, _row_origins=known,
                 )
             continue
         if dtype.element is not None:
-            carried, index, makes = dtype, Index(str(ref), parent=row), True
-        elif row is not None:
-            carried, index, makes = Series[dtype], row, False
+            carried, index, makes = dtype, Index(str(ref), parent=runs_per_row_of), True
+        elif runs_per_row_of is not None:
+            carried, index, makes = Series[dtype], runs_per_row_of, False
         else:
             carried, index, makes = dtype, None, False
         fields[out.name] = CompiledField(
@@ -374,19 +374,19 @@ def _wiring_of_function_node(
             _index=index, _receives=None, _listed=False, _makes_rows=index if makes else None, _view_of=None, _takes_blank=takes_blank, _title=out.title,
             _row_origins=walk.row_origins.of_rows_on(index),
         )
-    return Wiring(fields, row)
+    return Wiring(fields, runs_per_row_of)
 
 
 def _place_embedded_graph(
-    node: GraphNode, definition: Any, graph: CompiledGraph, embeddable: EmbeddableGraph, interface: Interface, typed: dict[str, Any], row: Index | None,
+    node: GraphNode, definition: Any, graph: CompiledGraph, embeddable: EmbeddableGraph, interface: Interface, typed: dict[str, Any], runs_per_row_of: Index | None,
     found: InputsRead, walk: WalkSoFar, problems: list[Problem],
 ) -> None:
-    """The graph node's record, and every node inside it under ``row``."""
+    """The graph node's record, and every node inside it under ``runs_per_row_of``."""
     offered = embeddable.inputs
     connected = [name for name, binding in node.bindings.items() if isinstance(binding, From) and name in offered]
     edges: dict[Ref, From] = {offered[name].runs_at: node.bindings[name] for name in connected}  # type: ignore[misc]
-    crossings = {offered[name].runs_at: Crossing(type=found.arrivals[name].dtype, index=found.arrivals[name].rows, receives=found.receives[name]) for name in connected}
+    crossings = {offered[name].runs_at: Crossing(type=found.arrivals[name].dtype, index=found.arrivals[name].index, receives=found.receives[name]) for name in connected}
     values = {offered[name].runs_at: value for name, value in typed.items()}
-    lifted = lift_embedded_nodes(embeddable, node.id, edges, values, row, crossings, lambda ref: _field_above(walk, ref), walk.row_origins)
-    _add(walk, node, problems, definition, graph, interface, typed, Wiring({}, row))
+    lifted = lift_embedded_nodes(embeddable, node.id, edges, values, runs_per_row_of, crossings, lambda ref: _field_above(walk, ref), walk.row_origins)
+    _add(walk, node, problems, definition, graph, interface, typed, Wiring({}, runs_per_row_of))
     walk.compiled.update(lifted)

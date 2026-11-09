@@ -108,7 +108,7 @@ class RunPlan(ConductorModel):
         return "\n".join(plan._line(width) for plan in self.nodes.values())
 
 
-def _level(index: Index | None) -> Ref | None:
+def _index_as_address(index: Index | None) -> Ref | None:
     return None if index is None else Ref(index.id)
 
 
@@ -116,13 +116,13 @@ def _plan_of_receipt(sources: tuple[Ref, ...], received: object, takes_blank: bo
     """The one reading of a receive record, for the words a host sees."""
     match received:
         case PerRow(index=index):
-            return InputPlan.model_construct(sources=sources, arrives="value_at_row", rows_of=_level(index), grouped_under=None, takes_blank=takes_blank, parts=(), copied_down=False)
+            return InputPlan.model_construct(sources=sources, arrives="value_at_row", rows_of=_index_as_address(index), grouped_under=None, takes_blank=takes_blank, parts=(), copied_down=False)
         case Broadcast():
             return InputPlan.model_construct(sources=sources, arrives="same_value_every_row", rows_of=None, grouped_under=None, takes_blank=takes_blank, parts=(), copied_down=False)
         case EntireValue():
             return InputPlan.model_construct(sources=sources, arrives="entire_value", rows_of=None, grouped_under=None, takes_blank=takes_blank, parts=(), copied_down=False)
         case RowsUnder(index=index, depth=depth):
-            return InputPlan.model_construct(sources=sources, arrives="all_rows_under_row", rows_of=_level(index), grouped_under=Ref(index.lineage[depth - 1].id), takes_blank=takes_blank, parts=(), copied_down=False)
+            return InputPlan.model_construct(sources=sources, arrives="all_rows_under_row", rows_of=_index_as_address(index), grouped_under=Ref(index.lineage[depth - 1].id), takes_blank=takes_blank, parts=(), copied_down=False)
         case Gather():
             return InputPlan.model_construct(sources=sources, arrives="collected", rows_of=None, grouped_under=None, takes_blank=takes_blank, parts=(), copied_down=False)
     raise AssertionError(f"no plan for {received!r}")
@@ -146,10 +146,10 @@ def plan_of_node(node: CompiledNode) -> NodeRunPlan:
             inputs[inp.name] = InputPlan.model_construct(sources=sources, arrives="merged", rows_of=None, grouped_under=None, takes_blank=inp.takes_blank, parts=parts, copied_down=False)
         else:
             inputs[inp.name] = _plan_of_receipt(sources, received, inp.takes_blank)
-    runs_on = node.wiring._runs_per_row_of
+    runs_per_row_of = node.wiring._runs_per_row_of
     return NodeRunPlan.model_construct(
         node_id=node.id,
-        runs_per_row_of=_level(runs_on),
+        runs_per_row_of=_index_as_address(runs_per_row_of),
         inputs=inputs,
         makes_rows=tuple(f.ref for f in fields.values() if f._makes_rows is not None),
     )
