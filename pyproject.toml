@@ -17,7 +17,8 @@ syv-conductor-providers = { workspace = true }
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-extend-exclude = ["examples/*.ipynb", "node.ipynb"]
+# A stub in a syntax 3.13 has; only a type checker reads it.
+extend-exclude = ["examples/*.ipynb", "node.ipynb", "**/table_as_a_type_checker_reads_it.pyi"]
 
 [tool.ruff.lint]
 # Conservative baseline: pyflakes + pycodestyle + isort. Expand later if desired.

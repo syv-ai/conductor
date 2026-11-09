@@ -96,10 +96,10 @@ from conductor._internal.skip_and_ask import SKIPPED
 from conductor._internal.table import (
     ROW_ID,
     MergeSource,
-    Table,
     column_frame,
     frame_with_no_rows,
     holds_tables,
+    is_frame,
     merge,
     row_id,
 )
@@ -483,7 +483,7 @@ class LiveRunValues:
                     return Skip(at=row)
                 # Read through the input's own type when the call is checked, so a
                 # merged table it won't take fails this node, naming the column.
-                values[inp.name] = Table._holding(merged)
+                values[inp.name] = merged
             elif isinstance(received, Gather):
                 gathered: list[Any] = []
                 for ref in binding.refs:
@@ -530,7 +530,7 @@ class LiveRunValues:
             is_skip = stored is SKIPPED
             skipped += is_skip
             if is_table:
-                frame = frame_with_no_rows(field.type) if is_skip else stored.frame
+                frame = frame_with_no_rows(field.type) if is_skip else stored
                 sources.append(MergeSource(source.node_id, frame, index, [(*group, n) for n in range(frame.height)]))
                 continue
             present = [
@@ -552,7 +552,7 @@ class LiveRunValues:
         owner = self._plan.owners.get(index.id)
         if owner is not None and owner._view_of is None and owner._is_output and holds_tables(owner.type):
             stored, _ = self._lookup(owner.ref, row[:-1])
-            return stored.frame[ROW_ID][row[-1]]
+            return stored[ROW_ID][row[-1]]
         return row_id(index, row)
 
     def _covering(self, node_id: str, refs: tuple[Ref, ...], row: Row) -> tuple[list[Any], list[Row]]:
@@ -615,7 +615,7 @@ class LiveRunValues:
         stored, at = self._lookup(table, key[:-1])
         if stored is _MISSING or stored is SKIPPED:
             return stored, at
-        cells = stored.frame[column]
+        cells = stored[column]
         if key[-1] >= len(cells):
             return _MISSING, key
         cell = cells[key[-1]]
@@ -694,11 +694,11 @@ class LiveRunValues:
             if value is SKIPPED:
                 self._write(ref, at, value, written)
                 no_rows_under.append((index.id, at))
-            elif isinstance(value, Table):
+            elif not field._holds_many:
                 self._write(ref, at, value, written)
                 if self._columns_read(index.id):
                     keys = made.setdefault(index.id, [])
-                    for j in range(value.frame.height):
+                    for j in range(value.height):
                         if self._made(index.id, (*at, j)):
                             keys.append((*at, j))
                 self._groups.add((index.id, at))
@@ -1048,9 +1048,9 @@ class LiveRunValues:
                     self._no_rows_under_lists(index.id, at)
                     continue
                 stored = by_row.get(row)
-                if isinstance(stored, Table):
+                if is_frame(stored):
                     if self._columns_read(index.id):
-                        made.setdefault(index.id, set()).update((*row, j) for j in range(stored.frame.height))
+                        made.setdefault(index.id, set()).update((*row, j) for j in range(stored.height))
                 else:
                     if ref not in rows_under_parent:
                         rows_under_parent[ref] = _rows_by_parent(by_row)
@@ -1072,7 +1072,7 @@ def _blank_of(field: CompiledField, out: Output) -> Any:
     if field._holds_many:
         return []
     if field._makes_rows is not None:
-        return Table._holding(frame_with_no_rows(field._cell_type))
+        return frame_with_no_rows(field._cell_type)
     return None
 
 
@@ -1154,7 +1154,7 @@ def _restored_cell(field: CompiledField, stored: Any, read: Any) -> Any:
     if stored is None or type(stored) is field._cell_type:
         return stored
     cell = read(stored)
-    if field._makes_rows is not None and isinstance(cell, Table) and ROW_ID not in cell.frame.columns:
+    if field._makes_rows is not None and not field._holds_many and ROW_ID not in cell.columns:
         raise ValueError("a stored table has lost the ids of its rows")
     return cell
 

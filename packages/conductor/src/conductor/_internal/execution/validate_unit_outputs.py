@@ -22,7 +22,7 @@ from pydantic import ValidationError
 
 from conductor._internal.series import Row, Series
 from conductor._internal.skip_and_ask import SKIPPED
-from conductor._internal.table import Table, frame_with_no_rows, no_row_kept_its_id, with_row_ids
+from conductor._internal.table import frame_with_no_rows, is_frame, no_row_kept_its_id, with_row_ids
 
 if TYPE_CHECKING:
     from conductor._internal.graph.compiled_node import CompiledField, CompiledNode
@@ -93,18 +93,18 @@ def _read_many(field: CompiledField, name: str, value: Any) -> list[Any]:
 
 def _read_one(field: CompiledField, row: Row, value: Any, row_ids_must_survive: frozenset[Ref]) -> Any:
     cell = field._read_cell(value)
-    if cell is None and field._makes_rows is not None:  # row-making outputs have no blank form: no rows
-        return Table._holding(frame_with_no_rows(field._cell_type))
-    if field._makes_rows is not None and isinstance(cell, Table):
-        if field.ref in row_ids_must_survive and no_row_kept_its_id(cell.frame):
-            raise _RowIdsLost
-        return type(cell)._holding(with_row_ids(cell.frame, field._makes_rows, row))
-    return cell
+    if field._makes_rows is None:
+        return cell
+    if cell is None:  # row-making outputs have no blank form: no rows
+        return frame_with_no_rows(field._cell_type)
+    if field.ref in row_ids_must_survive and no_row_kept_its_id(cell):
+        raise _RowIdsLost
+    return with_row_ids(cell, field._makes_rows, row)
 
 
 def took_a_row_in(inputs: Mapping[str, Any]) -> bool:
     """Did these inputs carry a row a returned table could keep the id of?"""
-    return any((isinstance(value, Table) and value.frame.height > 0) or (isinstance(value, Series) and len(value) > 0) for value in inputs.values())
+    return any((is_frame(value) or isinstance(value, Series)) and len(value) > 0 for value in inputs.values())
 
 
 def _named(field: CompiledField) -> str:

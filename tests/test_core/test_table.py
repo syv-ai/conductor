@@ -1,4 +1,4 @@
-"""A table is one value of named, typed columns, holding a Polars frame and the ids of its rows."""
+"""A table is a Polars frame of named, typed columns and the ids of its rows."""
 
 import datetime
 import subprocess
@@ -9,6 +9,7 @@ import pytest
 from conductor import ROW_ID, DType, Table, node, to_wire
 from conductor._internal.series import Index
 from conductor._internal.table import column_type, row_id, with_row_ids
+from helpers import read_table
 from pydantic import TypeAdapter
 
 
@@ -65,28 +66,28 @@ def test_a_table_type_is_built_once_per_set_of_columns():
 
 
 def test_declared_columns_are_read_as_their_types_and_extra_columns_dropped():
-    table = Contacts([{"name": "Ida", "score": "4.5", "extra": 1}, {"name": "Bo", "score": None, "extra": 2}])
+    table = read_table(Contacts, [{"name": "Ida", "score": "4.5", "extra": 1}, {"name": "Bo", "score": None, "extra": 2}])
 
-    assert table.frame.columns == ["name", "score"]
-    assert table.frame["score"].to_list() == [4.5, None]
+    assert table.columns == ["name", "score"]
+    assert table["score"].to_list() == [4.5, None]
 
 
 def test_a_value_that_wont_read_as_its_column_is_refused_naming_the_column():
     with pytest.raises(ValueError, match="column 'score' has a value that is not a Number"):
-        Contacts([{"name": "Ida", "score": "many"}])
+        read_table(Contacts, [{"name": "Ida", "score": "many"}])
     with pytest.raises(ValueError, match="no column 'score'"):
-        Contacts([{"name": "Ida"}])
+        read_table(Contacts, [{"name": "Ida"}])
 
 
 def test_a_date_column_reads_dates_written_as_text():
     Visits = Table.with_columns({"day": Day})
-    assert Visits([{"day": "2024-01-02"}]).frame["day"].to_list() == [datetime.date(2024, 1, 2)]
+    assert read_table(Visits, [{"day": "2024-01-02"}])["day"].to_list() == [datetime.date(2024, 1, 2)]
     with pytest.raises(ValueError, match="not a Date"):
-        Visits([{"day": "someday"}])
+        read_table(Visits, [{"day": "someday"}])
 
 
 def test_the_wire_form_round_trips_with_blanks_and_row_ids():
-    table = Contacts(pl.DataFrame({ROW_ID: ["contacts:0", "contacts:1"], "name": ["Ida", None], "score": [4.5, None]}))
+    table = read_table(Contacts, pl.DataFrame({ROW_ID: ["contacts:0", "contacts:1"], "name": ["Ida", None], "score": [4.5, None]}))
     wire = to_wire(table, Contacts)
 
     assert wire == {
@@ -94,15 +95,15 @@ def test_the_wire_form_round_trips_with_blanks_and_row_ids():
         "data": {"name": ["Ida", None], "score": [4.5, None]},
         "rows": ["contacts:0", "contacts:1"],
     }
-    assert TypeAdapter(Contacts).validate_python(wire) == table
+    assert TypeAdapter(Contacts).validate_python(wire).equals(table)
 
 
 def test_a_bare_table_keeps_every_column_and_round_trips_a_date():
-    table = Table(pl.DataFrame({"day": [datetime.date(2024, 1, 2)], "n": [3]}))
+    table = read_table(Table, pl.DataFrame({"day": [datetime.date(2024, 1, 2)], "n": [3]}))
     wire = to_wire(table, Table)
 
     assert wire["rows"] is None
-    assert TypeAdapter(Table).validate_python(wire) == table
+    assert TypeAdapter(Table).validate_python(wire).equals(table)
 
 
 def test_a_row_id_names_the_index_and_the_row():
@@ -162,15 +163,15 @@ def test_a_node_returns_a_frame_and_its_output_holds_the_table_type():
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="r", type="read", version=1, bindings={"text": Static("Ida,Bo")})]), NodeRegistry((read,)))
     contacts = compiled.results(compiled.run_sync())["r"]["result"]
 
-    assert type(contacts) is Contacts
-    assert contacts.frame["name"].to_list() == ["Ida", "Bo"]
+    assert isinstance(contacts, pl.DataFrame)
+    assert contacts["name"].to_list() == ["Ida", "Bo"]
 
 
 def test_a_bare_table_with_nested_and_time_columns_round_trips():
     """Nested cells are a later plan's to open; a table holding them still stores and restores as it was."""
-    table = Table(pl.DataFrame({
+    table = read_table(Table, pl.DataFrame({
         "tags": [["a", "b"], []], "who": [{"name": "Ida", "age": 3}, {"name": "Bo", "age": 4}],
         "at": [datetime.time(9, 30), None],
     }))
 
-    assert TypeAdapter(Table).validate_python(to_wire(table, Table)) == table
+    assert TypeAdapter(Table).validate_python(to_wire(table, Table)).equals(table)

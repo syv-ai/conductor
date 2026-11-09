@@ -7,6 +7,7 @@ import logging
 from datetime import date, timedelta
 from typing import TypedDict
 
+import polars as pl
 import pytest
 from conductor import (
     CompiledGraph,
@@ -194,3 +195,42 @@ def test_a_type_no_edge_can_carry_closes_the_input_and_keeps_out_of_the_vocabula
     assert "setting" not in registry.types
     (names,) = tags.versions[1].interface.inputs
     assert names.connectable is False and names.dtype.describe() == {"id": "setting", "of": "list"}
+
+
+# -- a table is a frame ----------------------------------------------------------------
+
+
+class Contact(TypedDict):
+    name: str
+    age: int
+
+
+@node("people")
+def _people() -> Table[Contact]:
+    return pl.DataFrame({"name": ["Ida", "Bo"], "age": [40, 30]})
+
+
+@node("oldest")
+def _oldest(people: Table[Contact]) -> Table[Contact]:
+    assert isinstance(people, pl.DataFrame) and len(people) == 2
+    return people.sort("age", descending=True)
+
+
+@node("headcount")
+def _headcount(table: Table) -> int:
+    return table.height
+
+
+def test_a_table_parameter_is_a_frame_and_a_node_returns_a_frame():
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[_n("p", "people"), _n("o", "oldest", people=From("p.result")), _n("h", "headcount", table=From("o.result"))]),
+        NodeRegistry([_people, _oldest, _headcount]),
+    )
+    results = compiled.results(compiled.run_sync())
+    assert isinstance(results["o"]["result"], pl.DataFrame) and results["o"]["result"]["name"].to_list() == ["Ida", "Bo"]
+    assert results["h"]["result"] == 2
+
+
+def test_table_is_only_a_type():
+    with pytest.raises(TypeError, match="polars.DataFrame"):
+        Table({"a": [1]})  # type: ignore[call-arg]

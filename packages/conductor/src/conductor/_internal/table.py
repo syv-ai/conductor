@@ -1,25 +1,29 @@
 """``Table`` — many rows of named, typed columns, as one value.
 
 Every level conductor runs over is a table: the rows of an index are its
-rows and the fields on it its columns. A ``Table`` is that same thing held
-as one value, so a node can take a whole table and hand one back: a CSV
-read in, a filter, a sort. Inside it is a Polars ``DataFrame``; a node
-reads and returns frames.
+rows and the fields on it its columns. A whole table as one value is a
+Polars ``DataFrame``, at a node's call, in a run's state and in its results:
+a node takes one and returns one, so a CSV read in, a filter and a sort are
+ordinary Polars. ``Table`` is only the type that says so in a signature; it
+has no instances, and a type checker reads it as ``DataFrame``.
 
-A table type names its columns, each with a scalar ``DType``::
+A table type names its columns, each with a scalar type::
 
     class Contact(TypedDict):
-        name: Text
-        email: Text
+        name: str
+        email: str
 
-    Table[Contact]                                    # the columns, written as a type
-    Table.with_columns({"name": Text, "email": Text})  # the same type, for a hook
+    def keep(contacts: Table[Contact]) -> Table[Contact]:
+        return contacts.sort("name")
+
+    Table.with_columns({"name": str, "email": str})  # the same type, for a hook
 
 Bare ``Table`` is a table whose columns are known only when it arrives (a
-CSV nobody described). A column's Polars type comes from what its ``DType``
-is built on — ``str`` a string column, ``float``, ``int``, ``bool`` and
-``datetime.date`` theirs — and a type says it itself (``DType.column``)
-only where that base would be wrong, as a flag built on ``int`` does.
+CSV nobody described). A column's Polars type comes from what its type is
+built on — ``str`` a string column, ``float``, ``int``, ``bool``,
+``datetime.date`` and ``datetime.datetime`` theirs — and a ``DType`` says it
+itself (``DType.column``) only where that base would be wrong, as a flag
+built on ``int`` does.
 
 Rows keep who they are. A table the engine stores carries a hidden column,
 ``__row``, holding each row's global id: the index it was made on and its
@@ -38,6 +42,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from functools import cache
@@ -93,6 +98,17 @@ def columns_of(dtype: Any) -> tuple[Column, ...]:
     """The columns a table type declares, each offered as a field of its own
     (``rows.email``); ``()`` for bare ``Table`` and for any other type."""
     return dtype.columns if isinstance(dtype, type) and issubclass(dtype, Table) else ()
+
+
+def is_frame_type(kind: type) -> bool:
+    """Is this the class of a table's value? Never imports Polars: with no Polars loaded, nothing is a frame."""
+    polars = sys.modules.get("polars")
+    return polars is not None and issubclass(kind, polars.DataFrame)
+
+
+def is_frame(value: Any) -> bool:
+    """Is this value a table's value, a frame?"""
+    return is_frame_type(type(value))
 
 
 def row_id(index: Index, row: Row) -> str:
@@ -257,12 +273,13 @@ RowsOf = TypeVar("RowsOf")
 
 
 class Table(DType, Generic[RowsOf]):
-    """Many rows of named, typed columns, as one value: a Polars ``DataFrame`` and the ids of its rows.
+    """The type of a whole table in a signature: its value is a Polars ``DataFrame``, its hidden ``__row`` column the ids of its rows.
 
-    Build one from a ``DataFrame``, a list of records, another table or its
-    JSON form; a table type with columns reads each declared column as its
-    type's column, refusing a value that won't read and naming the column,
-    and drops columns it doesn't declare. ``__row`` always passes through.
+    Has no instances. A value is read as it enters a run: a ``DataFrame``, a
+    list of records or a table's JSON form; a table type with columns reads
+    each declared column as its type's column, refusing a value that won't read and
+    naming the column, and drops columns it doesn't declare. ``__row`` always
+    passes through.
     """
 
     id = "table"
@@ -270,18 +287,8 @@ class Table(DType, Generic[RowsOf]):
     #: The columns this type declares, each ``(name, scalar DType)``; ``()`` on bare ``Table``.
     columns: ClassVar[tuple[Column, ...]] = ()
 
-    __slots__ = ("frame",)
-
-    def __init__(self, value: Any) -> None:
-        self.frame: pl.DataFrame = self._read(value)
-
-    @classmethod
-    def _holding(cls, frame: pl.DataFrame) -> Table:
-        """A table of this type holding ``frame`` as it is, already read: the
-        engine's way to store a table it has given row ids."""
-        made = cls.__new__(cls)
-        made.frame = frame
-        return made
+    def __init__(self, *_: Any, **__: Any) -> None:
+        raise TypeError("Table is only a type for a signature; a table's value is a polars.DataFrame")
 
     def __class_getitem__(cls, item: Any) -> type[Table[Any]]:
         """``Table[Contact]``: the table type whose columns are the keys of a ``TypedDict``, each a scalar ``DType``."""
@@ -325,9 +332,7 @@ class Table(DType, Generic[RowsOf]):
     def _read(cls, value: Any) -> pl.DataFrame:
         import polars as pl
 
-        if isinstance(value, Table):
-            frame = value.frame
-        elif isinstance(value, pl.DataFrame):
+        if isinstance(value, pl.DataFrame):
             frame = value
         elif isinstance(value, Mapping) and "columns" in value and "data" in value:
             frame = _from_wire(value)
@@ -378,16 +383,7 @@ class Table(DType, Generic[RowsOf]):
 
     @classmethod
     def as_text(cls, value: Any) -> str:
-        return f"{value.frame.height} rows"
-
-    def __eq__(self, other: object) -> bool:
-        return isinstance(other, Table) and type(other).columns == type(self).columns and other.frame.equals(self.frame)
-
-    def __hash__(self) -> int:
-        return hash((type(self).columns, self.frame.height))
-
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}({self.frame.height} rows)"
+        return f"{value.height} rows"
 
     # -- pydantic -------------------------------------------------------------
 
@@ -403,23 +399,19 @@ class Table(DType, Generic[RowsOf]):
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source_type: Any, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
-        """In: a table, a frame, records or the JSON form, read as this type. Out, as JSON:
+        """In: a frame, records or the JSON form, read as this type. Out, as JSON:
         ``{"columns": [{"name", "dtype"}], "data": {name: [...]}, "rows": [...]}``, where
         ``rows`` holds the ``__row`` ids (``null`` on a table that has none), ``columns``
         never lists ``__row``, ``dtype`` is the column's Polars type (a name, or an object
         with its parameters) and a blank cell is ``null``. A column that can't be written
         without changing it raises here."""
 
-        def read(value: Any) -> Table:
-            return value if type(value) is cls else cls(value)
-
         return core_schema.no_info_plain_validator_function(
-            read, serialization=core_schema.plain_serializer_function_ser_schema(_to_wire, when_used="json"),
+            cls._read, serialization=core_schema.plain_serializer_function_ser_schema(_to_wire, when_used="json"),
         )
 
 
-def _to_wire(table: Table) -> dict[str, Any]:
-    frame = table.frame
+def _to_wire(frame: pl.DataFrame) -> dict[str, Any]:
     names = [name for name in frame.columns if name != ROW_ID]
     return {
         "columns": [{"name": name, "dtype": _dtype_to_wire(frame[name].dtype)} for name in names],

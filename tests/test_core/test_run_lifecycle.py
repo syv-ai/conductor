@@ -29,6 +29,7 @@ from conductor import (
 from conductor._internal.series import Index
 from conductor.events import RunEnd, RunStart, UnitWaiting
 from conductor.widgets import Textarea
+from helpers import read_table
 
 
 class Txt(DType, str):
@@ -99,7 +100,7 @@ def decide() -> Verdict | AskPerson:
 @node("ask-table", title="Ask table", description="d", category="test")
 def ask_table() -> Annotated[Contacts, Result(title="Rettelser")] | AskPerson:
     _called("ask-table")
-    return AskPerson(defaults={"result": Contacts([{"name": "a", "email": "a@x"}])})
+    return AskPerson(defaults={"result": read_table(Contacts, [{"name": "a", "email": "a@x"}])})
 
 
 @node("ask-many", title="Ask many", description="d", category="test")
@@ -387,7 +388,7 @@ def test_adding_a_row_to_an_answered_table_keeps_the_other_rows_ids():
             "data": {"name": ["a", "b", "new"], "email": ["a@x", "b@x", "n@x"]},
             "rows": ["t.result:1", "t.result:2", None]}
     done = compiled.run_sync(compiled.answer(state, {"t": {"result": wire}}))
-    assert compiled.results(done)["t"]["result"].frame["__row"].to_list() == ["t.result:1", "t.result:2", "t.result:0"]
+    assert compiled.results(done)["t"]["result"]["__row"].to_list() == ["t.result:1", "t.result:2", "t.result:0"]
 
 
 def test_a_table_form_with_rows_that_do_not_line_up_is_a_refusal():
@@ -543,7 +544,7 @@ def test_no_series_constructor_is_needed_for_skips_in_a_many_valued_output():
 
 @node("extract", title="Extract", description="d", category="test")
 def extract(text: Annotated[Txt, Param(title="T", widget=Textarea())] = Txt("")) -> Annotated[Contacts, Result(title="R")]:
-    return Contacts([{"name": text, "email": "a@x"}])
+    return read_table(Contacts, [{"name": text, "email": "a@x"}])
 
 
 REGISTRY = REGISTRY.extended_with([extract])

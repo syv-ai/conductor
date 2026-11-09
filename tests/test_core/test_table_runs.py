@@ -141,8 +141,8 @@ def test_the_stored_table_carries_its_row_ids():
     compiled = _compiled(CSV, GraphNode(id="send", type="send", version=1, bindings={"email": From("csv.result.email")}))
     contacts = _results(compiled)["csv"]["result"]
 
-    assert type(contacts) is Contacts
-    assert contacts.frame[ROW_ID].to_list() == ["csv.result:0", "csv.result:1", "csv.result:2"]
+    assert isinstance(contacts, pl.DataFrame)
+    assert contacts[ROW_ID].to_list() == ["csv.result:0", "csv.result:1", "csv.result:2"]
 
 
 def test_a_table_nobody_reads_a_column_of_makes_no_rows_and_is_stored_once():

@@ -1,8 +1,8 @@
 """One codec: a value goes to JSON and back by its declared type.
 
 A value lives in memory as its type — a ``Text`` is a ``str`` subclass, a
-``Series[X]`` an object with an index and rows, a host's file a name and
-bytes. Whenever such a value crosses into JSON and back — the state of
+``Series[X]`` an object with an index and rows, a table a Polars frame, a
+host's file a name and bytes. Whenever such a value crosses into JSON and back — the state of
 a run, an answer a host hands in, a result a host stores
 — this module is the one crossing, and the declared type decides the
 form: ``to_wire(value, dtype)`` writes it, ``reader_of(dtype)`` reads it
@@ -34,11 +34,11 @@ from typing import Any
 from pydantic import ConfigDict, PydanticUserError, TypeAdapter
 
 from conductor._internal.series import Index, Series
-from conductor._internal.table import Table
+from conductor._internal.table import Table, holds_tables, is_frame_type
 
 #: Runtime types whose JSON form can hold no float a dump would have to look for.
 #: A table writes its own columns and refuses what it can't keep.
-_NEVER_HOLDS_A_FLOAT = (str, int, NoneType, Table)
+_NEVER_HOLDS_A_FLOAT = (str, int, NoneType)
 
 
 def to_wire(value: Any, dtype: Any) -> Any:
@@ -64,6 +64,8 @@ def reader_of(dtype: Any) -> Callable[[Any], Any]:
     if dtype.id == "any":
         return _unchanged
     validate = _adapter(dtype).validate_python
+    if holds_tables(dtype):  # a frame says nothing about its columns, so every one is read
+        return validate
     instance_type = dtype._instance_type()
 
     def read(value: Any) -> Any:
@@ -93,10 +95,10 @@ def values_to_wire(values: list[Any]) -> list[Any]:
     kinds = {type(value) for value in values}
     if len(kinds) == 1:
         (kind,) = kinds
-        written: list[Any] = _adapter(list[kind]).dump_python(values, mode="json", fallback=_by_own_type)  # type: ignore[valid-type]
+        written: list[Any] = _adapter(list[_written_as(kind)]).dump_python(values, mode="json", fallback=_by_own_type)  # type: ignore[misc]
     else:
         written = [to_wire(value, type(value)) for value in values]
-    if not all(issubclass(kind, _NEVER_HOLDS_A_FLOAT) for kind in kinds):
+    if not all(issubclass(kind, _NEVER_HOLDS_A_FLOAT) or is_frame_type(kind) for kind in kinds):
         json.dumps(written, allow_nan=False)
     return written
 
@@ -131,10 +133,16 @@ def _adapter(dtype: Any) -> TypeAdapter[Any]:
     """One adapter per declared type: building one reads the type's schema, which is the
     slow part. It leaves a float that isn't finite as it is, for ``values_to_wire`` to see;
     pydantic's default would write it as ``null``. A type with a config of its own keeps that."""
+    dtype = _written_as(dtype)
     try:
         return TypeAdapter(dtype, config=ConfigDict(ser_json_inf_nan="constants"))
     except PydanticUserError:
         return TypeAdapter(dtype)
+
+
+def _written_as(kind: Any) -> Any:
+    """The type a runtime type writes through: a frame has no schema of its own, so a table's."""
+    return Table if isinstance(kind, type) and is_frame_type(kind) else kind
 
 
 # -- a series ----------------------------------------------------------------------------

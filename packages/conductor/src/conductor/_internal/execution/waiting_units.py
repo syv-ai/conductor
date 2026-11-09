@@ -29,7 +29,6 @@ from conductor._internal.execution.validate_unit_outputs import validate_unit_ou
 from conductor._internal.ref import Ref
 from conductor._internal.series import Row
 from conductor._internal.skip_and_ask import SKIPPED, AskPerson
-from conductor._internal.table import Table
 from conductor.widgets import Widget
 
 if TYPE_CHECKING:
@@ -185,10 +184,10 @@ def _with_units_finished(compiled: CompiledGraph, state: RunState, finished: lis
             value = SKIPPED if cells is None else cells[out.name]
             column = column_of(ref)
             makes_rows = value is not SKIPPED and node.wiring.fields[out.name]._makes_rows is not None
-            made_no_rows = made_no_rows or (makes_rows and (value.frame.height if isinstance(value, Table) else len(value)) == 0)
+            made_no_rows = made_no_rows or (makes_rows and len(value) == 0)
             if value is SKIPPED:
                 column.skipped.append(asked.row)
-            elif isinstance(value, list) and not isinstance(value, Table) and node.wiring.fields[out.name]._holds_many:
+            elif isinstance(value, list) and node.wiring.fields[out.name]._holds_many:
                 for j, item in enumerate(value):
                     (column.skipped if item is SKIPPED else column.rows).append((*asked.row, j))
                     if item is not SKIPPED:

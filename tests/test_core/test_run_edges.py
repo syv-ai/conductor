@@ -39,6 +39,7 @@ from conductor import (
     node,
 )
 from conductor.widgets import Textarea
+from helpers import read_table
 
 
 class Txt(DType, str):
@@ -129,13 +130,13 @@ def num_in(v: Annotated[Num, Param(title="N")]) -> Annotated[Num, Result(title="
 
 @node("frame", title="s", description="d", category="t")
 def frame_node(k: In = Txt("")) -> Annotated[Table, Result(title="T")]:
-    return Table(CANNED[k])
+    return CANNED[k]
 
 
 @node("frame_in", title="s", description="d", category="t")
 def frame_in(table: Annotated[Table, Param(title="T")]) -> Out:
-    CALLS.append(("frame_in", table.frame.schema, table.frame.rows()))
-    return Txt(str(table.frame.height))
+    CALLS.append(("frame_in", table.schema, table.rows()))
+    return Txt(str(table.height))
 
 
 def _any_outputs() -> list[Output]:
@@ -168,18 +169,18 @@ def module_frame(x: Wire) -> TableOut:
 @node("csv", title="s", description="d", category="t")
 def csv(k: In = Txt("")) -> TableOut:
     names = [x for x in k.split(",") if x]
-    return Contacts(pl.DataFrame({"name": names, "email": [f"{x}@m" for x in names]}, schema={"name": pl.String, "email": pl.String}))
+    return read_table(Contacts, pl.DataFrame({"name": names, "email": [f"{x}@m" for x in names]}, schema={"name": pl.String, "email": pl.String}))
 
 
 @node("rebuild", title="s", description="d", category="t")
 def rebuild(t: Annotated[Contacts, Param(title="T")]) -> TableOut:
-    names = t.frame["name"].to_list() or ["placeholder"]
-    return Contacts([{"name": x, "email": "e"} for x in names])
+    names = t["name"].to_list() or ["placeholder"]
+    return read_table(Contacts, [{"name": x, "email": "e"} for x in names])
 
 
 @node("none_left", title="s", description="d", category="t")
 def none_left(t: Annotated[Contacts, Param(title="T")]) -> TableOut:
-    return Contacts([r for r in t.frame.iter_rows(named=True) if r["name"] == "nobody"])
+    return read_table(Contacts, [r for r in t.iter_rows(named=True) if r["name"] == "nobody"])
 
 
 @node("ask", title="s", description="d", category="t")
@@ -225,12 +226,12 @@ def ask_slow_first(text: Wire) -> Out | AskPerson:
 
 @node("reference", title="s", description="d", category="t")
 def reference(k: In = Txt("")) -> TableOut:
-    return Contacts([{"name": "a", "email": "x"}, {"name": "b", "email": "y"}])
+    return read_table(Contacts, [{"name": "a", "email": "x"}, {"name": "b", "email": "y"}])
 
 
 @node("lookup", title="s", description="d", category="t")
 def lookup(x: Wire, t: Annotated[Contacts, Param(title="T")]) -> TableOut:
-    return t.frame.filter(pl.col("name") == "a")  # type: ignore[return-value]
+    return t.filter(pl.col("name") == "a")  # type: ignore[return-value]
 
 
 REGISTRY = NodeRegistry([
@@ -256,7 +257,7 @@ def _clear_calls() -> None:
 
 
 def test_a_table_returned_on_two_rows_has_its_own_ids_on_each_and_the_merge_has_its_rows():
-    typed_in = Contacts([{"name": "a", "email": "x"}, {"name": "b", "email": "y"}])
+    typed_in = read_table(Contacts, [{"name": "a", "email": "x"}, {"name": "b", "email": "y"}])
     compiled = compiled_of(
         n("s", "source", text=Static(["p1", "p2"])),
         n("h", "pass_table", x=From("s.result"), t=Static(typed_in)),
@@ -265,16 +266,16 @@ def test_a_table_returned_on_two_rows_has_its_own_ids_on_each_and_the_merge_has_
     )
     state = compiled.run_sync()
     assert state.status == "complete", state.failure
-    assert [v.frame[ROW_ID].to_list() for v in state.output_columns[Ref("h.result")].values] == [["h.result:0.0", "h.result:0.1"], ["h.result:1.0", "h.result:1.1"]]
-    assert compiled.results(state)["m"]["result"].frame.height == 4
+    assert [v[ROW_ID].to_list() for v in state.output_columns[Ref("h.result")].values] == [["h.result:0.0", "h.result:0.1"], ["h.result:1.0", "h.result:1.1"]]
+    assert compiled.results(state)["m"]["result"].height == 4
 
 
 def test_a_static_table_is_the_same_after_a_run_so_a_later_compile_finds_nothing_changed():
     def graph() -> CompiledGraph:
-        return compiled_of(n("s", "source", text=Static(["p"])), n("h", "pass_table", x=From("s.result"), t=Static(Contacts([{"name": "a", "email": "x"}]))))
+        return compiled_of(n("s", "source", text=Static(["p"])), n("h", "pass_table", x=From("s.result"), t=Static(read_table(Contacts, [{"name": "a", "email": "x"}]))))
     ran = graph()
     state = ran.run_sync()
-    assert ROW_ID not in ran.node("h").statics["t"].frame.columns
+    assert ROW_ID not in ran.node("h").statics["t"].columns
     assert graph().nodes_changed_since(through_json(state)) == []
 
 
@@ -301,9 +302,9 @@ def test_a_float_column_keeps_nan_and_infinity_through_json():
     CANNED["k"] = pl.DataFrame({"a": [1.5, float("nan"), float("inf"), float("-inf"), None]})
     compiled = compiled_of(n("v", "frame", k=Static("k")))
     state = compiled.run_sync()
-    back = compiled.results(through_json(state))["v"]["result"].frame
-    assert back.schema == state.output_columns[Ref("v.result")].values[0].frame.schema
-    assert back.equals(state.output_columns[Ref("v.result")].values[0].frame)
+    back = compiled.results(through_json(state))["v"]["result"]
+    assert back.schema == state.output_columns[Ref("v.result")].values[0].schema
+    assert back.equals(state.output_columns[Ref("v.result")].values[0])
 
 
 def test_a_state_is_valid_json_when_a_number_is_not_finite():
@@ -354,7 +355,7 @@ def test_every_column_type_comes_back_exactly_or_the_dump_refuses(frame):
     CANNED["k"] = frame
     compiled = compiled_of(n("v", "frame", k=Static("k")), n("r", "frame_in", table=From("v.result")))
     state = through_json(compiled.run_sync())
-    back = compiled.results(state)["v"]["result"].frame.drop(ROW_ID)
+    back = compiled.results(state)["v"]["result"].drop(ROW_ID)
     assert dict(back.schema) == dict(frame.schema)
     assert back.equals(frame)
     compiled.run_sync(state.without("r"))
@@ -380,34 +381,34 @@ def test_integer_row_ids_read_as_text_the_same_fresh_and_after_json():
     CANNED["k"] = pl.DataFrame({ROW_ID: [1, 2], "a": ["x", "y"]})
     compiled = compiled_of(n("v", "frame", k=Static("k")))
     state = compiled.run_sync()
-    assert compiled.results(state)["v"]["result"].frame[ROW_ID].to_list() == ["1", "2"]
-    assert compiled.results(through_json(state))["v"]["result"].frame[ROW_ID].to_list() == ["1", "2"]
+    assert compiled.results(state)["v"]["result"][ROW_ID].to_list() == ["1", "2"]
+    assert compiled.results(through_json(state))["v"]["result"][ROW_ID].to_list() == ["1", "2"]
 
 
 def test_a_json_form_cannot_name_anything_but_a_column_type():
     with pytest.raises(ValueError, match="does not line up"):
-        Table({"columns": [{"name": "a", "dtype": {"type": "read_csv", "source": "/etc/hosts"}}], "data": {"a": []}, "rows": None})
+        read_table(Table, {"columns": [{"name": "a", "dtype": {"type": "read_csv", "source": "/etc/hosts"}}], "data": {"a": []}, "rows": None})
 
 
 # -- zero rows ------------------------------------------------------------------------
 
 
 def test_a_typed_table_of_no_records_is_a_table_with_its_columns_and_no_rows():
-    assert Contacts([]).frame.columns == [ROW_ID, "name", "email"] and Contacts([]).frame.height == 0
+    assert read_table(Contacts, []).columns == [ROW_ID, "name", "email"] and read_table(Contacts, []).height == 0
 
 
 def test_a_node_filtering_every_row_away_returns_zero_rows():
     compiled = compiled_of(n("c", "csv", k=Static("a,b")), n("f", "none_left", t=From("c.result")))
     state = compiled.run_sync()
     assert state.status == "complete", state.failure
-    assert compiled.results(state)["f"]["result"].frame.height == 0
+    assert compiled.results(state)["f"]["result"].height == 0
 
 
 def test_a_person_answering_an_empty_list_for_a_table_gives_a_table_of_no_rows():
     compiled = compiled_of(n("a", "ask_rows"))
     state = compiled.run_sync(compiled.answer(compiled.run_sync(), {"a": {"result": []}}))
     assert state.status == "complete"
-    assert compiled.results(state)["a"]["result"].frame.height == 0
+    assert compiled.results(state)["a"]["result"].height == 0
 
 
 # -- row ids --------------------------------------------------------------------------
@@ -419,7 +420,7 @@ def test_a_persons_records_in_the_published_shape_are_new_rows_not_a_lost_id():
     assert state.waiting[0].questions[0].json_schema["type"] == "array"
     ended = compiled.run_sync(compiled.answer(state, {"r": {"result": [{"name": "a", "email": "9"}]}}))
     assert ended.status == "complete", ended.failure
-    assert compiled.results(ended)["m"]["result"].frame.height == 3
+    assert compiled.results(ended)["m"]["result"].height == 3
 
 
 def test_a_node_given_no_rows_has_no_id_to_lose_when_it_makes_a_row_of_its_own():
@@ -431,7 +432,7 @@ def test_a_node_given_no_rows_has_no_id_to_lose_when_it_makes_a_row_of_its_own()
 def test_a_fresh_id_never_takes_one_a_later_row_holds():
     CANNED["k"] = pl.DataFrame({ROW_ID: [None, "v.result:0"], "a": ["x", "y"]}, schema={ROW_ID: pl.String, "a": pl.String})
     compiled = compiled_of(n("v", "frame", k=Static("k")))
-    ids = compiled.results(compiled.run_sync())["v"]["result"].frame[ROW_ID].to_list()
+    ids = compiled.results(compiled.run_sync())["v"]["result"][ROW_ID].to_list()
     assert len(set(ids)) == 2 and ids[1] == "v.result:0"
 
 
@@ -439,7 +440,7 @@ def test_a_merged_column_clashing_more_than_once_takes_the_next_free_name():
     compiled = compiled_of(n("c", "csv", k=Static("a,b")), n("m", "merged", table=From("c.result.name", "c.result", "c.result.name")))
     state = compiled.run_sync()
     assert state.status == "complete", state.failure
-    assert len(set(compiled.results(state)["m"]["result"].frame.columns)) == 5
+    assert len(set(compiled.results(state)["m"]["result"].columns)) == 5
 
 
 # -- lists set on a node over no rows --------------------------------------------------
@@ -738,7 +739,7 @@ def test_a_table_passed_through_per_row_merges_row_by_row_under_each_parent():
     )
     state = compiled.run_sync()
     assert state.status == "complete", state.failure
-    frame = compiled.results(state)["m"]["result"].frame
+    frame = compiled.results(state)["m"]["result"]
     assert frame.height == 4
     assert frame.select("name", "result").rows() == [("a", "A"), ("b", "B"), ("a", "A"), ("b", "B")]
 
@@ -751,7 +752,7 @@ def test_a_lookup_repeating_a_reference_row_under_two_parents_still_joins_the_re
     )
     state = compiled.run_sync()
     assert state.status == "complete", state.failure
-    rows = compiled.results(state)["m"]["result"].frame.select("name", "email", "result").rows()
+    rows = compiled.results(state)["m"]["result"].select("name", "email", "result").rows()
     assert sorted(rows, key=str) == sorted([("a", "x", "A"), ("a", "x", "A"), ("b", "y", None)], key=str)
 
 
@@ -768,7 +769,7 @@ def test_which_parent_a_repeated_id_lands_on_does_not_depend_on_which_finished_f
         n("m", "merged", table=From("h.result.name", "u.result")), registry=registry,
     )
     state = compiled.run_sync()
-    assert compiled.results(state)["m"]["result"].frame.select("name", "result").rows() == [("a", "A"), ("b", "B"), ("a", "A"), ("b", "B")]
+    assert compiled.results(state)["m"]["result"].select("name", "result").rows() == [("a", "A"), ("b", "B"), ("a", "A"), ("b", "B")]
 
 
 # -- an answer that keeps a table's ids; results straight after an answer -----------------
@@ -787,7 +788,7 @@ def test_records_in_the_published_shape_that_keep_row_ids_merge_on_their_source_
     records = [{ROW_ID: row_id, "name": name, "email": "edited"} for row_id, name in zip(default["rows"], default["data"]["name"], strict=True)]
     ended = compiled.run_sync(compiled.answer(state, {"r": {"result": records}}))
     assert ended.status == "complete", ended.failure
-    assert compiled.results(ended)["m"]["result"].frame.height == 2
+    assert compiled.results(ended)["m"]["result"].height == 2
 
 
 @node("ask_list", title="s", description="d", category="t")

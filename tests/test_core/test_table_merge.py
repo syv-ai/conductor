@@ -33,13 +33,13 @@ from test_core.test_table_runs import CSV, Contacts, Invoices, _leg, _registry
 @node("export", title="Export", description="d", category="test")
 def export(table: Annotated[Table, Param(title="Table")]) -> Annotated[Table, Result(title="Sheet")]:
     """«Til Excel»: takes whatever is wired in as one table, and hands it back."""
-    return table.frame
+    return table
 
 
 @node("with-email", title="With email", description="d", category="test")
 def only_with_email(contacts: Annotated[Contacts, Param(title="Contacts")]) -> Annotated[Contacts, Result(title="Contacts")]:
     """A filter: keeps the contacts with an email, rows and ids as they were."""
-    return contacts.frame.filter(pl.col("email").is_not_null())
+    return contacts.filter(pl.col("email").is_not_null())
 
 
 def _registry_with(*extra: type[NodeDefinition]) -> NodeRegistry:
@@ -55,7 +55,7 @@ def _compiled(*nodes: GraphNode, registry: NodeRegistry | None = None) -> Compil
 
 def _sheet(compiled: CompiledGraph, graph_node: str = "excel") -> pl.DataFrame:
     assert compiled.is_runnable, compiled.problems
-    return compiled.results(compiled.run_sync())[graph_node]["result"].frame.drop(ROW_ID)
+    return compiled.results(compiled.run_sync())[graph_node]["result"].drop(ROW_ID)
 
 
 SEND = GraphNode(id="send", type="send", version=1, bindings={"email": From("csv.result.email")})
@@ -154,7 +154,7 @@ def test_a_table_input_on_a_node_running_per_document_gets_that_documents_rows()
         (Ref("check", "result"), RowsUnder(Index("read.result", parent=Index("docs.result")), 1)),
     ))
     sheets = compiled.results(compiled.run_sync())["excel"]["result"]
-    assert [sheet.frame.drop(ROW_ID).to_dicts() for sheet in sheets] == [
+    assert [sheet.drop(ROW_ID).to_dicts() for sheet in sheets] == [
         [{"vendor": "acme", "amount": 10.0, "result": "acme ok"}, {"vendor": "beta", "amount": 5.0, "result": "beta ok"}],
         [{"vendor": "gamma", "amount": 7.0, "result": "gamma ok"}],
     ]
@@ -211,13 +211,13 @@ NamesAsNumbers = Table.with_columns({"name": Num})
 @node("sheet", title="Sheet", description="d", category="test")
 def sheet_node(table: Annotated[NamesSent, Param(title="Table")]) -> Annotated[Txt, Result(title="Rows")]:
     """A sheet that needs a name and a sent column."""
-    return Txt(str(table.frame.height))
+    return Txt(str(table.height))
 
 
 @node("scores", title="Scores", description="d", category="test")
 def scores(table: Annotated[NamesAsNumbers, Param(title="Table")]) -> Annotated[Txt, Result(title="Rows")]:
     """A sheet whose name column is a number, which no contact's name reads as."""
-    return Txt(str(table.frame.height))
+    return Txt(str(table.height))
 
 
 DOCS = GraphNode(id="docs", type="docs", version=1, bindings={"text": Static("acme:10,beta:5|gamma:7")})
@@ -336,7 +336,7 @@ def labelled(label: Annotated[Txt, Param(title="Label", widget=Textarea())] = Tx
 @node("labelled-table", title="Labelled table", description="d", category="test")
 def labelled_table(label: Annotated[Txt, Param(title="Label", widget=Textarea())], table: Annotated[Table, Param(title="Table")],
 ) -> Annotated[Txt, Result(title="Said")]:
-    return Txt(f"{label}={','.join(table.frame['result'].to_list())}")
+    return Txt(f"{label}={','.join(table['result'].to_list())}")
 
 
 @node("two-columns", title="Two columns", description="d", category="test")
@@ -402,7 +402,7 @@ def test_a_parent_column_beside_a_table_made_per_row_of_it_is_copied_down():
     compiled = _compiled(DOCS, READ, GraphNode(id="excel", type="export", version=1, bindings={"table": From("docs.result", "read.result")}))
     sheets = compiled.results(compiled.run_sync())["excel"]["result"]
 
-    assert [sheet.frame.drop(ROW_ID).to_dicts() for sheet in sheets] == [
+    assert [sheet.drop(ROW_ID).to_dicts() for sheet in sheets] == [
         [{"result": "acme:10,beta:5", "vendor": "acme", "amount": 10.0}, {"result": "acme:10,beta:5", "vendor": "beta", "amount": 5.0}],
         [{"result": "gamma:7", "vendor": "gamma", "amount": 7.0}],
     ]
@@ -417,8 +417,8 @@ def test_a_child_table_a_branch_skipped_gives_no_rows_and_the_sheet_keeps_its_co
     )
     sheets = compiled.results(compiled.run_sync())["excel"]["result"]
 
-    assert [sheet.frame.height for sheet in sheets] == [1, 0]
-    assert sheets.values[1].frame.columns == [ROW_ID, "result", "vendor", "amount"]
+    assert [sheet.height for sheet in sheets] == [1, 0]
+    assert sheets.values[1].columns == [ROW_ID, "result", "vendor", "amount"]
 
 
 def test_a_series_two_levels_down_with_nothing_else_runs_per_row_of_the_level_above_it():
@@ -484,12 +484,12 @@ def skip_or_read(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = 
 @node("picks", title="Picks", description="d", category="test")
 def picks(contacts: Annotated[Contacts, Param(title="Contacts")]) -> Annotated[Contacts, Result(title="Contacts")]:
     """A select that names columns, the natural way to lose ``__row``."""
-    return contacts.frame.select("name", "email")
+    return contacts.select("name", "email")
 
 
 @node("empties", title="Empties", description="d", category="test")
 def empty(contacts: Annotated[Contacts, Param(title="Contacts")]) -> Annotated[Contacts, Result(title="Contacts")]:
-    return contacts.frame.select("name", "email").clear()
+    return contacts.select("name", "email").clear()
 
 
 def _rebuilt(node_type: str = "picks") -> tuple[GraphNode, GraphNode]:

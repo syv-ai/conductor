@@ -43,7 +43,7 @@ CALLED: list[Any] = []
 
 @node("rows")
 def rows() -> Table:
-    return Table(pl.DataFrame({"name": ["Ida", "Bo", "Nina"], "email": ["ida@x", None, "nina@x"]}))
+    return (pl.DataFrame({"name": ["Ida", "Bo", "Nina"], "email": ["ida@x", None, "nina@x"]}))
 
 
 @node("rows2", compute_outputs=lambda: [Output("result", Table.with_columns({"name": Txt, "email": Txt}))])
@@ -105,7 +105,7 @@ def zipped(a: Series[Txt], b: Series[Txt]) -> Txt:
 
 @node("make-table")
 def make_table(email: Txt) -> Table:
-    return Table(pl.DataFrame({"x": [email]}))
+    return (pl.DataFrame({"x": [email]}))
 
 
 def _registry(*more):
@@ -283,7 +283,7 @@ def test_a_row_making_output_has_no_rows_when_not_called_so_a_count_gives_zero()
 
 def test_a_table_output_has_no_rows_when_not_called():
     _, state, results = _results(CSV, _per_row("make-table"))
-    assert results["n"]["result"].values[1].frame.height == 0
+    assert results["n"]["result"].values[1].height == 0
     assert state.status == "complete"
 
 

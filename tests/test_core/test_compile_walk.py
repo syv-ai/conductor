@@ -67,24 +67,24 @@ def note(text: Txt, doc: Annotated[Txt, Param()] = Txt("")) -> Txt:
 
 @node("excel")
 def excel(table: Table) -> Txt:
-    return Txt(str(table.frame.height))
+    return Txt(str(table.height))
 
 
 @node("table")
 def make_table() -> Table:
     import polars as pl
-    return Table(pl.DataFrame({"x": [1, 2]}))
+    return pl.DataFrame({"x": [1, 2]})
 
 
 @node("rebuild")
 def rebuild(**inputs: AsItArrives) -> Table:
     import polars as pl
-    return Table(pl.DataFrame({"y": [1, 2]}))
+    return pl.DataFrame({"y": [1, 2]})
 
 
 @node("rebuild-keeping-ids")
 def rebuild_keeping_ids(**inputs: AsItArrives) -> Table:
-    return Table(inputs["t"].frame)
+    return inputs["t"]
 
 
 def _table_out(t: Arriving) -> list[Output]:
@@ -94,7 +94,7 @@ def _table_out(t: Arriving) -> list[Output]:
 @node("from-any", compute_outputs=_table_out)
 def from_any(t: Any) -> Mapping[str, Any]:
     import polars as pl
-    return {"result": Table(pl.DataFrame({"y": [1, 2]}))}
+    return {"result": pl.DataFrame({"y": [1, 2]})}
 
 
 @node("hooked", compute_inputs=lambda: [Input("extra", Txt)])

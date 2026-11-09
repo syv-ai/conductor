@@ -44,13 +44,16 @@ from conductor._internal.node_decorator import (
 from conductor._internal.ref import Ref
 from conductor._internal.registry import NodeRegistry, TypeDescription
 from conductor._internal.skip_and_ask import SKIPPED, AskPerson
-from conductor._internal.table import ROW_ID, Table
+from conductor._internal.table import ROW_ID
 
 if TYPE_CHECKING:
-    # A node takes and returns plain sequences; a type checker reads ``Series[X]`` as one.
+    # A node takes and returns plain sequences and frames; a type checker reads ``Series[X]`` as one and ``Table[R]`` as the other.
     from collections.abc import Sequence as Series
+
+    from conductor._internal.table_as_a_type_checker_reads_it import Table
 else:
     from conductor._internal.series import Series
+    from conductor._internal.table import Table
 
 __all__ = [
     "ALWAYS",
