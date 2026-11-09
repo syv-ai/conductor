@@ -2,8 +2,7 @@
 
 from typing import Any
 
-from conductor.dtype import DType
-from conductor.dtype_ref import DTypeRef, description_of
+from conductor.dtype import DType, DTypeRef, description_of, setting_type
 from pydantic import TypeAdapter
 
 
@@ -28,29 +27,24 @@ def test_an_any_input_dumps_as_any():
     connected, so the declaration needs a JSON form — and it says "any", never
     a dtype id."""
 
-    assert description_of(Any) == {"id": "any"}
-    assert TypeAdapter(DTypeRef).dump_python(Any, mode="json") == {"id": "any"}
+    declared = TypeAdapter(DTypeRef).validate_python(Any)
+    assert TypeAdapter(DTypeRef).dump_python(declared, mode="json") == {"id": "any"}
 
 
-def test_a_static_type_has_no_wire_form():
-    """A handle-less input may declare a type that is not a ``DType``
-    — a schema, a set of branches. Nothing travels on it, so the wire says
-    ``null`` rather than inventing an id that no edge could carry."""
+def test_a_closed_inputs_plain_type_dumps_as_a_setting():
+    """A closed input may hold a type that is not a ``DType`` (a schema, a set
+    of branches). It is wrapped in a private ``DType``, which says so on the wire."""
 
     class Schema:
         pass
 
-    assert description_of(Schema) is None
-    assert TypeAdapter(DTypeRef).dump_python(Schema, mode="json") is None
+    assert description_of(setting_type(Schema)) == {"id": "setting", "of": "Schema"}
 
 
 def test_a_dtype_ref_has_a_json_schema():
-    """So a record holding one can be a FastAPI response model. The
-    ``null`` arm is the static type of a handle-less input."""
-    schema = TypeAdapter(DTypeRef).json_schema()
+    """So a record holding one can be a FastAPI response model."""
+    wire = TypeAdapter(DTypeRef).json_schema()
 
-    wire, nothing = schema["anyOf"]
-    assert nothing == {"type": "null"}
     assert wire["type"] == "object"
     assert wire["properties"]["id"] == {"type": "string"}
     assert "of" in wire["properties"]

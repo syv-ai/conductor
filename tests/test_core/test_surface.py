@@ -187,11 +187,13 @@ def test_a_misspelled_run_is_refused_naming_what_the_class_does_define():
         _declare(rnu=lambda self: None)
 
 
-def test_a_bare_series_parameter_is_refused():
+def test_a_bare_series_parameter_is_a_series_of_anything():
+    from typing import Any
+
     from conductor.series import Series
 
-    with pytest.raises(TypeError, match=r"'rows'.*Series\[X\]"):
-        _declare(run=_run({"rows": Annotated[Series, Param(title="Rows")]}))
+    declared = _declare(run=_run({"rows": Annotated[Series, Param(title="Rows")]}))
+    assert declared.versions[1].interface.inputs[0].dtype is Series[Any]
 
 
 def test_an_open_interface_typed_as_one_series_is_refused():
@@ -280,11 +282,11 @@ Mode = NewType("Mode", str)
 type Modes = list[str]
 
 
-@pytest.mark.parametrize("declared", [Txt, Any, list[str], tuple[str, ...], Mode, Modes])
-def test_a_field_takes_a_dtype_any_or_a_static_type(declared):
+def test_a_field_takes_a_dtype_or_any():
     from conductor.metadata import Input
 
-    assert Input(name="x", dtype=declared, title="X", show_handle=False).dtype == declared
+    assert Input(name="x", dtype=Txt, title="X").dtype is Txt
+    assert Input(name="x", dtype=Any, title="X").dtype.id == "any"
 
 
 # --- the registry is a container, and a compiled graph's facts are properties ---------

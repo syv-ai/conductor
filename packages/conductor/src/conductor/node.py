@@ -429,7 +429,7 @@ class NodeDefinition(ABC, metaclass=_NodeMeta):
         cls._derive_versions()
         cls._check_upgrades()
         if cls.compute_outputs is NodeDefinition.compute_outputs and any(
-            out.dtype is Any
+            out.dtype.id == "any"
             for version in cls.versions.values()
             if isinstance(version, NodeVersion)
             for out in version.interface.outputs

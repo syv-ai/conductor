@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic_core import to_jsonable_python
 
 from conductor.codec import reader_of, to_wire
-from conductor.dtype_ref import description_of
+from conductor.dtype import description_of
 from conductor.errors import NodeReadError
 from conductor.interface import model_of
 from conductor.node import runner_of
@@ -78,9 +78,8 @@ def _written(value: Any, dtype: Any, listed: bool) -> Any:
     """A static as its declared type writes it, for ``CompiledNode.fingerprint``:
     each of many typed-in values (``listed``) through the scalar type, a
     series through its element type, one value through its own."""
-    element = getattr(dtype, "element", None)
-    if element is not None:
-        return [to_wire(item, element) for item in (value.values if isinstance(value, Series) else value)]
+    if dtype.element is not None:
+        return [to_wire(item, dtype.element) for item in (value.values if isinstance(value, Series) else value)]
     if listed:
         return [to_wire(item, dtype) for item in value]
     return to_wire(value, dtype)
@@ -288,7 +287,7 @@ class CompiledNode:
         value the engine hands a node as ``None``. A node running per row
         runs on a blank row with that blank, and decides what it means."""
         return model_of(tuple(
-            inp if inp.dtype is Any else inp.model_copy(update={"dtype": inp.dtype | None}) for inp in self._interface.inputs
+            inp.model_copy(update={"dtype": inp.dtype | None}) for inp in self._interface.inputs
         ))
 
     @property
@@ -364,8 +363,7 @@ class CompiledField:
     @cached_property
     def _cell_type(self) -> Any:
         """The type of one value of this field: the element of a series on rows, the field's own type otherwise."""
-        element = getattr(self._type, "element", None)
-        return self._type if self._index is None or element is None else element
+        return self._type if self._index is None or self._type.element is None else self._type.element
 
     @cached_property
     def _read_cell(self) -> Callable[[Any], Any]:

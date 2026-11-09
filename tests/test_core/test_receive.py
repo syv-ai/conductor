@@ -11,7 +11,7 @@ from typing import Annotated
 
 import pytest
 from conductor import NodeRegistry
-from conductor.dtype import DType, Single
+from conductor.dtype import AsItArrives, DType
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
@@ -81,7 +81,7 @@ class Script(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, **inputs: Single) -> Out:
+    def run(self, **inputs: AsItArrives) -> Out:
         return Txt(",".join(f"{name}={list(value) if isinstance(value, Series) else value}" for name, value in sorted(inputs.items())))
 
 

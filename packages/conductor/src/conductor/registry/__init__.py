@@ -25,7 +25,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from types import MappingProxyType
 from typing import Any, Callable
 
-from conductor.dtype import DType
+from conductor.dtype import DType, _Setting, _UntypedValue
 from conductor.errors import NodeDeclarationError
 from conductor.graph.binding import From, Static, static_values
 from conductor.graph.model import Graph, GraphNode
@@ -258,7 +258,8 @@ class NodeRegistry:
         per row. A bug in a type's ``accepts`` surfaces here, not as a
         silent absence.
         """
-        return tuple(word.id for word in self._types.values() if word.accepts(dtype))
+        one_value = dtype.element or dtype
+        return tuple(word.id for word in self._types.values() if word.accepts(one_value))
 
     def describe(self) -> RegistryDescription:
         """This registry as the palette: every node's record and the vocabulary, each type once."""
@@ -295,15 +296,17 @@ def _refuse_unless_node_class(node_cls: Any) -> None:
 def _word_of(declared: Any, *, adding: bool = False) -> type[DType] | None:
     """The vocabulary word a declared type names, or ``None`` when it names none.
 
-    A scalar type is its own word; a parameterisation (``Table[columns]``)
-    is its base's; a ``Series[X]`` is ``X``'s. ``Any`` and a closed
-    input's plain Python type name no word. With ``adding`` — the host
+    A scalar type is its own word; a ``Table[...]`` is ``Table``'s; a
+    ``Series[X]`` is ``X``'s. An untyped field and a closed input's plain
+    Python type name no word. With ``adding`` — the host
     handing a type to ``add_types`` — a series, the base ``DType`` and a
     non-type are refused rather than silently naming nothing.
     """
     if not (isinstance(declared, type) and issubclass(declared, DType)):
         if adding:
             raise NodeDeclarationError(f"{declared!r} is not a DType subclass", code="not_a_dtype")
+        return None
+    if issubclass(declared, (_UntypedValue, _Setting)):
         return None
     if declared is DType:
         if adding:
@@ -313,8 +316,8 @@ def _word_of(declared: Any, *, adding: bool = False) -> type[DType] | None:
         if adding:
             raise NodeDeclarationError(f"{declared!r} is a series; its element is the word to add", code="series_added")
         return _word_of(declared.element)
-    if declared.parameterises is not None:
-        return _word_of(declared.parameterises, adding=adding)
+    if declared._parameterised_from is not None:
+        return _word_of(declared._parameterised_from, adding=adding)
     return declared
 
 

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Annotated
 
 import pytest
-from conductor.dtype import DType, Single
+from conductor.dtype import AsItArrives, DType
 from conductor.interface import Interface, model_of
 from conductor.metadata import Param, Result
 from conductor.series import Series
@@ -199,9 +199,9 @@ def test_a_closed_param_may_declare_a_static_type():
         return Text("")
 
     (inp,) = Interface.of(structured).inputs
-    assert inp.dtype is Schema
+    assert inp.dtype.plain is Schema
     assert isinstance(model_of((inp,))({"schema": {"fields": ("a",)}})["schema"], Schema)
-    assert TypeAdapter(type(inp)).dump_python(inp, mode="json")["dtype"] is None
+    assert TypeAdapter(type(inp)).dump_python(inp, mode="json")["dtype"] == {"id": "setting", "of": "Schema"}
 
 
 def test_a_bare_dtype_input_is_refused():
@@ -231,9 +231,9 @@ def test_a_pass_through_declares_any():
 
     iface = Interface.of(route)
 
-    assert iface.inputs[0].dtype is Any
-    assert iface.outputs[0].dtype is Any
-    assert iface.returns is Any
+    assert iface.inputs[0].dtype.id == "any"
+    assert iface.outputs[0].dtype.id == "any"
+    assert iface.returns.id == "any"
 
 
 def test_an_any_roster_validates_a_call():
@@ -259,7 +259,7 @@ def test_an_open_roster_is_single_on_the_keyword_parameter():
     from collections.abc import Mapping
     from typing import Any
 
-    def script(code: Annotated[Text, Param(title="Code", widget=Textarea())], **inputs: Single) -> Mapping[str, Any]:
+    def script(code: Annotated[Text, Param(title="Code", widget=Textarea())], **inputs: AsItArrives) -> Mapping[str, Any]:
         return {}
 
     iface = Interface.of(script)
@@ -275,13 +275,13 @@ def test_an_open_roster_is_single_on_the_keyword_parameter():
 
 
 def test_single_is_spelled_on_the_keyword_parameter_only():
-    """`Single` is the open interface's shape and nothing else's: a
+    """`AsItArrives` is the open interface's shape and nothing else's: a
     named parameter declares a DType, or `Any` for whatever arrives."""
 
-    def named(x: Annotated[Single, Param(title="X", widget=Textarea())]) -> Annotated[Text, Result(title="R")]:
+    def named(x: Annotated[AsItArrives, Param(title="X", widget=Textarea())]) -> Annotated[Text, Result(title="R")]:
         return Text("")
 
-    with pytest.raises(TypeError, match="Single"):
+    with pytest.raises(TypeError, match="AsItArrives"):
         Interface.of(named)
 
 

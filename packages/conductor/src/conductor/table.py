@@ -8,7 +8,12 @@ reads and returns frames.
 
 A table type names its columns, each with a scalar ``DType``::
 
-    Contacts = Table[("name", Text), ("email", Text)]
+    class Contact(TypedDict):
+        name: Text
+        email: Text
+
+    Table[Contact]                                    # the columns, written as a type
+    Table.with_columns({"name": Text, "email": Text})  # the same type, for a hook
 
 Bare ``Table`` is a table whose columns are known only when it arrives (a
 CSV nobody described). A column's Polars type comes from what its ``DType``
@@ -35,7 +40,7 @@ import datetime
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from itertools import count
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, get_type_hints, is_typeddict
 
 from pydantic import TypeAdapter
 from pydantic_core import core_schema, to_jsonable_python
@@ -210,7 +215,11 @@ def _parent_key(index: Index) -> str:
 _PARAMETERISED: dict[tuple[Column, ...], type[Table]] = {}
 
 
-class Table(DType):
+#: The ``TypedDict`` naming a table's columns, for a type checker.
+RowsOf = TypeVar("RowsOf")
+
+
+class Table(DType, Generic[RowsOf]):
     """Many rows of named, typed columns, as one value: a Polars ``DataFrame`` and the ids of its rows.
 
     Build one from a ``DataFrame``, a list of records, another table or its
@@ -237,13 +246,23 @@ class Table(DType):
         made.frame = frame
         return made
 
-    def __class_getitem__(cls, item: Any) -> type[Table]:
-        """``Table[("name", Text), ("email", Text)]``: the table type with these columns, built once per set."""
-        columns = tuple(item) if isinstance(item, tuple) and item and isinstance(item[0], tuple) else (item,)
-        for column in columns:
-            name, dtype = column if isinstance(column, tuple) and len(column) == 2 else (None, None)
+    def __class_getitem__(cls, item: Any) -> type[Table[Any]]:
+        """``Table[Contact]``: the table type whose columns are the keys of a ``TypedDict``, each a scalar ``DType``."""
+        if isinstance(item, TypeVar):
+            return cls
+        if not is_typeddict(item):
+            raise NodeDeclarationError(
+                f"Table[...] takes a TypedDict naming the columns, got {item!r}; for columns known only to a hook, Table.with_columns({{name: type}})",
+                code="table_columns_not_a_typeddict",
+            )
+        return cls.with_columns(get_type_hints(item))
+
+    @classmethod
+    def with_columns(cls, columns: Mapping[str, type[DType]]) -> type[Table[Any]]:
+        """The table type with these columns, built once per set; ``Table[Contact]`` with the same columns is this type."""
+        for name, dtype in columns.items():
             if not isinstance(name, str) or not (isinstance(dtype, type) and issubclass(dtype, DType)) or dtype.element is not None:
-                raise NodeDeclarationError(f"a column is (name, scalar DType), got {column!r}", code="table_column_invalid")
+                raise NodeDeclarationError(f"a column is a name and a scalar DType, got {name!r}: {dtype!r}", code="table_column_invalid")
             if name == ROW_ID:
                 raise NodeDeclarationError(f"'{ROW_ID}' is the column of row ids every table carries; no column may be named it", code="table_column_reserved")
             if column_type(dtype) is None:
@@ -252,11 +271,12 @@ class Table(DType):
                     "and states no column type of its own (DType.column)",
                 code="table_column_no_storage",
                 )
-        made = _PARAMETERISED.get(columns)
+        declared = tuple(columns.items())
+        made = _PARAMETERISED.get(declared)
         if made is None:
-            label = ", ".join(f"{name}: {dtype.__name__}" for name, dtype in columns)
-            made = type(f"Table[{label}]", (cls,), {"columns": columns, "__slots__": ()}, parameterises=Table)
-            _PARAMETERISED[columns] = made
+            label = ", ".join(f"{name}: {dtype.__name__}" for name, dtype in declared)
+            made = type(f"Table[{label}]", (cls,), {"columns": declared, "__slots__": ()}, _parameterises=Table)
+            _PARAMETERISED[declared] = made
         return made
 
     # -- reading a value --------------------------------------------------------

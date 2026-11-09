@@ -74,7 +74,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
-from conductor.dtype_ref import description_of, name_of
+from conductor.dtype import description_of, is_untyped, name_of
 from conductor.errors import CompileProblem, Problem, problem
 from conductor.graph.binding import From
 from conductor.graph.embedding import SEPARATOR, address, as_drawn, under
@@ -353,11 +353,11 @@ class _Walk:
                 found.merging.append((ref, target, list(zip(binding.refs, sources, strict=True))))
                 found.arriving[inp.name] = target
                 continue
-            if target is Any or target.element is Any:
+            if is_untyped(target):
                 # An input with no type of its own takes the type of its first
                 # edge; the other edges are checked against it.
                 element = sources[0].dtype.element or sources[0].dtype
-                target = Series[element] if getattr(inp.dtype, "element", None) is not None else element
+                target = Series[element] if inp.dtype.element is not None else element
                 found.bound[inp.name] = target
             for source_ref, source in zip(binding.refs, sources, strict=True):
                 self.problems.extend(self._admit(target, ref, source_ref, source))
@@ -405,7 +405,7 @@ class _Walk:
         faults = field_problems(node.id, outputs, frozenset(i.name for i in inputs), untyped_ok=False)
         faults += [
             problem("series_of_tables", node.id, out.name) for out in outputs
-            if (element := getattr(out.dtype, "element", None)) is not None and (element is Table or columns_of(element))
+            if out.dtype.element is not None and holds_tables(out.dtype.element)
         ]
         if faults:
             # An output no edge could carry, or a name used twice: the node has
@@ -704,14 +704,14 @@ class _Walk:
         index of the field's own, received whole. A list set on a scalar
         input is placed by ``_derive``, under the rows the node runs on.
         """
-        if getattr(inp.dtype, "element", None) is not None:  # only a Series type has an element
+        if inp.dtype.element is not None:
             return _Carried(inp.dtype, Index(ref)), Whole()
         return _Carried(inp.dtype, None), Broadcast()
 
     @staticmethod
     def _admit(target: Any, ref: Ref, source_ref: Ref, source: _Carried) -> list[Problem]:
-        """May what arrives land on ``ref``? ``target.accepts`` decides."""
-        if not target.accepts(source.dtype):
+        """May what arrives land on ``ref``? The target's ``accepts`` decides, asked about one value of each."""
+        if not (target.element or target).accepts(source.dtype.element or source.dtype):
             return [problem(
                 "type_mismatch", ref.node_id, ref.field,
                 source=str(source_ref),

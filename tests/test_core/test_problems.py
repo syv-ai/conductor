@@ -4,7 +4,7 @@ from typing import Annotated
 
 import pytest
 from conductor import NodeRegistry
-from conductor.dtype import DType
+from conductor.dtype import DType, _UntypedValue
 from conductor.errors import Problem
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
@@ -216,10 +216,8 @@ def test_a_computed_roster_naming_one_field_twice_is_fatal():
     ]
 
 
-def test_a_computed_field_with_a_handle_needs_an_edge_type():
-    """A DType is required exactly where a handle is. `Interface.of`
-    refuses the declaration; a hook can compute an output nothing could
-    edge, and compile refuses that once, on the completed interface."""
+def test_a_hook_writing_an_output_of_no_dtype_is_a_bug_in_the_hook():
+    """A record's ``dtype`` is a ``DType``, so the record refuses anything else where the hook writes it."""
 
     class Odd(NodeDefinition):
         id = "odd"
@@ -235,9 +233,8 @@ def test_a_computed_field_with_a_handle_needs_an_edge_type():
 
     registry = _registry()
     registry.register(Odd)
-    problems = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="o", type="odd", version=1)]), registry).problems
-
-    assert [(p.type, p.fatal, p.loc[1]) for p in problems] == [("handle_needs_dtype", True, "raw")]
+    with pytest.raises(ValidationError, match="dtype"):
+        CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="o", type="odd", version=1)]), registry)
 
 
 # --- the stored bindings, validated -----------------------------------------------
@@ -329,7 +326,7 @@ def test_an_any_input_with_no_edge_is_unbound_required():
             return value
 
         def compute_outputs(self, declared, values, arriving):
-            dtype = arriving.get("value", Any)
+            dtype = arriving.get("value", _UntypedValue)
             return tuple(out.model_copy(update={"dtype": dtype}) for out in declared)
 
     registry = _registry()

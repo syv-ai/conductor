@@ -270,62 +270,6 @@ def test_a_subclass_without_its_own_id_is_refused():
     assert Whole.id == "whole"
 
 
-def test_a_parameterisation_is_marked_and_keeps_its_bases_id():
-    """``Series[Text]`` is built by a marked factory: it carries ``series`` as its id on purpose."""
-    assert Series[Text].id == "series"
-    assert Series[Text].parameterises is Series
-    assert Text.parameterises is None
-
-    class Bag(DType):
-        id = "bag"
-        title = "Bag"
-
-    class BagOfText(Bag, parameterises=Bag):
-        pass
-
-    assert BagOfText.id == "bag"
-    registry = NodeRegistry()
-    registry.add_types(BagOfText)
-    assert registry.types == {"bag": Bag}
-
-
-def test_the_mark_names_a_concrete_dtype_base_and_the_class_keeps_its_id():
-    """No escape from naming yourself: the mark needs a real base, and a class
-    with an id of its own is a type of its own. A self-named subclass of a
-    parameterisation is a word again."""
-
-    class Bag(DType):
-        id = "bag"
-        title = "Bag"
-
-    with pytest.raises(TypeError, match="concrete"):
-
-        class NoBase(DType, str, parameterises=str):
-            title = "No base"
-
-    with pytest.raises(TypeError, match="concrete"):
-
-        class TheBase(DType, parameterises=DType):
-            title = "The base"
-
-    with pytest.raises(TypeError, match="own"):
-
-        class Renamed(Bag, parameterises=Bag):
-            id = "renamed"
-
-    class BagOfText(Bag, parameterises=Bag):
-        pass
-
-    class Sack(BagOfText):
-        id = "sack"
-        title = "Sack"
-
-    assert Sack.parameterises is None
-    registry = NodeRegistry()
-    registry.add_types(Sack)
-    assert registry.types == {"sack": Sack}
-
-
 # --- the README ---------------------------------------------------------------
 
 

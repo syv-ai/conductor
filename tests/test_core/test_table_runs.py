@@ -34,8 +34,8 @@ from helpers import stream_of
 from test_core.embedded import embedded_graph_node
 from test_core.test_table import Num, Txt
 
-Contacts = Table[("name", Txt), ("email", Txt)]
-Invoices = Table[("vendor", Txt), ("amount", Num)]
+Contacts = Table.with_columns({"name": Txt, "email": Txt})
+Invoices = Table.with_columns({"vendor": Txt, "amount": Num})
 Text = Annotated[Txt, Param(title="Text", widget=Textarea())]
 
 

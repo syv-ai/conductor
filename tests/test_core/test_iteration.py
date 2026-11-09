@@ -5,7 +5,7 @@ from typing import Annotated, Any
 
 import pytest
 from conductor import NodeRegistry
-from conductor.dtype import DType, Single
+from conductor.dtype import AsItArrives, DType, _UntypedValue
 from conductor.errors import NodeReadError
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
@@ -16,6 +16,7 @@ from conductor.node import NodeDefinition
 from conductor.ref import Ref
 from conductor.series import Index, Series
 from conductor.widgets import Textarea
+from pydantic import ValidationError
 
 
 class Txt(DType, str):
@@ -135,7 +136,7 @@ class Route(NodeDefinition):
         return value
 
     def compute_outputs(self, declared, values, arriving):
-        dtype = arriving.get("value", Any)
+        dtype = arriving.get("value", _UntypedValue)
         return tuple(out.model_copy(update={"dtype": dtype}) for out in declared)
 
 
@@ -164,7 +165,7 @@ class Script(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, code: Annotated[Txt, Param(title="Code", show_handle=False, widget=Textarea())] = Txt(""), **inputs: Single) -> Out:
+    def run(self, code: Annotated[Txt, Param(title="Code", show_handle=False, widget=Textarea())] = Txt(""), **inputs: AsItArrives) -> Out:
         return Txt(",".join(sorted(inputs)))
 
 
@@ -784,10 +785,8 @@ def test_compile_stores_no_rows_and_no_mask():
 # --- what a hook may answer ---------------------------------------------------------
 
 
-def test_a_hook_that_adds_a_connected_input_without_an_edge_type_is_a_problem_not_a_crash():
-    """A computed input a handle bears must carry a type an edge can carry.
-    Connected, it is ``handle_needs_dtype`` on the field, fatal, and the
-    node's wiring fails; the walk does not crash."""
+def test_a_hook_that_adds_an_input_with_no_type_an_edge_can_carry_is_a_bug_in_the_hook():
+    """A record's ``dtype`` is a ``DType``, so a hook writing anything else raises where it writes it."""
 
     class Adds(NodeDefinition):
         id = "adds"
@@ -803,14 +802,11 @@ def test_a_hook_that_adds_a_connected_input_without_an_edge_type_is_a_problem_no
 
     registry = _registry()
     registry.register(Adds)
-    compiled = CompiledGraph.from_graph(Graph(nodes=[
-        GraphNode(id="n", type="count", version=1, bindings={"text": Static("hi")}),
-        GraphNode(id="a", type="adds", version=1, bindings={"raw": _edge(("n", "result"))}),
-    ]), registry)
-
-    assert [(p.type, p.fatal, p.loc[0], p.loc[1]) for p in compiled.problems] == [("handle_needs_dtype", True, "a", "raw")]
-    with pytest.raises(NodeReadError):
-        compiled.node("a").runs_per_row_of
+    with pytest.raises(ValidationError, match="dtype"):
+        CompiledGraph.from_graph(Graph(nodes=[
+            GraphNode(id="n", type="count", version=1, bindings={"text": Static("hi")}),
+            GraphNode(id="a", type="adds", version=1, bindings={"raw": _edge(("n", "result"))}),
+        ]), registry)
 
 
 def test_a_hook_that_leaves_a_connected_output_untyped_is_a_problem_not_a_crash():

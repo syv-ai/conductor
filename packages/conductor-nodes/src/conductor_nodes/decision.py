@@ -64,7 +64,7 @@ class Decision(StdlibNode):
     ) -> tuple[Output, ...]:
         """Give both outputs the type that arrives on ``value`` (``Any`` until connected)."""
         dtype = arriving.get("value", Any)
-        return tuple(out.model_copy(update={"dtype": dtype}) for out in declared)
+        return tuple(Output(name=out.name, dtype=dtype, title=out.title, choice=out.choice) for out in declared)
 
 
 #: Every node this module defines, in palette order.

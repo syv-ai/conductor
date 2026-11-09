@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from conductor._sentinel import SKIPPED, AskPerson
 from conductor.codec import json_schema_of, to_wire
-from conductor.dtype_ref import description_of
+from conductor.dtype import description_of
 from conductor.errors import InvalidCallError, Problem, problem
 from conductor.execution.run_state import Answers, OutputColumn, Question, RunState, WaitingUnit
 from conductor.execution.validate_unit_outputs import validate_unit_outputs

@@ -6,7 +6,7 @@ from typing import Annotated, Any
 
 import pytest
 from conductor import NodeRegistry
-from conductor.dtype import DType, Single
+from conductor.dtype import AsItArrives, DType
 from conductor.errors import CompileProblem, NodeReadError, Problem
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
@@ -147,7 +147,7 @@ class OpenInputs(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, **inputs: Single) -> Out:
+    def run(self, **inputs: AsItArrives) -> Out:
         return Txt("")
 
 

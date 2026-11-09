@@ -45,7 +45,8 @@ class _SkippedType:
         return False
 
 
-SKIPPED = _SkippedType()
+#: Typed ``Any`` for a checker: it goes where a result would, on any output.
+SKIPPED: Any = _SkippedType()
 
 
 @dataclass(frozen=True)

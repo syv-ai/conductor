@@ -40,7 +40,7 @@ class Whole(DType, int):
     title = "Tal"
 
 
-Contacts = Table[("name", Txt), ("email", Txt)]
+Contacts = Table.with_columns({"name": Txt, "email": Txt})
 Out = Annotated[Txt, Result(title="Svar")]
 calls: dict[str, int] = {}
 

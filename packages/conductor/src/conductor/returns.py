@@ -13,7 +13,7 @@ The return type *is* the output declaration. Three shapes are read::
     def run(self, text: Text) -> Parts:
         ...   # one output per field: "head" and "tail"
 
-    def run(self, **inputs: Single) -> Mapping[str, Any]:
+    def run(self, **inputs: AsItArrives) -> Mapping[str, Any]:
         ...   # the outputs were computed for the node; returned by name
 
 ``outputs_of`` turns the annotation into ``Output`` records and ``unpack``
@@ -107,11 +107,11 @@ def unpack(returns: Any, value: Any, outputs: tuple[Output, ...]) -> dict[str, A
     """Split what ``run`` returned into ``{output name: value}``.
 
     ``returns`` is the ``declared`` half of ``outputs_of``'s answer. A
-    ``DType`` (or ``Any``) return lands on ``"result"``; a record is read
+    ``DType`` return lands on ``"result"``; a record is read
     field by field; a ``Mapping`` must name exactly the declared outputs. A
     value of the wrong shape is a ``ValueError`` that never quotes the value.
     """
-    if returns is Any or (isinstance(returns, type) and issubclass(returns, DType)):
+    if isinstance(returns, type) and issubclass(returns, DType):
         return {RESULT_KEY: value}
     if returns is Mapping:
         names = {output.name for output in outputs}

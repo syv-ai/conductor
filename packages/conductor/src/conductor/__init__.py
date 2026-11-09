@@ -6,9 +6,11 @@ everything a caller outside the library imports; ``__all__`` lists it.
 Every other module is the library's own and may move.
 """
 
+from typing import TYPE_CHECKING
+
 from conductor._sentinel import SKIPPED, AskPerson, is_skipped
 from conductor.codec import from_wire, to_wire
-from conductor.dtype import DType, Single
+from conductor.dtype import AsItArrives, DType
 from conductor.errors import (
     PROBLEM_CODES,
     CompileProblem,
@@ -53,8 +55,14 @@ from conductor.node import (
 )
 from conductor.ref import Ref
 from conductor.registry import NodeRegistry, RegistryDescription, TypeDescription
-from conductor.series import Index, Series
+from conductor.series import Index
 from conductor.table import Table
+
+if TYPE_CHECKING:
+    # A node takes and returns plain sequences; a type checker reads ``Series[X]`` as one.
+    from collections.abc import Sequence as Series
+else:
+    from conductor.series import Series
 
 __all__ = [
     "ALWAYS",
@@ -62,6 +70,7 @@ __all__ = [
     "PROBLEM_CODES",
     "SKIPPED",
     "Answers",
+    "AsItArrives",
     "AskPerson",
     "Atom",
     "Binding",
@@ -109,7 +118,6 @@ __all__ = [
     "RunState",
     "RunStatus",
     "Series",
-    "Single",
     "Static",
     "Table",
     "TypeDescription",

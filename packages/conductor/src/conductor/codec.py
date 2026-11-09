@@ -30,7 +30,6 @@ from functools import cache
 from typing import Any
 
 from pydantic import PydanticUserError, TypeAdapter
-from pydantic_core import to_jsonable_python
 
 from conductor.series import Index, Series
 
@@ -42,8 +41,6 @@ def to_wire(value: Any, dtype: Any) -> Any:
     or ``Any``. A value pydantic cannot write raises its own error; the
     caller, who knows which field the value sits on, names it.
     """
-    if dtype is Any:
-        return to_jsonable_python(value, fallback=_by_own_type)
     return _adapter(dtype).dump_python(value, mode="json", fallback=_by_own_type)
 
 
@@ -53,8 +50,6 @@ def from_wire(data: Any, dtype: Any) -> Any:
     A series comes back on the index it was written with, rows and all;
     under ``Any`` the data is the value.
     """
-    if dtype is Any:
-        return data
     return _adapter(dtype).validate_python(data)
 
 
@@ -68,7 +63,7 @@ def reader_of(dtype: Any) -> Callable[[Any], Any]:
     ``ValidationError``. A type whose validator hands back something other than
     the type is a bug in the type, and a ``TypeError`` naming it.
     """
-    if dtype is Any:
+    if dtype.id == "any":
         return _unchanged
     validate = _adapter(dtype).validate_python
 
@@ -100,11 +95,8 @@ def json_schema_of(dtype: Any) -> dict[str, Any]:
     """The JSON schema of what a person may send for one value of ``dtype``:
     the type's own, the elements' as an array for a series, ``{}`` when a type
     publishes none."""
-    element = getattr(dtype, "element", None)
-    if element is not None:
-        return {"type": "array", "items": json_schema_of(element)}
-    if dtype is Any:
-        return {}
+    if dtype.element is not None:
+        return {"type": "array", "items": json_schema_of(dtype.element)}
     try:
         return _adapter(dtype).json_schema()
     except PydanticUserError:

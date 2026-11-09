@@ -34,8 +34,7 @@ from uuid import uuid4
 
 from pydantic_core import core_schema
 
-from conductor.dtype import DType
-from conductor.dtype_ref import description_of
+from conductor.dtype import DType, _UntypedValue, description_of
 from conductor.errors import NodeDeclarationError
 from conductor.model import ConductorModel
 
@@ -108,8 +107,8 @@ class Series(DType, Sequence[T]):
 
     ``Series[Text]`` is a real subclass created on first use, not a
     ``typing`` alias, so it can carry ``element = Text`` as a class
-    attribute: ``describe()`` can nest its element and ``DType.accepts``
-    can recognise a series by ``source.element is not None``. Declaring an
+    attribute, which is how compile tells a series from one value and
+    ``describe()`` nests its element. Declaring an
     input as ``Series[X]`` means "give me the whole series"; the class
     itself is never a wire type, only its parameterisations are. Neither
     is a word of a registry's vocabulary: a series is many of something,
@@ -130,6 +129,8 @@ class Series(DType, Sequence[T]):
     _parameterised: ClassVar[dict[Any, type["Series[Any]"]]] = {}
 
     def __class_getitem__(cls, item: Any) -> type["Series[Any]"]:
+        if item is Any:
+            item = _UntypedValue
         if getattr(item, "element", None) is not None:
             raise NodeDeclarationError(
                 "Series[Series[...]] does not exist — a nested structure is a "
@@ -138,13 +139,13 @@ class Series(DType, Sequence[T]):
             )
         made = Series._parameterised.get(item)
         if made is None:
-            # Built with ``parameterises=Series``: a parameterisation carries
-            # the base's id on purpose, where any other subclass must name itself.
+            # A parameterisation carries the base's id on purpose, where any
+            # other subclass must name itself.
             made = type(
                 f"Series[{getattr(item, '__name__', item)}]",
                 (cls,),
                 {"element": item, "__slots__": ()},
-                parameterises=Series,
+                _parameterises=Series,
             )
             Series._parameterised[item] = made
         return made
@@ -215,20 +216,10 @@ class Series(DType, Sequence[T]):
             )
         return {"id": cls.id, "of": description_of(cls.element)}
 
-    # -- the one question, from the series side ---------------------------
-
     @classmethod
-    def accepts(cls, source: Any) -> bool:
-        """May ``source`` land on a ``Series[X]`` input?
-
-        Yes for a series of something ``X`` accepts (received whole) and
-        for a scalar ``X`` accepts (gathered into a series). Either way the
-        element type decides.
-        """
-        if cls.element is None:
-            raise TypeError("an input must declare Series[X], never bare Series")
-        inner = source.element if source.element is not None else source
-        return cls.element.accepts(inner)
+    def _when_written_bare(cls) -> type["Series[Any]"]:
+        """Bare ``Series`` means many of whatever arrives."""
+        return Series[Any] if cls.element is None else cls  # type: ignore[return-value]
 
     # -- pydantic ------------------------------------------------------------
 

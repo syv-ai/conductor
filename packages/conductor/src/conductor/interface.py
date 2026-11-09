@@ -23,8 +23,8 @@ walk understands beyond ``Annotated[DType, Param(...)]``:
 * ``Any`` in place of a ``DType`` — the input accepts whatever is connected to
   it. The type that actually arrives is recorded when the graph is
   compiled, and the node's ``compute_outputs`` types its outputs from it.
-* ``**inputs: Single`` (or ``**inputs: Series``) — an open interface: every
-  name connected to the node becomes an input, received as one value (or, for
+* ``**inputs: AsItArrives`` (or ``**inputs: Series``) — an open interface: every
+  name connected to the node becomes an input, received as it arrives (or, for
   ``Series``, as a whole series). The interface records only that it
   is open and in which shape; the inputs themselves are made from
   the edges when the graph is compiled.
@@ -42,7 +42,7 @@ from typing import Annotated, Any, Literal, TypedDict, get_args, get_origin, get
 
 from pydantic import ConfigDict, TypeAdapter, with_config
 
-from conductor.dtype import DType, Single, dtype_of
+from conductor.dtype import DType, _AsItArrivesMark, _UntypedValue, dtype_of, setting_type
 from conductor.errors import NodeDeclarationError
 from conductor.metadata import Input, Output, Param, Result
 from conductor.returns import outputs_of
@@ -93,8 +93,8 @@ class Interface:
     #: nodes need a type it was not given.
     needs: dict[str, type] = field(default_factory=dict)
     #: The shape of an open interface, or ``None`` for a closed one:
-    #: ``"single"`` for ``**inputs: Single`` (each connected name received as
-    #: one value), ``"series"`` for ``**inputs: Series`` (each received as a
+    #: ``"single"`` for ``**inputs: AsItArrives`` (each connected name received as
+    #: it arrives), ``"series"`` for ``**inputs: Series`` (each received as a
     #: whole series). The inputs themselves are made from the edges when
     #: the graph is compiled, so only the shape is recorded here.
     open: Literal["single", "series"] | None = None
@@ -132,9 +132,9 @@ class Interface:
             if parameter.kind not in (inspect.Parameter.VAR_KEYWORD, inspect.Parameter.VAR_POSITIONAL):
                 _refuse_name(name)
             if parameter.kind is inspect.Parameter.VAR_KEYWORD:
-                if annotation is Single:
-                    # ``**inputs: Single``: an open interface, every connected name
-                    # received as one value. Only the shape is recorded; the
+                if _annotation_of(annotation, _AsItArrivesMark) is not None:
+                    # ``**inputs: AsItArrives``: an open interface, every connected name
+                    # received as it arrives. Only the shape is recorded; the
                     # inputs are made from the edges at compile time.
                     open_shape = "single"
                 elif annotation is Series:
@@ -156,11 +156,11 @@ class Interface:
                     "can land on each; *args names none",
                 code="var_positional_parameter",
                 )
-            if annotation is Single or _declared(annotation) is Single:
+            if _annotation_of(annotation, _AsItArrivesMark) is not None:
                 raise NodeDeclarationError(
-                    f"parameter {name!r}: Single is spelled on **inputs only; "
+                    f"parameter {name!r}: AsItArrives is spelled on **inputs only; "
                     "a named parameter declares a DType, or Any for whatever arrives",
-                code="single_on_named_parameter",
+                code="as_it_arrives_on_named_parameter",
                 )
             if _annotation_of(annotation, FromRun) is not None:
                 needs[name] = get_args(annotation)[0]
@@ -178,27 +178,22 @@ class Interface:
                 )
             param = Param.on(annotation) or Param()
             dtype = dtype_of(annotation)
-            if isinstance(dtype, type) and issubclass(dtype, Series) and dtype.element is None:
-                raise NodeDeclarationError(f"parameter {name!r} is a bare Series; declare Series[X] with the element type", code="bare_series")
-            if param.show_handle:
-                # An edge can land here, so the type must be one an edge carries:
-                # a DType, or Any for "whatever arrives".
-                if dtype is None:
-                    raise NodeDeclarationError(
-                        f"parameter {name!r} has a handle and must declare a DType or Any — "
-                        f"got {annotation!r}",
-                code="parameter_needs_dtype",
-                    )
-                if dtype is DType:
-                    raise NodeDeclarationError(
-                        f"parameter {name!r} must declare a concrete DType, or "
-                        "Any for whatever arrives; the base would accept anything",
+            if dtype is DType:
+                raise NodeDeclarationError(
+                    f"parameter {name!r} must declare a concrete DType, or "
+                    "Any for whatever arrives; the base would accept anything",
                 code="parameter_base_dtype",
-                    )
-            elif dtype is None:
-                # No handle, so nothing travels: the declared type is a static
-                # type, used to validate the value a person typed.
-                dtype = _declared(annotation)
+                )
+            if param.show_handle and dtype is None:
+                raise NodeDeclarationError(
+                    f"parameter {name!r} has a handle and must declare a DType or Any — "
+                    f"got {annotation!r}",
+                code="parameter_needs_dtype",
+                )
+            if not param.show_handle and (dtype is None or dtype is _UntypedValue):
+                # Nothing travels here, so a plain Python type is held as a
+                # type of its own, and so is a closed ``Any``.
+                dtype = setting_type(_declared(annotation))
             has_default = parameter.default is not inspect.Parameter.empty
             inputs.append(
                 Input(
@@ -241,8 +236,7 @@ def model_of(inputs: tuple[Input, ...]) -> Callable[[Mapping[str, Any]], dict[st
 
     A function rather than a field on ``Interface``: the inputs a call is
     validated against are usually a node's own interface in its graph
-    rather than the bare declaration. An ``Any`` input validates anything;
-    the compiler has already established what arrives there.
+    rather than the bare declaration.
 
     A default goes through its input's type like a value the call gave, so
     ``n: Integer = 3`` reaches ``run`` as an ``Integer``. Inputs are the

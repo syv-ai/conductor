@@ -32,7 +32,7 @@ from typing import Annotated, Any, ClassVar
 import pytest
 from conductor import NodeRegistry
 from conductor._sentinel import SKIPPED
-from conductor.dtype import DType
+from conductor.dtype import DType, _UntypedValue
 from conductor.errors import CompileProblem
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
@@ -191,7 +191,7 @@ class Gate(NodeDefinition):
         return Branches(if_true=value, if_false=SKIPPED) if when else Branches(if_true=SKIPPED, if_false=value)
 
     def compute_outputs(self, declared, values, arriving):
-        dtype = arriving.get("value", Any)
+        dtype = arriving.get("value", _UntypedValue)
         return tuple(out.model_copy(update={"dtype": dtype}) for out in declared)
 
 

@@ -7,13 +7,13 @@ from typing import Annotated, Any
 import pytest
 from conductor import (
     PROBLEM_CODES,
+    AsItArrives,
     CompiledGraph,
     GraphNode,
     NodeRegistry,
     Param,
     Problem,
     Result,
-    Single,
     Static,
 )
 from conductor.dtype import DType
@@ -261,7 +261,7 @@ def test_a_single_annotation_is_still_refused_on_a_named_parameter():
             description = "d"
             category = "c"
 
-            def run(self, x: Single) -> Annotated[Txt, Result(title="R")]:
+            def run(self, x: AsItArrives) -> Annotated[Txt, Result(title="R")]:
                 return Txt("x")
 
-    assert wrong.value.code == "single_on_named_parameter"
+    assert wrong.value.code == "as_it_arrives_on_named_parameter"

@@ -5,7 +5,7 @@ to one module cannot quietly drop a title, a category or an id.
 """
 
 from collections import defaultdict
-from typing import Any, get_args
+from typing import get_args
 
 import conductor_nodes
 import pytest
@@ -94,7 +94,7 @@ def test_every_field_is_declared_in_the_vocabulary_or_is_any(registry):
     for node_cls in registry.nodes:
         iface = _current(node_cls)
         for field in (*iface.inputs, *iface.outputs):
-            assert field.dtype is Any or _is_vocabulary(field.dtype), (
+            assert field.dtype.id == "any" or _is_vocabulary(field.dtype), (
                 f"{node_cls.id}.{field.name} is {field.dtype!r}"
             )
 
@@ -106,11 +106,11 @@ def test_only_the_gate_declares_any(registry):
     vague = {
         node_cls.id
         for node_cls in registry.nodes
-        if any(f.dtype is Any for f in (*_current(node_cls).inputs, *_current(node_cls).outputs))
+        if any(f.dtype.id == "any" for f in (*_current(node_cls).inputs, *_current(node_cls).outputs))
     }
     assert vague == {"decision"}
     gate = _current(registry["decision"])
-    assert gate.inputs[0].dtype is Any and all(o.dtype is Any for o in gate.outputs)
+    assert gate.inputs[0].dtype.id == "any" and all(o.dtype.id == "any" for o in gate.outputs)
 
 
 def test_branches_are_one_choice(registry):

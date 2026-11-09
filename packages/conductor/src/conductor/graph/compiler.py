@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import TypeAdapter, ValidationError
 
+from conductor.dtype import is_untyped
 from conductor.errors import CompileProblem, Problem, problem
 from conductor.graph.binding import From, Static, static_values
 from conductor.graph.compiled_node import CompiledField, CompiledNode, NodeState
@@ -480,7 +481,7 @@ class Compilation:
                     # else: an id the author wrote that compile could not resolve; it carries its own fatal problem
 
             for inp in interface.inputs:
-                if inp.dtype is Any or inp.dtype is Series[Any]:
+                if is_untyped(inp.dtype):
                     if not isinstance(node.bindings.get(inp.name), From):
                         broken.add(node_id)
                         self.problems.append(problem("unbound_required", node_id, inp.name))
@@ -821,7 +822,7 @@ class Compilation:
         invalid: list[Problem] = []
         for name, value in static_values(node.bindings).items():
             inp = declared.get(name)
-            if inp is None or inp.dtype is Any:
+            if inp is None or inp.dtype.id == "any":
                 continue  # a field the node lacks, or one only an edge can type; check_bindings reports both
             try:
                 typed[name], many = self._typed_static(inp, value)
@@ -839,7 +840,7 @@ class Compilation:
         many values: a sequence element by element for a ``Series[X]`` input
         (one series, not many); one value, or — when the type refuses the
         whole — a sequence of values, for anything else."""
-        element = getattr(inp.dtype, "element", None)
+        element = inp.dtype.element
         if element is not None:
             # A Series[X] input takes the whole sequence, each element typed.
             if not _sequence(value):

@@ -90,7 +90,7 @@ def test_the_record_is_the_schema():
 def test_the_record_publishes_a_json_schema():
     schema = TypeAdapter(Output).json_schema()
 
-    assert schema["properties"]["dtype"]["anyOf"][0]["type"] == "object"
+    assert schema["properties"]["dtype"]["type"] == "object"
     assert set(schema["required"]) == {"name", "dtype", "title"}
 
 
@@ -146,8 +146,8 @@ def test_a_pass_through_return_declares_any():
     output carries it until the node's hook types it from what arrives."""
     returns, outputs = outputs_of(Annotated[Any, Result(title="Videre")])
 
-    assert returns is Any
-    assert outputs[0].dtype is Any
+    assert returns.id == "any"
+    assert outputs[0].dtype.id == "any"
 
 
 def test_a_mapping_return_declares_no_outputs():

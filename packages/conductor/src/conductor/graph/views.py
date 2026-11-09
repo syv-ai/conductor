@@ -16,9 +16,8 @@ surface being rebuilt.
 from __future__ import annotations
 
 from collections.abc import Collection, Mapping, Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from conductor.dtype import DType
 from conductor.errors import Problem, problem
 from conductor.graph.embedding import address
 from conductor.graph.model import GraphNode
@@ -77,10 +76,7 @@ def field_problems(
         seen.add(declared.name)
         if not getattr(declared, "show_handle", True):
             continue
-        if declared.dtype is Any:
-            if not untyped_ok:
-                found.append(problem("handle_needs_dtype", node_id, declared.name))
-        elif not (isinstance(declared.dtype, type) and issubclass(declared.dtype, DType)):
+        if declared.dtype.id == "any" and not untyped_ok:
             found.append(problem("handle_needs_dtype", node_id, declared.name))
     return found
 

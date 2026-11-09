@@ -210,8 +210,8 @@ class Words(NodeDefinition):
         return [Txt(word) for word in text.split(",") if word]
 
 
-NamesSent = Table[("name", Txt), ("sent", Txt)]
-NamesAsNumbers = Table[("name", Num)]
+NamesSent = Table.with_columns({"name": Txt, "sent": Txt})
+NamesAsNumbers = Table.with_columns({"name": Num})
 
 
 class Sheet(NodeDefinition):

@@ -1,7 +1,7 @@
 """A type carries what it is and what it admits."""
 
 import pytest
-from conductor.dtype import DType, Single, dtype_of
+from conductor.dtype import DType, dtype_of
 from pydantic import BaseModel
 
 
@@ -84,13 +84,6 @@ def test_every_dtype_serializes_as_an_object():
     assert Text.describe() == {"id": "dtype-test-text"}
 
 
-def test_a_type_is_not_authorable_unless_it_says_so():
-    """The host's derived choice lists — what may a person type into a
-    cell, a form answer, a schema field — read this flag and nothing else."""
-    assert DType.authorable is False
-    assert Text.authorable is False
-
-
 def test_a_scalar_has_no_element():
     """What `accepts` reads to tell a scalar from a collection."""
     assert Text.element is None
@@ -151,19 +144,16 @@ def test_the_base_type_itself_cannot_be_a_target():
 # --- Any: the unconstrained input, and Single ------------------------
 
 
-def test_any_is_the_unconstrained_marker_and_is_not_a_type():
-    """``Any`` stands for "whatever arrives"; it is not a type, so it is
-    not in the vocabulary and no value ever carries it."""
+def test_any_is_read_as_a_type_of_its_own():
+    """``Any`` stands for "whatever arrives"; a record holds a private ``DType`` for it."""
     from typing import Annotated, Any
 
-    assert not (isinstance(Any, type) and issubclass(Any, DType))
-    assert dtype_of(Annotated[Any, object()]) is Any
+    assert dtype_of(Annotated[Any, object()]).id == "any"
 
 
 def test_single_is_a_bare_marker():
-    """``**inputs: Single`` — the open interface. ``Single`` is the whole
+    """``**inputs: AsItArrives`` — the open interface. ``AsItArrives`` is the whole
     declaration; what it means is ``Interface.of`` to read."""
-    assert Single() is not None
 
 
 # --- dtype_of --------------------------------------------------------------
@@ -197,5 +187,5 @@ def test_conductor_declares_no_domain_types_of_its_own():
 def test_the_vocabulary_is_importable_from_the_root():
     import conductor
 
-    for name in ("DType", "Single", "Series", "Index", "Ref", "Result"):
+    for name in ("DType", "AsItArrives", "Series", "Index", "Ref", "Result"):
         assert getattr(conductor, name) is not None

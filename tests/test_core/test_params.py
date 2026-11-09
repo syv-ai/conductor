@@ -96,7 +96,7 @@ def test_show_handle_false_closes_the_input_and_admits_a_static_type():
     def run(self, tags: Annotated[list[str], Param(title="Tags", show_handle=False, widget=Textarea())] = []) -> Out: ...
 
     (tags,) = Interface.of(run).inputs
-    assert tags.show_handle is False and tags.dtype == list[str]
+    assert tags.show_handle is False and tags.dtype.plain == list[str]
 
 
 def test_an_inputs_widget_reads_back_its_dump():

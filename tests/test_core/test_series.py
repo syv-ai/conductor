@@ -100,38 +100,22 @@ def test_an_index_is_its_identity_and_lineage():
 # --- accepts: the gather direction -----------------------------------------
 
 
-def test_a_scalar_into_a_series_input_gathers():
-    """N scalar refs into one `Series[X]` input become a series."""
-    assert Series[Text].accepts(Text) is True
-
-
-def test_a_series_into_a_series_input_passes_whole():
-    assert Series[Text].accepts(Series[Text]) is True
-
-
-def test_a_series_input_judges_by_element():
-    assert Series[Text].accepts(Num) is False
-    assert Series[Text].accepts(Series[Num]) is False
-
-
-def test_a_series_into_a_scalar_input_is_judged_by_its_element():
-    """The type says whether the element fits. That the node then runs
-    once per row is a fact about the shapes, and compile reads it
-    — the type does not carry a second spelling of it."""
-    assert Text.accepts(Series[Text]) is True
-    assert Text.accepts(Series[Num]) is False
+def test_accepts_is_asked_about_one_value():
+    """A type answers about one value of each side; compile takes the element off a series."""
+    assert Text.accepts(Text) is True
+    assert Text.accepts(Num) is False
 
 
 def test_a_series_of_any_is_a_reduction_typed_later():
     """``Series[Any]`` is what a reduction over whatever arrives declares —
     a "count" or "the only one" node receives the whole series. It is a real
-    class like any parameterised series, its element is ``Any``, its wire
+    class like any parameterised series, its element is the untyped type, its wire
     form says so, and it is not in the vocabulary."""
     from typing import Any
 
     from conductor.registry import NodeRegistry
 
-    assert Series[Any].element is Any
+    assert Series[Any].element.id == "any"
     assert Series[Any].describe() == {"id": "series", "of": {"id": "any"}}
     with pytest.raises(TypeError, match="element"):
         NodeRegistry().add_types(Series[Any])
@@ -168,12 +152,8 @@ def test_a_series_of_series_does_not_exist():
 
 
 def test_a_parameterised_series_is_marked_and_carries_the_series_id():
-    """Built with ``parameterises=Series``, so it keeps the base's id where any
-    other subclass would have to name itself — and neither is a word: a
-    registry files the element."""
+    """It keeps the base's id where any other subclass would have to name itself."""
     assert Series[Text].id == "series"
-    assert Series[Text].parameterises is Series
-    assert Series.parameterises is None
 
 
 # --- pydantic -----------------------------------------------------------------

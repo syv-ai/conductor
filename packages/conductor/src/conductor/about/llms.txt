@@ -68,7 +68,7 @@ A `NodeDefinition` subclass sets `id`, `title`, `description`, `category` (optio
 - Input: `Annotated[DType, Param(title=, description=, widget=, show_handle=)]`. Without a widget only an edge fills it; without `Param` its name is its title; a default makes it optional; `show_handle=False` closes it to edges and allows any pydantic type.
 - Output: `Annotated[X, Result(title=)]` is one output named `result`; a frozen dataclass of `Result` fields is one output per field; `Mapping[str, Any]` returns the computed outputs by name.
 - `Any` is a value routed unread; an `Any` output needs `compute_outputs` to type it.
-- `**inputs: Single` takes every connected name as one value; `**inputs: Series` takes each as a whole series.
+- `**inputs: AsItArrives` takes every connected name as one value; `**inputs: Series` takes each as a whole series.
 - `run` returns `SKIPPED` on a branch not taken and `AskPerson` when a person must answer (`-> ... | AskPerson`).
 - Every call gets a fresh instance. What the run supplies arrives through `FromRun` parameters.
 - The class is checked when defined: a missing identity attribute, a bare widget in `Annotated`, a return without `Result`, `async def run`, or an unmarked `run` beside `@version` methods raises.
@@ -232,7 +232,7 @@ Three public doors: `conductor`, `conductor.widgets` and `conductor.events`. Eac
 
 - Nodes: `NodeDefinition`, `NodeVersion`, `Policy`, `Deprecation`, `NodeDescription`, `version`, `upgrade`, `deprecated`, `Interface`, `FromRun`, `model_of(inputs)` (the check a call validates through: a mapping of values in, a dict of keyword arguments out, defaults filled in through their types), `Input`, `Output`, `Param`, `Result`, `Upgrade` (an entry of `NodeDefinition.upgrades`), `VersionDescription` (an entry of `NodeDescription.versions`)
 - Returns: `SKIPPED`, `AskPerson`, `is_skipped`
-- Types: `DType`, `Single`, `Series`, `Table`, `Index`, `Ref`, `to_wire(value, dtype)`, `from_wire(data, dtype)`
+- Types: `DType`, `AsItArrives`, `Series`, `Table`, `Index`, `Ref`, `to_wire(value, dtype)`, `from_wire(data, dtype)`
 - Registry: `NodeRegistry` (`register`, `in`, `[]`, `len`, iteration, `nodes`, `types`, `accepted_as`, `describe`, `upgraded`, `extended_with`), `RegistryDescription`, `TypeDescription`
 - Graph: `Graph`, `GraphNode`, `FieldContent`, `Binding`, `From`, `Static`, `dependencies_of`, `CompiledGraph`, `CompiledNode`, `CompiledField`, `Problem`, `Condition`, `Atom`, `ALWAYS`, `NEVER`, and what an input receives: `Receive` (`PerRow`, `Broadcast`, `Whole`, `RowsUnder`, `Gather`)
 - Errors: `ConductorError`, `NodeDeclarationError`, `CompileProblem`, `InvalidCallError`, `Problem`, `NodeError`, `ExternalFailure`, `NodeValidationError`, `NodeExecutionError`, `NodeTimeoutError`, `PROBLEM_CODES`
