@@ -135,7 +135,7 @@ class Policy(ConductorModel):
     #: Exception classes from the node's own client that mean the outside
     #: world failed — a connection error, a timeout, a rate limit. A foreign
     #: exception of one of these classes is wrapped as ``ExternalFailure``
-    #: and retried; any other is wrapped as ``NodeExecutionError`` and is
+    #: and retried; any other is the code ``execution_failed`` and is
     #: not. Left out of the dump and the schema: an editor reads the policy
     #: as JSON, and a class has no JSON form.
     retry_on: SkipJsonSchema[tuple[type[BaseException], ...]] = Field(default=(), exclude=True)

@@ -19,7 +19,7 @@ from conductor import (
     GraphNode,
     Input,
     InvalidCallError,
-    NodeExecutionError,
+    NodeError,
     NodeRegistry,
     Output,
     Param,
@@ -91,7 +91,7 @@ def long_only(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt
 @node("fails-on", title="Fails on", description="d", category="test")
 def fails_on(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
     if text == "boom":
-        raise NodeExecutionError("kunne ikke", code="boom")
+        raise NodeError("kunne ikke", code="boom")
     return text
 
 

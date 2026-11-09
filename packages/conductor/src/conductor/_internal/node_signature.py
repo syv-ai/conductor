@@ -48,7 +48,7 @@ from conductor._internal.dtype import (
     dtype_of,
     split_off_none,
 )
-from conductor._internal.errors import NodeDeclarationError
+from conductor._internal.errors import NodeDeclarationError, Problem
 from conductor._internal.field_records import Input, Output, Param, Result
 from conductor._internal.skip_and_ask import AskPerson
 from conductor.widgets import Widget
@@ -252,16 +252,16 @@ def _split_annotated(hint: Any) -> tuple[Any, tuple[Any, ...]]:
     return hint, ()
 
 
-def split_return_into_outputs(return_shape: Any, value: Any, outputs: tuple[Output, ...], declared: tuple[Output, ...]) -> dict[str, Any]:
+def split_return_into_outputs(return_shape: Any, value: Any, outputs: tuple[Output, ...], declared: tuple[Output, ...]) -> dict[str, Any] | list[Problem]:
     """Split what a node returned into ``{output name: value}``.
 
     ``return_shape`` is ``ParsedSignature.return_shape``, ``outputs`` what the node
     has in its graph and ``declared`` what its signature declared. A value
-    of the wrong shape is a ``ValueError`` that never quotes the value.
+    of the wrong shape is a list of one problem that never quotes the value.
     """
     if return_shape is None:
         if value is not None:
-            raise ValueError(f"the node declares no outputs and returned a {type(value).__name__}")
+            return _wrong_shape(f"the node declares no outputs and returned a {type(value).__name__}")
         return {}
     if isinstance(return_shape, type) and issubclass(return_shape, DType):
         return {declared[0].name: value}
@@ -269,11 +269,15 @@ def split_return_into_outputs(return_shape: Any, value: Any, outputs: tuple[Outp
         names = {output.name for output in outputs}
         if not isinstance(value, Mapping) or set(value) != names:
             given = sorted(value) if isinstance(value, Mapping) else type(value).__name__
-            raise ValueError(f"the node must return exactly the outputs its interface names, {sorted(names)}, not {given}")
+            return _wrong_shape(f"the node must return exactly the outputs its interface names, {sorted(names)}, not {given}")
         return dict(value)
     if not isinstance(value, return_shape):
-        raise ValueError(f"the node must return a {return_shape.__name__}, not a {type(value).__name__}")
+        return _wrong_shape(f"the node must return a {return_shape.__name__}, not a {type(value).__name__}")
     return {record_field.name: getattr(value, record_field.name) for record_field in fields(return_shape)}
+
+
+def _wrong_shape(message: str) -> list[Problem]:
+    return [Problem(type="invalid_output", msg=message)]
 
 
 def build_call_validator(inputs: tuple[Input, ...]) -> Callable[[Mapping[str, Any]], dict[str, Any]]:

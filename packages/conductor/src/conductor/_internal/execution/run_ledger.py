@@ -49,7 +49,7 @@ from pydantic import ValidationError
 from conductor._internal.errors import (
     PROBLEM_CATALOGUE,
     InvalidCallError,
-    NodeExecutionError,
+    NodeError,
     Problem,
     make_problem,
 )
@@ -525,7 +525,7 @@ class RunLedger:
             else:
                 covering.append(value)
         if len(covering) > 1:
-            raise NodeExecutionError(PROBLEM_CATALOGUE["row_covered_twice"].message, node_id=node_id, code="row_covered_twice", ctx={"edges": len(covering), "row": list(row)})
+            raise NodeError(PROBLEM_CATALOGUE["row_covered_twice"].message, node_id=node_id, code="row_covered_twice", ctx={"edges": len(covering), "row": list(row)})
         return covering, skips
 
     def _value_or_skip_at(self, ref: Ref, row: Row) -> tuple[Any, Row]:

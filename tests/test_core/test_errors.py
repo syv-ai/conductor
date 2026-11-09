@@ -16,7 +16,6 @@ from conductor import (
     InvalidCallError,
     NodeDeclarationError,
     NodeError,
-    NodeExecutionError,
     NodeRegistry,
     Param,
     Problem,
@@ -97,6 +96,8 @@ def test_every_code_a_site_writes_is_in_the_catalogue_and_every_row_is_written()
                     value for keyword in graph_node.keywords if keyword.arg == "code" for value in literals(keyword.value)
                     if keyword.value is not None
                 }
+                if isinstance(graph_node.func, ast.Name) and graph_node.func.id == "Problem":
+                    written |= {value for keyword in graph_node.keywords if keyword.arg == "type" for value in literals(keyword.value)}
 
     assert written == PROBLEM_CODES
 
@@ -104,12 +105,12 @@ def test_every_code_a_site_writes_is_in_the_catalogue_and_every_row_is_written()
 def test_the_errors_a_caller_catches_sit_under_conductor_error():
     """A failed node is a ``NodeError``; a refused call is a ``ValueError``
     as well, so a host's ``except ValueError`` catches it."""
-    assert issubclass(NodeExecutionError, NodeError) and issubclass(NodeError, ConductorError)
+    assert issubclass(NodeError, ConductorError)
     assert issubclass(InvalidCallError, ConductorError) and issubclass(InvalidCallError, ValueError)
 
 
 def test_a_node_failure_takes_its_code_and_ctx_from_what_the_node_raised():
-    failure = NodeExecutionError("went wrong", code="rate_limited", ctx={"retry_after": 30})
+    failure = NodeError("went wrong", code="rate_limited", ctx={"retry_after": 30})
 
     assert (failure.code, failure.ctx, str(failure)) == ("rate_limited", {"retry_after": 30}, "went wrong")
 

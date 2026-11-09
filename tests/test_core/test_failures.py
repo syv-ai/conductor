@@ -22,9 +22,7 @@ from conductor import (
     GraphNode,
     NodeDefinition,
     NodeError,
-    NodeExecutionError,
     NodeRegistry,
-    NodeValidationError,
     Param,
     Policy,
     Result,
@@ -32,7 +30,7 @@ from conductor import (
     Static,
     node,
 )
-from conductor._internal.execution.run_until_idle import RunningLeg
+from conductor._internal.execution.call_node import CallFailed, call_node
 from conductor.widgets import Textarea
 from helpers import stream_of
 
@@ -155,7 +153,7 @@ def test_a_node_error_the_node_raised_runs_once_and_keeps_its_message():
         calls.append(1)
         if len(calls) == 1:
             raise NodeError("Dokumentet kunne ikke læses.")
-        raise NodeExecutionError(
+        raise NodeError(
             "unreadable", code="unreadable"
         )
 
@@ -168,7 +166,7 @@ def test_a_node_error_the_node_raised_runs_once_and_keeps_its_message():
 def test_a_nodes_own_cause_streams_as_written():
     @node("reader", title="Reader", description="d", category="test")
     def reader(text: In = Txt("")) -> Out:
-        raise NodeExecutionError(
+        raise NodeError(
             "unreadable", code="unreadable"
         )
 
@@ -183,7 +181,7 @@ def test_a_validation_error_the_node_raised_is_never_retried():
     @node("picky", title="Picky", description="d", category="test", policy=Policy(retries=3, delay=0.01))
     def picky(text: In = Txt("")) -> Out:
         calls.append(1)
-        raise NodeValidationError("intentionally invalid input")
+        raise NodeError("intentionally invalid input", code="invalid_input")
 
     assert _compiled(picky).run_sync().status == "failed"
 
@@ -193,24 +191,19 @@ def test_a_validation_error_the_node_raised_is_never_retried():
 # -- the foreign exception's text -----------------------------------------------
 
 
-def test_a_foreign_exceptions_text_is_its_cause_and_nowhere_else():
-    """The wrapped exception keeps the foreign one as its ``__cause__``; its own text is the generic line."""
+def test_a_foreign_exceptions_text_is_on_no_problem():
+    """The failure carries the generic line and the exception's class name; its own text is in the log only."""
 
     @node("buggy", title="Buggy", description="d", category="test")
     def buggy(text: In = Txt("")) -> Out:
         raise KeyError("secret-token")
 
-    compiled = _compiled(buggy)
-    leg = RunningLeg(compiled, state=None, from_run={}, timeout=None, cancel=asyncio.Event())
+    outcome = call_node(_compiled(buggy).node("n1"), (), {"text": "x"}, {}, "hash")
 
-    with pytest.raises(NodeExecutionError) as caught:
-        leg._validate_inputs_and_call_node(("n1", ()), {"text": "x"})
+    assert isinstance(outcome, CallFailed) and not outcome.retryable
+    assert (outcome.problem.type, outcome.problem.msg, outcome.problem.ctx) == ("execution_failed", "The node failed.", {"exception": "KeyError"})
+    assert "secret-token" not in outcome.problem.model_dump_json()
 
-    wrapped = caught.value
-    assert isinstance(wrapped.__cause__, KeyError)
-    assert str(wrapped) == "The node failed."
-    assert wrapped.code == "execution_failed" and str(wrapped) == "The node failed."
-    assert "secret-token" not in str(wrapped)
 
 
 def test_node_error_has_no_retryable_flag():

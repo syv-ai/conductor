@@ -21,7 +21,7 @@ from pydantic import ValidationError
 from conductor._internal.errors import Problem
 from conductor._internal.series import Row, Series
 from conductor._internal.skip_and_ask import SKIPPED
-from conductor._internal.table import frame_with_no_rows, is_frame, no_row_kept_its_id, with_row_ids
+from conductor._internal.table import frame_with_no_rows, no_row_kept_its_id, with_row_ids
 
 if TYPE_CHECKING:
     from conductor._internal.graph.compiled_node import CompiledField, CompiledNode
@@ -51,16 +51,17 @@ def validate_unit_outputs(node: CompiledNode, row: Row, value_by_output: Mapping
             continue
         field = node.wiring.fields[name]
         try:
-            cells[name] = _cells_of_many_valued_output(field, name, value) if field._unit_writes_many_cells else _cell_of_output(field, row, value, row_ids_must_survive)
+            cell = _cells_of_many_valued_output(field, name, value) if field._unit_writes_many_cells else _cell_of_output(field, name, row, value, row_ids_must_survive)
         except ValidationError as invalid:
             problems.append(_output_problem(
                 name, f"'{name}' must be {_type_name_for_error(field)}, not a {type(value).__name__}",
                 errors=tuple(invalid.errors(include_url=False, include_input=False, include_context=False)),
             ))
-        except _NotASequence as invalid:
-            problems.append(_output_problem(name, str(invalid)))
-        except _RowIdsLost:
-            problems.append(_output_problem(name, f"'{name}' lost the ids of its rows, so they can't be matched to the table it was built from", code="row_ids_lost"))
+        else:
+            if cell.__class__ is Problem:
+                problems.append(cell)
+            else:
+                cells[name] = cell
     for name in value_by_output:
         if name not in node.wiring.fields or not node.wiring.fields[name]._is_output:
             problems.append(_output_problem(name, f"'{name}' is not one of this node's outputs"))
@@ -72,40 +73,27 @@ def _output_problem(output: str, message: str, *, errors: tuple[dict[str, Any], 
     return Problem(type=code, loc=(output,), msg=message, ctx={"errors": errors})
 
 
-def _cells_of_many_valued_output(field: CompiledField, name: str, value: Any) -> list[Any]:
+def _cells_of_many_valued_output(field: CompiledField, name: str, value: Any) -> list[Any] | Problem:
     if value is None and field._takes_blank:
         return []  # row-making outputs have no blank form: no rows
     if isinstance(value, Series):
         value = value.values
     elif not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
-        raise _NotASequence(f"'{name}' is many values and must be a sequence, not a {type(value).__name__}")
+        return _output_problem(name, f"'{name}' is many values and must be a sequence, not a {type(value).__name__}")
     read = field._validate_cell
     return [item if item is SKIPPED else read(item) for item in value]
 
 
-def _cell_of_output(field: CompiledField, row: Row, value: Any, row_ids_must_survive: frozenset[Ref]) -> Any:
+def _cell_of_output(field: CompiledField, name: str, row: Row, value: Any, row_ids_must_survive: frozenset[Ref]) -> Any:
     cell = field._validate_cell(value)
     if field._makes_rows is None:
         return cell
     if cell is None:  # row-making outputs have no blank form: no rows
         return frame_with_no_rows(field._cell_type)
     if field.ref in row_ids_must_survive and no_row_kept_its_id(cell):
-        raise _RowIdsLost
+        return _output_problem(name, f"'{name}' lost the ids of its rows, so they can't be matched to the table it was built from", code="row_ids_lost")
     return with_row_ids(cell, field._makes_rows, row)
-
-
-def took_a_row_in(inputs: Mapping[str, Any]) -> bool:
-    """Did these inputs carry a row a returned table could keep the id of?"""
-    return any((is_frame(value) or isinstance(value, Series)) and len(value) > 0 for value in inputs.values())
 
 
 def _type_name_for_error(field: CompiledField) -> str:
     return f"a {getattr(field._cell_type, '__name__', field._cell_type)}"
-
-
-class _NotASequence(Exception):
-    """A many-valued output was given one value."""
-
-
-class _RowIdsLost(Exception):
-    """A table a merge matches on its rows' ids came back with none of them."""

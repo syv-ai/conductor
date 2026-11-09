@@ -11,7 +11,8 @@ ledger (``conductor._internal.execution.run_ledger``) which units are ready
 and queues each on its node; a unit runs as an asyncio task once its node has a free
 concurrency slot, and each record answers with the units it made ready.
 
-**The leg owns its work.** Every node's ``run`` is called in a thread the leg
+**The leg owns its work.** Every call of a node (``call_node``: its inputs
+checked, its ``run``, what it returned checked) happens in a thread the leg
 owns, made when every thread so far is busy, so a unit never waits for a
 thread and a node's timeout counts only the time its thread ran. Leaving the
 ``async with`` of a stream stops every unit before the block is gone. What a
@@ -50,19 +51,8 @@ from collections.abc import AsyncGenerator, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from pydantic import ValidationError
-
-from conductor._internal.errors import (
-    PROBLEM_CATALOGUE,
-    ExternalFailure,
-    InvalidCallError,
-    NodeError,
-    NodeExecutionError,
-    NodeTimeoutError,
-    NodeValidationError,
-    Problem,
-    make_problem,
-)
+from conductor._internal.errors import InvalidCallError, NodeError, Problem, make_problem
+from conductor._internal.execution.call_node import CallFailed, call_node
 from conductor._internal.execution.events import (
     Event,
     NodeComplete,
@@ -84,16 +74,12 @@ from conductor._internal.execution.run_ledger import (
     UnitRecorded,
 )
 from conductor._internal.execution.run_state import RunState, WaitingUnit
-from conductor._internal.execution.validate_unit_outputs import took_a_row_in, validate_unit_outputs
-from conductor._internal.execution.waiting_units import waiting_unit_for
-from conductor._internal.node_signature import split_return_into_outputs
-from conductor._internal.skip_and_ask import AskPerson
-from conductor._internal.table import missing_column_in
 
 logger = logging.getLogger("conductor")
 
 if TYPE_CHECKING:
     from conductor._internal.graph.compiled_graph import CompiledGraph
+    from conductor._internal.graph.compiled_node import CompiledNode
 
 # -- what the loop reads besides events --------------------------------------------
 
@@ -144,8 +130,8 @@ class RunningLeg:
     have emitted ``node_start`` (``nodes_announced_started``), the queue the unit tasks
     report on, and each unit between being made ready and being reported
     (``in_flight``, ``None`` until it has a task). The call chain is
-    ``events`` (the loop) → ``_run_unit_reporting_engine_errors`` (one attempt) → ``_validate_inputs_and_call_node`` (the
-    node, in a worker thread). Nothing reaches a node from here that its
+    ``events`` (the loop) → ``_run_unit_reporting_engine_errors`` (one attempt) → ``call_node`` (the
+    whole call, in a worker thread). Nothing reaches a node from here that its
     signature does not name.
 
     A node holds at most its policy's concurrency of units as tasks at
@@ -192,7 +178,7 @@ class RunningLeg:
         self.cancel = cancel
         self.checkpoint_every = checkpoint_every
         self.nodes_announced_started = self.ledger.completed_nodes()
-        self.calls: queue.SimpleQueue[tuple[asyncio.Future[Any], Unit, dict[str, Any]] | None] = queue.SimpleQueue()
+        self.calls: queue.SimpleQueue[tuple[asyncio.Future[Any], Unit, CompiledNode, dict[str, Any], str] | None] = queue.SimpleQueue()
         self.calls_in_threads = 0
         self.threads_made = 0
         self.stopped = False
@@ -321,7 +307,7 @@ class RunningLeg:
 
     # -- the threads -------------------------------------------------------------
 
-    def _call_on_a_thread(self, unit: Unit, inputs: dict[str, Any]) -> asyncio.Future[Any]:
+    def _call_on_a_thread(self, unit: Unit, node: CompiledNode, inputs: dict[str, Any], input_hash: str) -> asyncio.Future[Any]:
         """Hand this call to a thread, making one only when every thread made so far is busy.
 
         The count is the loop's own, so a thread that has returned its result
@@ -329,7 +315,7 @@ class RunningLeg:
         keeps the processor. Its peak is the number of calls in flight at once."""
         loop = asyncio.get_running_loop()
         call: asyncio.Future[Any] = loop.create_future()
-        self.calls.put((call, unit, inputs))
+        self.calls.put((call, unit, node, inputs, input_hash))
         self.calls_in_threads += 1
         if self.calls_in_threads > self.threads_made:
             self.threads_made += 1
@@ -337,28 +323,29 @@ class RunningLeg:
         return call
 
     def _take_calls(self, loop: asyncio.AbstractEventLoop) -> None:
-        """One thread's life: run each call it takes and hand the outcome to the loop."""
+        """One thread's life: make each call it takes and hand what came of it to the loop.
+
+        ``call_node`` turns a node's failures into values; what it raises
+        anyway is the engine's own defect, or an output's type failing
+        rather than refusing a value, and is the unit's ``engine_error``."""
+        row_ids_must_survive = self.compiled._row_ids_must_survive
         while not self.stopped and (taken := self.calls.get()) is not None:
-            call, unit, inputs = taken
-            value, raised = None, None
+            call, unit, node, inputs, input_hash = taken
             try:
-                value = self._validate_inputs_and_call_node(unit, inputs)
-            except BaseException as failure:
-                raised = failure
+                outcome = call_node(node, unit[1], inputs, self.from_run, input_hash, row_ids_must_survive)
+            except BaseException as raised:
+                outcome = CallFailed(_engine_error(unit, raised))
             try:
-                loop.call_soon_threadsafe(self._call_returned, call, unit[0], value, raised)
+                loop.call_soon_threadsafe(self._call_returned, call, unit[0], outcome)
             except RuntimeError:  # the loop is gone, and what the call returned with it
                 return
 
-    def _call_returned(self, call: asyncio.Future[Any], node_id: str, value: Any, raised: BaseException | None) -> None:
+    def _call_returned(self, call: asyncio.Future[Any], node_id: str, outcome: dict[str, Any] | WaitingUnit | CallFailed) -> None:
         """A thread is back: its slot opens now, however long ago the leg stopped waiting for it."""
         self.calls_in_threads -= 1
         self._free_slot(node_id)
         if not call.done():
-            if raised is None:
-                call.set_result(value)
-            else:
-                call.set_exception(raised)
+            call.set_result(outcome)
 
     # -- one unit ----------------------------------------------------------------
 
@@ -375,17 +362,10 @@ class RunningLeg:
         except asyncio.CancelledError:
             raise
         except BaseException as raised:
-            # The exception's text can hold a value the node returned, so
-            # the event carries the generic line and the class name; the log has the rest.
-            node_id, row = unit
-            logger.error("the engine failed on node %r", node_id, exc_info=raised)
-            failure = NodeExecutionError(
-                PROBLEM_CATALOGUE["engine_error"].message, node_id=node_id, code="engine_error", ctx={"exception": type(raised).__name__},
-            )
-            self.queue.put_nowait(_UnitDone(unit, error=self._node_failed_event(node_id, failure, row)))
+            self._fail_unit(unit, _engine_error(unit, raised))
 
     async def _run_unit(self, unit: Unit, attempt: int) -> None:
-        """One attempt: its inputs, the node's call, and what it produced.
+        """One attempt: its inputs, the node's call on a thread, and what came of it.
 
         The attempt holds a slot of its node from when its task starts until
         its call's thread returns, however long ago the leg stopped waiting
@@ -397,7 +377,7 @@ class RunningLeg:
             inputs = ledger.inputs_for(unit)
         except NodeError as failure:  # two edges into one input both supplied this row
             self._free_slot(node_id)
-            queue.put_nowait(_UnitDone(unit, error=self._node_failed_event(node_id, failure, row)))
+            self._fail_unit(unit, failure._as_problem_at(node_id, row))
             return
         if not isinstance(inputs, SkippedAtRow) and node_id not in self.nodes_announced_started:
             self.nodes_announced_started.add(node_id)
@@ -408,115 +388,49 @@ class RunningLeg:
             return
 
         node = compiled.node(node_id)
-        version = node.version
         input_hash = ledger.input_hash_of(node._input_hash_seed, inputs)
         if ledger.earlier_units and (earlier := ledger.claim_earlier_result(unit, input_hash)) is not None:
             self._free_slot(node_id)
             if isinstance(earlier, WaitingUnit):
-                ledger.mark_waiting(unit, earlier)
-                queue.put_nowait(UnitWaiting(unit=earlier))
-                queue.put_nowait(_UnitDone(unit))
+                self._report_waiting(unit, earlier)
             else:
                 self._report_recorded(unit, ledger.record(unit, earlier, input_hash))
             return
 
-        policy = version.policy
-        call = self._call_on_a_thread(unit, inputs)
+        policy = node.version.policy
+        call = self._call_on_a_thread(unit, node, inputs, input_hash)
         try:
             # With no timeout the wait is on the call itself: only the leg's end cancels it.
-            value = await (call if policy.timeout is None else asyncio.wait_for(asyncio.shield(call), timeout=policy.timeout))
+            outcome = await (call if policy.timeout is None else asyncio.wait_for(asyncio.shield(call), timeout=policy.timeout))
         except TimeoutError:
             # Final: the thread runs on, and a retry beside it would be a
             # second call of the same unit.
-            failure = NodeTimeoutError(PROBLEM_CATALOGUE["timeout"].message, node_id=node_id, code="timeout", ctx={"seconds": policy.timeout})
-            queue.put_nowait(_UnitDone(unit, error=self._node_failed_event(node_id, failure, row)))
+            self._fail_unit(unit, make_problem("timeout", node_id, *row, seconds=policy.timeout))
             return
-        except NodeError as raised:
-            if not isinstance(raised, ExternalFailure) or attempt >= policy.retries:
-                queue.put_nowait(_UnitDone(unit, error=self._node_failed_event(node_id, raised, row)))
-                return
+        if outcome.__class__ is dict:
+            self._report_recorded(unit, ledger.record(unit, outcome, input_hash))
+        elif isinstance(outcome, WaitingUnit):
+            self._report_waiting(unit, outcome)
+        elif outcome.retryable and attempt < policy.retries:
             delay = policy.delay * (2 ** attempt)
             queue.put_nowait(NodeRetry(
                 node_id=node_id, row=row,
-                attempt=attempt + 1, retries=policy.retries, error=str(raised), delay=delay,
+                attempt=attempt + 1, retries=policy.retries, error=outcome.problem.msg, delay=delay,
             ))
             await asyncio.sleep(delay)
             self._queue_attempt(unit, attempt + 1)
-            return
+        else:
+            self._fail_unit(unit, outcome.problem)
 
-        try:
-            if isinstance(value, AskPerson):
-                waiting_unit = waiting_unit_for(node, row, value, inputs, input_hash)
-                ledger.mark_waiting(unit, waiting_unit)
-                queue.put_nowait(UnitWaiting(unit=waiting_unit))
-                queue.put_nowait(_UnitDone(unit))
-                return
-            must_survive = compiled._row_ids_must_survive
-            if must_survive and not took_a_row_in(inputs):
-                must_survive = frozenset()
-            value_by_output = split_return_into_outputs(version.return_shape, value, node.interface.outputs, version.interface.outputs)
-            cells, problems = validate_unit_outputs(node, row, value_by_output, must_survive)
-        except ValueError as invalid:  # the wrong shape of return, or an ask that isn't sound
-            queue.put_nowait(_UnitDone(unit, error=self._invalid_output_event(node_id, row, str(invalid), code="invalid_output")))
-            return
-        if problems:
-            reason = "; ".join(problem.msg for problem in problems)
-            errors = [error for problem in problems for error in problem.ctx["errors"]]
-            code = next((problem.type for problem in problems if problem.type != "invalid_output"), "invalid_output")
-            queue.put_nowait(_UnitDone(unit, error=self._invalid_output_event(node_id, row, reason, errors, code=code)))
-            return
-        self._report_recorded(unit, ledger.record(unit, cells, input_hash))
+    def _fail_unit(self, unit: Unit, problem: Problem) -> None:
+        """Fail the leg on this unit."""
+        self.queue.put_nowait(_UnitDone(unit, error=NodeFailed(node_id=unit[0], cause=problem)))
 
-    def _validate_inputs_and_call_node(self, unit: Unit, inputs: dict[str, Any]) -> Any:
-        """Validate the inputs against the node's interface, then call the node.
-
-        The interface is the list of inputs the node actually has, which can be
-        more than its declaration: a ``compute_inputs`` hook may add some.
-        Validating against the interface rather than the declaration means those
-        added inputs are validated like any other. ``FromRun`` parameters
-        (values the host supplies by type) come from the run. Runs in a
-        worker thread. A ``NodeError`` the node raises passes through; anything
-        else a node or an input's type raises, ``SystemExit`` and a stray
-        ``CancelledError`` included, is the unit's failure: wrapped as an
-        ``ExternalFailure`` when the policy's ``retry_on`` names its class, as a
-        ``NodeExecutionError`` otherwise, with the exception in the log, its
-        class name in ``ctx`` and its text on no event.
-        """
-        node_id, row = unit
-        node = self.compiled.node(node_id)
-        version = node.version
-        try:
-            kwargs = node._validate_call_inputs(inputs)
-        except ValidationError as invalid:
-            reason = self._validation_error_as_text(invalid, node.interface.inputs)
-            column = missing_column_in(invalid)
-            if column is not None:
-                raise NodeValidationError(reason, node_id=node_id, code="table_column_missing", ctx={"column": column}) from invalid
-            raise NodeValidationError(
-                reason, node_id=node_id, code="invalid_input", ctx={"reason": reason},
-            ) from invalid
-        except BaseException as raised:
-            raise self._node_failed(node_id, raised) from raised
-        kwargs.update({name: self.from_run[needed] for name, needed in version.from_run.items()})
-        node_function = version.run
-        try:
-            return node_function(**kwargs)
-        except NodeError:
-            raise
-        except version.policy.retry_on as raised:
-            logger.warning("node %r: an outside service failed", node_id, exc_info=raised)
-            raise ExternalFailure(
-                PROBLEM_CATALOGUE["external_failed"].message, node_id=node_id, code="external_failed", ctx={"exception": type(raised).__name__},
-            ) from raised
-        except BaseException as raised:
-            raise self._node_failed(node_id, raised) from raised
-
-    @staticmethod
-    def _node_failed(node_id: str, raised: BaseException) -> NodeExecutionError:
-        logger.error("node %r failed", node_id, exc_info=raised)
-        return NodeExecutionError(
-            PROBLEM_CATALOGUE["execution_failed"].message, node_id=node_id, code="execution_failed", ctx={"exception": type(raised).__name__},
-        )
+    def _report_waiting(self, unit: Unit, waiting_unit: WaitingUnit) -> None:
+        """This unit waits on a person, and whatever reads it waits too."""
+        self.ledger.mark_waiting(unit, waiting_unit)
+        self.queue.put_nowait(UnitWaiting(unit=waiting_unit))
+        self.queue.put_nowait(_UnitDone(unit))
 
     def _report_recorded(self, unit: Unit, recorded: UnitRecorded) -> None:
         """Report this unit's progress and every node its record completed, then tell the loop what is ready."""
@@ -534,31 +448,11 @@ class RunningLeg:
                 self.queue.put_nowait(NodeComplete(node_id=completed_node_id, result=result or {}, rows_not_called=rows_not_called, reused_units=ledger.reused_units(completed_node_id)))
         self.queue.put_nowait(_UnitDone(unit, recorded.units_ready))
 
-    # -- failures ----------------------------------------------------------------
 
-    def _invalid_output_event(self, node_id: str, row: Any, reason: str, errors: list[Any] | None = None, *, code: str) -> NodeFailed:
-        """The failure of a node that returned what it did not declare."""
-        details: dict[str, Any] = {"reason": reason}
-        if errors:
-            details["errors"] = errors
-        failure = NodeExecutionError(PROBLEM_CATALOGUE[code].message, node_id=node_id, code=code, ctx=details)
-        return self._node_failed_event(node_id, failure, row)
-
-    @staticmethod
-    def _node_failed_event(node_id: str, failure: NodeError, row: Any) -> NodeFailed:
-        """The event for a failed unit. A ``NodeError`` the node raised without
-        a code is ``external_failed`` for an ``ExternalFailure``, ``failed`` for
-        the rest, with the message the node wrote."""
-        code = failure.code or ("external_failed" if isinstance(failure, ExternalFailure) else "failed")
-        return NodeFailed(node_id=node_id, cause=Problem(type=code, msg=str(failure), loc=(node_id, *row), ctx=failure.ctx))
-
-    @staticmethod
-    def _validation_error_as_text(invalid: ValidationError, inputs: tuple[Any, ...]) -> str:
-        """A validation error as one line per field, using the field's title."""
-        titles = {input_.name: input_.title for input_ in inputs}
-        parts = []
-        for err in invalid.errors():
-            loc = [segment for segment in err.get("loc", ()) if isinstance(segment, str)]
-            name = loc[0] if loc else "?"
-            parts.append(f"{titles.get(name, name)}: {err.get('msg', '')}")
-        return "Invalid input — " + "; ".join(parts)
+def _engine_error(unit: Unit, raised: BaseException) -> Problem:
+    """The failure of a unit brought down by the engine's own defect. The
+    exception's text can hold a value the node returned, so the problem carries
+    the generic line and the class name; the log has the rest."""
+    node_id, row = unit
+    logger.error("the engine failed on node %r", node_id, exc_info=raised)
+    return make_problem("engine_error", node_id, *row, exception=type(raised).__name__)

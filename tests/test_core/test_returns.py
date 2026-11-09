@@ -139,13 +139,11 @@ def test_unpack_refuses_a_value_that_is_not_the_record():
     """The node is broken, and it says so here rather than downstream."""
     _, outputs = _read_return_hint(Pair)
 
-    with pytest.raises(ValueError, match="must return a Pair"):
-        split_return_into_outputs(Pair, ("a", 1), outputs, outputs)
+    assert "must return a Pair" in split_return_into_outputs(Pair, ("a", 1), outputs, outputs)[0].msg
 
 
 def test_unpack_reads_a_mapping_against_the_inputs():
     interface = (Output("name", Text, title="Name"), Output("age", Num, title="Age"))
 
     assert split_return_into_outputs(Mapping, {"name": "Ida", "age": 3}, interface, interface) == {"name": "Ida", "age": 3}
-    with pytest.raises(ValueError, match="exactly the outputs"):
-        split_return_into_outputs(Mapping, {"name": "Ida"}, interface, interface)
+    assert "exactly the outputs" in split_return_into_outputs(Mapping, {"name": "Ida"}, interface, interface)[0].msg

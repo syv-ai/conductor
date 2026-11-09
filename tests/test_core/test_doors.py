@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 DOORS: dict[str, list[str]] = {
     "conductor": [
-        "ALWAYS", "Arriving", "AsItArrives", "AskPerson", "BranchTaken", "CompiledGraph", "ComputeHookError", "DType", "Deprecation", "ExternalFailure", "FieldContent", "From", "FromRun", "Graph", "GraphNode", "Input", "Interface", "InvalidCallError", "NEVER", "NodeDeclarationError", "NodeDefinition", "NodeDescription", "NodeError", "NodeExecutionError", "NodeRegistry", "NodeValidationError", "OlderVersion", "Output", "PROBLEM_CODES", "Param", "Policy", "Problem", "ROW_ID_COLUMN", "ReceiveMode", "Ref", "Result", "RunPlan", "RunState", "SKIPPED", "Series", "Static", "Table", "TypeDescription", "Upgrade", "dependencies_of", "node", "to_wire", "upgrade_node",
+        "ALWAYS", "Arriving", "AsItArrives", "AskPerson", "BranchTaken", "CompiledGraph", "ComputeHookError", "DType", "Deprecation", "ExternalFailure", "FieldContent", "From", "FromRun", "Graph", "GraphNode", "Input", "Interface", "InvalidCallError", "NEVER", "NodeDeclarationError", "NodeDefinition", "NodeDescription", "NodeError", "NodeRegistry", "OlderVersion", "Output", "PROBLEM_CODES", "Param", "Policy", "Problem", "ROW_ID_COLUMN", "ReceiveMode", "Ref", "Result", "RunPlan", "RunState", "SKIPPED", "Series", "Static", "Table", "TypeDescription", "Upgrade", "dependencies_of", "node", "to_wire", "upgrade_node",
     ],
     "conductor.widgets": [
         "AnyWidget", "Choice", "CodeEditor", "DatePicker", "Dropdown", "EntityDropdown", "FileUpload",

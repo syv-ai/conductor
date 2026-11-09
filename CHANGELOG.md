@@ -98,6 +98,8 @@ its stored graphs itself. What a 1.x user must change:
   in `skipped`. A skip that left an index with no rows leaves nothing of its own in `finished_rows`
   or `skipped`; the nodes running on it complete through the state.
 
+- `NodeValidationError`, `NodeExecutionError` and `NodeTimeoutError` are gone; a node raises `NodeError(message, code=..., ctx=...)`, or `ExternalFailure` for what the outside world caused. A problem's `type` is still the code it always was.
+
 ### Standard nodes and providers
 
 - `get_default_registry` is `conductor_nodes.registry(categories=...)`, and

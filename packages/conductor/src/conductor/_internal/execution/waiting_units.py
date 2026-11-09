@@ -35,15 +35,18 @@ if TYPE_CHECKING:
     from conductor._internal.graph.compiled_node import CompiledNode
 
 
-def waiting_unit_for(node: CompiledNode, row: Row, ask_person: AskPerson, inputs: dict[str, Any], input_hash: str) -> WaitingUnit:
+def waiting_unit_for(node: CompiledNode, row: Row, ask_person: AskPerson, inputs: dict[str, Any], input_hash: str) -> WaitingUnit | list[Problem]:
     """The entry for this unit in ``RunState.waiting``, with the ``inputs`` it was
-    called with. A ``ValueError`` when ``ask_person`` names an output the node does
+    called with; or what is wrong when ``ask_person`` names an output the node does
     not have or proposes a default that is not its output's type: the node's
     own doing, not the person's."""
     assert node.interface is not None and node.wiring is not None  # the engine runs only a runnable graph
     questions = node._questions
     if ask_person.defaults or ask_person.widgets:
-        questions = _with_defaults_and_widgets(node, row, ask_person)
+        asked = _with_defaults_and_widgets(node, row, ask_person)
+        if isinstance(asked, list):
+            return asked
+        questions = asked
     return WaitingUnit(
         id=id_of_waiting_unit(node.id, row, input_hash),
         node_id=node.id,
@@ -55,19 +58,23 @@ def waiting_unit_for(node: CompiledNode, row: Row, ask_person: AskPerson, inputs
     )
 
 
-def _with_defaults_and_widgets(node: CompiledNode, row: Row, ask_person: AskPerson) -> tuple[Question, ...]:
-    """The node's questions with what this ``AskPerson`` adds, each a copy. A ``ValueError`` when it isn't sound."""
+def _with_defaults_and_widgets(node: CompiledNode, row: Row, ask_person: AskPerson) -> tuple[Question, ...] | list[Problem]:
+    """The node's questions with what this ``AskPerson`` adds, each a copy; or what isn't sound about it."""
     names = {question.name for question in node._questions}
     for name in (*ask_person.defaults, *ask_person.widgets):
         if name not in names:
-            raise ValueError(f"AskPerson names '{name}', which is not one of this node's outputs")
+            return [Problem(type="invalid_output", loc=(name,), msg=f"AskPerson names '{name}', which is not one of this node's outputs")]
     for name, widget in ask_person.widgets.items():
         if not isinstance(widget, Widget):
-            raise ValueError(f"AskPerson's widget for '{name}' is a {type(widget).__name__}, not a widget")
+            return [Problem(type="invalid_output", loc=(name,), msg=f"AskPerson's widget for '{name}' is a {type(widget).__name__}, not a widget")]
     cells, problems = validate_unit_outputs(node, row, {name: ask_person.defaults.get(name, SKIPPED) for name in names})
     if problems:
-        raise ValueError("; ".join(problem.msg for problem in problems))
-    defaults = {name: _default_that_has_json_form(cells[name], name) for name in ask_person.defaults}
+        return problems
+    for name in ask_person.defaults:
+        no_json_form = _why_default_has_no_json_form(cells[name])
+        if no_json_form is not None:
+            return [Problem(type="invalid_output", loc=(name,), msg=f"AskPerson's default for '{name}' has no JSON form: {no_json_form}")]
+    defaults = {name: cells[name] for name in ask_person.defaults}
     return tuple(
         question.model_copy(update={
             "default": defaults.get(question.name),
@@ -78,14 +85,14 @@ def _with_defaults_and_widgets(node: CompiledNode, row: Row, ask_person: AskPers
     )
 
 
-def _default_that_has_json_form(cell: Any, name: str) -> Any:
-    """``cell``, held typed as a state's values are, refused here if a dump of the state would fail on it."""
+def _why_default_has_no_json_form(cell: Any) -> Exception | None:
+    """What a dump of the state would fail on for ``cell``, held typed as a state's values are; ``None`` when it has a form."""
     try:
         for item in cell if isinstance(cell, list) else (cell,):
             to_wire(item, type(item))
     except Exception as unwritable:
-        raise ValueError(f"AskPerson's default for '{name}' has no JSON form: {unwritable}") from unwritable
-    return cell
+        return unwritable
+    return None
 
 
 def apply_answers(compiled: CompiledGraph, state: RunState, answers: Answers) -> RunState:

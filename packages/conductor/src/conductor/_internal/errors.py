@@ -22,19 +22,16 @@ returns its ``RunState``.
     ├── NodeDeclarationError    a node or a type was declared wrong; a TypeError, met at import
     ├── ComputeHookError        a node's hook cannot answer for what it was given
     ├── InvalidCallError        a verb on a compiled graph was given what it cannot act on
-    ├── NodeError               one node failed; carries node_id. Internal: never retried
-    │   ├── ExternalFailure         the outside world failed; the one family the engine retries
-    │   ├── NodeValidationError     its inputs were wrong
-    │   ├── NodeExecutionError      its body raised something that is not a NodeError
-    │   └── NodeTimeoutError        the leg stopped waiting for it
+    └── NodeError               one node failed, with a message for people. Internal: never retried
+        └── ExternalFailure         the outside world failed; the one family the engine retries
 
 **Two families of failure.** A node's failure is internal — a bug, bad
 data, a schema that didn't fit — unless the outside world caused it: a network
 error, a rate limit, an upstream 5xx. Only ``ExternalFailure`` is retried
 under the version's ``Policy``; a node raises it itself, or names the
 exception classes of the client it calls in ``Policy(retry_on=...)`` and
-the engine wraps those. Every other exception a node lets out is wrapped as
-``NodeExecutionError`` and runs once. The family is the class, so there is
+the engine wraps those. Every other exception a node lets out is the code
+``execution_failed`` and runs once. The family is the class, so there is
 no flag beside it to disagree with.
 
 **What people are told.** A problem the engine writes carries the English
@@ -316,36 +313,18 @@ class NodeError(ConductorError):
         self.node_id = node_id
         super().__init__(message)
 
+    def _as_problem_at(self, node_id: str, row: tuple[int, ...]) -> Problem:
+        """The ``Problem`` this is on the unit at ``row``; with no code of its own, the one for its family."""
+        code = self.code or ("external_failed" if isinstance(self, ExternalFailure) else "failed")
+        return Problem(type=code, msg=str(self), loc=(node_id, *row), ctx=self.ctx)
+
 
 class ExternalFailure(NodeError):
     """The outside world failed: a network error, a rate limit, an upstream 5xx.
 
     The one family the engine retries, under the version's ``Policy``.
     A node raises it where it knows the failure is external; the engine
-    raises it for a foreign exception whose class the policy's
-    ``retry_on`` names, with code ``external_failed`` and the generic
-    message. Not for a bug in the node or a value it cannot use — those
+    treats a foreign exception whose class the policy's ``retry_on`` names
+    the same way, with code ``external_failed`` and the generic message. Not for a bug in the node or a value it cannot use — those
     are internal, and retrying them repeats the same failure.
-    """
-
-
-class NodeValidationError(NodeError):
-    """The inputs themselves were wrong (code ``invalid_input``)."""
-
-
-class NodeExecutionError(NodeError):
-    """The node's body raised something that is not a ``NodeError``.
-
-    The engine's wrapping of a foreign exception the policy does not name
-    (code ``execution_failed``); the exception itself is in the log, with ``__cause__`` to reach it.
-    A node may raise it directly with a code of its own.
-    """
-
-
-class NodeTimeoutError(NodeError):
-    """The leg stopped waiting for the node (code ``timeout``).
-
-    Final: the attempt is not retried, and the thread it ran on is not
-    interrupted. Neither family's: the outside world may or may not be the
-    reason, and the engine cannot tell.
     """

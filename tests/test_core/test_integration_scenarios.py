@@ -14,7 +14,7 @@ from conductor import (
     Graph,
     GraphNode,
     NodeDefinition,
-    NodeExecutionError,
+    NodeError,
     NodeRegistry,
     Param,
     Policy,
@@ -57,7 +57,7 @@ def always_fail(
     reason: Annotated[Txt, Param(title="Why", widget=Textarea())] = Txt("boom"),
     number: Annotated[Num, Param(title="Number", widget=NumberWidget())] = Num(0),
 ) -> Out:
-    raise NodeExecutionError(reason, node_id="always_fail")
+    raise NodeError(reason, node_id="always_fail")
 
 
 @node("tally", title="Tally", description="Returns its label once a number arrives", category="test")

@@ -182,7 +182,7 @@ state = compiled.with_inputs(contacts=edited).run_sync(state)  # one row added: 
 
 Retries live on the version's `Policy`, per unit.
 
-- Only `ExternalFailure` retries: raised by the node, or wrapped from a class in `Policy.retry_on` (`external_failed`). Anything else is `NodeExecutionError` (`execution_failed`), run once.
+- Only `ExternalFailure` retries: raised by the node, or wrapped from a class in `Policy.retry_on` (`external_failed`). Anything else is the code `execution_failed`, run once.
 - Attempt `n` waits `delay * 2 ** (n - 1)` and emits `node_retry`.
 - `Policy.timeout` bounds one attempt: the unit fails with the code `timeout`, final; the thread is not interrupted.
 - `compiled.run(timeout=60)` ends the leg `timed_out`; setting `compiled.run(cancel=asyncio.Event())` ends it `cancelled`. Leaving `async with compiled.stream() as events:` stops every unit.
@@ -196,9 +196,7 @@ NodeDeclarationError    a node or type declared wrong, at import; a TypeError, w
 ComputeHookError        a hook cannot answer; field= says where
 InvalidCallError        a verb was given what it cannot act on, every fault listed
 NodeError               code, ctx, node_id
-├── ExternalFailure         retried
-├── NodeValidationError
-└── NodeExecutionError
+└── ExternalFailure         retried
 ```
 
 A failed unit ends the leg `failed`, its problem on `state.failure`; `compiled.results(state)` reads what was done and `compiled.outputs(state)` refuses (`run_not_complete`). A call that can't be acted on raises `InvalidCallError`, whose `errors()` lists a `Problem` for every fault, and nothing changes. Running a graph with fatal compile problems raises it too, listing them. A node returning the wrong type is a failed run with `invalid_output`.
@@ -246,7 +244,7 @@ Three public modules: `conductor`, `conductor.widgets` and `conductor.events`. E
 - Types: `DType`, `AsItArrives`, `Series`, `Table`, `Ref`, `to_wire(value, dtype)`, `ROW_ID_COLUMN` (the name of a table's hidden row-id column)
 - Registry: `NodeRegistry(nodes, types=())`, immutable (`in`, `[]`, `len`, iteration, `nodes`, `types`, `accepted_as`, `describe`, `extended_with`), `TypeDescription`
 - Graph: `Graph`, `GraphNode`, `FieldContent`, `From`, `Static`, `dependencies_of`, `CompiledGraph`, `Problem`, `RunPlan`, `ReceiveMode`, `BranchTaken`, `ALWAYS`, `NEVER`
-- Errors: `NodeDeclarationError`, `ComputeHookError`, `InvalidCallError`, `Problem`, `NodeError`, `ExternalFailure`, `NodeValidationError`, `NodeExecutionError`, `PROBLEM_CODES`
+- Errors: `NodeDeclarationError`, `ComputeHookError`, `InvalidCallError`, `Problem`, `NodeError`, `ExternalFailure`, `PROBLEM_CODES`
 - A run's state: `RunState` (`status`, `failure`, `waiting`, `output_columns`, `finished_rows`, `node_fingerprints`, `rows_not_called`, `input_hashes`, `answered_rows`, `reused_units`, `earlier_work`, `without_nodes(...)`); dumped as JSON it is one document holding each table once, under its `tables` key by digest, and a load holds one frame per digest
 - Records (`Graph`, `GraphNode`, …) also have `to_yaml()`, `from_yaml(text)`, `to_path(path)`, `from_path(path)`, plus pydantic's.
 
