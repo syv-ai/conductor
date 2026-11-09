@@ -678,6 +678,18 @@ def test_a_decision_over_a_whole_column_gates_what_hangs_off_the_branch_not_take
     assert "empty" not in results["d"]
 
 
+def test_a_skip_above_an_empty_group_hides_what_the_reduction_returned():
+    """Whether the reduction over the empty group ran before the skip landed is timing; the results are not."""
+    compiled = compiled_of(
+        n("d", "source", text=Static(["p-no"])), n("g", "route", text=From("d.result")), n("l", "split", text=From("d.result")),
+        n("t", "two", a=From("l.result"), b=From("g.no")), n("m", "split", text=From("l.result")),
+        n("x", "two", a=From("t.result"), b=From("m.result")), n("j", "join", texts=From("x.result")),
+    )
+    state = compiled.run_sync()
+    assert state.status == "complete", state.failure
+    assert compiled.results(state)["j"]["result"].rows == ((0, 0),)
+
+
 def test_without_covers_the_nodes_of_an_embedded_graph():
     compiled, state = _waiting_run()
     inner = NodeDefinition.from_compiled_graphs("inner", title="I", description="d", category="t", versions={1: compiled_of(n("check", "source", text=Static("x")))})

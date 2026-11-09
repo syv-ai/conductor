@@ -50,6 +50,11 @@ found it. A unit whose every series output is skipped makes no rows, so
 a node that would run per row of that index runs once at the shorter row
 instead. That is how a skip keeps its reach down a chain.
 
+A reduction over a group with no rows may be called with an empty series
+just before a skip from a sibling row reaches above that group. What it
+returned is then hidden by the skip, so a run's results don't depend on
+which came first, though the number of calls can.
+
 What it holds is the run's state: ``state()`` writes that down when a leg
 ends or a checkpoint is due, and ``restore`` starts the next leg from it, working the rows out again
 from the values. Nothing is pruned, so a unit done in one leg stays done in
