@@ -1,6 +1,6 @@
 # Widgets
 
-A widget is the control a person edits an input with, plus what that control needs. Each is a frozen pydantic model with a `kind`, so a frontend renders any node from the palette.
+A widget is the control a person edits an input with, plus what that control needs. Each is a frozen pydantic model with a `type`, so a frontend renders any node from the palette.
 
 ## Declaring one
 
@@ -45,14 +45,14 @@ A widget dumps through pydantic. The dump is for an editor to read, not to load 
 ```python
 >>> from conductor.widgets import Textarea
 >>> Textarea(rows=2).model_dump(mode="json")
-{'kind': 'textarea', 'rows': 2}
+{'type': 'textarea', 'rows': 2}
 ```
 
 `definition.describe()` is a node's palette entry, and `registry.describe()` is the whole palette.
 
 ## Adding a control
 
-Conductor ships the common controls and neither compile nor the engine reads a widget, so a control of your own needs no conductor release. Subclass `Widget` with a `kind: Literal["..."]` field, beside the component in your frontend that renders it:
+Conductor ships the common controls and neither compile nor the engine reads a widget, so a control of your own needs no conductor release. Subclass `Widget` with a `type: Literal["..."]` field, beside the component in your frontend that renders it:
 
 ```python
 from typing import Literal
@@ -61,10 +61,10 @@ from conductor.widgets import Widget
 
 
 class EntityDropdown(Widget):
-    kind: Literal["entity-dropdown"] = "entity-dropdown"
+    type: Literal["entity-dropdown"] = "entity-dropdown"
     entity_kind: str = ""
 ```
 
-An input dumps its widget whole, so the editor receives every field. The JSON schema of `Input.widget` says only that a widget has a `kind`; a host that wants a closed union for its frontend declares it over its own kinds.
+An input dumps its widget whole, so the editor receives every field. The JSON schema of `Input.widget` says only that a widget has a `type`; a host that wants a closed union for its frontend declares it over its own kinds.
 
 See [`examples/07_widgets.ipynb`](../examples/07_widgets.ipynb) for every control in use.

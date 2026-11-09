@@ -37,7 +37,7 @@ its stored graphs itself. What a 1.x user changes:
   `ExternalFailure`, or an exception named in `retry_on`, is retried. `NodeValidationError`,
   `NodeExecutionError` and `NodeTimeoutError` are `NodeError(message, code=, ctx=)`, or
   `ExternalFailure` for what the outside world caused.
-- **Widgets.** A widget is the control alone, with a `kind`, and no type has a default one.
+- **Widgets.** A widget is the control alone, with a `type`, and no type has a default one.
   Conductor ships text, textarea, dropdown, number, range, switch, date, file and list, and a host
   subclasses `Widget` for its own. The limits of a value go on the `Param` (`ge`, `le`, `min_length`,
   `max_length`, `pattern`), where they are enforced at compile and on every call. `Checkbox`,
@@ -59,7 +59,7 @@ its stored graphs itself. What a 1.x user changes:
 - **Graphs.** `Flow` is `Graph(nodes=[...])`, with a node placed by
   `upper.graph_node("a", text="hello")`. An input is bound by `From("node.output")` or
   `Static(value)`, and `text=OPEN` leaves it for the caller; there is no edge list and no
-  `"id@version"` string. `conductor.flow_format` is `graph.to_path(...)` and `Graph.from_path(...)`.
+  `"id@version"` string. `conductor.flow_format` is `graph.model_dump_json()` and `Graph.model_validate_json(...)`, and YAML is gone with `pyyaml`.
   CEL guards on edges, shared references, compensation and `on_error` are gone.
 - **Compile.** `compile(...)` is `CompiledGraph.from_graph(graph, registry)`. It never raises for a
   fault in the graph: read `problems` and `is_runnable`, or `compiled.describe()` for all of it as
