@@ -77,11 +77,18 @@ def _written(value: Any, dtype: Any, listed: bool) -> Any:
     """A static as its declared type writes it, for ``CompiledNode.fingerprint``:
     each of many typed-in values (``listed``) through the scalar type, a
     series through its element type, one value through its own."""
+    if value is None:
+        return None
     if dtype.element is not None:
         return [to_wire(item, dtype.element) for item in (value.values if isinstance(value, Series) else value)]
     if listed:
         return [to_wire(item, dtype) for item in value]
     return to_wire(value, dtype)
+
+
+def _or_blank(dtype: Any) -> Any:
+    """The type a call reads an input that takes a blank as: a series' cells may be blank, one value may."""
+    return Series[dtype.element | None] if dtype.element is not None else dtype | None
 
 
 def _gate(node: CompiledNode, asked: str, *, needs_wiring: bool, needs_one_unit: bool = False) -> None:
@@ -278,14 +285,21 @@ class CompiledNode:
     def _check(self) -> Callable[[Mapping[str, Any]], dict[str, Any]]:
         """The check a call goes through (``model_of``), built on first use.
         Compile has already refused every input name it could not carry
-        (``parameter_name_invalid``), so building it cannot fail here.
-
-        Every input also takes ``None``: a blank cell of a table, the one
-        value the engine hands a node as ``None``. A node running per row
-        runs on a blank row with that blank, and decides what it means."""
+        (``parameter_name_invalid``), so building it cannot fail here. An
+        input that takes a blank is read as its type or ``None``."""
         return model_of(tuple(
-            inp.model_copy(update={"dtype": inp.dtype | None}) for inp in self._interface.inputs
+            inp.model_copy(update={"dtype": _or_blank(inp.dtype)}) if inp.takes_blank else inp for inp in self._interface.inputs
         ))
+
+    @cached_property
+    def _inputs_refusing_a_blank(self) -> tuple[str, ...]:
+        """The one-value inputs on which a blank means this node isn't called."""
+        return tuple(inp.name for inp in self._interface.inputs if inp.dtype.element is None and not inp.takes_blank)
+
+    @cached_property
+    def _series_inputs_leaving_blanks_out(self) -> tuple[str, ...]:
+        """The series inputs whose blank cells, row by row, are left out of the call."""
+        return tuple(inp.name for inp in self._interface.inputs if inp.dtype.element is not None and not inp.takes_blank)
 
     @property
     def runs_per_row_of(self) -> Index | None:
@@ -329,6 +343,8 @@ class CompiledField:
     #: Which kinds this name is: an input, an output, or both.
     _input: bool = field(repr=False)
     _output: bool = field(repr=False)
+    #: For an output: ``None`` is a value it may be given.
+    _takes_blank: bool = field(repr=False)
     _binding: Binding | None = field(repr=False)
     #: What the walk decided; ``None`` on a node that is not ready, or for a kind the field is not.
     _type: Any = field(repr=False)
@@ -366,8 +382,10 @@ class CompiledField:
     def _read_cell(self) -> Callable[[Any], Any]:
         """The one check a value of this output passes to enter a run's state
         (``conductor.codec.reader_of``), returned by a node, answered by a
-        person or read back from a stored state."""
-        return reader_of(self._cell_type)
+        person or read back from a stored state. A blank passes where the
+        output's type says ``| None``."""
+        read = reader_of(self._cell_type)
+        return (lambda value: None if value is None else read(value)) if self._takes_blank else read
 
     @cached_property
     def _holds_many(self) -> bool:

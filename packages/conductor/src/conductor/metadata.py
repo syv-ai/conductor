@@ -31,7 +31,8 @@ from __future__ import annotations
 
 from typing import Any, Final
 
-from conductor.dtype import DTypeRef, _UntypedValue, dtype_of, setting_type
+from conductor.dtype import DTypeRef, _UntypedValue, dtype_of, is_untyped, read_blank, setting_type
+from conductor.errors import NodeDeclarationError
 from conductor.model import ConductorModel
 from conductor.widgets import AnyWidget
 
@@ -94,7 +95,10 @@ class Input(ConductorModel):
 
         Input("amount", Number, title="Amount", widget=TextWidget())
 
-    With no ``default`` the input is ``required``.
+    With no ``default`` the input is ``required``. ``takes_blank`` is what
+    the type said: ``Text | None``, or a type of no value of its own (``Any``).
+    A blank reaching an input that doesn't take one means the node isn't
+    called for that row.
     """
 
     name: str
@@ -106,6 +110,7 @@ class Input(ConductorModel):
     #: What the value is when nothing binds the input; ``None`` on a required one.
     default: Any = None
     required: bool = True
+    takes_blank: bool = False
 
     def __init__(
         self,
@@ -119,14 +124,18 @@ class Input(ConductorModel):
         connectable: bool = True,
         default: Any = _REQUIRED,
     ) -> None:
-        declared = dtype_of(dtype)
+        written, blank = read_blank(dtype)
+        declared = dtype_of(written)
         if declared is None or (not connectable and declared is _UntypedValue):
             # Nothing can travel here, so what is typed in is read as the plain type.
-            declared, connectable = setting_type(dtype), False
+            declared, connectable = setting_type(written), False
+        takes_blank = blank or written is Any or getattr(written, "element_takes_blank", False) or is_untyped(declared)
         required = default is _REQUIRED
+        if default is None and not takes_blank:
+            raise NodeDeclarationError(f"input {name!r} defaults to None, which is a blank; write its type with | None", code="none_default_needs_blank")
         super().__init__(
             name=name, dtype=declared, title=title or name, description=description, widget=widget,
-            connectable=connectable, default=None if required else default, required=required,
+            connectable=connectable, default=None if required else default, required=required, takes_blank=takes_blank,
         )
 
 
@@ -137,7 +146,8 @@ class Output(ConductorModel):
     builds them for a node whose outputs depend on its values or on what
     arrives. ``dtype`` is a ``DType`` or ``Any`` (typed by a hook once it
     knows what arrives). It carries no widget or default: nobody supplies a
-    result. ``choice`` is read by the compiler and the editor, never by the
+    result. ``takes_blank`` is ``True`` when the type says ``| None``: a
+    return of ``None`` is valid there and nowhere else. ``choice`` is read by the compiler and the editor, never by the
     engine, which only propagates the skip.
     """
 
@@ -146,6 +156,7 @@ class Output(ConductorModel):
     title: str
     description: str | None = None
     choice: str | None = None
+    takes_blank: bool = False
 
     def __init__(
         self,
@@ -157,4 +168,5 @@ class Output(ConductorModel):
         description: str | None = None,
         choice: str | None = None,
     ) -> None:
-        super().__init__(name=name, dtype=dtype, title=title or name, description=description, choice=choice)
+        written, blank = read_blank(dtype)
+        super().__init__(name=name, dtype=written, title=title or name, description=description, choice=choice, takes_blank=blank or getattr(written, "element_takes_blank", False))

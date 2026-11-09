@@ -34,7 +34,7 @@ from uuid import uuid4
 
 from pydantic_core import core_schema
 
-from conductor.dtype import DType, _UntypedValue, description_of
+from conductor.dtype import DType, _UntypedValue, description_of, read_blank
 from conductor.errors import NodeDeclarationError
 from conductor.model import ConductorModel
 
@@ -126,9 +126,10 @@ class Series(DType, Sequence[T]):
     __slots__ = ("index", "rows", "values")
 
     #: One subclass per element type, built once, so ``Series[Text] is Series[Text]``.
-    _parameterised: ClassVar[dict[Any, type["Series[Any]"]]] = {}
+    _parameterised: ClassVar[dict[tuple[Any, bool], type["Series[Any]"]]] = {}
 
     def __class_getitem__(cls, item: Any) -> type["Series[Any]"]:
+        item, keeps_blanks = read_blank(item)
         if item is Any:
             item = _UntypedValue
         if getattr(item, "element", None) is not None:
@@ -137,17 +138,17 @@ class Series(DType, Sequence[T]):
                 "Table cell, opened one level by a node",
                 code="nested_series",
             )
-        made = Series._parameterised.get(item)
+        made = Series._parameterised.get((item, keeps_blanks))
         if made is None:
             # A parameterisation carries the base's id on purpose, where any
             # other subclass must name itself.
             made = type(
-                f"Series[{getattr(item, '__name__', item)}]",
+                f"Series[{getattr(item, '__name__', item)}{' | None' if keeps_blanks else ''}]",
                 (cls,),
-                {"element": item, "__slots__": ()},
+                {"element": item, "element_takes_blank": keeps_blanks, "__slots__": ()},
                 _parameterises=Series,
             )
-            Series._parameterised[item] = made
+            Series._parameterised[(item, keeps_blanks)] = made
         return made
 
     def __init__(
@@ -218,8 +219,10 @@ class Series(DType, Sequence[T]):
 
     @classmethod
     def _when_written_bare(cls) -> type["Series[Any]"]:
-        """Bare ``Series`` means many of whatever arrives."""
-        return Series[Any] if cls.element is None else cls  # type: ignore[return-value]
+        """Bare ``Series`` means many of whatever arrives; ``Series[X | None]`` is held as ``Series[X]``, the field saying it takes blanks."""
+        if cls.element is None:
+            return Series[Any]  # type: ignore[return-value]
+        return Series[cls.element] if cls.element_takes_blank else cls  # type: ignore[return-value]
 
     # -- pydantic ------------------------------------------------------------
 
@@ -243,6 +246,8 @@ class Series(DType, Sequence[T]):
             if element is not None
             else core_schema.any_schema()
         )
+        if source_type.element_takes_blank:
+            element_schema = core_schema.nullable_schema(element_schema)
 
         return core_schema.no_info_wrap_validator_function(
             series_from_wire,

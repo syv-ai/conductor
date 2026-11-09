@@ -35,6 +35,13 @@ field, ``RowsUnder`` the rows under the unit's row cut to a depth, and
 this module switches on the record to say when a unit is ready and what to
 hand it, and derives none of this from types or indexes itself.
 
+A blank is a value: ``None`` in a table's cell or written by a node. A
+unit is not called when a blank reaches an input that does not say
+``| None``: its outputs are blank at that row, a ``choice`` output is
+skipped (no branch was chosen), and an output that makes rows has no rows
+there. ``Series[X]`` leaves blanks out row by row. Order at a unit: not
+ready, skip, blank.
+
 A skip has a depth. ``SKIPPED`` written at row ``k`` means the field
 holds nothing at ``k`` and at every row under it. A unit that returns
 ``SKIPPED`` writes it at its own row. A reader looks for a skip at its
@@ -82,6 +89,7 @@ if TYPE_CHECKING:
 
     from conductor.graph.compiled import CompiledGraph
     from conductor.graph.compiled_node import CompiledField
+    from conductor.metadata import Output
 
 #: One run of one node: the node id and the row it runs on — ``()`` for
 #: a node that runs once; a row shorter than the index the node runs per row of, for the one
@@ -105,6 +113,13 @@ class Skip:
     """
 
     at: Row
+
+
+@dataclass(frozen=True, slots=True)
+class NotCalled:
+    """This unit does not run: a blank reached these inputs, which take none."""
+
+    blank_inputs: tuple[str, ...]
 
 
 def _fits(row: Row, index: Index | None) -> bool:
@@ -191,6 +206,8 @@ class LiveRunValues:
         self._done_standing_in: dict[str, int] = {}
         #: Units waiting on a person, each as the state carries it.
         self._waiting: dict[Unit, WaitingUnit] = {}
+        #: Per node, how many rows it wasn't called on, per input that was blank there.
+        self._rows_not_called: dict[str, dict[str, int]] = {}
         #: Per group a series is read by — a field and the row it is read
         #: under — its rows in order and how many from the first are written.
         #: Kept once every row of the group is made, so no row is read twice.
@@ -428,8 +445,8 @@ class LiveRunValues:
 
     # -- what a unit receives -------------------------------------------------
 
-    def inputs_for(self, unit: Unit) -> dict[str, Any] | Skip:
-        """The keyword arguments this unit runs with, or the ``Skip`` that stops it.
+    def inputs_for(self, unit: Unit) -> dict[str, Any] | Skip | NotCalled:
+        """The keyword arguments this unit runs with, or what stops it.
 
         A ``Skip`` comes from ``SKIPPED`` on an input received per row, on
         the series an input receives whole or reduced, or at a row above
@@ -490,6 +507,11 @@ class LiveRunValues:
                     ((values[inp.name], _),) = found
                 else:
                     values[inp.name] = self._series(node_id, binding.refs, index, self._rows_under(index.id, group))
+        blank = tuple(name for name in node._inputs_refusing_a_blank if values.get(name, _MISSING) is None)
+        if blank:
+            return NotCalled(blank)
+        if node._series_inputs_leaving_blanks_out:
+            _leave_out_blank_rows(values, node._series_inputs_leaving_blanks_out)
         return values
 
     def _merged(self, received: Merge, row: Row) -> pl.DataFrame | None:
@@ -619,7 +641,7 @@ class LiveRunValues:
 
     # -- recording -----------------------------------------------------------------
 
-    def record(self, unit: Unit, outputs: dict[str, Any] | Skip) -> list[Unit]:
+    def record(self, unit: Unit, outputs: dict[str, Any] | Skip | NotCalled) -> list[Unit]:
         """Record that this unit produced ``outputs``, or a ``Skip`` because it
         did not run, and return the units that are ready because of it.
 
@@ -632,7 +654,8 @@ class LiveRunValues:
         may differ in length. A skipped one leaves its index with no rows
         under that row; an empty one makes no rows and leaves an empty group,
         so a reduction over it still runs. A table is one value, and makes
-        rows on its columns' index only when something reads a column.
+        rows on its columns' index only when something reads a column. For a
+        ``NotCalled`` unit each output is its blank (``_blank_of``).
 
         The units returned are the ones this write could have made ready and
         that answer ``ready`` now, in execution order; the engine starts
@@ -646,10 +669,20 @@ class LiveRunValues:
         no_rows_under: list[tuple[str, Row]] = []
         making: list[str] = []
         skip_at = outputs.at if isinstance(outputs, Skip) else None
+        not_called = outputs if isinstance(outputs, NotCalled) else None
+        if not_called is not None:
+            counts = self._rows_not_called.setdefault(node_id, {})
+            for name in not_called.blank_inputs:
+                counts[name] = counts.get(name, 0) + 1
         for out in node._interface.outputs:
             field = fields[out.name]
             ref = field.ref
-            value = SKIPPED if skip_at is not None else outputs[out.name]  # type: ignore[index]
+            if skip_at is not None:
+                value = SKIPPED
+            elif not_called is not None:
+                value = _blank_of(field, out)
+            else:
+                value = outputs[out.name]  # type: ignore[index]
             at = row if skip_at is None else skip_at
             index = field._makes_rows
             if index is None:
@@ -683,6 +716,10 @@ class LiveRunValues:
         self._finish(unit)
         sealed = self._seal(list(making))
         return self._woken(unit, written, made, no_rows_under, making, sealed, lists)
+
+    def rows_not_called(self, node_id: str) -> dict[str, int]:
+        """How many rows this node wasn't called on, per input that was blank there."""
+        return self._rows_not_called.get(node_id, {})
 
     def _columns_read(self, index_id: str) -> bool:
         """Does anything read a column of the table that owns this index? If
@@ -874,7 +911,7 @@ class LiveRunValues:
         was skipped away gives an empty series.
         """
         outputs = self._compiled.node(node_id)._interface.outputs
-        if all(is_skipped(self._lookup(Ref(node_id, out.name), ())[0]) for out in outputs):
+        if outputs and all(is_skipped(self._lookup(Ref(node_id, out.name), ())[0]) for out in outputs):
             return None
         result: dict[str, Any] = {}
         for out in outputs:
@@ -935,6 +972,7 @@ class LiveRunValues:
             output_columns=columns,
             finished_rows=finished,
             node_fingerprints={node_id: compiled.node(node_id).fingerprint for node_id in compiled.execution_order},
+            rows_not_called={node_id: dict(counts) for node_id, counts in self._rows_not_called.items()},
         )
 
     @classmethod
@@ -974,6 +1012,7 @@ class LiveRunValues:
         if faults:
             raise InvalidCallError(faults)
         restored._remake_rows(done)
+        restored._rows_not_called = {node_id: dict(counts) for node_id, counts in state.rows_not_called.items() if node_id not in dropped}
         for unit in done:
             restored._finish(unit)
         restored._seal([
@@ -1055,6 +1094,36 @@ class LiveRunValues:
                 for key in sorted(made.get(index_id, ())):
                     self._made(index_id, key)
                     self._made_lists(index_id, key)
+
+
+def _blank_of(field: CompiledField, out: Output) -> Any:
+    """What a node that was not called writes on an output: a ``choice`` output
+    is skipped, since no branch was chosen; an output that makes rows has none
+    there; any other is blank."""
+    if out.choice is not None:
+        return SKIPPED
+    if field._holds_many:
+        return []
+    if field._makes_rows is not None:
+        return Table._holding(frame_with_no_rows(field._cell_type))
+    return None
+
+
+def _leave_out_blank_rows(values: dict[str, Any], names: tuple[str, ...]) -> None:
+    """Leave a row out of every series input on an index when one of ``names`` is blank there.
+
+    ``names`` are the series inputs that take no blank. A row leaves all of
+    the series on its index, or a node zipping them would pair wrong values."""
+    blank_rows: dict[Index, set[Row]] = {}
+    for name in names:
+        series = values.get(name)
+        if isinstance(series, Series) and None in series.values:
+            blank_rows.setdefault(series.index, set()).update(row for row, value in zip(series.rows, series.values, strict=True) if value is None)
+    for name, value in values.items():
+        if isinstance(value, Series) and value.index in blank_rows:
+            gone = blank_rows[value.index]
+            kept = [(row, cell) for row, cell in zip(value.rows, value.values, strict=True) if row not in gone]
+            values[name] = Series(value.index, [cell for _, cell in kept], rows=[row for row, _ in kept])
 
 
 def _restored_cell(field: CompiledField, row: Row, stored: Any, read: Any) -> Any:

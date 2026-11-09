@@ -22,7 +22,7 @@ from pydantic import ValidationError
 
 from conductor._sentinel import SKIPPED
 from conductor.series import Row, Series
-from conductor.table import Table, no_row_kept_its_id, with_row_ids
+from conductor.table import Table, frame_with_no_rows, no_row_kept_its_id, with_row_ids
 
 if TYPE_CHECKING:
     from conductor.graph.compiled_node import CompiledField, CompiledNode
@@ -77,6 +77,8 @@ def validate_unit_outputs(node: CompiledNode, row: Row, named: Mapping[str, Any]
 
 
 def _read_many(field: CompiledField, name: str, value: Any) -> list[Any]:
+    if value is None and field._takes_blank:
+        return []  # row-making outputs have no blank form: no rows
     if isinstance(value, Series):
         value = value.values
     elif not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
@@ -87,6 +89,8 @@ def _read_many(field: CompiledField, name: str, value: Any) -> list[Any]:
 
 def _read_one(field: CompiledField, row: Row, value: Any) -> Any:
     cell = field._read_cell(value)
+    if cell is None and field._makes_rows is not None:  # row-making outputs have no blank form: no rows
+        return Table._holding(frame_with_no_rows(field._cell_type))
     if field._makes_rows is not None and isinstance(cell, Table):
         if field._row_ids_must_survive and no_row_kept_its_id(cell.frame):
             raise _RowIdsLost

@@ -47,7 +47,7 @@ def read_csv(text: Text = Txt("")) -> Annotated[Contacts, Result(title="Rows")]:
 
 
 @node("send", title="Send mail", description="d", category="test")
-def send_mail(email: Annotated[Txt, Param(title="Email", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="Sent")]:
+def send_mail(email: Annotated[Txt | None, Param(title="Email", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="Sent")]:
     return Txt("no address" if email is None else f"sent to {email}")
 
 
@@ -86,7 +86,7 @@ class Known:
 
 
 @node("route", title="Route", description="d", category="test")
-def route(name: Annotated[Txt, Param(title="Name", widget=Textarea())] = Txt(""), email: Annotated[Txt, Param(title="Email", widget=Textarea())] = Txt("")) -> Known:
+def route(name: Annotated[Txt, Param(title="Name", widget=Textarea())] = Txt(""), email: Annotated[Txt | None, Param(title="Email", widget=Textarea())] = Txt("")) -> Known:
     """A branch per row: a contact with an email goes one way, one without the other."""
     return Known(known=Txt(f"Dear {name}"), unknown=SKIPPED) if email is not None else Known(known=SKIPPED, unknown=Txt(f"Call {name}"))
 

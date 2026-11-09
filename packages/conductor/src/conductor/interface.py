@@ -41,7 +41,7 @@ from typing import Annotated, Any, TypedDict, TypeVar, Union, get_args, get_orig
 from pydantic import ConfigDict, TypeAdapter, with_config
 
 from conductor._sentinel import AskPerson
-from conductor.dtype import DType, _AsItArrivesMark, _ReceivedAsItArrives, dtype_of
+from conductor.dtype import DType, _AsItArrivesMark, _ReceivedAsItArrives, dtype_of, read_blank
 from conductor.errors import NodeDeclarationError
 from conductor.metadata import Input, Output, Param, Result
 from conductor.widgets import Widget
@@ -185,8 +185,11 @@ def _read_return(hints: Mapping[str, Any]) -> tuple[Any, tuple[Output, ...]]:
     declared, extras = _unwrapped(hint)
     if any(isinstance(extra, Param) for extra in extras):
         raise NodeDeclarationError("the return carries a Param; a return carries a Result, and Param belongs on a parameter", code="param_on_return")
-    if (dtype := dtype_of(declared)) is not None:
-        return dtype, (_output(RESULT_KEY, dtype, _result_in(extras)),)
+    bare, blank = read_blank(declared)
+    if (dtype := dtype_of(bare)) is not None:
+        return dtype, (_output(RESULT_KEY, dtype | None if blank else bare, _result_in(extras)),)
+    if blank:
+        raise NodeDeclarationError(f"{bare!r} can't take a blank: only one value, or a field of a returned record, is blank", code="blank_on_a_record")
     if isinstance(declared, type) and is_dataclass(declared):
         return declared, _record_outputs(declared)
     if declared is Mapping or get_origin(declared) is Mapping:
@@ -202,9 +205,11 @@ def _record_outputs(record: type) -> tuple[Output, ...]:
         declared, extras = _unwrapped(hints[each.name])
         if any(isinstance(extra, Param) for extra in extras):
             raise NodeDeclarationError(f"{record.__name__}.{each.name} carries a Param; a record's field carries a Result", code="param_on_record_field")
-        dtype, result = dtype_of(declared), _result_in(extras)
-        if dtype is None:
+        bare, blank = read_blank(declared)
+        result = _result_in(extras)
+        if dtype_of(bare) is None:
             raise NodeDeclarationError(f"{record.__name__}.{each.name} must be a DType — got {declared!r}", code="record_field_needs_dtype")
+        dtype = declared
         if result.name is not None:
             raise NodeDeclarationError(f"{record.__name__}.{each.name}: a record's field is named by the field, so Result(name=...) has nothing to name", code="result_name_on_record_field")
         outputs.append(_output(each.name, dtype, result))
@@ -228,10 +233,13 @@ def _without_ask_person(hint: Any) -> Any:
 
 
 def _unwrapped(hint: Any) -> tuple[Any, tuple[Any, ...]]:
-    """The type under ``Annotated[...]``, and what is beside it."""
-    if get_origin(hint) is Annotated:
-        declared, *extras = get_args(hint)
-        return declared, tuple(extras)
+    """The type under ``Annotated[...]`` with its ``| None`` kept beside it, and what the ``Annotated`` holds.
+
+    ``Annotated[Text, Param()] | None`` and ``Annotated[Text | None, Param()]`` read alike."""
+    written, blank = read_blank(hint)
+    if get_origin(written) is Annotated:
+        declared, *extras = get_args(written)
+        return (declared | None if blank else declared), tuple(extras)
     return hint, ()
 
 

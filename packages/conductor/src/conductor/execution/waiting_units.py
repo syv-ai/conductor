@@ -71,7 +71,7 @@ def _question(out: Output, defaults: Mapping[str, Any], asked: AskPerson) -> Que
         json_schema=json_schema_of(out.dtype),
         widget=None if widget is None else widget.model_dump(mode="json"),
         default=defaults.get(out.name),
-        optional=out.name in defaults,
+        optional=out.name in defaults or out.takes_blank,
         choice=out.choice,
     )
 

@@ -42,7 +42,7 @@ class Branches:
 
 def decision_outputs(value: Arriving) -> tuple[Output, Output]:
     """Give both outputs the type that arrives on ``value`` (``Any`` until connected)."""
-    return Output("if_true", value, title="If true", choice="when"), Output("if_false", value, title="If false", choice="when")
+    return Output("if_true", value | None, title="If true", choice="when"), Output("if_false", value | None, title="If false", choice="when")
 
 
 @stdlib_node("decision", title="Decision", description="Routes a value to one of two branches according to `when`.", category="control", compute_outputs=decision_outputs)

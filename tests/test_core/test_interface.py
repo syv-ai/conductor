@@ -314,7 +314,7 @@ def test_the_input_record_dumps_as_the_wire():
 
     assert set(data) == {
         "name", "dtype", "title", "description",
-        "widget", "connectable", "default", "required",
+        "widget", "connectable", "default", "required", "takes_blank",
     }
     assert data["dtype"] == {"id": "interface-test-text"}
     assert data["widget"]["kind"] == "dropdown"

@@ -81,6 +81,8 @@ To watch a run, `async with compiled.stream() as events:`. It yields `run_start`
 
 **Rows.** A series arriving on an input declared for one value runs the node once per row, concurrently up to its policy's `concurrency`. A `Series[X]` input receives the whole series.
 
+**Blanks.** A value can be blank (`None`, a cell with nothing in it). If an input's type doesn't say `| None`, the node isn't called for that row and its outputs are blank there; to get the blank, write `email: Text | None`. A default is for an input nothing is wired to. `Series[Text]` leaves blanks out row by row, `Series[Text | None]` keeps them. `node_complete` counts the rows not called, per input (`rows_not_called`).
+
 **Branching.** A node returns `SKIPPED` on the branch it did not take, and nodes fed only `SKIPPED` are skipped in turn. Outputs that are exclusive alternatives share a `choice`.
 
 **A person in the loop.** A node returns `AskPerson`, annotated `-> X | AskPerson`, and its declared outputs are what is asked. The rest of the graph runs on and the state ends `waiting`, each waiting unit and its questions in `state.waiting`. `compiled.answer(state, {unit.id: {output: answer}})` checks the answers and returns a new state; `compiled.run_sync(state)` goes on from it.

@@ -73,7 +73,7 @@ from conductor.execution.events import (
     RunStart,
     UnitWaiting,
 )
-from conductor.execution.live_run_values import LiveRunValues, Skip, Unit
+from conductor.execution.live_run_values import LiveRunValues, NotCalled, Skip, Unit
 from conductor.execution.run_state import RunState
 from conductor.execution.validate_unit_outputs import validate_unit_outputs
 from conductor.execution.waiting_units import waiting_unit_for
@@ -335,6 +335,12 @@ class Leg:
             self.started.add(node_id)
             await queue.put(NodeStart(node_id=node_id))
 
+        if isinstance(inputs, NotCalled):
+            ready = ledger.record(unit, inputs)
+            await self._after(unit)
+            await queue.put(_UnitDone(unit, ready))
+            return
+
         version = compiled.node(node_id).version
         policy = version.policy
         gate = self._gate(node_id)
@@ -437,10 +443,11 @@ class Leg:
         if not ledger.complete(node_id):
             return
         result = ledger.result_of(node_id)
-        if result is None:
+        rows_not_called = ledger.rows_not_called(node_id)
+        if result is None and not rows_not_called:
             await self.queue.put(NodeSkipped(node_id=node_id))
             return
-        await self.queue.put(NodeComplete(node_id=node_id, result=result))
+        await self.queue.put(NodeComplete(node_id=node_id, result=result or {}, rows_not_called=rows_not_called))
 
     # -- failures ----------------------------------------------------------------
 

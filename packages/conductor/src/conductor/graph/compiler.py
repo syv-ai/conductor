@@ -675,6 +675,7 @@ class Compilation:
         ``binding`` and ``receives`` the input's."""
         inputs = {inp.name for inp in interface.inputs}
         outputs = {out.name for out in interface.outputs}
+        blank_outputs = {out.name for out in interface.outputs if out.takes_blank}
         ready = cause is None
         iteration, conditions = self.iteration, self.output_conditions
         on_field: dict[str | None, list[Problem]] = {}
@@ -691,6 +692,7 @@ class Compilation:
                 _cause=cause,
                 _input=name in inputs,
                 _output=name in outputs,
+                _takes_blank=name in blank_outputs,
                 _binding=graph_node.bindings.get(name) if name in inputs else None,
                 _type=iteration.types[ref] if ready else None,
                 _index=iteration.indexes[ref] if ready else None,
@@ -711,6 +713,7 @@ class Compilation:
                 _cause=cause,
                 _input=False,
                 _output=True,
+                _takes_blank=True,
                 _binding=None,
                 _type=iteration.types[view] if ready else None,
                 _index=iteration.indexes[view] if ready else None,
@@ -833,7 +836,9 @@ class Compilation:
             # A Series[X] input takes the whole sequence, each element typed.
             if not _sequence(value):
                 raise TypeError("a Series input takes a sequence")
-            return [_adapter(element).validate_python(v) for v in value], False
+            return [None if v is None and inp.takes_blank else _adapter(element).validate_python(v) for v in value], False
+        if value is None and inp.takes_blank:
+            return None, False
         try:
             return _adapter(inp.dtype).validate_python(value), False
         except ValidationError:

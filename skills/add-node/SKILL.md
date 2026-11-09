@@ -41,6 +41,7 @@ registry = NodeRegistry([greet])
 | Several outputs | a frozen dataclass of `Result` fields as the return type |
 | A whole list in one call | a `Series[X]` input |
 | A branch | return `SKIPPED` on the output not taken; share a `choice` |
+| A blank (an empty cell) | `email: Text \| None`; otherwise the node is not called for that row and its outputs are blank there |
 | A person's answer | `-> X \| AskPerson`, returning `AskPerson(defaults=..., widgets=...)`; the declared outputs are the questions |
 | A client, a clock, the caller | `FromRun[T]`, supplied by `compiled.run(from_run={T: value})` |
 | Retries, a timeout, a concurrency bound | `@node("x", policy=Policy(retries=3, timeout=10, concurrency=4))` |

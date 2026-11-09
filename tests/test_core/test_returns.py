@@ -76,6 +76,7 @@ def test_the_record_is_the_schema():
         "title": "R",
         "description": None,
         "choice": None,
+        "takes_blank": False,
     }
 
 

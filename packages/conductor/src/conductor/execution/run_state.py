@@ -120,6 +120,8 @@ class RunState(ConductorModel):
     #: Per node, ``CompiledNode.fingerprint`` when it last ran: what tells a
     #: later leg over an edited graph which nodes changed.
     node_fingerprints: dict[str, str] = Field(default_factory=dict)
+    #: Per node, how many rows it wasn't called on, per input that was blank there.
+    rows_not_called: dict[str, dict[str, int]] = Field(default_factory=dict)
 
     @field_serializer("output_columns", when_used="json")
     def _output_columns_as_wire(self, columns: dict[Ref, OutputColumn]) -> dict[str, Any]:
@@ -150,4 +152,5 @@ class RunState(ConductorModel):
             "output_columns": {ref: column for ref, column in self.output_columns.items() if not gone(ref.node_id)},
             "finished_rows": {node_id: rows for node_id, rows in self.finished_rows.items() if not gone(node_id)},
             "node_fingerprints": {node_id: fingerprint for node_id, fingerprint in self.node_fingerprints.items() if not gone(node_id)},
+            "rows_not_called": {node_id: counts for node_id, counts in self.rows_not_called.items() if not gone(node_id)},
         })

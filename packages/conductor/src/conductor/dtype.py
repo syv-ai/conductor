@@ -56,7 +56,8 @@ from __future__ import annotations
 
 from abc import ABC, ABCMeta
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, get_args, get_origin
+from types import NoneType, UnionType
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Union, get_args, get_origin
 
 from pydantic import PlainSerializer, PlainValidator, WithJsonSchema
 from pydantic_core import core_schema
@@ -96,6 +97,8 @@ class DType(ABC, metaclass=_DTypeMeta):
     #: on (``conductor.table.column_type``); a type sets it only where that
     #: base would be wrong, as a flag built on ``int`` does.
     column: ClassVar[str | None] = None
+    #: On ``Series[X | None]`` only: the series keeps its blank cells.
+    element_takes_blank: ClassVar[bool] = False
     #: The type this one carries a detail of (``Series[Text]`` of ``Series``),
     #: and shares its id with; ``None`` for a type of its own.
     _parameterised_from: ClassVar[type["DType"] | None] = None
@@ -274,6 +277,17 @@ def setting_type(plain: Any) -> type[_Setting]:
 def is_untyped(dtype: Any) -> bool:
     """Has this field no type of its own yet, directly or as a series' element?"""
     return issubclass(dtype.element or dtype, _UntypedValue)
+
+
+def read_blank(annotation: Any) -> tuple[Any, bool]:
+    """``annotation`` without its ``| None``, and whether it said ``| None``.
+
+    ``| None`` is how a field says it takes a blank: nothing else about it
+    changes, so an edge is typed by the bare type."""
+    if get_origin(annotation) in (Union, UnionType) and NoneType in get_args(annotation):
+        members = tuple(member for member in get_args(annotation) if member is not NoneType)
+        return (members[0] if len(members) == 1 else Union[members]), True  # noqa: UP007  (the members are runtime values)
+    return annotation, False
 
 
 def dtype_of(annotation: Any) -> type[DType] | None:

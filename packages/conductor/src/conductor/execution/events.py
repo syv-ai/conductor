@@ -57,11 +57,13 @@ class NodeProgress(_EventRecord):
 
 class NodeComplete(_EventRecord):
     """A node finished; ``result`` is its outputs by name: a value, or a
-    ``Series`` for anything on an index."""
+    ``Series`` for anything on an index. ``rows_not_called`` counts, per
+    input, the rows the node wasn't called on because that input was blank."""
 
     type: Literal["node_complete"] = "node_complete"
     node_id: str
     result: dict[str, Any]
+    rows_not_called: dict[str, int] = Field(default_factory=dict)
 
 
 class NodeSkipped(_EventRecord):
