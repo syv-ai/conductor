@@ -3,7 +3,7 @@ from dataclasses import FrozenInstanceError
 from typing import Annotated, Any, ClassVar
 
 import pytest
-from conductor import AsItArrives, Input, NodeRegistry, OlderVersion, Upgrade, node
+from conductor import Arriving, AsItArrives, Input, NodeRegistry, OlderVersion, Upgrade, node
 from conductor.dtype import DType
 from conductor.errors import NodeDeclarationError
 from conductor.graph.binding import Static
@@ -650,3 +650,26 @@ def test_the_contract_is_importable_from_the_package_root():
 
     for name in ("node", "NodeDefinition", "OlderVersion", "Upgrade", "Policy", "Deprecation", "NodeRegistry", "upgrade_node", "Arriving", "AsItArrives", "FromRun"):
         assert hasattr(conductor, name)
+
+
+def test_arriving_is_the_edges_type_or_the_typed_in_values():
+    class Num(DType, float):
+        id = "node-class-num"
+
+    def echoed_outputs(x: Arriving) -> list[Output]:
+        return [Output("result", x)]
+
+    @node("echoed", compute_outputs=echoed_outputs)
+    def echoed(x: Txt) -> Mapping[str, Any]:
+        return {"result": x}
+
+    @node("num")
+    def num() -> Num:
+        return Num(1)
+
+    registry = NodeRegistry([echoed, num])
+    typed_in = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n", type="echoed", version=1, bindings={"x": Static("a")})]), registry)
+    nothing = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n", type="echoed", version=1)]), registry)
+
+    assert typed_in.node("n").interface.outputs[0].dtype is Txt
+    assert nothing.node("n").interface.outputs[0].dtype.id == "any"

@@ -24,7 +24,8 @@ written. An upgrade sits on the version it leaves::
 Two hooks shape a node from what it is given in one graph, each a plain
 function whose signature says what it reads. A parameter names an input of
 the node and receives its typed value, the declared default included; a
-parameter marked ``Arriving`` receives the type one call gets there, and
+parameter marked ``Arriving`` receives the type one call gets there, the
+edge's or that of the value typed in, and
 ``**x: Arriving`` receives all of them. ``compute_inputs`` returns the
 inputs to add, ``compute_outputs`` all the outputs. If a value it needs is
 neither typed in nor defaulted, the hook is not called and the node keeps
@@ -64,8 +65,8 @@ class _ArrivingMark:
 
 
 #: On a ``compute_outputs`` parameter: the type one call of the node receives
-#: on that input, ``Any`` until an edge arrives. ``**x: Arriving`` receives
-#: every connected input's.
+#: on that input: the edge's, or the typed-in value's when no edge is there,
+#: ``Any`` until something is. ``**x: Arriving`` receives every connected input's.
 Arriving = Annotated[type[DType], _ArrivingMark()]
 
 
@@ -168,12 +169,17 @@ class _Hook:
     arriving: tuple[str, ...]
     all_arriving: bool
 
-    def answer(self, values: Mapping[str, Any], arriving: Mapping[str, Any]) -> tuple[Any, ...] | None:
-        """The hook's fields for these values and arriving types; ``None`` when a value it needs has none."""
+    def answer(self, values: Mapping[str, Any], arriving: Mapping[str, Any], typed_in: Mapping[str, Any]) -> tuple[Any, ...] | None:
+        """The hook's fields for these values and arriving types; ``None`` when a value it needs has none.
+
+        An ``Arriving`` parameter gets the edge's type, or the type of the
+        value typed in when no edge is there; ``Any`` until something is."""
         if not self.required <= values.keys():
             return None
         arguments = {name: values[name] for name in self.reads if name in values}
-        arguments.update({name: arriving.get(name, _UntypedValue) for name in self.arriving})
+        for name in self.arriving:
+            typed = typed_in.get(name)
+            arguments[name] = arriving.get(name, type(typed) if isinstance(typed, DType) else _UntypedValue)
         if self.all_arriving:
             arguments.update({name: dtype for name, dtype in arriving.items() if name not in arguments})
         return tuple(self.function(**arguments))

@@ -340,7 +340,7 @@ class Compilation:
             if node_id not in self.layout.graphs and version.compute_inputs is not None:
                 defaults = {i.name: i.default for i in inputs if not i.required}
                 try:
-                    added = version.compute_inputs.answer({**defaults, **typed}, {}) or ()
+                    added = version.compute_inputs.answer({**defaults, **typed}, {}, typed) or ()
                 except CompileProblem as refusal:
                     self.problems.append(refusal.at(node_id))
                     continue

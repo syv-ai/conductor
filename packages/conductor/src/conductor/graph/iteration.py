@@ -673,7 +673,7 @@ class _Walk:
         values = {**{i.name: i.default for i in version.interface.inputs if not i.required}, **self.statics[node.id]}
         if version.compute_outputs is None:
             return version.interface.outputs
-        answered = version.compute_outputs.answer(values, arriving)
+        answered = version.compute_outputs.answer(values, arriving, self.statics[node.id])
         return version.interface.outputs if answered is None else answered
 
     @staticmethod
