@@ -267,6 +267,29 @@ def test_with_inputs_takes_an_address_as_a_mapping_beside_keywords():
         compiled.with_inputs({"zzz.text": "x"})
 
 
+def test_a_table_rebuilt_in_an_open_input_node_and_merged_with_its_source_loses_its_row_ids():
+    compiled = _compiled(
+        _node("t", "table"),
+        _node("py", "rebuild", t=From("t.result")),
+        _node("excel", "excel", table=From("t.result", "py.result")),
+    )
+
+    assert Ref("py.result") in compiled._row_ids_must_survive
+    state = compiled.run_sync()
+    assert state.status == "failed" and state.failure.type == "row_ids_lost" and state.failure.loc[0] == "py"
+
+
+def test_a_table_rebuilt_with_its_ids_kept_passes():
+    compiled = _compiled(
+        _node("t", "table"),
+        _node("py", "rebuild-keeping-ids", t=From("t.result")),
+        _node("excel", "excel", table=From("t.result", "py.result")),
+    )
+
+    state = compiled.run_sync()
+    assert state.status == "complete", state.failure
+
+
 def test_a_table_reaching_a_typed_any_input_counts_too():
     compiled = _compiled(
         _node("t", "table"),

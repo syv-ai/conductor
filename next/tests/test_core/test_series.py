@@ -16,6 +16,7 @@ from conductor import (
     Param,
     Series,
     Static,
+    Table,
     node,
 )
 from conductor._internal.dtype import read_field_annotation
@@ -109,9 +110,26 @@ def _run(*nodes: GraphNode) -> dict[str, Any]:
     return compiled.results(compiled.run_sync())
 
 
+def test_a_node_receives_a_plain_list_and_may_return_any_sequence():
+    results = _run(
+        GraphNode(id="s", type="split-series", version=1, bindings={"text": Static("a,b")}),
+        GraphNode(id="c", type="collect", version=1, bindings={"parts": From("s.result")}),
+    )
+    assert results["s"]["result"] == {"rows": [(0,), (1,)], "values": ["a", "b"]}
+    assert results["c"]["result"] == "a+b"
+
+
+def test_a_list_set_on_a_series_input_is_received_whole():
+    assert _run(GraphNode(id="c", type="collect", version=1, bindings={"parts": Static(["x", "y"])}))["c"]["result"] == "x+y"
+
+
 def test_a_scalar_is_not_silently_wrapped_into_many():
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="c", type="collect", version=1, bindings={"parts": Static("x")})]), REGISTRY)
     assert [problem.type for problem in compiled.problems] == ["invalid_static"]
+
+
+def test_a_series_that_may_be_none_defaults_to_none():
+    assert _run(GraphNode(id="c", type="collect-with-default", version=1))["c"]["result"] == "None"
 
 
 def test_a_field_on_rows_is_many_and_its_type_is_one_value():
@@ -121,6 +139,33 @@ def test_a_field_on_rows_is_many_and_its_type_is_one_value():
     )
     field = compiled.node("s")._wiring.fields["result"]
     assert (field.type, field.many) == (Text, True)
+
+
+def test_a_reduction_over_tables_receives_a_list_of_them():
+    import polars as pl
+
+    @node("docs-of-tables")
+    def docs_of_tables() -> Series[Text]:
+        return [Text("a"), Text("b")]
+
+    @node("one-table")
+    def one_table(name: Text) -> Table:
+        return pl.DataFrame({"name": [name]})
+
+    @node("count-tables")
+    def count_tables(tables: Series[Table]) -> int:
+        return len(tables)
+
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[
+            GraphNode(id="d", type="docs-of-tables", version=1),
+            GraphNode(id="t", type="one-table", version=1, bindings={"name": From("d.result")}),
+            GraphNode(id="c", type="count-tables", version=1, bindings={"tables": From("t.result")}),
+        ]),
+        NodeRegistry([docs_of_tables, one_table, count_tables]),
+    )
+    assert compiled.is_runnable, compiled.problems
+    assert compiled.results(compiled.run_sync())["c"]["result"] == 2
 
 
 # --- an index ----------------------------------------------------------------

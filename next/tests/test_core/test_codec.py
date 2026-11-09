@@ -13,16 +13,20 @@ import pytest
 from conductor import (
     CompiledGraph,
     DType,
+    From,
     Graph,
     GraphNode,
     NodeDefinition,
     NodeRegistry,
     Param,
     Result,
+    RunState,
     Series,
+    Static,
     node,
     to_jsonable,
 )
+from conductor._internal.execution.run_ledger import RunLedger
 from conductor.widgets import Textarea
 from conductor_nodes.types import Json
 from pydantic import TypeAdapter
@@ -102,3 +106,59 @@ def _compiled(*classes: type[NodeDefinition], nodes: list[GraphNode]) -> Compile
     return CompiledGraph.from_graph(Graph(nodes=nodes), reg)
 
 
+def test_a_text_that_spells_the_old_skip_marker_is_a_text_after_a_round_trip():
+    compiled = _compiled(split_node, upper_node, nodes=[
+        GraphNode(id="split", type="split", version=1, bindings={"text": Static("__skipped__,x")}),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": From("split.result")}),
+    ])
+    ledger = RunLedger(compiled)
+    ledger.record(("split", ()), {"result": [Txt("__skipped__"), Txt("x")]})
+    ledger.record(("up", (0,)), {"result": Txt("__SKIPPED__")})
+    ledger.record(("up", (1,)), {"result": Txt("X")})
+
+    state = ledger.state("complete")
+    restored = RunLedger.restore(compiled, RunState.model_validate(json.loads(state.model_dump_json())))
+
+    values = restored.result_of("split")["result"]["values"]
+    assert values == ["__skipped__", "x"] and all(type(v) is Txt for v in values)
+    assert restored.result_of("up")["result"]["values"] == ["__SKIPPED__", "X"]
+    assert state.nodes["split"].outputs["result"].skipped == []
+
+
+def test_a_skip_is_listed_beside_the_values():
+    from conductor import SKIPPED
+
+    compiled = _compiled(split_node, upper_node, nodes=[
+        GraphNode(id="split", type="split", version=1, bindings={"text": Static("a,b")}),
+        GraphNode(id="up", type="upper", version=1, bindings={"text": From("split.result")}),
+    ])
+    ledger = RunLedger(compiled)
+    ledger.record(("split", ()), {"result": [Txt("a"), Txt("b")]})
+    ledger.record(("up", (0,)), {"result": SKIPPED})
+    ledger.record(("up", (1,)), {"result": Txt("B")})
+
+    state = ledger.state("complete")
+    wire = json.loads(state.model_dump_json())["nodes"]
+
+    assert wire["up"]["outputs"]["result"] == {"rows": [[1]], "values": ["B"], "skipped": [[0]]}
+    assert wire["split"]["outputs"]["result"] == {"rows": [[]], "values": [["a", "b"]], "skipped": []}
+
+
+def test_a_value_with_no_json_form_raises_naming_the_field():
+    class Opaque(DType):
+        id = "codec-test-opaque"
+        display_title = "Opaque"
+
+        def __init__(self, handle: object) -> None:
+            self.handle = handle
+
+    @node("opens", title="Opens", description="d", category="test")
+    def opens(text: Annotated[Txt, Param(title="In", widget=Textarea())] = Txt("")) -> Annotated[Opaque, Result(title="Handle")]:
+        return Opaque(object())
+
+    compiled = _compiled(opens, nodes=[GraphNode(id="o", type="opens", version=1, bindings={"text": Static("x")})])
+    ledger = RunLedger(compiled)
+    ledger.record(("o", ()), {"result": Opaque(object())})
+
+    with pytest.raises(Exception, match=r"o\.result"):
+        ledger.state("complete").model_dump_json()

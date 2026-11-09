@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 from datetime import date, timedelta
 from typing import TypedDict
@@ -10,9 +11,11 @@ from typing import TypedDict
 import polars as pl
 import pytest
 from conductor import (
+    AskPerson,
     CompiledGraph,
     DType,
     From,
+    FromRun,
     Graph,
     GraphNode,
     InvalidCallError,
@@ -36,6 +39,20 @@ class Text(DType, str):
 @node("boom")
 def _boom() -> Text:
     raise ValueError("kaboom: the secret")
+
+
+def test_a_nodes_exception_reaches_the_log_with_its_traceback_and_stays_off_the_state(caplog):
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="boom", version=1)]), NodeRegistry([_boom]))
+
+    with caplog.at_level(logging.ERROR, logger="conductor"):
+        state = compiled.run_sync()
+
+    assert state.status == "failed"
+    (logged,) = [record for record in caplog.records if record.name == "conductor"]
+    assert logged.exc_info is not None and logged.exc_info[0] is ValueError
+    assert "'a'" in logged.getMessage()
+    assert state.failure.ctx == {"exception": "ValueError"}
+    assert "kaboom" not in json.dumps(state.model_dump(mode="json"))
 
 
 def test_a_text_built_on_str_can_call_str_title():
@@ -125,6 +142,39 @@ def _n(id: str, type: str, **bindings) -> GraphNode:
     return GraphNode(id=id, type=type, version=1, bindings=bindings)
 
 
+def test_a_str_input_and_output_run_with_no_type_declared_and_the_values_stay_plain():
+    compiled = _plain(_n("a", "hello", name=Static("Ida")), _n("b", "shout", text=From("a.result"), times=Static(2)))
+    assert compiled.is_runnable, compiled.problems
+    value = compiled.results(compiled.run_sync())["b"]["result"]
+    assert value == "HELLO IDA!!" and type(value) is str
+
+
+def test_plain_types_run_per_row_and_reduce_like_any_other():
+    compiled = _plain(_n("w", "words", text=Static("a bb")), _n("s", "shout", text=From("w.result")), _n("l", "lengths", words=From("s.result")))
+    results = compiled.results(compiled.run_sync())
+    assert results["s"]["result"]["values"] == ["A!", "BB!"] and results["l"]["result"] == 5.0
+
+
+@pytest.mark.parametrize(
+    ("node_type", "bound", "expected"),
+    [
+        ("flag", {"on": Static(True)}, False),
+        ("next-day", {"day": Static(date(2026, 1, 1))}, date(2026, 1, 2)),
+    ],
+)
+def test_each_plain_type_carries_its_own_value(node_type, bound, expected):
+    compiled = _plain(_n("n", node_type, **bound))
+    assert compiled.results(compiled.run_sync())["n"]["result"] == expected
+
+
+def test_a_pydantic_model_travels_on_an_edge_and_through_json():
+    compiled = _plain(_n("p", "person", name=Static("Ida")), _n("o", "name-of", person=From("p.result")))
+    state = compiled.run_sync()
+    assert isinstance(compiled.results(state)["p"]["result"], Person)
+    back = RunState.model_validate_json(state.model_dump_json())
+    assert compiled.results(back)["o"]["result"] == "Ida"
+
+
 def test_a_dtype_built_on_str_lands_on_a_str_input_and_not_the_other_way():
     assert _plain(_n("e", "email"), _n("h", "hello", name=From("e.result"))).is_runnable
     raised = _plain(_n("h", "hello", name=Static("x")), _n("w", "wants-email", address=From("h.result")))
@@ -178,6 +228,16 @@ def _headcount(table: Table) -> int:
     return table.height
 
 
+def test_a_table_parameter_is_a_frame_and_a_node_returns_a_frame():
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[_n("p", "people"), _n("o", "oldest", people=From("p.result")), _n("h", "headcount", table=From("o.result"))]),
+        NodeRegistry([_people, _oldest, _headcount]),
+    )
+    results = compiled.results(compiled.run_sync())
+    assert isinstance(results["o"]["result"], pl.DataFrame) and results["o"]["result"]["name"].to_list() == ["Ida", "Bo"]
+    assert results["h"]["result"] == 2
+
+
 def test_table_is_only_a_type():
     with pytest.raises(TypeError, match="polars.DataFrame"):
         Table({"a": [1]})  # type: ignore[call-arg]
@@ -203,6 +263,22 @@ def _clean() -> tuple[NodeRegistry, NodeDefinition]:
     )
     clean = NodeDefinition.from_compiled_graphs("clean-text", versions=inner)
     return base.extended_with([clean]), clean
+
+
+def test_an_embedded_graph_is_wired_by_its_own_names_and_titled_like_a_node():
+    registry, clean = _clean()
+    assert clean.title == "Clean text"
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[
+            GraphNode(id="c", type="clean-text", version=1, bindings={"text": Static("  hi ")}),
+            GraphNode(id="v", type="up", version=1, bindings={"text": From("c.result")}),
+        ]),
+        registry,
+    )
+    assert compiled.is_runnable, compiled.problems
+    state = compiled.run_sync()
+    assert compiled.results(state)["c/u"]["result"] == "HI"          # a run is read by the inner address
+    assert compiled.outputs(state) == {"v.result": "HI"}
 
 
 def test_renaming_a_node_inside_breaks_no_caller():
@@ -281,6 +357,17 @@ def test_graph_node_keeps_a_graph_it_was_given_on_a_node_that_is_a_graph():
     assert compiled.is_runnable, compiled.problems
 
 
+def test_a_column_into_a_one_value_input_stays_legal():
+    @node("rows")
+    def rows() -> Table[Contact]:
+        return pl.DataFrame({"name": ["a", "b"], "age": [1, 2]})
+
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[rows.graph_node("r"), _shout.graph_node("s", text=From("r.result.name"))]), NodeRegistry([rows, _shout]),
+    )
+    assert compiled.results(compiled.run_sync())["s"]["result"]["values"] == ["A!", "B!"]
+
+
 # -- errors say what to do ---------------------------------------------------------------
 
 
@@ -318,6 +405,26 @@ class Clock:
     pass
 
 
+def test_from_run_missing_raises_at_the_call():
+    @node("timed")
+    def timed(clock: FromRun[Clock]) -> str:
+        return "now"
+
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="t", type="timed", version=1)]), NodeRegistry([timed]))
+    with pytest.raises(InvalidCallError) as raised:
+        compiled.run_sync()
+    (error,) = raised.value.errors()
+    assert error.type == "from_run_missing" and error.ctx["node"] == "t" and error.ctx["needs"] == "Clock"
+
+
+def test_a_from_run_key_that_is_no_type_is_refused_and_a_type_no_node_needs_is_fine():
+    compiled = _plain(_n("a", "hello", name=Static("x")))
+    with pytest.raises(InvalidCallError) as raised:
+        compiled.run_sync(from_run={"x": 1})
+    assert [p.type for p in raised.value.errors()] == ["from_run_not_a_type"]
+    assert compiled.run_sync(from_run={int: 1}).status == "complete"
+
+
 def test_with_inputs_raises_for_a_bad_value_and_a_typo_together():
     compiled = _plain(_n("a", "shout", text=Static("x")), _n("b", "flag", on=Static(True)))
     with pytest.raises(InvalidCallError) as raised:
@@ -338,12 +445,34 @@ def test_a_declaration_error_names_the_function():
             return a
 
 
+def test_using_a_stream_without_async_with_says_how():
+    compiled = _plain(_n("a", "hello", name=Static("x")))
+    with pytest.raises(TypeError, match="async with"):
+        aiter(compiled.stream())
+
+
 def test_a_field_is_read_by_its_address_as_a_string_too():
     compiled = _plain(_n("a", "hello", name=Static("x")))
     assert compiled.field("a.result") is compiled.field(Ref("a.result"))
 
 
+def test_a_state_that_is_no_state_is_refused_at_the_call():
+    compiled = _plain(_n("a", "hello", name=Static("x")))
+    with pytest.raises(InvalidCallError):
+        compiled.run_sync({})  # type: ignore[arg-type]
+
+
 # -- a question's title -------------------------------------------------------------------
+
+
+def test_a_question_falls_back_to_the_nodes_title_not_result():
+    @node("ask", title="Approve the invoice")
+    def ask() -> str | AskPerson:
+        return AskPerson()
+
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="ask", version=1)]), NodeRegistry([ask]))
+    (waiting,) = compiled.run_sync().waiting
+    assert waiting.questions[0].title == "Approve the invoice"
 
 
 # -- a float that is not finite ------------------------------------------------------------
@@ -390,3 +519,47 @@ def _through_json(state: RunState) -> RunState:
     return RunState.model_validate_json(written)
 
 
+@pytest.mark.parametrize(("value", "spelled"), [(math.nan, "NaN"), (math.inf, "Infinity"), (-math.inf, "-Infinity")])
+def test_a_float_output_that_is_not_finite_survives_json_as_the_float(value, spelled):
+    NOT_FINITE["value"] = value
+    compiled = CompiledGraph.from_graph(Graph(nodes=[_n("n", "not-finite"), _n("p", "passes-on", value=From("n.result"))]), _FLOATS)
+
+    state = compiled.run_sync()
+
+    assert state.status == "complete"
+    assert state.model_dump(mode="json")["nodes"]["n"]["outputs"]["result"]["values"] == [spelled]
+    back = _through_json(state)
+    assert _same_float(compiled.results(back)["n"]["result"], value)
+    assert _same_float(compiled.results(compiled.run_sync(back.without_nodes("p")))["p"]["result"], value)
+
+
+@pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])
+def test_a_series_of_floats_keeps_one_that_is_not_finite_through_json(value):
+    NOT_FINITE["value"] = value
+    compiled = CompiledGraph.from_graph(Graph(nodes=[_n("n", "not-finite-many")]), _FLOATS)
+
+    back = compiled.results(_through_json(compiled.run_sync()))["n"]["result"]["values"]
+
+    assert back[0] == 1.5 and _same_float(back[1], value)
+
+
+@pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])
+def test_an_output_per_row_keeps_a_float_that_is_not_finite_through_json(value):
+    NOT_FINITE["value"] = value
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[_n("w", "words", text=Static("a b")), _n("n", "not-finite-per-row", text=From("w.result"))]), _FLOATS,
+    )
+
+    back = compiled.results(_through_json(compiled.run_sync()))["n"]["result"]["values"]
+
+    assert back[0] == 1.5 and _same_float(back[1], value)
+
+
+def test_a_not_finite_float_is_refused_on_an_int_output_so_none_reaches_a_float_input_that_way():
+    NOT_FINITE["value"] = math.nan
+    compiled = CompiledGraph.from_graph(Graph(nodes=[_n("i", "int-of-not-finite"), _n("h", "half", value=From("i.result"))]), _FLOATS)
+
+    assert compiled.is_runnable, compiled.problems
+    state = compiled.run_sync()
+
+    assert state.status == "failed" and state.failure.type == "invalid_output"

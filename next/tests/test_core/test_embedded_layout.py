@@ -174,6 +174,21 @@ def sheet() -> Mapping[str, Any]:
     return {"excl. VAT": Txt("net")}
 
 
+def test_a_field_name_with_a_dot_beside_an_embedded_graph_is_a_plain_field():
+    """The first dot splits an address, and the field is free text: ``sheet.excl. VAT``
+    is the field ``excl. VAT`` on ``sheet``, wherever an embedded graph sits."""
+    compiled = _compiled([
+        GraphNode(id="sheet", type="sheet", version=1),
+        GraphNode(id="emb", type="inner-graph", version=1, bindings={"value": From(Ref("sheet", "excl. VAT"))}),
+        GraphNode(id="after", type="upper", version=1, bindings={"text": From("emb.result")}),
+    ], sheet)
+
+    assert compiled.is_runnable, compiled.problems
+    assert compiled.field(Ref("sheet", "excl. VAT")).type is Txt
+    assert compiled.field(Ref("emb/holder", "value")).binding == From(Ref("sheet", "excl. VAT"))
+    assert compiled.results(compiled.run_sync())["after"]["result"] == "NET"
+
+
 def test_a_broken_edge_into_a_graph_node_is_the_graph_nodes_own_problem():
     """The edge sits on the node the author drew, on the field it names,
     in the plain words any node gets; the graph node is not worked out, and
@@ -362,6 +377,7 @@ def test_a_nested_embedded_graph_is_addressed_by_its_path():
     assert compiled.node("top/pre").embedded_in == "top"
     assert compiled.field(Ref("after", "text")).binding == From("top/inner/join.result")
     assert compiled.field(Ref("top/inner/join", "result")).type is Txt
+
 
 
 def test_a_broken_graph_inside_a_graph_breaks_the_graph_around_it():
