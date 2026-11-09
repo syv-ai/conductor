@@ -77,7 +77,7 @@ class NodeRegistry:
         #: The types, by id, in the order they arrived.
         self._types: dict[str, type[DType]] = {}
         self._add_definitions(definitions)
-        self._types.update(self._types_checked_for_id_clash([_vocabulary_type_of(dtype_of(dtype) or dtype, named_by_host=True) for dtype in types]))
+        self._types.update(self._types_checked_for_id_clash([_registered_type_of(dtype_of(dtype) or dtype, named_by_host=True) for dtype in types]))
 
     def __repr__(self) -> str:
         """Its nodes, each as its own repr, one per line: ``NodeRegistry(nodes=(NodeDefinition(...),))``."""
@@ -190,7 +190,7 @@ def _raise_unless_definition(definition: Any) -> None:
         raise NodeDeclarationError(f"{definition!r} is not a node; declare one with @node", code="not_a_node_definition")
 
 
-def _vocabulary_type_of(declared: Any, *, named_by_host: bool = False) -> type[DType] | None:
+def _registered_type_of(declared: Any, *, named_by_host: bool = False) -> type[DType] | None:
     """The registry type a declared type names, or ``None`` when it names none.
 
     A scalar type is itself; a ``Table[...]`` is ``Table``; a ``Series[X]``
@@ -211,9 +211,9 @@ def _vocabulary_type_of(declared: Any, *, named_by_host: bool = False) -> type[D
     if issubclass(declared, Series):
         if named_by_host:
             raise NodeDeclarationError(f"{declared!r} is a series; add its element", code="series_added")
-        return _vocabulary_type_of(declared.element)
+        return _registered_type_of(declared.element)
     if declared._generic_base is not None:
-        return _vocabulary_type_of(declared._generic_base, named_by_host=named_by_host)
+        return _registered_type_of(declared._generic_base, named_by_host=named_by_host)
     return declared
 
 
@@ -222,7 +222,7 @@ def _types_declared_by(definition: NodeDefinition[..., Any]) -> list[type[DType]
     dtypes: list[type[DType]] = []
     for version in definition.versions.values():
         for field in (*version.interface.inputs, *version.interface.outputs):
-            dtype = _vocabulary_type_of(field.dtype)
+            dtype = _registered_type_of(field.dtype)
             if dtype is not None and dtype not in dtypes:
                 dtypes.append(dtype)
     return dtypes

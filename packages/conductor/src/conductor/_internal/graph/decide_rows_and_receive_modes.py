@@ -43,7 +43,6 @@ from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from conductor._internal.dtype import (
     _ReceivedAsItArrives,
-    description_of,
     is_untyped,
     type_name_for_sentence,
 )
@@ -322,8 +321,8 @@ def _type_mismatch_unless_accepted(target: Any, node_id: str, name: str, source_
 
 def _type_mismatch(target: Any, node_id: str, name: str, source_ref: Ref, source: CompiledField) -> Problem:
     return make_problem(
-        "type_mismatch", node_id, name, source=str(source_ref), source_type=description_of(source.type),
-        target_type=description_of(target), source_said=type_name_for_sentence(source.type), target_said=type_name_for_sentence(target),
+        "type_mismatch", node_id, name, source=str(source_ref), source_type=source.type.describe(),
+        target_type=target.describe(), source_said=type_name_for_sentence(source.type), target_said=type_name_for_sentence(target),
     )
 
 

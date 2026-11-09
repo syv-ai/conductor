@@ -3,7 +3,7 @@
 from typing import Any
 
 from conductor import DType
-from conductor._internal.dtype import DTypeField, description_of, plain_python_dtype
+from conductor._internal.dtype import DTypeField, plain_python_dtype
 from pydantic import TypeAdapter
 
 
@@ -39,7 +39,7 @@ def test_a_closed_inputs_plain_type_dumps_as_a_setting():
     class Schema:
         pass
 
-    assert description_of(plain_python_dtype(Schema)) == {"id": "setting", "of": "Schema"}
+    assert plain_python_dtype(Schema).describe() == {"id": "setting", "of": "Schema"}
 
 
 def test_a_dtype_ref_has_a_json_schema():

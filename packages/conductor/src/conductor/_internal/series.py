@@ -35,7 +35,7 @@ from uuid import uuid4
 from pydantic_core import core_schema
 
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.dtype import DType, description_of, dtype_of, split_off_none
+from conductor._internal.dtype import DType, dtype_of, split_off_none
 from conductor._internal.errors import NodeDeclarationError
 
 #: The element type, for the ``Sequence`` protocol: ``Series[Text]`` yields ``Text``.
@@ -224,7 +224,7 @@ class Series(DType, Sequence[ElementT]):
             raise ValueError(
                 "Series is unparameterised — declare Series[X], never bare Series"
             )
-        return {"id": cls.id, "of": description_of(cls.element)}
+        return {"id": cls.id, "of": cls.element.describe()}
 
     @classmethod
     def _type_of_bare_annotation(cls) -> type["Series[Any]"]:

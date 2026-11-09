@@ -328,16 +328,16 @@ _PLAIN_PYTHON_DTYPES: dict[Any, type[_PlainPythonType]] = {}
 
 def plain_python_dtype(python_type: Any) -> type[_PlainPythonType]:
     """The ``DType`` a plain Python type is."""
-    made = _PLAIN_PYTHON_DTYPES.get(python_type)
-    if made is not None:
-        return made
+    dtype = _PLAIN_PYTHON_DTYPES.get(python_type)
+    if dtype is not None:
+        return dtype
     name = getattr(python_type, "__name__", str(python_type))
     if _an_edge_can_carry(python_type):
-        made = type(name, (_PlainPythonType,), {"id": name, "display_title": name, "wrapped_type": python_type, "travels_on_edges": True})
+        dtype = type(name, (_PlainPythonType,), {"id": name, "display_title": name, "wrapped_type": python_type, "travels_on_edges": True})
     else:
-        made = type(f"Setting[{name}]", (_PlainPythonType,), {"wrapped_type": python_type}, _generic_base=_PlainPythonType)
-    _PLAIN_PYTHON_DTYPES[python_type] = made
-    return made
+        dtype = type(f"Setting[{name}]", (_PlainPythonType,), {"wrapped_type": python_type}, _generic_base=_PlainPythonType)
+    _PLAIN_PYTHON_DTYPES[python_type] = dtype
+    return dtype
 
 
 @cache
@@ -379,15 +379,6 @@ def dtype_of(annotation: Any) -> type[DType] | None:
     return plain_python_dtype(annotation) if _an_edge_can_carry(annotation) else None
 
 
-# -- how a record carries a declared type on the wire -------------------------
-
-
-def description_of(declared: Any) -> dict[str, Any]:
-    """The JSON form of a field's type: its ``describe()``. The one function behind
-    a record's ``dtype``, and what a ``Series`` nests its element type with."""
-    return declared.describe()
-
-
 def type_name_for_sentence(declared: Any) -> str:
     """A declared type named for an English sentence: ``text``, ``a series of
     text``, ``any`` — by its id, which is what a host also keys on."""
@@ -414,6 +405,6 @@ _DESCRIPTION_SCHEMA: dict[str, Any] = {
 DTypeField = Annotated[
     Any,
     PlainValidator(_validate_dtype_field),
-    PlainSerializer(description_of, return_type=dict),
+    PlainSerializer(lambda dtype: dtype.describe(), return_type=dict),
     WithJsonSchema(_DESCRIPTION_SCHEMA),
 ]

@@ -22,7 +22,6 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic_core import to_jsonable_python
 
 from conductor._internal.codec import cell_validator_for, json_schema_of, to_wire
-from conductor._internal.dtype import description_of
 from conductor._internal.execution.run_state import Question
 from conductor._internal.graph.run_plan import NodeRunPlan, plan_of_node
 from conductor._internal.node_definition import NodeVersion
@@ -180,7 +179,7 @@ class CompiledNode:
             "version": node.version,
             "bindings": bindings,
             "plan": self._run_plan,
-            "outputs": {out.name: description_of(out.dtype) for out in interface.outputs},
+            "outputs": {out.name: out.dtype.describe() for out in interface.outputs},
         }
         return hashlib.sha256(json.dumps(to_jsonable_python(used), sort_keys=True).encode("utf-8")).hexdigest()
 
@@ -191,7 +190,7 @@ class CompiledNode:
         assert self.interface is not None
         return tuple(
             Question(
-                name=out.name, title=self._title_of_a_question(out), description=out.description, dtype=description_of(out.dtype),
+                name=out.name, title=self._title_of_a_question(out), description=out.description, dtype=out.dtype.describe(),
                 json_schema=json_schema_of(out.dtype), optional=out.takes_blank and out.choice is None, choice=out.choice,
             )
             for out in self.interface.outputs
