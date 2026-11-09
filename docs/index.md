@@ -4,40 +4,25 @@
 
 # Conductor
 
-A host-agnostic Python engine that compiles and runs graphs of typed nodes. A node is a class whose typed `run` signature is its interface. You place nodes in a graph, compile it into a record that says everything about it, and run it as a stream of events, once per row wherever a series arrives.
+Compile and run graphs of typed Python functions. A node is a function and its type hints are its interface. You put nodes in a graph, compile it into a record that says what's wrong and where everything runs, and run it as a stream of events, once per row wherever a column arrives.
 
 ```python
-from typing import Annotated
-
-from conductor import CompiledGraph, Graph, GraphNode, NodeDefinition, NodeRegistry, Param, Result, run_sync, Static
-from conductor.widgets import TextWidget
-from conductor_nodes.types import Number, Text
+from conductor import CompiledGraph, Graph, NodeRegistry, node
 
 
-class Length(NodeDefinition):
-    id = "length"
-    title = "Length"
-    description = "Counts characters"
-    category = "text"
-
-    def run(self, text: Annotated[Text, Param(title="Text", widget=TextWidget())]) -> Annotated[Number, Result(title="Length")]:
-        return Number(len(text))
+@node("length")
+def length(text: str) -> int:
+    return len(text)
 
 
-registry = NodeRegistry()
-registry.register(Length)
-
-compiled = CompiledGraph.from_graph(
-    Graph(nodes=[GraphNode(id="size", type="length", version=1, bindings={"text": Static(["a", "bcd"])})]),
-    registry,
-)
-assert compiled.is_runnable, compiled.problems
-list(run_sync(compiled).state.results(compiled)["size"]["result"])   # [1.0, 3.0]: one run per value typed in
+compiled = CompiledGraph.from_graph(Graph(nodes=[length.graph_node("size", text="abcd")]), NodeRegistry([length]))
+print(compiled.outputs(compiled.run_sync()))  # {'size.result': 4}
 ```
 
 ## Read next
 
 - [Overview](OVERVIEW.md): the architecture on one page.
 - [Widgets](widgets.md): the controls, and how an input declares one.
+- [Serving runs over HTTP](serving-runs.md): a page of routes to copy.
 - `python -m conductor.about`: the library reference that ships in the wheel.
-- The notebooks in [`examples/`](https://github.com/syv-ai/conductor/tree/main/examples) cover nodes, graphs, versions, a person in the loop and widgets.
+- The notebooks in [`examples/`](https://github.com/syv-ai/conductor/tree/main/examples) cover nodes, graphs, tables, versions, a person in the loop and widgets.
