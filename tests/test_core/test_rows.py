@@ -749,14 +749,14 @@ def test_a_restore_leaves_a_list_set_on_a_node_under_a_skipped_outer_row_complet
     """A skip above the embedded graph leaves its list set on a node with no rows
     under the outer row, and a restore works that out again, so the inner
     node that stood in is still complete on the next leg."""
-    from conductor._internal.execution.run_ledger import RunLedger, Skip
+    from conductor._internal.execution.run_ledger import RunLedger, SkippedAtRow
 
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[_docs("a,b"), GraphNode(id="emb", type="typed-inside", version=1, bindings={"text": _edge(("docs", "texts"))})]),
         _registry_with_asks(TypedInside),
     )
     live = RunLedger(compiled)
-    live.record(("docs", ()), Skip(row=()))
+    live.record(("docs", ()), SkippedAtRow(row=()))
     for node_id in compiled.execution_order[1:]:
         live.record((node_id, ()), live.inputs_for((node_id, ())))
 

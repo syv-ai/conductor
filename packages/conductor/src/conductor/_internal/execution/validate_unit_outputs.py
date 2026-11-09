@@ -29,8 +29,8 @@ if TYPE_CHECKING:
     from conductor._internal.ref import Ref
 
 
-def validate_unit_outputs(node: CompiledNode, row: Row, named: Mapping[str, Any], row_ids_must_survive: frozenset[Ref] = frozenset()) -> tuple[dict[str, Any], list[Problem]]:
-    """``named`` as the cells the state holds, and every output that did not fit.
+def validate_unit_outputs(node: CompiledNode, row: Row, value_by_output: Mapping[str, Any], row_ids_must_survive: frozenset[Ref] = frozenset()) -> tuple[dict[str, Any], list[Problem]]:
+    """``value_by_output`` as the cells the state holds, and every output that did not fit.
 
     ``row`` is the unit's own: a table's new rows are named after it. ``SKIPPED``
     passes on any output and on any element of a many-valued one. Only outputs
@@ -43,26 +43,26 @@ def validate_unit_outputs(node: CompiledNode, row: Row, named: Mapping[str, Any]
     problems: list[Problem] = []
     for out in node.interface.outputs:
         name = out.name
-        if name not in named:
+        if name not in value_by_output:
             problems.append(_output_problem(name, f"no value for the output '{name}'"))
             continue
-        value = named[name]
+        value = value_by_output[name]
         if value is SKIPPED:
             cells[name] = value
             continue
         field = node.wiring.fields[name]
         try:
-            cells[name] = _read_many(field, name, value) if field._unit_writes_many_cells else _read_one(field, row, value, row_ids_must_survive)
+            cells[name] = _cells_of_many_valued_output(field, name, value) if field._unit_writes_many_cells else _cell_of_output(field, row, value, row_ids_must_survive)
         except ValidationError as invalid:
             problems.append(_output_problem(
-                name, f"'{name}' must be {_named(field)}, not a {type(value).__name__}",
+                name, f"'{name}' must be {_type_name_for_error(field)}, not a {type(value).__name__}",
                 errors=tuple(invalid.errors(include_url=False, include_input=False, include_context=False)),
             ))
         except _NotASequence as invalid:
             problems.append(_output_problem(name, str(invalid)))
         except _RowIdsLost:
             problems.append(_output_problem(name, f"'{name}' lost the ids of its rows, so they can't be matched to the table it was built from", code="row_ids_lost"))
-    for name in named:
+    for name in value_by_output:
         if name not in node.wiring.fields or not node.wiring.fields[name]._is_output:
             problems.append(_output_problem(name, f"'{name}' is not one of this node's outputs"))
     return cells, problems
@@ -73,7 +73,7 @@ def _output_problem(output: str, message: str, *, errors: tuple[dict[str, Any], 
     return Problem(type=code, loc=(output,), msg=message, ctx={"errors": errors})
 
 
-def _read_many(field: CompiledField, name: str, value: Any) -> list[Any]:
+def _cells_of_many_valued_output(field: CompiledField, name: str, value: Any) -> list[Any]:
     if value is None and field._takes_blank:
         return []  # row-making outputs have no blank form: no rows
     if isinstance(value, Series):
@@ -84,7 +84,7 @@ def _read_many(field: CompiledField, name: str, value: Any) -> list[Any]:
     return [item if item is SKIPPED else read(item) for item in value]
 
 
-def _read_one(field: CompiledField, row: Row, value: Any, row_ids_must_survive: frozenset[Ref]) -> Any:
+def _cell_of_output(field: CompiledField, row: Row, value: Any, row_ids_must_survive: frozenset[Ref]) -> Any:
     cell = field._validate_cell(value)
     if field._makes_rows is None:
         return cell
@@ -100,7 +100,7 @@ def took_a_row_in(inputs: Mapping[str, Any]) -> bool:
     return any((is_frame(value) or isinstance(value, Series)) and len(value) > 0 for value in inputs.values())
 
 
-def _named(field: CompiledField) -> str:
+def _type_name_for_error(field: CompiledField) -> str:
     return f"a {getattr(field._cell_type, '__name__', field._cell_type)}"
 
 

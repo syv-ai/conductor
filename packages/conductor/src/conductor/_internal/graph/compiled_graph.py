@@ -69,7 +69,7 @@ from conductor._internal.errors import InvalidCallError, Problem, make_problem
 from conductor._internal.execution.events import Event, RunEnd
 from conductor._internal.execution.run_ledger import node_result, read_output_columns
 from conductor._internal.execution.run_state import Answers, RunState
-from conductor._internal.execution.run_until_idle import Leg
+from conductor._internal.execution.run_until_idle import RunningLeg
 from conductor._internal.execution.waiting_units import apply_answers
 from conductor._internal.graph.binding import Static
 from conductor._internal.graph.compile_graph import compile_graph
@@ -345,7 +345,7 @@ class CompiledGraph:
         workers will run it. Building the state costs a pass over every value so
         far, on the event loop; dump it on another thread, it is a copy.
         """
-        return Leg(self, state=state, from_run=from_run or {}, timeout=timeout, cancel=cancel or asyncio.Event(), checkpoint_every=checkpoint_every)
+        return RunningLeg(self, state=state, from_run=from_run or {}, timeout=timeout, cancel=cancel or asyncio.Event(), checkpoint_every=checkpoint_every)
 
     async def run(
         self,

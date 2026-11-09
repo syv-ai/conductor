@@ -22,7 +22,7 @@ from conductor import (
     Static,
 )
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.execution.run_ledger import Skip
+from conductor._internal.execution.run_ledger import SkippedAtRow
 from conductor._internal.graph.compiled_node import CompiledField, CompiledNode
 from conductor._internal.node_definition import NodeVersion, VersionDescription
 from conductor._internal.series import Index
@@ -154,7 +154,7 @@ SAVED = (
     Deprecation, Policy, VersionDescription, NodeDescription,
     Param, Result, Input, Output, Widget, Textarea, Dropdown, Choice, OperatorChoice, Index,
 )
-BUILT_PER_CALL = (CompiledGraph, CompiledNode, CompiledField, NodeVersion, Interface, Skip)
+BUILT_PER_CALL = (CompiledGraph, CompiledNode, CompiledField, NodeVersion, Interface, SkippedAtRow)
 
 
 @pytest.mark.parametrize("record", SAVED, ids=lambda r: r.__name__)

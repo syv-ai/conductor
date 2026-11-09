@@ -32,7 +32,7 @@ from conductor import (
     Static,
     node,
 )
-from conductor._internal.execution.run_until_idle import Leg
+from conductor._internal.execution.run_until_idle import RunningLeg
 from conductor.widgets import Textarea
 from helpers import stream_of
 
@@ -201,10 +201,10 @@ def test_a_foreign_exceptions_text_is_its_cause_and_nowhere_else():
         raise KeyError("secret-token")
 
     compiled = _compiled(buggy)
-    leg = Leg(compiled, state=None, from_run={}, timeout=None, cancel=asyncio.Event())
+    leg = RunningLeg(compiled, state=None, from_run={}, timeout=None, cancel=asyncio.Event())
 
     with pytest.raises(NodeExecutionError) as caught:
-        leg._call(("n1", ()), {"text": "x"})
+        leg._validate_inputs_and_call_node(("n1", ()), {"text": "x"})
 
     wrapped = caught.value
     assert isinstance(wrapped.__cause__, KeyError)

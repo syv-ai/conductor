@@ -17,7 +17,7 @@ from conductor import (
     Series,
     node,
 )
-from conductor._internal.execution.run_ledger import RunLedger, Skip
+from conductor._internal.execution.run_ledger import RunLedger, SkippedAtRow
 from conductor.widgets import Textarea
 
 
@@ -116,17 +116,17 @@ def test_a_decision_over_a_whole_column_gates_what_hangs_off_the_branch_not_take
     ledger.record(("docs", ()), {"texts": ["a", "b"], "names": ["x", "y"]})
     ledger.record(("decide", ()), {"full": ["a", "b"], "empty": SKIPPED})
 
-    assert ledger.ready(("full", ())) and ledger.ready(("empty", ()))
+    assert ledger.unit_is_ready(("full", ())) and ledger.unit_is_ready(("empty", ()))
     assert list(ledger.inputs_for(("full", ()))["texts"]) == ["a", "b"]
-    assert ledger.inputs_for(("empty", ())) == Skip(row=())
+    assert ledger.inputs_for(("empty", ())) == SkippedAtRow(row=())
     # the branch not taken has an index of its own with no rows, so the node running per row of it stands in once, at the top
     assert ledger.units("up") == [("up", ())]
-    assert ledger.inputs_for(("up", ())) == Skip(row=())
-    assert not ledger.ready(("after", ()))
-    ledger.record(("up", ()), Skip(row=()))
-    assert ledger.inputs_for(("after", ())) == Skip(row=())
-    ledger.record(("empty", ()), Skip(row=()))
-    ledger.record(("after", ()), Skip(row=()))
+    assert ledger.inputs_for(("up", ())) == SkippedAtRow(row=())
+    assert not ledger.unit_is_ready(("after", ()))
+    ledger.record(("up", ()), SkippedAtRow(row=()))
+    assert ledger.inputs_for(("after", ())) == SkippedAtRow(row=())
+    ledger.record(("empty", ()), SkippedAtRow(row=()))
+    ledger.record(("after", ()), SkippedAtRow(row=()))
     results = _results_of(ledger)
     assert "empty" not in results and "up" not in results and "after" not in results
     assert "empty" not in ledger.result_of("decide")  # the branch not taken is absent, never SKIPPED
@@ -155,12 +155,12 @@ def _groups_asked_with_lines_written_between_splits(paragraphs: int) -> int:
     ])
     ledger.record(("docs", ()), {"texts": ["\n".join("p" * paragraphs)], "names": ["x"]})
     ledger.record(("paras", (0,)), {"result": ["p"] * paragraphs})
-    ledger._groups = _CountedSet(ledger._groups)
+    ledger._groups_with_all_rows_made = _CountedSet(ledger._groups_with_all_rows_made)
     for paragraph in range(paragraphs):
         ledger.record(("lines", (0, paragraph)), {"result": ["l", "l"]})
         for line in range(2):
             ledger.record(("work", (0, paragraph, line)), {"result": "L"})
-    return ledger._groups.asked
+    return ledger._groups_with_all_rows_made.asked
 
 
 def test_a_group_two_levels_above_its_rows_looks_at_each_parent_row_once():

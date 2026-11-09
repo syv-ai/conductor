@@ -17,8 +17,8 @@ Readiness is kept rather than recomputed. Checking every unit after every
 write would cost the square of the rows, so ``record`` returns the units
 its write could have made ready, and only those are checked: the readers
 of the written value at its row and below, the units a new row creates,
-and a reduction whose group is now complete. ``ready`` stays the
-definition, and ``runnable`` asks it of every unit when a leg starts and
+and a reduction whose group is now complete. ``unit_is_ready`` stays the
+definition, and ``units_ready_to_start`` asks it of every unit when a leg starts and
 when it goes quiet, where a ready unit nobody started is a bug.
 
 How a unit receives each input, and who reads what, are compile's
@@ -123,7 +123,7 @@ _NO_VALUES: Mapping[Row, Any] = MappingProxyType({})
 
 
 @dataclass(frozen=True, slots=True)
-class Skip:
+class SkippedAtRow:
     """This unit does not run: ``SKIPPED`` was found at row ``row`` on something it reads.
 
     ``row`` is the unit's own row, or a shorter prefix when the skip sits
@@ -137,7 +137,7 @@ class Skip:
 
 
 @dataclass(frozen=True, slots=True)
-class NotCalled:
+class BlankInputsStopCall:
     """This unit does not run: a blank reached these inputs, which take none."""
 
     blank_inputs: tuple[str, ...]
@@ -149,12 +149,12 @@ def _rows_from_root_to(row: Row) -> Iterator[Row]:
         yield row[:depth]
 
 
-def _rows_under_depth(receive_mode: ReceiveMode) -> int:
+def _group_depth(receive_mode: ReceiveMode) -> int:
     """The depth of the rows a reader receives: a ``RowsUnder``'s, else ``0`` (everything on the field)."""
     return receive_mode.depth if isinstance(receive_mode, RowsUnder) else 0
 
 
-def _per_row(receive_mode: ReceiveMode) -> bool:
+def _reads_one_value_at_row(receive_mode: ReceiveMode) -> bool:
     """A reader that takes one value at its row, not a group or the whole field."""
     return isinstance(receive_mode, (PerRow, Broadcast))
 
@@ -173,13 +173,13 @@ class RunLedger:
         self._lookups = compiled._engine_lookups
         self._fields = self._lookups.fields
         #: Every column of a table output offered as a field: its values are the
-        #: table's cells, read where the table sits (``_cell``).
+        #: table's cells, read where the table sits (``_table_column_cell``).
         self._table_column_fields = self._lookups.table_column_fields
         self._values: dict[Ref, dict[Row, Any]] = {}
         #: The fields with a ``SKIPPED`` written at some row. Only these can
         #: hide a value under a skip above it, so a read of any other field is
         #: one lookup at its own row.
-        self._skipped_on: set[Ref] = set()
+        self._fields_with_a_skip: set[Ref] = set()
         self._rows: dict[str, set[Row]] = {}
         #: Every ``(index, row)`` whose rows under that row are all made, and
         #: every ``(index, ())`` whose index is sealed. Rows under their
@@ -187,12 +187,12 @@ class RunLedger:
         #: whole list at once, a list set on a node is known before the run —
         #: so such a group that exists is complete, whoever made it. A row
         #: further up joins once every group under it has (``_groups_under_made``).
-        self._groups: set[tuple[str, Row]] = set()
+        self._groups_with_all_rows_made: set[tuple[str, Row]] = set()
         #: Per index, its rows under each shorter row, in the order they were
         #: made; ``()`` holds them all. Finds the rows under a row without
         #: reading the whole index.
         self._rows_under_each_row: dict[str, dict[Row, list[Row]]] = {}
-        self._sealed: set[str] = set()
+        self._indexes_with_all_rows_made: set[str] = set()
         #: Per index, the rows beneath which it has no rows at all, because
         #: something above them was skipped.
         self._no_rows_under: dict[str, set[Row]] = {}
@@ -200,8 +200,8 @@ class RunLedger:
         self._done: dict[Unit, None] = {}
         #: Per node that runs once per row, how many of its units are done:
         #: at a row of its index, and standing in at a shorter row.
-        self._done_rows: dict[str, int] = {}
-        self._done_standing_in: dict[str, int] = {}
+        self._units_done_on_rows: dict[str, int] = {}
+        self._units_done_above_rows: dict[str, int] = {}
         #: Units waiting on a person, each as the state carries it.
         self._waiting: dict[Unit, WaitingUnit] = {}
         #: Per node, how many rows it wasn't called on, per input that was blank there.
@@ -221,7 +221,7 @@ class RunLedger:
         # whose own index is a root, made from the graph as it is now so a
         # restore never takes them from a stored state.
         order = compiled.execution_order
-        self._position = {node_id: position for position, node_id in enumerate(order)}
+        self._execution_position = {node_id: position for position, node_id in enumerate(order)}
         roots: list[str] = []
         for node_id in order:
             node = compiled.node(node_id)
@@ -230,9 +230,9 @@ class RunLedger:
                 if not list_field._is_list_on_node or list_field._index.parent is not None:
                     continue
                 for position, value in enumerate(node.statics[inp.name]):
-                    self._made(list_field._index.id, (position,))
+                    self._add_row(list_field._index.id, (position,))
                     self._values.setdefault(list_field.ref, {})[(position,)] = value
-                self._close(list_field._index.id)
+                self._mark_index_sealed(list_field._index.id)
                 roots.append(list_field._index.id)
         self._make_root_list_rows(roots)
 
@@ -245,19 +245,19 @@ class RunLedger:
         for index_id in roots:
             for row in sorted(self._rows.get(index_id, ())):
                 self._add_rows_of_lists_under(index_id, row)
-            next_up.extend(self._making_rows_on(index_id))
+            next_up.extend(self._indexes_made_per_row_of(index_id))
             next_up.extend(self._seal_lists_on_nodes_under(index_id, []))
-        self._seal(next_up)
+        self._seal_indexes_whose_makers_are_complete(next_up)
 
     # -- the read plan, as compile stored it -----------------------------------
 
-    def _owner(self, index_id: str) -> CompiledField:
+    def _field_making_rows_of(self, index_id: str) -> CompiledField:
         """The field that makes an index's rows and carries its read plan: a
         series output, or an input holding a list set on its node, as compile
         recorded it."""
         return self._lookups.field_making_rows_of_index[index_id]
 
-    def _making_rows_on(self, index_id: str) -> list[str]:
+    def _indexes_made_per_row_of(self, index_id: str) -> list[str]:
         """The indexes whose rows are made by nodes running once per row of this one."""
         return [made for node_id in self._lookups.nodes_running_per_row_of_index[index_id] for made in self._indexes_made_by(node_id)]
 
@@ -269,14 +269,14 @@ class RunLedger:
             if (index := fields[Ref(node_id, out.name)]._makes_rows) is not None
         ]
 
-    def _grouped_on(self, index_id: str) -> Iterator[tuple[str, Ref, int]]:
+    def _group_readers_of(self, index_id: str) -> Iterator[tuple[str, Ref, int]]:
         """``(reader node, output read, group depth)`` for every reader of a
         series on this index that receives it grouped or whole, not one row
         at a time."""
         for ref in self._lookups.outputs_on_index[index_id]:
             for inp, receive_mode in self._lookups.read_by[ref]:
-                if not _per_row(receive_mode):
-                    yield inp.node_id, ref, _rows_under_depth(receive_mode)
+                if not _reads_one_value_at_row(receive_mode):
+                    yield inp.node_id, ref, _group_depth(receive_mode)
 
     def _lists_on_nodes_under(self, index_id: str) -> Iterator[tuple[Ref, str]]:
         """``(the input, its index)`` for each list set on a node, made under every row of this index."""
@@ -298,27 +298,27 @@ class RunLedger:
     def is_done(self, unit: Unit) -> bool:
         return unit in self._done
 
-    def complete(self, node_id: str) -> bool:
+    def node_is_complete(self, node_id: str) -> bool:
         """Every unit this node will ever have is done."""
         runs_per_row_of = self._lookups.runs_per_row_of[node_id]
         if runs_per_row_of is None:
             return (node_id, ()) in self._done
         return (
-            runs_per_row_of.id in self._sealed
-            and self._done_rows.get(node_id, 0) == len(self._rows.get(runs_per_row_of.id, ()))
-            and self._done_standing_in.get(node_id, 0) == len(self._no_rows_under.get(runs_per_row_of.id, ()))
+            runs_per_row_of.id in self._indexes_with_all_rows_made
+            and self._units_done_on_rows.get(node_id, 0) == len(self._rows.get(runs_per_row_of.id, ()))
+            and self._units_done_above_rows.get(node_id, 0) == len(self._no_rows_under.get(runs_per_row_of.id, ()))
         )
 
     def completed_nodes(self) -> set[str]:
-        """The nodes ``complete`` holds for, among those with a unit done.
+        """The nodes ``node_is_complete`` holds for, among those with a unit done.
 
         A leg starting from a state reads it so it does not announce
         ``node_start`` again for a node an earlier leg finished. A node with
         no units at all — its index sealed with no rows — is not in it; it
         never starts, so there is nothing to announce."""
-        return {node_id for node_id, _ in self._done if self.complete(node_id)}
+        return {node_id for node_id, _ in self._done if self.node_is_complete(node_id)}
 
-    def on_a_row(self, unit: Unit) -> bool:
+    def unit_is_at_a_real_row(self, unit: Unit) -> bool:
         """Whether this unit is at a row of its node's index: one ``progress``
         counts. A unit of a node that runs once, or one standing in at a
         shorter row for rows never made, is not."""
@@ -333,8 +333,8 @@ class RunLedger:
         runs_per_row_of = self._lookups.runs_per_row_of[node_id]
         if runs_per_row_of is None:
             return int((node_id, ()) in self._done), 1
-        total = len(self._rows.get(runs_per_row_of.id, ())) if runs_per_row_of.id in self._sealed else None
-        return self._done_rows.get(node_id, 0), total
+        total = len(self._rows.get(runs_per_row_of.id, ())) if runs_per_row_of.id in self._indexes_with_all_rows_made else None
+        return self._units_done_on_rows.get(node_id, 0), total
 
     def _units_under(self, node_id: str, row: Row) -> list[Unit]:
         """This node's units at ``row`` or beneath it, in no particular order —
@@ -349,7 +349,7 @@ class RunLedger:
 
     # -- readiness -----------------------------------------------------------
 
-    def ready(self, unit: Unit) -> bool:
+    def unit_is_ready(self, unit: Unit) -> bool:
         """Every value this unit needs exists, or its producer is done."""
         node_id, row = unit
         runs_per_row_of = self._lookups.runs_per_row_of[node_id]
@@ -357,44 +357,44 @@ class RunLedger:
             return True  # standing in at a shorter row: the skip above it is already known
         return all(self._read_ready(ref, receive_mode, row) for ref, receive_mode in self._lookups.reads[node_id])
 
-    def runnable(self) -> list[Unit]:
+    def units_ready_to_start(self) -> list[Unit]:
         """Every unit that may start now: ready, and neither done nor waiting
-        on a person. Asks ``ready`` of every unit, so the engine calls it
+        on a person. Asks ``unit_is_ready`` of every unit, so the engine calls it
         where a leg starts and where it goes quiet, never per write."""
         return [
             unit
             for node_id in self._compiled.execution_order
-            if not self.complete(node_id)
+            if not self.node_is_complete(node_id)
             for unit in self.units(node_id)
-            if unit not in self._done and unit not in self._waiting and self.ready(unit)
+            if unit not in self._done and unit not in self._waiting and self.unit_is_ready(unit)
         ]
 
     def _read_ready(self, ref: Ref, receive_mode: ReceiveMode, row: Row) -> bool:
         """Is what a unit at ``row`` reads of ``ref``, received as ``receive_mode``,
         written? Per row: the value at its row. Grouped: every row of the
         group under it. EntireValue or gathered: everything on the ref."""
-        if _per_row(receive_mode):
-            return self._present(ref, self._key(ref, row))
-        return self._written(ref, row[: _rows_under_depth(receive_mode)])
+        if _reads_one_value_at_row(receive_mode):
+            return self._has_value_at(ref, self._row_on_field_index(ref, row))
+        return self._group_is_written(ref, row[: _group_depth(receive_mode)])
 
-    def _present(self, ref: Ref, row: Row) -> bool:
-        return self._lookup(ref, row)[0] is not _MISSING
+    def _has_value_at(self, ref: Ref, row: Row) -> bool:
+        return self._value_or_skip_at(ref, row)[0] is not _MISSING
 
-    def _key(self, ref: Ref, row: Row) -> Row:
+    def _row_on_field_index(self, ref: Ref, row: Row) -> Row:
         """Where a unit at ``row`` reads ``ref`` as a scalar: its row on the ref's index, or ``()``."""
         index = self._fields[ref]._index
         return () if index is None else row[: index.depth]
 
-    def _written(self, ref: Ref, group_row: Row) -> bool:
+    def _group_is_written(self, ref: Ref, group_row: Row) -> bool:
         """Is every value of ``ref`` a series reader at ``group_row`` receives written?
         The one value of a field that carries a single value, else the rows under ``group_row``."""
         index = self._fields[ref]._index
-        return self._present(ref, ()) if index is None else self._all_written(ref, index, group_row)
+        return self._has_value_at(ref, ()) if index is None else self._rows_under_are_written(ref, index, group_row)
 
-    def _all_written(self, ref: Ref, index: Index, group_row: Row) -> bool:
+    def _rows_under_are_written(self, ref: Ref, index: Index, group_row: Row) -> bool:
         """Is every value of ``ref`` under ``group_row`` written? True when the
         field is skipped there, or every row under it is made and produced."""
-        if self._lookup(ref, group_row)[0] is SKIPPED:
+        if self._value_or_skip_at(ref, group_row)[0] is SKIPPED:
             return True
         no_rows_under = self._no_rows_under.get(index.id, ())
         if any(row_on_path in no_rows_under for row_on_path in _rows_from_root_to(group_row)):
@@ -402,7 +402,7 @@ class RunLedger:
         if len(group_row) == index.depth:
             made = group_row in self._rows.get(index.id, ())  # the group is the row itself
         else:
-            made = (index.id, group_row) in self._groups or self._groups_under_made(index, group_row)
+            made = (index.id, group_row) in self._groups_with_all_rows_made or self._groups_under_made(index, group_row)
         if not made:
             return False
         # A made group's rows are final, so how many are written from the
@@ -411,7 +411,7 @@ class RunLedger:
         if field_and_group not in self._written_rows:
             self._written_rows[field_and_group] = (self._rows_under(index.id, group_row), 0)
         rows, written = self._written_rows[field_and_group]
-        while written < len(rows) and self._present(ref, rows[written]):
+        while written < len(rows) and self._has_value_at(ref, rows[written]):
             written += 1
         self._written_rows[field_and_group] = (rows, written)
         return written == len(rows)
@@ -425,7 +425,7 @@ class RunLedger:
         parent = index.parent
         if parent is None or len(group_row) >= parent.depth:
             return False
-        if (parent.id, group_row) not in self._groups and not self._groups_under_made(parent, group_row):
+        if (parent.id, group_row) not in self._groups_with_all_rows_made and not self._groups_under_made(parent, group_row):
             return False
         index_and_group = (index.id, group_row)
         if index_and_group not in self._parent_rows_made:
@@ -433,22 +433,22 @@ class RunLedger:
         parent_rows, made = self._parent_rows_made[index_and_group]
         no_rows_under = self._no_rows_under.get(index.id, ())
         while made < len(parent_rows) and (
-            (index.id, parent_rows[made]) in self._groups or any(row_on_path in no_rows_under for row_on_path in _rows_from_root_to(parent_rows[made]))
+            (index.id, parent_rows[made]) in self._groups_with_all_rows_made or any(row_on_path in no_rows_under for row_on_path in _rows_from_root_to(parent_rows[made]))
         ):
             made += 1
         if made < len(parent_rows):
             self._parent_rows_made[index_and_group] = (parent_rows, made)
             return False
         del self._parent_rows_made[index_and_group]
-        self._groups.add(index_and_group)
+        self._groups_with_all_rows_made.add(index_and_group)
         return True
 
     # -- what a unit receives -------------------------------------------------
 
-    def inputs_for(self, unit: Unit) -> dict[str, Any] | Skip | NotCalled:
+    def inputs_for(self, unit: Unit) -> dict[str, Any] | SkippedAtRow | BlankInputsStopCall:
         """The keyword arguments this unit runs with, or what stops it.
 
-        A ``Skip`` comes from ``SKIPPED`` on an input received per row, on
+        A ``SkippedAtRow`` comes from ``SKIPPED`` on an input received per row, on
         the series an input receives whole or reduced, or at a row above
         this unit's. A gather drops skipped sources instead — an empty
         gather is an empty series — because gathering is how "whichever
@@ -458,7 +458,7 @@ class RunLedger:
         node = self._compiled.node(node_id)
         runs_per_row_of = self._lookups.runs_per_row_of[node_id]
         if runs_per_row_of is not None and len(row) < runs_per_row_of.depth:
-            return Skip(row=row)
+            return SkippedAtRow(row=row)
         values: dict[str, Any] = {}
         statics = node.statics
         for inp in self._lookups.interfaces[node_id].inputs:
@@ -473,14 +473,14 @@ class RunLedger:
                 values[inp.name] = self._static_or_default_for_unit(receive_mode, statics[inp.name], own, row)
                 continue
             if isinstance(receive_mode, (PerRow, Broadcast)):
-                covering, skips = self._covering(node_id, binding.refs, row)
+                covering, skips = self._values_covering_row(node_id, binding.refs, row)
                 if not covering:
-                    return Skip(row=max(skips, key=len))
+                    return SkippedAtRow(row=max(skips, key=len))
                 (values[inp.name],) = covering
             elif isinstance(receive_mode, Merge):
-                merged = self._merged(receive_mode, row)
+                merged = self._merged_table_for_unit(receive_mode, row)
                 if merged is None:
-                    return Skip(row=row)
+                    return SkippedAtRow(row=row)
                 # Read through the input's own type when the call is checked, so a
                 # merged table it won't take fails this node, naming the column.
                 values[inp.name] = merged
@@ -488,33 +488,33 @@ class RunLedger:
                 gathered: list[Any] = []
                 for ref in binding.refs:
                     index = self._fields[ref]._index
-                    value, _ = self._lookup(ref, ())
+                    value, _ = self._value_or_skip_at(ref, ())
                     if value is SKIPPED:
                         continue
                     if index is None:
                         gathered.append(value)
                     else:
-                        gathered.extend(self._series(node_id, (ref,), index, self._rows_under(index.id, ())).values)
+                        gathered.extend(self._series_on_rows(node_id, (ref,), index, self._rows_under(index.id, ())).values)
                 values[inp.name] = Series(gathered, index=receive_mode.index)
             else:
-                group_row = row[: _rows_under_depth(receive_mode)]
-                found = [self._lookup(ref, group_row) for ref in binding.refs]
+                group_row = row[: _group_depth(receive_mode)]
+                found = [self._value_or_skip_at(ref, group_row) for ref in binding.refs]
                 if all(value is SKIPPED for value, _ in found):
-                    return Skip(row=max((value_row for _, value_row in found), key=len))
+                    return SkippedAtRow(row=max((value_row for _, value_row in found), key=len))
                 index = self._fields[binding.refs[0]]._index
                 if index is None:
                     # Received whole from a source that ran once: the one value.
                     ((values[inp.name], _),) = found
                 else:
-                    values[inp.name] = self._series(node_id, binding.refs, index, self._rows_under(index.id, group_row))
+                    values[inp.name] = self._series_on_rows(node_id, binding.refs, index, self._rows_under(index.id, group_row))
         blank = tuple(name for name in node._inputs_refusing_a_blank if values.get(name, _MISSING) is None)
         if blank:
-            return NotCalled(blank)
+            return BlankInputsStopCall(blank)
         if node._series_inputs_leaving_blanks_out:
             _leave_out_blank_rows(values, node._series_inputs_leaving_blanks_out)
         return values
 
-    def _merged(self, receive_mode: Merge, row: Row) -> pl.DataFrame | None:
+    def _merged_table_for_unit(self, receive_mode: Merge, row: Row) -> pl.DataFrame | None:
         """The one table a unit at ``row`` receives from every source of a ``Table``
         input, or ``None`` when every source is skipped there. Reads each source's
         rows; ``conductor._internal.table.merge_tables_on_row_ids`` matches them. A skipped source has no rows
@@ -525,8 +525,8 @@ class RunLedger:
             field = self._fields[source]
             is_table = is_table_or_series_of_tables(field.type)
             index: Index = field._makes_rows if is_table else field._index  # type: ignore[assignment]
-            group_row = row[: source_receive_mode.index.depth] if isinstance(source_receive_mode, PerRow) else row[: _rows_under_depth(source_receive_mode)]
-            stored, _ = self._lookup(source, group_row)
+            group_row = row[: source_receive_mode.index.depth] if isinstance(source_receive_mode, PerRow) else row[: _group_depth(source_receive_mode)]
+            stored, _ = self._value_or_skip_at(source, group_row)
             is_skip = stored is SKIPPED
             skipped += is_skip
             if is_table:
@@ -535,7 +535,7 @@ class RunLedger:
                 continue
             present = [
                 (row, value) for row in self._rows_under(index.id, group_row)
-                if (value := self._lookup(source, row)[0]) is not SKIPPED and value is not _MISSING
+                if (value := self._value_or_skip_at(source, row)[0]) is not SKIPPED and value is not _MISSING
             ]
             frame = one_column_frame_with_row_ids(field._title, field._cell_type, [self._row_id(index, row) for row, _ in present], [value for _, value in present])
             sources.append(MergeSource(source.node_id, frame, index, [row for row, _ in present]))
@@ -545,13 +545,13 @@ class RunLedger:
         """The id of the row at ``row`` on ``index``: on a table's rows, the id
         its stored table carries, which may have come in with the table; on
         any other index, the id spelled from the index and the row."""
-        owner = self._lookups.field_making_rows_of_index.get(index.id)
-        if owner is not None and owner._column_of_table is None and owner._is_output and is_table_or_series_of_tables(owner.type):
-            stored, _ = self._lookup(owner.ref, row[:-1])
+        maker = self._lookups.field_making_rows_of_index.get(index.id)
+        if maker is not None and maker._column_of_table is None and maker._is_output and is_table_or_series_of_tables(maker.type):
+            stored, _ = self._value_or_skip_at(maker.ref, row[:-1])
             return stored[ROW_ID_COLUMN][row[-1]]
         return global_row_id(index, row)
 
-    def _covering(self, node_id: str, refs: tuple[Ref, ...], row: Row) -> tuple[list[Any], list[Row]]:
+    def _values_covering_row(self, node_id: str, refs: tuple[Ref, ...], row: Row) -> tuple[list[Any], list[Row]]:
         """Of several refs read at one row: the values that cover it, and the
         rows at which the others were skipped. Two covering the same row
         means two edges both supplied that row, and the node fails with
@@ -559,7 +559,7 @@ class RunLedger:
         covering: list[Any] = []
         skips: list[Row] = []
         for ref in refs:
-            value, value_row = self._lookup(ref, self._key(ref, row))
+            value, value_row = self._value_or_skip_at(ref, self._row_on_field_index(ref, row))
             if value is _MISSING:
                 raise KeyError(f"{ref} has no value at {value_row} — the unit was not ready")
             if value is SKIPPED:
@@ -584,31 +584,31 @@ class RunLedger:
             return list(value)[row[receive_mode.index.depth - 1]]
         return value
 
-    def _lookup(self, ref: Ref, row: Row) -> tuple[Any, Row]:
+    def _value_or_skip_at(self, ref: Ref, row: Row) -> tuple[Any, Row]:
         """``(value, row)`` for the value at ``(ref, row)``: ``SKIPPED`` at the
         shortest prefix of ``row`` that holds one, else what is at ``row``
         (``_MISSING`` when nothing is). A column of a table is read off the
-        table at the row above (``_cell``)."""
+        table at the row above (``_table_column_cell``)."""
         view = self._table_column_fields.get(ref)
         if view is not None:
-            return self._cell(ref, view, row)
+            return self._table_column_cell(ref, view, row)
         by_row = self._values.get(ref, _NO_VALUES)
-        if ref in self._skipped_on:
+        if ref in self._fields_with_a_skip:
             for row_on_path in _rows_from_root_to(row):
                 if by_row.get(row_on_path) is SKIPPED:
                     return SKIPPED, row_on_path
         return by_row.get(row, _MISSING), row
 
-    def _cell(self, ref: Ref, view: tuple[Ref, str], row: Row) -> tuple[Any, Row]:
+    def _table_column_cell(self, ref: Ref, view: tuple[Ref, str], row: Row) -> tuple[Any, Row]:
         """The value of a table's column at ``row``: the cell in row ``row[-1]``
         of the table stored at ``row[:-1]``, as its column's type, a blank
         cell ``None``. A skip on the table is a skip here, at its depth."""
         table, column = view
         if len(row) < self._fields[ref]._index.depth:
             # A group above the table's rows: only a skip on the table reaches it.
-            stored, value_row = self._lookup(table, row)
+            stored, value_row = self._value_or_skip_at(table, row)
             return (stored, value_row) if stored is SKIPPED else (_MISSING, row)
-        stored, value_row = self._lookup(table, row[:-1])
+        stored, value_row = self._value_or_skip_at(table, row[:-1])
         if stored is _MISSING or stored is SKIPPED:
             return stored, value_row
         cells = stored[column]
@@ -625,20 +625,20 @@ class RunLedger:
             return [group_row]
         return sorted(self._rows_under_each_row.get(index_id, {}).get(group_row, ()))
 
-    def _series(self, node_id: str, refs: tuple[Ref, ...], index: Index, rows: list[Row]) -> Series[Any]:
+    def _series_on_rows(self, node_id: str, refs: tuple[Ref, ...], index: Index, rows: list[Row]) -> Series[Any]:
         """A series of the values on ``rows`` — from one ref, or from whichever
         of several covers each row — sparse where none does."""
         present: list[tuple[Row, Any]] = []
         for row in rows:
-            covering, _ = self._covering(node_id, refs, row)
+            covering, _ = self._values_covering_row(node_id, refs, row)
             if covering:
                 present.append((row, covering[0]))
         return Series([value for _, value in present], index=index, rows=[row for row, _ in present])
 
     # -- recording -----------------------------------------------------------------
 
-    def record(self, unit: Unit, outputs: dict[str, Any] | Skip | NotCalled) -> list[Unit]:
-        """Record that this unit produced ``outputs``, or a ``Skip`` because it
+    def record(self, unit: Unit, outputs: dict[str, Any] | SkippedAtRow | BlankInputsStopCall) -> list[Unit]:
+        """Record that this unit produced ``outputs``, or a ``SkippedAtRow`` because it
         did not run, and return the units that are ready because of it.
 
         ``outputs`` are cells that passed their outputs' checks: one cell, a
@@ -651,10 +651,10 @@ class RunLedger:
         under that row; an empty one makes no rows and leaves an empty group,
         so a reduction over it still runs. A table is one value, and makes
         rows on its columns' index only when something reads a column. For a
-        ``NotCalled`` unit each output is its blank (``_blank_of``).
+        ``BlankInputsStopCall`` unit each output is its blank (``_blank_of``).
 
         The units returned are the ones this write could have made ready and
-        that answer ``ready`` now, in execution order; the engine starts
+        that answer ``unit_is_ready`` now, in execution order; the engine starts
         those and asks nothing else.
         """
         node_id, row = unit
@@ -665,8 +665,8 @@ class RunLedger:
         rows_made: dict[str, list[Row]] = {}
         no_rows_under: list[tuple[str, Row]] = []
         making: list[str] = []
-        skip_row = outputs.row if isinstance(outputs, Skip) else None
-        not_called = outputs if isinstance(outputs, NotCalled) else None
+        skip_row = outputs.row if isinstance(outputs, SkippedAtRow) else None
+        not_called = outputs if isinstance(outputs, BlankInputsStopCall) else None
         if not_called is not None:
             counts = self._rows_not_called.setdefault(node_id, {})
             for name in not_called.blank_inputs:
@@ -695,24 +695,24 @@ class RunLedger:
                 if self._columns_read(index.id):
                     new_rows = rows_made.setdefault(index.id, [])
                     for child_position in range(value.height):
-                        if self._made(index.id, (*write_row, child_position)):
+                        if self._add_row(index.id, (*write_row, child_position)):
                             new_rows.append((*write_row, child_position))
-                self._groups.add((index.id, write_row))
+                self._groups_with_all_rows_made.add((index.id, write_row))
             else:
                 new_rows = rows_made.setdefault(index.id, [])
                 for child_position, item in enumerate(value):
                     new_row = (*write_row, child_position)
-                    if self._made(index.id, new_row):
+                    if self._add_row(index.id, new_row):
                         new_rows.append(new_row)
                     self._write(ref, new_row, item, written)
-                self._groups.add((index.id, write_row))
+                self._groups_with_all_rows_made.add((index.id, write_row))
         lists = [child for index_id, new_rows in rows_made.items() for new_row in new_rows for child in self._add_rows_of_lists_under(index_id, new_row)]
         for index_id, write_row in no_rows_under:
             self._no_rows_under.setdefault(index_id, set()).add(write_row)
             lists.extend(self._mark_lists_empty_under(index_id, write_row))
-        self._finish(unit)
-        sealed = self._seal(list(making))
-        return self._woken(unit, written, rows_made, no_rows_under, making, sealed, lists)
+        self._mark_unit_done(unit)
+        sealed = self._seal_indexes_whose_makers_are_complete(list(making))
+        return self._units_made_ready_by_write(unit, written, rows_made, no_rows_under, making, sealed, lists)
 
     def rows_not_called(self, node_id: str) -> dict[str, int]:
         """How many rows this node wasn't called on, per input that was blank there."""
@@ -731,9 +731,9 @@ class RunLedger:
             written.append((ref, row))
         by_row[row] = value
         if value is SKIPPED:
-            self._skipped_on.add(ref)
+            self._fields_with_a_skip.add(ref)
 
-    def _made(self, index_id: str, row: Row) -> bool:
+    def _add_row(self, index_id: str, row: Row) -> bool:
         """Make ``row`` on the index; ``False`` when it already was made."""
         rows = self._rows.setdefault(index_id, set())
         if row in rows:
@@ -752,11 +752,11 @@ class RunLedger:
         for ref, child in self._lists_on_nodes_under(index_id):
             cells = self._values.setdefault(ref, {})
             for position, value in enumerate(self._compiled.node(ref.node_id).statics[ref.field]):
-                if self._made(child, (*row, position)):
+                if self._add_row(child, (*row, position)):
                     made.append((child, (*row, position)))
                     made.extend(self._add_rows_of_lists_under(child, (*row, position)))
                 cells[(*row, position)] = value
-            self._groups.add((child, row))
+            self._groups_with_all_rows_made.add((child, row))
         return made
 
     def _mark_lists_empty_under(self, index_id: str, skip_row: Row) -> list[tuple[str, Row]]:
@@ -772,33 +772,33 @@ class RunLedger:
     def _seal_lists_on_nodes_under(self, index_id: str, sealed: list[str]) -> list[str]:
         """Seal the lists set on nodes beneath a sealed index: every parent
         row is made, so every row under them is. Returns the indexes made by
-        nodes running per row of the ones sealed, for ``_seal`` to try next."""
+        nodes running per row of the ones sealed, for ``_seal_indexes_whose_makers_are_complete`` to try next."""
         next_up: list[str] = []
         for _, child in self._lists_on_nodes_under(index_id):
-            if child in self._sealed:
+            if child in self._indexes_with_all_rows_made:
                 continue
-            self._close(child)
+            self._mark_index_sealed(child)
             sealed.append(child)
-            next_up.extend(self._making_rows_on(child))
+            next_up.extend(self._indexes_made_per_row_of(child))
             next_up.extend(self._seal_lists_on_nodes_under(child, sealed))
         return next_up
 
-    def _close(self, index_id: str) -> None:
+    def _mark_index_sealed(self, index_id: str) -> None:
         """Seal an index: no row will ever be added to it, so the whole of it is one made group."""
-        self._sealed.add(index_id)
-        self._groups.add((index_id, ()))
+        self._indexes_with_all_rows_made.add(index_id)
+        self._groups_with_all_rows_made.add((index_id, ()))
 
-    def _finish(self, unit: Unit) -> None:
+    def _mark_unit_done(self, unit: Unit) -> None:
         """Mark the unit done, and count it toward its node's rows."""
         if unit in self._done:
             return
         self._done[unit] = None
         node_id, _ = unit
         if self._lookups.runs_per_row_of[node_id] is not None:
-            counts = self._done_rows if self.on_a_row(unit) else self._done_standing_in
+            counts = self._units_done_on_rows if self.unit_is_at_a_real_row(unit) else self._units_done_above_rows
             counts[node_id] = counts.get(node_id, 0) + 1
 
-    def _seal(self, index_ids: list[str]) -> list[str]:
+    def _seal_indexes_whose_makers_are_complete(self, index_ids: list[str]) -> list[str]:
         """Seal each of these indexes whose maker's node is complete, and every
         index made by a node running per row of one sealed that way, since a
         child index can only be sealed once its parent is. Returns the
@@ -806,15 +806,15 @@ class RunLedger:
         sealed: list[str] = []
         while index_ids:
             index_id = index_ids.pop()
-            if index_id in self._sealed or not self.complete(self._owner(index_id).ref.node_id):
+            if index_id in self._indexes_with_all_rows_made or not self.node_is_complete(self._field_making_rows_of(index_id).ref.node_id):
                 continue
-            self._close(index_id)
+            self._mark_index_sealed(index_id)
             sealed.append(index_id)
-            index_ids.extend(self._making_rows_on(index_id))
+            index_ids.extend(self._indexes_made_per_row_of(index_id))
             index_ids.extend(self._seal_lists_on_nodes_under(index_id, sealed))
         return sealed
 
-    def _woken(
+    def _units_made_ready_by_write(
         self,
         unit: Unit,
         written: list[tuple[Ref, Row]],
@@ -837,53 +837,53 @@ class RunLedger:
         index is sealed.
         """
         _, row = unit
-        woken: set[Unit] = set()
+        made_ready: set[Unit] = set()
         for ref, new_row in written:
             for inp, receive_mode in self._lookups.read_by[ref]:
-                depth = _rows_under_depth(receive_mode)
-                if _per_row(receive_mode) or len(new_row) < depth:
-                    woken.update(self._units_under(inp.node_id, new_row))
+                depth = _group_depth(receive_mode)
+                if _reads_one_value_at_row(receive_mode) or len(new_row) < depth:
+                    made_ready.update(self._units_under(inp.node_id, new_row))
                 else:
-                    self._wake_group(ref, inp.node_id, new_row[:depth], woken)
+                    self._add_group_readers_if_written(ref, inp.node_id, new_row[:depth], made_ready)
         for index_id, new_rows in rows_made.items():
             readers = self._lookups.nodes_running_per_row_of_index[index_id]
             for new_row in new_rows:
-                woken.update((reader, new_row) for reader in readers)
+                made_ready.update((reader, new_row) for reader in readers)
         for index_id, new_row in (*no_rows_under, *lists):
-            woken.update((reader, new_row) for reader in self._lookups.nodes_running_per_row_of_index[index_id])
+            made_ready.update((reader, new_row) for reader in self._lookups.nodes_running_per_row_of_index[index_id])
         for index_id, new_row in lists:
-            for reader, ref, depth in self._grouped_on(index_id):
+            for reader, ref, depth in self._group_readers_of(index_id):
                 if 0 < depth <= len(new_row):
-                    self._wake_group(ref, reader, new_row[:depth], woken)
+                    self._add_group_readers_if_written(ref, reader, new_row[:depth], made_ready)
         for index_id in making:
             new_rows = rows_made.get(index_id, [])
-            for reader, ref, depth in self._grouped_on(index_id):
+            for reader, ref, depth in self._group_readers_of(index_id):
                 for new_row in new_rows:
                     if depth == len(new_row):
-                        self._wake_group(ref, reader, new_row, woken)
+                        self._add_group_readers_if_written(ref, reader, new_row, made_ready)
                 if 0 < depth <= len(row):  # a whole read (depth 0) waits for the seal below
-                    self._wake_group(ref, reader, row[:depth], woken)
+                    self._add_group_readers_if_written(ref, reader, row[:depth], made_ready)
             if not new_rows:  # no rows here means none further down, so nothing below will write
-                self._wake_readers_further_down(index_id, row, woken)
+                self._add_group_readers_further_down(index_id, row, made_ready)
         for index_id in sealed:
-            for reader, ref, depth in self._grouped_on(index_id):
+            for reader, ref, depth in self._group_readers_of(index_id):
                 if depth == 0:
-                    self._wake_group(ref, reader, (), woken)
-        ready = [unit for unit in woken if unit not in self._done and unit not in self._waiting and self.ready(unit)]
-        return sorted(ready, key=lambda unit: (self._position[unit[0]], unit[1]))
+                    self._add_group_readers_if_written(ref, reader, (), made_ready)
+        unit_is_ready = [unit for unit in made_ready if unit not in self._done and unit not in self._waiting and self.unit_is_ready(unit)]
+        return sorted(unit_is_ready, key=lambda unit: (self._execution_position[unit[0]], unit[1]))
 
-    def _wake_readers_further_down(self, index_id: str, row: Row, woken: set[Unit]) -> None:
+    def _add_group_readers_further_down(self, index_id: str, row: Row, made_ready: set[Unit]) -> None:
         """Wake the readers of every index under ``index_id`` whose group sits at or above ``row``."""
-        for child in self._making_rows_on(index_id):
-            for reader, ref, depth in self._grouped_on(child):
+        for child in self._indexes_made_per_row_of(index_id):
+            for reader, ref, depth in self._group_readers_of(child):
                 if 0 < depth <= len(row):
-                    self._wake_group(ref, reader, row[:depth], woken)
-            self._wake_readers_further_down(child, row, woken)
+                    self._add_group_readers_if_written(ref, reader, row[:depth], made_ready)
+            self._add_group_readers_further_down(child, row, made_ready)
 
-    def _wake_group(self, ref: Ref, reader: str, group_row: Row, woken: set[Unit]) -> None:
+    def _add_group_readers_if_written(self, ref: Ref, reader: str, group_row: Row, made_ready: set[Unit]) -> None:
         """Add ``reader``'s units in ``group_row`` when every value of ``ref`` they read is written."""
-        if self._written(ref, group_row):
-            woken.update(self._units_under(reader, group_row))
+        if self._group_is_written(ref, group_row):
+            made_ready.update(self._units_under(reader, group_row))
 
     # -- waiting on a person ---------------------------------------------
 
@@ -898,7 +898,7 @@ class RunLedger:
         """Every unit waiting on a person, in execution order and row order
         within a node: not the order their concurrent calls happened to ask in."""
         return tuple(
-            asked for _, asked in sorted(self._waiting.items(), key=lambda item: (self._position[item[0][0]], item[0][1]))
+            asked for _, asked in sorted(self._waiting.items(), key=lambda item: (self._execution_position[item[0][0]], item[0][1]))
         )
 
     # -- what the run produced -------------------------------------------------------
@@ -949,7 +949,7 @@ class RunLedger:
             waiting=self.waiting(),
             output_columns=columns,
             # A node complete on no rows is here with none: the state says it finished.
-            finished_rows={node_id: sorted(finished_by_node.get(node_id, ())) for node_id in order if node_id in finished_by_node or self.complete(node_id)},
+            finished_rows={node_id: sorted(finished_by_node.get(node_id, ())) for node_id in order if node_id in finished_by_node or self.node_is_complete(node_id)},
             node_fingerprints={node_id: compiled.node(node_id).fingerprint for node_id in order},
             rows_not_called={node_id: dict(sorted(self._rows_not_called[node_id].items())) for node_id in order if node_id in self._rows_not_called},
         )
@@ -979,7 +979,7 @@ class RunLedger:
         restored._values.update(values)
         if problems:
             raise InvalidCallError(problems)
-        restored._skipped_on = {ref for ref in values if state.output_columns[ref].skipped}
+        restored._fields_with_a_skip = {ref for ref in values if state.output_columns[ref].skipped}
         finished = {node_id: rows for node_id, rows in state.finished_rows.items() if node_id not in dropped}
         done = [(node_id, row) for node_id, rows in finished.items() for row in rows]
         restored._waiting = {(asked.node_id, asked.row): asked for asked in state.waiting if asked.node_id not in dropped}
@@ -989,8 +989,8 @@ class RunLedger:
         if problems:
             raise InvalidCallError(problems)
         for unit in done:
-            restored._finish(unit)
-        restored._seal([
+            restored._mark_unit_done(unit)
+        restored._seal_indexes_whose_makers_are_complete([
             index_id for node_id in reversed(compiled.execution_order) if node_id not in dropped
             for index_id in restored._indexes_made_by(node_id)
         ])
@@ -1020,7 +1020,7 @@ class RunLedger:
                 problems.extend(
                     make_problem("state_unreadable", "state", ref, *row, reason=f"the state has {node_id!r} finished at row {list(row)}, with no value for {ref}")
                     for row in sorted(rows - self._values.get(ref, _NO_VALUES).keys())
-                    if self._lookup(ref, row)[0] is _MISSING
+                    if self._value_or_skip_at(ref, row)[0] is _MISSING
                 )
         return problems
 
@@ -1060,11 +1060,11 @@ class RunLedger:
                     if ref not in rows_under_parent:
                         rows_under_parent[ref] = _rows_by_parent(by_row)
                     made.setdefault(index.id, set()).update(rows_under_parent[ref].get(row, ()))
-                self._groups.add((index.id, row))
+                self._groups_with_all_rows_made.add((index.id, row))
         for node_id in self._compiled.execution_order:
             for index_id in self._indexes_made_by(node_id):
                 for new_row in sorted(made.get(index_id, ())):
-                    self._made(index_id, new_row)
+                    self._add_row(index_id, new_row)
                     self._add_rows_of_lists_under(index_id, new_row)
 
 
@@ -1146,7 +1146,7 @@ def _read_output_column(compiled: CompiledGraph, ref: Ref, column: OutputColumn,
         try:
             by_row[row] = _restored_cell(field, stored, read)
         except (TypeError, ValueError) as unreadable:
-            problems.append(make_problem("state_unreadable", "state", ref, *row, reason=f"the state's value for {ref} at row {list(row)} does not read back: {_reason(unreadable)}"))
+            problems.append(make_problem("state_unreadable", "state", ref, *row, reason=f"the state's value for {ref} at row {list(row)} does not read back: {_read_failure_message(unreadable)}"))
     for row in column.skipped:
         by_row[row] = SKIPPED
     return by_row
@@ -1197,7 +1197,7 @@ def _rows_with_a_value(by_row: Mapping[Row, Any]) -> list[Row]:
     return [row for row in rows if not any(row_on_path in skipped for row_on_path in _rows_from_root_to(row))] if skipped else rows
 
 
-def _reason(unreadable: Exception) -> str:
+def _read_failure_message(unreadable: Exception) -> str:
     """Why a value did not read: pydantic's first message when pydantic said, never the value."""
     if isinstance(unreadable, ValidationError):
         return unreadable.errors(include_url=False, include_input=False, include_context=False)[0]["msg"]

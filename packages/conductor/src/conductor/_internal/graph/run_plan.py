@@ -89,7 +89,7 @@ class NodeRunPlan(ConductorModel):
     #: The outputs of this node that make rows.
     makes_rows: tuple[Ref, ...]
 
-    def _line(self, width: int) -> str:
+    def _as_text_line(self, width: int) -> str:
         where = "once" if self.runs_per_row_of is None else f"per row of {self.runs_per_row_of}"
         shown = [f"{name}: {plan}" for name, plan in self.inputs.items() if plan.sources or plan.rows_of is not None]
         return f"{self.node_id:<{width}}  {where:<28}  {shown[0] if shown else ''}".rstrip() + "".join(
@@ -105,7 +105,7 @@ class RunPlan(ConductorModel):
 
     def __str__(self) -> str:
         width = max((len(node_id) for node_id in self.nodes), default=0)
-        return "\n".join(plan._line(width) for plan in self.nodes.values())
+        return "\n".join(plan._as_text_line(width) for plan in self.nodes.values())
 
 
 def _index_as_address(index: Index | None) -> Ref | None:
@@ -133,23 +133,23 @@ def plan_of_node(node: CompiledNode) -> NodeRunPlan:
     assert node.wiring is not None and node.interface is not None
     fields = node.wiring.fields
     inputs: dict[str, InputPlan] = {}
-    for inp in node.interface.inputs:
-        compiled_input = fields[inp.name]
+    for input_ in node.interface.inputs:
+        compiled_input = fields[input_.name]
         binding = compiled_input.binding
         sources = tuple(binding.refs) if binding is not None and hasattr(binding, "refs") else ()
         receive_mode = compiled_input._receive_mode
         if isinstance(receive_mode, Merge):
             source_plans = tuple(
-                _plan_of_receive_mode((source,), part, inp.takes_blank).model_copy(update={"copied_down": source in receive_mode.copied_down})
+                _plan_of_receive_mode((source,), part, input_.takes_blank).model_copy(update={"copied_down": source in receive_mode.copied_down})
                 for source, part in receive_mode.receive_mode_by_source
             )
-            inputs[inp.name] = InputPlan.model_construct(sources=sources, receive_mode="merged", rows_of=None, grouped_under=None, takes_blank=inp.takes_blank, source_plans=source_plans, copied_down=False)
+            inputs[input_.name] = InputPlan.model_construct(sources=sources, receive_mode="merged", rows_of=None, grouped_under=None, takes_blank=input_.takes_blank, source_plans=source_plans, copied_down=False)
         else:
-            inputs[inp.name] = _plan_of_receive_mode(sources, receive_mode, inp.takes_blank)
+            inputs[input_.name] = _plan_of_receive_mode(sources, receive_mode, input_.takes_blank)
     runs_per_row_of = node.wiring._runs_per_row_of
     return NodeRunPlan.model_construct(
         node_id=node.id,
         runs_per_row_of=_index_as_address(runs_per_row_of),
         inputs=inputs,
-        makes_rows=tuple(f.ref for f in fields.values() if f._makes_rows is not None),
+        makes_rows=tuple(field.ref for field in fields.values() if field._makes_rows is not None),
     )

@@ -153,13 +153,13 @@ class RunState(ConductorModel):
         (``approve`` covers ``approve/check``).
         """
 
-        def gone(node_id: str) -> bool:
+        def is_dropped(node_id: str) -> bool:
             return any(node_id == dropped or node_id.startswith(f"{dropped}/") for dropped in node_ids)
 
         return self.model_copy(update={
-            "waiting": tuple(unit for unit in self.waiting if not gone(unit.node_id)),
-            "output_columns": {ref: column for ref, column in self.output_columns.items() if not gone(ref.node_id)},
-            "finished_rows": {node_id: rows for node_id, rows in self.finished_rows.items() if not gone(node_id)},
-            "node_fingerprints": {node_id: fingerprint for node_id, fingerprint in self.node_fingerprints.items() if not gone(node_id)},
-            "rows_not_called": {node_id: counts for node_id, counts in self.rows_not_called.items() if not gone(node_id)},
+            "waiting": tuple(unit for unit in self.waiting if not is_dropped(unit.node_id)),
+            "output_columns": {ref: column for ref, column in self.output_columns.items() if not is_dropped(ref.node_id)},
+            "finished_rows": {node_id: rows for node_id, rows in self.finished_rows.items() if not is_dropped(node_id)},
+            "node_fingerprints": {node_id: fingerprint for node_id, fingerprint in self.node_fingerprints.items() if not is_dropped(node_id)},
+            "rows_not_called": {node_id: counts for node_id, counts in self.rows_not_called.items() if not is_dropped(node_id)},
         })

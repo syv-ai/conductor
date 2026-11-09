@@ -29,43 +29,43 @@ def read_static_values(inputs: Iterable[Input], node: GraphNode) -> tuple[dict[s
     values = static_values(node.bindings)
     if not values:
         return {}, frozenset(), []
-    declared = {i.name: i for i in inputs}
+    input_by_name = {i.name: i for i in inputs}
     statics: dict[str, Any] = {}
     inputs_given_a_list: set[str] = set()
     problems: list[Problem] = []
     for name, value in values.items():
-        inp = declared.get(name)
-        if inp is None or inp.dtype.id == "any":
+        input_ = input_by_name.get(name)
+        if input_ is None or input_.dtype.id == "any":
             continue
         try:
-            statics[name], many = _read_value_or_list(inp, value)
+            statics[name], many = _read_value_or_list(input_, value)
         except (ValidationError, TypeError, ValueError) as unreadable:
             column = missing_column_in(unreadable) if isinstance(unreadable, ValidationError) else None
             if column is not None:
                 problems.append(make_problem("table_column_missing", node.id, name, column=column))
                 continue
-            said = _what_the_type_said(unreadable)
-            problems.append(make_problem("invalid_static", node.id, name, input=_short_repr(value), expected=type_name_for_sentence(inp.dtype), **({"reason": said} if said else {})))
+            said = _message_from_type_constructor(unreadable)
+            problems.append(make_problem("invalid_static", node.id, name, input=_short_repr(value), expected=type_name_for_sentence(input_.dtype), **({"reason": said} if said else {})))
             continue
         if many:
             inputs_given_a_list.add(name)
     return statics, frozenset(inputs_given_a_list), problems
 
 
-def _read_value_or_list(inp: Input, value: Any) -> tuple[Any, bool]:
-    """``value`` read through ``inp``'s type, and whether it is many values."""
-    element = inp.dtype.element
+def _read_value_or_list(input_: Input, value: Any) -> tuple[Any, bool]:
+    """``value`` read through ``input_``'s type, and whether it is many values."""
+    element = input_.dtype.element
     if element is not None:
         if not _is_sequence(value):
             raise TypeError("a Series input takes a sequence")
-        return [None if v is None and inp.takes_blank else _adapter(element).validate_python(v) for v in value], False
-    if value is None and inp.takes_blank:
+        return [None if item is None and input_.takes_blank else _adapter(element).validate_python(item) for item in value], False
+    if value is None and input_.takes_blank:
         return None, False
     try:
-        return _adapter(inp.dtype).validate_python(value), False
+        return _adapter(input_.dtype).validate_python(value), False
     except ValidationError:
-        if _is_sequence(value) and not is_table_or_series_of_tables(inp.dtype):  # records are one table, not many
-            return [_adapter(inp.dtype).validate_python(v) for v in value], True
+        if _is_sequence(value) and not is_table_or_series_of_tables(input_.dtype):  # records are one table, not many
+            return [_adapter(input_.dtype).validate_python(item) for item in value], True
         raise
 
 
@@ -85,7 +85,7 @@ def _adapter(dtype: type) -> TypeAdapter[Any]:
     return TypeAdapter(dtype)
 
 
-def _what_the_type_said(unreadable: Exception) -> str:
+def _message_from_type_constructor(unreadable: Exception) -> str:
     """The sentence the type's own constructor raised, if it raised one.
 
     A constructor written for people says something specific ("every row

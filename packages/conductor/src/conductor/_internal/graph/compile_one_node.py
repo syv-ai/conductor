@@ -18,9 +18,9 @@ from conductor._internal.field_records import Input, Output
 from conductor._internal.graph.binding import From
 from conductor._internal.graph.compiled_node import CompiledField, CompiledNode, Wiring
 from conductor._internal.graph.decide_rows_and_receive_modes import (
-    InputsRead,
-    decide_rows,
-    read_inputs,
+    WhatArrivesOnInputs,
+    decide_runs_per_row_of_and_receive_modes,
+    read_what_arrives_on_inputs,
 )
 from conductor._internal.graph.embedding import (
     NODE_PATH_SEPARATOR,
@@ -106,10 +106,10 @@ def compile_one_node(node: GraphNode, progress: CompileProgress, registry: NodeR
     if not can_be_wired:
         return _record_compiled_node(progress, node, problems, definition, version, _interface_with_fields(declared, inputs, declared.outputs), statics)
 
-    inputs_read = read_inputs(node, inputs, inputs_given_a_list, progress, problems)
-    if inputs_read.broken:
+    inputs_read = read_what_arrives_on_inputs(node, inputs, inputs_given_a_list, progress, problems)
+    if inputs_read.stopped_at_unreadable_source:
         return _record_compiled_node(progress, node, problems, definition, version, _interface_without_wiring(node, version, inputs, inputs_read, statics, problems), statics)
-    inputs_typed_by_their_edges = tuple(_with_type_from_its_edge(inp, inputs_read.bound) for inp in inputs)
+    inputs_typed_by_their_edges = tuple(_with_type_from_its_edge(inp, inputs_read.type_given_by_edge) for inp in inputs)
     try:
         outputs = _outputs_after_compute_outputs(version, inputs_read.arriving_types, statics)
     except ComputeHookError as hook_error:
@@ -123,7 +123,7 @@ def compile_one_node(node: GraphNode, progress: CompileProgress, registry: NodeR
         return _record_compiled_node(progress, node, problems, definition, version, interface, statics)
     if not outputs and (is_graph or version.return_shape is not None):
         problems.append(make_problem("no_outputs", node.id))
-    rows_agree, runs_per_row_of = decide_rows(node, inputs_read, problems, progress.row_origins)
+    rows_agree, runs_per_row_of = decide_runs_per_row_of_and_receive_modes(node, inputs_read, problems, progress.row_origins)
     if not rows_agree:
         return _record_compiled_node(progress, node, problems, definition, version, interface, statics)
     if is_graph:
@@ -275,7 +275,7 @@ def _bindings_can_be_wired(
 
 
 def _interface_without_wiring(
-    node: GraphNode, version: Any, inputs: tuple[Input, ...], inputs_read: InputsRead, statics: dict[str, Any], problems: list[Problem],
+    node: GraphNode, version: Any, inputs: tuple[Input, ...], inputs_read: WhatArrivesOnInputs, statics: dict[str, Any], problems: list[Problem],
 ) -> Interface:
     """A source couldn't be read: complete the node's fields from what did arrive, so an editor can draw it."""
     try:
@@ -284,7 +284,7 @@ def _interface_without_wiring(
         # The broken source carries the fault; a refusal about its missing
         # arrival would report the same fact twice.
         answered = ()
-    inputs_typed_by_their_edges = tuple(_with_type_from_its_edge(inp, inputs_read.bound) for inp in inputs)
+    inputs_typed_by_their_edges = tuple(_with_type_from_its_edge(inp, inputs_read.type_given_by_edge) for inp in inputs)
     problems.extend(field_problems(node.id, answered, frozenset(input_.name for input_ in inputs_typed_by_their_edges), untyped_ok=True))
     return _interface_with_fields(version.interface, inputs_typed_by_their_edges, answered)
 
@@ -318,7 +318,7 @@ def _condition_lookup_for_sources(progress: CompileProgress) -> Any:
 
 
 def _wiring_of_function_node(
-    node: GraphNode, interface: Interface, inputs_read: InputsRead, inputs_given_a_list: frozenset[str], runs_per_row_of: Index | None, progress: CompileProgress, problems: list[Problem],
+    node: GraphNode, interface: Interface, inputs_read: WhatArrivesOnInputs, inputs_given_a_list: frozenset[str], runs_per_row_of: Index | None, progress: CompileProgress, problems: list[Problem],
 ) -> Wiring:
     """Every field of a node that is a function, built once its row is known."""
     outputs = interface.outputs
@@ -342,7 +342,7 @@ def _wiring_of_function_node(
             ref=Ref._from_checked_parts(node_id, inp.name), type=field_type.dtype, binding=node.bindings.get(inp.name), condition=None,
             problems=tuple(problems_by_field.get(inp.name, ())), _index=field_type.index, _receive_mode=inputs_read.receive_modes[inp.name],
             _is_list_on_node=inp.name in inputs_given_a_list, _makes_rows=None, _column_of_table=None, _takes_blank=False, _title=inp.title,
-            _row_origins=progress.row_origins.of_rows_on(field_type.index) if inp.name in inputs_given_a_list else None,
+            _row_origins=progress.row_origins.origins_of_rows_on(field_type.index) if inp.name in inputs_given_a_list else None,
         )
     node_condition = condition_node_runs_under(node.bindings, _condition_lookup_for_sources(progress))
     runs_once = runs_per_row_of is None
@@ -353,7 +353,7 @@ def _wiring_of_function_node(
         dtype = out.dtype
         if is_table_or_series_of_tables(dtype):
             table_rows_index = Index(str(ref), parent=runs_per_row_of)
-            origins = progress.row_origins.note_table(table_rows_index, taken_in)
+            origins = progress.row_origins.record_table(table_rows_index, taken_in)
             fields[out.name] = CompiledField(
                 ref=ref, type=Series[dtype] if runs_per_row_of is not None else dtype, binding=None, condition=condition, problems=field_problems_here,
                 _index=runs_per_row_of, _receive_mode=None, _is_list_on_node=False, _makes_rows=table_rows_index, _column_of_table=None, _takes_blank=takes_blank, _title=out.title, _row_origins=origins,
@@ -376,14 +376,14 @@ def _wiring_of_function_node(
         fields[out.name] = CompiledField(
             ref=ref, type=field_type, binding=None, condition=condition, problems=field_problems_here,
             _index=index, _receive_mode=None, _is_list_on_node=False, _makes_rows=index if makes_rows_here else None, _column_of_table=None, _takes_blank=takes_blank, _title=out.title,
-            _row_origins=progress.row_origins.of_rows_on(index),
+            _row_origins=progress.row_origins.origins_of_rows_on(index),
         )
     return Wiring(fields, runs_per_row_of)
 
 
 def _place_embedded_graph(
     node: GraphNode, definition: Any, graph: CompiledGraph, embeddable: EmbeddableGraph, interface: Interface, statics: dict[str, Any], runs_per_row_of: Index | None,
-    inputs_read: InputsRead, progress: CompileProgress, problems: list[Problem],
+    inputs_read: WhatArrivesOnInputs, progress: CompileProgress, problems: list[Problem],
 ) -> None:
     """The graph node's record, and every node inside it under ``runs_per_row_of``."""
     offered = embeddable.inputs

@@ -55,21 +55,21 @@ def topological_order(
     ids = set(dependencies)
     cyclic = _cyclic(dependencies, ids)
     placeable = ids - cyclic
-    counted = {i: deps & placeable for i, deps in dependencies.items() if i in placeable}
-    pending = {i: len(deps) for i, deps in counted.items()}
-    dependents: dict[str, list[str]] = {i: [] for i in placeable}
-    for i, deps in counted.items():
-        for dep in deps:
-            dependents[dep].append(i)
+    dependencies_outside_cycles = {node_id: dependencies_of_node & placeable for node_id, dependencies_of_node in dependencies.items() if node_id in placeable}
+    unmet_dependency_count = {node_id: len(dependencies_of_node) for node_id, dependencies_of_node in dependencies_outside_cycles.items()}
+    dependents: dict[str, list[str]] = {node_id: [] for node_id in placeable}
+    for node_id, dependencies_of_node in dependencies_outside_cycles.items():
+        for dep in dependencies_of_node:
+            dependents[dep].append(node_id)
 
-    ready = deque(i for i, n in pending.items() if n == 0)
+    ready = deque(node_id for node_id, count in unmet_dependency_count.items() if count == 0)
     order: list[str] = []
     while ready:
-        i = ready.popleft()
-        order.append(i)
-        for dependent in dependents[i]:
-            pending[dependent] -= 1
-            if pending[dependent] == 0:
+        node_id = ready.popleft()
+        order.append(node_id)
+        for dependent in dependents[node_id]:
+            unmet_dependency_count[dependent] -= 1
+            if unmet_dependency_count[dependent] == 0:
                 ready.append(dependent)
     return tuple(order), frozenset(cyclic)
 
@@ -78,39 +78,39 @@ def _cyclic(dependencies: Mapping[str, frozenset[str]], ids: set[str]) -> set[st
     """The ids on a cycle: every member of a strongly connected component
     with more than one node, and every node that depends on itself.
     Tarjan's algorithm, iterative so a long chain cannot exhaust the stack."""
-    index: dict[str, int] = {}
-    low: dict[str, int] = {}
+    visit_number: dict[str, int] = {}
+    lowest_reachable: dict[str, int] = {}
     on_stack: set[str] = set()
     stack: list[str] = []
     cyclic: set[str] = set()
     counter = 0
 
     for root in dependencies:
-        if root in index:
+        if root in visit_number:
             continue
-        work: list[tuple[str, list[str]]] = [(root, [dep for dep in dependencies[root] if dep in ids])]
-        index[root] = low[root] = counter
+        call_stack: list[tuple[str, list[str]]] = [(root, [dep for dep in dependencies[root] if dep in ids])]
+        visit_number[root] = lowest_reachable[root] = counter
         counter += 1
         stack.append(root)
         on_stack.add(root)
-        while work:
-            node, remaining = work[-1]
+        while call_stack:
+            node, remaining = call_stack[-1]
             if remaining:
                 dep = remaining.pop()
-                if dep not in index:
-                    index[dep] = low[dep] = counter
+                if dep not in visit_number:
+                    visit_number[dep] = lowest_reachable[dep] = counter
                     counter += 1
                     stack.append(dep)
                     on_stack.add(dep)
-                    work.append((dep, [d for d in dependencies[dep] if d in ids]))
+                    call_stack.append((dep, [d for d in dependencies[dep] if d in ids]))
                 elif dep in on_stack:
-                    low[node] = min(low[node], index[dep])
+                    lowest_reachable[node] = min(lowest_reachable[node], visit_number[dep])
                 continue
-            work.pop()
-            if work:
-                parent = work[-1][0]
-                low[parent] = min(low[parent], low[node])
-            if low[node] == index[node]:
+            call_stack.pop()
+            if call_stack:
+                parent = call_stack[-1][0]
+                lowest_reachable[parent] = min(lowest_reachable[parent], lowest_reachable[node])
+            if lowest_reachable[node] == visit_number[node]:
                 component: list[str] = []
                 while True:
                     member = stack.pop()

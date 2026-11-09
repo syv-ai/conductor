@@ -65,7 +65,7 @@ from conductor._internal.graph.receive_modes import (
     RowsUnder,
 )
 from conductor._internal.graph.row_origins import (
-    RowOriginsSoFar,
+    RowOriginsSeen,
     origins_taken_in,
     sources_taken_in_whole,
 )
@@ -207,7 +207,7 @@ def place_inner_nodes_under_graph_node(
     runs_per_row_of: Index | None,
     outer_edges: Mapping[Ref, OuterEdgeIntoGraphInput],
     field_above: Callable[[Ref], CompiledField | None],
-    row_origins: RowOriginsSoFar,
+    row_origins: RowOriginsSeen,
 ) -> dict[str, CompiledNode]:
     """Every node of ``embeddable`` as it stands embedded at ``node_id``, running once per row of ``runs_per_row_of``.
 
@@ -278,12 +278,12 @@ def place_inner_nodes_under_graph_node(
                 makes = None if field._makes_rows is None else index_inside_embedding(field._makes_rows, prefix, runs_per_row_of)
                 is_list = field._is_list_on_node and name not in fed_from_outside
                 if isinstance(receive_mode, Merge) and field.ref not in outer_edges:
-                    row_origins.note_merge(new_id, name, [(source, found) for source, _ in receive_mode.receive_mode_by_source if (found := field_at(source)) is not None])
+                    row_origins.check_merge(new_id, name, [(source, found) for source, _ in receive_mode.receive_mode_by_source if (found := field_at(source)) is not None])
                 origins: frozenset[str] | None = None
                 if field._is_output:
-                    origins = row_origins.note_table(makes, taken_in) if makes is not None and is_table_or_series_of_tables(dtype) else row_origins.of_rows_on(index)
+                    origins = row_origins.record_table(makes, taken_in) if makes is not None and is_table_or_series_of_tables(dtype) else row_origins.origins_of_rows_on(index)
                 elif is_list:
-                    origins = row_origins.of_rows_on(index)
+                    origins = row_origins.origins_of_rows_on(index)
                 fields[name] = CompiledField(
                     ref=Ref._from_checked_parts(new_id, name), type=dtype, binding=bindings.get(name) if not field._is_output else None, condition=condition,
                     problems=(), _index=index, _receive_mode=receive_mode, _is_list_on_node=is_list,

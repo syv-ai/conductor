@@ -88,7 +88,7 @@ def test_an_error_that_is_not_a_refusal_stays_the_servers(client, monkeypatch):
     def broken(*args, **kwargs):
         raise ValueError("a bug")
 
-    monkeypatch.setattr(leg.Leg, "__init__", broken)
+    monkeypatch.setattr(leg.RunningLeg, "__init__", broken)
     graph = {"nodes": [{"id": "n1", "type": "shout", "version": 1, "bindings": {"text": {"value": "hi"}}}]}
     resp = TestClient(client.app, raise_server_exceptions=False).post("/run", json={"graph": graph})
 

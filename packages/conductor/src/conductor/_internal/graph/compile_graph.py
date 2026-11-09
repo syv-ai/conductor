@@ -18,7 +18,7 @@ from conductor._internal.graph.compiled_node import CompiledNode
 from conductor._internal.graph.embedding import NODE_PATH_SEPARATOR
 from conductor._internal.graph.graph_interface import derive_interface
 from conductor._internal.graph.graph_records import Graph, GraphNode
-from conductor._internal.graph.row_origins import RowOriginsSoFar
+from conductor._internal.graph.row_origins import RowOriginsSeen
 from conductor._internal.graph.topology import dependencies_of, topological_order
 from conductor._internal.node_signature import Interface
 from conductor._internal.ref import Ref
@@ -37,7 +37,7 @@ class CompileProgress:
     embedded_graph_node_ids: set[str] = field(default_factory=set)
     #: Problems found before a node's turn (its id was used twice).
     problems_found_early: dict[str, list[Problem]] = field(default_factory=dict)
-    row_origins: RowOriginsSoFar = field(default_factory=RowOriginsSoFar)
+    row_origins: RowOriginsSeen = field(default_factory=RowOriginsSeen)
     #: Every problem so far, in the order the nodes were compiled.
     problems: list[Problem] = field(default_factory=list)
 

@@ -23,13 +23,13 @@ from conductor._internal.execution.run_state import RunState, WaitingUnit
 from conductor._internal.series import Row
 
 
-class _EventRecord(ConductorModel):
+class _EventBase(ConductorModel):
     """Every event: its schema marks ``type`` and every field a dump always writes as required, so a generated client can rely on them."""
 
     model_config = ConfigDict(json_schema_serialization_defaults_required=True)
 
 
-class RunStart(_EventRecord):
+class RunStart(_EventBase):
     """A leg began. On a leg going on from a state: the nodes kept from it
     (``reused_nodes``), the nodes it left out because they or something above
     them changed (``changed_nodes``), and the units still waiting."""
@@ -40,12 +40,12 @@ class RunStart(_EventRecord):
     waiting: tuple[WaitingUnit, ...] = ()
 
 
-class NodeStart(_EventRecord):
+class NodeStart(_EventBase):
     type: Literal["node_start"] = "node_start"
     node_id: str
 
 
-class NodeProgress(_EventRecord):
+class NodeProgress(_EventBase):
     """A node running once per row finished one more row. ``total`` is
     ``None`` until the number of rows it will run over is known."""
 
@@ -55,7 +55,7 @@ class NodeProgress(_EventRecord):
     total: int | None
 
 
-class NodeComplete(_EventRecord):
+class NodeComplete(_EventBase):
     """A node finished; ``result`` is its outputs by name: a value, or a
     ``Series`` for anything on an index. ``rows_not_called`` counts, per
     input, the rows the node wasn't called on because that input was blank."""
@@ -66,12 +66,12 @@ class NodeComplete(_EventRecord):
     rows_not_called: dict[str, int] = Field(default_factory=dict)
 
 
-class NodeSkipped(_EventRecord):
+class NodeSkipped(_EventBase):
     type: Literal["node_skipped"] = "node_skipped"
     node_id: str
 
 
-class NodeFailed(_EventRecord):
+class NodeFailed(_EventBase):
     """A node failed, or one row of a node that runs per row. ``cause.type``
     says what kind of failure, for a consumer to key on."""
 
@@ -80,7 +80,7 @@ class NodeFailed(_EventRecord):
     cause: Problem
 
 
-class NodeRetry(_EventRecord):
+class NodeRetry(_EventBase):
     type: Literal["node_retry"] = "node_retry"
     node_id: str
     row: Row
@@ -90,7 +90,7 @@ class NodeRetry(_EventRecord):
     delay: float
 
 
-class UnitWaiting(_EventRecord):
+class UnitWaiting(_EventBase):
     """A node asked a person something, on this leg. The unit waits, whatever
     reads it waits, and the rest of the graph runs on."""
 
@@ -98,7 +98,7 @@ class UnitWaiting(_EventRecord):
     unit: WaitingUnit
 
 
-class RunCheckpoint(_EventRecord):
+class RunCheckpoint(_EventBase):
     """A state to save while the leg runs on, status ``running``: what has
     finished and who is waiting, as of the moment it was taken. Sent only when
     ``stream`` was given ``checkpoint_every``. It is a copy, so it can be dumped
@@ -109,7 +109,7 @@ class RunCheckpoint(_EventRecord):
     state: RunState
 
 
-class RunEnd(_EventRecord):
+class RunEnd(_EventBase):
     """The leg ended. ``state`` is the run as of now, for any way of ending."""
 
     type: Literal["run_end"] = "run_end"
