@@ -118,7 +118,12 @@ def merged_columns(table: Annotated[Table, Param(title="Table")]) -> Out:
     return Txt(",".join(column for column in table.columns if not column.startswith("__")))
 
 
-REGISTRY = NodeRegistry([src, upper, split, join, joined_at_row, pair, two, whatever_arrives, whatever_arrives_at_row, always_yes, people, merged_columns])
+@node("merged_columns_at_row", title="s", description="d", category="t")
+def merged_columns_at_row(table: Annotated[Table, Param(title="Table")], at: Text) -> Out:
+    return Txt(f"{at}:" + ",".join(column for column in table.columns if not column.startswith("__")))
+
+
+REGISTRY = NodeRegistry([merged_columns_at_row, src, upper, split, join, joined_at_row, pair, two, whatever_arrives, whatever_arrives_at_row, always_yes, people, merged_columns])
 
 
 def n(node_id: str, node_type: str, **bindings: Any) -> GraphNode:
@@ -245,6 +250,22 @@ def test_run_plan_says_how_each_gathered_source_is_read():
         ("all_rows_under_row", "a.result", 1), ("all_rows_under_row", "s.text", 1), ("entire_value", None, 0),
     ]
     assert str(gather) == "collected into one list: all rows of a.result under my row (grouped under s.text) + the value at my row (s.text) + all of o.result"
+
+
+def test_a_merge_cannot_hold_a_per_row_table_on_rows_the_node_does_not_sit_on():
+    """A table arriving per row puts its node on that row, so a merge only ever reads a table its row sits on; unrelated rows are refused, in a graph as well as flat."""
+    tables_and_rows = [
+        n("x", "split", text=Static("ab")), n("p", "people", text=From("x.result")),
+        n("y", "split", text=Static("cd")), n("o", "split", text=Static("ef")),
+    ]
+    flat = CompiledGraph.from_graph(Graph(nodes=[*tables_and_rows, n("m", "merged_columns_at_row", table=From("p.result", "o.result"), at=From("y.result"))]), REGISTRY)
+    definition = embedded_graph_node("g", (n("u", "upper"), n("m", "merged_columns")), REGISTRY)
+    embedded = CompiledGraph.from_graph(
+        Graph(nodes=[*tables_and_rows, n("e", "g", text=From("y.result"), table=From("p.result", "o.result"))]), REGISTRY.extended_with([definition]),
+    )
+
+    assert [problem.type for problem in flat.problems] == ["misaligned"]
+    assert [problem.type for problem in embedded.problems] == ["misaligned"]
 
 
 def test_edge_from_outside_a_per_row_graph_still_reads_whole():

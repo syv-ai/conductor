@@ -411,6 +411,7 @@ def _read_of_source_at_the_row(ref: Ref, source: CompiledField, runs_per_row_of:
 def _read_of_merge_source(ref: Ref, source: CompiledField, runs_per_row_of: Index | None, takes_blank: bool) -> Cell | RowsUnder:
     """How a call reads one source of a ``Table`` input: a table is the one at its row, or the one there is; a column is read as any source."""
     if is_table_type(source.type):
+        assert source._index is None or (runs_per_row_of is not None and source._index in runs_per_row_of.lineage)  # a table arriving per row put the node on its row, or was misaligned
         return cell_at_the_row((ref,), source._index, takes_blank)
     return _read_of_source_at_the_row(ref, source, runs_per_row_of, takes_blank)
 
