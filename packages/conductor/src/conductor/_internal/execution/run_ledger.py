@@ -469,7 +469,7 @@ class RunLedger:
             else:
                 covering.append(value)
         if len(covering) > 1:
-            raise NodeError(PROBLEM_CATALOGUE["row_covered_twice"].message, code="row_covered_twice", ctx={"edges": len(covering), "row": list(row)})
+            raise NodeError(PROBLEM_CATALOGUE["row_covered_twice"], code="row_covered_twice", ctx={"edges": len(covering), "row": list(row)})
         return covering, skips
 
     def _rows_and_values_on(self, refs: tuple[Ref, ...], under: Row) -> tuple[list[Row], list[Any]]:

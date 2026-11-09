@@ -50,108 +50,84 @@ A pause is not an error and nothing raises for one: a node returns
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from typing import Any, ClassVar, NamedTuple
+from typing import Any, ClassVar
 
 from pydantic import ConfigDict, Field, ValidationError, computed_field
 
 from conductor._internal.conductor_model import ConductorModel
 
 #: Every code conductor itself writes, on one row each: its English, with
-#: the ``ctx`` keys as slots, and whether it stops what it is about. A
-#: compile problem's slots also take ``{node_id}`` and ``{field}``, the
-#: first two places of its ``loc``. The non-fatal ones are states an author
-#: can leave a graph in and still run it; every code a call or a run
-#: writes is fatal, as it is what stopped them. A code that is not here is a
-#: host's own, from a hook or a node, and is always fatal. A host that
+#: the ``ctx`` keys as slots. A compile problem's slots also take
+#: ``{node_id}`` and ``{field}``, the first two places of its ``loc``. A code
+#: that is not here is a host's own, from a hook or a node. A host that
 #: translates by code covers ``PROBLEM_CODES``.
-_PROBLEM_MESSAGES: Mapping[str, tuple[str, bool]] = {
+PROBLEM_CATALOGUE: Mapping[str, str] = {
     # -- what compile finds in a graph -----------------------------------------
-    "cycle": ("The node is part of a cycle, so the graph cannot run.", True),
-    "compute_hook_failed": ("The node could not work out its fields from what it was given.", True),
-    "duplicate_field_name": ("The node has two fields named '{field}'.", True),
-    "duplicate_node_id": ("Two nodes have the id '{node_id}'.", True),
-    "embedded_graph_broken": ("The graph '{graph}' has {problems} problem(s) to fix before it can be used here.", True),
-    "edge_into_unconnectable_input": ("Nothing can be connected to the field '{field}'.", True),
-    "output_has_no_type": ("The output '{field}' has no type that can travel on an edge.", True),
-    "invalid_node_id": ("'{node_id}' cannot be a node id: '/', '.' and '@' each mean something in an address.", True),
-    "invalid_static": ("The value {input} in '{field}' cannot be read as {expected}. {reason}", True),
-    "lists_on_a_per_row_node": (
-        "Only one list can be set directly on a node that runs per row; '{a}' and '{b}' are both lists.", True,
-    ),
+    "cycle": "The node is part of a cycle, so the graph cannot run.",
+    "compute_hook_failed": "The node could not work out its fields from what it was given.",
+    "duplicate_field_name": "The node has two fields named '{field}'.",
+    "duplicate_node_id": "Two nodes have the id '{node_id}'.",
+    "embedded_graph_broken": "The graph '{graph}' has {problems} problem(s) to fix before it can be used here.",
+    "edge_into_unconnectable_input": "Nothing can be connected to the field '{field}'.",
+    "output_has_no_type": "The output '{field}' has no type that can travel on an edge.",
+    "invalid_node_id": "'{node_id}' cannot be a node id: '/', '.' and '@' each mean something in an address.",
+    "invalid_static": "The value {input} in '{field}' cannot be read as {expected}. {reason}",
+    "lists_on_a_per_row_node": "Only one list can be set directly on a node that runs per row; '{a}' and '{b}' are both lists.",
     "no_rows_in_common": (
         "'{source}' shares no rows with what else is wired into '{field}'. Unrelated tables have nothing to match on: "
-        "use a node that joins them on a key column.", True,
+        "use a node that joins them on a key column."
     ),
     "series_inputs_never_share_a_row": (
         "'{a}' and '{b}' read branches that never both have a value on a row, so no row would reach the node. "
-        "Write Series[X | None] on them to keep every row, or take the branches through one input.", True,
+        "Write Series[X | None] on them to keep every row, or take the branches through one input."
     ),
-    "table_column_missing": ("'{field}' needs the column '{column}', which the table it received doesn't have.", True),
-    "series_of_tables": (
-        "The output '{field}' is a series of tables; a table already holds many rows, so return one table.", True,
-    ),
-    "view_name_taken": (
-        "The output '{field}' has the name the column '{column}' of the table '{table}' is offered under.", True,
-    ),
-    "misaligned": ("'{a}' and '{b}' get their rows from different sources, so the node cannot run per row.", True),
-    "no_outputs": ("The node has no fields to pass on, so nothing can be connected from it.", False),
-    "one_edge_per_parameter": ("Parameter '{field}' takes one edge; an extra edge is an extra parameter.", True),
-    "parameter_name_invalid": (
-        "'{field}' cannot be a parameter name; use letters, digits and underscores, and start with a letter.", True,
-    ),
-    "stale_binding": ("Field '{field}' is not an input of the node; it has {inputs}.", True),
-    "type_mismatch": ("'{source}' is {source_said}, but '{node_id}.{field}' takes {target_said}.", True),
-    "unbound_required": ("Nothing is connected to the field.", True),
-    "union_needs_one_index": (
-        "Field '{field}' has several edges; that only works when they are all rows of one table.", True,
-    ),
-    "unknown_locked_field": ("The lock on '{node_id}.{field}' points at a field the node does not have.", False),
-    "unknown_node_type": ("Node type '{node_type}' does not exist; the types are {choices}.", True),
-    "unknown_node_version": ("'{node_type}' has no version {version}.", True),
-    "unknown_ref_node": ("Field '{field}' is connected to '{source_node}', which is not in the graph.", True),
-    "unknown_ref_output": ("Field '{field}' is connected to '{source}', which is not an output of that node; it has {outputs}.", True),
-    "unused_binding": (
-        "Field '{field}' is not an input of the node as it is set up, so its value is not used; it has {inputs}.", False,
-    ),
+    "table_column_missing": "'{field}' needs the column '{column}', which the table it received doesn't have.",
+    "series_of_tables": "The output '{field}' is a series of tables; a table already holds many rows, so return one table.",
+    "view_name_taken": "The output '{field}' has the name the column '{column}' of the table '{table}' is offered under.",
+    "misaligned": "'{a}' and '{b}' get their rows from different sources, so the node cannot run per row.",
+    "no_outputs": "The node has no fields to pass on, so nothing can be connected from it.",
+    "one_edge_per_parameter": "Parameter '{field}' takes one edge; an extra edge is an extra parameter.",
+    "parameter_name_invalid": "'{field}' cannot be a parameter name; use letters, digits and underscores, and start with a letter.",
+    "stale_binding": "Field '{field}' is not an input of the node; it has {inputs}.",
+    "type_mismatch": "'{source}' is {source_said}, but '{node_id}.{field}' takes {target_said}.",
+    "unbound_required": "Nothing is connected to the field.",
+    "union_needs_one_index": "Field '{field}' has several edges; that only works when they are all rows of one table.",
+    "unknown_locked_field": "The lock on '{node_id}.{field}' points at a field the node does not have.",
+    "unknown_node_type": "Node type '{node_type}' does not exist; the types are {choices}.",
+    "unknown_node_version": "'{node_type}' has no version {version}.",
+    "unknown_ref_node": "Field '{field}' is connected to '{source_node}', which is not in the graph.",
+    "unknown_ref_output": "Field '{field}' is connected to '{source}', which is not an output of that node; it has {outputs}.",
+    "unused_binding": "Field '{field}' is not an input of the node as it is set up, so its value is not used; it has {inputs}.",
     # -- what a call to a compiled graph is rejected for -----------------------
-    "cannot_move_to_version": ("'{node_type}' cannot move from version {version} to {target}; it has {versions}.", True),
-    "from_run_missing": ("'{node}' needs a {needs} for '{parameter}', and the call did not give one in from_run.", True),
-    "from_run_not_a_type": ("from_run is keyed by type; {key} is not one.", True),
-    "choice_unanswered": ("Answer exactly one of {alternatives}; {answered} answered.", True),
-    "invalid_value": ("That is not a valid answer: {reason}", True),
-    "missing": ("'{name}' was not answered.", True),
-    "node_not_in_graph": ("'{node}' is not a node of this graph; it has {nodes}.", True),
-    "not_asked": ("'{name}' was not asked.", True),
-    "not_offered": ("This graph does not offer that input: {reason}", True),
-    "not_waiting": ("Nothing is waiting on an answer as {waiting_id!r}.", True),
-    "run_not_complete": ("The run is {status}, so it has no outputs yet. {reason}", True),
-    "state_unreadable": ("The saved state does not fit this graph: {reason}", True),
+    "cannot_move_to_version": "'{node_type}' cannot move from version {version} to {target}; it has {versions}.",
+    "from_run_missing": "'{node}' needs a {needs} for '{parameter}', and the call did not give one in from_run.",
+    "from_run_not_a_type": "from_run is keyed by type; {key} is not one.",
+    "choice_unanswered": "Answer exactly one of {alternatives}; {answered} answered.",
+    "invalid_value": "That is not a valid answer: {reason}",
+    "missing": "'{name}' was not answered.",
+    "node_not_in_graph": "'{node}' is not a node of this graph; it has {nodes}.",
+    "not_asked": "'{name}' was not asked.",
+    "not_offered": "This graph does not offer that input: {reason}",
+    "not_waiting": "Nothing is waiting on an answer as {waiting_id!r}.",
+    "run_not_complete": "The run is {status}, so it has no outputs yet. {reason}",
+    "state_unreadable": "The saved state does not fit this graph: {reason}",
     # -- why a node or a run failed --------------------------------------------
-    "engine_error": ("An error in the engine stopped the run.", True),
-    "execution_failed": ("The node failed.", True),
-    "external_failed": ("An outside service did not answer.", True),
-    "failed": ("The node reported a failure.", True),
-    "invalid_input": ("The node received a value it cannot use.", True),
-    "invalid_output": ("The node returned a value that is not what it declared.", True),
-    "row_covered_twice": ("The row comes from more than one edge; a merge may cover each row only once.", True),
-    "row_ids_lost": (
-        "The node returned a table whose rows no longer say which rows they are, and it is merged with the table it was built from.", True,
-    ),
-    "run_cancelled": ("The run was cancelled.", True),
-    "run_timed_out": ("The run took too long and was stopped.", True),
-    "timeout": ("The node did not answer in time.", True),
+    "engine_error": "An error in the engine stopped the run.",
+    "execution_failed": "The node failed.",
+    "external_failed": "An outside service did not answer.",
+    "failed": "The node reported a failure.",
+    "invalid_input": "The node received a value it cannot use.",
+    "invalid_output": "The node returned a value that is not what it declared.",
+    "row_covered_twice": "The row comes from more than one edge; a merge may cover each row only once.",
+    "row_ids_lost": "The node returned a table whose rows no longer say which rows they are, and it is merged with the table it was built from.",
+    "run_cancelled": "The run was cancelled.",
+    "run_timed_out": "The run took too long and was stopped.",
+    "timeout": "The node did not answer in time.",
 }
 
-
-class CatalogueEntry(NamedTuple):
-    """One code's English, with its ``ctx`` keys as slots, and whether a problem of that code stops what it is about."""
-
-    message: str
-    fatal: bool
-
-
-#: Every code conductor writes, as its catalogue entry.
-PROBLEM_CATALOGUE: Mapping[str, CatalogueEntry] = {code: CatalogueEntry(*entry) for code, entry in _PROBLEM_MESSAGES.items()}
+#: The codes that don't stop what they are about: states an author can leave a
+#: graph in and still run it. Every other code stops it, a host's own included.
+_CODES_A_GRAPH_CAN_RUN_WITH = frozenset({"no_outputs", "unknown_locked_field", "unused_binding"})
 
 #: The codes a host translating by code has to cover.
 PROBLEM_CODES: frozenset[str] = frozenset(PROBLEM_CATALOGUE)
@@ -197,8 +173,8 @@ class Problem(ConductorModel):
     A compile problem's field need not exist: half of them are about a
     binding to a removed input or an edge to an unknown output.
 
-    ``fatal`` is not stored: it is the row of ``type`` in ``PROBLEM_CATALOGUE``, and
-    ``True`` for a code that isn't there. It stops a run for a compile
+    ``fatal`` is not stored: it follows from ``type``, and is
+    ``True`` for a code conductor doesn't know. It stops a run for a compile
     problem; on the others it is simply true, since they are what stopped
     something. A dump carries it, for a reader with no catalogue, and reading the
     dump back ignores it.
@@ -215,8 +191,7 @@ class Problem(ConductorModel):
     @property
     def fatal(self) -> bool:
         """Whether this stops what it is about, by its code's row."""
-        entry = PROBLEM_CATALOGUE.get(self.type)
-        return entry is None or entry.fatal
+        return self.type not in _CODES_A_GRAPH_CAN_RUN_WITH
 
 
 def make_problem(code: str, /, *loc: str | int | None, **ctx: Any) -> Problem:
@@ -229,7 +204,7 @@ def make_problem(code: str, /, *loc: str | int | None, **ctx: Any) -> Problem:
     """
     location = tuple(place for place in loc if place is not None)
     slots = {"reason": "", "node_id": location[0] if location else None, "field": location[1] if len(location) > 1 else None, **ctx}
-    return Problem(type=code, loc=location, msg=PROBLEM_CATALOGUE[code].message.format_map(slots).rstrip(), ctx=ctx)
+    return Problem(type=code, loc=location, msg=PROBLEM_CATALOGUE[code].format_map(slots).rstrip(), ctx=ctx)
 
 
 class ConductorError(Exception):
@@ -283,8 +258,7 @@ class ComputeHookError(ConductorError):
     _code_when_none_given = "compute_hook_failed"
 
     def __init__(self, message: str, *, code: str | None = None, ctx: Mapping[str, Any] | None = None, field: str | None = None) -> None:
-        entry = PROBLEM_CATALOGUE.get(code) if code is not None else None
-        if entry is not None and not entry.fatal:
+        if code in _CODES_A_GRAPH_CAN_RUN_WITH:
             raise ValueError(f"{code!r} is a code for a graph that can still run; a hook's problem always stops it")
         super().__init__(message, code=code, ctx=ctx)
         self.field = field
