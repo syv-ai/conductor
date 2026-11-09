@@ -659,3 +659,22 @@ def test_the_state_module_imports_nothing_from_the_graph():
     import conductor.execution.run_state as module
 
     assert "conductor.graph" not in pathlib.Path(module.__file__).read_text()
+
+
+def test_a_signature_that_moves_a_node_to_other_rows_changes_its_fingerprint():
+    class Whole_(NodeDefinition):
+        id = "words"
+        title = "x"
+        description = "d"
+        category = "test"
+
+        def run(self, text: Annotated[Series[Txt], Param(title="T")]) -> Annotated[Whole, Result(title="N")]:
+            return Whole(len(text))
+
+    per_row = compiled_of(*LINES)
+    registry = NodeRegistry()
+    for cls in (Split, Whole_):
+        registry.register(cls)
+    whole = CompiledGraph.from_graph(Graph(nodes=LINES), registry)
+    assert per_row.node("count").fingerprint != whole.node("count").fingerprint
+    assert whole.nodes_changed_since(per_row.run_sync()) == ["count"]

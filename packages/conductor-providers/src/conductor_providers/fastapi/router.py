@@ -77,9 +77,9 @@ def conductor_router(
     def _prepared(req: RunRequest) -> tuple[CompiledGraph, RunState | None]:
         """The compiled graph and the state this leg goes on from, the answers written in."""
         compiled = CompiledGraph.from_graph(req.graph, registry)
-        if not req.answers or req.state is None:
+        if not req.answers:
             return compiled, req.state
-        return compiled, compiled.answer(req.state, req.answers)
+        return compiled, compiled.answer(req.state or RunState(status="waiting"), req.answers)
 
     @router.get("/nodes", response_model=list[NodeDescription])
     def list_nodes() -> list[NodeDescription]:

@@ -116,8 +116,7 @@ def _answered_cells(node: CompiledNode, asked: WaitingUnit, given: Mapping[str, 
     values = _with_choices_and_defaults(questions, groups, given, where, faults)
     cells, output_faults = validate_unit_outputs(node, asked.row, {name: value for name, value in values.items() if name in questions})
     for fault in output_faults:
-        if fault.output in given or fault.output in values:
-            faults.append(_fault("invalid_value", (*where, fault.output), fault.message, {"errors": list(fault.errors)}))
+        faults.append(_fault("invalid_value", (*where, fault.output), fault.message, {"errors": list(fault.errors)}))
     return ... if len(faults) > before else cells
 
 

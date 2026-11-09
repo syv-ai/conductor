@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic_core import to_jsonable_python
 
 from conductor.codec import reader_of, to_wire
+from conductor.dtype_ref import description_of
 from conductor.errors import NodeKindError, NodeResolutionError, NodeWiringError
 from conductor.interface import model_of
 from conductor.node import runner_of
@@ -99,6 +100,12 @@ def _gate(node: CompiledNode, asked: str, *, needs_wiring: bool, needs_one_unit:
         raise NodeKindError(node.id, asked, node._kind)
     if cause is not None and needs_wiring:
         raise NodeWiringError(node.id, asked, cause)
+
+
+def _receive_shape(receives: Receive | None) -> list[Any]:
+    """How an input arrives, for ``CompiledNode.fingerprint``: its kind, and for
+    the rows under a row its depth. The fresh index a gather makes is not part of it."""
+    return [type(receives).__name__, getattr(receives, "depth", None)]
 
 
 @dataclass(frozen=True, eq=False)
@@ -230,10 +237,13 @@ class CompiledNode:
     @cached_property
     def fingerprint(self) -> str:
         """A hash of how the graph uses this node: its type, version and
-        bindings. A run's state stores one per node, and a leg restored into
-        a graph whose fingerprint differs runs the node again — a static
-        edited, a version bumped, an edge moved all change it; a title or a
-        position does not. Worked out once, as a compiled node never changes."""
+        bindings, and the shape compile gave it: the rows it runs on, how
+        each input arrives and each output's type. A run's state stores one
+        per node, and a leg restored into a graph whose fingerprint differs
+        runs the node again — a static edited, a version bumped, an edge
+        moved, a signature that moves the node to other rows all change it;
+        a title or a position does not. Worked out once, as a compiled node
+        never changes."""
         _gate(self, "fingerprint", needs_wiring=True, needs_one_unit=True)
         node = self.graph_node
         declared = {inp.name: inp.dtype for inp in self._interface.inputs}
@@ -250,7 +260,14 @@ class CompiledNode:
                 bindings[name] = {"static": _written(self._statics[name], declared[name], self._fields[name].listed)}
             else:
                 bindings[name] = binding.model_dump()
-        used = {"type": node.type, "version": node.version, "bindings": bindings}
+        used = {
+            "type": node.type,
+            "version": node.version,
+            "bindings": bindings,
+            "runs_per_row_of": None if self._runs_per_row_of is None else self._runs_per_row_of.id,
+            "receives": {inp.name: _receive_shape(self._fields[inp.name]._receives) for inp in self._interface.inputs},
+            "outputs": {out.name: description_of(out.dtype) for out in self._interface.outputs},
+        }
         return hashlib.sha256(json.dumps(to_jsonable_python(used), sort_keys=True).encode("utf-8")).hexdigest()
 
     def validate(self, inputs: Mapping[str, Any]) -> dict[str, Any]:

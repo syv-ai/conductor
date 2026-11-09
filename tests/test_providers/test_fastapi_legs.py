@@ -139,3 +139,9 @@ def test_a_wrong_answer_is_a_422_listing_every_fault(client):
     refused = client.post("/run", json={"graph": ONCE, "state": first["state"], "answers": {"ghost": {}}})
     assert refused.status_code == 422
     assert [(d["type"], d["loc"]) for d in refused.json()["detail"]] == [("not_waiting", ["answers", "ghost"])]
+
+
+def test_answers_with_no_state_are_refused(client):
+    refused = client.post("/run", json={"graph": ONCE, "answers": {"ok": {"result": True}}})
+
+    assert refused.status_code == 422 and refused.json()["detail"][0]["type"] == "not_waiting"
