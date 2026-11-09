@@ -136,7 +136,7 @@ def test_a_bound_written_wrong_is_refused_where_it_is_written(written):
 
 
 class _HostControl(Widget):
-    kind: Literal["host-control"] = "host-control"
+    type: Literal["host-control"] = "host-control"
 
 
 def test_compile_and_a_run_take_a_control_the_library_has_never_seen():

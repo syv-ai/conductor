@@ -7,7 +7,7 @@ the edges, and stores the answer on the field (``CompiledField._receive_mode``).
 The run reads that record to decide when a unit is ready and what to hand it,
 and never works the answer out again from the types and indexes.
 
-The run tells apart only what it reads differently, by ``kind``:
+The run tells apart only what it reads differently, by ``type``:
 
 - ``Cell``: the value at the unit's row, cut to the depth of the field it reads;
 - ``RowsUnder``: all the rows of a field under the unit's row cut to ``depth``,
@@ -62,11 +62,11 @@ class Cell:
     #: The field whose rows it reads; ``None`` when there is one value.
     rows_of: Ref | None
     depth: int
-    kind: Literal["cell"] = "cell"
+    type: Literal["cell"] = "cell"
 
-    def __init__(self, receive_mode: str, sources: tuple[Ref, ...], rows_of: Ref | None, depth: int, kind: str = "cell") -> None:
+    def __init__(self, receive_mode: str, sources: tuple[Ref, ...], rows_of: Ref | None, depth: int, type: str = "cell") -> None:
         """Compile builds one per input of a graph, so this sets them in one step, not one at a time."""
-        self.__dict__.update(receive_mode=receive_mode, sources=sources, rows_of=rows_of, depth=depth, kind=kind)
+        self.__dict__.update(receive_mode=receive_mode, sources=sources, rows_of=rows_of, depth=depth, type=type)
 
     @property
     def _what_is_read(self) -> str:
@@ -97,7 +97,7 @@ class RowsUnder:
     #: The index the rows are grouped under, which a call's row sits on.
     grouped_under: Ref | None
     depth: int
-    kind: Literal["rows_under"] = "rows_under"
+    type: Literal["rows_under"] = "rows_under"
 
     @property
     def _what_is_read(self) -> str:
@@ -123,11 +123,11 @@ class FixedValue:
 
     receive_mode: Literal["same_value_every_row", "entire_value"]
     value: Annotated[Any, Field(exclude=True)] = field(default=None, repr=False, compare=False)
-    kind: Literal["fixed"] = "fixed"
+    type: Literal["fixed"] = "fixed"
 
-    def __init__(self, receive_mode: str, value: Any = None, kind: str = "fixed") -> None:
+    def __init__(self, receive_mode: str, value: Any = None, type: str = "fixed") -> None:
         """Compile builds one per input left to a value, so this sets them in one step, not one at a time."""
-        self.__dict__.update(receive_mode=receive_mode, value=value, kind=kind)
+        self.__dict__.update(receive_mode=receive_mode, value=value, type=type)
 
     @property
     def sources(self) -> tuple[Ref, ...]:
@@ -142,7 +142,7 @@ class FixedValue:
 
 
 #: How one source of a ``Gather`` or a ``Merge`` is read at a unit's row.
-ReadOfSource = Annotated[Cell | RowsUnder, Field(discriminator="kind")]
+ReadOfSource = Annotated[Cell | RowsUnder, Field(discriminator="type")]
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,7 +159,7 @@ class Gather:
     #: One read per source, in wiring order.
     source_reads: tuple[ReadOfSource, ...]
     receive_mode: Literal["collected"] = "collected"
-    kind: Literal["gather"] = "gather"
+    type: Literal["gather"] = "gather"
 
     def __str__(self) -> str:
         return f"collected into one list: {' + '.join(read._what_is_read for read in self.source_reads)}"
@@ -187,13 +187,13 @@ class Merge:
     #: Per source, the positions of the other sources whose columns its table was made from: a column of the same name is one column.
     carries_columns_of: tuple[tuple[int, ...], ...]
     receive_mode: Literal["merged"] = "merged"
-    kind: Literal["merge"] = "merge"
+    type: Literal["merge"] = "merge"
 
     def __str__(self) -> str:
         return "merged: " + " + ".join(f"{' or '.join(read.sources)}{' [copied down]' if read.sources[0] in self.copied_down else ''}" for read in self.source_reads)
 
 
-ReceiveMode = Annotated[Cell | RowsUnder | FixedValue | Gather | Merge, Field(discriminator="kind")]
+ReceiveMode = Annotated[Cell | RowsUnder | FixedValue | Gather | Merge, Field(discriminator="type")]
 
 
 def cell_at_the_row(sources: tuple[Ref, ...], index: Index | None) -> Cell:

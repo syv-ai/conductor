@@ -2,7 +2,7 @@
 
 A widget is the control an input is edited with, plus what that control
 needs: a dropdown's choices, a text area's height. It is a frozen,
-keyword-only record with a ``kind``, and neither compile nor the engine
+keyword-only record with a ``type``, and neither compile nor the engine
 reads it: conductor carries it from the signature to whatever draws the
 editor. An author writes one on the ``Param`` inside ``Annotated``::
 
@@ -12,14 +12,14 @@ Conductor ships the common controls. A host adds its own by subclassing
 ``Widget`` beside the component that renders it::
 
     class EntityDropdown(Widget):
-        kind: Literal["entity-dropdown"] = "entity-dropdown"
+        type: Literal["entity-dropdown"] = "entity-dropdown"
         entity_kind: str = ""
 
 A widget is the control and nothing more. What a person reads about the
 input, whether an edge can reach it and the limits a value must keep to are
 the ``Param``'s, where they are enforced. An input with no widget is
 filled by an edge only. Nor does a widget change how the engine runs: a
-pause is a node that returns ``AskPerson``, not a widget kind.
+pause is a node that returns ``AskPerson``, not a widget type.
 
 Conductor picks no default widget for any type: a text may be a
 textarea, a single line or a dropdown, so every input declares its own.
@@ -37,9 +37,9 @@ from conductor._internal.conductor_model import ConductorModel
 
 
 class Widget(ConductorModel):
-    """The base of every control: a ``kind`` and what that control needs. A host subclasses it for a control of its own."""
+    """The base of every control: a ``type`` and what that control needs. A host subclasses it for a control of its own."""
 
-    kind: str
+    type: str
 
 
 class Choice(ConductorModel):
@@ -52,34 +52,34 @@ class Choice(ConductorModel):
 class TextWidget(Widget):
     """Single-line text."""
 
-    kind: Literal["text"] = "text"
+    type: Literal["text"] = "text"
 
 
 class Textarea(Widget):
     """Multi-line text."""
 
-    kind: Literal["textarea"] = "textarea"
+    type: Literal["textarea"] = "textarea"
     rows: int = 4
 
 
 class Dropdown(Widget):
     """Pick one of a declared vocabulary of ``Choice``s."""
 
-    kind: Literal["dropdown"] = "dropdown"
+    type: Literal["dropdown"] = "dropdown"
     choices: tuple[Choice, ...] = ()
 
 
 class Range(Widget):
     """A number picked on a slider, between the ``ge`` and ``le`` of its ``Param``."""
 
-    kind: Literal["range"] = "range"
+    type: Literal["range"] = "range"
     step: float | None = None
 
 
 class FileUpload(Widget):
     """Files a person uploads. ``multiple`` makes a series of them."""
 
-    kind: Literal["file"] = "file"
+    type: Literal["file"] = "file"
     accept: tuple[str, ...] | None = None
     max_size_mb: float | None = None
     multiple: bool = False
@@ -88,7 +88,7 @@ class FileUpload(Widget):
 class NumberWidget(Widget):
     """A number typed in, optionally whole."""
 
-    kind: Literal["number"] = "number"
+    type: Literal["number"] = "number"
     step: float | None = None
     integer_only: bool = False
 
@@ -96,13 +96,13 @@ class NumberWidget(Widget):
 class Switch(Widget):
     """A boolean, on or off."""
 
-    kind: Literal["switch"] = "switch"
+    type: Literal["switch"] = "switch"
 
 
 class DatePicker(Widget):
     """A date picked from a calendar."""
 
-    kind: Literal["datepicker"] = "datepicker"
+    type: Literal["datepicker"] = "datepicker"
     #: ``"today"`` asks the editor to write today's date into the field
     #: when the node is added. Declared here because "today" is not a
     #: constant a default could hold.
@@ -113,7 +113,7 @@ class ListWidget(Widget):
     """A list of values typed by hand. The per-item control is derived by
     the host from the element type, so none is declared here."""
 
-    kind: Literal["list"] = "list"
+    type: Literal["list"] = "list"
 
 
 __all__ = [

@@ -296,7 +296,7 @@ def _copy_table(table: Table[_Named]) -> Table[_Named]:
 def test_alternative_tables_into_one_table_input_are_the_branch_that_ran() -> None:
     for go in (True, False):
         compiled = _compiled(_route_once.graph_node("r", go=go), _show_table.graph_node("s", table=From("r.yes", "r.no")), nodes=[_route_once, _show_table])
-        assert compiled.run_plan.nodes["s"].inputs["table"].kind == "cell"
+        assert compiled.run_plan.nodes["s"].inputs["table"].type == "cell"
         assert compiled.results(compiled.run_sync())["s"]["result"] == "taken|name"
 
 

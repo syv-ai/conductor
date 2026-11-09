@@ -22,7 +22,7 @@
      "inputs": {
       "text": {
        "depth": 0,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "same_value_every_row",
        "rows_of": null,
        "sources": [
@@ -71,7 +71,7 @@
      "inputs": {
       "value": {
        "depth": 0,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "same_value_every_row",
        "rows_of": null,
        "sources": [
@@ -79,7 +79,7 @@
        ]
       },
       "when": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -107,7 +107,7 @@
     "plan": {
      "inputs": {
       "value": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -140,7 +140,7 @@
     "plan": {
      "inputs": {
       "values": {
-       "kind": "gather",
+       "type": "gather",
        "receive_mode": "collected",
        "source_reads": [
         {
@@ -150,7 +150,7 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "kind": "cell"
+         "type": "cell"
         },
         {
          "receive_mode": "same_value_every_row",
@@ -159,7 +159,7 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "kind": "cell"
+         "type": "cell"
         }
        ]
       }
@@ -191,7 +191,7 @@
      "inputs": {
       "text": {
        "depth": 0,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "same_value_every_row",
        "rows_of": null,
        "sources": [
@@ -236,7 +236,7 @@
       "values": {
        "depth": 0,
        "grouped_under": null,
-       "kind": "rows_under",
+       "type": "rows_under",
        "receive_mode": "entire_value",
        "rows_of": null,
        "sources": [
@@ -268,7 +268,7 @@
     "plan": {
      "inputs": {
       "folder": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -311,7 +311,7 @@
      "inputs": {
       "value": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -319,7 +319,7 @@
        ]
       },
       "when": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -348,7 +348,7 @@
      "inputs": {
       "value": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -380,7 +380,7 @@
     "plan": {
      "inputs": {
       "values": {
-       "kind": "gather",
+       "type": "gather",
        "receive_mode": "collected",
        "source_reads": [
         {
@@ -391,7 +391,7 @@
          "rows_of": "docs.result",
          "grouped_under": "docs.result",
          "depth": 1,
-         "kind": "rows_under"
+         "type": "rows_under"
         },
         {
          "receive_mode": "all_rows_under_row",
@@ -401,7 +401,7 @@
          "rows_of": "docs.result",
          "grouped_under": "docs.result",
          "depth": 1,
-         "kind": "rows_under"
+         "type": "rows_under"
         }
        ]
       }
@@ -431,7 +431,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -478,7 +478,7 @@
      "inputs": {
       "value": {
        "depth": 0,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "same_value_every_row",
        "rows_of": null,
        "sources": [
@@ -510,7 +510,7 @@
     "plan": {
      "inputs": {
       "value": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -555,7 +555,7 @@
      "inputs": {
       "value": {
        "depth": 0,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "same_value_every_row",
        "rows_of": null,
        "sources": [
@@ -563,7 +563,7 @@
        ]
       },
       "when": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -596,7 +596,7 @@
     "plan": {
      "inputs": {
       "values": {
-       "kind": "gather",
+       "type": "gather",
        "receive_mode": "collected",
        "source_reads": [
         {
@@ -606,7 +606,7 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "kind": "cell"
+         "type": "cell"
         },
         {
          "receive_mode": "same_value_every_row",
@@ -615,7 +615,7 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "kind": "cell"
+         "type": "cell"
         }
        ]
       }
@@ -644,7 +644,7 @@
     "plan": {
      "inputs": {
       "value": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -689,7 +689,7 @@
      "inputs": {
       "value": {
        "depth": 0,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "same_value_every_row",
        "rows_of": null,
        "sources": [
@@ -697,7 +697,7 @@
        ]
       },
       "when": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -744,7 +744,7 @@
      "inputs": {
       "text": {
        "depth": 0,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "same_value_every_row",
        "rows_of": null,
        "sources": [
@@ -795,7 +795,7 @@
      "inputs": {
       "value": {
        "depth": 0,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "same_value_every_row",
        "rows_of": null,
        "sources": [
@@ -803,7 +803,7 @@
        ]
       },
       "when": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -834,7 +834,7 @@
      "inputs": {
       "value": {
        "depth": 0,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "same_value_every_row",
        "rows_of": null,
        "sources": [
@@ -873,7 +873,7 @@
     "plan": {
      "inputs": {
       "values": {
-       "kind": "gather",
+       "type": "gather",
        "receive_mode": "collected",
        "source_reads": [
         {
@@ -883,7 +883,7 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "kind": "cell"
+         "type": "cell"
         },
         {
          "receive_mode": "same_value_every_row",
@@ -892,7 +892,7 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "kind": "cell"
+         "type": "cell"
         }
        ]
       }
@@ -925,7 +925,7 @@
      "inputs": {
       "text": {
        "depth": 0,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "same_value_every_row",
        "rows_of": null,
        "sources": [
@@ -974,7 +974,7 @@
      "inputs": {
       "value": {
        "depth": 0,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "same_value_every_row",
        "rows_of": null,
        "sources": [
@@ -982,7 +982,7 @@
        ]
       },
       "when": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -1010,7 +1010,7 @@
     "plan": {
      "inputs": {
       "value": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -1044,7 +1044,7 @@
     "plan": {
      "inputs": {
       "values": {
-       "kind": "gather",
+       "type": "gather",
        "receive_mode": "collected",
        "source_reads": [
         {
@@ -1054,7 +1054,7 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "kind": "cell"
+         "type": "cell"
         },
         {
          "receive_mode": "same_value_every_row",
@@ -1063,7 +1063,7 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "kind": "cell"
+         "type": "cell"
         }
        ]
       }
@@ -1108,7 +1108,7 @@
       "values": {
        "depth": 0,
        "grouped_under": null,
-       "kind": "rows_under",
+       "type": "rows_under",
        "receive_mode": "entire_value",
        "rows_of": null,
        "sources": [
@@ -1140,7 +1140,7 @@
     "plan": {
      "inputs": {
       "folder": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -1183,7 +1183,7 @@
      "inputs": {
       "value": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -1191,7 +1191,7 @@
        ]
       },
       "when": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -1220,7 +1220,7 @@
      "inputs": {
       "value": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -1252,7 +1252,7 @@
     "plan": {
      "inputs": {
       "values": {
-       "kind": "gather",
+       "type": "gather",
        "receive_mode": "collected",
        "source_reads": [
         {
@@ -1263,7 +1263,7 @@
          "rows_of": "docs.result",
          "grouped_under": "docs.result",
          "depth": 1,
-         "kind": "rows_under"
+         "type": "rows_under"
         },
         {
          "receive_mode": "all_rows_under_row",
@@ -1273,7 +1273,7 @@
          "rows_of": "docs.result",
          "grouped_under": "docs.result",
          "depth": 1,
-         "kind": "rows_under"
+         "type": "rows_under"
         }
        ]
       }
@@ -1303,7 +1303,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -1348,7 +1348,7 @@
      "inputs": {
       "value": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -1356,7 +1356,7 @@
        ]
       },
       "when": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -1385,7 +1385,7 @@
      "inputs": {
       "value": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -1417,7 +1417,7 @@
     "plan": {
      "inputs": {
       "values": {
-       "kind": "gather",
+       "type": "gather",
        "receive_mode": "collected",
        "source_reads": [
         {
@@ -1428,7 +1428,7 @@
          "rows_of": "docs.result",
          "grouped_under": "docs.result",
          "depth": 1,
-         "kind": "rows_under"
+         "type": "rows_under"
         },
         {
          "receive_mode": "all_rows_under_row",
@@ -1438,7 +1438,7 @@
          "rows_of": "docs.result",
          "grouped_under": "docs.result",
          "depth": 1,
-         "kind": "rows_under"
+         "type": "rows_under"
         }
        ]
       }
@@ -1490,7 +1490,7 @@
      "inputs": {
       "text": {
        "depth": 0,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "same_value_every_row",
        "rows_of": null,
        "sources": [
@@ -1541,7 +1541,7 @@
      "inputs": {
       "value": {
        "depth": 0,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "same_value_every_row",
        "rows_of": null,
        "sources": [
@@ -1549,7 +1549,7 @@
        ]
       },
       "when": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -1580,7 +1580,7 @@
      "inputs": {
       "value": {
        "depth": 0,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "same_value_every_row",
        "rows_of": null,
        "sources": [
@@ -1619,7 +1619,7 @@
     "plan": {
      "inputs": {
       "values": {
-       "kind": "gather",
+       "type": "gather",
        "receive_mode": "collected",
        "source_reads": [
         {
@@ -1629,7 +1629,7 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "kind": "cell"
+         "type": "cell"
         },
         {
          "receive_mode": "same_value_every_row",
@@ -1638,7 +1638,7 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "kind": "cell"
+         "type": "cell"
         }
        ]
       }
@@ -1671,7 +1671,7 @@
      "inputs": {
       "text": {
        "depth": 0,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "same_value_every_row",
        "rows_of": null,
        "sources": [
@@ -1703,7 +1703,7 @@
     "plan": {
      "inputs": {
       "value": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -1748,7 +1748,7 @@
      "inputs": {
       "value": {
        "depth": 0,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "same_value_every_row",
        "rows_of": null,
        "sources": [
@@ -1756,7 +1756,7 @@
        ]
       },
       "when": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -1798,7 +1798,7 @@
      "inputs": {
       "text": {
        "depth": 0,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "same_value_every_row",
        "rows_of": null,
        "sources": [
@@ -1830,7 +1830,7 @@
     "plan": {
      "inputs": {
       "texts": {
-       "kind": "gather",
+       "type": "gather",
        "receive_mode": "collected",
        "source_reads": [
         {
@@ -1840,7 +1840,7 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "kind": "cell"
+         "type": "cell"
         }
        ]
       }
@@ -1870,7 +1870,7 @@
      "inputs": {
       "text": {
        "depth": 0,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "same_value_every_row",
        "rows_of": null,
        "sources": [
@@ -1902,7 +1902,7 @@
     "plan": {
      "inputs": {
       "value": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -1941,7 +1941,7 @@
      "inputs": {
       "text": {
        "depth": 0,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "same_value_every_row",
        "rows_of": null,
        "sources": [
@@ -1974,7 +1974,7 @@
      "inputs": {
       "text": {
        "depth": 0,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "same_value_every_row",
        "rows_of": null,
        "sources": [
@@ -2007,7 +2007,7 @@
      "inputs": {
       "text": {
        "depth": 0,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "same_value_every_row",
        "rows_of": null,
        "sources": [
@@ -2039,7 +2039,7 @@
     "plan": {
      "inputs": {
       "value": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -2077,7 +2077,7 @@
     "plan": {
      "inputs": {
       "folder": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -2108,7 +2108,7 @@
      "inputs": {
       "value": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -2142,7 +2142,7 @@
       "texts": {
        "depth": 1,
        "grouped_under": "docs.result",
-       "kind": "rows_under",
+       "type": "rows_under",
        "receive_mode": "all_rows_under_row",
        "rows_of": "e0/lines.result",
        "sources": [
@@ -2175,7 +2175,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -2210,7 +2210,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -2243,7 +2243,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -2276,7 +2276,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -2309,7 +2309,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -2342,7 +2342,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -2375,7 +2375,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -2408,7 +2408,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -2441,7 +2441,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -2474,7 +2474,7 @@
      "inputs": {
       "text": {
        "depth": 2,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "e0/lines.result",
        "sources": [
@@ -2507,7 +2507,7 @@
      "inputs": {
       "value": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -2541,7 +2541,7 @@
       "texts": {
        "depth": 1,
        "grouped_under": "docs.result",
-       "kind": "rows_under",
+       "type": "rows_under",
        "receive_mode": "all_rows_under_row",
        "rows_of": "e1/lines.result",
        "sources": [
@@ -2574,7 +2574,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -2609,7 +2609,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -2642,7 +2642,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -2675,7 +2675,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -2708,7 +2708,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -2741,7 +2741,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -2774,7 +2774,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -2807,7 +2807,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -2840,7 +2840,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -2873,7 +2873,7 @@
      "inputs": {
       "text": {
        "depth": 2,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "e1/lines.result",
        "sources": [
@@ -2906,7 +2906,7 @@
      "inputs": {
       "value": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -2940,7 +2940,7 @@
       "texts": {
        "depth": 1,
        "grouped_under": "docs.result",
-       "kind": "rows_under",
+       "type": "rows_under",
        "receive_mode": "all_rows_under_row",
        "rows_of": "e2/lines.result",
        "sources": [
@@ -2973,7 +2973,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -3008,7 +3008,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -3041,7 +3041,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -3074,7 +3074,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -3107,7 +3107,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -3140,7 +3140,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -3173,7 +3173,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -3206,7 +3206,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -3239,7 +3239,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -3272,7 +3272,7 @@
      "inputs": {
       "text": {
        "depth": 2,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "e2/lines.result",
        "sources": [
@@ -3347,7 +3347,7 @@
     "plan": {
      "inputs": {
       "folder": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -3378,7 +3378,7 @@
      "inputs": {
       "value": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -3410,7 +3410,7 @@
     "plan": {
      "inputs": {
       "texts": {
-       "kind": "gather",
+       "type": "gather",
        "receive_mode": "collected",
        "source_reads": [
         {
@@ -3421,7 +3421,7 @@
          "rows_of": "docs.result",
          "grouped_under": "docs.result",
          "depth": 1,
-         "kind": "rows_under"
+         "type": "rows_under"
         }
        ]
       }
@@ -3451,7 +3451,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -3493,7 +3493,7 @@
     "plan": {
      "inputs": {
       "folder": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -3524,7 +3524,7 @@
      "inputs": {
       "value": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -3556,7 +3556,7 @@
     "plan": {
      "inputs": {
       "texts": {
-       "kind": "gather",
+       "type": "gather",
        "receive_mode": "collected",
        "source_reads": [
         {
@@ -3567,7 +3567,7 @@
          "rows_of": "docs.result",
          "grouped_under": "docs.result",
          "depth": 1,
-         "kind": "rows_under"
+         "type": "rows_under"
         },
         {
          "receive_mode": "all_rows_under_row",
@@ -3577,7 +3577,7 @@
          "rows_of": "docs.result",
          "grouped_under": "docs.result",
          "depth": 1,
-         "kind": "rows_under"
+         "type": "rows_under"
         }
        ]
       }
@@ -3607,7 +3607,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -3650,7 +3650,7 @@
      "inputs": {
       "text": {
        "depth": 0,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "same_value_every_row",
        "rows_of": null,
        "sources": [
@@ -3682,7 +3682,7 @@
     "plan": {
      "inputs": {
       "texts": {
-       "kind": "gather",
+       "type": "gather",
        "receive_mode": "collected",
        "source_reads": [
         {
@@ -3692,7 +3692,7 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "kind": "cell"
+         "type": "cell"
         },
         {
          "receive_mode": "same_value_every_row",
@@ -3701,7 +3701,7 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "kind": "cell"
+         "type": "cell"
         }
        ]
       }
@@ -3730,7 +3730,7 @@
     "plan": {
      "inputs": {
       "value": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -3758,7 +3758,7 @@
     "plan": {
      "inputs": {
       "value": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -3796,7 +3796,7 @@
     "plan": {
      "inputs": {
       "texts": {
-       "kind": "gather",
+       "type": "gather",
        "receive_mode": "collected",
        "source_reads": [
         {
@@ -3806,7 +3806,7 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "kind": "cell"
+         "type": "cell"
         }
        ]
       }
@@ -3836,7 +3836,7 @@
      "inputs": {
       "value": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "emb/holder.value",
        "sources": [
@@ -3870,7 +3870,7 @@
       "texts": {
        "depth": 0,
        "grouped_under": null,
-       "kind": "rows_under",
+       "type": "rows_under",
        "receive_mode": "entire_value",
        "rows_of": null,
        "sources": [
@@ -3903,7 +3903,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "emb/holder.value",
        "sources": [
@@ -3945,7 +3945,7 @@
     "plan": {
      "inputs": {
       "folder": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -3976,7 +3976,7 @@
      "inputs": {
       "value": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -4009,7 +4009,7 @@
      "inputs": {
       "value": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -4043,7 +4043,7 @@
       "texts": {
        "depth": 1,
        "grouped_under": "docs.result",
-       "kind": "rows_under",
+       "type": "rows_under",
        "receive_mode": "all_rows_under_row",
        "rows_of": "top/inner/lines.result",
        "sources": [
@@ -4076,7 +4076,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -4111,7 +4111,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -4144,7 +4144,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -4177,7 +4177,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -4210,7 +4210,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -4243,7 +4243,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -4276,7 +4276,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -4309,7 +4309,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -4342,7 +4342,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -4375,7 +4375,7 @@
      "inputs": {
       "text": {
        "depth": 2,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "top/inner/lines.result",
        "sources": [
@@ -4409,7 +4409,7 @@
       "texts": {
        "depth": 1,
        "grouped_under": "docs.result",
-       "kind": "rows_under",
+       "type": "rows_under",
        "receive_mode": "all_rows_under_row",
        "rows_of": "top/lines.result",
        "sources": [
@@ -4442,7 +4442,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -4477,7 +4477,7 @@
      "inputs": {
       "text": {
        "depth": 2,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "top/lines.result",
        "sources": [
@@ -4532,7 +4532,7 @@
     "plan": {
      "inputs": {
       "folder": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -4563,7 +4563,7 @@
      "inputs": {
       "value": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -4596,7 +4596,7 @@
      "inputs": {
       "value": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -4629,7 +4629,7 @@
      "inputs": {
       "value": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -4662,7 +4662,7 @@
      "inputs": {
       "value": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -4696,7 +4696,7 @@
       "texts": {
        "depth": 1,
        "grouped_under": "docs.result",
-       "kind": "rows_under",
+       "type": "rows_under",
        "receive_mode": "all_rows_under_row",
        "rows_of": "top/inner/inner/inner/lines.result",
        "sources": [
@@ -4729,7 +4729,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -4764,7 +4764,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -4797,7 +4797,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -4830,7 +4830,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -4863,7 +4863,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -4896,7 +4896,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -4929,7 +4929,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -4962,7 +4962,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -4995,7 +4995,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -5028,7 +5028,7 @@
      "inputs": {
       "text": {
        "depth": 2,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "top/inner/inner/inner/lines.result",
        "sources": [
@@ -5062,7 +5062,7 @@
       "texts": {
        "depth": 1,
        "grouped_under": "docs.result",
-       "kind": "rows_under",
+       "type": "rows_under",
        "receive_mode": "all_rows_under_row",
        "rows_of": "top/inner/inner/lines.result",
        "sources": [
@@ -5095,7 +5095,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -5130,7 +5130,7 @@
      "inputs": {
       "text": {
        "depth": 2,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "top/inner/inner/lines.result",
        "sources": [
@@ -5164,7 +5164,7 @@
       "texts": {
        "depth": 1,
        "grouped_under": "docs.result",
-       "kind": "rows_under",
+       "type": "rows_under",
        "receive_mode": "all_rows_under_row",
        "rows_of": "top/inner/lines.result",
        "sources": [
@@ -5197,7 +5197,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -5232,7 +5232,7 @@
      "inputs": {
       "text": {
        "depth": 2,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "top/inner/lines.result",
        "sources": [
@@ -5266,7 +5266,7 @@
       "texts": {
        "depth": 1,
        "grouped_under": "docs.result",
-       "kind": "rows_under",
+       "type": "rows_under",
        "receive_mode": "all_rows_under_row",
        "rows_of": "top/lines.result",
        "sources": [
@@ -5299,7 +5299,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -5334,7 +5334,7 @@
      "inputs": {
       "text": {
        "depth": 2,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "top/lines.result",
        "sources": [
@@ -5399,7 +5399,7 @@
       "texts": {
        "depth": 0,
        "grouped_under": null,
-       "kind": "rows_under",
+       "type": "rows_under",
        "receive_mode": "entire_value",
        "rows_of": null,
        "sources": [
@@ -5431,7 +5431,7 @@
     "plan": {
      "inputs": {
       "folder": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -5462,7 +5462,7 @@
      "inputs": {
       "value": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -5496,7 +5496,7 @@
       "texts": {
        "depth": 1,
        "grouped_under": "docs.result",
-       "kind": "rows_under",
+       "type": "rows_under",
        "receive_mode": "all_rows_under_row",
        "rows_of": "top/lines.result",
        "sources": [
@@ -5529,7 +5529,7 @@
      "inputs": {
       "value": {
        "depth": 2,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "top/lines.result",
        "sources": [
@@ -5563,7 +5563,7 @@
       "texts": {
        "depth": 2,
        "grouped_under": "top/lines.result",
-       "kind": "rows_under",
+       "type": "rows_under",
        "receive_mode": "all_rows_under_row",
        "rows_of": "top/leafy/lines.result",
        "sources": [
@@ -5596,7 +5596,7 @@
      "inputs": {
       "text": {
        "depth": 2,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "top/lines.result",
        "sources": [
@@ -5631,7 +5631,7 @@
      "inputs": {
       "text": {
        "depth": 2,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "top/lines.result",
        "sources": [
@@ -5664,7 +5664,7 @@
      "inputs": {
       "text": {
        "depth": 2,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "top/lines.result",
        "sources": [
@@ -5697,7 +5697,7 @@
      "inputs": {
       "text": {
        "depth": 2,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "top/lines.result",
        "sources": [
@@ -5730,7 +5730,7 @@
      "inputs": {
       "text": {
        "depth": 3,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "top/leafy/lines.result",
        "sources": [
@@ -5763,7 +5763,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -5817,7 +5817,7 @@
       "texts": {
        "depth": 1,
        "grouped_under": "docs.result",
-       "kind": "rows_under",
+       "type": "rows_under",
        "receive_mode": "all_rows_under_row",
        "rows_of": "emb/lines.result",
        "sources": [
@@ -5849,7 +5849,7 @@
     "plan": {
      "inputs": {
       "folder": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -5880,7 +5880,7 @@
      "inputs": {
       "value": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -5913,7 +5913,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -5948,7 +5948,7 @@
      "inputs": {
       "text": {
        "depth": 2,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "emb/lines.result",
        "sources": [
@@ -5993,7 +5993,7 @@
       "texts": {
        "depth": 0,
        "grouped_under": null,
-       "kind": "rows_under",
+       "type": "rows_under",
        "receive_mode": "entire_value",
        "rows_of": null,
        "sources": [
@@ -6025,7 +6025,7 @@
     "plan": {
      "inputs": {
       "folder": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -6056,7 +6056,7 @@
      "inputs": {
       "value": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -6088,7 +6088,7 @@
     "plan": {
      "inputs": {
       "texts": {
-       "kind": "gather",
+       "type": "gather",
        "receive_mode": "collected",
        "source_reads": [
         {
@@ -6099,7 +6099,7 @@
          "rows_of": "docs.result",
          "grouped_under": "docs.result",
          "depth": 1,
-         "kind": "rows_under"
+         "type": "rows_under"
         }
        ]
       }
@@ -6129,7 +6129,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -6173,7 +6173,7 @@
      "inputs": {
       "text": {
        "depth": 0,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "same_value_every_row",
        "rows_of": null,
        "sources": [
@@ -6205,7 +6205,7 @@
     "plan": {
      "inputs": {
       "text": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -6234,7 +6234,7 @@
      "inputs": {
       "text": {
        "depth": 0,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "same_value_every_row",
        "rows_of": null,
        "sources": [
@@ -6275,7 +6275,7 @@
     "plan": {
      "inputs": {
       "folder": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -6305,7 +6305,7 @@
     "plan": {
      "inputs": {
       "texts": {
-       "kind": "gather",
+       "type": "gather",
        "receive_mode": "collected",
        "source_reads": [
         {
@@ -6316,7 +6316,7 @@
          "rows_of": "docs.result",
          "grouped_under": "docs.result",
          "depth": 1,
-         "kind": "rows_under"
+         "type": "rows_under"
         }
        ]
       }
@@ -6346,7 +6346,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -6379,7 +6379,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -6421,7 +6421,7 @@
     "plan": {
      "inputs": {
       "folder": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -6452,7 +6452,7 @@
      "inputs": {
       "value": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -6486,7 +6486,7 @@
       "texts": {
        "depth": 1,
        "grouped_under": "docs.result",
-       "kind": "rows_under",
+       "type": "rows_under",
        "receive_mode": "all_rows_under_row",
        "rows_of": "emb/lines.result",
        "sources": [
@@ -6519,7 +6519,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -6565,7 +6565,7 @@
       "texts": {
        "depth": 1,
        "grouped_under": "docs.result",
-       "kind": "rows_under",
+       "type": "rows_under",
        "receive_mode": "all_rows_under_row",
        "rows_of": "emb/lines.result",
        "sources": [
@@ -6597,7 +6597,7 @@
     "plan": {
      "inputs": {
       "folder": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -6628,7 +6628,7 @@
      "inputs": {
       "value": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -6661,7 +6661,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -6705,7 +6705,7 @@
     "plan": {
      "inputs": {
       "folder": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -6736,7 +6736,7 @@
      "inputs": {
       "value": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -6768,7 +6768,7 @@
     "plan": {
      "inputs": {
       "value": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -6798,7 +6798,7 @@
       "texts": {
        "depth": 1,
        "grouped_under": "docs.result",
-       "kind": "rows_under",
+       "type": "rows_under",
        "receive_mode": "all_rows_under_row",
        "rows_of": "emb/lines.result",
        "sources": [
@@ -6831,7 +6831,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -6878,7 +6878,7 @@
       "texts": {
        "depth": 1,
        "grouped_under": "emb/docs.result",
-       "kind": "rows_under",
+       "type": "rows_under",
        "receive_mode": "all_rows_under_row",
        "rows_of": "emb/lines.result",
        "sources": [
@@ -6910,7 +6910,7 @@
     "plan": {
      "inputs": {
       "folder": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -6941,7 +6941,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "emb/docs.result",
        "sources": [
@@ -6984,7 +6984,7 @@
     "plan": {
      "inputs": {
       "value": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -7012,7 +7012,7 @@
     "plan": {
      "inputs": {
       "texts": {
-       "kind": "gather",
+       "type": "gather",
        "receive_mode": "collected",
        "source_reads": [
         {
@@ -7022,7 +7022,7 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "kind": "cell"
+         "type": "cell"
         }
        ]
       }
@@ -7052,7 +7052,7 @@
      "inputs": {
       "text": {
        "depth": 0,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "same_value_every_row",
        "rows_of": null,
        "sources": [
@@ -7094,7 +7094,7 @@
      "inputs": {
       "value": {
        "depth": 0,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "same_value_every_row",
        "rows_of": null,
        "sources": [
@@ -7126,7 +7126,7 @@
     "plan": {
      "inputs": {
       "texts": {
-       "kind": "gather",
+       "type": "gather",
        "receive_mode": "collected",
        "source_reads": [
         {
@@ -7136,7 +7136,7 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "kind": "cell"
+         "type": "cell"
         }
        ]
       }
@@ -7166,7 +7166,7 @@
      "inputs": {
       "text": {
        "depth": 0,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "same_value_every_row",
        "rows_of": null,
        "sources": [
@@ -7198,7 +7198,7 @@
     "plan": {
      "inputs": {
       "value": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -7236,7 +7236,7 @@
     "plan": {
      "inputs": {
       "folder": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -7268,7 +7268,7 @@
       "texts": {
        "depth": 0,
        "grouped_under": null,
-       "kind": "rows_under",
+       "type": "rows_under",
        "receive_mode": "entire_value",
        "rows_of": null,
        "sources": [
@@ -7308,7 +7308,7 @@
     "plan": {
      "inputs": {
       "folder": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -7339,7 +7339,7 @@
      "inputs": {
       "value": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -7372,7 +7372,7 @@
      "inputs": {
       "value": {
        "depth": 2,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "lines.result",
        "sources": [
@@ -7405,7 +7405,7 @@
      "inputs": {
       "text": {
        "depth": 2,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "lines.result",
        "sources": [
@@ -7438,7 +7438,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -7483,7 +7483,7 @@
     "plan": {
      "inputs": {
       "folder": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -7514,7 +7514,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -7548,7 +7548,7 @@
       "texts": {
        "depth": 1,
        "grouped_under": "docs.result",
-       "kind": "rows_under",
+       "type": "rows_under",
        "receive_mode": "all_rows_under_row",
        "rows_of": "emb/t.b",
        "sources": [
@@ -7586,7 +7586,7 @@
      "inputs": {
       "a": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -7595,7 +7595,7 @@
       },
       "b": {
        "depth": 2,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "emb/t.b",
        "sources": [
@@ -7639,7 +7639,7 @@
       "texts": {
        "depth": 1,
        "grouped_under": "docs.result",
-       "kind": "rows_under",
+       "type": "rows_under",
        "receive_mode": "all_rows_under_row",
        "rows_of": "emb/lines.result",
        "sources": [
@@ -7671,7 +7671,7 @@
     "plan": {
      "inputs": {
       "folder": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -7702,7 +7702,7 @@
      "inputs": {
       "value": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -7734,7 +7734,7 @@
     "plan": {
      "inputs": {
       "value": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -7763,7 +7763,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -7803,7 +7803,7 @@
      "inputs": {
       "a": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -7812,7 +7812,7 @@
       },
       "b": {
        "depth": 2,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "emb/lines.result",
        "sources": [
@@ -7845,7 +7845,7 @@
      "inputs": {
       "text": {
        "depth": 1,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "value_at_row",
        "rows_of": "docs.result",
        "sources": [
@@ -7891,7 +7891,7 @@
      "inputs": {
       "text": {
        "depth": 0,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "same_value_every_row",
        "rows_of": null,
        "sources": [
@@ -7923,7 +7923,7 @@
     "plan": {
      "inputs": {
       "value": {
-       "kind": "fixed",
+       "type": "fixed",
        "receive_mode": "same_value_every_row"
       }
      },
@@ -7951,7 +7951,7 @@
     "plan": {
      "inputs": {
       "texts": {
-       "kind": "gather",
+       "type": "gather",
        "receive_mode": "collected",
        "source_reads": [
         {
@@ -7961,7 +7961,7 @@
          ],
          "rows_of": null,
          "depth": 0,
-         "kind": "cell"
+         "type": "cell"
         }
        ]
       }
@@ -7991,7 +7991,7 @@
      "inputs": {
       "text": {
        "depth": 0,
-       "kind": "cell",
+       "type": "cell",
        "receive_mode": "same_value_every_row",
        "rows_of": null,
        "sources": [

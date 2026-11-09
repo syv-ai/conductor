@@ -59,7 +59,7 @@ def test_a_param_with_a_widget_describes_with_one_title():
     assert (a.title, a.description, a.connectable) == ("A", "The first", True)
     assert a.widget == NumberWidget(step=2.0)
     assert dumped["title"] == "A"
-    assert dumped["widget"] == {"kind": "number", "step": 2.0, "integer_only": False}
+    assert dumped["widget"] == {"type": "number", "step": 2.0, "integer_only": False}
     assert "title" not in dumped["widget"]
 
 

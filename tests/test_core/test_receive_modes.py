@@ -150,7 +150,7 @@ def test_a_merge_reads_each_source_as_its_own_record():
     mode = compiled.field("h.table")._receive_mode
     ledger = _ledger_after(compiled, (("r", ()), {"result": frame}), (("up", (0,)), {"result": "x"}))
 
-    assert isinstance(mode, Merge) and [part.kind for part in mode.source_reads] == ["cell", "rows_under"]
+    assert isinstance(mode, Merge) and [part.type for part in mode.source_reads] == ["cell", "rows_under"]
     assert ledger.read_input(mode, ("h", ())).columns == ["__row", "a", "result"]
 
 
@@ -178,7 +178,7 @@ def test_a_run_plan_written_out_reads_back_equal():
     plan = compiled.run_plan
 
     assert RunPlan.model_validate_json(plan.model_dump_json()) == plan
-    assert TypeAdapter(ReceiveMode).validate_python({"kind": "fixed", "receive_mode": "entire_value"}).value is None
+    assert TypeAdapter(ReceiveMode).validate_python({"type": "fixed", "receive_mode": "entire_value"}).value is None
 
 
 def test_a_table_wired_in_alone_passes_through_as_the_same_frame():
@@ -205,7 +205,7 @@ def test_the_value_a_fixed_value_holds_is_not_written_in_the_run_plan():
     compiled = _compiled(_gn("h", "hold", table=Static(frame)))
 
     written = compiled.run_plan.model_dump(mode="json")["nodes"]["h"]["inputs"]["table"]
-    assert written == {"kind": "fixed", "receive_mode": "same_value_every_row"}
+    assert written == {"type": "fixed", "receive_mode": "same_value_every_row"}
     assert compiled.node("h").fingerprint is not None
 
 

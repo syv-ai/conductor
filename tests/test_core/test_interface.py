@@ -298,7 +298,7 @@ def test_the_input_record_dumps_as_the_wire():
         "widget", "connectable", "bounds", "default", "required", "takes_blank", "many",
     }
     assert data["dtype"] == {"id": "interface-test-text"}
-    assert data["widget"]["kind"] == "dropdown"
+    assert data["widget"]["type"] == "dropdown"
     assert data["widget"]["choices"] == [{"id": "da", "title": "Danish"}, {"id": "en", "title": "English"}]
 
 
@@ -363,11 +363,11 @@ def test_a_widget_is_frozen_and_keyword_only():
         Textarea(6)
 
 
-def test_a_widget_names_its_kind_once():
-    """`kind` is the discriminator. There is no WidgetType enum and no
+def test_a_widget_names_its_type_once():
+    """`type` is the discriminator. There is no WidgetType enum and no
     widget_type property saying the same thing a second time."""
-    assert Textarea().kind == "textarea"
-    assert Dropdown().kind == "dropdown"
+    assert Textarea().type == "textarea"
+    assert Dropdown().type == "dropdown"
     assert not hasattr(Widget, "widget_type")
     assert not hasattr(Widget, "to_schema")
 
@@ -375,7 +375,7 @@ def test_a_widget_names_its_kind_once():
 def test_a_widget_dumps_its_own_config_and_nothing_the_field_owns():
     data = Dropdown(choices=(Choice(id="da", title="Danish"),)).model_dump(mode="json")
 
-    assert data == {"kind": "dropdown", "choices": [{"id": "da", "title": "Danish"}]}
+    assert data == {"type": "dropdown", "choices": [{"id": "da", "title": "Danish"}]}
 
 
 def test_a_widget_takes_a_cable_by_default():
@@ -423,7 +423,7 @@ def test_a_list_widget_declares_no_per_item_control():
     """The element type is the input's dtype, and the host derives the
     per-item control from it — a control inside a control would be the
     same answer declared twice."""
-    assert ListWidget().model_dump(mode="json") == {"kind": "list"}
+    assert ListWidget().model_dump(mode="json") == {"type": "list"}
     assert "item_widget" not in ListWidget.model_fields
 
 
@@ -431,14 +431,14 @@ def test_a_host_declares_a_control_of_its_own_and_an_input_dumps_all_of_it():
     """Compile and the engine never read a widget, so the set is the host's to extend."""
 
     class EntityDropdown(Widget):
-        kind: Literal["entity-dropdown"] = "entity-dropdown"
+        type: Literal["entity-dropdown"] = "entity-dropdown"
         entity_kind: str = ""
 
     def pick(document: Annotated[Text, Param(widget=EntityDropdown(entity_kind="document"))]) -> Annotated[Text, Result(title="R")]:
         return document
 
     (input_,) = read_signature(pick).interface.inputs
-    assert input_.model_dump(mode="json")["widget"] == {"kind": "entity-dropdown", "entity_kind": "document"}
+    assert input_.model_dump(mode="json")["widget"] == {"type": "entity-dropdown", "entity_kind": "document"}
 
 
 def test_an_untitled_field_reads_as_its_name_in_everyday_words():

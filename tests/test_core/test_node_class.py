@@ -286,7 +286,7 @@ def test_describe_dumps_as_the_palette_payload():
     assert data["id"] == "describe-echo"
     assert data["category"] == "test"
     assert data["versions"]["1"]["interface"]["inputs"][0]["widget"] == {
-        "kind": "textarea", "rows": 2,
+        "type": "textarea", "rows": 2,
     }
     assert data["versions"]["1"]["interface"]["inputs"][0]["dtype"] == {"id": "node-class-test-txt"}
     assert data["versions"]["1"]["interface"]["outputs"][0]["dtype"] == {"id": "node-class-test-txt"}
