@@ -1,4 +1,4 @@
-"""``CompiledNode``, ``Wiring`` and ``CompiledField``: what compile learned about one node, and about one of its inputs or outputs.
+"""``CompiledNode`` and ``CompiledField``: what compile learned about one node, and about one of its inputs or outputs.
 
 A node compile could not fully work out says so by what it lacks, never by
 raising: ``interface`` is ``None`` when compile doesn't know what fields it
@@ -63,18 +63,6 @@ NodeState = Literal["ready", "wiring_failed", "resolution_failed"]
 
 
 
-@dataclass(frozen=True, eq=False, slots=True)
-class Wiring:
-    """What a node's connections decided. Only a node compile fully worked out has one."""
-
-    #: Every input and output by name, and each column a table output offers
-    #: (``rows.email``). Empty on an embedded graph: its fields are the nodes' inside it.
-    fields: Mapping[str, CompiledField]
-    #: The rows the node runs once per row of, ``None`` when it runs once. The
-    #: engine's own; a host reads ``CompiledGraph.run_plan``.
-    _runs_per_row_of: Index | None = field(repr=False)
-
-
 @dataclass(frozen=True, eq=False, init=False)
 class CompiledNode:
     """What compile worked out about one node in a graph.
@@ -106,23 +94,26 @@ class CompiledNode:
     #: declared type. An input left to its default is absent. Empty when
     #: compile couldn't read them. On a graph: by inner address (``check.amount``).
     statics: Mapping[str, Any] = field(repr=False)
-    #: What its connections decided; ``None`` when compile couldn't work them out.
-    _wiring: Wiring | None = field(repr=False)
+    #: Every input and output by name, and each column a table output offers (``rows.email``);
+    #: ``None`` when compile couldn't work out its connections. Empty on an embedded graph: its fields are the nodes' inside it.
+    _fields: Mapping[str, CompiledField] | None = field(repr=False)
+    #: The rows the node runs once per row of, ``None`` when it runs once or isn't ready. A host reads ``CompiledGraph.run_plan``.
+    _runs_per_row_of: Index | None = field(repr=False)
 
     def __init__(
         self, id: str, graph_node: GraphNode, embedded_in: str | None, problems: tuple[Problem, ...], cause: Problem | None,
         definition: NodeDefinition[..., Any] | None, version: NodeVersion | None, interface: Interface | None,
-        statics: Mapping[str, Any], wiring: Wiring | None,
+        statics: Mapping[str, Any], fields: Mapping[str, CompiledField] | None, runs_per_row_of: Index | None,
     ) -> None:
         self.__dict__.update(
             id=id, graph_node=graph_node, embedded_in=embedded_in, problems=problems, cause=cause, definition=definition,
-            version=version, interface=interface, statics=statics, _wiring=wiring,
+            version=version, interface=interface, statics=statics, _fields=fields, _runs_per_row_of=runs_per_row_of,
         )
 
     @property
     def state(self) -> NodeState:
         """How far compile got with this node (``NodeState``)."""
-        if self._wiring is not None:
+        if self._fields is not None:
             return "ready"
         return "wiring_failed" if self.interface is not None else "resolution_failed"
 
@@ -149,7 +140,7 @@ class CompiledNode:
         a version bumped, an edge moved or a signature that moves the node to
         other rows or lets an input take a blank all change it; a title or a
         position does not. ``None`` on a node that doesn't run as one unit."""
-        if self._wiring is None or self.embedded_graph is not None:
+        if self._fields is None or self.embedded_graph is not None:
             return None
         node, interface = self.graph_node, self.interface
         assert interface is not None
@@ -211,7 +202,7 @@ class CompiledNode:
         """The check a call goes through (``build_call_validator``), built on first use.
 
         An input left to a static or a default is not in it: compile read that value once."""
-        fixed = {input_.name for input_ in self._inputs if self._wiring.fields[input_.name]._receive_mode.__class__ is FixedValue}  # type: ignore[union-attr]  # only a ready node is called
+        fixed = {input_.name for input_ in self._inputs if self._fields[input_.name]._receive_mode.__class__ is FixedValue}  # type: ignore[union-attr]  # only a ready node is called
         check = build_call_validator(tuple(input_ for input_ in self._inputs if input_.name not in fixed))
         if not fixed:
             return check

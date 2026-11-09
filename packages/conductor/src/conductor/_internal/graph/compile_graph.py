@@ -56,7 +56,7 @@ def _node_compile_could_not_resolve(node: GraphNode, problem: Problem) -> Compil
     """A node compile can't resolve at all: the id or the wiring around it says why."""
     return CompiledNode(
         id=node.id, graph_node=node, embedded_in=None, problems=(problem,), cause=problem,
-        definition=None, version=None, interface=None, statics={}, wiring=None,
+        definition=None, version=None, interface=None, statics={}, fields=None, runs_per_row_of=None,
     )
 
 
@@ -88,7 +88,7 @@ def compile_graph(graph: Graph, registry: NodeRegistry) -> CompileResult:
     )
     execution_order = tuple(
         node_id for node_id, node in compiled.items()
-        if node.version is not None and (node.embedded_graph is None or node._wiring is None)
+        if node.version is not None and (node.embedded_graph is None or node._fields is None)
     )
     return CompileResult(compiled, execution_order, interface, tuple(progress.problems), frozenset(progress.row_origins.must_survive))
 

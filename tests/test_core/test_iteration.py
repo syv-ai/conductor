@@ -281,7 +281,7 @@ def test_an_unconnected_any_input_is_unbound_required_and_the_node_has_no_shape(
 
     (make_problem,) = compiled.problems
     assert (make_problem.type, make_problem.fatal, make_problem.loc[0], make_problem.loc[1]) == ("unbound_required", True, "r", "value")
-    assert compiled.node("r")._wiring is None
+    assert compiled.node("r")._fields is None
 
 
 def test_a_static_on_an_any_input_is_unbound_too():
@@ -340,7 +340,7 @@ def test_a_node_with_a_broken_edge_has_no_shape_and_says_so_once():
     ])
 
     assert [p.type for p in compiled.problems] == ["unknown_ref_node"]
-    assert compiled.node("b")._wiring is None
+    assert compiled.node("b")._fields is None
     with pytest.raises(KeyError):
         compiled.field(Ref("c", "result")).type
 
@@ -504,7 +504,7 @@ def test_two_series_on_unrelated_indexes_are_a_fatal_problem_naming_both():
     assert (make_problem.type, make_problem.fatal, make_problem.loc) == ("misaligned", True, ("p",))
     assert "p.a" in make_problem.msg and "p.b" in make_problem.msg
     assert make_problem.ctx == {"a": "p.a", "b": "p.b"}
-    assert compiled.node("p")._wiring is None
+    assert compiled.node("p")._fields is None
 
 
 # --- reduction ---------------------------------------------------------------------

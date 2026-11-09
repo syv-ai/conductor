@@ -57,9 +57,9 @@ class RunPlan(ConductorModel):
 
 def plan_of_node(node: CompiledNode) -> NodeRunPlan:
     """The run plan of one ready node."""
-    assert node._wiring is not None and node.interface is not None
-    fields = node._wiring.fields
-    index = node._wiring._runs_per_row_of
+    assert node._fields is not None and node.interface is not None
+    fields = node._fields
+    index = node._runs_per_row_of
     return NodeRunPlan.model_construct(
         node_id=node.id,
         runs_per_row_of=None if index is None else Ref(index.id),

@@ -4,7 +4,7 @@ Find its definition and version; read the statics; ask
 ``compute_added_inputs``; check its bindings; wire each input from the nodes above;
 ask ``compute_outputs``; build its fields. It returns at the first stage that
 can't go on, with what it has, and the node says so by what it lacks
-(``interface``, ``_wiring``). A node a graph stands for then compiles each node
+(``interface``, ``_fields``). A node a graph stands for then compiles each node
 of that graph the same way, under the row it runs on.
 """
 
@@ -25,7 +25,7 @@ from conductor._internal.execution.values_of_run import (
 )
 from conductor._internal.field_records import Input, Output
 from conductor._internal.graph.binding import Binding, From
-from conductor._internal.graph.compiled_node import CompiledField, CompiledNode, Wiring
+from conductor._internal.graph.compiled_node import CompiledField, CompiledNode
 from conductor._internal.graph.decide_rows_and_receive_modes import (
     ReceivedAtTheRow,
     WhatArrivesOnInputs,
@@ -145,19 +145,19 @@ def compile_one_node(node: GraphNode, progress: CompileProgress, registry: NodeR
     problems.extend(series_inputs_that_never_share_a_row(node.id, interface.inputs, {name: read.receive_mode for name, read in received.items()}, progress))
     if is_graph:
         return _place_embedded_graph(node, definition, version, interface, statics, runs_per_row_of, progress, problems)
-    wiring = _wiring_of_function_node(node, interface, received, inputs_read.tables_taken_in, {name: statics[name] for name in inputs_given_a_list}, runs_per_row_of, progress, problems)
-    _record_compiled_node(progress, node, problems, definition, version, interface, statics, wiring)
+    fields = _fields_of_function_node(node, interface, received, inputs_read.tables_taken_in, {name: statics[name] for name in inputs_given_a_list}, runs_per_row_of, progress, problems)
+    _record_compiled_node(progress, node, problems, definition, version, interface, statics, fields, runs_per_row_of)
 
 
 def _record_compiled_node(
     progress: CompileProgress, node: GraphNode, problems: list[Problem], definition: Any = None, version: Any = None,
-    interface: Interface | None = None, statics: dict[str, Any] | None = None, wiring: Wiring | None = None,
+    interface: Interface | None = None, statics: dict[str, Any] | None = None, fields: Mapping[str, CompiledField] | None = None, runs_per_row_of: Index | None = None,
 ) -> None:
     """One finished record, with the cause of a node that isn't wired."""
     progress.compiled[node.id] = CompiledNode(
         id=node.id, graph_node=node, embedded_in=parent_graph_of_node_id(node.id), problems=tuple(problems),
-        cause=None if wiring is not None else _why_node_is_unwired(node, problems, progress),
-        definition=definition, version=version, interface=interface, statics=statics or {}, wiring=wiring,
+        cause=None if fields is not None else _why_node_is_unwired(node, problems, progress),
+        definition=definition, version=version, interface=interface, statics=statics or {}, fields=fields, runs_per_row_of=runs_per_row_of,
     )
     progress.problems.extend(problems)
 
@@ -174,7 +174,7 @@ def _why_node_is_unwired(node: GraphNode, problems: list[Problem], progress: Com
             if ref.node_id in progress.invalid_node_ids:
                 return progress.invalid_node_ids[ref.node_id]
             source = progress.compiled.get(ref.node_id) or _refused_graph_around(ref.node_id, progress)
-            if source is not None and source._wiring is None:
+            if source is not None and source._fields is None:
                 return source.cause
     raise AssertionError(f"compile left {node.id!r} unwired with nothing fatal to say why")
 
@@ -194,7 +194,7 @@ def _with_edges_out_of_embedded_graphs_resolved(node: GraphNode, progress: Compi
     doesn't offer stays as written, and wiring reports it (``unknown_ref_output``)."""
     def resolved(ref: Ref) -> Ref:
         source = progress.compiled.get(ref.node_id)
-        inner_address = None if source is None or source._wiring is None or source.embedded_graph is None else source.embedded_graph._embeddable.outputs.get(ref.field)
+        inner_address = None if source is None or source._fields is None or source.embedded_graph is None else source.embedded_graph._embeddable.outputs.get(ref.field)
         return ref if inner_address is None else place_under(ref.node_id, inner_address)
 
     if not any(isinstance(binding, From) and any(ref.node_id in progress.embedded_graph_node_ids for ref in binding.refs) for binding in node.bindings.values()):
@@ -295,12 +295,12 @@ def _with_types_from_their_edges(inputs: tuple[Input, ...], inputs_read: WhatArr
 def _field_above(progress: CompileProgress, ref: Ref) -> CompiledField | None:
     """The field ``ref`` names on a node compiled so far, if it was worked out."""
     node = progress.compiled.get(ref.node_id)
-    return None if node is None or node._wiring is None else node._wiring.fields.get(ref.field)
+    return None if node is None or node._fields is None else node._fields.get(ref.field)
 
 
-def _wiring_of_function_node(
+def _fields_of_function_node(
     node: GraphNode, interface: Interface, received: Mapping[str, ReceivedAtTheRow], tables_taken_in: tuple[CompiledField, ...], lists_set_on_inputs: Mapping[str, Sequence[Any]], runs_per_row_of: Index | None, progress: CompileProgress, problems: list[Problem],
-) -> Wiring:
+) -> dict[str, CompiledField]:
     """Every field of a node that is a function, built once its row is known."""
     outputs = interface.outputs
     names = {out.name for out in outputs}
@@ -363,7 +363,7 @@ def _wiring_of_function_node(
             _index=index, _receive_mode=None, _held_as=CellsInAList(index) if out.many else OneValue(), _takes_blank=takes_blank,
             _row_origins=progress.row_origins.origins_of_rows_on(index),
         )
-    return Wiring(fields, runs_per_row_of)
+    return fields
 
 
 def _place_embedded_graph(
@@ -383,7 +383,7 @@ def _place_embedded_graph(
         if name in offered and (isinstance(binding, From) or name in statics):
             filled_from_outside.setdefault(offered[name].node_id, {})[offered[name].field] = binding
     problems_before = len(progress.problems)
-    _record_compiled_node(progress, node, problems, definition, version, interface, statics, Wiring({}, runs_per_row_of))  # inner nodes read the row off this record
+    _record_compiled_node(progress, node, problems, definition, version, interface, statics, {}, runs_per_row_of)  # inner nodes read the row off this record
     problems_from_this_node = len(progress.problems)
     placed_after = len(progress.compiled)
     for inner in graph._nodes.values():
@@ -400,7 +400,7 @@ def _place_embedded_graph(
     if brought_in:
         for inner_id in list(progress.compiled)[placed_after:]:
             del progress.compiled[inner_id]
-    _record_compiled_node(progress, node, problems, definition, version, interface, statics, None if brought_in else Wiring({}, runs_per_row_of))
+    _record_compiled_node(progress, node, problems, definition, version, interface, statics, None if brought_in else {}, None if brought_in else runs_per_row_of)
 
 
 def _is_an_offered_input_left_empty(problem: Problem, prefix: str, offered: Mapping[str, Ref]) -> bool:

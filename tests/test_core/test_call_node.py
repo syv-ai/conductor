@@ -173,7 +173,7 @@ def test_a_table_that_lost_its_rows_ids_fails_when_they_must_survive():
     compiled_node = _compiled_node(rebuild)
     held = pl.DataFrame({"name": ["Ida"], "email": ["i@x"], ROW_ID_COLUMN: ["s:0"]})
 
-    outcome = call_node(compiled_node, (), {"contacts": held}, {}, frozenset({compiled_node._wiring.fields["result"].ref}))
+    outcome = call_node(compiled_node, (), {"contacts": held}, {}, frozenset({compiled_node._fields["result"].ref}))
 
     assert _failure(outcome)[0] == "row_ids_lost"
 

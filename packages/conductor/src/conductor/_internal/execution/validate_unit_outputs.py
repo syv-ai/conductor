@@ -37,7 +37,7 @@ def validate_unit_outputs(node: CompiledNode, row: Row, value_by_output: Mapping
     ``row_ids_must_survive`` holds the outputs that had an id to keep: a unit given
     no rows, or a person's answer whose form has no place for one, passes none.
     """
-    assert node.interface is not None and node._wiring is not None  # the engine runs only a runnable graph
+    assert node.interface is not None and node._fields is not None  # the engine runs only a runnable graph
     cells: dict[str, Any] = {}
     problems: list[Problem] = []
     for out in node.interface.outputs:
@@ -49,7 +49,7 @@ def validate_unit_outputs(node: CompiledNode, row: Row, value_by_output: Mapping
         if value is SKIPPED:
             cells[name] = value
             continue
-        field = node._wiring.fields[name]
+        field = node._fields[name]
         try:
             cell = held_form_of_return(field, name, row, value, row_ids_must_survive)
         except ValidationError as invalid:
@@ -63,7 +63,7 @@ def validate_unit_outputs(node: CompiledNode, row: Row, value_by_output: Mapping
             else:
                 cells[name] = cell
     for name in value_by_output:
-        if name not in node._wiring.fields or not node._wiring.fields[name]._is_output:
+        if name not in node._fields or not node._fields[name]._is_output:
             problems.append(output_problem(name, f"'{name}' is not one of this node's outputs"))
     return cells, problems
 

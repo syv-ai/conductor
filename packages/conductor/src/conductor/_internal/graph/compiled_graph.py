@@ -185,7 +185,7 @@ class CompiledGraph:
         compare (``conductor._internal.graph.run_plan``). ``str(compiled.run_plan)`` is
         that as text. A node that isn't ready is absent."""
         return RunPlan.model_construct(nodes={
-            node_id: node._run_plan for node_id in self.execution_order if (node := self._nodes[node_id])._wiring is not None
+            node_id: node._run_plan for node_id in self.execution_order if (node := self._nodes[node_id])._fields is not None
         })
 
     def node(self, node_id: str) -> CompiledNode:
@@ -205,11 +205,11 @@ class CompiledGraph:
         couldn't work out is why."""
         ref = ref if isinstance(ref, Ref) else Ref(ref)
         node = self.node(ref.node_id)
-        if node._wiring is None:
+        if node._fields is None:
             raise KeyError(f"{ref.node_id!r} has no fields compile could work out: {node.cause.msg if node.cause else ''}")
         if node.embedded_graph is not None:
             return self.field(_place_of_offered_field(ref, node.embedded_graph))
-        compiled_field = node._wiring.fields.get(ref.field)
+        compiled_field = node._fields.get(ref.field)
         if compiled_field is None:
             raise KeyError(f"{ref.node_id!r} has no field {ref.field!r} on this node")
         return compiled_field
@@ -291,7 +291,7 @@ class CompiledGraph:
         groups_by_node: dict[str, dict[str, tuple[str, ...]]] = {}
         for node_id in self.execution_order:
             node = self._nodes[node_id]
-            if node._wiring is None or node._wiring._runs_per_row_of is not None:
+            if node._fields is None or node._runs_per_row_of is not None:
                 continue
             groups: dict[str, list[str]] = {}
             for out in node.interface.outputs:
@@ -502,7 +502,7 @@ class CompiledGraph:
                 frontier.append(node_id)
 
         while frontier:
-            for compiled_field in self._nodes[frontier.pop()]._wiring.fields.values():
+            for compiled_field in self._nodes[frontier.pop()]._fields.values():
                 for reader in lookups.read_by[compiled_field.ref]:
                     add(reader.node_id)
                 rows_made = compiled_field._held_as.rows_made

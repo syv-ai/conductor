@@ -349,7 +349,7 @@ def test_two_unrelated_series_entering_one_placement_are_its_misaligned():
     graph_node = compiled.node("emb")
     assert graph_node.state == "wiring_failed"
     assert graph_node.problems == compiled.problems
-    assert graph_node._wiring is None
+    assert graph_node._fields is None
     raised = graph_node.cause
     assert raised == misaligned
     assert "emb" not in compiled.decisions
@@ -395,7 +395,7 @@ def test_a_broken_graph_inside_a_graph_breaks_the_graph_around_it():
     for graph_node in (top, top.embedded_graph.node("mid")):
         assert (graph_node.state, graph_node.embedded_graph is not None) == ("wiring_failed", True)
         assert graph_node.interface is not None  # the box and its handles still draw
-        assert graph_node._wiring is None
+        assert graph_node._fields is None
         raised = graph_node.cause
         assert raised.type == "embedded_graph_broken"
 

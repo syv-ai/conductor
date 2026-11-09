@@ -539,8 +539,8 @@ class RunLedger:
         """
         node_id, row = unit
         node = self._compiled.node(node_id)
-        assert node._wiring is not None  # the engine runs only a runnable graph
-        fields = node._wiring.fields
+        assert node._fields is not None  # the engine runs only a runnable graph
+        fields = node._fields
         write = self._values.write
         rows_made: list[tuple[str, Row, int]] = []
         skip_row = outputs.row if isinstance(outputs, SkippedAtRow) else None

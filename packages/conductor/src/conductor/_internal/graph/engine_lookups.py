@@ -85,16 +85,15 @@ def build_engine_lookups(nodes: Iterable[CompiledNode]) -> EngineLookups:
         lists_on_nodes_under_index.setdefault(index_id, [])
 
     for node in nodes:
-        wiring = node._wiring
-        if wiring is None or node.embedded_graph is not None or node.interface is None:
+        if node._fields is None or node.embedded_graph is not None or node.interface is None:
             continue
         node_receive_modes = receive_modes_of_node.setdefault(node.id, [])
         node_reads = read_at_depth.setdefault(node.id, [])
-        runs_per_row_of[node.id] = wiring._runs_per_row_of
+        runs_per_row_of[node.id] = node._runs_per_row_of
         interfaces[node.id] = node.interface
-        if (index := wiring._runs_per_row_of) is not None:
+        if (index := node._runs_per_row_of) is not None:
             nodes_running_per_row_of_index.setdefault(index.id, []).append(node.id)
-        for field in wiring.fields.values():
+        for field in node._fields.values():
             ref = field.ref
             fields[ref] = field
             read_by.setdefault(ref, [])

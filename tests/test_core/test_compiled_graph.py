@@ -208,10 +208,10 @@ def test_reading_what_a_state_lacks_names_the_problem():
     """A gated read raises a named error carrying the problem that explains it: the node's own, or the one upstream."""
     compiled = _half_finished()
 
-    assert compiled.node("b")._wiring is None
+    assert compiled.node("b")._fields is None
     own = compiled.node("b").cause
     assert own.type == "unknown_ref_node" and own.loc[0] == "b"
-    assert compiled.node("c")._wiring is None
+    assert compiled.node("c")._fields is None
     upstream = compiled.node("c").cause
     assert upstream is own
     with pytest.raises(KeyError):
@@ -236,7 +236,7 @@ def test_a_node_downstream_of_a_cycle_carries_the_cycle():
 
     assert (compiled.node("a").state, compiled.node("b").state) == ("resolution_failed", "resolution_failed")
     assert compiled.node("c").state == "wiring_failed"
-    assert compiled.node("c")._wiring is None
+    assert compiled.node("c")._fields is None
     raised = compiled.node("c").cause
     assert raised.type == "cycle"
 
